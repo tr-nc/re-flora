@@ -90,12 +90,50 @@ pub(super) fn freeze_render_frame_inputs(
             grass_tip_light: color_to_vec3(gui.grass_tip_light_color.value),
         },
         motion: FloraMotionFrameInput {
+            leaf_flutter_frequency: [
+                gui.leaf_flutter_frequency_low_hz.value,
+                gui.leaf_flutter_frequency_high_hz.value,
+                gui.leaf_flutter_frequency_ceiling_hz.value / 24.,
+                0.,
+            ],
+            grass_amplitude: [
+                gui.grass_sway_amplitude_low.value * gui.grass_sway_amplitude_scale.value,
+                gui.grass_sway_amplitude_high.value * gui.grass_sway_amplitude_scale.value,
+                gui.grass_sway_amplitude_start.value,
+                gui.grass_sway_amplitude_full.value,
+            ],
+            grass_frequency: [
+                gui.grass_sway_frequency_low.value * gui.grass_sway_frequency_scale.value,
+                gui.grass_sway_frequency_high.value * gui.grass_sway_frequency_scale.value,
+                gui.grass_sway_frequency_start.value,
+                gui.grass_sway_frequency_full.value,
+            ],
+            grass_curve: [
+                gui.grass_sway_amplitude_knee.value,
+                gui.grass_sway_frequency_knee.value,
+                0.,
+                0.,
+            ],
+            leaf_flutter_frequency_curve: [
+                gui.leaf_flutter_frequency_start.value,
+                gui.leaf_flutter_frequency_full.value,
+                gui.leaf_flutter_frequency_knee.value,
+                0.,
+            ],
+            leaf_flutter_curve: [
+                gui.leaf_flutter_wind_start.value,
+                gui.leaf_flutter_wind_full.value,
+                gui.leaf_flutter_wind_knee.value,
+                gui.leaf_flutter_amplitude_low.value * 2.,
+            ],
+            leaf_global_offset_scale: gui.leaf_global_offset_scale.value,
+            leaf_local_displacement_voxels: gui.leaf_local_displacement_voxels.value,
             inertial_response_enabled: gui.flora_inertial_response.value,
             response_controls: [
                 gui.vegetation_response_speed.value,
                 gui.vegetation_response_damping.value,
                 gui.vegetation_response_gain.value,
-                gui.leaf_flutter_strength.value,
+                gui.leaf_flutter_amplitude_high.value * 2.,
             ],
             response_pose_hz: gui.vegetation_response_pose_hz.value,
             world_tick_seconds: live.world_tick_seconds,
@@ -451,12 +489,57 @@ mod tests {
                     grass_tip_light,
                 },
                 motion: FloraMotionFrameInput {
+                    leaf_flutter_frequency: [
+                        settings.adjustables.leaf_flutter_frequency_low_hz.value,
+                        settings.adjustables.leaf_flutter_frequency_high_hz.value,
+                        settings.adjustables.leaf_flutter_frequency_ceiling_hz.value / 24.,
+                        0.,
+                    ],
+                    grass_amplitude: [
+                        settings.adjustables.grass_sway_amplitude_low.value
+                            * settings.adjustables.grass_sway_amplitude_scale.value,
+                        settings.adjustables.grass_sway_amplitude_high.value
+                            * settings.adjustables.grass_sway_amplitude_scale.value,
+                        settings.adjustables.grass_sway_amplitude_start.value,
+                        settings.adjustables.grass_sway_amplitude_full.value,
+                    ],
+                    grass_frequency: [
+                        settings.adjustables.grass_sway_frequency_low.value
+                            * settings.adjustables.grass_sway_frequency_scale.value,
+                        settings.adjustables.grass_sway_frequency_high.value
+                            * settings.adjustables.grass_sway_frequency_scale.value,
+                        settings.adjustables.grass_sway_frequency_start.value,
+                        settings.adjustables.grass_sway_frequency_full.value,
+                    ],
+                    grass_curve: [
+                        settings.adjustables.grass_sway_amplitude_knee.value,
+                        settings.adjustables.grass_sway_frequency_knee.value,
+                        0.,
+                        0.,
+                    ],
+                    leaf_flutter_frequency_curve: [
+                        settings.adjustables.leaf_flutter_frequency_start.value,
+                        settings.adjustables.leaf_flutter_frequency_full.value,
+                        settings.adjustables.leaf_flutter_frequency_knee.value,
+                        0.,
+                    ],
+                    leaf_flutter_curve: [
+                        settings.adjustables.leaf_flutter_wind_start.value,
+                        settings.adjustables.leaf_flutter_wind_full.value,
+                        settings.adjustables.leaf_flutter_wind_knee.value,
+                        settings.adjustables.leaf_flutter_amplitude_low.value * 2.,
+                    ],
+                    leaf_global_offset_scale: settings.adjustables.leaf_global_offset_scale.value,
+                    leaf_local_displacement_voxels: settings
+                        .adjustables
+                        .leaf_local_displacement_voxels
+                        .value,
                     inertial_response_enabled: settings.adjustables.flora_inertial_response.value,
                     response_controls: [
                         settings.adjustables.vegetation_response_speed.value,
                         settings.adjustables.vegetation_response_damping.value,
                         settings.adjustables.vegetation_response_gain.value,
-                        settings.adjustables.leaf_flutter_strength.value,
+                        settings.adjustables.leaf_flutter_amplitude_high.value * 2.,
                     ],
                     response_pose_hz: settings.adjustables.vegetation_response_pose_hz.value,
                     world_tick_seconds: live.world_tick_seconds,

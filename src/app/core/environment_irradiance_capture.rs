@@ -1448,6 +1448,6 @@ mod tests {
         assert!(!tracer.contains("sampleDdgiUnpublished"));
         assert!(tracer.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
-        assert!(tracer.contains("color = environmentIrradiance * albedo"));
+        assert!(tracer.contains("color = consumerResult.irradiance * albedo"));
     }
 }

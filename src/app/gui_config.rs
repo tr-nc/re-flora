@@ -7,15 +7,16 @@ use crate::app::curve_preview::{
 };
 use crate::app::gui_config_loader::GuiConfigLoader;
 use crate::app::gui_config_model::{
-    GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind,
-    GuiParamValue, TreeGuiConfig,
+    GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind, GuiParamValue,
 };
 use crate::app::tree_gui::edit_tree_desc;
-use crate::tree_gen::TreeDesc;
 use egui::Color32;
 use std::path::Path;
+mod audio_mix;
+pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
+pub(crate) mod saved_controls;
 
 mod generated {
     include!("generated/gui_adjustables_gen.rs");
@@ -26,8 +27,20 @@ pub use generated::GuiAdjustables;
 pub struct DebugSettings {
     pub config: GuiConfigFile,
     pub adjustables: GuiAdjustables,
-    pub tree: TreeGuiConfig,
     save_status: Option<String>,
+}
+
+// Custom live values ARE the serializable document, never copies requiring save hooks.
+impl std::ops::Deref for DebugSettings {
+    type Target = GuiConfigFile;
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
+}
+impl std::ops::DerefMut for DebugSettings {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.config
+    }
 }
 
 impl DebugSettings {
@@ -36,16 +49,12 @@ impl DebugSettings {
         Self::from_config(config)
     }
 
-    fn from_config(config: GuiConfigFile) -> Self {
+    fn from_config(mut config: GuiConfigFile) -> Self {
         let adjustables = GuiAdjustables::from_config(&config);
-        let tree = config.tree.clone().unwrap_or_else(|| TreeGuiConfig {
-            render_leaves: true,
-            desc: TreeDesc::default(),
-        });
+        config.butterfly_flight.tuning = config.butterfly_flight.tuning.sanitized();
         Self {
             config,
             adjustables,
-            tree,
             save_status: None,
         }
     }
@@ -69,33 +78,48 @@ impl DebugSettings {
     }
 
     fn sync_config(&mut self) {
-        self.adjustables.write_to_config(
-            &mut self.config,
-            &self.tree.desc,
-            self.tree.render_leaves,
-        );
+        self.adjustables.write_to_config(&mut self.config);
     }
 
     pub fn draw(
         &mut self,
         ui: &mut egui::Ui,
-        mut extra_controls: impl FnMut(&str, &mut egui::Ui),
+        mut temporary_controls: impl FnMut(&str, &mut saved_controls::TemporaryControls<'_>),
     ) -> bool {
         let Self {
             config,
             adjustables,
-            tree,
             ..
         } = self;
+        let custom = &mut config.custom;
         let mut tree_desc_changed = false;
-        render_gui_from_config(ui, config, adjustables, |section_name, ui| {
+        render_gui_from_config(ui, &config.section, adjustables, |section_name, ui| {
+            if section_name == "Audio" {
+                audio_mix::draw(&mut saved_controls::SavedControls::new(ui, custom));
+            }
+            if section_name == "Butterflies" {
+                self::butterfly_flight::draw_butterfly_flight_ab_controls(
+                    &mut saved_controls::SavedControls::new(ui, custom),
+                );
+            }
             if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
-                    tree_desc_changed |=
-                        edit_tree_desc(ui, &mut tree.desc, Some(&mut tree.render_leaves));
+                    let response = saved_controls::SavedControls::new(ui, custom).toggle(
+                        |s| &mut s.tree.desc.cull_thin_branches, true, false,
+                        "B: Hide branches thinner than minimum (A/B)",
+                    ).on_hover_text("Off: inflate thin wood to the existing minimum radius. On: omit thin wood and trim taper crossings at the threshold. Leaf and fruit anchors stay unchanged. Rebuilds the tuning tree; saved with Save.");
+                    tree_desc_changed |= response.changed();
+                    tree_desc_changed |= edit_tree_desc(
+                        ui,
+                        &mut custom.tree.desc,
+                        Some(&mut custom.tree.render_leaves),
+                    );
                 });
             }
-            extra_controls(section_name, ui);
+            temporary_controls(
+                section_name,
+                &mut saved_controls::TemporaryControls::new(ui),
+            );
         });
 
         tree_desc_changed
@@ -152,17 +176,7 @@ impl GuiAdjustables {
         }
     }
 
-    fn write_to_config(
-        &self,
-        config: &mut GuiConfigFile,
-        tree_desc: &TreeDesc,
-        render_leaves: bool,
-    ) {
-        config.tree = Some(TreeGuiConfig {
-            render_leaves,
-            desc: tree_desc.clone(),
-        });
-
+    fn write_to_config(&self, config: &mut GuiConfigFile) {
         for section in &mut config.section {
             for param in &mut section.param {
                 match param.kind {
@@ -556,6 +570,7 @@ const SECTION_PARENTS: &[(&str, &str)] = &[
     ("Flora Spawn Animation", "Flora"),
     ("FloraVariation", "Flora"),
     ("Leaves", "Flora"),
+    ("Grass Wind Response", "Wind"),
     ("Terrain Harvest Particles", "Voxel"),
 ];
 
@@ -575,35 +590,60 @@ fn section_title(name: &str) -> &str {
     }
 }
 
-pub fn render_gui_from_config(
+fn render_gui_from_config(
     ui: &mut egui::Ui,
-    config: &GuiConfigFile,
+    config: &[crate::app::gui_config_model::GuiSection],
     adjustables: &mut GuiAdjustables,
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
-    for section in &config.section {
+    for section in config {
         if section.name == "Debug" {
             debug_groups::render(ui, section, adjustables, None);
             continue;
         }
         // If a custom config lacks a parent, keep its children visible at the top level.
         if section_parent(&section.name)
-            .is_some_and(|parent| config.section.iter().any(|s| s.name == parent))
+            .is_some_and(|parent| config.iter().any(|s| s.name == parent))
         {
             continue;
         }
         ui.collapsing(section_title(&section.name), |ui| {
+            if section.name == "Audio" {
+                after_section(&section.name, ui);
+                ui.collapsing("Advanced audio / source trims", |ui| {
+                    render_section_controls(ui, section, adjustables);
+                });
+                return;
+            }
             if section.name == "Flora" {
                 flora_groups::render(ui, config, section, adjustables, &mut after_section);
                 return;
             }
+            if section.name == "Wind" {
+                ui.collapsing("Generation", |ui| after_section("Wind", ui));
+                ui.collapsing("Response", |ui| {
+                    if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
+                        ui.collapsing("Shared Mechanics", |ui| {
+                            debug_groups::render(ui, debug, adjustables, Some("Wind"));
+                        });
+                    }
+                    flora_groups::render_wind(ui, config, adjustables);
+                    ui.collapsing("Sound", |ui| {
+                        render_section_controls(ui, section, adjustables);
+                    });
+                    after_section("Grass Wind Response", ui);
+                });
+                return;
+            }
             render_section_controls(ui, section, adjustables);
-            if let Some(debug) = config.section.iter().find(|s| s.name == "Debug") {
+            if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));
             }
             after_section(&section.name, ui);
-            for child in &config.section {
-                if section_parent(&child.name) == Some(section.name.as_str()) {
+            for child in config {
+                if child.name != "Grass Wind Response"
+                    && section_parent(&child.name) == Some(section.name.as_str())
+                {
                     ui.collapsing(section_title(&child.name), |ui| {
                         render_section_controls(ui, child, adjustables);
                         after_section(&child.name, ui);
@@ -619,6 +659,13 @@ fn render_section_controls(
     section: &crate::app::gui_config_model::GuiSection,
     adjustables: &mut GuiAdjustables,
 ) {
+    if section.name == "Wind" {
+        ui.label("Tree sound response");
+        for param in &section.param {
+            render_gui_param_from_config(ui, param, &section.name, adjustables);
+        }
+        return;
+    }
     if section.name == "Sky" {
         ui.label("Scene lighting");
         for id in ["sun_luminance", "sky_light_strength"] {
@@ -627,7 +674,6 @@ fn render_section_controls(
             }
         }
         ui.small("Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
-        ui.separator();
         ui.label("Sky appearance & time");
         ui.small("The sky gradient and its mirror image keep their appearance. Clouds use scene lighting. Sun disk brightness does not set surface lighting.");
         for param in &section.param {
@@ -643,8 +689,394 @@ fn render_section_controls(
 }
 
 #[cfg(test)]
+fn is_tree_sound_synthesis_param(id: &str) -> bool {
+    id.starts_with("tree_rustle_")
+}
+
+#[cfg(test)]
 mod tests {
+    #[test]
+    fn flutter_curve_drag_edits_persisted_fields_without_a_save_hook() {
+        use egui::{Event, PointerButton, Pos2, Rect, Vec2};
+        for kind in [
+            crate::app::flutter_response_editor::Kind::Frequency,
+            crate::app::flutter_response_editor::Kind::Amplitude,
+            crate::app::flutter_response_editor::Kind::GrassAmplitude,
+            crate::app::flutter_response_editor::Kind::GrassFrequency,
+        ] {
+            let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+            settings.adjustables.leaf_flutter_frequency_start.value = 0.1;
+            settings.adjustables.leaf_flutter_frequency_full.value = 2.0;
+            settings.adjustables.leaf_flutter_frequency_low_hz.value = 2.0;
+            settings.adjustables.leaf_flutter_frequency_high_hz.value = 8.0;
+            settings.adjustables.leaf_flutter_wind_start.value = 0.1;
+            settings.adjustables.leaf_flutter_wind_full.value = 2.;
+            settings.adjustables.leaf_flutter_amplitude_low.value = 2. / 24.;
+            settings.adjustables.leaf_flutter_amplitude_high.value = 8. / 24.;
+            settings.adjustables.grass_sway_amplitude_low.value = 2. / 24.;
+            settings.adjustables.grass_sway_amplitude_high.value = 8. / 24.;
+            settings.adjustables.grass_sway_amplitude_start.value = 0.1;
+            settings.adjustables.grass_sway_amplitude_full.value = 2.;
+            settings.adjustables.grass_sway_frequency_low.value = 2. / 24.;
+            settings.adjustables.grass_sway_frequency_high.value = 8. / 24.;
+            settings.adjustables.grass_sway_frequency_start.value = 0.1;
+            settings.adjustables.grass_sway_frequency_full.value = 2.;
+            let context = egui::Context::default();
+            let mut plot = Rect::NOTHING;
+            let screen = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.)));
+            let _ = context.run_ui(
+                egui::RawInput {
+                    screen_rect: screen,
+                    ..Default::default()
+                },
+                |ui| {
+                    plot = crate::app::flutter_response_editor::draw(
+                        ui,
+                        &mut settings.adjustables,
+                        kind,
+                    );
+                },
+            );
+            let point = |wind: f32, hz: f32| {
+                Pos2::new(
+                    plot.left() + wind / 4. * plot.width(),
+                    plot.bottom() - hz / 24. * plot.height(),
+                )
+            };
+            let from = point(0.1, 2.);
+            let to = point(0.8, 4.);
+            for events in [
+                vec![
+                    Event::PointerMoved(from),
+                    Event::PointerButton {
+                        pos: from,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Default::default(),
+                    },
+                ],
+                vec![Event::PointerMoved(to)],
+                vec![Event::PointerButton {
+                    pos: to,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                }],
+            ] {
+                let _ = context.run_ui(
+                    egui::RawInput {
+                        screen_rect: screen,
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        crate::app::flutter_response_editor::draw(
+                            ui,
+                            &mut settings.adjustables,
+                            kind,
+                        );
+                    },
+                );
+            }
+            match kind {
+                crate::app::flutter_response_editor::Kind::GrassAmplitude => {
+                    assert!(
+                        (settings.adjustables.grass_sway_amplitude_low.value - 4. / 24.).abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (settings.adjustables.grass_sway_amplitude_start.value - 0.8).abs() < 0.01
+                    );
+                }
+                crate::app::flutter_response_editor::Kind::GrassFrequency => {
+                    assert!(
+                        (settings.adjustables.grass_sway_frequency_low.value - 4. / 24.).abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (settings.adjustables.grass_sway_frequency_start.value - 0.8).abs() < 0.01
+                    );
+                }
+                crate::app::flutter_response_editor::Kind::Frequency => {
+                    assert!(
+                        (settings.adjustables.leaf_flutter_frequency_low_hz.value - 4.).abs()
+                            < 0.01
+                    );
+                    assert!(
+                        (settings.adjustables.leaf_flutter_frequency_start.value - 0.8).abs()
+                            < 0.01
+                    );
+                    assert_eq!(
+                        settings.adjustables.leaf_flutter_amplitude_low.value,
+                        2. / 24.
+                    );
+                }
+                crate::app::flutter_response_editor::Kind::Amplitude => {
+                    assert!(
+                        (settings.adjustables.leaf_flutter_amplitude_low.value - 4. / 24.).abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (settings.adjustables.leaf_flutter_wind_start.value - 0.8).abs() < 0.01
+                    );
+                    assert_eq!(settings.adjustables.leaf_flutter_frequency_low_hz.value, 2.);
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            settings.save_to_path(&path).unwrap();
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert!(
+                (settings.adjustables.grass_sway_amplitude_low.value
+                    - loaded.adjustables.grass_sway_amplitude_low.value)
+                    .abs()
+                    < 1e-7
+            );
+            assert!(
+                (settings.adjustables.grass_sway_frequency_low.value
+                    - loaded.adjustables.grass_sway_frequency_low.value)
+                    .abs()
+                    < 1e-7
+            );
+            assert_eq!(
+                settings.adjustables.leaf_flutter_frequency_low_hz.value,
+                loaded.adjustables.leaf_flutter_frequency_low_hz.value
+            );
+            assert_eq!(
+                settings.adjustables.leaf_flutter_frequency_start.value,
+                loaded.adjustables.leaf_flutter_frequency_start.value
+            );
+            // The shared TOML writer normalizes floats to eight decimals.
+            assert!(
+                (settings.adjustables.leaf_flutter_amplitude_low.value
+                    - loaded.adjustables.leaf_flutter_amplitude_low.value)
+                    .abs()
+                    < 0.0000001
+            );
+            assert_eq!(
+                settings.adjustables.leaf_flutter_wind_start.value,
+                loaded.adjustables.leaf_flutter_wind_start.value
+            );
+        }
+    }
+
     use super::*;
+
+    #[test]
+    fn tree_sound_synthesis_is_separate_from_spatial_wind_controls() {
+        let settings = DebugSettings::load();
+        let wind = settings
+            .config
+            .section
+            .iter()
+            .find(|s| s.name == "Wind")
+            .unwrap();
+        let synthesis: Vec<_> = wind
+            .param
+            .iter()
+            .filter(|p| is_tree_sound_synthesis_param(&p.id))
+            .map(|p| p.id.as_str())
+            .collect();
+        assert_eq!(synthesis.len(), 8);
+        assert!(!wind.param.iter().any(|p| p.id == "tree_rustle_base_wind"));
+        for id in [
+            "canopy_audio_sample_budget",
+            "wind_audio_attack_decay",
+            "wind_audio_release_decay",
+            "tree_wind_response_min_strength",
+            "tree_wind_response_max_strength",
+        ] {
+            assert!(wind.param.iter().any(|p| p.id == id));
+            assert!(!is_tree_sound_synthesis_param(id));
+        }
+    }
+
+    #[test]
+    fn every_declared_generic_setting_saves_its_live_value() {
+        let mut settings = DebugSettings::load();
+        // Iterate the declaration, not a manually maintained list of controls.
+        for param in settings.config.section.iter().flat_map(|s| &s.param) {
+            let id = &param.id;
+            let a = &mut settings.adjustables;
+            match param.kind {
+                GuiParamKind::Float => {
+                    let f = GuiAdjustables::get_float_param_mut(a, id).unwrap();
+                    f.value = if f.value == *f.range.start() {
+                        *f.range.end()
+                    } else {
+                        *f.range.start()
+                    };
+                }
+                GuiParamKind::Int => {
+                    let f = GuiAdjustables::get_int_param_mut(a, id).unwrap();
+                    f.value = if f.value == *f.range.start() {
+                        *f.range.end()
+                    } else {
+                        *f.range.start()
+                    };
+                }
+                GuiParamKind::Uint => {
+                    let f = GuiAdjustables::get_uint_param_mut(a, id).unwrap();
+                    f.value = if f.value == *f.range.start() {
+                        *f.range.end()
+                    } else {
+                        *f.range.start()
+                    };
+                }
+                GuiParamKind::Choice => {
+                    let f = GuiAdjustables::get_choice_param_mut(a, id).unwrap();
+                    f.value ^= 1;
+                }
+                GuiParamKind::String => {
+                    let f = GuiAdjustables::get_string_param_mut(a, id).unwrap();
+                    f.value.push_str("_roundtrip");
+                }
+                GuiParamKind::Bool => {
+                    let f = GuiAdjustables::get_bool_param_mut(a, id).unwrap();
+                    f.value = !f.value;
+                }
+                GuiParamKind::Color => {
+                    let f = GuiAdjustables::get_color_param_mut(a, id).unwrap();
+                    f.value = if f.value == Color32::RED {
+                        Color32::BLUE
+                    } else {
+                        Color32::RED
+                    };
+                }
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_generic_values_match(&loaded.config, &settings.adjustables);
+        assert_generic_values_match(&loaded.config, &loaded.adjustables);
+    }
+
+    #[test]
+    fn branch_checkbox_requests_rebuild_and_saves_through_the_common_path() {
+        fn find(shape: &egui::Shape) -> Option<egui::Pos2> {
+            match shape {
+                egui::Shape::Text(t)
+                    if t.galley.job.text == "B: Hide branches thinner than minimum (A/B)" =>
+                {
+                    Some(t.pos + egui::vec2(5.0, 6.0))
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(find),
+                _ => None,
+            }
+        }
+        let mut settings = DebugSettings::load();
+        settings.tree.desc.cull_thin_branches = false;
+        let context = egui::Context::default();
+        context.memory_mut(|m| m.set_everything_is_visible(true));
+        let mut draw = |events| {
+            let mut changed = false;
+            let output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 24000.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    changed = settings.draw(ui, |_, _| {});
+                },
+            );
+            (output.shapes.iter().find_map(|s| find(&s.shape)), changed)
+        };
+        draw(Vec::new());
+        let pos = draw(Vec::new())
+            .0
+            .expect("branch checkbox must be in Debug Panel");
+        draw(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        assert!(
+            draw(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default()
+            }])
+            .1,
+            "checkbox must request the existing tree rebuild"
+        );
+        assert!(settings.tree.desc.cull_thin_branches);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        assert!(
+            DebugSettings::from_config(GuiConfigLoader::load_from_path(&path))
+                .tree
+                .desc
+                .cull_thin_branches
+        );
+    }
+
+    #[test]
+    fn every_serialized_custom_leaf_survives_live_edit_save_reload() {
+        use serde_json::Value;
+        fn leaves(value: &Value, path: String, output: &mut Vec<String>) {
+            match value {
+                Value::Object(fields) => {
+                    for (key, v) in fields {
+                        leaves(v, format!("{path}/{key}"), output);
+                    }
+                }
+                Value::Array(values) => {
+                    for (i, v) in values.iter().enumerate() {
+                        leaves(v, format!("{path}/{i}"), output);
+                    }
+                }
+                _ => output.push(path),
+            }
+        }
+        let original = serde_json::to_value(&DebugSettings::load().config.custom).unwrap();
+        let mut paths = Vec::new();
+        leaves(&original, String::new(), &mut paths);
+        assert!(paths.len() > 20);
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("gui.toml");
+        for path in paths {
+            let mut edited = original.clone();
+            let value = edited.pointer_mut(&path).unwrap();
+            *value = match value {
+                Value::Bool(v) => Value::Bool(!*v),
+                Value::Number(_) if path.ends_with("/height_above_ground") => Value::from(0.125),
+                Value::Number(v) if v.is_f64() => {
+                    Value::from(if v.as_f64() == Some(0.5) { 0.75 } else { 0.5 })
+                }
+                Value::Number(v) => {
+                    Value::from(v.as_u64().expect("add a signed-value test policy") ^ 1)
+                }
+                Value::String(v) if v == "DartingBlock" => Value::from("OriginalSprite"),
+                Value::String(v) if v == "DartingSprite" => Value::from("DartingBlock"),
+                Value::String(v) if v == "OriginalSprite" => Value::from("DartingBlock"),
+                _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
+            };
+            let mut settings = DebugSettings::load();
+            // Modify the live saved object AFTER construction: a stale load/save
+            // roundtrip would not detect a missing synchronization hook.
+            settings.config.custom = serde_json::from_value(edited).unwrap();
+            let expected = serde_json::to_value(&settings.config.custom).unwrap();
+            settings.save_to_path(&file).unwrap();
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&file));
+            assert_eq!(
+                serde_json::to_value(&loaded.config.custom).unwrap(),
+                expected,
+                "{path}"
+            );
+        }
+    }
 
     #[test]
     fn fallen_leaf_experiment_controls_are_removed() {
@@ -659,7 +1091,7 @@ mod tests {
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .any(|p| p.id == "leaf_flutter_strength"));
+            .any(|p| p.id == "leaf_flutter_amplitude_high"));
     }
 
     #[test]
@@ -859,6 +1291,94 @@ mod tests {
     }
 
     #[test]
+    fn butterfly_flight_controls_survive_debug_settings_save_and_reload() {
+        let mut document: toml::Value =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let flight: toml::Value = toml::from_str(
+            r#"
+variant = "DartingBlock"
+[tuning]
+flight_frequency_hz = 5.5
+maneuver_tempo = 2.75
+vertical_strength = 2.0
+turn_sharpness = 1.0
+speed = 0.35
+wind_drift = 1.0
+"#,
+        )
+        .unwrap();
+        document
+            .as_table_mut()
+            .unwrap()
+            .insert("butterfly_flight".to_owned(), flight);
+        let config = document.try_into().unwrap();
+        let mut settings = DebugSettings::from_config(config);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        let saved = toml::Value::try_from(reloaded).unwrap();
+        assert_eq!(
+            saved
+                .get("butterfly_flight")
+                .and_then(|f| f.get("tuning"))
+                .and_then(|t| t.get("flight_frequency_hz"))
+                .and_then(toml::Value::as_float),
+            Some(5.5),
+            "Debug Settings Save must preserve butterfly flight controls",
+        );
+    }
+
+    #[test]
+    fn live_butterfly_settings_and_disabled_b_controls_persist_without_reset_button() {
+        let mut settings = DebugSettings::load();
+        let context = egui::Context::default();
+        context.memory_mut(|m| m.set_everything_is_visible(true));
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            settings.draw(ui, |_, _| {});
+        });
+        let text = format!("{:?}", output.shapes);
+        assert!(text.contains("Shared flight frequency"));
+        assert!(text.contains("Flight height above ground"));
+        assert!(!text.contains("Horizontal maneuver tempo"));
+        assert!(!text.contains("Reset B flight controls"));
+        settings.butterfly_flight.variant =
+            crate::particles::ButterflyFlightVariant::OriginalSprite;
+        settings.butterfly_flight.tuning = crate::particles::ButterflyFlightTuning {
+            flight_frequency_hz: 0.0,
+            height_above_ground: 0.12,
+            maneuver_tempo: 3.25,
+            vertical_strength: 1.25,
+            turn_sharpness: 2.5,
+            speed: 0.75,
+            wind_drift: 0.5,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        assert_eq!(settings.save_status(), Some("Settings saved"));
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
+        settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::DartingBlock;
+        settings.save_to_path(&path).unwrap();
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
+        assert!(settings.save_to_path(directory.path()).is_err());
+        assert!(settings.save_status().unwrap().starts_with("Save failed:"));
+    }
+
+    #[test]
+    fn older_gui_files_without_butterfly_controls_load_legacy_flight_defaults() {
+        let mut config = toml::Value::try_from(GuiConfigLoader::load()).unwrap();
+        config.as_table_mut().unwrap().remove("butterfly_flight");
+        let settings = DebugSettings::from_config(config.try_into().unwrap());
+        assert_eq!(
+            settings.butterfly_flight,
+            crate::particles::ButterflyFlightSettings::default()
+        );
+    }
+
+    #[test]
     fn current_debug_settings_write_complete_generic_and_tree_state() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.time_of_day.value = 0.987;
@@ -874,7 +1394,7 @@ mod tests {
         settings.sync_config();
 
         assert_generic_values_match(&settings.config, &settings.adjustables);
-        assert_eq!(settings.config.tree, Some(settings.tree.clone()));
+        assert_eq!(settings.config.tree, settings.tree.clone());
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");

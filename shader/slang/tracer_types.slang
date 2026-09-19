@@ -5,6 +5,7 @@ public struct U_GuiInput
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public uint raster_flora_ddgi_lighting;
+    public uint raster_tree_static;
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;
     public float3 path_tracing_ambient_light;
@@ -35,6 +36,8 @@ public struct U_GuiInput
     public float grass_natural_bend_max_voxels;
     public float flora_bend_height_power;
     public float leaf_flutter_strength;
+    public float leaf_global_offset_scale;
+    public float leaf_local_displacement_voxels;
     public float leaf_paddle_amplitude_voxels;
     public float leaf_paddle_primary_speed;
     public float leaf_paddle_secondary_speed;

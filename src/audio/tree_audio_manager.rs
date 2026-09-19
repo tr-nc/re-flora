@@ -66,7 +66,6 @@ impl TreeAudioManager {
             &self.rustle_clip,
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
-            self.rustle_params.base_wind,
             time_seconds,
         )?;
         Ok(())
@@ -102,7 +101,6 @@ impl TreeAudioManager {
             &self.rustle_clip,
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
-            self.rustle_params.base_wind,
             time_seconds,
         )
     }
@@ -117,7 +115,6 @@ impl TreeAudioManager {
             &self.rustle_clip,
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
-            self.rustle_params.base_wind,
             time_seconds,
         )?;
         Ok(())
@@ -201,8 +198,7 @@ impl TreeAudioManager {
         }
 
         let rustle_clip = Self::render_rustle_clip(rustle_params)?;
-        self.emitter_adapter
-            .replace_rustle_clip(&rustle_clip, rustle_params.base_wind)?;
+        self.emitter_adapter.replace_rustle_clip(&rustle_clip)?;
         self.rustle_params = rustle_params;
         self.rustle_clip = rustle_clip;
         Ok(())
@@ -221,7 +217,6 @@ impl TreeAudioManager {
             &self.rustle_clip,
             Self::base_volume_db(self.wind_volume_db),
             self.wind_response_curve,
-            self.rustle_params.base_wind,
             time_seconds,
         )?;
         self.emitter_adapter.update(

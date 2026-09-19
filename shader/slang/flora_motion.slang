@@ -1,6 +1,7 @@
 module flora_motion;
 
 import flora_noise;
+import wind_response_curve;
 import flora_types;
 import hash;
 import tracer_types;
@@ -39,14 +40,7 @@ float2 floraWindPlanarDirection(float3 wind)
 float floraWindCurveResponse(float windStrength, float startStrength,
                              float fullStrength, float kneeBias)
 {
-    float low = min(startStrength, fullStrength);
-    float high = max(startStrength, fullStrength);
-    float range = high - low;
-    float value = range <= 1.0e-4
-        ? (windStrength >= high ? 1.0 : 0.0)
-        : clamp((windStrength - low) / range, 0.0, 1.0);
-    float exponent = exp2(clamp(kneeBias, -6.0, 6.0));
-    return floraSmootherstep(pow(value, exponent));
+    return windResponseCurve(windStrength, startStrength, fullStrength, kneeBias);
 }
 
 float floraWindPhase(uint seed, int3 voxelLocalPosition, uint salt)

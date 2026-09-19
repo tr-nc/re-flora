@@ -54,4 +54,5 @@ pub use tree_audio_manager::TreeAudioManager;
 pub(crate) use tree_audio_manager::TreeAudioPublicationCheckpoint;
 
 mod summer_cicadas;
-pub(crate) use summer_cicadas::{CicadaHabitat, CicadaHabitatKey, SummerCicadas};
+pub(crate) use summer_cicadas::SummerCicadas;
+pub mod mixer;

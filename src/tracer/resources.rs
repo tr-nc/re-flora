@@ -154,6 +154,7 @@ pub struct FloraVoxelLookupResources {
     pub flora_voxel_table_descs: Resource<Buffer>,
     pub flora_voxel_infos: Resource<Buffer>,
     type_data: Vec<FloraVoxelLookupTypeData>,
+    pub grass_response_profiles: [f32; species::MAX_FLORA_SPECIES],
 }
 
 impl FloraVoxelLookupResources {
@@ -176,7 +177,15 @@ impl FloraVoxelLookupResources {
             flora_voxel_table_descs: Resource::new(flora_voxel_table_descs),
             flora_voxel_infos: Resource::new(flora_voxel_infos),
             type_data: Self::default_type_data().unwrap(),
+            grass_response_profiles: [1.; species::MAX_FLORA_SPECIES],
         };
+        let proxies: [f32; species::MAX_FLORA_SPECIES] = std::array::from_fn(|i| {
+            super::vegetation_response::morphology::frequency_proxy(&resources.type_data[i].entries)
+        });
+        let fastest = proxies.iter().copied().fold(0.00001_f32, f32::max);
+        // Compress unknown-material differences for art direction, retaining ordering.
+        resources.grass_response_profiles = proxies.map(|f| (f / fastest).sqrt().clamp(0.1, 1.));
+        log::info!("[GRASS_RESPONSE][MORPHOLOGY] relative_frequency={:?} source=canonical_voxels unit_density=true", resources.grass_response_profiles);
         resources.upload().unwrap();
         resources
     }
@@ -1399,6 +1408,20 @@ impl TracerMeshResources {
 
 #[derive(ResourceContainer)]
 pub struct TracerResources {
+    pub tree_scene_info: Resource<Buffer>,
+    pub tree_skin_rest: Resource<Buffer>,
+    pub tree_skin_bindings: Resource<Buffer>,
+    pub tree_skin_poses: Resource<Buffer>,
+    pub tree_refit_order: Resource<Buffer>,
+    pub tree_scene_rest_cells: Resource<Buffer>,
+    pub tree_attachment_keys: Resource<Buffer>,
+    pub tree_attachment_poses: Resource<Buffer>,
+    pub tree_scene_nodes: Resource<Buffer>,
+    pub tree_scene_primitives: Resource<Buffer>,
+    pub tree_scene_vertices: Resource<Buffer>,
+    pub tree_scene_cell_vertices: Resource<Buffer>,
+    pub raster_tree_cells: Resource<Buffer>,
+    pub raster_tree_local_light_cache: Resource<Buffer>,
     #[resource(nested)]
     pub uniforms: TracerUniformResources,
     #[resource(nested)]
@@ -1443,8 +1466,65 @@ impl TracerResources {
         max_terrain_queries: u32,
     ) -> Self {
         let device = vulkan_ctx.device();
+        let tree_buffer = |bytes: usize| {
+            Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::CpuToGpu,
+                bytes as u64,
+            ))
+        };
+        let tree_scene_info = tree_buffer(16);
+        tree_scene_info.fill(&[[0u32; 4]]).unwrap();
+        let raster_tree_cells = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (super::TREE_CELL_CAPACITY * 16) as u64,
+        );
+        raster_tree_cells
+            .fill(&vec![[0u32; 4]; super::TREE_CELL_CAPACITY])
+            .unwrap();
 
         Self {
+            tree_attachment_keys: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 16),
+            tree_attachment_poses: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 32),
+            tree_scene_rest_cells: tree_buffer(super::TREE_CELL_CAPACITY * 16),
+            tree_scene_info,
+            tree_skin_rest: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 48),
+            tree_skin_bindings: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 16),
+            tree_skin_poses: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 32),
+            tree_refit_order: tree_buffer(super::tree_scene::MAX_TREE_NODES * 16),
+            tree_scene_nodes: Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+                ),
+                MemoryLocation::GpuOnly,
+                (super::tree_scene::MAX_TREE_NODES * 32) as u64,
+            )),
+            tree_scene_primitives: tree_buffer(super::tree_scene::MAX_TREE_PRIMITIVES * 16),
+            tree_scene_vertices: Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+                ),
+                MemoryLocation::GpuOnly,
+                (super::tree_scene::MAX_TREE_VERTICES * 32) as u64,
+            )),
+            tree_scene_cell_vertices: tree_buffer(super::TREE_CELL_CAPACITY * 4),
+            raster_tree_cells: Resource::new(raster_tree_cells),
+            raster_tree_local_light_cache: Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::GpuOnly,
+                (super::TREE_CELL_CAPACITY * 16) as u64,
+            )),
             uniforms: TracerUniformResources::new(
                 device.clone(),
                 allocator.clone(),

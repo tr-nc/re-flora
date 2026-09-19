@@ -190,6 +190,7 @@ impl ScenarioOwner {
 pub(in crate::app) struct LaunchOwners {
     screenshot: ScreenshotRuntime,
     pub(super) tree_bench: Option<TreeBench>,
+    pub(super) raster_tree_smoke: Option<super::raster_tree_smoke::RasterTreeSmoke>,
     pub(super) authored_flora_bench: Option<AuthoredFloraBench>,
     pub(super) mode: LaunchMode,
 }
@@ -245,7 +246,7 @@ impl LaunchOwners {
             LaunchMode::General { scenario, .. } => scenario.test_scene_frame_plan(),
             LaunchMode::Environment { owner, .. } => TestSceneFramePlan {
                 kind: TestSceneKind::Environment(owner.case()),
-                capture_ready: owner.is_ready(),
+                capture_ready: owner.is_screenshot_ready(),
                 hides_terrain_edit_preview: owner.hides_terrain_edit_preview(),
             },
             LaunchMode::CanopyAudio { .. } | LaunchMode::FoliageShadow { .. } => {
@@ -602,6 +603,9 @@ pub(in crate::app) fn prepare_startup_owners(
 ) -> Result<LaunchOwners, String> {
     let AutomationPlan { camera, benchmarks } = automation;
     let tree_bench = benchmarks.tree_samples.map(TreeBench::new);
+    let raster_tree_smoke = benchmarks
+        .raster_tree_smoke
+        .then(super::raster_tree_smoke::RasterTreeSmoke::new);
     let authored_flora_bench = benchmarks
         .authored_flora_samples
         .map(AuthoredFloraBench::new);
@@ -619,6 +623,7 @@ pub(in crate::app) fn prepare_startup_owners(
         return Ok(LaunchOwners {
             screenshot: ScreenshotRuntime::new(None),
             tree_bench,
+            raster_tree_smoke,
             authored_flora_bench,
             mode: LaunchMode::FoliageShadow {
                 runtime: DenoiserBench::new_foliage(options),
@@ -713,6 +718,7 @@ pub(in crate::app) fn prepare_startup_owners(
     Ok(LaunchOwners {
         screenshot,
         tree_bench,
+        raster_tree_smoke,
         authored_flora_bench,
         mode,
     })

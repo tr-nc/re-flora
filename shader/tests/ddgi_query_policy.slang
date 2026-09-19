@@ -21,5 +21,7 @@ export __extern_cpp int main()
         nearlyEqual(ddgiQueryVisibilityWeight(
             0.6, 0.25, DDGI_VISIBILITY_EXACT), 0.25) &&
         nearlyEqual(ddgiQueryVisibilityWeight(0.6, 0.25, 99u), 0.0);
-    return biasClamp && domainPrecedence && visibilityModes ? 0 : 1;
+    DdgiQueryResult sample = makeEmptyDdgiQueryResult();
+    bool emptyHasNoInventedLight = all(sample.irradiance == float3(0.0));
+    return biasClamp && domainPrecedence && visibilityModes && emptyHasNoInventedLight ? 0 : 1;
 }

@@ -26,6 +26,24 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "raster_tree_wind",
+        kind: "bool",
+        label: "Animate raster trees with wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_stiffness",
+        kind: "float",
+        label: "Tree stiffness (soft <-> stiff)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "raster_tree_static",
+        kind: "bool",
+        label: "Raster whole trees (B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_growth_override_enabled",
         kind: "bool",
         label: "Override Flora Growth",
@@ -134,6 +152,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "canopy_audio_sample_budget",
+        kind: "uint",
+        label: "Canopy Audio Samples / Tree",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "wind_audio_attack_decay",
         kind: "float",
         label: "Wind Audio Attack Decay (0 slow, 1 fast)",
@@ -143,6 +167,66 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "wind_audio_release_decay",
         kind: "float",
         label: "Wind Audio Release Decay (0 slow, 1 fast)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_wind_response_min_strength",
+        kind: "float",
+        label: "Tree Wind Response Min",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_wind_response_max_strength",
+        kind: "float",
+        label: "Tree Wind Response Max",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_gustiness",
+        kind: "float",
+        label: "Tree Rustle Gustiness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_leaf_density",
+        kind: "float",
+        label: "Tree Rustle Leaf Density",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_dryness",
+        kind: "float",
+        label: "Tree Rustle Dryness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_branch",
+        kind: "float",
+        label: "Tree Rustle Branch Creak",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_air",
+        kind: "float",
+        label: "Tree Rustle Air",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_leaf_body",
+        kind: "float",
+        label: "Tree Rustle Leaf Body",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_crackle",
+        kind: "float",
+        label: "Tree Rustle Crackle",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "tree_rustle_brightness",
+        kind: "float",
+        label: "Tree Rustle Brightness",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
@@ -158,75 +242,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
-        id: "tree_wind_response_min_strength",
-        kind: "float",
-        label: "Tree Wind Response Min",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_wind_response_max_strength",
-        kind: "float",
-        label: "Tree Wind Response Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
         id: "tree_wind_volume_db",
         kind: "float",
         label: "Tree Wind Volume (dB)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_base_wind",
-        kind: "float",
-        label: "Tree Rustle Base Wind",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_gustiness",
-        kind: "float",
-        label: "Tree Rustle Gustiness",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_leaf_density",
-        kind: "float",
-        label: "Tree Rustle Leaf Density",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_dryness",
-        kind: "float",
-        label: "Tree Rustle Dryness",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_branch",
-        kind: "float",
-        label: "Tree Rustle Branch Creak",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_air",
-        kind: "float",
-        label: "Tree Rustle Air",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_leaf_body",
-        kind: "float",
-        label: "Tree Rustle Leaf Body",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_crackle",
-        kind: "float",
-        label: "Tree Rustle Crackle",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Audio",
-        id: "tree_rustle_brightness",
-        kind: "float",
-        label: "Tree Rustle Brightness",
     },
     GeneratedGuiParamDescriptor {
         section: "Audio",
@@ -1016,9 +1034,81 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",
-        id: "leaf_flutter_strength",
+        id: "leaf_global_offset_scale",
         kind: "float",
-        label: "Local Flutter (0 = original)",
+        label: "Overall Wind Offset (0 = off)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_local_displacement_voxels",
+        kind: "float",
+        label: "Amplitude Scaling (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_amplitude_high",
+        kind: "float",
+        label: "Amplitude Curve High",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_amplitude_low",
+        kind: "float",
+        label: "Amplitude Curve Low",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_wind_start",
+        kind: "float",
+        label: "Flutter Start Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_wind_full",
+        kind: "float",
+        label: "Flutter Full Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_wind_knee",
+        kind: "float",
+        label: "Flutter Curve Bias",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_frequency_low_hz",
+        kind: "float",
+        label: "Frequency Curve Low (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_frequency_high_hz",
+        kind: "float",
+        label: "Frequency Curve High (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_frequency_ceiling_hz",
+        kind: "float",
+        label: "Frequency Scaling (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_frequency_start",
+        kind: "float",
+        label: "Frequency Start Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_frequency_full",
+        kind: "float",
+        label: "Frequency Full Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Leaves",
+        id: "leaf_flutter_frequency_knee",
+        kind: "float",
+        label: "Frequency Curve Bias",
     },
     GeneratedGuiParamDescriptor {
         section: "Leaves",
@@ -1060,7 +1150,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Butterflies",
         id: "butterfly_spawn_rate_per_source",
         kind: "float",
-        label: "Spawn Rate Per Flora Voxel",
+        label: "Habitat Spawn Rate (0.00002 = Normal)",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
@@ -1164,10 +1254,85 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         kind: "float",
         label: "Sprint Amplitude Mul",
     },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_amplitude_scale",
+        kind: "float",
+        label: "Amplitude Scaling (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_amplitude_low",
+        kind: "float",
+        label: "Amplitude Curve Low",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_amplitude_high",
+        kind: "float",
+        label: "Amplitude Curve High",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_amplitude_start",
+        kind: "float",
+        label: "Amplitude Start Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_amplitude_full",
+        kind: "float",
+        label: "Amplitude Full Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_amplitude_knee",
+        kind: "float",
+        label: "Amplitude Curve Bias",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_frequency_scale",
+        kind: "float",
+        label: "Frequency Scaling (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_frequency_low",
+        kind: "float",
+        label: "Frequency Curve Low",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_frequency_high",
+        kind: "float",
+        label: "Frequency Curve High",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_frequency_start",
+        kind: "float",
+        label: "Frequency Start Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_frequency_full",
+        kind: "float",
+        label: "Frequency Full Wind",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Grass Wind Response",
+        id: "grass_sway_frequency_knee",
+        kind: "float",
+        label: "Frequency Curve Bias",
+    },
 ];
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub raster_tree_wind: crate::gui_adjustables::BoolParam,
+    pub tree_stiffness: crate::gui_adjustables::FloatParam,
+    pub raster_tree_static: crate::gui_adjustables::BoolParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -1186,14 +1351,11 @@ pub struct GuiAdjustables {
     pub vegetation_response_gain: crate::gui_adjustables::FloatParam,
     pub vegetation_response_pose_hz: crate::gui_adjustables::FloatParam,
     pub dither_strength_lsb: crate::gui_adjustables::FloatParam,
+    pub canopy_audio_sample_budget: crate::gui_adjustables::UintParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
-    pub master_volume: crate::gui_adjustables::FloatParam,
-    pub footstep_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
-    pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
-    pub tree_rustle_base_wind: crate::gui_adjustables::FloatParam,
     pub tree_rustle_gustiness: crate::gui_adjustables::FloatParam,
     pub tree_rustle_leaf_density: crate::gui_adjustables::FloatParam,
     pub tree_rustle_dryness: crate::gui_adjustables::FloatParam,
@@ -1202,6 +1364,9 @@ pub struct GuiAdjustables {
     pub tree_rustle_leaf_body: crate::gui_adjustables::FloatParam,
     pub tree_rustle_crackle: crate::gui_adjustables::FloatParam,
     pub tree_rustle_brightness: crate::gui_adjustables::FloatParam,
+    pub master_volume: crate::gui_adjustables::FloatParam,
+    pub footstep_volume_db: crate::gui_adjustables::FloatParam,
+    pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_quality_percent: crate::gui_adjustables::UintParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
@@ -1333,7 +1498,19 @@ pub struct GuiAdjustables {
     pub flora_voxel_hue_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_saturation_offset: crate::gui_adjustables::FloatParam,
     pub flora_voxel_value_offset: crate::gui_adjustables::FloatParam,
-    pub leaf_flutter_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_global_offset_scale: crate::gui_adjustables::FloatParam,
+    pub leaf_local_displacement_voxels: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_amplitude_high: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_amplitude_low: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_wind_start: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_wind_full: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_wind_knee: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_frequency_low_hz: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_frequency_high_hz: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_frequency_ceiling_hz: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_frequency_start: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_frequency_full: crate::gui_adjustables::FloatParam,
+    pub leaf_flutter_frequency_knee: crate::gui_adjustables::FloatParam,
     pub leaf_transmission_strength: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
@@ -1358,6 +1535,18 @@ pub struct GuiAdjustables {
     pub headbob_horizontal_amp: crate::gui_adjustables::FloatParam,
     pub headbob_roll_amp: crate::gui_adjustables::FloatParam,
     pub headbob_sprint_amp_mul: crate::gui_adjustables::FloatParam,
+    pub grass_sway_amplitude_scale: crate::gui_adjustables::FloatParam,
+    pub grass_sway_amplitude_low: crate::gui_adjustables::FloatParam,
+    pub grass_sway_amplitude_high: crate::gui_adjustables::FloatParam,
+    pub grass_sway_amplitude_start: crate::gui_adjustables::FloatParam,
+    pub grass_sway_amplitude_full: crate::gui_adjustables::FloatParam,
+    pub grass_sway_amplitude_knee: crate::gui_adjustables::FloatParam,
+    pub grass_sway_frequency_scale: crate::gui_adjustables::FloatParam,
+    pub grass_sway_frequency_low: crate::gui_adjustables::FloatParam,
+    pub grass_sway_frequency_high: crate::gui_adjustables::FloatParam,
+    pub grass_sway_frequency_start: crate::gui_adjustables::FloatParam,
+    pub grass_sway_frequency_full: crate::gui_adjustables::FloatParam,
+    pub grass_sway_frequency_knee: crate::gui_adjustables::FloatParam,
 }
 
 impl Default for GuiAdjustables {
@@ -1371,6 +1560,9 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut raster_tree_static_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1389,14 +1581,11 @@ impl GuiAdjustables {
         let mut vegetation_response_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_pose_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut dither_strength_lsb_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut canopy_audio_sample_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut tree_rustle_base_wind_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_gustiness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_leaf_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_dryness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1405,6 +1594,9 @@ impl GuiAdjustables {
         let mut tree_rustle_leaf_body_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_quality_percent_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1536,7 +1728,19 @@ impl GuiAdjustables {
         let mut flora_voxel_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_voxel_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut leaf_flutter_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_global_offset_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_local_displacement_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_amplitude_high_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_amplitude_low_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_wind_start_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_wind_full_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_wind_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_frequency_low_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_frequency_high_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_frequency_ceiling_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_frequency_start_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_frequency_full_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_flutter_frequency_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_transmission_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1561,10 +1765,39 @@ impl GuiAdjustables {
         let mut headbob_horizontal_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_roll_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_sprint_amp_mul_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_amplitude_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_amplitude_low_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_amplitude_high_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_amplitude_start_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_amplitude_full_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_amplitude_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_frequency_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_frequency_low_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_frequency_high_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_frequency_start_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_frequency_full_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_sway_frequency_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
 
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "raster_tree_wind" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            raster_tree_wind_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "tree_stiffness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_stiffness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "raster_tree_static" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            raster_tree_static_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "flora_growth_override_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             flora_growth_override_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -1681,6 +1914,13 @@ impl GuiAdjustables {
                             dither_strength_lsb_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "canopy_audio_sample_budget" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            canopy_audio_sample_budget_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "wind_audio_attack_decay" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1695,20 +1935,6 @@ impl GuiAdjustables {
                             wind_audio_release_decay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "master_volume" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "footstep_volume_db" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "tree_wind_response_min_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -1721,20 +1947,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_wind_response_max_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "tree_wind_volume_db" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            tree_wind_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "tree_rustle_base_wind" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            tree_rustle_base_wind_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "tree_rustle_gustiness" => {
@@ -1791,6 +2003,27 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_rustle_brightness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "master_volume" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            master_volume_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "footstep_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            footstep_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_wind_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_wind_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "audio_ray_tracing_quality_percent" => {
@@ -2676,11 +2909,95 @@ impl GuiAdjustables {
                             flora_voxel_value_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "leaf_flutter_strength" => {
+                    "leaf_global_offset_scale" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            leaf_flutter_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            leaf_global_offset_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_local_displacement_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_local_displacement_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_amplitude_high" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_amplitude_high_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_amplitude_low" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_amplitude_low_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_wind_start" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_wind_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_wind_full" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_wind_full_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_wind_knee" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_wind_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_frequency_low_hz" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_frequency_low_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_frequency_high_hz" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_frequency_high_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_frequency_ceiling_hz" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_frequency_ceiling_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_frequency_start" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_frequency_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_frequency_full" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_frequency_full_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_flutter_frequency_knee" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_flutter_frequency_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "leaf_transmission_strength" => {
@@ -2833,12 +3150,99 @@ impl GuiAdjustables {
                             headbob_sprint_amp_mul_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "grass_sway_amplitude_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_amplitude_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_amplitude_low" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_amplitude_low_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_amplitude_high" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_amplitude_high_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_amplitude_start" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_amplitude_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_amplitude_full" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_amplitude_full_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_amplitude_knee" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_amplitude_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_frequency_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_frequency_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_frequency_low" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_frequency_low_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_frequency_high" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_frequency_high_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_frequency_start" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_frequency_start_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_frequency_full" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_frequency_full_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_sway_frequency_knee" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_sway_frequency_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     _ => {}
                 }
             }
         }
 
         GuiAdjustables {
+            raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
+            tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
+            raster_tree_static: raster_tree_static_field.expect("Missing parameter: raster_tree_static"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -2857,14 +3261,11 @@ impl GuiAdjustables {
             vegetation_response_gain: vegetation_response_gain_field.expect("Missing parameter: vegetation_response_gain"),
             vegetation_response_pose_hz: vegetation_response_pose_hz_field.expect("Missing parameter: vegetation_response_pose_hz"),
             dither_strength_lsb: dither_strength_lsb_field.expect("Missing parameter: dither_strength_lsb"),
+            canopy_audio_sample_budget: canopy_audio_sample_budget_field.expect("Missing parameter: canopy_audio_sample_budget"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
-            master_volume: master_volume_field.expect("Missing parameter: master_volume"),
-            footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
-            tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
-            tree_rustle_base_wind: tree_rustle_base_wind_field.expect("Missing parameter: tree_rustle_base_wind"),
             tree_rustle_gustiness: tree_rustle_gustiness_field.expect("Missing parameter: tree_rustle_gustiness"),
             tree_rustle_leaf_density: tree_rustle_leaf_density_field.expect("Missing parameter: tree_rustle_leaf_density"),
             tree_rustle_dryness: tree_rustle_dryness_field.expect("Missing parameter: tree_rustle_dryness"),
@@ -2873,6 +3274,9 @@ impl GuiAdjustables {
             tree_rustle_leaf_body: tree_rustle_leaf_body_field.expect("Missing parameter: tree_rustle_leaf_body"),
             tree_rustle_crackle: tree_rustle_crackle_field.expect("Missing parameter: tree_rustle_crackle"),
             tree_rustle_brightness: tree_rustle_brightness_field.expect("Missing parameter: tree_rustle_brightness"),
+            master_volume: master_volume_field.expect("Missing parameter: master_volume"),
+            footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
+            tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
             audio_ray_tracing_quality_percent: audio_ray_tracing_quality_percent_field.expect("Missing parameter: audio_ray_tracing_quality_percent"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
@@ -3004,7 +3408,19 @@ impl GuiAdjustables {
             flora_voxel_hue_offset: flora_voxel_hue_offset_field.expect("Missing parameter: flora_voxel_hue_offset"),
             flora_voxel_saturation_offset: flora_voxel_saturation_offset_field.expect("Missing parameter: flora_voxel_saturation_offset"),
             flora_voxel_value_offset: flora_voxel_value_offset_field.expect("Missing parameter: flora_voxel_value_offset"),
-            leaf_flutter_strength: leaf_flutter_strength_field.expect("Missing parameter: leaf_flutter_strength"),
+            leaf_global_offset_scale: leaf_global_offset_scale_field.expect("Missing parameter: leaf_global_offset_scale"),
+            leaf_local_displacement_voxels: leaf_local_displacement_voxels_field.expect("Missing parameter: leaf_local_displacement_voxels"),
+            leaf_flutter_amplitude_high: leaf_flutter_amplitude_high_field.expect("Missing parameter: leaf_flutter_amplitude_high"),
+            leaf_flutter_amplitude_low: leaf_flutter_amplitude_low_field.expect("Missing parameter: leaf_flutter_amplitude_low"),
+            leaf_flutter_wind_start: leaf_flutter_wind_start_field.expect("Missing parameter: leaf_flutter_wind_start"),
+            leaf_flutter_wind_full: leaf_flutter_wind_full_field.expect("Missing parameter: leaf_flutter_wind_full"),
+            leaf_flutter_wind_knee: leaf_flutter_wind_knee_field.expect("Missing parameter: leaf_flutter_wind_knee"),
+            leaf_flutter_frequency_low_hz: leaf_flutter_frequency_low_hz_field.expect("Missing parameter: leaf_flutter_frequency_low_hz"),
+            leaf_flutter_frequency_high_hz: leaf_flutter_frequency_high_hz_field.expect("Missing parameter: leaf_flutter_frequency_high_hz"),
+            leaf_flutter_frequency_ceiling_hz: leaf_flutter_frequency_ceiling_hz_field.expect("Missing parameter: leaf_flutter_frequency_ceiling_hz"),
+            leaf_flutter_frequency_start: leaf_flutter_frequency_start_field.expect("Missing parameter: leaf_flutter_frequency_start"),
+            leaf_flutter_frequency_full: leaf_flutter_frequency_full_field.expect("Missing parameter: leaf_flutter_frequency_full"),
+            leaf_flutter_frequency_knee: leaf_flutter_frequency_knee_field.expect("Missing parameter: leaf_flutter_frequency_knee"),
             leaf_transmission_strength: leaf_transmission_strength_field.expect("Missing parameter: leaf_transmission_strength"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
@@ -3029,6 +3445,18 @@ impl GuiAdjustables {
             headbob_horizontal_amp: headbob_horizontal_amp_field.expect("Missing parameter: headbob_horizontal_amp"),
             headbob_roll_amp: headbob_roll_amp_field.expect("Missing parameter: headbob_roll_amp"),
             headbob_sprint_amp_mul: headbob_sprint_amp_mul_field.expect("Missing parameter: headbob_sprint_amp_mul"),
+            grass_sway_amplitude_scale: grass_sway_amplitude_scale_field.expect("Missing parameter: grass_sway_amplitude_scale"),
+            grass_sway_amplitude_low: grass_sway_amplitude_low_field.expect("Missing parameter: grass_sway_amplitude_low"),
+            grass_sway_amplitude_high: grass_sway_amplitude_high_field.expect("Missing parameter: grass_sway_amplitude_high"),
+            grass_sway_amplitude_start: grass_sway_amplitude_start_field.expect("Missing parameter: grass_sway_amplitude_start"),
+            grass_sway_amplitude_full: grass_sway_amplitude_full_field.expect("Missing parameter: grass_sway_amplitude_full"),
+            grass_sway_amplitude_knee: grass_sway_amplitude_knee_field.expect("Missing parameter: grass_sway_amplitude_knee"),
+            grass_sway_frequency_scale: grass_sway_frequency_scale_field.expect("Missing parameter: grass_sway_frequency_scale"),
+            grass_sway_frequency_low: grass_sway_frequency_low_field.expect("Missing parameter: grass_sway_frequency_low"),
+            grass_sway_frequency_high: grass_sway_frequency_high_field.expect("Missing parameter: grass_sway_frequency_high"),
+            grass_sway_frequency_start: grass_sway_frequency_start_field.expect("Missing parameter: grass_sway_frequency_start"),
+            grass_sway_frequency_full: grass_sway_frequency_full_field.expect("Missing parameter: grass_sway_frequency_full"),
+            grass_sway_frequency_knee: grass_sway_frequency_knee_field.expect("Missing parameter: grass_sway_frequency_knee"),
         }
     }
 }
@@ -3036,6 +3464,7 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
         "fruit_cycle" => Some(&adjustables.fruit_cycle),
@@ -3049,12 +3478,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "dither_strength_lsb" => Some(&adjustables.dither_strength_lsb),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
-        "master_volume" => Some(&adjustables.master_volume),
-        "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&adjustables.tree_wind_response_max_strength),
-        "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
-        "tree_rustle_base_wind" => Some(&adjustables.tree_rustle_base_wind),
         "tree_rustle_gustiness" => Some(&adjustables.tree_rustle_gustiness),
         "tree_rustle_leaf_density" => Some(&adjustables.tree_rustle_leaf_density),
         "tree_rustle_dryness" => Some(&adjustables.tree_rustle_dryness),
@@ -3063,6 +3488,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "tree_rustle_leaf_body" => Some(&adjustables.tree_rustle_leaf_body),
         "tree_rustle_crackle" => Some(&adjustables.tree_rustle_crackle),
         "tree_rustle_brightness" => Some(&adjustables.tree_rustle_brightness),
+        "master_volume" => Some(&adjustables.master_volume),
+        "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
+        "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
         "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
         "sky_light_strength" => Some(&adjustables.sky_light_strength),
@@ -3167,7 +3595,19 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_voxel_hue_offset" => Some(&adjustables.flora_voxel_hue_offset),
         "flora_voxel_saturation_offset" => Some(&adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&adjustables.flora_voxel_value_offset),
-        "leaf_flutter_strength" => Some(&adjustables.leaf_flutter_strength),
+        "leaf_global_offset_scale" => Some(&adjustables.leaf_global_offset_scale),
+        "leaf_local_displacement_voxels" => Some(&adjustables.leaf_local_displacement_voxels),
+        "leaf_flutter_amplitude_high" => Some(&adjustables.leaf_flutter_amplitude_high),
+        "leaf_flutter_amplitude_low" => Some(&adjustables.leaf_flutter_amplitude_low),
+        "leaf_flutter_wind_start" => Some(&adjustables.leaf_flutter_wind_start),
+        "leaf_flutter_wind_full" => Some(&adjustables.leaf_flutter_wind_full),
+        "leaf_flutter_wind_knee" => Some(&adjustables.leaf_flutter_wind_knee),
+        "leaf_flutter_frequency_low_hz" => Some(&adjustables.leaf_flutter_frequency_low_hz),
+        "leaf_flutter_frequency_high_hz" => Some(&adjustables.leaf_flutter_frequency_high_hz),
+        "leaf_flutter_frequency_ceiling_hz" => Some(&adjustables.leaf_flutter_frequency_ceiling_hz),
+        "leaf_flutter_frequency_start" => Some(&adjustables.leaf_flutter_frequency_start),
+        "leaf_flutter_frequency_full" => Some(&adjustables.leaf_flutter_frequency_full),
+        "leaf_flutter_frequency_knee" => Some(&adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
@@ -3183,6 +3623,18 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "headbob_horizontal_amp" => Some(&adjustables.headbob_horizontal_amp),
         "headbob_roll_amp" => Some(&adjustables.headbob_roll_amp),
         "headbob_sprint_amp_mul" => Some(&adjustables.headbob_sprint_amp_mul),
+        "grass_sway_amplitude_scale" => Some(&adjustables.grass_sway_amplitude_scale),
+        "grass_sway_amplitude_low" => Some(&adjustables.grass_sway_amplitude_low),
+        "grass_sway_amplitude_high" => Some(&adjustables.grass_sway_amplitude_high),
+        "grass_sway_amplitude_start" => Some(&adjustables.grass_sway_amplitude_start),
+        "grass_sway_amplitude_full" => Some(&adjustables.grass_sway_amplitude_full),
+        "grass_sway_amplitude_knee" => Some(&adjustables.grass_sway_amplitude_knee),
+        "grass_sway_frequency_scale" => Some(&adjustables.grass_sway_frequency_scale),
+        "grass_sway_frequency_low" => Some(&adjustables.grass_sway_frequency_low),
+        "grass_sway_frequency_high" => Some(&adjustables.grass_sway_frequency_high),
+        "grass_sway_frequency_start" => Some(&adjustables.grass_sway_frequency_start),
+        "grass_sway_frequency_full" => Some(&adjustables.grass_sway_frequency_full),
+        "grass_sway_frequency_knee" => Some(&adjustables.grass_sway_frequency_knee),
         _ => None,
     }
 }
@@ -3201,6 +3653,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&adjustables.path_tracing_max_bounces),
+        "canopy_audio_sample_budget" => Some(&adjustables.canopy_audio_sample_budget),
         "audio_ray_tracing_quality_percent" => Some(&adjustables.audio_ray_tracing_quality_percent),
         "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
@@ -3226,6 +3679,8 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
+        "raster_tree_static" => Some(&adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
@@ -3271,6 +3726,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
         "fruit_cycle" => Some(&mut adjustables.fruit_cycle),
@@ -3284,12 +3740,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "dither_strength_lsb" => Some(&mut adjustables.dither_strength_lsb),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
-        "master_volume" => Some(&mut adjustables.master_volume),
-        "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&mut adjustables.tree_wind_response_max_strength),
-        "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),
-        "tree_rustle_base_wind" => Some(&mut adjustables.tree_rustle_base_wind),
         "tree_rustle_gustiness" => Some(&mut adjustables.tree_rustle_gustiness),
         "tree_rustle_leaf_density" => Some(&mut adjustables.tree_rustle_leaf_density),
         "tree_rustle_dryness" => Some(&mut adjustables.tree_rustle_dryness),
@@ -3298,6 +3750,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "tree_rustle_leaf_body" => Some(&mut adjustables.tree_rustle_leaf_body),
         "tree_rustle_crackle" => Some(&mut adjustables.tree_rustle_crackle),
         "tree_rustle_brightness" => Some(&mut adjustables.tree_rustle_brightness),
+        "master_volume" => Some(&mut adjustables.master_volume),
+        "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
+        "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),
         "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
         "sky_light_strength" => Some(&mut adjustables.sky_light_strength),
@@ -3402,7 +3857,19 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_voxel_hue_offset" => Some(&mut adjustables.flora_voxel_hue_offset),
         "flora_voxel_saturation_offset" => Some(&mut adjustables.flora_voxel_saturation_offset),
         "flora_voxel_value_offset" => Some(&mut adjustables.flora_voxel_value_offset),
-        "leaf_flutter_strength" => Some(&mut adjustables.leaf_flutter_strength),
+        "leaf_global_offset_scale" => Some(&mut adjustables.leaf_global_offset_scale),
+        "leaf_local_displacement_voxels" => Some(&mut adjustables.leaf_local_displacement_voxels),
+        "leaf_flutter_amplitude_high" => Some(&mut adjustables.leaf_flutter_amplitude_high),
+        "leaf_flutter_amplitude_low" => Some(&mut adjustables.leaf_flutter_amplitude_low),
+        "leaf_flutter_wind_start" => Some(&mut adjustables.leaf_flutter_wind_start),
+        "leaf_flutter_wind_full" => Some(&mut adjustables.leaf_flutter_wind_full),
+        "leaf_flutter_wind_knee" => Some(&mut adjustables.leaf_flutter_wind_knee),
+        "leaf_flutter_frequency_low_hz" => Some(&mut adjustables.leaf_flutter_frequency_low_hz),
+        "leaf_flutter_frequency_high_hz" => Some(&mut adjustables.leaf_flutter_frequency_high_hz),
+        "leaf_flutter_frequency_ceiling_hz" => Some(&mut adjustables.leaf_flutter_frequency_ceiling_hz),
+        "leaf_flutter_frequency_start" => Some(&mut adjustables.leaf_flutter_frequency_start),
+        "leaf_flutter_frequency_full" => Some(&mut adjustables.leaf_flutter_frequency_full),
+        "leaf_flutter_frequency_knee" => Some(&mut adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),
@@ -3418,6 +3885,18 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "headbob_horizontal_amp" => Some(&mut adjustables.headbob_horizontal_amp),
         "headbob_roll_amp" => Some(&mut adjustables.headbob_roll_amp),
         "headbob_sprint_amp_mul" => Some(&mut adjustables.headbob_sprint_amp_mul),
+        "grass_sway_amplitude_scale" => Some(&mut adjustables.grass_sway_amplitude_scale),
+        "grass_sway_amplitude_low" => Some(&mut adjustables.grass_sway_amplitude_low),
+        "grass_sway_amplitude_high" => Some(&mut adjustables.grass_sway_amplitude_high),
+        "grass_sway_amplitude_start" => Some(&mut adjustables.grass_sway_amplitude_start),
+        "grass_sway_amplitude_full" => Some(&mut adjustables.grass_sway_amplitude_full),
+        "grass_sway_amplitude_knee" => Some(&mut adjustables.grass_sway_amplitude_knee),
+        "grass_sway_frequency_scale" => Some(&mut adjustables.grass_sway_frequency_scale),
+        "grass_sway_frequency_low" => Some(&mut adjustables.grass_sway_frequency_low),
+        "grass_sway_frequency_high" => Some(&mut adjustables.grass_sway_frequency_high),
+        "grass_sway_frequency_start" => Some(&mut adjustables.grass_sway_frequency_start),
+        "grass_sway_frequency_full" => Some(&mut adjustables.grass_sway_frequency_full),
+        "grass_sway_frequency_knee" => Some(&mut adjustables.grass_sway_frequency_knee),
         _ => None,
     }
 }
@@ -3436,6 +3915,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&mut adjustables.path_tracing_max_bounces),
+        "canopy_audio_sample_budget" => Some(&mut adjustables.canopy_audio_sample_budget),
         "audio_ray_tracing_quality_percent" => Some(&mut adjustables.audio_ray_tracing_quality_percent),
         "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
@@ -3461,6 +3941,8 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
+        "raster_tree_static" => Some(&mut adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),

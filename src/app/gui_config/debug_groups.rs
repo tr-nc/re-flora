@@ -12,6 +12,11 @@ struct ControlGroup {
 
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
+        parent: None, title: "Whole Tree Rasterization",
+        description: "A: voxel trees. B: rasterized voxel surfaces. Static lighting comparison; branch wind comes next. Static terrain remains the exact secondary-ray and collision representation.",
+        initially_open: true, params: &["raster_tree_static", "raster_tree_wind", "tree_stiffness"],
+    },
+    ControlGroup {
         parent: Some("Flora"),
         title: "Growth & Fruiting",
         description: "Plant growth, tree age and the independent fruiting cycle.",
@@ -75,6 +80,15 @@ pub(super) fn render(
     parent: Option<&str>,
 ) {
     for group in GROUPS.iter().filter(|group| group.parent == parent) {
+        if parent == Some("Wind") {
+            ui.label(group.title);
+            for id in group.params {
+                if let Some(param) = section.param.iter().find(|p| p.id == *id) {
+                    render_gui_param_from_config(ui, param, &section.name, adjustables);
+                }
+            }
+            continue;
+        }
         egui::CollapsingHeader::new(group.title)
             .id_salt(("debug_controls", group.title))
             .default_open(group.initially_open)
@@ -217,14 +231,17 @@ mod tests {
             "Distribution",
             "Spawn Animation",
             "Ground Plants",
-            "Shape & Motion",
+            "Generation",
+            "Response",
+            "Grass Amplitude Response",
+            "Grass Frequency Response",
             "Grass Colors",
             "Color Variation",
             "Purple Allium",
             "Leaves",
-            "Flight & Lighting",
-            "Wind Motion",
-            "Wind Response Curves",
+            "Appearance & Lighting",
+            "Leaf Amplitude Response",
+            "Leaf Frequency Response",
         ] {
             assert!(
                 text.lines().any(|line| line == title),

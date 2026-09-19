@@ -43,7 +43,35 @@ impl GuiConfigLoader {
         });
 
         Self::validate(&config, config_path);
-        Self::add_missing_sky_strength(&mut config);
+        Self::migrate_flutter_frequency(&mut config);
+        Self::migrate_frequency_ceiling(&mut config);
+        if !config
+            .section
+            .iter()
+            .any(|s| s.name == "Grass Wind Response")
+        {
+            let defaults: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).expect("GUI defaults");
+            config.section.push(
+                defaults
+                    .section
+                    .into_iter()
+                    .find(|s| s.name == "Grass Wind Response")
+                    .unwrap(),
+            );
+        }
+        Self::migrate_flutter_amplitude(&mut config);
+        Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
+        Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
+        // Retired controls must not survive in the live config or on the next save.
+        for section in &mut config.section {
+            section.param.retain(|param| {
+                !matches!(
+                    param.id.as_str(),
+                    "raster_tree_axis_aligned" | "terrain_missing_lighting_strength"
+                )
+            });
+        }
 
         log::info!(
             "Loaded GUI config: {} (schema v{}, {} sections, {} params)",
@@ -56,19 +84,145 @@ impl GuiConfigLoader {
         config
     }
 
-    fn add_missing_sky_strength(config: &mut GuiConfigFile) {
+    fn migrate_flutter_amplitude(config: &mut GuiConfigFile) {
+        let Some(leaves) = config.section.iter_mut().find(|s| s.name == "Leaves") else {
+            return;
+        };
+        let Some(strength) = leaves
+            .param
+            .iter()
+            .find(|p| p.id == "leaf_flutter_strength")
+            .and_then(|p| p.value.get_float())
+            .map(|v| v.0)
+        else {
+            return;
+        };
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        for (id, value) in [
+            ("leaf_flutter_amplitude_low", 0.),
+            ("leaf_flutter_amplitude_high", strength.clamp(0., 2.) * 0.5),
+        ] {
+            if leaves.param.iter().any(|p| p.id == id) {
+                continue;
+            }
+            let mut param = defaults
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .expect("amplitude schema")
+                .clone();
+            if let GuiParamValue::Float { value: stored, .. } = &mut param.value {
+                *stored = value;
+            }
+            leaves.param.push(param);
+        }
+        leaves.param.retain(|p| p.id != "leaf_flutter_strength");
+        if let Some(scale) = leaves
+            .param
+            .iter_mut()
+            .find(|p| p.id == "leaf_local_displacement_voxels")
+        {
+            scale.label = "Amplitude Scaling (voxels)".into();
+        }
+    }
+
+    fn migrate_flutter_frequency(config: &mut GuiConfigFile) {
+        let Some(leaves) = config.section.iter_mut().find(|s| s.name == "Leaves") else {
+            return;
+        };
+        let old = |id: &str| {
+            leaves
+                .param
+                .iter()
+                .find(|p| p.id == id)
+                .and_then(|p| p.value.get_float())
+                .map(|v| v.0)
+        };
+        let base = old("leaf_flutter_frequency_hz");
+        let scale = old("leaf_flutter_frequency_scale");
+        if base.is_none() && scale.is_none() {
+            return;
+        }
+        let base = base.unwrap_or(1.8).clamp(0.5, 12.);
+        let high = base * scale.unwrap_or(1.).clamp(0.5, 2.);
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        for (id, value) in [
+            ("leaf_flutter_frequency_low_hz", base),
+            ("leaf_flutter_frequency_high_hz", high),
+            ("leaf_flutter_frequency_ceiling_hz", 24.),
+        ] {
+            if leaves.param.iter().any(|p| p.id == id) {
+                continue;
+            }
+            let mut param = defaults
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .expect("frequency schema")
+                .clone();
+            if let GuiParamValue::Float { value: stored, .. } = &mut param.value {
+                *stored = value;
+            }
+            leaves.param.push(param);
+        }
+        leaves.param.retain(|p| {
+            p.id != "leaf_flutter_frequency_hz" && p.id != "leaf_flutter_frequency_scale"
+        });
+    }
+
+    fn migrate_frequency_ceiling(config: &mut GuiConfigFile) {
+        let Some(leaves) = config.section.iter_mut().find(|s| s.name == "Leaves") else {
+            return;
+        };
+        let old = leaves
+            .param
+            .iter()
+            .find(|p| p.id == "leaf_flutter_frequency_multiplier")
+            .and_then(|p| p.value.get_float())
+            .map(|v| v.0);
+        if let Some(multiplier) = old {
+            if !leaves
+                .param
+                .iter()
+                .any(|p| p.id == "leaf_flutter_frequency_ceiling_hz")
+            {
+                let defaults: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).expect("GUI defaults");
+                let mut ceiling = defaults
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "leaf_flutter_frequency_ceiling_hz")
+                    .unwrap()
+                    .clone();
+                if let GuiParamValue::Float { value, .. } = &mut ceiling.value {
+                    *value = multiplier.clamp(0.25, 2.) * 24.;
+                }
+                leaves.param.push(ceiling);
+            }
+            leaves
+                .param
+                .retain(|p| p.id != "leaf_flutter_frequency_multiplier");
+        }
+    }
+
+    fn add_missing_param(config: &mut GuiConfigFile, section_name: &str, param_id: &str) {
         if config
             .section
             .iter()
             .flat_map(|section| &section.param)
-            .any(|param| param.id == "sky_light_strength")
+            .any(|param| param.id == param_id)
         {
             return;
         }
-        let Some(sky) = config
+        let Some(section) = config
             .section
             .iter_mut()
-            .find(|section| section.name == "Sky")
+            .find(|section| section.name == section_name)
         else {
             return;
         };
@@ -76,13 +230,13 @@ impl GuiConfigLoader {
         // build-time source as the generated GUI; never overwrite an existing authored value.
         let defaults: GuiConfigFile = toml::from_str(include_str!("../../config/gui.toml"))
             .expect("compiled GUI defaults must be valid");
-        let strength = defaults
+        let param = defaults
             .section
             .into_iter()
             .flat_map(|section| section.param)
-            .find(|param| param.id == "sky_light_strength")
-            .expect("compiled GUI defaults must define sky lighting strength");
-        sky.param.push(strength);
+            .find(|param| param.id == param_id)
+            .expect("compiled GUI defaults must define requested parameter");
+        section.param.push(param);
     }
 
     pub fn config_path() -> std::path::PathBuf {
@@ -460,6 +614,321 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retired_terrain_fallback_is_removed_without_changing_other_settings() {
+        for strength in [0., 0.035, 0.2] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let expected = toml::to_string(&config).unwrap();
+            let shadow = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Shadow")
+                .unwrap();
+            let mut retired = shadow
+                .param
+                .iter()
+                .find(|p| p.id == "terrain_ray_origin_offset_world")
+                .unwrap()
+                .clone();
+            retired.id = "terrain_missing_lighting_strength".into();
+            retired.value = crate::app::gui_config_model::GuiParamValue::Float {
+                value: strength,
+                min: Some(0.),
+                max: Some(0.2),
+            };
+            shadow.param.push(retired);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(toml::to_string(&loaded).unwrap(), expected);
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn old_configs_receive_neutral_stiffness_and_authored_values_survive_saving() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let expected = toml::to_string(&config).unwrap();
+        for section in &mut config.section {
+            section.param.retain(|p| p.id != "tree_stiffness");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        // The migration may append the control, so compare parameters by id.
+        let defaults: GuiConfigFile = toml::from_str(&expected).unwrap();
+        for param in defaults.section.iter().flat_map(|s| &s.param) {
+            let actual = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == param.id)
+                .unwrap();
+            assert_eq!(
+                toml::to_string(actual).unwrap(),
+                toml::to_string(param).unwrap()
+            );
+        }
+        let control = loaded
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "tree_stiffness")
+            .unwrap();
+        assert_eq!(
+            control.value.get_float().unwrap(),
+            (0.5, Some(0.), Some(1.))
+        );
+        control.value = GuiParamValue::Float {
+            value: 0.8,
+            min: Some(0.),
+            max: Some(1.),
+        };
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(
+            toml::to_string(&reloaded).unwrap(),
+            toml::to_string(&loaded).unwrap()
+        );
+    }
+
+    #[test]
+    fn retired_tree_block_switch_is_removed_without_changing_other_settings() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let debug = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap();
+            for param in &mut debug.param {
+                if ["raster_tree_static", "raster_tree_wind"].contains(&param.id.as_str()) {
+                    param.value = GuiParamValue::Bool { value: enabled };
+                }
+            }
+            let mut retired = debug
+                .param
+                .iter()
+                .find(|p| p.id == "raster_tree_wind")
+                .unwrap()
+                .clone();
+            retired.id = "raster_tree_axis_aligned".into();
+            retired.value = GuiParamValue::Bool { value: enabled };
+            let expected = toml::to_string(&config).unwrap();
+            config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap()
+                .param
+                .push(retired);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let migrated = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(toml::to_string(&migrated).unwrap(), expected);
+            GuiConfigLoader::save_to_path(&migrated, &path).unwrap();
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("raster_tree_axis_aligned"));
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn amplitude_migration_preserves_strength_radius_and_other_settings() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let leaves = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Leaves")
+            .unwrap();
+        let old = leaves
+            .param
+            .iter_mut()
+            .find(|p| p.id == "leaf_flutter_amplitude_high")
+            .unwrap();
+        old.id = "leaf_flutter_strength".into();
+        old.value = GuiParamValue::Float {
+            value: 1.4,
+            min: Some(0.),
+            max: Some(2.),
+        };
+        leaves
+            .param
+            .retain(|p| p.id != "leaf_flutter_amplitude_low");
+        let before = config.clone();
+        GuiConfigLoader::migrate_flutter_amplitude(&mut config);
+        let params: Vec<_> = config.section.iter().flat_map(|s| &s.param).collect();
+        assert_eq!(
+            params
+                .iter()
+                .find(|p| p.id == "leaf_flutter_amplitude_high")
+                .unwrap()
+                .value
+                .get_float()
+                .unwrap()
+                .0,
+            0.7
+        );
+        assert_eq!(
+            params
+                .iter()
+                .find(|p| p.id == "leaf_flutter_amplitude_low")
+                .unwrap()
+                .value
+                .get_float()
+                .unwrap()
+                .0,
+            0.
+        );
+        for old in before.section.iter().flat_map(|s| &s.param) {
+            if old.id == "leaf_flutter_strength" {
+                continue;
+            }
+            let after = params.iter().find(|p| p.id == old.id).unwrap();
+            assert_eq!(
+                toml::to_string(&old.value).unwrap(),
+                toml::to_string(&after.value).unwrap(),
+                "{}",
+                old.id
+            );
+        }
+        let once = toml::to_string(&config).unwrap();
+        GuiConfigLoader::migrate_flutter_amplitude(&mut config);
+        assert_eq!(once, toml::to_string(&config).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&before, &path).unwrap();
+        assert_eq!(
+            once,
+            toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
+        );
+    }
+
+    #[test]
+    fn old_flutter_settings_migrate_without_changing_the_saved_curve() {
+        use crate::app::gui_config_model::{GuiConfigFile, GuiParamValue};
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let leaves = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Leaves")
+            .unwrap();
+        for (new, old, value) in [
+            (
+                "leaf_flutter_frequency_low_hz",
+                "leaf_flutter_frequency_hz",
+                1.5,
+            ),
+            (
+                "leaf_flutter_frequency_high_hz",
+                "leaf_flutter_frequency_scale",
+                2.,
+            ),
+        ] {
+            let p = leaves.param.iter_mut().find(|p| p.id == new).unwrap();
+            p.id = old.into();
+            if let GuiParamValue::Float { value: stored, .. } = &mut p.value {
+                *stored = value;
+            }
+        }
+        leaves
+            .param
+            .retain(|p| p.id != "leaf_flutter_frequency_ceiling_hz");
+        let before = config.clone();
+        GuiConfigLoader::migrate_flutter_frequency(&mut config);
+        let get = |id: &str| {
+            config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .unwrap()
+                .value
+                .get_float()
+                .unwrap()
+                .0
+        };
+        assert_eq!(get("leaf_flutter_frequency_low_hz"), 1.5);
+        assert_eq!(get("leaf_flutter_frequency_high_hz"), 3.);
+        assert_eq!(get("leaf_flutter_frequency_ceiling_hz"), 24.);
+        for s in &before.section {
+            for p in &s.param {
+                if p.id == "leaf_flutter_frequency_hz" || p.id == "leaf_flutter_frequency_scale" {
+                    continue;
+                }
+                let after = config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|q| q.id == p.id)
+                    .unwrap();
+                assert_eq!(toml::to_string(p).unwrap(), toml::to_string(after).unwrap());
+            }
+        }
+        let once = toml::to_string(&config).unwrap();
+        GuiConfigLoader::migrate_flutter_frequency(&mut config);
+        assert_eq!(once, toml::to_string(&config).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&before, &path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(toml::to_string(&loaded).unwrap(), once);
+    }
+
+    #[test]
+    fn frequency_ceiling_migration_preserves_saved_curve_and_other_fields() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let before = config.clone();
+        let p = config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "leaf_flutter_frequency_ceiling_hz")
+            .unwrap();
+        p.id = "leaf_flutter_frequency_multiplier".into();
+        if let GuiParamValue::Float { value, .. } = &mut p.value {
+            *value = 0.75;
+        }
+        GuiConfigLoader::migrate_frequency_ceiling(&mut config);
+        for old in before.section.iter().flat_map(|s| &s.param) {
+            let new = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == old.id)
+                .unwrap();
+            if old.id == "leaf_flutter_frequency_ceiling_hz" {
+                assert_eq!(new.value.get_float().unwrap().0, 18.);
+            } else {
+                assert_eq!(toml::to_string(old).unwrap(), toml::to_string(new).unwrap());
+            }
+        }
+        let once = toml::to_string(&config).unwrap();
+        GuiConfigLoader::migrate_frequency_ceiling(&mut config);
+        assert_eq!(once, toml::to_string(&config).unwrap());
+    }
+
     use super::{GuiConfigLoader, GUI_FLOAT_DECIMALS};
     use crate::app::gui_config_model::GuiConfigFile;
     use std::path::Path;
@@ -508,12 +977,12 @@ mod tests {
         let path = directory.path().join("gui.toml");
         std::fs::write(&path, "incomplete previous contents").unwrap();
         let mut config = GuiConfigLoader::load();
-        config.tree.as_mut().unwrap().desc.size = 17.5;
+        config.tree.desc.size = 17.5;
 
         GuiConfigLoader::save_to_path(&config, &path).unwrap();
 
         let loaded = GuiConfigLoader::load_from_path(&path);
-        assert_eq!(loaded.tree.unwrap().desc.size, 17.5);
+        assert_eq!(loaded.tree.desc.size, 17.5);
         let files = std::fs::read_dir(directory.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name())

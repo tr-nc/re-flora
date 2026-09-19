@@ -49,8 +49,16 @@ For geometry and density updates, epoch zero:
 
 - traces the current geometry and radiance snapshot;
 - records authored sky on misses;
-- records terrain albedo times exact direct-sun irradiance on front-face hits;
-- uses zero indirect history and zero history retention;
+- records terrain albedo times exact direct-sun plus available previous-field indirect irradiance
+  on front-face hits;
+- uses zero local accumulation retention, but geometry refreshes retain the previous complete
+  radiance estimate for recursive transport, gated by current exact voxel visibility;
+- initial/density allocations without a source use zero indirect history;
+- recursive query readiness follows the complete **source**, not the unpublished destination;
+  inherited geometry sources must not route indoor hit shading to Global Sky Irradiance;
+- recursive source irradiance, visibility, and probe placement are one owner tuple. Geometry e0
+  reads inherited Active placement; same-volume temporal epochs read that Volume's placement.
+  Destination relocation is used only for new probe ray origins and destination filtering;
 - writes both irradiance and visibility to a private destination;
 - becomes the immutable generation root after the entire atlas validates.
 
@@ -60,16 +68,30 @@ all indirect lighting. Exact voxel visibility follows the latest published terra
 irradiance, relocation, and moment visibility remain explicitly owned by the older field until the
 replacement Volume promotes.
 
-Density changes have no localized topology-recovery window, so their complete epoch zero promotes
-directly. Geometry edits retain the epoch-zero root privately while bounded local recovery advances
-the same owner-validated generation. The recovered descendant, not the raw geometry epoch zero,
-becomes consumer-visible. Its typed publication carries the physical build token and exact private
-epoch-zero root, so acceptance can prove the lineage without inferring it from serial arithmetic.
+Density and geometry changes publish a complete finite epoch zero without waiting for
+local recovery stability. Geometry recovery continues on complete consumer-visible epochs;
+publication is not a convergence claim. The same owner-validated generation, exact root,
+atlas/sky slots and descriptor transaction remain authoritative.
 
-Geometry publication is strict latest-revision-wins. One physical Staging update runs at a time;
-new edits coalesce, obsolete candidates cannot promote, and geometry preempts density and temporal
-convergence. Radiance changes finish one immutable in-flight epoch and coalesce queued changes to
-the latest snapshot.
+Geometry publication is progressive and monotonic in build-token order. One physical Staging
+update runs at a time; newer edits coalesce while the current complete candidate is allowed
+to publish. A progressive older candidate retains its original geometry revision and does
+not clear the newer request or its edit/invalidation bounds. Covered older bounds retire. The next allocation
+claims the latest visible revision. Exact voxel visibility still follows current terrain.
+During motion, probe batches may observe terrain changes across frames; a complete field is
+an atomic temporal approximation, **not** a frozen same-revision geometry snapshot. After
+editing stops, the final requested revision is rebuilt and convergence proceeds normally.
+Density candidates remain discardable when superseded or preempted by terrain. Radiance
+changes finish one immutable in-flight epoch and coalesce queued changes to the latest snapshot.
+
+Terrain final display multiplies the latest sampled physical irradiance by material albedo.
+Pending edits do not replace that result with a constant or an albedo-only fallback: even an
+unconverged estimate keeps its environmental color. Completely unsupported samples can remain
+dark until a usable field arrives. Edited bounds continue to guide refresh scheduling, not display
+color. Direct light, emission, and the normal brush boundary indicator remain independent.
+See [cave edit lighting](cave_edit_lighting.md) for the sealed-interior energy regression and
+[terrain edit lighting](terrain_edit_lighting.md) for the sustained-edit regression,
+measurements, and legacy acceptance limitations.
 
 ## Sampling and temporal accumulation
 

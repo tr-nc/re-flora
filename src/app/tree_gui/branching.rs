@@ -20,7 +20,7 @@ pub(super) fn edit_branching_desc(ui: &mut egui::Ui, desc: &mut BranchingDesc) -
         )
         .changed();
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Axis Shape");
     changed |= ui
         .add(egui::Slider::new(&mut desc.spread, 0.0..=2.0).text("Spread"))
@@ -39,7 +39,7 @@ pub(super) fn edit_branching_desc(ui: &mut egui::Ui, desc: &mut BranchingDesc) -
         )
         .changed();
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Branch Window");
     changed |= ui
         .add(
@@ -56,7 +56,7 @@ pub(super) fn edit_branching_desc(ui: &mut egui::Ui, desc: &mut BranchingDesc) -
         .checkbox(&mut desc.continue_main_axis, "Continue Main Axis")
         .changed();
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Lateral Branches");
     changed |= ui
         .add(egui::Slider::new(&mut desc.branch_probability, 0.0..=1.0).text("Branch Probability"))
@@ -90,7 +90,7 @@ pub(super) fn edit_branching_desc(ui: &mut egui::Ui, desc: &mut BranchingDesc) -
         .changed();
     changed |= angle_mean_changed || angle_variation_changed;
 
-    ui.separator();
+    ui.add_space(6.0);
     ui.heading("Seed");
     changed |= ui
         .add(

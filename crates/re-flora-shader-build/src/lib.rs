@@ -322,6 +322,48 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/trees/tree_pose.comp",
+        source_path: "shader/slang/tree_pose.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/tree_refit.comp",
+        source_path: "shader/slang/tree_refit.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/tree_skin.comp",
+        source_path: "shader/slang/tree_skin.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/raster_tree_lighting.comp",
+        source_path: "shader/slang/raster_tree_lighting.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/raster_tree.vert",
+        source_path: "shader/slang/raster_tree.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/raster_tree.frag",
+        source_path: "shader/slang/raster_tree.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/raster_tree_shadow.vert",
+        source_path: "shader/slang/raster_tree_shadow.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
         logical_path: "shader/props/dynamic_fruit.vert",
         source_path: "shader/slang/dynamic_fruit.vert.slang",
         module_path: "shader/slang",

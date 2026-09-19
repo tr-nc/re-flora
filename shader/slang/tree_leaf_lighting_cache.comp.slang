@@ -31,7 +31,7 @@ RWStructuredBuffer<float4> flora_lighting_cache;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint invocation : SV_GroupIndex)
 {
     PushConstantFlora floraPc = floraPushConstants();
     uint instanceCount = floraLightingCacheInstanceCount(floraPc);
@@ -66,13 +66,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             floraLocalLightInfo(), local_lights, contree_node_data,
             contree_leaf_data, scene_tex, chunk_atlas, prepared.voxel_position,
             prepared.shading_normal,
-            floraTerrainRayOriginOffsetWorld(), localInstanceIndex);
+            floraTerrainRayOriginOffsetWorld(), invocation);
 #else
         irradiance += evaluateVoxelVisibleLocalLightIrradiance(
             floraLocalLightInfo(), local_lights, contree_node_data,
             contree_leaf_data, scene_tex, prepared.voxel_position,
             prepared.shading_normal,
-            floraTerrainRayOriginOffsetWorld(), localInstanceIndex);
+            floraTerrainRayOriginOffsetWorld(), invocation);
 #endif
     }
     flora_lighting_cache[

@@ -25,7 +25,7 @@ pub(super) fn smoothstep_variant_response(
 ) -> f32 {
     let lo = start.min(full);
     let hi = start.max(full);
-    let t = if hi - lo <= f32::EPSILON {
+    let t = if hi - lo <= 1.0e-4 {
         if input >= hi {
             1.0
         } else {

@@ -203,6 +203,7 @@ impl DirtyTerrainBrickQueue {
 
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
+    tree_surface_revision: Option<u32>,
     dirty_terrain_bricks: DirtyTerrainBrickQueue,
     imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
     failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
@@ -214,6 +215,44 @@ pub(super) struct TerrainPhysics {
 }
 
 impl TerrainPhysics {
+    pub(super) fn tree_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
+        self.collision_world
+            .deforming_ray_candidates(origin * 256., direction)
+    }
+
+    pub(super) fn publish_tree_surface(
+        &mut self,
+        revision: Option<u32>,
+        cells: &std::collections::BTreeSet<[u32; 3]>,
+        surface: Option<&crate::tracer::PosedTreeSurface>,
+        indices: &[u32],
+    ) -> anyhow::Result<()> {
+        if self.tree_surface_revision != revision {
+            self.collision_world.set_deforming_surface_exclusions(
+                cells
+                    .iter()
+                    .filter(|_| revision.is_some())
+                    .map(|&p| UVec3::from(p).as_ivec3()),
+            );
+            self.tree_surface_revision = revision;
+        }
+        if let Some(surface) = surface {
+            let positions: Vec<_> = surface.positions().map(|p| p * 256.).collect();
+            let triangles: Vec<_> = indices
+                .chunks_exact(3)
+                .map(|t| [t[0], t[1], t[2]])
+                .collect();
+            self.collision_world
+                .set_deforming_surface(&positions, &triangles)
+                .map_err(anyhow::Error::msg)?;
+        } else {
+            self.collision_world
+                .set_deforming_surface(&[], &[])
+                .map_err(anyhow::Error::msg)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn tree_fruit_publication_checkpoint(
         &self,
         tree_id: u32,
@@ -232,6 +271,7 @@ impl TerrainPhysics {
             .expect("dynamic fruit gravity constant must be valid");
         Self {
             collision_world,
+            tree_surface_revision: None,
             dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
             imported_terrain_bricks: HashSet::new(),
             failed_terrain_bricks: HashSet::new(),
@@ -564,11 +604,26 @@ impl TerrainPhysics {
             )?
         };
         for ((tree_id, fruit_id, spec), (offset, velocity)) in ready.into_iter().zip(poses) {
-            let desc = apple_dynamic_body_desc(
-                spec.position_voxels.as_vec3() + offset,
+            let release_position = spec.position_voxels.as_vec3() + offset;
+            let missing: Vec<_> =
+                fruit_drop_path_bricks(release_position.max(Vec3::ZERO).as_uvec3())
+                    .into_iter()
+                    .filter(|brick| !self.imported_terrain_bricks.contains(brick))
+                    .collect();
+            if !missing.is_empty() {
+                for brick in missing {
+                    self.dirty_terrain_bricks.push(brick);
+                }
+                continue;
+            }
+            let mut desc = apple_dynamic_body_desc(
+                release_position,
                 spec.linear_velocity_voxels + velocity,
                 spec.angular_velocity,
             );
+            let (rotation, angular_velocity) = tracer.attached_fruit_rotation(spec.position_voxels);
+            desc.rotation = rotation;
+            desc.angular_velocity += angular_velocity;
             let body = self
                 .collision_world
                 .spawn_dynamic_body(desc)

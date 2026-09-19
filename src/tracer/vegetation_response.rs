@@ -1,8 +1,7 @@
 //! Stateful vegetation motion. Grass and fruit share world-space response grids;
 //! authored plants and individual leaf voxels have lifetime-keyed state. Rendering only sees
 //! four held poses, never the continuous integrator velocity.
-use crate::flora::species::MAX_FLORA_SPECIES;
-use crate::{builder::SurfaceResources, geom::UAabb3};
+use crate::{builder::SurfaceResources, flora::species, geom::UAabb3};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use re_flora_vkn::{
@@ -13,6 +12,7 @@ use std::collections::HashMap;
 
 mod fruit_handoff;
 mod leaves;
+pub(crate) mod morphology;
 mod validation;
 pub(super) use leaves::instance_seed;
 pub(super) use validation::validate_gpu;
@@ -44,6 +44,12 @@ struct ResponseStep {
     tick_seconds: f32,
     count: u32,
     controls: [f32; 4],
+    flutter_curve: [f32; 4],
+    flutter_frequency: [f32; 4],
+    flutter_frequency_curve: [f32; 4],
+    grass_amplitude: [f32; 4],
+    grass_frequency: [f32; 4],
+    grass_curve: [f32; 4],
 }
 
 struct FrameBuffers {
@@ -90,13 +96,19 @@ impl FrameBuffers {
 pub(super) struct VegetationResponse {
     pub enabled: bool,
     pub controls: [f32; 4],
+    pub flutter_curve: [f32; 4],
+    pub flutter_frequency: [f32; 4],
+    pub flutter_frequency_curve: [f32; 4],
+    pub grass_amplitude: [f32; 4],
+    pub grass_frequency: [f32; 4],
+    pub grass_curve: [f32; 4],
     pub pose_hz: f32,
     comparison: String,
     grid: ResponseInfo,
     grid_inputs: Vec<ResponseInput>,
     previous_plants: HashMap<u64, u32>,
     leaves: leaves::LeafResponses,
-    flower_offsets: Vec<[u32; MAX_FLORA_SPECIES]>,
+    flower_offsets: Vec<[u32; species::MAX_FLORA_SPECIES]>,
     frames: Vec<Option<FrameBuffers>>,
     previous_output: Option<Buffer>,
     current_frame: Option<usize>,
@@ -106,7 +118,7 @@ pub(super) struct VegetationResponse {
     validation_draw_mask: u32,
     validation_reset_count: u32,
     validation_tree_mask: u32,
-    last_controls: Option<([f32; 4], f32)>,
+    last_controls: Option<[[f32; 4]; 8]>,
 }
 
 impl VegetationResponse {
@@ -130,7 +142,11 @@ impl VegetationResponse {
         let field_species: &[u32] = match comparison.as_str() {
             "legacy" => &[],
             "surface" => &[0],
-            _ => &[0, 6],
+            _ => &[
+                species::TALL_GRASS_SPECIES_INDEX,
+                species::APPLE_RENDER_SPECIES_INDEX,
+                species::SHORT_GRASS_SPECIES_INDEX,
+            ],
         };
         let mut grid = grid;
         grid.grid[3] = field_species.len() as f32;
@@ -144,7 +160,14 @@ impl VegetationResponse {
                             origin.z as f32 + z as f32 * spacing,
                             0.0,
                         ],
-                        identity: [NO_PREVIOUS, species, 0, 0],
+                        identity: [
+                            NO_PREVIOUS,
+                            species,
+                            (origin.x * 256 + x * GRID_SPACING_VOXELS).wrapping_mul(0x85ebca6b)
+                                ^ (origin.z * 256 + z * GRID_SPACING_VOXELS)
+                                    .wrapping_mul(0xc2b2ae35),
+                            0,
+                        ],
                     });
                 }
             }
@@ -154,6 +177,12 @@ impl VegetationResponse {
         Self {
             enabled: true,
             controls: [1.5, 1., 1., 0.],
+            flutter_curve: [0.05, 1., 0., 0.],
+            flutter_frequency: [1.8, 1.8, 1., 0.],
+            flutter_frequency_curve: [0.05, 1., 0., 0.],
+            grass_amplitude: [0., 1., 0.05, 2.],
+            grass_frequency: [1., 1., 0.05, 2.],
+            grass_curve: [0.; 4],
             pose_hz: 5.,
             comparison,
             grid,
@@ -197,6 +226,7 @@ impl VegetationResponse {
         pipeline: &ComputePipeline,
         cmdbuf: &CommandBuffer,
         surface: &SurfaceResources,
+        grass_profiles: [f32; species::MAX_FLORA_SPECIES],
         frame_slot: usize,
         time: f32,
         tick_seconds: f32,
@@ -222,7 +252,7 @@ impl VegetationResponse {
             self.current_frame = Some(frame_slot);
             self.flower_offsets.resize(
                 surface.instances.chunk_flora_instances.len(),
-                [0; MAX_FLORA_SPECIES],
+                [0; species::MAX_FLORA_SPECIES],
             );
             return Ok(());
         }
@@ -244,7 +274,7 @@ impl VegetationResponse {
                 &self.previous_plants,
                 &mut next_plants,
             );
-            for species in 2..MAX_FLORA_SPECIES {
+            for species in 2..species::species_count() {
                 let count = chunk
                     .authored_response_instances
                     .iter()
@@ -268,6 +298,11 @@ impl VegetationResponse {
             );
         }
         self.previous_plants = next_plants;
+        for input in &mut inputs {
+            if let Some(profile) = grass_profiles.get(input.identity[1] as usize) {
+                input.root[3] = *profile;
+            }
+        }
         if self.grid.grid[3] >= 2. {
             self.leaves
                 .append(&mut inputs, &surface.instances.leaves_instances, reset)?;
@@ -303,6 +338,12 @@ impl VegetationResponse {
         info.shape[3] = inputs.len() as u32;
         frame.info.fill_uniform(&info)?;
         let step = ResponseStep {
+            flutter_curve: self.flutter_curve,
+            flutter_frequency: self.flutter_frequency,
+            flutter_frequency_curve: self.flutter_frequency_curve,
+            grass_amplitude: self.grass_amplitude,
+            grass_frequency: self.grass_frequency,
+            grass_curve: self.grass_curve,
             start_time: start,
             end_time: time,
             tick_seconds: if !self.comparison.is_empty() {
@@ -317,14 +358,27 @@ impl VegetationResponse {
                 self.controls
             },
         };
-        let settings = (step.controls, step.tick_seconds);
+        let settings = [
+            step.controls,
+            [step.tick_seconds, 0., 0., 0.],
+            step.flutter_curve,
+            step.flutter_frequency,
+            step.flutter_frequency_curve,
+            step.grass_amplitude,
+            step.grass_frequency,
+            step.grass_curve,
+        ];
         if self.last_controls != Some(settings) {
+            log::info!("[GRASS_RESPONSE][SETTINGS] amplitude={:?} frequency={:?} curve={:?} local_motion=current_frame", step.grass_amplitude, step.grass_frequency, step.grass_curve);
             log::info!(
-                "[VEGETATION_RESPONSE][SETTINGS] controls={:?} pose_hz={} states={} reset_count={}",
+                "[VEGETATION_RESPONSE][SETTINGS] controls={:?} pose_hz={} states={} reset_count={} flutter_curve={:?} flutter_frequency={:?} frequency_curve={:?} local_flutter=current_frame",
                 step.controls,
                 1. / (4. * step.tick_seconds),
                 step.count,
-                self.validation_reset_count
+                self.validation_reset_count,
+                step.flutter_curve,
+                step.flutter_frequency,
+                step.flutter_frequency_curve
             );
             self.last_controls = Some(settings);
         }
@@ -381,7 +435,7 @@ impl VegetationResponse {
         }
         for batch in plan.batches() {
             let lod = u32::from(batch.lod_state() == super::LodState::Lod1);
-            let bit = 1 << (batch.species_index() as u32 + lod * MAX_FLORA_SPECIES as u32);
+            let bit = 1 << (batch.species_index() as u32 + lod * species::MAX_FLORA_SPECIES as u32);
             if self.validation_draw_mask & bit == 0 {
                 self.validation_draw_mask |= bit;
                 log::info!(
@@ -402,7 +456,7 @@ impl VegetationResponse {
             self.validation_tree_mask
         );
         anyhow::ensure!(
-            self.validation_draw_mask == (1 << (2 * MAX_FLORA_SPECIES)) - 1,
+            self.validation_draw_mask == (1 << (2 * species::MAX_FLORA_SPECIES)) - 1,
             "incomplete grass/flower C draw coverage: 0x{:03x}",
             self.validation_draw_mask
         );
@@ -439,9 +493,9 @@ fn append_chunk_plants(
     plants: &[crate::builder::AuthoredFloraInstance],
     previous: &HashMap<u64, u32>,
     next: &mut HashMap<u64, u32>,
-) -> [u32; MAX_FLORA_SPECIES] {
-    let mut offsets = [0; MAX_FLORA_SPECIES];
-    for species in 2..MAX_FLORA_SPECIES {
+) -> [u32; species::MAX_FLORA_SPECIES] {
+    let mut offsets = [0; species::MAX_FLORA_SPECIES];
+    for species in 2..species::species_count() {
         offsets[species] = inputs.len() as u32;
         for plant in plants
             .iter()
@@ -455,7 +509,12 @@ fn append_chunk_plants(
             let root = (plant.base_world_vox + glam::UVec3::Y).as_vec3() / 256.0;
             inputs.push(ResponseInput {
                 root: [root.x, root.y, root.z, 0.0],
-                identity: [previous, species as u32, 0, 0],
+                identity: [
+                    previous,
+                    species as u32,
+                    plant.response_id as u32 ^ (plant.response_id >> 32) as u32,
+                    0,
+                ],
             });
         }
     }
@@ -472,7 +531,7 @@ mod tests {
         let response =
             VegetationResponse::new(UAabb3::new(UVec3::new(3, 0, 4), UVec3::new(5, 2, 6)));
         assert_eq!(response.grid.shape[..2], [33, 33]);
-        assert_eq!(response.grid_inputs.len(), 1089 * 2);
+        assert_eq!(response.grid_inputs.len(), 1089 * 3);
         assert_eq!(response.grid_inputs.first().unwrap().root, [3., 0., 4., 0.]);
         assert_eq!(response.grid_inputs.last().unwrap().root, [5., 0., 6., 0.]);
         assert_eq!(response.grid_inputs[16].root[0], 4.);
@@ -490,7 +549,40 @@ mod tests {
     fn gpu_input_layouts_remain_aligned() {
         assert_eq!(std::mem::size_of::<ResponseInput>(), 32);
         assert_eq!(std::mem::size_of::<ResponseInfo>(), 32);
-        assert_eq!(std::mem::size_of::<ResponseStep>(), 32);
+        assert_eq!(std::mem::size_of::<ResponseStep>(), 128);
+        assert_eq!(std::mem::offset_of!(ResponseStep, grass_amplitude), 80);
+        assert_eq!(std::mem::offset_of!(ResponseStep, grass_frequency), 96);
+        assert_eq!(std::mem::offset_of!(ResponseStep, grass_curve), 112);
+        assert_eq!(std::mem::offset_of!(ResponseStep, flutter_frequency), 48);
+        assert_eq!(
+            std::mem::offset_of!(ResponseStep, flutter_frequency_curve),
+            64
+        );
+        assert_eq!(
+            std::mem::offset_of!(
+                crate::generated::gpu_structs::ManualResponseOutput,
+                flutter_phase
+            ),
+            96
+        );
+        assert_eq!(
+            std::mem::offset_of!(
+                crate::generated::gpu_structs::ManualResponseOutput,
+                flutter_cells
+            ),
+            104
+        );
+        assert_eq!(
+            std::mem::size_of::<ResponseStep>(),
+            std::mem::size_of::<crate::generated::gpu_structs::PushConstantVegetationResponse>()
+        );
+        assert_eq!(
+            std::mem::offset_of!(ResponseStep, flutter_curve),
+            std::mem::offset_of!(
+                crate::generated::gpu_structs::PushConstantVegetationResponse,
+                flutter_curve
+            )
+        );
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::ManualResponseInputs>(),
             32

@@ -1,5 +1,45 @@
 schema_version = 1
 
+[audio_mix.master]
+enabled = true
+scale = 17.0
+
+[audio_mix.leaves]
+enabled = true
+scale = 10.0
+
+[audio_mix.tree_cicadas]
+enabled = true
+scale = 12.0
+
+[audio_mix.ground_cicadas]
+enabled = true
+scale = 12.0
+
+[audio_mix.footsteps]
+enabled = true
+scale = 1.5
+
+[audio_mix.terrain]
+enabled = true
+scale = 0.3
+
+[audio_mix.interface]
+enabled = true
+scale = 5.0
+
+[butterfly_flight]
+variant = "DartingSprite"
+
+[butterfly_flight.tuning]
+flight_frequency_hz = 6.0
+height_above_ground = 0.08
+maneuver_tempo = 2.75
+vertical_strength = 3.2
+turn_sharpness = 1.0
+speed = 0.4
+wind_drift = 1.0
+
 [tree]
 render_leaves = true
 
@@ -7,6 +47,7 @@ render_leaves = true
 size = 20.0
 trunk_thickness = 0.4
 thickness_reduction = 0.61
+cull_thin_branches = true
 leaves_size_level = 5
 leaf_offset = 2
 leaf_density = 0.049
@@ -49,6 +90,35 @@ continue_main_axis = false
 
 [[section]]
 name = "Debug"
+
+[[section.param]]
+id = "raster_tree_wind"
+kind = "bool"
+label = "Animate raster trees with wind"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "tree_stiffness"
+kind = "float"
+label = "Tree stiffness (soft <-> stiff)"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
+
+[[section.param]]
+id = "raster_tree_static"
+kind = "bool"
+label = "Raster whole trees (B)"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "flora_growth_override_enabled"
@@ -253,6 +323,17 @@ max = 4
 name = "Wind"
 
 [[section.param]]
+id = "canopy_audio_sample_budget"
+kind = "uint"
+label = "Canopy Audio Samples / Tree"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 1
+max = 64
+
+[[section.param]]
 id = "wind_audio_attack_decay"
 kind = "float"
 label = "Wind Audio Attack Decay (0 slow, 1 fast)"
@@ -270,34 +351,9 @@ label = "Wind Audio Release Decay (0 slow, 1 fast)"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 0.35
 min = 0
 max = 1
-
-[[section]]
-name = "Audio"
-
-[[section.param]]
-id = "master_volume"
-kind = "float"
-label = "Master Volume (dB)"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = -20
-max = 20
-
-[[section.param]]
-id = "footstep_volume_db"
-kind = "float"
-label = "Footstep Volume (dB)"
-type = "Float"
-
-[section.param.data]
-value = 33.5
-min = -40
-max = 40
 
 [[section.param]]
 id = "tree_wind_response_min_strength"
@@ -306,7 +362,7 @@ label = "Tree Wind Response Min"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = 0.25
 min = 0
 max = 1
 
@@ -318,28 +374,6 @@ type = "Float"
 
 [section.param.data]
 value = 1
-min = 0
-max = 1
-
-[[section.param]]
-id = "tree_wind_volume_db"
-kind = "float"
-label = "Tree Wind Volume (dB)"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = -40
-max = 20
-
-[[section.param]]
-id = "tree_rustle_base_wind"
-kind = "float"
-label = "Tree Rustle Base Wind"
-type = "Float"
-
-[section.param.data]
-value = 0
 min = 0
 max = 1
 
@@ -430,6 +464,42 @@ type = "Float"
 value = 1
 min = 0
 max = 1
+
+[[section]]
+name = "Audio"
+
+[[section.param]]
+id = "master_volume"
+kind = "float"
+label = "Master Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = -20
+max = 20
+
+[[section.param]]
+id = "footstep_volume_db"
+kind = "float"
+label = "Footstep Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 33.5
+min = -40
+max = 40
+
+[[section.param]]
+id = "tree_wind_volume_db"
+kind = "float"
+label = "Tree Wind Volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -40
+max = 20
 
 [[section.param]]
 id = "audio_ray_tracing_quality_percent"
@@ -1879,15 +1949,147 @@ max = 1
 name = "Leaves"
 
 [[section.param]]
-id = "leaf_flutter_strength"
+id = "leaf_global_offset_scale"
 kind = "float"
-label = "Local Flutter (0 = original)"
+label = "Overall Wind Offset (0 = off)"
 type = "Float"
 
 [section.param.data]
 value = 1
 min = 0
-max = 2
+max = 3
+
+[[section.param]]
+id = "leaf_local_displacement_voxels"
+kind = "float"
+label = "Amplitude Scaling (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 5
+
+[[section.param]]
+id = "leaf_flutter_amplitude_high"
+kind = "float"
+label = "Amplitude Curve High"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
+id = "leaf_flutter_amplitude_low"
+kind = "float"
+label = "Amplitude Curve Low"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "leaf_flutter_wind_start"
+kind = "float"
+label = "Flutter Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_flutter_wind_full"
+kind = "float"
+label = "Flutter Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_flutter_wind_knee"
+kind = "float"
+label = "Flutter Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -6
+max = 6
+
+[[section.param]]
+id = "leaf_flutter_frequency_low_hz"
+kind = "float"
+label = "Frequency Curve Low (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 3.1134374
+min = 0.25
+max = 24
+
+[[section.param]]
+id = "leaf_flutter_frequency_high_hz"
+kind = "float"
+label = "Frequency Curve High (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 24
+min = 0.25
+max = 24
+
+[[section.param]]
+id = "leaf_flutter_frequency_ceiling_hz"
+kind = "float"
+label = "Frequency Scaling (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 8
+min = 0.25
+max = 48
+
+[[section.param]]
+id = "leaf_flutter_frequency_start"
+kind = "float"
+label = "Frequency Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_flutter_frequency_full"
+kind = "float"
+label = "Frequency Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0
+max = 4
+
+[[section.param]]
+id = "leaf_flutter_frequency_knee"
+kind = "float"
+label = "Frequency Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0.25237083
+min = -6
+max = 6
 
 [[section.param]]
 id = "leaf_transmission_strength"
@@ -1907,7 +2109,7 @@ label = "Bottom Color"
 type = "Color"
 
 [section.param.data]
-value = "#2BB100"
+value = "#487400"
 
 [[section.param]]
 id = "leaves_tip_color"
@@ -1916,7 +2118,7 @@ label = "Tip Color"
 type = "Color"
 
 [section.param.data]
-value = "#92B200"
+value = "#98CE00"
 
 [[section]]
 name = "Terrain Harvest Particles"
@@ -1956,7 +2158,7 @@ value = true
 [[section.param]]
 id = "butterfly_spawn_rate_per_source"
 kind = "float"
-label = "Spawn Rate Per Flora Voxel"
+label = "Habitat Spawn Rate (0.00002 = Normal)"
 type = "Float"
 
 [section.param.data]
@@ -2146,3 +2348,138 @@ type = "Float"
 value = 3
 min = 1
 max = 3
+
+[[section]]
+name = "Grass Wind Response"
+
+[[section.param]]
+id = "grass_sway_amplitude_scale"
+kind = "float"
+label = "Amplitude Scaling (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 0.62
+min = 0
+max = 5
+
+[[section.param]]
+id = "grass_sway_amplitude_low"
+kind = "float"
+label = "Amplitude Curve Low"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 1
+
+[[section.param]]
+id = "grass_sway_amplitude_high"
+kind = "float"
+label = "Amplitude Curve High"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
+id = "grass_sway_amplitude_start"
+kind = "float"
+label = "Amplitude Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_amplitude_full"
+kind = "float"
+label = "Amplitude Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_amplitude_knee"
+kind = "float"
+label = "Amplitude Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -6
+max = 6
+
+[[section.param]]
+id = "grass_sway_frequency_scale"
+kind = "float"
+label = "Frequency Scaling (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 3
+min = 0.25
+max = 24
+
+[[section.param]]
+id = "grass_sway_frequency_low"
+kind = "float"
+label = "Frequency Curve Low"
+type = "Float"
+
+[section.param.data]
+value = 0.18878907
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "grass_sway_frequency_high"
+kind = "float"
+label = "Frequency Curve High"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.01
+max = 1
+
+[[section.param]]
+id = "grass_sway_frequency_start"
+kind = "float"
+label = "Frequency Start Wind"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_frequency_full"
+kind = "float"
+label = "Frequency Full Wind"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0
+max = 4
+
+[[section.param]]
+id = "grass_sway_frequency_knee"
+kind = "float"
+label = "Frequency Curve Bias"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -6
+max = 6

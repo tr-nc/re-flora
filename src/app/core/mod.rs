@@ -7,6 +7,7 @@ mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
 mod ddgi_spatial_weight_readback;
+mod debug_panel;
 mod denoiser_bench;
 mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
@@ -21,9 +22,11 @@ mod input;
 pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
+mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
+mod ambient_ecology;
 mod loading;
 mod local_player_footsteps;
 mod moisture;
@@ -32,9 +35,9 @@ mod physics;
 mod placeables;
 mod planting;
 mod player_tools;
+mod raster_tree_smoke;
 mod render_frame_input;
 mod screenshot;
-mod summer_cicadas;
 mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
@@ -105,8 +108,8 @@ use crate::game_time::WorldClock;
 use crate::geom::UAabb3;
 use crate::lighting::LocalLightRegistry;
 use crate::particles::{
-    ButterflyEmitter, ButterflyEmitterDesc, LeafEmitterDesc, ParticleForces, ParticleHandle,
-    ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
+    ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, LeafEmitterDesc,
+    ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -471,7 +474,8 @@ pub struct App {
     particle_system: ParticleSystem,
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
-    butterfly_spawn_source_refresh_elapsed: f32,
+    butterfly_review: Option<particles::ButterflyReview>,
+    ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
@@ -496,7 +500,7 @@ pub struct App {
     vulkan_ctx: VulkanContext,
 
     summer_cicadas: crate::audio::SummerCicadas,
-    cicada_smoke: Option<summer_cicadas::CicadaSmoke>,
+    cicada_smoke: Option<ambient_ecology::CicadaSmoke>,
     // Keep ownership so the shared PetalSonic engine outlives every subsystem.
     #[allow(dead_code)]
     spatial_sound_manager: SpatialSoundManager,
@@ -966,10 +970,10 @@ impl App {
     }
 
     fn apply_effective_master_volume_gain(&self, error_context: &str) {
-        if let Err(err) = self
-            .spatial_sound_manager
-            .set_global_volume_gain_db(self.effective_master_volume_gain_db())
-        {
+        if let Err(err) = self.spatial_sound_manager.set_mix(
+            self.debug_settings.audio_mix,
+            self.effective_master_volume_gain_db(),
+        ) {
             log::error!("{}: {}", error_context, err);
         }
     }
@@ -1021,7 +1025,6 @@ impl App {
 
     fn tree_rustle_params(gui_adjustables: &GuiAdjustables) -> TreeRustleParams {
         TreeRustleParams {
-            base_wind: gui_adjustables.tree_rustle_base_wind.value,
             gustiness: gui_adjustables.tree_rustle_gustiness.value,
             leaf_density: gui_adjustables.tree_rustle_leaf_density.value,
             dryness: gui_adjustables.tree_rustle_dryness.value,
@@ -1299,13 +1302,22 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
+        // Opt-in wood-only capture; normal startup and saved leaf visibility are unchanged.
+        if let Ok(mode) = std::env::var("RE_FLORA_THIN_BRANCH_REVIEW") {
+            if mode == "A" || mode == "B" {
+                debug_settings.tree.desc.cull_thin_branches = mode == "B";
+                debug_settings.tree.render_leaves = false;
+                log::info!("[THIN_BRANCH_REVIEW] wood_only_capture={mode}");
+            }
+        }
         // Opt-in visual review: reuse the normal camera capture and GUI parameter.
         if let Ok(value) = std::env::var("RE_FLORA_LEAF_REVIEW") {
             let gain: f32 = value
                 .parse()
                 .context("RE_FLORA_LEAF_REVIEW must be a gain in 0..=2")?;
             anyhow::ensure!((0.0..=2.0).contains(&gain), "invalid leaf review gain");
-            debug_settings.adjustables.leaf_flutter_strength.value = gain;
+            debug_settings.adjustables.leaf_flutter_amplitude_high.value = gain * 0.5;
+            debug_settings.adjustables.leaf_flutter_amplitude_low.value = 0.;
         }
         if foliage_shadow_bench || lighting_mode_acceptance_requested {
             foliage_shadow_bench::configure_tree(&mut debug_settings);
@@ -1370,8 +1382,17 @@ impl App {
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
         let butterfly_emitters = Vec::new();
-        let butterfly_emitter_desc =
-            Self::butterfly_desc_from_gui_adjustables(&debug_settings.adjustables);
+        if std::env::var_os("RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE").is_some() {
+            debug_settings.butterfly_flight.variant = ButterflyFlightVariant::OriginalSprite;
+        }
+        let butterfly_flight_variant = debug_settings.butterfly_flight.variant;
+        let butterfly_flight_tuning = debug_settings.butterfly_flight.tuning;
+        log::info!("[BUTTERFLY_AB] startup_variant={butterfly_flight_variant:?} tuning={butterfly_flight_tuning:?}");
+        let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
+            &debug_settings.adjustables,
+            butterfly_flight_variant,
+            butterfly_flight_tuning,
+        );
         let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
@@ -1467,7 +1488,7 @@ impl App {
             tree_variation_config: TreeVariationConfig::default(),
             regenerate_trees_requested: false,
             trees,
-            config_panel_visible: false,
+            config_panel_visible: std::env::var_os("RE_FLORA_DEBUG_PANEL_REVIEW").is_some(),
             environment_probe_spacing_draft: lighting.probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels: lighting.rebuild_probe_spacing_voxels,
             camera_snapshots,
@@ -1503,7 +1524,9 @@ impl App {
             particle_system,
             butterfly_emitters,
             butterfly_emitter_desc,
-            butterfly_spawn_source_refresh_elapsed: f32::INFINITY,
+            butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
+                .map(|_| particles::ButterflyReview::default()),
+            ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
             particle_animation_time_sec: 0.0,
             water,
@@ -1533,7 +1556,7 @@ impl App {
             shutdown_lifecycle: lifecycle::AppShutdownLifecycle::default(),
 
             summer_cicadas,
-            cicada_smoke: summer_cicadas::CicadaSmoke::from_environment(),
+            cicada_smoke: ambient_ecology::CicadaSmoke::from_environment(),
             spatial_sound_manager,
             spatial_frame,
             tree_audio_manager,
@@ -1545,6 +1568,11 @@ impl App {
             );
         }
         app.apply_effective_master_volume_gain("Failed to apply initial master volume");
+
+        // Establish the authored player view before specialized test-scene overrides.
+        app.tracer
+            .apply_camera_pose(crate::app::camera_snapshots::player_default_camera_pose());
+        app.sync_orbit_focus_from_current_view();
 
         if environment_lighting_test.is_some() {
             app.configure_environment_lighting_test_scene_camera();
@@ -2057,7 +2085,19 @@ impl App {
                 return;
             }
 
-            if consumed && !is_keyboard_event {
+            let pointer_event = matches!(
+                &event,
+                WindowEvent::CursorMoved { .. }
+                    | WindowEvent::MouseInput { .. }
+                    | WindowEvent::MouseWheel { .. }
+            );
+            if !is_keyboard_event
+                && input::gui_consumes_nonkeyboard_event(
+                    pointer_event,
+                    consumed,
+                    self.gui_blocks_world_pointer(),
+                )
+            {
                 if matches!(
                     &event,
                     WindowEvent::MouseInput {
@@ -2358,6 +2398,8 @@ impl App {
                     .field
                     .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
                 self.wind_prototype.advance(visual_time_since_start);
+                self.advance_tree_poses(frame_delta_time)
+                    .expect("tree pose update must publish finite transforms");
                 let wind = match canopy_audio_frame.wind_policy() {
                     launch_owners::CanopyAudioWindPolicy::Configured => {
                         self.wind_prototype.field.frame()
@@ -2655,40 +2697,27 @@ impl App {
                                     }
 
                                     ui.add_space(8.0);
-                                    ui.separator();
                                     ui.add_space(8.0);
-                                    ui.heading(
-                                        RichText::new("Terrain & Plants")
-                                            .size(16.0)
-                                            .color(GOLD_ACCENT),
-                                    );
+                                    ui.collapsing("Terrain & Plants", |ui| {
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
+                                    });
 
                                     ui.add_space(4.0);
-                                    ui.separator();
                                     ui.add_space(4.0);
 
-                                    egui::ScrollArea::vertical()
-                                        .auto_shrink([false; 2])
-                                        .scroll_source(
-                                            egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL,
-                                        )
+                                    debug_panel::scroll_area()
                                         .show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
-                                                    self.wind_prototype.controls(ui);
+                                                    ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
                                             });
 
                                             ui.add_space(8.0);
-                                            ui.separator();
                                             ui.add_space(8.0);
-                                            ui.heading(
-                                                RichText::new("Environment Probes")
-                                                    .size(16.0)
-                                                    .color(GOLD_ACCENT),
-                                            );
+                                            ui.collapsing("Environment Probes", |ui| {
+                                            ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
                                             if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
                                                 .on_hover_text("On: faster distance statistics (default). Off: exact voxel visibility. Changes immediately; this selection is not saved.")
@@ -2851,10 +2880,11 @@ impl App {
                                                 },
                                             );
 
+                                            });
+
                                             ui.add_space(8.0);
-                                            ui.separator();
                                             ui.add_space(8.0);
-                                            camera_snapshot_to_apply = draw_camera_snapshots_ui(
+                                            camera_snapshot_to_apply = ui.collapsing("Camera Snapshots", |ui| draw_camera_snapshots_ui(
                                                 ui,
                                                 &mut self.camera_snapshots,
                                                 &mut self.camera_snapshot_draft_name,
@@ -2862,20 +2892,16 @@ impl App {
                                                 &mut self.camera_snapshot_status,
                                                 current_camera_pose,
                                                 current_camera_is_free_fly,
-                                            );
+                                            )).body_returned.flatten();
 
                                             ui.add_space(8.0);
-                                            ui.separator();
                                             ui.add_space(8.0);
-                                            ui.heading(
-                                                RichText::new("Flora Growth")
-                                                    .size(16.0)
-                                                    .color(GOLD_ACCENT),
-                                            );
+                                            ui.collapsing("Flora Growth", |ui| {
                                             ui.label(format!(
                                                 "Updating chunks: {}",
                                                 growing_flora_chunk_count
                                             ));
+                                            });
 
                                         });
                                 });
@@ -3225,6 +3251,9 @@ impl App {
                 }
 
                 self.apply_effective_master_volume_gain("Failed to apply master volume");
+                if let Err(err) = self.refresh_canopy_audio_sample_budget() {
+                    log::error!("Failed to apply canopy audio sample budget: {err:#}");
+                }
                 if let Err(err) = self
                     .tree_audio_manager
                     .set_wind_volume_db(self.debug_settings.adjustables.tree_wind_volume_db.value)
@@ -3298,6 +3327,9 @@ impl App {
                     self.debug_settings.adjustables.auto_daynight_cycle.value,
                 );
 
+                if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
+                    log::warn!("[ECOLOGY] update failed: {error:#}");
+                }
                 if self.render_flags.enable_particles {
                     if self.water.is_running() {
                         let water_handoff_start = Instant::now();
@@ -3316,6 +3348,16 @@ impl App {
 
                 self.apply_denoiser_benchmark_camera_motion(denoiser_frame.camera_step());
 
+                if raster_tree_smoke::RasterTreeSmoke::run_next(self) {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+                if let Err(error) = self.sync_static_raster_trees() {
+                    log::error!("[TREE][RASTER_STATIC] preparation failed; restoring A: {error:#}");
+                    self.debug_settings.adjustables.raster_tree_static.value = false;
+                    self.tracer.raster_trees.enabled = false;
+                    self.tracer.invalidate_local_direct_sun_shadow_histories();
+                }
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
                     frame_perf_enabled,
@@ -3329,6 +3371,10 @@ impl App {
                     }
                     Err(error) => panic!("Error while acquiring next image. Cause: {}", error),
                 };
+                self.finish_tree_poses()
+                    .expect("publish GPU tree hierarchy");
+                self.publish_tree_surface_pose()
+                    .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
                 self.collect_gpu_profiler_frame(frame_slot);
                 self.launch_owners.record_connectivity_gpu_submission(
@@ -3487,7 +3533,11 @@ impl App {
                         frame_inputs,
                     )
                     .unwrap();
-                self.tracer.record_host_buffer_writes(cmdbuf);
+                self.tracer.record_host_buffer_writes(
+                    cmdbuf,
+                    self.gpu_profiler.as_mut(),
+                    frame_slot,
+                );
 
                 let color_to_vec3 = |color: Color32| -> Vec3 {
                     Vec3::new(
@@ -3926,9 +3976,6 @@ impl App {
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
-                if let Err(error) = self.update_summer_cicadas(f64::from(time_since_start)) {
-                    log::warn!("[AUDIO][CICADAS] update failed: {error:#}");
-                }
                 let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
                     sim_time_seconds: f64::from(time_since_start),
                     listener: self.tracer.camera_pose(),

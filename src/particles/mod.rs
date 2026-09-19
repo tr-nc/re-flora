@@ -1,4 +1,5 @@
 pub mod animation;
+mod butterfly_flight;
 pub mod emitters;
 mod leaf_flight;
 pub mod system;
@@ -6,6 +7,9 @@ pub mod system;
 pub use animation::{
     BUTTERFLY_ATLAS_ROW_FOR_VIEW, BUTTERFLY_FRAMES_PER_VARIANT, BUTTERFLY_VIEW_COUNT,
     PARTICLE_SPRITE_FRAME_DIM,
+};
+pub use butterfly_flight::{
+    ButterflyFlightSettings, ButterflyFlightTuning, ButterflyFlightVariant,
 };
 pub use emitters::{
     ButterflyEmitter, ButterflyEmitterDesc, ButterflySpawnSource, FallenLeafEmitter,

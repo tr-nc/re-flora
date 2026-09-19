@@ -21,7 +21,12 @@ pub(super) struct GardenSnapshot {
 
 impl GardenSnapshot {
     fn decode(bytes: &[u8]) -> Result<Self> {
-        let snapshot: Self = serde_json::from_slice(bytes).context("decode garden vegetation")?;
+        let mut snapshot: Self =
+            serde_json::from_slice(bytes).context("decode garden vegetation")?;
+        let removed = snapshot.flora.migrate_retired_species();
+        if removed > 0 {
+            log::info!("[GARDEN_SNAPSHOT] removed retired Kochia plants={removed}; retained species unchanged");
+        }
         snapshot.validate()?;
         Ok(snapshot)
     }
@@ -441,6 +446,10 @@ impl App {
                         return Err(error);
                     }
                     self.summer_cicadas.clear("world_replacement")?;
+                    self.ecology.clear();
+                    for emitter in &mut self.butterfly_emitters {
+                        emitter.clear(&mut self.particle_system);
+                    }
                     mutated = true;
                 }
                 let stage = Instant::now();

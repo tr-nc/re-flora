@@ -29,6 +29,7 @@ use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
 use rand::{Rng, RngExt};
 pub(super) use snapshot::{PreparedTreeSnapshot, TreeSnapshot};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
@@ -308,6 +309,7 @@ struct CompiledTreePlacement {
     fruit_specs: Vec<TreeFruitSpec>,
     world_leaf_positions: Vec<Vec3>,
     canopy_acoustic_descriptor: CanopyAcousticDescriptor,
+    rest_tree: Arc<Tree>,
 }
 
 #[derive(Clone, Debug)]
@@ -476,16 +478,18 @@ impl TreePlacementService {
         extra_rebuild_bound: UAabb3,
         tree_age: f32,
         canopy_generation: u64,
+        canopy_sample_budget: usize,
     ) -> CompiledTreePlacement {
         let tree_desc = mature_tree_desc.at_age(tree_age);
         let tree = Tree::new(tree_desc.clone());
         let mature_tree = Tree::new(mature_tree_desc.clone());
-        let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build(
+        let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build_with_budget(
             canopy_generation,
             tree_pos,
             tree_desc.branching.seed,
             tree.relative_leaf_placements(),
             tree.trunks(),
+            canopy_sample_budget,
         );
         let mut round_cones = Vec::with_capacity(tree.trunks().len());
         for tree_trunk in tree.trunks() {
@@ -599,6 +603,7 @@ impl TreePlacementService {
             fruit_specs,
             world_leaf_positions,
             canopy_acoustic_descriptor,
+            rest_tree: Arc::new(tree),
         }
     }
 }
@@ -986,11 +991,14 @@ struct TreeRecord {
     bound: UAabb3,
     mature_desc: TreeDesc,
     trunk_geometry: TreeTrunkGeometry,
-    butterfly_spawn_positions_ws: Vec<Vec3>,
     leaf_render_positions: Vec<UVec3>,
     leaf_render_local_positions: Vec<IVec3>,
     fruit_specs: Vec<TreeFruitSpec>,
     canopy_acoustic_descriptor: CanopyAcousticDescriptor,
+    // One committed rest tree retains geometry, topology and attachments for all derived
+    // consumers. Audio resampling must never regenerate or use quantized render positions.
+    rest_tree: Arc<Tree>,
+    pose: crate::tree_gen::pose::TreePose,
     leaf_clusters: Vec<ClusterResult>,
 }
 
@@ -1002,19 +1010,25 @@ struct PreparedTreePublication {
     cluster_elapsed: std::time::Duration,
 }
 
+impl TreeRecord {
+    fn resample_canopy(&self, generation: u64, budget: usize) -> CanopyAcousticDescriptor {
+        CanopyAcousticDescriptor::build_with_budget(
+            generation,
+            self.position,
+            self.canopy_acoustic_descriptor.tree_seed(),
+            self.rest_tree.relative_leaf_placements(),
+            self.rest_tree.trunks(),
+            budget,
+        )
+    }
+}
+
 impl PreparedTreePublication {
     fn new(tree_id: u32, mature_desc: TreeDesc, compiled: CompiledTreePlacement) -> Self {
         let cluster_start = Instant::now();
         let leaf_clusters =
             cluster_positions(&compiled.world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);
         let cluster_elapsed = cluster_start.elapsed();
-        let butterfly_spawn_positions_ws = compiled
-            .quantized_leaf_render_positions
-            .iter()
-            .map(|position| {
-                (position.as_vec3() + Vec3::splat(0.5)) / super::VOXEL_DIM_PER_CHUNK.as_vec3()
-            })
-            .collect::<Vec<_>>();
         Self {
             tree_id,
             rebuild_bound: compiled.rebuild_bound,
@@ -1025,11 +1039,16 @@ impl PreparedTreePublication {
                 bound: compiled.this_bound,
                 mature_desc,
                 trunk_geometry: compiled.trunk_geometry,
-                butterfly_spawn_positions_ws,
                 leaf_render_positions: compiled.quantized_leaf_render_positions,
                 leaf_render_local_positions: compiled.leaf_render_local_positions,
                 fruit_specs: compiled.fruit_specs,
                 canopy_acoustic_descriptor: compiled.canopy_acoustic_descriptor,
+                pose: crate::tree_gen::pose::TreePose::new(
+                    compiled.rest_tree.branches(),
+                    compiled.tree_pos,
+                )
+                .expect("generated tree must have valid connected topology"),
+                rest_tree: compiled.rest_tree,
                 leaf_clusters,
             },
         }
@@ -1131,7 +1150,7 @@ impl GardenTrees {
         }
     }
 
-    fn tuned_tree_id(&self) -> u32 {
+    pub(super) fn tuned_tree_id(&self) -> u32 {
         self.tuned_tree_id
     }
 
@@ -1526,36 +1545,33 @@ impl GardenTrees {
             .map(|record| record.canopy_acoustic_descriptor.generation())
     }
 
-    /// Observe only committed foliage; failed tree publications never become insect habitats.
-    pub(super) fn cicada_canopy_habitats(&self) -> Vec<crate::audio::CicadaHabitat> {
+    /// Lightweight supply metadata; no expanded leaf-position copy.
+    pub(super) fn ecology_regions(&self) -> Vec<crate::ecology::Region> {
         self.records
             .iter()
-            .flat_map(|(&tree_id, record)| {
-                let descriptor = &record.canopy_acoustic_descriptor;
-                descriptor
-                    .samples()
-                    .iter()
-                    .filter(|sample| {
-                        sample.provenance()
-                            == crate::audio::CanopyAcousticSampleProvenance::LeafPlacement
-                    })
-                    .map(move |sample| crate::audio::CicadaHabitat {
-                        key: crate::audio::CicadaHabitatKey::Canopy(
-                            tree_id,
-                            descriptor.generation(),
-                            sample.id().value(),
-                        ),
-                        position: descriptor.sample_world_position(sample),
-                    })
+            .map(|(&id, r)| crate::ecology::Region {
+                key: crate::ecology::RegionKey::Canopy(id),
+                kind: 2,
+                count: r.leaf_render_positions.len() as u32,
+                center: (r.bound.min().as_vec3() + r.bound.max().as_vec3()) * 0.5 / 256.,
+                radius: (r.bound.max().as_vec3() - r.bound.min().as_vec3()).length() * 0.5 / 256.,
             })
             .collect()
     }
-
-    pub(super) fn butterfly_spawn_positions(&self) -> Vec<Vec3> {
-        self.records
-            .values()
-            .flat_map(|record| record.butterfly_spawn_positions_ws.iter().copied())
-            .collect()
+    pub(super) fn sample_ecology_leaf(
+        &self,
+        id: u32,
+        slot: u32,
+    ) -> Option<crate::ecology::Habitat> {
+        let r = self.records.get(&id)?;
+        let position = *r.leaf_render_positions.get(slot as usize)?;
+        Some(crate::ecology::Habitat {
+            region: crate::ecology::RegionKey::Canopy(id),
+            slot,
+            token: r.canopy_acoustic_descriptor.generation(),
+            position: (position.as_vec3() + Vec3::splat(0.5)) / 256.,
+            kind: 2,
+        })
     }
 
     pub(super) fn advance_leaf_emitters(
@@ -2287,12 +2303,16 @@ impl App {
             .at_age(self.debug_settings.adjustables.tree_age.value);
         let tree = Tree::new(tree_desc.clone());
         let generation = self.trees.next_canopy_acoustic_generation.saturating_sub(1);
-        let canopy = CanopyAcousticDescriptor::build(
+        let canopy = CanopyAcousticDescriptor::build_with_budget(
             generation,
             self.debug_tree_pos,
             tree_desc.branching.seed,
             tree.relative_leaf_placements(),
             tree.trunks(),
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
         let legacy =
             LegacyBranchEndpointLayout::build(tree.relative_leaf_positions(), tree.trunks());
@@ -2352,6 +2372,60 @@ impl App {
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)
     }
 
+    pub(super) fn refresh_canopy_audio_sample_budget(&mut self) -> Result<()> {
+        let budget = (self
+            .debug_settings
+            .adjustables
+            .canopy_audio_sample_budget
+            .value as usize)
+            .clamp(1, CanopyAcousticDescriptor::MAX_SAMPLES);
+        let mut ids: Vec<_> = self
+            .trees
+            .records
+            .iter()
+            .filter(|(_, record)| record.canopy_acoustic_descriptor.sample_budget() != budget)
+            .map(|(&id, _)| id)
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        ids.sort_unstable();
+        let mut replacements = Vec::with_capacity(ids.len());
+        for id in ids {
+            let generation = self.trees.allocate_canopy_acoustic_generation();
+            let record = &self.trees.records[&id];
+            let descriptor = record.resample_canopy(generation, budget);
+            replacements.push((id, descriptor));
+        }
+        let checkpoint = self.tree_audio_manager.publication_checkpoint();
+        let time = self.time_info.time_since_start();
+        for (id, descriptor) in &replacements {
+            if let Err(error) = self
+                .tree_audio_manager
+                .upsert_tree(*id, descriptor.clone(), time)
+            {
+                self.tree_audio_manager
+                    .restore_publication_checkpoint(checkpoint, time)
+                    .context("restore canopy audio after failed budget change")?;
+                return Err(error);
+            }
+        }
+        let tree_count = replacements.len();
+        for (id, descriptor) in replacements {
+            self.trees
+                .records
+                .get_mut(&id)
+                .unwrap()
+                .canopy_acoustic_descriptor = descriptor;
+        }
+        log::info!(
+            "[AUDIO][CANOPY][SAMPLE_BUDGET] per_tree={} updated_trees={}",
+            budget,
+            tree_count
+        );
+        Ok(())
+    }
+
     pub(super) fn stage_tuned_tree_desc_from_gui(&mut self) -> bool {
         self.trees
             .stage_tuned_description(self.debug_settings.tree.desc.clone())
@@ -2377,6 +2451,10 @@ impl App {
                 UAabb3::default(),
                 tree_age,
                 canopy_generation,
+                self.debug_settings
+                    .adjustables
+                    .canopy_audio_sample_budget
+                    .value as usize,
             );
             let compile_elapsed = compile_start.elapsed();
             let trunk_count = compiled.trunk_geometry.round_cones.len();
@@ -2445,6 +2523,10 @@ impl App {
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
             canopy_generation,
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
         let compile_elapsed = compile_start.elapsed();
         crate::util::BENCH
@@ -3261,6 +3343,10 @@ impl App {
             UAabb3::default(),
             self.debug_settings.adjustables.tree_age.value,
             canopy_generation,
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
         let compile_elapsed = compile_start.elapsed();
         if benchmark_gui_tree {
@@ -3776,6 +3862,7 @@ mod tests {
             UAabb3::default(),
             0.5,
             generation,
+            CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET,
         );
         PreparedTreePublication::new(tree_id, source.mature_desc, compiled)
     }
@@ -3789,8 +3876,40 @@ mod tests {
             UAabb3::default(),
             1.0,
             generation,
+            CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET,
         );
         PreparedTreePublication::new(tree_id, mature_desc, compiled)
+    }
+
+    #[test]
+    fn audio_budget_resampling_reuses_committed_geometry_for_multiple_trees() {
+        for id in [1, 2] {
+            let record = prepared_tree(id, id as u64, 123 + id as u64).record;
+            let rest_tree = record.rest_tree.clone();
+            let render_positions = record.leaf_render_positions.clone();
+            for budget in [1, 8, 16, 32, 64] {
+                let sampled = record.resample_canopy(100 + budget as u64, budget);
+                assert_eq!(sampled.sample_budget(), budget);
+                assert!(sampled.samples().len() <= budget);
+                assert_eq!(sampled.tree_origin_world(), record.position);
+                assert_eq!(
+                    sampled.tree_seed(),
+                    record.canopy_acoustic_descriptor.tree_seed()
+                );
+                assert!((sampled.total_weight() - 1.0).abs() < 1e-6);
+            }
+            assert!(Arc::ptr_eq(&rest_tree, &record.rest_tree));
+            assert_eq!(
+                record.rest_tree.trunks().len(),
+                record.rest_tree.trunk_branch_indices().len()
+            );
+            assert_eq!(
+                record.rest_tree.relative_leaf_placements().len(),
+                record.rest_tree.leaf_branch_indices().len()
+            );
+            assert_eq!(record.leaf_render_positions, render_positions);
+            assert_eq!(record.canopy_acoustic_descriptor.generation(), id as u64);
+        }
     }
 
     fn placement_events(
@@ -4092,7 +4211,7 @@ mod tests {
         assert_eq!(garden.placement_id(true), 2);
         assert_eq!(garden.procedural_tree_ids(), vec![1]);
         assert!(garden.previous_bound().has_size());
-        assert!(!garden.butterfly_spawn_positions().is_empty());
+        assert!(garden.ecology_regions().iter().any(|r| r.count > 0));
     }
 
     #[test]
@@ -4447,5 +4566,304 @@ mod tests {
         assert!(
             compiled.rebuild_bound.max().z >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
         );
+    }
+}
+
+impl App {
+    pub(super) fn validate_tree_poses(&self) -> Result<()> {
+        for record in self.trees.records.values() {
+            anyhow::ensure!(record.pose.revision() > 0, "tree pose was not advanced");
+            anyhow::ensure!(
+                record.pose.branches().len() == record.rest_tree.branches().len(),
+                "pose topology is stale"
+            );
+            anyhow::ensure!(
+                record
+                    .pose
+                    .branches()
+                    .iter()
+                    .all(|p| p.rotation.is_finite() && p.translation.is_finite()),
+                "nonfinite tree pose"
+            );
+        }
+        Ok(())
+    }
+
+    fn tree_wind_stiffness(&self) -> Result<crate::tree_gen::pose::TreeStiffness> {
+        crate::tree_gen::pose::TreeStiffness::from_control(
+            self.debug_settings.adjustables.tree_stiffness.value,
+        )
+    }
+
+    pub(super) fn drive_tree_pose_smoke(&mut self) -> Result<()> {
+        let stiffness = self.tree_wind_stiffness()?;
+        let wind = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::new(5., 2.));
+        for _ in 0..120 {
+            for record in self.trees.records.values_mut() {
+                record
+                    .pose
+                    .advance_with_stiffness(&wind, 1. / 60., stiffness)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_tree_surface_queries(&mut self) -> Result<()> {
+        self.vulkan_ctx.device().wait_idle();
+        let surface = self
+            .tracer
+            .raster_trees
+            .posed_surface
+            .as_ref()
+            .context("missing posed tree surface")?;
+        let displacement = self.tracer.raster_trees.rest_mesh.max_displacement(surface);
+        log::info!(
+            "[TREE][DYNAMIC_POSE] max_displacement_voxels={}",
+            displacement * 256.
+        );
+        anyhow::ensure!(
+            displacement > 1. / 256.,
+            "dynamic query fixture did not move at least one voxel"
+        );
+        let indices = &self.tracer.raster_trees.rest_mesh.indices;
+        let rays: Vec<_> = indices
+            .chunks_exact(3)
+            .step_by((indices.len() / 3 / 16).max(1))
+            .filter_map(|t| {
+                let [a, b, c] = [
+                    surface.position(t[0] as usize),
+                    surface.position(t[1] as usize),
+                    surface.position(t[2] as usize),
+                ];
+                let normal = (b - a).cross(c - a).normalize_or_zero();
+                (normal != Vec3::ZERO).then_some(crate::tracer::TerrainRayQuery {
+                    origin: (a + b + c) / 3. + normal * 0.01,
+                    direction: -normal,
+                })
+            })
+            .collect();
+        let mut checked = 0;
+        for ray in rays {
+            let cpu = self.query_terrain_ray_cpu(ray.origin, ray.direction);
+            let gpu = self.tracer.query_terrain_ray_with_validity(ray)?;
+            if let Some(cpu) = cpu {
+                anyhow::ensure!(
+                    gpu.is_valid && cpu.position.distance(gpu.position) < 0.00003,
+                    "dynamic tree CPU/GPU query mismatch cpu={:?} gpu={:?} valid={}",
+                    cpu.position,
+                    gpu.position,
+                    gpu.is_valid
+                );
+                checked += 1;
+            }
+        }
+        anyhow::ensure!(checked >= 4, "insufficient dynamic surface query samples");
+        log::info!("[TREE][DYNAMIC_QUERY] matched_rays={checked}");
+        Ok(())
+    }
+
+    pub(super) fn exercise_posed_tree_edit(&mut self) -> Result<()> {
+        let surface = self
+            .tracer
+            .raster_trees
+            .posed_surface
+            .as_ref()
+            .context("missing posed tree surface")?;
+        let index = surface
+            .positions()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
+            .map(|(i, _)| i)
+            .context("empty tree surface")?;
+        let target = surface.position(index);
+        let origin = target + Vec3::new(0.003, 0.02, 0.003);
+        let hit = self
+            .query_tree_surface_ray(origin, (target - origin).normalize())
+            .context("posed tree edit fixture missed")?;
+        let readback = self.apply_surface_terrain_removal(
+            TerrainRemovalEdit {
+                center: hit.rest_position,
+                radius: 2. / 256.,
+            },
+            Some(VOXEL_TYPE_CHERRY_WOOD),
+            None,
+            None,
+        )?;
+        anyhow::ensure!(
+            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize] > 0,
+            "posed edit removed no wood"
+        );
+        log::info!(
+            "[TREE][DYNAMIC_EDIT] world={:?} rest={:?} removed_wood={}",
+            hit.world_position,
+            hit.rest_position,
+            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize]
+        );
+        Ok(())
+    }
+
+    pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
+        let started = Instant::now();
+        let surface = if self.tracer.raster_trees.enabled
+            && self.debug_settings.adjustables.raster_tree_wind.value
+        {
+            Some(
+                self.tracer
+                    .raster_trees
+                    .rest_mesh
+                    .posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?,
+            )
+        } else {
+            None
+        };
+        let skin_us = started.elapsed().as_secs_f64() * 1e6;
+        let palette_started = Instant::now();
+        if surface.is_some() {
+            self.tracer.publish_tree_skin_poses(|id| {
+                self.trees
+                    .records
+                    .get(&id)
+                    .map(|record| record.pose.branches())
+            })?;
+            let mut attachments = Vec::new();
+            for attachment in &self.tracer.raster_trees.attachments {
+                let pose =
+                    self.trees.records[&attachment.tree_id].pose.branches()[attachment.branch];
+                attachments.push(pose.rotation.to_array());
+                attachments.push(pose.translation.extend(0.).to_array());
+            }
+            self.tracer
+                .publish_tree_attachments(&attachments, self.time_info.delta_time())?;
+        }
+        let palette_us = palette_started.elapsed().as_secs_f64() * 1e6;
+        let physics_started = Instant::now();
+        self.terrain_physics.publish_tree_surface(
+            surface.as_ref().and(self.tracer.raster_trees.revision),
+            &self.tracer.raster_trees.rest_mesh.solid_cells,
+            surface.as_ref(),
+            &self.tracer.raster_trees.rest_mesh.indices,
+        )?;
+        let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
+        let query_started = Instant::now();
+        self.tracer.publish_tree_surface(surface)?;
+        let query_us = query_started.elapsed().as_secs_f64() * 1e6;
+        if self.perf_logging {
+            let pose = &self.tracer.tree_pose_solver.timings;
+            log::info!("[PERF][TREE_UPDATE] frame={} pose_submit_us={:.2} pose_wait_us={:.2} pose_readback_us={:.2} pose_gpu_us={:?} readback_bytes={} cpu_skin_us={:.2} palette_us={:.2} physics_us={:.2} query_us={:.2} total_cpu_us={:.2}",
+                self.time_info.total_frame_count(), pose.submit_us, pose.wait_us, pose.readback_us, pose.gpu_us,
+                pose.readback_bytes, skin_us, palette_us, physics_us, query_us,
+                started.elapsed().as_secs_f64()*1e6 + pose.submit_us + pose.wait_us + pose.readback_us);
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
+        let mesh = &self.tracer.raster_trees.rest_mesh;
+        let surface =
+            mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
+        anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");
+        // Normals are validated against the GPU surface by the smoke readback;
+        // normal frames no longer construct an unused CPU shading-normal array.
+        Ok(())
+    }
+
+    pub(super) fn finish_tree_poses(&mut self) -> Result<()> {
+        for update in self.tracer.tree_pose_solver.finish()? {
+            if let Some(record) = self.trees.records.get_mut(&update.tree) {
+                record.pose.accept_gpu(update.source, &update.state)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
+        // An out-of-date swapchain can skip the previous publication. Consume
+        // that job before touching its resources, then submit this frame's step.
+        self.finish_tree_poses()?;
+        let stiffness = self.tree_wind_stiffness()?;
+        self.tracer.tree_pose_solver.submit(
+            self.trees
+                .records
+                .iter()
+                .map(|(&id, record)| (id, &record.pose)),
+            &self.wind_prototype.field.frame(),
+            dt,
+            stiffness,
+            self.launch_owners.raster_tree_smoke.is_some(),
+            self.perf_logging,
+        )
+    }
+
+    pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {
+        let enabled = self.debug_settings.adjustables.raster_tree_static.value;
+        if !enabled {
+            if self.tracer.raster_trees.enabled {
+                log::info!("[TREE][RASTER_STATIC] mode=A");
+                self.tracer.invalidate_local_direct_sun_shadow_histories();
+            }
+            self.tracer.raster_trees.enabled = false;
+            return Ok(());
+        }
+        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision) {
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
+            self.vulkan_ctx.device().wait_idle();
+            let started = Instant::now();
+            let mut mesh = crate::tracer::RasterTreeMesh::default();
+            let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+            for record in self.trees.records.values() {
+                let origin = record.bound.min().saturating_sub(UVec3::splat(2));
+                let end = (record.bound.max() + UVec3::splat(3)).min(world_dim);
+                let dim = end.saturating_sub(origin);
+                let bytes = self.plain_builder.read_chunk_atlas_region(origin, dim)?;
+                mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
+            }
+            let cells = mesh.finish()?;
+            let mut attachment_map = std::collections::BTreeMap::new();
+            for (&tree_id, record) in &self.trees.records {
+                mesh.bind_tree(tree_id, record.position, &record.rest_tree)?;
+                for (leaf, &branch) in record
+                    .rest_tree
+                    .relative_leaf_placements()
+                    .iter()
+                    .zip(record.rest_tree.leaf_branch_indices())
+                {
+                    let anchor = (leaf.anchor + record.position * 256.).as_uvec3();
+                    attachment_map
+                        .entry(anchor.to_array())
+                        .or_insert((tree_id, branch));
+                }
+                for fruit in &record.fruit_specs {
+                    let binding = crate::tree_gen::skin::SkinBinding::at_rest_position(
+                        &record.rest_tree,
+                        fruit.position_voxels.as_vec3() - record.position * 256.,
+                    )?;
+                    attachment_map
+                        .entry(fruit.position_voxels.to_array())
+                        .or_insert((tree_id, binding.branch));
+                }
+            }
+            self.tracer
+                .upload_static_raster_trees(&mesh, &cells, self.visible_terrain_revision)?;
+            self.tracer.bind_tree_attachments(
+                attachment_map
+                    .into_iter()
+                    .map(
+                        |(anchor, (tree_id, branch))| crate::tracer::TreeAttachment {
+                            anchor: UVec3::from(anchor),
+                            tree_id,
+                            branch,
+                        },
+                    )
+                    .collect(),
+            )?;
+            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
+                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());
+        }
+        if !self.tracer.raster_trees.enabled {
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
+            log::info!("[TREE][RASTER_STATIC] mode=B");
+        }
+        self.tracer.raster_trees.enabled = true;
+        Ok(())
     }
 }

@@ -31,6 +31,7 @@ struct Harness<'a> {
     buffers: FrameBuffers,
     readback: Buffer,
     controls: [f32; 4],
+    flutter_frequency: [f32; 4],
     _pool: DescriptorPool,
 }
 
@@ -72,6 +73,7 @@ impl<'a> Harness<'a> {
             buffers,
             readback,
             controls: [1., 1., 1., 0.],
+            flutter_frequency: [1.8, 1.8, 1., 0.],
             _pool: pool,
         })
     }
@@ -89,6 +91,12 @@ impl<'a> Harness<'a> {
         let previous = self.buffers.output_index;
         let output = previous ^ 1;
         let step = ResponseStep {
+            flutter_curve: [0.05, 1., 0., 0.],
+            flutter_frequency: self.flutter_frequency,
+            flutter_frequency_curve: [0.05, 1., 0., 0.],
+            grass_amplitude: [0., 1.5, 0.05, 2.],
+            grass_frequency: [1., 1., 0.05, 2.],
+            grass_curve: [0.; 4],
             start_time: start,
             end_time: end,
             tick_seconds: tick,
@@ -139,7 +147,9 @@ impl<'a> Harness<'a> {
             .map_err(|err| anyhow::anyhow!("response readback ABI: {err}"))?
             .to_vec();
         anyhow::ensure!(
-            states.iter().flatten().all(|value| value.is_finite()),
+            states
+                .iter()
+                .all(|state| state[..26].iter().all(|value| value.is_finite())),
             "nonfinite GPU response"
         );
         Ok(states)
@@ -156,6 +166,43 @@ pub(in crate::tracer) fn validate_gpu(
     let mut harness = Harness::new(context, allocator, 2113)?;
     let mut source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;
+    let mut grass: Vec<_> = (0..species::MAX_FLORA_SPECIES)
+        .map(|species| ResponseInput {
+            root: [
+                1.,
+                1.,
+                1.,
+                resources.flora_voxel_lookup.grass_response_profiles[species],
+            ],
+            identity: [NO_PREVIOUS, species as u32, 23 + species as u32, 0],
+        })
+        .collect();
+    let mut ranges = [(f32::INFINITY, f32::NEG_INFINITY); species::MAX_FLORA_SPECIES];
+    for frame in 0..240 {
+        let states = harness.step(&grass, frame as f32 / 60., (frame + 1) as f32 / 60., 0.025)?;
+        for (i, state) in states.iter().enumerate() {
+            anyhow::ensure!(state.iter().all(|v| v.is_finite()), "grass state nonfinite");
+            anyhow::ensure!(
+                glam::Vec2::new(state[20], state[21]).length() <= 1.50001,
+                "grass local envelope exceeded"
+            );
+            if frame >= 120 {
+                // Local trajectories now belong to stem-seeded render sampling;
+                // GPU state carries the envelope and integrated clock, not a patch pose.
+                anyhow::ensure!(state[20] > 0.001, "grass envelope remained zero");
+                ranges[i].0 = ranges[i].0.min(state[24]);
+                ranges[i].1 = ranges[i].1.max(state[24]);
+            }
+            grass[i].identity[0] = i as u32;
+        }
+    }
+    anyhow::ensure!(
+        ranges.iter().all(|(lo, hi)| hi - lo > 0.001),
+        "constant wind left a grass species clock static: {ranges:?}"
+    );
+    log::info!(
+        "[GRASS_RESPONSE][GPU] all_four_species_clock_and_envelope=passed late_phase_ranges={ranges:?}"
+    );
     // Same forcing and the same spatial point deliberately remove wind-field
     // variation: individual leaf mechanics must not collapse into one spray pose.
     let mut leaves: Vec<_> = [11, 23, 47, 83]
@@ -164,7 +211,7 @@ pub(in crate::tracer) fn validate_gpu(
             root: [1., 1., 1., 0.],
             identity: [
                 NO_PREVIOUS,
-                crate::flora::species::TREE_LEAF_RENDER_SPECIES_INDEX,
+                species::TREE_LEAF_RENDER_SPECIES_INDEX,
                 seed,
                 1,
             ],
@@ -185,7 +232,7 @@ pub(in crate::tracer) fn validate_gpu(
         "individual leaves collapse into one mechanical response: difference={leaf_difference}"
     );
     log::info!("[VEGETATION_RESPONSE][INDIVIDUAL_LEAVES] same_force_max_difference={leaf_difference:.6} independent_mechanics=passed");
-    // The production GPU state owns local angle and all held publication buckets.
+    // The production GPU state owns current local angle and its continuous clock.
     harness.controls[3] = 1.;
     for leaf in &mut leaves {
         leaf.identity[0] = NO_PREVIOUS;
@@ -195,6 +242,8 @@ pub(in crate::tracer) fn validate_gpu(
     let mut angle_peak = 0_f32;
     let mut angle_difference = 0_f32;
     let mut quiet_angle = 0_f32;
+    let mut steady_min = f32::INFINITY;
+    let mut steady_max = f32::NEG_INFINITY;
     for frame in 0..480 {
         if frame == 240 {
             source.cells.fill([0.; 4]);
@@ -204,25 +253,99 @@ pub(in crate::tracer) fn validate_gpu(
         angle_peak = angle_peak.max(states[0][20].abs());
         angle_difference = angle_difference.max((states[0][20] - states[1][20]).abs());
         quiet_angle = states[0][20].abs();
+        if (180..240).contains(&frame) {
+            steady_min = steady_min.min(states[0][20]);
+            steady_max = steady_max.max(states[0][20]);
+        }
         anyhow::ensure!(
             states
                 .iter()
-                .all(|s| s[24..28].iter().all(|a| a.abs() <= 1.)),
-            "unbounded leaf publication"
+                .all(|s| s[20].abs() <= 1. && s[24..26].iter().all(|a| (0.0..1.0).contains(a))),
+            "unbounded leaf angle or fractional clock"
         );
         for (index, leaf) in leaves.iter_mut().enumerate() {
             leaf.identity[0] = index as u32;
         }
     }
     anyhow::ensure!(
-        angle_peak > 0.03 && angle_peak < 1. && angle_difference > 0.02 && quiet_angle < 0.001,
+        steady_max - steady_min > 0.01,
+        "steady wind must sustain local leaf flutter: excursion={}",
+        steady_max - steady_min
+    );
+    anyhow::ensure!(
+        // Distinct leaves retain independent local forcing under the same mean flow.
+        angle_peak > 0.03 && angle_peak < 1. && angle_difference > 0.01 && quiet_angle < 0.001,
         "leaf torsion invalid peak={angle_peak} independent={angle_difference} quiet={quiet_angle}"
     );
-    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} held_bounds=passed");
+    log::info!("[LEAF_FLUTTER][GPU] peak_angle={angle_peak:.5} independent_difference={angle_difference:.5} quiet_angle={quiet_angle:.8} steady_excursion={} sustained_flutter=passed current_angle_clock_bounds=passed", steady_max - steady_min);
+    // Exercise frequency upload and actual GPU trajectories at equal normalized
+    // time. A frequency-only/noise-only implementation cannot pass this test.
+    source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
+    harness.wind.wind_field_info.fill_uniform(&source)?;
+    let mut reference = Vec::new();
+    for hz in [2.0_f32, 4.0, 24.0] {
+        harness.flutter_frequency = if hz > 12. {
+            [24., 24., 1., 0.]
+        } else {
+            [hz, hz, 1., 0.]
+        };
+        for leaf in &mut leaves {
+            leaf.identity[0] = NO_PREVIOUS;
+        }
+        let mut trajectory = Vec::new();
+        let mut final_states = Vec::new();
+        for frame in 0..180 {
+            let dt = 1. / (hz * 64.);
+            final_states =
+                harness.step(&leaves, frame as f32 * dt, (frame + 1) as f32 * dt, 0.025)?;
+            trajectory.push(final_states[0][20]);
+            for (i, leaf) in leaves.iter_mut().enumerate() {
+                leaf.identity[0] = i as u32;
+            }
+        }
+        if reference.is_empty() {
+            reference = trajectory.clone();
+        }
+        let error = trajectory
+            .iter()
+            .zip(&reference)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        anyhow::ensure!(
+            error < 0.003,
+            "flutter frequency time scaling failed at {hz} Hz: {error}"
+        );
+        // Reorder all leaf identities and change tuning without elapsed time:
+        // state, phase fractions and integer cells must survive bit-for-bit.
+        leaves.reverse();
+        harness.flutter_frequency = [0.25, 0.25, 1., 0.];
+        let end = 180. / (hz * 64.);
+        let remapped = harness.step(&leaves, end, end, 0.1)?;
+        for (i, state) in remapped.iter().enumerate() {
+            let old = &final_states[leaves[i].identity[0] as usize];
+            anyhow::ensure!(
+                state
+                    .iter()
+                    .zip(old)
+                    .all(|(a, b)| a.to_bits() == b.to_bits()),
+                "flutter phase/pose reset during live retune/remap"
+            );
+        }
+        leaves.reverse();
+        log::info!("[LEAF_FLUTTER][FREQUENCY_GPU] target_hz={hz} normalized_trajectory_error={error:.8} zero_dt_retune=passed phase_lifetime_remap=passed");
+    }
+    harness.flutter_frequency = [1.8, 1.8, 1., 0.];
     harness.controls[3] = 0.;
     source = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X);
     harness.wind.wind_field_info.fill_uniform(&source)?;
-    let mut inputs: Vec<_> = [0, 2, 3, 4, 5]
+    let validation_species = [
+        species::TALL_GRASS_SPECIES_INDEX,
+        species::LAVENDER_SPECIES_INDEX,
+        species::EMBER_BLOOM_SPECIES_INDEX,
+        species::TREE_LEAF_RENDER_SPECIES_INDEX,
+        species::APPLE_RENDER_SPECIES_INDEX,
+    ];
+    let mut inputs: Vec<_> = validation_species
         .into_iter()
         .map(|species| ResponseInput {
             root: [1., 1., 1., 0.],
@@ -263,7 +386,7 @@ pub(in crate::tracer) fn validate_gpu(
         }
     }
     // Production-state measurements, not a verdict on the deliberately discrete art style.
-    for (index, species) in [0, 2, 3, 4, 5].into_iter().enumerate() {
+    for (index, species) in validation_species.into_iter().enumerate() {
         let reach = response_samples[..120]
             .iter()
             .position(|s| s[index][0] >= 0.9)
@@ -381,7 +504,7 @@ pub(in crate::tracer) fn validate_gpu(
             old == changed,
             "live controls or cadence change reset state"
         );
-        log::info!("[VEGETATION_RESPONSE][CONTROLS] multipliers={controls:?} species=0,2,3,4,5 t90_seconds={t90:?} overshoot={overshoot:?} zero_dt_continuity=passed");
+        log::info!("[VEGETATION_RESPONSE][CONTROLS] multipliers={controls:?} species={validation_species:?} t90_seconds={t90:?} overshoot={overshoot:?} zero_dt_continuity=passed");
         control_results.push((t90, overshoot, last.clone()));
     }
     for index in 0..inputs.len() {
@@ -455,8 +578,7 @@ pub(in crate::tracer) fn validate_gpu(
         // it with uniform fields at each CPU-sampled probe, avoiding assumptions
         // about the plant solver's nonlinear response curve.
         let mut field = crate::wind_field::WindField::default();
-        field.strength = 0.;
-        field.detail_strength = 0.;
+        field.background_enabled = false;
         field.advance(0.);
         field.release(glam::Vec3::new(1., 0.5, 1.), glam::Vec2::X);
         field.advance(1.);

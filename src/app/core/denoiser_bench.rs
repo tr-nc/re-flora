@@ -687,7 +687,9 @@ impl DenoiserBench {
 
         let label = if std::env::var_os("RE_FLORA_FALLEN_LEAF_REVIEW").is_some() {
             Some(format!("{:04}", self.captured_frames))
-        } else if std::env::var_os("RE_FLORA_LEAF_REVIEW").is_some() {
+        } else if std::env::var_os("RE_FLORA_LEAF_REVIEW").is_some()
+            || std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW").is_some()
+        {
             // Dense color frames for local motion review, using the existing atomic
             // capture publication. Normal denoiser captures retain sparse keyframes.
             self.captured_frames

@@ -4,6 +4,8 @@ use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Vec3, Vec4};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
+use super::butterfly_flight::{DartingFlightState, FLIGHT_STEP_SECONDS};
+use super::{ButterflyFlightTuning, ButterflyFlightVariant};
 use super::{
     MotionMode, ParticleHandle, ParticleRenderKind, ParticleSpawn, ParticleSystem,
     ParticleUpdateConfig, STANDARD_PARTICLE_SIZE,
@@ -258,6 +260,8 @@ pub struct ButterflyEmitterDesc {
     pub worm_noise_frequency: f32,
     pub worm_noise_detail_frequency: f32,
     pub worm_noise_detail_weight: f32,
+    pub flight_variant: ButterflyFlightVariant,
+    pub flight_tuning: ButterflyFlightTuning,
 }
 
 impl Default for ButterflyEmitterDesc {
@@ -276,6 +280,8 @@ impl Default for ButterflyEmitterDesc {
             worm_noise_frequency: 2.0,
             worm_noise_detail_frequency: 8.0,
             worm_noise_detail_weight: 0.5,
+            flight_variant: ButterflyFlightVariant::default(),
+            flight_tuning: ButterflyFlightTuning::default(),
         }
     }
 }
@@ -308,12 +314,13 @@ impl ButterflySpawnSource {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 struct ActiveButterfly {
     handle: ParticleHandle,
     worm_seed: f32,
     worm_phase: f32,
     emergence_target_y: Option<f32>,
+    darting_flight: DartingFlightState,
 }
 
 pub struct ButterflyEmitter {
@@ -327,28 +334,19 @@ pub struct ButterflyEmitter {
     pub enabled: bool,
     pub spawn_rate_per_source: f32,
     pub max_active_butterflies: usize,
-    render_kind: ParticleRenderKind,
+    flight_variant: ButterflyFlightVariant,
+    flight_tuning: ButterflyFlightTuning,
     pub worm_noise: FastNoiseLite,
     pub worm_noise_detail: FastNoiseLite,
     pub worm_noise_detail_weight: f32,
     rng: SmallRng,
-    spawn_sources: Vec<ButterflySpawnSource>,
-    spawn_hazard: f32,
-    next_spawn_hazard: f32,
     active_butterflies: Vec<ActiveButterfly>,
+    flight_elapsed: f64,
 }
 
 impl ButterflyEmitter {
     pub fn new(seed: u64, desc: &ButterflyEmitterDesc) -> Self {
-        Self::new_with_render_kind(seed, desc, ParticleRenderKind::Butterfly)
-    }
-
-    fn new_with_render_kind(
-        seed: u64,
-        desc: &ButterflyEmitterDesc,
-        render_kind: ParticleRenderKind,
-    ) -> Self {
-        let mut emitter = Self {
+        Self {
             height_offset: desc.height_offset_min.min(desc.height_offset_max)
                 ..=desc.height_offset_max.max(desc.height_offset_min),
             size: desc.size.max(0.001),
@@ -359,7 +357,8 @@ impl ButterflyEmitter {
             enabled: desc.enabled,
             spawn_rate_per_source: desc.spawn_rate_per_source.max(0.0),
             max_active_butterflies: desc.max_active_butterflies,
-            render_kind,
+            flight_variant: desc.flight_variant,
+            flight_tuning: desc.flight_tuning.sanitized(),
             worm_noise: butterfly_worm_noise_state(seed as i32, desc.worm_noise_frequency),
             worm_noise_detail: butterfly_worm_noise_detail_state(
                 (seed as i32).wrapping_add(5000),
@@ -367,13 +366,9 @@ impl ButterflyEmitter {
             ),
             worm_noise_detail_weight: desc.worm_noise_detail_weight,
             rng: SmallRng::seed_from_u64(seed),
-            spawn_sources: Vec::new(),
-            spawn_hazard: 0.0,
-            next_spawn_hazard: 1.0,
             active_butterflies: Vec::new(),
-        };
-        emitter.next_spawn_hazard = emitter.sample_next_spawn_hazard();
-        emitter
+            flight_elapsed: 0.0,
+        }
     }
 
     #[allow(dead_code)]
@@ -381,6 +376,8 @@ impl ButterflyEmitter {
         self.enabled = desc.enabled;
         self.spawn_rate_per_source = desc.spawn_rate_per_source.max(0.0);
         self.max_active_butterflies = desc.max_active_butterflies;
+        self.flight_variant = desc.flight_variant;
+        self.flight_tuning = desc.flight_tuning.sanitized();
         self.height_offset = desc.height_offset_min.min(desc.height_offset_max)
             ..=desc.height_offset_max.max(desc.height_offset_min);
         self.size = desc.size.max(0.001);
@@ -400,9 +397,21 @@ impl ButterflyEmitter {
             .retain(|butterfly| system.is_alive_handle(butterfly.handle));
     }
 
-    fn enforce_size_on_active(&self, system: &mut ParticleSystem) {
-        for butterfly in &self.active_butterflies {
+    fn sync_active_style(&mut self, system: &mut ParticleSystem) {
+        for butterfly in &mut self.active_butterflies {
             let _ = system.set_size(butterfly.handle, self.size);
+            if system.set_butterfly_flight_style(
+                butterfly.handle,
+                self.flight_variant.uses_darting_flight(),
+                self.flight_variant.is_darting_block(),
+            ) {
+                butterfly
+                    .darting_flight
+                    .resume(system.velocity(butterfly.handle).unwrap_or(Vec3::ZERO));
+                if let Some(position) = system.position(butterfly.handle) {
+                    butterfly.darting_flight.reset_render_pose(position);
+                }
+            }
         }
     }
 
@@ -414,24 +423,37 @@ impl ButterflyEmitter {
         }
     }
 
-    fn sample_next_spawn_hazard(&mut self) -> f32 {
-        let unit = 1.0 - self.rng.random_range(0.0..1.0_f32);
-        -unit.ln()
+    pub fn has_capacity(&mut self, system: &ParticleSystem) -> bool {
+        self.prune_handles(system);
+        self.enabled && self.active_butterflies.len() < self.max_active_butterflies
     }
 
-    pub fn set_spawn_sources(&mut self, spawn_sources: Vec<ButterflySpawnSource>) {
-        self.spawn_sources = spawn_sources;
+    pub fn clear(&mut self, system: &mut ParticleSystem) {
+        self.trim_active_to_count(system, 0);
     }
 
-    pub fn spawn_source_count(&self) -> usize {
-        self.spawn_sources.len()
-    }
-
-    fn spawn_butterfly(&mut self, system: &mut ParticleSystem) -> Option<ParticleHandle> {
-        if self.spawn_sources.is_empty() {
+    pub fn spawn_at(
+        &mut self,
+        system: &mut ParticleSystem,
+        source: ButterflySpawnSource,
+    ) -> Option<ParticleHandle> {
+        if !self.has_capacity(system) || !source.position_ws.is_finite() {
             return None;
         }
-        let source = self.spawn_sources[self.rng.random_range(0..self.spawn_sources.len())];
+        // Bound local density independently of total supply and the world cap.
+        if self
+            .active_butterflies
+            .iter()
+            .filter(|b| {
+                system
+                    .position(b.handle)
+                    .is_some_and(|p| p.distance_squared(source.position_ws) < 0.22 * 0.22)
+            })
+            .count()
+            >= 2
+        {
+            return None;
+        }
         let height_offset = random_in_range(&mut self.rng, &self.height_offset);
         let emergence_target_y = (source.kind == ButterflySpawnSourceKind::GroundFlora)
             .then_some(source.position_ws.y + STANDARD_PARTICLE_SIZE * 0.5 + height_offset);
@@ -450,14 +472,18 @@ impl ButterflyEmitter {
             )
         };
 
-        let preset_count = ButterflyPalettePreset::COUNT;
-        let texture_variant = if preset_count == 0 {
-            0
-        } else {
-            self.rng.random_range(0..preset_count)
-        };
+        let texture_variant = ButterflyPalettePreset::from_garden_roll(
+            self.rng
+                .random_range(0..ButterflyPalettePreset::GARDEN_ROLL_COUNT),
+        ) as u32;
 
         let lifetime = random_in_range(&mut self.rng, &self.lifetime);
+        let block_mode = self.flight_variant.uses_darting_flight();
+        let habitat_center = Vec3::new(
+            position.x,
+            emergence_target_y.unwrap_or(position.y),
+            position.z,
+        );
 
         let spawn = ParticleSpawn {
             position,
@@ -471,11 +497,15 @@ impl ButterflyEmitter {
             drift_strength: 0.0,
             drift_frequency: 1.0,
             speed_noise_offset: seed,
-            motion_mode: MotionMode::Free,
+            motion_mode: if block_mode {
+                MotionMode::GuidedFlight
+            } else {
+                MotionMode::Free
+            },
             sink_on_lifetime: false,
             sink_speed: 0.0,
             texture_variant,
-            render_kind: self.render_kind,
+            render_kind: ParticleRenderKind::Butterfly,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
             update: BUTTERFLY_UPDATE,
@@ -483,11 +513,19 @@ impl ButterflyEmitter {
 
         match system.spawn(spawn) {
             Some(handle) => {
+                system.set_butterfly_flight_style(
+                    handle,
+                    block_mode,
+                    self.flight_variant.is_darting_block(),
+                );
+                let mut darting_flight = DartingFlightState::new(seed, habitat_center, initial_dir);
+                darting_flight.reset_render_pose(position);
                 self.active_butterflies.push(ActiveButterfly {
                     handle,
                     worm_seed: seed,
                     worm_phase: phase,
                     emergence_target_y,
+                    darting_flight,
                 });
                 Some(handle)
             }
@@ -538,9 +576,71 @@ impl ButterflyEmitter {
             .iter_mut()
             .find(|butterfly| butterfly.handle == handle)
         {
-            butterfly.worm_phase += WORM_STEP_LEN;
+            if !self.flight_variant.uses_darting_flight() {
+                butterfly.worm_phase += WORM_STEP_LEN;
+            }
             let _ = (position, direction);
         }
+    }
+
+    /// Advances existing live handles only; the spawn hazard and palette RNG stay untouched.
+    pub fn advance_block_flight(
+        &mut self,
+        system: &mut ParticleSystem,
+        dt: f32,
+        world_max: Vec3,
+        wind: &WindFieldFrame,
+        mut terrain_distance: impl FnMut(Vec3, Vec3) -> Option<f32>,
+    ) {
+        if !self.flight_variant.uses_darting_flight() {
+            self.flight_elapsed = 0.0;
+            return;
+        }
+        // Bound catch-up after a stall. No giant position step is ever published.
+        self.flight_elapsed += f64::from(dt.clamp(0.0, 0.25));
+        let step = FLIGHT_STEP_SECONDS;
+        while self.flight_elapsed + 1e-9 >= step {
+            self.flight_elapsed = (self.flight_elapsed - step).max(0.0);
+            for butterfly in &mut self.active_butterflies {
+                let Some(position) = system.position(butterfly.handle) else {
+                    continue;
+                };
+                let velocity = system.velocity(butterfly.handle).unwrap_or(Vec3::ZERO);
+                let emerging = butterfly.emergence_target_y.is_some_and(|y| position.y < y);
+                if !emerging {
+                    butterfly.emergence_target_y = None;
+                }
+                let next_velocity = butterfly.darting_flight.advance(
+                    position,
+                    velocity,
+                    step as f32,
+                    world_max,
+                    emerging,
+                    self.flight_tuning,
+                    wind.sample_world(position),
+                    &mut terrain_distance,
+                );
+                system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
+                if let Some(position) = system.position(butterfly.handle) {
+                    butterfly.darting_flight.publish_render_pose(position);
+                }
+            }
+        }
+        self.prune_handles(system);
+    }
+
+    pub const fn flight_variant(&self) -> ButterflyFlightVariant {
+        self.flight_variant
+    }
+
+    pub fn block_render_position(&self, handle: ParticleHandle) -> Option<Vec3> {
+        if !self.flight_variant.uses_darting_flight() {
+            return None;
+        }
+        self.active_butterflies
+            .iter()
+            .find(|butterfly| butterfly.handle == handle)
+            .map(|butterfly| butterfly.darting_flight.render_position())
     }
 
     pub fn despawn_butterfly(&mut self, handle: ParticleHandle) {
@@ -555,7 +655,7 @@ impl ButterflyEmitter {
 }
 
 impl ParticleEmitter for ButterflyEmitter {
-    fn update(&mut self, system: &mut ParticleSystem, dt: f32, _time: f32) {
+    fn update(&mut self, system: &mut ParticleSystem, _dt: f32, _time: f32) {
         self.prune_handles(system);
         if !self.enabled {
             self.trim_active_to_count(system, 0);
@@ -564,26 +664,7 @@ impl ParticleEmitter for ButterflyEmitter {
 
         self.trim_active_to_count(system, self.max_active_butterflies);
 
-        self.enforce_size_on_active(system);
-        if self.spawn_sources.is_empty()
-            || self.spawn_rate_per_source <= 0.0
-            || self.active_butterflies.len() >= self.max_active_butterflies
-        {
-            return;
-        }
-
-        self.spawn_hazard +=
-            self.spawn_rate_per_source * self.spawn_sources.len() as f32 * dt.max(0.0);
-        while self.spawn_hazard >= self.next_spawn_hazard
-            && self.active_butterflies.len() < self.max_active_butterflies
-        {
-            self.spawn_hazard -= self.next_spawn_hazard;
-            self.next_spawn_hazard = self.sample_next_spawn_hazard();
-            if self.spawn_butterfly(system).is_none() {
-                self.spawn_hazard = 0.0;
-                break;
-            }
-        }
+        self.sync_active_style(system);
     }
 }
 
@@ -595,6 +676,7 @@ mod tests {
 
     fn butterfly_test_desc() -> ButterflyEmitterDesc {
         ButterflyEmitterDesc {
+            flight_variant: ButterflyFlightVariant::OriginalSprite,
             spawn_rate_per_source: 1.0,
             height_offset_min: 0.05,
             height_offset_max: 0.05,
@@ -605,96 +687,331 @@ mod tests {
     }
 
     #[test]
-    fn butterfly_spawn_hazard_scales_with_source_count() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-
-        let mut one_source_system = ParticleSystem::new(4);
-        let mut one_source = ButterflyEmitter::new(7, &butterfly_test_desc());
-        one_source.set_spawn_sources(vec![source]);
-        one_source.next_spawn_hazard = 0.5;
-        one_source.update(&mut one_source_system, 0.25, 0.0);
-
-        let mut two_source_system = ParticleSystem::new(4);
-        let mut two_sources = ButterflyEmitter::new(7, &butterfly_test_desc());
-        two_sources.set_spawn_sources(vec![source, source]);
-        two_sources.next_spawn_hazard = 0.5;
-        two_sources.update(&mut two_source_system, 0.25, 0.0);
-
-        assert_eq!(one_source_system.alive_count(), 0);
-        assert_eq!(two_source_system.alive_count(), 1);
-    }
-
-    #[test]
-    fn butterfly_hard_limit_stops_many_same_frame_spawn_attempts() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.spawn_rate_per_source = 100.0;
-        desc.max_active_butterflies = 3;
-        let mut system = ParticleSystem::new(32);
-        let mut emitter = ButterflyEmitter::new(17, &desc);
-        emitter.set_spawn_sources(vec![source; 20]);
-        emitter.next_spawn_hazard = 0.01;
-
-        emitter.update(&mut system, 1.0, 0.0);
-
-        assert_eq!(system.alive_count(), 3);
-    }
-
-    #[test]
-    fn existing_butterflies_count_toward_limit_and_death_reopens_one_slot() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.spawn_rate_per_source = 100.0;
-        desc.max_active_butterflies = 2;
-        let mut system = ParticleSystem::new(8);
-        let mut emitter = ButterflyEmitter::new(19, &desc);
-        emitter.set_spawn_sources(vec![source; 4]);
-        let first = emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.next_spawn_hazard = 0.01;
-
-        emitter.update(&mut system, 1.0, 0.0);
-        assert_eq!(system.alive_count(), 2);
-
-        assert!(system.despawn(first));
-        emitter.update(&mut system, 1.0, 0.0);
-        assert_eq!(system.alive_count(), 2);
-    }
-
-    #[test]
-    fn shared_particle_capacity_stops_butterfly_spawning_without_exceeding_the_limit() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.spawn_rate_per_source = 100.0;
-        desc.max_active_butterflies = 2;
-        let mut system = ParticleSystem::new(1);
-        let mut emitter = ButterflyEmitter::new(29, &desc);
-        emitter.set_spawn_sources(vec![source; 4]);
-        emitter.spawn_butterfly(&mut system).unwrap();
-        emitter.next_spawn_hazard = 0.01;
-
-        emitter.update(&mut system, 1.0, 0.0);
-
-        assert_eq!(system.alive_count(), 1);
-    }
-
-    #[test]
-    fn lowering_butterfly_limit_removes_existing_excess_immediately() {
-        let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.5, 0.5, 0.5));
-        let mut desc = butterfly_test_desc();
-        desc.max_active_butterflies = 3;
-        let mut system = ParticleSystem::new(8);
-        let mut emitter = ButterflyEmitter::new(23, &desc);
-        emitter.set_spawn_sources(vec![source]);
-        for _ in 0..3 {
-            emitter.spawn_butterfly(&mut system).unwrap();
+    fn butterfly_samples_local_wind_and_zero_gain_preserves_calm_motion() {
+        let mut local = WindFieldFrame::uniform(glam::Vec2::ZERO);
+        for (i, pair) in local.cells.iter_mut().enumerate() {
+            pair[0] = if (i * 2) % 32 == 31 { 2.0 } else { 0.0 };
+            pair[2] = if (i * 2 + 1) % 32 == 31 { 2.0 } else { 0.0 };
         }
+        let run = |position, wind: &WindFieldFrame, gain| {
+            let mut desc = butterfly_test_desc();
+            desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+            desc.flight_tuning.wind_drift = gain;
+            let mut emitter = ButterflyEmitter::new(17, &desc);
+            let mut system = ParticleSystem::new(2);
+            let handle = emitter
+                .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(position))
+                .unwrap();
+            emitter.advance_block_flight(&mut system, 0.1, Vec3::splat(4.0), wind, |_, _| None);
+            (
+                system.position(handle).unwrap(),
+                system.velocity(handle).unwrap(),
+                emitter.rng.random::<u64>(),
+            )
+        };
+        let calm = WindFieldFrame::default();
+        let sheltered = Vec3::new(0.5, 1.0, 1.0);
+        assert_eq!(run(sheltered, &local, 1.0), run(sheltered, &calm, 1.0));
+        let exposed = Vec3::new(1.99, 1.0, 1.0);
+        assert_eq!(run(exposed, &local, 0.0), run(exposed, &calm, 0.0));
+        let with_wind = run(exposed, &local, 1.0);
+        let no_wind = run(exposed, &calm, 1.0);
+        assert!(with_wind.0.x > no_wind.0.x + 0.0005);
+        assert!(with_wind.1.x > no_wind.1.x + 0.005);
+        assert_eq!(
+            with_wind.2, no_wind.2,
+            "wind must not consume population RNG"
+        );
+    }
 
-        desc.max_active_butterflies = 1;
-        emitter.apply_desc(&desc);
+    #[test]
+    fn butterfly_ab_retains_handles_palette_lifetime_and_spawn_rng() {
+        let mut desc = butterfly_test_desc();
+        let mut a = ButterflyEmitter::new(17, &desc);
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        let mut b = ButterflyEmitter::new(17, &desc);
+        let mut a_system = ParticleSystem::new(16);
+        let mut b_system = ParticleSystem::new(16);
+        for index in 0..8 {
+            let source = ButterflySpawnSource::tree_leaf(Vec3::new(0.3 * index as f32, 1.0, 1.0));
+            let ah = a.spawn_at(&mut a_system, source).unwrap();
+            let bh = b.spawn_at(&mut b_system, source).unwrap();
+            assert_eq!(ah, bh);
+            assert_eq!(a_system.position(ah), b_system.position(bh));
+            // Flight RNG must never advance the population/palette RNG.
+            b.advance_block_flight(
+                &mut b_system,
+                0.25,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+        }
+        let mut snaps = Vec::new();
+        b_system.write_snapshots(&mut snaps);
+        let before = snaps.clone();
+        assert!(before
+            .iter()
+            .all(|s| s.kind == ParticleRenderKind::ButterflyBlock));
+        desc.flight_variant = ButterflyFlightVariant::OriginalSprite;
+        b.apply_desc(&desc);
+        b.sync_active_style(&mut b_system);
+        b_system.write_snapshots(&mut snaps);
+        for (old, new) in before.iter().zip(&snaps) {
+            assert_eq!(old.position_ws, new.position_ws);
+            assert_eq!(old.velocity, new.velocity);
+            assert_eq!(old.texture_variant, new.texture_variant);
+            assert_eq!(old.color.w, new.color.w);
+            assert_eq!(new.kind, ParticleRenderKind::Butterfly);
+        }
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        b.apply_desc(&desc);
+        b.sync_active_style(&mut b_system);
+        b_system.write_snapshots(&mut snaps);
+        for (old, new) in before.iter().zip(&snaps) {
+            assert_eq!(old.color, new.color);
+            assert_eq!(old.position_ws, new.position_ws);
+        }
+        let mut a_snaps = Vec::new();
+        a_system.write_snapshots(&mut a_snaps);
+        assert_eq!(
+            a_snaps
+                .iter()
+                .map(|s| s.texture_variant)
+                .collect::<Vec<_>>(),
+            before.iter().map(|s| s.texture_variant).collect::<Vec<_>>()
+        );
+        assert_eq!(a.rng.random::<u64>(), b.rng.random::<u64>());
+    }
+
+    #[test]
+    fn butterfly_appearance_switch_preserves_motion_and_visible_area() {
+        let atlas = image::open("assets/texture/butterfly_16px/butterfly.png")
+            .unwrap()
+            .to_rgba8();
+        let mut opaque_pixels = 0;
+        for row in super::super::BUTTERFLY_ATLAS_ROW_FOR_VIEW {
+            for y in row * 16..(row + 1) * 16 {
+                for x in 0..80 {
+                    opaque_pixels += usize::from(atlas.get_pixel(x, y)[3] > 0);
+                }
+            }
+        }
+        let mean_coverage = opaque_pixels as f32 / (2.0 * 5.0 * 16.0 * 16.0);
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingSprite;
+        let mut reference = ButterflyEmitter::new(82, &desc);
+        let mut switched = ButterflyEmitter::new(82, &desc);
+        let mut reference_system = ParticleSystem::new(4);
+        let mut switched_system = ParticleSystem::new(4);
+        let handle = reference
+            .spawn_at(
+                &mut reference_system,
+                ButterflySpawnSource::tree_leaf(Vec3::ONE),
+            )
+            .unwrap();
+        assert_eq!(
+            handle,
+            switched
+                .spawn_at(
+                    &mut switched_system,
+                    ButterflySpawnSource::tree_leaf(Vec3::ONE)
+                )
+                .unwrap()
+        );
+        let mut frames = std::collections::BTreeSet::new();
+        for step in 0..360 {
+            if step == 80 || step == 200 {
+                desc.flight_variant = if step == 80 {
+                    ButterflyFlightVariant::DartingBlock
+                } else {
+                    ButterflyFlightVariant::DartingSprite
+                };
+                switched.apply_desc(&desc);
+                switched.sync_active_style(&mut switched_system);
+            }
+            for (emitter, system) in [
+                (&mut reference, &mut reference_system),
+                (&mut switched, &mut switched_system),
+            ] {
+                emitter.advance_block_flight(
+                    system,
+                    1.0 / 120.0,
+                    Vec3::splat(4.0),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
+            }
+            let mut a = Vec::new();
+            let mut b = Vec::new();
+            reference_system.write_snapshots_with_block_pose(&mut a, |h, p| {
+                reference.block_render_position(h).unwrap_or(p)
+            });
+            switched_system.write_snapshots_with_block_pose(&mut b, |h, p| {
+                switched.block_render_position(h).unwrap_or(p)
+            });
+            assert_eq!(a.len(), 1);
+            assert_eq!(b.len(), 1);
+            let (a, b) = (&a[0], &b[0]);
+            assert_eq!(
+                a.position_ws, b.position_ws,
+                "appearance must not restart the display beat"
+            );
+            assert_eq!(a.velocity, b.velocity);
+            if (80..200).contains(&step) {
+                assert_eq!(b.size, super::super::STANDARD_PARTICLE_SIZE);
+                let area_ratio = mean_coverage * (a.size / b.size).powi(2);
+                assert!(
+                    (0.85..=1.15).contains(&area_ratio),
+                    "sprite/block mean visible area ratio {area_ratio}, atlas coverage {mean_coverage}"
+                );
+            } else {
+                assert_eq!(a.size, b.size);
+            }
+            assert_eq!(a.texture_variant, b.texture_variant);
+            assert_eq!(a.animation_frame_offset, b.animation_frame_offset);
+            assert_eq!(a.color.w, b.color.w);
+            assert_eq!(a.kind, ParticleRenderKind::Butterfly);
+            assert_eq!(
+                b.kind,
+                if (80..200).contains(&step) {
+                    ParticleRenderKind::ButterflyBlock
+                } else {
+                    ParticleRenderKind::Butterfly
+                }
+            );
+            frames.insert(a.animation_frame_offset);
+        }
+        assert!(
+            frames.len() > 1,
+            "sprite animation must still advance at the compact size"
+        );
+    }
+
+    #[test]
+    fn butterfly_block_fixed_steps_ignore_render_partition_and_world_tick() {
+        let run = |frame_dt: f32, world_tick: f32| {
+            let mut desc = butterfly_test_desc();
+            desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+            let mut emitter = ButterflyEmitter::new(19, &desc);
+            let mut system = ParticleSystem::new(4);
+            system.set_bucket_step_seconds(world_tick);
+            let handle = emitter
+                .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+                .unwrap();
+            for _ in 0..(4.0 / frame_dt).round() as usize {
+                system.update(frame_dt, super::super::ParticleForces::default());
+                emitter.advance_block_flight(
+                    &mut system,
+                    frame_dt,
+                    Vec3::splat(2.0),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
+            }
+            (
+                system.position(handle).unwrap(),
+                system.velocity(handle).unwrap(),
+                emitter.block_render_position(handle).unwrap(),
+            )
+        };
+        let reference = run(1.0 / 120.0, 0.05);
+        for (dt, tick) in [(1.0 / 60.0, 0.1), (1.0 / 30.0, 0.02), (1.0 / 20.0, 0.05)] {
+            let actual = run(dt, tick);
+            assert!(actual.0.distance(reference.0) < 1e-6);
+            assert!(actual.1.distance(reference.1) < 1e-6);
+            assert!(actual.2.distance(reference.2) < 1e-6);
+        }
+    }
+
+    #[test]
+    fn butterfly_100ms_shared_beats_publish_actual_integrated_positions() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        desc.flight_tuning.flight_frequency_hz = 10.0;
+        let mut emitter = ButterflyEmitter::new(23, &desc);
+        let mut system = ParticleSystem::new(4);
+        let handle = emitter
+            .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+            .unwrap();
+        for tick in 0..240 {
+            let previous = emitter.block_render_position(handle).unwrap();
+            emitter.advance_block_flight(
+                &mut system,
+                FLIGHT_STEP_SECONDS as f32,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            let expected = if tick % 12 == 0 {
+                system.position(handle).unwrap()
+            } else {
+                previous
+            };
+            assert_eq!(
+                emitter.block_render_position(handle).unwrap(),
+                expected,
+                "tick={tick}"
+            );
+        }
+    }
+
+    #[test]
+    fn butterfly_block_lifetime_and_disable_retire_the_existing_slots() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        desc.lifetime_min = 0.2;
+        desc.lifetime_max = 0.2;
+        let mut emitter = ButterflyEmitter::new(7, &desc);
+        let mut system = ParticleSystem::new(4);
+        let first = emitter
+            .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+            .unwrap();
+        emitter.advance_block_flight(
+            &mut system,
+            0.25,
+            Vec3::splat(2.0),
+            &WindFieldFrame::default(),
+            |_, _| None,
+        );
+        assert!(!system.is_alive_handle(first));
+        let second = emitter
+            .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+            .unwrap();
+        emitter.enabled = false;
         emitter.update(&mut system, 0.0, 0.0);
+        assert!(!system.is_alive_handle(second));
+        assert_eq!(system.available_capacity(), 4);
+        assert!(emitter.active_butterflies.is_empty());
+    }
 
+    #[test]
+    fn births_obey_world_local_and_particle_capacity_and_death_reopens_slots() {
+        let mut desc = butterfly_test_desc();
+        desc.max_active_butterflies = 3;
+        let mut e = ButterflyEmitter::new(17, &desc);
+        let mut system = ParticleSystem::new(8);
+        let source = ButterflySpawnSource::tree_leaf(Vec3::ZERO);
+        let first = e.spawn_at(&mut system, source).unwrap();
+        assert!(e.spawn_at(&mut system, source).is_some());
+        assert!(e.spawn_at(&mut system, source).is_none()); // local cap
+        let far = ButterflySpawnSource::tree_leaf(Vec3::ONE);
+        assert!(e.spawn_at(&mut system, far).is_some());
+        for _ in 0..100 {
+            assert!(e.spawn_at(&mut system, far).is_none());
+        }
+        assert_eq!(system.alive_count(), 3);
+        system.despawn(first);
+        assert!(e.spawn_at(&mut system, source).is_some());
+        desc.max_active_butterflies = 1;
+        e.apply_desc(&desc);
+        e.update(&mut system, 0., 0.);
         assert_eq!(system.alive_count(), 1);
+        e.clear(&mut system);
+        assert_eq!(system.alive_count(), 0);
+        let mut tiny = ParticleSystem::new(1);
+        assert!(e.spawn_at(&mut tiny, source).is_some());
+        assert!(e.spawn_at(&mut tiny, far).is_none());
     }
 
     #[test]
@@ -702,8 +1019,12 @@ mod tests {
         let source_position = Vec3::new(0.5, 0.4, 0.5);
         let mut system = ParticleSystem::new(4);
         let mut emitter = ButterflyEmitter::new(11, &butterfly_test_desc());
-        emitter.set_spawn_sources(vec![ButterflySpawnSource::ground_flora(source_position)]);
-        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+        let handle = emitter
+            .spawn_at(
+                &mut system,
+                ButterflySpawnSource::ground_flora(source_position),
+            )
+            .unwrap();
 
         let mut handles = Vec::new();
         let mut positions = Vec::new();
@@ -727,8 +1048,12 @@ mod tests {
         let source_position = Vec3::new(0.8, 0.9, 1.1);
         let mut system = ParticleSystem::new(4);
         let mut emitter = ButterflyEmitter::new(13, &butterfly_test_desc());
-        emitter.set_spawn_sources(vec![ButterflySpawnSource::tree_leaf(source_position)]);
-        let handle = emitter.spawn_butterfly(&mut system).unwrap();
+        let handle = emitter
+            .spawn_at(
+                &mut system,
+                ButterflySpawnSource::tree_leaf(source_position),
+            )
+            .unwrap();
 
         let mut handles = Vec::new();
         let mut positions = Vec::new();
@@ -779,5 +1104,67 @@ mod tests {
         assert_eq!(system.alive_count(), 2);
         emitter.update(&mut system, 1., &WindFieldFrame::default());
         assert_eq!(system.alive_count(), 2);
+    }
+    #[test]
+    fn butterfly_shared_cadence_changes_motion_but_preserves_population_and_palette() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::DartingBlock;
+        let mut stepped = ButterflyEmitter::new(23, &desc);
+        desc.flight_tuning.flight_frequency_hz = 0.0;
+        let mut continuous = ButterflyEmitter::new(23, &desc);
+        let mut a = ParticleSystem::new(4);
+        let mut b = ParticleSystem::new(4);
+        let ah = stepped
+            .spawn_at(&mut a, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+            .unwrap();
+        let bh = continuous
+            .spawn_at(&mut b, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+            .unwrap();
+        let mut snapshots = Vec::new();
+        let mut held_frames = 0;
+        let mut previous = Vec3::ONE;
+        for _ in 0..120 {
+            stepped.advance_block_flight(
+                &mut a,
+                1.0 / 60.0,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            continuous.advance_block_flight(
+                &mut b,
+                1.0 / 60.0,
+                Vec3::splat(2.0),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            assert_eq!(continuous.block_render_position(bh), b.position(bh));
+            a.write_snapshots_with_block_pose(&mut snapshots, |handle, position| {
+                stepped.block_render_position(handle).unwrap_or(position)
+            });
+            let displayed = snapshots[0].position_ws;
+            held_frames += usize::from(displayed == previous);
+            previous = displayed;
+        }
+        assert!(held_frames > 50);
+        assert_ne!(a.position(ah), b.position(bh));
+        let mut b_snapshots = Vec::new();
+        b.write_snapshots(&mut b_snapshots);
+        assert_eq!(snapshots[0].texture_variant, b_snapshots[0].texture_variant);
+        assert_eq!(snapshots[0].color, b_snapshots[0].color);
+        let (position, velocity) = (a.position(ah), a.velocity(ah));
+        desc.flight_tuning.vertical_strength = 4.0;
+        stepped.apply_desc(&desc);
+        stepped.sync_active_style(&mut a);
+        assert_eq!((a.position(ah), a.velocity(ah)), (position, velocity));
+        assert_eq!(a.alive_count(), b.alive_count());
+        assert_eq!(stepped.rng.random::<u64>(), continuous.rng.random::<u64>());
+        desc.flight_variant = ButterflyFlightVariant::OriginalSprite;
+        stepped.apply_desc(&desc);
+        stepped.sync_active_style(&mut a);
+        a.write_snapshots_with_block_pose(&mut snapshots, |_, _| {
+            panic!("A must not use held B pose")
+        });
+        assert_eq!(snapshots[0].position_ws, a.position(ah).unwrap());
     }
 }

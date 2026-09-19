@@ -45,7 +45,8 @@ GLSLShaderStorageBuffer<B_DdgiTraceStats, Std430DataLayout>
     ddgi_trace_stats;
 
 // These builder-only bindings shape the immutable source/destination transport seam. An initial
-// epoch has black indirect history; later epochs consume the previous complete field.
+// allocation without a source has black history; geometry refreshes retain the previous
+// complete field as an iterative radiance estimate, tested against current exact visibility.
 [[vk::binding(29, 0)]]
 Sampler2D ddgi_transport_source_irradiance_atlas;
 
@@ -221,14 +222,10 @@ void main(uint3 groupId : SV_GroupID,
     bool probeIsValid =
         metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
         metadata.state_and_reserved.y == pc.terrain_revision;
-    float3 nominalProbePosition =
-        metadata.nominal_position_and_min_clearance.xyz;
-    bool probeNeedsLocalRefresh = ddgiFilterProbeNeedsLocalRefresh(
-        nominalProbePosition, pc.local_refresh_enabled.x,
-        pc.local_refresh_world_min.xyz, pc.local_refresh_world_max.xyz);
-    bool resetLocalHistory =
-        probeNeedsLocalRefresh && pc.local_refresh_enabled.y == 0u;
-    bool useHistory = pc.has_history != 0u && !resetLocalHistory;
+    // Resetting local accumulation at e0 must not reset recursive transport too:
+    // repeated topology epochs would otherwise never advance indirect lighting.
+    // Current geometry visibility gates the immutable source estimate at each hit.
+    bool useHistory = pc.has_history != 0u;
 
     [unroll]
     for (uint rayInThread = 0u; rayInThread < DDGI_RAYS_PER_THREAD;

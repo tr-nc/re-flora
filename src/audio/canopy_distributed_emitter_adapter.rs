@@ -49,7 +49,6 @@ impl CanopyDistributedEmitterAdapter {
         rustle_clip: &ResidentClip,
         base_volume_db: f32,
         wind_response_curve: WindResponseCurve,
-        base_wind: f32,
         time_seconds: f32,
     ) -> Result<Vec<Uuid>> {
         let active_keys = snapshot
@@ -72,7 +71,6 @@ impl CanopyDistributedEmitterAdapter {
                     rustle_clip,
                     base_volume_db,
                     wind_response_curve,
-                    base_wind,
                     time_seconds,
                 ) {
                     Ok(uuid) => uuid,
@@ -170,18 +168,13 @@ impl CanopyDistributedEmitterAdapter {
         }
     }
 
-    pub fn replace_rustle_clip(
-        &mut self,
-        rustle_clip: &ResidentClip,
-        base_wind: f32,
-    ) -> Result<()> {
+    pub fn replace_rustle_clip(&mut self, rustle_clip: &ResidentClip) -> Result<()> {
         for voice in self.voices.values_mut() {
             self.spatial_sound_manager.replace_looping_clip(
                 voice.uuid,
                 rustle_clip.clone(),
                 voice.phase,
             )?;
-            voice.set_base_wind(base_wind);
         }
         Ok(())
     }
@@ -335,7 +328,6 @@ impl CanopyDistributedEmitterAdapter {
         rustle_clip: &ResidentClip,
         base_volume_db: f32,
         wind_response_curve: WindResponseCurve,
-        base_wind: f32,
         time_seconds: f32,
     ) -> Result<Uuid> {
         #[cfg(test)]
@@ -369,7 +361,6 @@ impl CanopyDistributedEmitterAdapter {
                 phase,
                 base_volume_db,
                 wind_response_curve,
-                base_wind,
             ),
         );
         Ok(uuid)
@@ -388,7 +379,10 @@ impl CanopyDistributedEmitterAdapter {
                 )
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(SourceExtent::weighted_samples(samples)?)
+        Ok(SourceExtent::weighted_samples_with_limit(
+            samples,
+            descriptor.sample_budget(),
+        )?)
     }
 
     fn occlusion_profile() -> OcclusionProfile {
@@ -509,6 +503,30 @@ mod tests {
     }
 
     #[test]
+    fn configurable_budget_reaches_backend_without_eight_point_truncation() {
+        let leaves: Vec<_> = (0..64)
+            .map(|i| LeafPlacement {
+                position: Vec3::X * i as f32 * 4.0,
+                anchor: Vec3::ZERO,
+            })
+            .collect();
+        for budget in [1, 8, 16, 32, 64] {
+            let descriptor = CanopyAcousticDescriptor::build_with_budget(
+                1,
+                Vec3::ZERO,
+                123,
+                &leaves,
+                &[],
+                budget,
+            );
+            let extent = CanopyDistributedEmitterAdapter::source_extent(&descriptor).unwrap();
+            assert_eq!(extent.sample_count(), budget);
+            assert_eq!(descriptor.sample_budget(), budget);
+            assert!((descriptor.total_weight() - 1.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
     fn failed_generation_spawn_rolls_back_every_voice_created_by_the_sync() {
         let manager = test_manager();
         let mut adapter = CanopyDistributedEmitterAdapter::new(manager);
@@ -530,7 +548,6 @@ mod tests {
                     max_strength: 1.0,
                     power: 1.0,
                 },
-                0.0,
                 0.0,
             )
             .expect_err("the second generation spawn should fail the whole sync");

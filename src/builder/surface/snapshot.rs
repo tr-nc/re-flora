@@ -24,6 +24,23 @@ struct SpeciesSnapshot {
 }
 
 impl FloraSnapshot {
+    /// The retired last species is dropped only from its exact legacy schema slot. Retained
+    /// entries still pass the usual strict validation; unknown schemas are never silently ignored.
+    pub fn migrate_retired_species(&mut self) -> usize {
+        let mut removed = 0;
+        for chunk in &mut self.chunks {
+            if chunk.species.len() == species::MAX_FLORA_SPECIES + 1
+                && chunk
+                    .species
+                    .last()
+                    .is_some_and(|saved| saved.key == "kochia")
+            {
+                removed += chunk.species.pop().unwrap().instances.len();
+            }
+        }
+        removed
+    }
+
     pub fn validate(&self, chunk_dim: UVec3, voxel_dim: UVec3) -> Result<()> {
         anyhow::ensure!(
             self.chunks.len() == chunk_dim.element_product() as usize,
@@ -247,6 +264,33 @@ mod tests {
         let decoded: FloraSnapshot = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(snapshot, decoded);
         assert_eq!(snapshot.counts(), (2, 1));
+    }
+
+    #[test]
+    fn legacy_snapshot_discards_only_retired_species_and_keeps_other_state() {
+        let mut retained = fixture();
+        retained.chunks[0].species[0]
+            .instances
+            .push([0x7f01_0203, 123]);
+        retained.chunks[0].species[2]
+            .instances
+            .push([0xff02_0304, u32::MAX]);
+        retained.chunks[0].species[2].authored.push([17, 99]);
+        let mut legacy = retained.clone();
+        legacy.chunks[0].species.push(SpeciesSnapshot {
+            key: "kochia".to_owned(),
+            instances: vec![[0xff01_0203, 42]],
+            authored: vec![[18, 55]],
+        });
+        let encoded = serde_json::to_vec(&legacy).unwrap();
+        let mut decoded: FloraSnapshot = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.migrate_retired_species(), 1);
+        decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(decoded, retained);
+        assert_eq!(decoded.migrate_retired_species(), 0);
+        legacy.chunks[0].species.last_mut().unwrap().key = "unknown".to_owned();
+        assert_eq!(legacy.migrate_retired_species(), 0);
+        assert!(legacy.validate(UVec3::ONE, UVec3::splat(8)).is_err());
     }
 
     #[test]

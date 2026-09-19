@@ -2,6 +2,7 @@ module vegetation_response_sample;
 import vegetation_response_types;
 import flora_types;
 import flora_motion;
+import grass_sway_sample;
 
 struct B_ManualVegetationResponse { VegetationResponseState data[]; };
 [[vk::binding(4, 1)]] readonly GLSLShaderStorageBuffer<B_ManualVegetationResponse, Std430DataLayout> vegetation_response;
@@ -12,9 +13,11 @@ public bool attachedVegetationResponseEnabled() {
     return vegetationResponseEnabled() && vegetation_response_info.grid.w >= 2.0;
 }
 
-float2 responseAt(uint index, uint bucket)
+float2 responseAt(uint index, uint bucket, bool grass = false, uint seed = 0u)
 {
-    return vegetation_response.data[index].held[bucket].xy;
+    VegetationResponseState state = vegetation_response.data[index];
+    return vegetation_response.data[index].held[bucket].xy
+        + (grass ? grassLocalResponse(state.torsion, state.flutter_phase, state.flutter_cells, seed) : float2(0.0));
 }
 
 public float3 sampleVegetationResponse(uint3 rootVoxels, uint seed, uint species,
@@ -26,6 +29,10 @@ public float3 sampleVegetationResponse(uint3 rootVoxels, uint seed, uint species
     if (species < 2u || species == FLORA_SPECIES_APPLE)
     {
         uint field = species < 2u ? 0u : 1u;
+        // Ordinary grass has one continuous response grid per canonical model.
+        // Fruit remains field 1 so its detach handoff retains the same authority.
+        if (species == FLORA_SPECIES_SHORT_GRASS && vegetation_response_info.grid.w >= 3.0)
+            field = 2u;
         uint offset = field * vegetation_response_info.shape.x * vegetation_response_info.shape.y;
         float2 cell = (float2(rootVoxels.xz) / 256.0 - vegetation_response_info.grid.xy) /
                      vegetation_response_info.grid.z;
@@ -35,17 +42,19 @@ public float3 sampleVegetationResponse(uint3 rootVoxels, uint seed, uint species
         uint2 hi = min(lo + 1u, shape - 1u);
         float2 f = frac(cell);
         response = lerp(
-            lerp(responseAt(offset + lo.x + lo.y * shape.x, bucket), responseAt(offset + hi.x + lo.y * shape.x, bucket), f.x),
-            lerp(responseAt(offset + lo.x + hi.y * shape.x, bucket), responseAt(offset + hi.x + hi.y * shape.x, bucket), f.x), f.y);
+            lerp(responseAt(offset + lo.x + lo.y * shape.x, bucket, species < 2u, seed), responseAt(offset + hi.x + lo.y * shape.x, bucket, species < 2u, seed), f.x),
+            lerp(responseAt(offset + lo.x + hi.y * shape.x, bucket, species < 2u, seed), responseAt(offset + hi.x + hi.y * shape.x, bucket, species < 2u, seed), f.x), f.y);
     }
     else
     {
-        response = responseAt(responseOffset + localIndex, bucket);
+        response = responseAt(responseOffset + localIndex, bucket, species < FLORA_SPECIES_COUNT, seed);
     }
     return float3(response.x, 0.0, response.y);
 }
 
 public float sampleLeafAngle(uint seed, uint localIndex, uint responseOffset)
 {
-    return vegetation_response.data[responseOffset + localIndex].held_angles[windVolumeBucketIndex(seed)];
+    // Local flutter uses the current frame's mechanical state. The whole-leaf
+    // offset still uses the independent discrete publication buckets above.
+    return clamp(vegetation_response.data[responseOffset + localIndex].torsion.x, -1.0, 1.0);
 }

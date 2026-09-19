@@ -555,6 +555,9 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::CaveEdits
+            | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
             EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
             EnvironmentLightingTestCase::PointLightChanges => Self::PointLight,
@@ -621,6 +624,7 @@ struct EnvironmentPhasePayload {
     point_light_expected_registry_revision: u64,
     scratch: EnvironmentFamilyScratch,
     recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic,
+    sustained_edits: Option<(std::time::Instant, u32)>,
 }
 
 impl EnvironmentPhasePayload {
@@ -1049,6 +1053,7 @@ impl EnvironmentLightingTestScene {
                 case,
                 phase: TestScenePhase::Pending,
                 initial_publication: None,
+                sustained_edits: None,
                 point_light_fixed_gpu_request_serial: 0,
                 point_light_fixed_gpu_visible_luma_q8: 0,
                 point_light_diagnostic_selected_decoy_id: None,
@@ -1153,6 +1158,23 @@ impl EnvironmentLightingTestScene {
 
     pub(super) fn is_ready(&self) -> bool {
         self.ready_phase().phase == TestScenePhase::Ready
+    }
+
+    pub(super) fn is_screenshot_ready(&self) -> bool {
+        self.is_ready()
+            || ((self.case() == EnvironmentLightingTestCase::TerrainEditsSustained
+                || is_cave_edit_case(self.case()))
+                && self
+                    .ready_phase()
+                    .sustained_edits
+                    .is_some_and(|(_, count)| {
+                        count
+                            == if is_cave_edit_case(self.case()) {
+                                40
+                            } else {
+                                20
+                            }
+                    }))
     }
 
     pub(super) fn hides_terrain_edit_preview(&self) -> bool {
@@ -1559,7 +1581,10 @@ impl TestSceneGeometry {
     fn build(case: EnvironmentLightingTestCase) -> Self {
         let test_rebuild_bound = test_rebuild_bound(case);
         let (cleared_test_scene, rock, carved_empty, sand) = match case {
-            EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => (
+            EnvironmentLightingTestCase::CaveEdits
+            | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::Sealed
+            | EnvironmentLightingTestCase::PattSeam => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
@@ -1576,6 +1601,7 @@ impl TestSceneGeometry {
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
@@ -1689,6 +1715,31 @@ fn prepare_initial_environment_lighting_test_scene(
     TestSceneGeometry::build(case)
         .compile()
         .context("compile deterministic environment-lighting test scene")
+}
+
+fn is_cave_edit_case(case: EnvironmentLightingTestCase) -> bool {
+    matches!(
+        case,
+        EnvironmentLightingTestCase::CaveEdits | EnvironmentLightingTestCase::CaveEditsOpen
+    )
+}
+
+// Forty disjoint shallow removals expose new roof surfaces but leave 18 voxels of roof.
+fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
+    assert!(count < 40);
+    let min = Vec3::new(
+        144.0 + (count % 10) as f32 * 4.0,
+        216.0,
+        274.0 + (count / 10) as f32 * 4.0,
+    );
+    let max = min + Vec3::new(4.0, 2.0, 4.0);
+    Ok(WorldEditTransaction::terrain_change(
+        vec![stamp_cuboids(
+            vec![Cuboid::from_min_max(min, max)],
+            VOXEL_TYPE_EMPTY,
+        )?],
+        UAabb3::new(min.as_uvec3(), max.as_uvec3()),
+    ))
 }
 
 fn skylight_edit_plan(edit: TerrainEdit) -> Result<WorldEditTransaction> {
@@ -1840,6 +1891,9 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::TerrainEdits
         | EnvironmentLightingTestCase::TerrainEditsInflight
         | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+        | EnvironmentLightingTestCase::CaveEdits
+        | EnvironmentLightingTestCase::CaveEditsOpen
+        | EnvironmentLightingTestCase::TerrainEditsSustained
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
@@ -3049,6 +3103,85 @@ impl App {
     fn advance_environment_phase_machine(&mut self, environment: &mut EnvironmentPhasePayload) {
         let case = environment.case;
         let phase = environment.phase;
+        // This fixture uses the real visible-terrain publication path, independent of DDGI
+        // completion: a held editing gesture must not wait for lighting to converge.
+        if case == EnvironmentLightingTestCase::TerrainEditsSustained || is_cave_edit_case(case) {
+            let initial_converged = !is_cave_edit_case(case)
+                || self
+                    .tracer
+                    .ddgi_runtime_status()
+                    .active()
+                    .published_field()
+                    .is_some_and(is_converged_field);
+            if is_cave_edit_case(case)
+                && environment.sustained_edits.is_none()
+                && !initial_converged
+                && matches!(phase, TestScenePhase::WaitingForProbeField { .. })
+            {
+                return;
+            }
+            if initial_converged
+                && environment.sustained_edits.is_none()
+                && matches!(phase, TestScenePhase::WaitingForProbeField { terrain_revision }
+                    if self.tracer.ddgi_ready_for_terrain_revision(terrain_revision))
+            {
+                environment.sustained_edits = Some((std::time::Instant::now(), 0));
+                log::info!("[DDGI_SUSTAINED] begin");
+            }
+            if let Some((last_edit, count)) = environment.sustained_edits {
+                if count < 40 {
+                    if last_edit.elapsed().as_secs_f32() >= 0.1 {
+                        let edit = if count % 2 == 0 {
+                            TerrainEdit::CloseSkylight
+                        } else {
+                            TerrainEdit::ReopenSkylight
+                        };
+                        let revision = if is_cave_edit_case(case) {
+                            let plan = if case == EnvironmentLightingTestCase::CaveEditsOpen
+                                && count == 39
+                            {
+                                skylight_edit_plan(TerrainEdit::ReopenSkylight)
+                            } else {
+                                cave_interior_edit_plan(count)
+                            };
+                            let previous = self.visible_terrain_revision;
+                            self.execute_world_edit(plan.expect("compile cave edit"))
+                                .expect("publish cave edit");
+                            assert_ne!(previous, self.visible_terrain_revision);
+                            self.visible_terrain_revision
+                        } else {
+                            self.apply_environment_lighting_terrain_edit(
+                                edit,
+                                self.visible_terrain_revision,
+                            )
+                            .expect("sustained edit must publish terrain")
+                        };
+                        environment.sustained_edits = Some((std::time::Instant::now(), count + 1));
+                        log::info!(
+                            "[DDGI_SUSTAINED] edit={} revision={} active_revision={:?}",
+                            count + 1,
+                            revision,
+                            self.tracer
+                                .ddgi_runtime_status()
+                                .active()
+                                .relocated_terrain_revision
+                        );
+                        if count + 1 == 40 {
+                            log::info!("[DDGI_SUSTAINED] end");
+                            environment.phase = if is_cave_edit_case(case) {
+                                TestScenePhase::Ready
+                            } else {
+                                TestScenePhase::WaitingForEditedProbeField {
+                                    edit: TerrainEdit::ReopenSkylight,
+                                    target_revision: revision,
+                                }
+                            };
+                        }
+                    }
+                    return;
+                }
+            }
+        }
         let fixed_gpu_request_serial = environment.point_light_fixed_gpu_request_serial;
         let fixed_gpu_visible_luma_q8 = environment.point_light_fixed_gpu_visible_luma_q8;
 
@@ -6189,6 +6322,9 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
             | EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
+            | EnvironmentLightingTestCase::CaveEdits
+            | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
 }
@@ -6531,6 +6667,19 @@ mod tests {
 
         assert_geometry_generation_epoch_zero(publication.generation(), baseline, 2);
         assert_eq!(publication.generation().epoch_zero_field(), epoch_zero);
+    }
+
+    #[test]
+    fn sustained_edit_screenshot_observes_mid_gesture_without_claiming_ready() {
+        let mut scene =
+            EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::TerrainEditsSustained);
+        let EnvironmentPhaseSlot::Ready(ref mut payload) = scene.state else {
+            unreachable!()
+        };
+        payload.sustained_edits = Some((std::time::Instant::now(), 20));
+        assert!(scene.is_screenshot_ready());
+        assert!(!scene.is_ready());
+        assert!(!scene.is_capture_ready());
     }
 
     #[test]
@@ -6937,6 +7086,31 @@ mod tests {
             assert!(max_world.cmple(Vec3::splat(2.0)).all());
             assert_eq!(min_world * VOXELS_PER_WORLD_UNIT, min_voxel);
             assert_eq!(max_world * VOXELS_PER_WORLD_UNIT, max_voxel);
+        }
+    }
+
+    #[test]
+    fn cave_edits_never_breach_the_roof() {
+        for count in 0..40 {
+            let min = UVec3::new(144 + (count % 10) * 4, 216, 274 + (count / 10) * 4);
+            let max = min + UVec3::new(4, 2, 4);
+            assert!(max.y < SHELL_MAX.y as u32);
+            assert!(min.x > SHELL_MIN.x as u32 && max.x < SHELL_MAX.x as u32);
+            assert!(min.z > SHELL_MIN.z as u32 && max.z < SHELL_MAX.z as u32);
+            assert_eq!(
+                cave_interior_edit_plan(count)
+                    .unwrap()
+                    .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                    .unwrap(),
+                Some(UAabb3::new(min, max))
+            );
+        }
+        for case in [
+            EnvironmentLightingTestCase::CaveEdits,
+            EnvironmentLightingTestCase::CaveEditsOpen,
+        ] {
+            let geometry = TestSceneGeometry::build(case);
+            assert_eq!(geometry.carved_empty.len(), 1);
         }
     }
 

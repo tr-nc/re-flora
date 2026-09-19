@@ -257,6 +257,7 @@ impl BufferUpdater {
 
     pub fn update_gui_input(
         resources: &TracerResources,
+        raster_tree_static: bool,
         lighting_frame: &ResolvedLightingFrameInputs,
         terrain: &TerrainFrameInput,
         materials: &MaterialFrameInput,
@@ -270,6 +271,7 @@ impl BufferUpdater {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
+            raster_tree_static: raster_tree_static as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
@@ -300,7 +302,10 @@ impl BufferUpdater {
             grass_natural_bend_min_voxels: motion.grass_natural_bend_min_voxels,
             grass_natural_bend_max_voxels: motion.grass_natural_bend_max_voxels,
             flora_bend_height_power: motion.bend_height_power,
-            leaf_flutter_strength: motion.response_controls[3],
+            // Either endpoint can drive flutter (including a falling curve).
+            leaf_flutter_strength: motion.response_controls[3].max(motion.leaf_flutter_curve[3]),
+            leaf_global_offset_scale: motion.leaf_global_offset_scale,
+            leaf_local_displacement_voxels: motion.leaf_local_displacement_voxels,
             leaf_paddle_amplitude_voxels: motion.leaf_paddle_amplitude_voxels,
             leaf_paddle_primary_speed: motion.leaf_paddle_primary_speed,
             leaf_paddle_secondary_speed: motion.leaf_paddle_secondary_speed,

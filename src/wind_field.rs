@@ -106,21 +106,13 @@ impl Gust {
 
 pub struct WindField {
     pub background_enabled: bool,
-    natural_background: bool,
     pub natural_inflow: NaturalInflow,
     pub heading_degrees: f32,
-    pub strength: f32,
     pub propagation_speed: f32,
-    pub wander_degrees: f32,
-    pub wander_period: f32,
-    pub detail_strength: f32,
-    pub detail_scale: f32,
-    pub evolution_rate: f32,
     pub manual_gust: GustSettings,
     pub gusts: Vec<Gust>,
     time: f32,
     last_wall_time: Option<f32>,
-    heading: f32,
     transport: Transport,
 }
 
@@ -128,45 +120,21 @@ impl Default for WindField {
     fn default() -> Self {
         Self {
             background_enabled: true,
-            natural_background: false,
             natural_inflow: NaturalInflow::default(),
             heading_degrees: 220.,
-            strength: 1.5,
             propagation_speed: 50.,
-            wander_degrees: 22.,
-            wander_period: 24.,
-            detail_strength: 0.4,
-            detail_scale: 60.,
-            evolution_rate: 0.25,
             manual_gust: GustSettings::default(),
             gusts: Vec::new(),
             time: 0.,
             last_wall_time: None,
-            heading: 220_f32.to_radians(),
             transport: Transport::default(),
         }
     }
 }
 
 impl WindField {
-    pub fn natural_background(&self) -> bool {
-        self.natural_background
-    }
-    pub fn set_natural_background(&mut self, enabled: bool) {
-        if self.natural_background != enabled {
-            self.natural_background = enabled;
-            log::info!(
-                "[WIND_AB] variant={} time={} existing_field_retained=true",
-                if enabled { "B-natural" } else { "A-original" },
-                self.time
-            );
-        }
-    }
     pub fn time(&self) -> f32 {
         self.time
-    }
-    pub fn direction(&self) -> Vec2 {
-        Vec2::new(self.heading.cos(), self.heading.sin())
     }
     pub fn release(&mut self, origin: Vec3, direction: Vec2) -> bool {
         self.release_with_settings(origin, direction, self.manual_gust)
@@ -203,18 +171,8 @@ impl WindField {
             .map_or(0., |previous| (wall_time - previous).max(0.));
         self.last_wall_time = Some(wall_time);
         self.time += dt;
-        let phase = self.time * std::f32::consts::TAU / self.wander_period.max(1.);
-        let wander =
-            (phase.sin() * 0.7 + (phase * 0.617).sin() * 0.3) * self.wander_degrees.to_radians();
-        let target = self.heading_degrees.to_radians() + wander;
-        let delta = (target - self.heading)
-            .sin()
-            .atan2((target - self.heading).cos());
-        self.heading += delta * (1. - (-dt / 0.6).exp());
         self.gusts
             .retain(|gust| self.time - gust.start < gust.settings.duration);
-        let direction = self.direction();
-        let noise = fastnoise_lite::FastNoiseLite::with_seed(3181);
         let steps = (dt.min(1.) * 60.).ceil() as usize;
         for step in 0..steps {
             let h = dt.min(1.) / steps as f32;
@@ -223,15 +181,7 @@ impl WindField {
                 if !self.background_enabled {
                     return Vec2::ZERO;
                 }
-                if self.natural_background {
-                    return self.natural_inflow.sample(p, time, self.heading_degrees);
-                }
-                let phase = time * self.evolution_rate;
-                let q = p * (100. / self.detail_scale.max(1.)) + Vec2::splat(phase * 20.);
-                let n = noise.get_noise_2d(q.x, q.y);
-                let side = self.detail_strength * n;
-                direction * self.strength * (1. + n * 0.25)
-                    + Vec2::new(-direction.y, direction.x) * side
+                self.natural_inflow.sample(p, time, self.heading_degrees)
             };
             let local = |p: Vec2| {
                 self.gusts.iter().fold(Vec2::ZERO, |sum, gust| {
@@ -293,7 +243,6 @@ mod tests {
         for case in 0..4 {
             let maximum = case != 0;
             let mut field = WindField::default();
-            field.set_natural_background(true);
             if maximum {
                 field.natural_inflow.strength = 3.;
                 field.natural_inflow.variation = 0.55;
@@ -335,35 +284,18 @@ mod tests {
         );
     }
     #[test]
-    fn ab_switch_retains_field_time_and_manual_events() {
-        let mut field = WindField::default();
-        assert!(!field.natural_background());
-        field.advance(0.);
-        field.release(Vec3::ONE, Vec2::X);
-        field.advance(0.5);
-        let snapshot = field.frame();
-        for enabled in [true, false] {
-            field.set_natural_background(enabled);
-            assert_eq!(field.frame(), snapshot);
-            assert_eq!(field.time(), 0.5);
-            assert_eq!(field.gusts.len(), 1);
-        }
-    }
-
-    #[test]
     fn natural_background_enters_the_shared_field_without_emitting_events() {
         let mut a = WindField::default();
         let mut b = WindField::default();
-        b.set_natural_background(true);
         for i in 0..60 {
             a.advance(i as f32 / 60.);
             b.advance(i as f32 / 60.);
         }
-        assert_ne!(a.frame(), b.frame());
+        assert_eq!(a.frame(), b.frame());
+        assert!(b.frame().cells.iter().flatten().any(|v| *v != 0.));
         assert!(b.gusts.is_empty());
         assert!(b.frame().cells.iter().flatten().all(|v| v.is_finite()));
         let mut calm = WindField::default();
-        calm.set_natural_background(true);
         calm.background_enabled = false;
         calm.advance(0.);
         calm.advance(0.5);
@@ -443,28 +375,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn local_disturbance_alone_controls_crosswind_detail() {
-        let build = |detail_strength| {
-            let mut field = WindField {
-                heading_degrees: 0.,
-                heading: 0.,
-                wander_degrees: 0.,
-                detail_strength,
-                ..WindField::default()
-            };
-            field.advance(0.);
-            field.advance(1.);
-            field.frame()
-        };
-        let smooth = build(0.);
-        assert!(smooth.cells.iter().all(|c| c[1] == 0. && c[3] == 0.));
-        let detailed = build(1.);
-        assert!(detailed
-            .cells
-            .iter()
-            .any(|c| c[1].abs() > 0.001 || c[3].abs() > 0.001));
-    }
     #[test]
     fn release_snapshots_settings_and_expires_naturally() {
         let mut field = WindField::default();

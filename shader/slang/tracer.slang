@@ -9,6 +9,7 @@ import packer;
 import ray;
 import scene_query;
 import scene_marching;
+import raster_tree_lookup;
 import skylight;
 import terrain_edit_preview;
 import terrain_ray_origin;
@@ -71,6 +72,16 @@ MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
     return marchScene(contree_node_data, contree_leaf_data, scene_tex,
                       ray.origin, ray.direction, ray.inverse_direction,
                       localInvocationIndex);
+}
+
+
+MarchingResult cameraSceneMarching(Ray ray, uint invocation) {
+    MarchingResult result = marchTerrain(contree_node_data,contree_leaf_data,scene_tex,
+        ray.origin,ray.direction,ray.inverse_direction,invocation);
+    if (gui_input.raster_tree_static != 0u)
+        result = skipRasterTreeSurfaces(result,contree_node_data,contree_leaf_data,scene_tex,
+            ray.origin,ray.direction,ray.inverse_direction,invocation);
+    return result;
 }
 
 float3 tracerVisibleLocalLightIrradiance(float3 receiverPosition,
@@ -616,7 +627,9 @@ void getPixelColor(out float3 color, out float depth,
         color = environmentIrradiance;
         return;
     }
-    color = environmentIrradiance * albedo;
+    // Show the latest physical estimate even while an edit is awaiting a newer
+    // publication. Incomplete convergence must not introduce a fixed-color patch.
+    color = consumerResult.irradiance * albedo;
     color += directLight;
     color += voxelSurfaceEmission(voxel_colors, result.voxel_type);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,
@@ -644,7 +657,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
         // The Contree remains the cheap primary visibility accelerator. Dense DDA is only
         // required when its first surface is experimental Glass (or the camera starts inside
         // Glass), which preserves exact entry/exit truth without taxing every background pixel.
-        MarchingResult acceleratedPrimary = generalSceneMarching(
+        MarchingResult acceleratedPrimary = cameraSceneMarching(
             ray, localInvocationIndex);
         uint originVoxelType = sceneQueryVoxelTypeAtWorld(
             chunk_atlas, ray.origin, 256.0);
@@ -686,7 +699,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     }
 #else
     {
-        primaryResult = generalSceneMarching(ray, localInvocationIndex);
+        primaryResult = cameraSceneMarching(ray, localInvocationIndex);
     }
 #endif
 

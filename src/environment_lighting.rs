@@ -839,6 +839,22 @@ mod tests {
     }
 
     #[test]
+    fn terrain_transport_retains_feedback_across_progressive_geometry_publications() {
+        // Wiring guard, not numerical/GPU evidence: fresh geometry samples replace
+        // local accumulation, but must still query the previous complete radiance.
+        let trace = include_str!("../shader/slang/ddgi_probe_trace.slang");
+        assert!(trace.contains("bool useHistory = pc.has_history != 0u;"));
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        assert!(query.contains("query.geometry_revision = ddgiPublishedVoxelGeometryRevision();"));
+        assert!(query.contains("query.transport_source_metadata = true;"));
+        assert!(query.contains("? ddgi_transport_source_probe_metadata.data[probeIndex]"));
+        let bindings = include_str!("tracer/pipeline_builder.rs");
+        assert!(
+            bindings.contains("write_resource!(trace, \"ddgi_transport_source_probe_metadata\");")
+        );
+    }
+
+    #[test]
     fn terrain_and_raster_consumers_share_the_ddgi_sampler_contract() {
         let shared = include_str!("../shader/slang/environment_lighting.slang");
         let terrain = include_str!("../shader/slang/tracer.slang");
@@ -851,7 +867,11 @@ mod tests {
         assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
-        assert!(terrain.contains("color = environmentIrradiance * albedo"));
+        // Display the newest physical estimate, including while terrain edits are
+        // pending. Do not substitute a brush-local constant for the sampled light.
+        assert!(terrain.contains("color = consumerResult.irradiance * albedo"));
+        assert!(!terrain.contains("ddgiTerrainDisplayIrradiance("));
+        assert!(!terrain.contains("terrain_missing_lighting_strength"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [

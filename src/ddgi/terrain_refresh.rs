@@ -85,11 +85,30 @@ struct DdgiTerrainRefreshRequest {
     invalidation_voxel_bound: UAabb3,
 }
 
+impl DdgiTerrainRefreshRequest {
+    fn merge(
+        slot: &mut Option<Self>,
+        terrain_revision: u32,
+        edited_voxel_bound: UAabb3,
+        grid: DdgiVolumeGrid,
+    ) {
+        let edited_voxel_bound = slot.map_or(edited_voxel_bound, |previous| {
+            previous.edited_voxel_bound.union_with(&edited_voxel_bound)
+        });
+        *slot = Some(Self {
+            terrain_revision,
+            edited_voxel_bound,
+            invalidation_voxel_bound: terrain_invalidation_bound(edited_voxel_bound, grid),
+        });
+    }
+}
+
 /// Arbitrates runtime terrain refreshes and density rebuilds around one physical staging volume.
-/// Terrain always wins; superseded GPU work finishes harmlessly and cannot become consumer-visible.
+/// Terrain always wins. Complete terrain fields publish progressively while newer edits coalesce.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiTerrainRefresh {
     request: Option<DdgiTerrainRefreshRequest>,
+    edits_after_candidate: Option<DdgiTerrainRefreshRequest>,
     published_terrain_revision: Option<u32>,
     candidate: Option<DdgiBuildToken>,
     queued_density_spacing: Option<DdgiProbeSpacing>,
@@ -119,25 +138,24 @@ impl DdgiTerrainRefresh {
         {
             self.queued_density_spacing.get_or_insert(candidate.spacing);
         }
-        let invalidation_voxel_bound = terrain_invalidation_bound(edit_voxel_bound, grid);
-        match self.request.as_mut() {
-            None => {
-                self.request = Some(DdgiTerrainRefreshRequest {
-                    terrain_revision,
-                    edited_voxel_bound: edit_voxel_bound,
-                    invalidation_voxel_bound,
-                });
-                true
-            }
-            Some(request) => {
-                request.terrain_revision = terrain_revision;
-                request.edited_voxel_bound =
-                    request.edited_voxel_bound.union_with(&edit_voxel_bound);
-                request.invalidation_voxel_bound =
-                    terrain_invalidation_bound(request.edited_voxel_bound, grid);
-                true
-            }
+        DdgiTerrainRefreshRequest::merge(
+            &mut self.request,
+            terrain_revision,
+            edit_voxel_bound,
+            grid,
+        );
+        if self
+            .candidate
+            .is_some_and(|candidate| candidate.kind == DdgiBuildKind::Terrain)
+        {
+            DdgiTerrainRefreshRequest::merge(
+                &mut self.edits_after_candidate,
+                terrain_revision,
+                edit_voxel_bound,
+                grid,
+            );
         }
+        true
     }
 
     /// Records the exact terrain revision now visible to GPU consumers.
@@ -175,6 +193,7 @@ impl DdgiTerrainRefresh {
                 DdgiBuildKind::Terrain,
             );
             self.candidate = Some(token);
+            self.edits_after_candidate = None;
             return Some(token);
         }
 
@@ -229,14 +248,17 @@ impl DdgiTerrainRefresh {
         }
     }
 
+    /// Publish a complete terrain candidate even when later edits are queued. The
+    /// token keeps its original revision: this is progressive lighting, not a claim
+    /// that the newest geometry has converged. Density still requires exact authority.
     pub fn token_can_promote(self, token: DdgiBuildToken) -> bool {
         if self.candidate != Some(token) {
             return false;
         }
         match token.kind {
             DdgiBuildKind::Terrain => self.request.is_some_and(|request| {
-                request.terrain_revision == token.terrain_revision
-                    && self.published_terrain_revision == Some(token.terrain_revision)
+                request.terrain_revision >= token.terrain_revision
+                    && self.published_terrain_revision == Some(request.terrain_revision)
             }),
             DdgiBuildKind::Density => {
                 self.request.is_none() && self.queued_density_spacing.is_none()
@@ -248,15 +270,15 @@ impl DdgiTerrainRefresh {
         self.candidate == Some(token) && !self.token_can_promote(token)
     }
 
-    /// Completes the authoritative candidate. Only exact latest-terrain promotion clears the
-    /// conservative invalidation domain.
+    /// Completes the authoritative candidate. Only newer edits remain queued;
+    /// already covered edits must not expand the next refresh domain.
     pub fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
         if !self.token_can_promote(token) {
             return false;
         }
         self.candidate = None;
         if token.kind == DdgiBuildKind::Terrain {
-            self.request = None;
+            self.request = self.edits_after_candidate.take();
         }
         true
     }
@@ -321,6 +343,50 @@ mod tests {
             DdgiProbeSpacing::try_from(spacing_voxels).unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn progressive_publication_retires_only_surface_edits_covered_by_its_root() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        let first_bound = UAabb3::new(UVec3::splat(100), UVec3::splat(120));
+        let newer_bound = UAabb3::new(UVec3::splat(200), UVec3::splat(220));
+        refresh.request(7, first_bound, grid(32));
+        refresh.mark_terrain_published(7);
+        let first = refresh.claim_next_build(spacing(32), 6).unwrap();
+        refresh.request(8, newer_bound, grid(32));
+        refresh.mark_terrain_published(8);
+        assert!(refresh.mark_promoted(first));
+        assert_eq!(refresh.edited_voxel_bound(), Some(newer_bound));
+        assert_eq!(
+            refresh.invalidation_voxel_bound(),
+            Some(terrain_invalidation_bound(newer_bound, grid(32)))
+        );
+    }
+
+    #[test]
+    fn sustained_edits_publish_progress_without_losing_the_latest_request() {
+        let mut refresh = DdgiTerrainRefresh::default();
+        let bound = UAabb3::new(UVec3::splat(100), UVec3::splat(120));
+        refresh.request(7, bound, grid(32));
+        refresh.mark_terrain_published(7);
+        let first = refresh.claim_next_build(spacing(32), 6).unwrap();
+        for revision in 8..20 {
+            refresh.request(revision, bound, grid(32));
+            refresh.mark_terrain_published(revision);
+        }
+        assert!(
+            refresh.mark_promoted(first),
+            "a complete field must not starve behind sustained edits"
+        );
+        assert!(refresh.invalidation_voxel_bound().is_some());
+        let latest = refresh.claim_next_build(spacing(32), 7).unwrap();
+        assert_eq!(latest.terrain_revision(), 19);
+        assert!(refresh.mark_promoted(latest));
+        assert!(refresh.invalidation_voxel_bound().is_none());
+        assert!(
+            !refresh.mark_promoted(first),
+            "retired tokens cannot publish twice"
+        );
     }
 
     #[test]
@@ -465,7 +531,7 @@ mod tests {
 
         assert_eq!(refresh.claim_next_build(spacing(32), 6), None);
         assert_eq!(refresh.candidate, Some(first));
-        assert!(refresh.finish_obsolete_candidate(first));
+        assert!(refresh.mark_promoted(first));
         let second = refresh.claim_next_build(spacing(32), 6).unwrap();
         assert_eq!(second.terrain_revision(), 8);
     }
@@ -581,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn obsolete_ready_token_cannot_promote_or_clear_the_latest_invalidation() {
+    fn progressive_ready_token_cannot_clear_the_latest_invalidation() {
         let mut refresh = DdgiTerrainRefresh::default();
         assert!(refresh.request(7, UAabb3::new(UVec3::splat(10), UVec3::splat(20)), grid(16),));
         refresh.mark_terrain_published(7);
@@ -591,7 +657,7 @@ mod tests {
         assert!(!refresh.mark_promoted(first));
         assert!(refresh.invalidation_voxel_bound().is_some());
         refresh.mark_terrain_published(8);
-        assert!(refresh.finish_obsolete_candidate(first));
+        assert!(refresh.mark_promoted(first));
         let second = refresh.claim_next_build(spacing(16), 6).unwrap();
         assert!(refresh.token_can_promote(second));
         assert!(refresh.mark_promoted(second));

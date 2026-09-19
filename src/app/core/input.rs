@@ -37,9 +37,113 @@ pub(super) struct TerrainEditHover {
     pub(super) is_editable: bool,
 }
 
+pub(super) fn panel_blocks_world(config_open: bool, card_open: bool, orbit_edit: bool) -> bool {
+    card_open || (config_open && !orbit_edit)
+}
+
+fn gui_owns_pointer(ctx: &egui::Context, position: Option<Vec2>) -> bool {
+    ctx.egui_is_using_pointer()
+        || position.is_some_and(|position| {
+            let position = position / ctx.pixels_per_point();
+            ctx.layer_id_at(egui::pos2(position.x, position.y))
+                .is_some_and(|layer| layer.order != egui::Order::Background)
+        })
+}
+
+pub(super) fn gui_consumes_nonkeyboard_event(
+    pointer_event: bool,
+    consumed: bool,
+    pointer_owned: bool,
+) -> bool {
+    // egui-winit's consumed bit uses the previous egui frame's pointer position.
+    // For mouse events the current hit-test plus ongoing UI drag owns routing.
+    if pointer_event {
+        pointer_owned
+    } else {
+        consumed
+    }
+}
+
+#[cfg(test)]
+mod panel_input_tests {
+    use super::{gui_consumes_nonkeyboard_event, gui_owns_pointer, panel_blocks_world};
+
+    #[test]
+    fn latest_pointer_position_blocks_ui_but_leaves_world_available() {
+        let ctx = egui::Context::default();
+        let mut panel = egui::Rect::NOTHING;
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                panel = egui::Window::new("Debug input test")
+                    .fixed_pos(egui::pos2(20.0, 20.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Controls");
+                    })
+                    .unwrap()
+                    .response
+                    .rect;
+            });
+        }
+        let physical = |p: egui::Pos2| Some(glam::Vec2::new(p.x, p.y) * ctx.pixels_per_point());
+        assert!(gui_owns_pointer(&ctx, physical(panel.center())));
+        assert!(!gui_owns_pointer(
+            &ctx,
+            physical(panel.max + egui::vec2(100., 100.))
+        ));
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PointerMoved(panel.center())],
+                ..Default::default()
+            },
+            |ui| {
+                egui::Window::new("Debug input test")
+                    .fixed_pos(egui::pos2(20., 20.))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Controls");
+                    });
+            },
+        );
+        // Winit has queued a move out of Debug, followed by a press, before the next
+        // egui frame. Its consumed response still reflects the previous hover.
+        assert!(ctx.egui_wants_pointer_input());
+        let owned = gui_owns_pointer(&ctx, physical(panel.max + egui::vec2(100., 100.)));
+        assert!(!gui_consumes_nonkeyboard_event(
+            true,
+            ctx.egui_wants_pointer_input(),
+            owned
+        ));
+    }
+
+    #[test]
+    fn debug_panel_is_non_modal_only_in_orbit_edit() {
+        assert!(!panel_blocks_world(true, false, true));
+        assert!(panel_blocks_world(true, false, false));
+        for orbit in [false, true] {
+            assert!(!panel_blocks_world(false, false, orbit));
+            for debug in [false, true] {
+                assert!(panel_blocks_world(debug, true, orbit));
+            }
+        }
+    }
+}
+
 impl App {
     fn blocking_panel_open(&self) -> bool {
-        self.config_panel_visible || self.card_display_visible
+        panel_blocks_world(
+            self.config_panel_visible,
+            self.card_display_visible,
+            self.is_orbit_edit_camera_mode(),
+        )
+    }
+
+    pub(super) fn gui_blocks_world_pointer(&self) -> bool {
+        if !self.window_state.is_cursor_visible() {
+            return false;
+        }
+        let ctx = self.egui_renderer.context();
+        // Use the latest window-event position, not last frame's egui hover position.
+        // A slider drag remains owned by egui even after leaving its window.
+        gui_owns_pointer(ctx, self.cursor_position_physical)
     }
 
     pub(super) fn is_free_look_camera_mode(&self) -> bool {
@@ -59,11 +163,12 @@ impl App {
     }
 
     pub(super) fn keyboard_tool_shortcuts_available(&self) -> bool {
-        !self.blocking_panel_open()
+        !self.blocking_panel_open() && !self.gui_wants_keyboard_input()
     }
 
     pub(super) fn terrain_edit_pointer_available(&self) -> bool {
         !self.blocking_panel_open()
+            && !self.gui_blocks_world_pointer()
             && self.launch_owners.glass_experiment_settings().is_none()
             && (!self.window_state.is_cursor_visible() || self.is_orbit_edit_camera_mode())
     }
@@ -86,8 +191,21 @@ impl App {
     }
 
     pub(super) fn sync_cursor_with_panels(&mut self) {
+        if self
+            .camera_control
+            .sync_debug_panel_mode(self.config_panel_visible)
+        {
+            self.player_tools.cancel_continuous_hold();
+            self.stop_terrain_edit_loop_sound();
+            self.tracer.reset_camera_velocity();
+            if self.is_orbit_edit_camera_mode() {
+                self.sync_orbit_focus_from_current_view();
+            }
+        }
         let was_cursor_visible = self.window_state.is_cursor_visible();
-        let cursor_visible = self.blocking_panel_open() || self.is_orbit_edit_camera_mode();
+        let cursor_visible = self.config_panel_visible
+            || self.card_display_visible
+            || self.is_orbit_edit_camera_mode();
 
         if cursor_visible && !was_cursor_visible {
             // Wayland rejects cursor warps after the pointer is unlocked, so center while still
@@ -128,7 +246,7 @@ impl App {
         })
     }
 
-    fn sync_orbit_focus_from_current_view(&mut self) {
+    pub(super) fn sync_orbit_focus_from_current_view(&mut self) {
         let Some((origin, direction)) = self.current_view_center_ray() else {
             return;
         };
@@ -212,7 +330,9 @@ impl App {
     }
 
     fn orbit_mouse_drag_available(&self) -> bool {
-        self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
+        self.is_orbit_edit_camera_mode()
+            && !self.blocking_panel_open()
+            && !self.gui_blocks_world_pointer()
     }
 
     fn update_orbit_camera_motion(&mut self, frame_delta_time: f32) {
@@ -325,7 +445,7 @@ impl App {
     }
 
     fn camera_scroll_available(&self) -> bool {
-        self.is_orbit_edit_camera_mode() && !self.blocking_panel_open()
+        self.orbit_mouse_drag_available()
     }
 
     fn update_mouse_wheel_camera_dolly(&mut self, frame_delta_time: f32) {
@@ -532,6 +652,7 @@ impl App {
         }
 
         match self.spatial_sound_manager.add_looping_spatial_source(
+            crate::audio::mixer::AudioCategory::Terrain,
             super::TERRAIN_EDIT_LOOP_PATH,
             super::TERRAIN_EDIT_LOOP_VOLUME_DB,
             position,
@@ -566,6 +687,7 @@ impl App {
 
     pub(super) fn play_item_panel_scroll_sound(&self) {
         if let Err(err) = self.spatial_sound_manager.add_non_spatial_source(
+            crate::audio::mixer::AudioCategory::Interface,
             super::ITEM_PANEL_SCROLL_SFX_PATH,
             super::ITEM_PANEL_SCROLL_SFX_VOLUME_DB,
         ) {
@@ -612,8 +734,75 @@ impl App {
         origin: Vec3,
         direction: Vec3,
     ) -> Option<crate::builder::ContreeCpuRayHit> {
-        self.contree_builder
-            .query_terrain_ray_cpu(origin, direction)
+        let direction = direction.normalize_or_zero();
+        if direction == Vec3::ZERO {
+            return None;
+        }
+        let mut terrain = self
+            .contree_builder
+            .query_terrain_ray_cpu(origin, direction);
+        if self.tracer.raster_trees.posed_surface.is_none() {
+            return terrain;
+        }
+        let cells = &self.tracer.raster_trees.rest_mesh.solid_cells;
+        for _ in 0..2048 {
+            let Some(hit) = terrain else {
+                break;
+            };
+            let cell = ((hit.position + direction * 1e-6) * 256.)
+                .floor()
+                .as_uvec3();
+            if hit.voxel_type != 5 || !cells.contains(&cell.to_array()) {
+                break;
+            }
+            let lower = cell.as_vec3() / 256.;
+            let upper = lower + Vec3::splat(1. / 256.);
+            let mut advance = f32::INFINITY;
+            for axis in 0..3 {
+                if direction[axis].abs() > 1e-8 {
+                    let face = if direction[axis] > 0. {
+                        upper[axis]
+                    } else {
+                        lower[axis]
+                    };
+                    advance = advance.min((face - hit.position[axis]) / direction[axis]);
+                }
+            }
+            terrain = self.contree_builder.query_terrain_ray_cpu(
+                hit.position + direction * (advance.max(0.) + 1e-6),
+                direction,
+            );
+        }
+        if let Some(hit) = self.query_tree_surface_ray(origin, direction) {
+            if terrain.is_none_or(|terrain| hit.distance < terrain.position.distance(origin)) {
+                return Some(crate::builder::ContreeCpuRayHit {
+                    position: hit.world_position,
+                    voxel_type: 5,
+                });
+            }
+        }
+        terrain
+    }
+
+    pub(super) fn query_tree_surface_ray(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+    ) -> Option<crate::tree_gen::skin::SurfaceHit> {
+        if self.tracer.raster_trees.posed_surface.is_none() {
+            return None;
+        }
+        self.tracer.raster_trees.raycast(
+            origin,
+            direction,
+            self.terrain_physics.tree_ray_candidates(origin, direction),
+        )
+    }
+
+    fn tree_edit_rest_center(&self, center: Vec3) -> Option<Vec3> {
+        let (origin, direction) = self.terrain_edit_ray()?;
+        let hit = self.query_tree_surface_ray(origin, direction)?;
+        (hit.world_position.distance(center) < 1e-4).then_some(hit.rest_position)
     }
 
     pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {
@@ -645,15 +834,15 @@ impl App {
                     return;
                 }
 
+                let tree_rest_center = self.tree_edit_rest_center(center);
                 if let Err(err) = self
                     .apply_surface_terrain_removal(
                         TerrainRemovalEdit {
-                            center,
+                            center: tree_rest_center.unwrap_or(center),
                             radius: self.player_tools.terrain_edit_radius,
                         },
-                        // Backpack material selection is status-only, so removal accepts every
-                        // concrete voxel type.
-                        None,
+                        // Tree hits edit their rest-space wood, leaving nearby terrain intact.
+                        tree_rest_center.map(|_| 5),
                         None,
                         None,
                     )

@@ -163,6 +163,9 @@ pub enum EnvironmentLightingTestCase {
     TerrainEditsInflight,
     TerrainEditsInflightCapture,
     TerrainEditsClosed,
+    TerrainEditsSustained,
+    CaveEdits,
+    CaveEditsOpen,
 }
 
 impl EnvironmentLightingTestCase {
@@ -184,6 +187,9 @@ impl EnvironmentLightingTestCase {
             "terrain-edits" => Some(Self::TerrainEdits),
             "terrain-edits-inflight" => Some(Self::TerrainEditsInflight),
             "terrain-edits-inflight-capture" => Some(Self::TerrainEditsInflightCapture),
+            "cave-edits" => Some(Self::CaveEdits),
+            "cave-edits-open" => Some(Self::CaveEditsOpen),
+            "terrain-edits-sustained" => Some(Self::TerrainEditsSustained),
             "terrain-edits-closed" => Some(Self::TerrainEditsClosed),
             _ => None,
         }
@@ -207,6 +213,9 @@ impl EnvironmentLightingTestCase {
             Self::TerrainEdits => "terrain-edits",
             Self::TerrainEditsInflight => "terrain-edits-inflight",
             Self::TerrainEditsInflightCapture => "terrain-edits-inflight-capture",
+            Self::CaveEdits => "cave-edits",
+            Self::CaveEditsOpen => "cave-edits-open",
+            Self::TerrainEditsSustained => "terrain-edits-sustained",
             Self::TerrainEditsClosed => "terrain-edits-closed",
         }
     }
@@ -392,6 +401,7 @@ pub struct EnvironmentLightingPlan {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkPlan {
+    pub raster_tree_smoke: bool,
     pub tree_samples: Option<u32>,
     pub authored_flora_samples: Option<u32>,
 }
@@ -1099,6 +1109,7 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
         automation: AutomationPlan {
             camera,
             benchmarks: BenchmarkPlan {
+                raster_tree_smoke: args.iter().any(|a| a == "--raster-tree-smoke"),
                 tree_samples: tree_bench.then_some(tree_bench_samples.unwrap_or(10)),
                 authored_flora_samples: authored_flora_bench
                     .then_some(authored_flora_bench_samples.unwrap_or(25)),
@@ -1251,7 +1262,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, terrain-edits-closed."
                 )
             }),
     }
@@ -1495,7 +1506,7 @@ Options:
                               radiance-changes, point-light-changes, voxel-emissive-changes,
                               raster-emitter-changes, multi-source-stress, local-light-scaling,
                               density-changes, terrain-edits,
-                              terrain-edits-inflight, terrain-edits-inflight-capture, or
+                              terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, or
                               terrain-edits-closed
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
@@ -1527,6 +1538,7 @@ Options:
                               Rebuild probes once after rendering starts, for runtime validation
   --environment-probe-visualization
                               Visualize the environment probe grid (debug; default: off)
+  --raster-tree-smoke         Validate live tree A/B, age, removal and replacement, then exit
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --authored-flora-bench      Run authored special-flora paint benchmark and exit
@@ -1926,7 +1938,16 @@ mod tests {
                 "density-changes",
                 EnvironmentLightingTestCase::DensityChanges,
             ),
+            ("cave-edits", EnvironmentLightingTestCase::CaveEdits),
+            (
+                "cave-edits-open",
+                EnvironmentLightingTestCase::CaveEditsOpen,
+            ),
             ("terrain-edits", EnvironmentLightingTestCase::TerrainEdits),
+            (
+                "terrain-edits-sustained",
+                EnvironmentLightingTestCase::TerrainEditsSustained,
+            ),
             (
                 "terrain-edits-inflight",
                 EnvironmentLightingTestCase::TerrainEditsInflight,
@@ -1955,7 +1976,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, terrain-edits-closed"
         ));
     }
 

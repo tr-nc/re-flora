@@ -207,7 +207,8 @@ pub struct ManualResponseOutput {
     pub motion: [f32; 4],
     pub held: [u32; 16],
     pub torsion: [f32; 4],
-    pub held_angles: [f32; 4],
+    pub flutter_phase: [f32; 2],
+    pub flutter_cells: [u32; 2],
 }
 
 /// Auto-generated from `B_ManualResponsePrevious` (native Slang source of truth).
@@ -217,7 +218,8 @@ pub struct ManualResponsePrevious {
     pub motion: [f32; 4],
     pub held: [u32; 16],
     pub torsion: [f32; 4],
-    pub held_angles: [f32; 4],
+    pub flutter_phase: [f32; 2],
+    pub flutter_cells: [u32; 2],
 }
 
 /// Auto-generated from `B_ManualVegetationResponse` (native Slang source of truth).
@@ -227,7 +229,8 @@ pub struct ManualVegetationResponse {
     pub motion: [f32; 4],
     pub held: [u32; 16],
     pub torsion: [f32; 4],
-    pub held_angles: [f32; 4],
+    pub flutter_phase: [f32; 2],
+    pub flutter_cells: [u32; 2],
 }
 
 /// Auto-generated from `B_ModelTriangles` (native Slang source of truth).
@@ -534,6 +537,12 @@ pub struct PushConstantVegetationResponse {
     pub tick_seconds: f32,
     pub count: u32,
     pub controls: [f32; 4],
+    pub flutter_curve: [f32; 4],
+    pub flutter_frequency: [f32; 4],
+    pub flutter_frequency_curve: [f32; 4],
+    pub grass_amplitude: [f32; 4],
+    pub grass_frequency: [f32; 4],
+    pub grass_curve: [f32; 4],
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).
@@ -786,9 +795,10 @@ pub struct GuiInput {
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
     pub raster_flora_ddgi_lighting: u32,
+    pub raster_tree_static: u32,
     pub path_tracing_reference: u32,
     pub path_tracing_max_bounces: u32,
-    pub _pad0: [u8; 12],
+    pub _pad0: [u8; 8],
     pub path_tracing_ambient_light: [f32; 3],
     pub terrain_ray_origin_offset_world: f32,
     pub terrain_self_shadow_tolerance_voxels: f32,
@@ -824,6 +834,8 @@ pub struct GuiInput {
     pub grass_natural_bend_max_voxels: f32,
     pub flora_bend_height_power: f32,
     pub leaf_flutter_strength: f32,
+    pub leaf_global_offset_scale: f32,
+    pub leaf_local_displacement_voxels: f32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,
@@ -865,7 +877,6 @@ pub struct GuiInput {
     pub cloud_shadow_strength: f32,
     pub cloud_shadow_min_transmittance: f32,
     pub cloud_shadow_steps: u32,
-    pub _pad8: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

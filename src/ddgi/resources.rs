@@ -1689,9 +1689,23 @@ impl<'a> DdgiBuilderResources<'a> {
     }
 }
 
+impl DdgiBuilderResources<'_> {
+    fn transport_source_volume(&self) -> &DdgiVolume {
+        self.inherited_source.unwrap_or(self.builder)
+    }
+}
+
 impl ResourceContainer for DdgiBuilderResources<'_> {
     fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
+            "ddgi_transport_source_probe_metadata" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(
+                    &self
+                        .transport_source_volume()
+                        .resources()
+                        .ddgi_probe_metadata,
+                ))
+            }
             "ddgi_transport_source_irradiance_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(
                     self.inherited_source
@@ -1854,13 +1868,14 @@ impl DdgiVolumes {
         &mut self,
         permit: DdgiVolumePromotionPermit,
     ) -> DdgiVolumePromotion {
-        let mut staging = self.staging.take().expect("staging presence checked above");
+        let staging = self.staging.take().expect("staging presence checked above");
         assert_eq!(staging.build_token, Some(permit.token));
         assert_eq!(
             staging.published.map(|resident| resident.publication),
             Some(permit.publication)
         );
-        staging.finish_local_recovery();
+        // Recovery continues on the now-visible complete field. Publication is not
+        // convergence: never hide finite e0 behind a stability barrier.
         let retired_active = std::mem::replace(&mut self.active, staging);
         DdgiVolumePromotion {
             token: permit.token,
@@ -1873,9 +1888,11 @@ impl DdgiVolumes {
 impl ResourceContainer for DdgiVolume {
     fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
-            "ddgi_probe_metadata" => ResourceLookup::Unique(DescriptorResource::Buffer(
-                &self.resources().ddgi_probe_metadata,
-            )),
+            "ddgi_probe_metadata" | "ddgi_transport_source_probe_metadata" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(
+                    &self.resources().ddgi_probe_metadata,
+                ))
+            }
             "ddgi_transient_ray_data" => ResourceLookup::Unique(DescriptorResource::Buffer(
                 &self.resources().ddgi_transient_ray_data,
             )),
@@ -2338,30 +2355,17 @@ impl DdgiVolume {
     }
 
     fn promotion_is_ready(&self) -> bool {
-        let Some(published) = self.published else {
-            return false;
-        };
-        self.local_refresh_voxel_bound.is_none()
-            || (published.field().field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
-                && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS)
+        self.published.is_some()
     }
 
-    fn finish_local_recovery(&mut self) {
-        if self.local_refresh_voxel_bound.take().is_some() {
-            assert!(
-                self.promotion_is_ready_after_local_clear(),
-                "DDGI local recovery cannot finish before its private candidate is stable"
-            );
+    fn finish_local_recovery_if_stable(&mut self) {
+        if self.local_refresh_voxel_bound.is_some()
+            && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS
+        {
+            self.local_refresh_voxel_bound = None;
             self.history_mode = DdgiHistoryMode::TopologyRecovery;
             self.local_recovery_stable_epochs = 0;
         }
-    }
-
-    fn promotion_is_ready_after_local_clear(&self) -> bool {
-        self.published.is_some_and(|published| {
-            published.field().field().update_epoch() >= DDGI_LOCAL_RECOVERY_MIN_EPOCH
-                && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS
-        })
     }
 
     pub(super) fn assign_build_token(&mut self, build_token: DdgiBuildToken) {
@@ -2530,7 +2534,10 @@ impl DdgiVolume {
                     "initial DDGI update must not retain a current-revision complete field"
                 );
                 self.consecutive_below_threshold = 0;
-                self.set_transport_source_ready(false)?;
+                // A fresh destination has no accumulation history, but geometry updates
+                // can inherit a complete recursive source. Readiness describes that source,
+                // not the destination; false would make hit queries use global sky indoors.
+                self.set_transport_source_ready(resident.source.is_some())?;
             }
             DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
                 if radiance_changed {
@@ -2956,6 +2963,7 @@ impl DdgiVolume {
         } else if self.local_refresh_voxel_bound.is_some() {
             self.local_recovery_stable_epochs = 0;
         }
+        self.finish_local_recovery_if_stable();
         match permit.outcome {
             DdgiValidatedIterationOutcome::Published {
                 consecutive_below_threshold,
@@ -3411,6 +3419,34 @@ mod tests {
         scheduler.observe_radiance(radiance_revision);
         scheduler.request_geometry(geometry_revision, probe_spacing(spacing_voxels));
         scheduler.claim_next().unwrap().unwrap()
+    }
+
+    #[test]
+    fn complete_epoch_zero_is_publishable_before_local_recovery_stabilizes() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let token = DdgiBuildToken::for_test(7, 11, 32, super::super::DdgiBuildKind::Terrain);
+        let field = initial_work(11, 3, 32).destination();
+        let mut volume = DdgiVolume::for_test(grid, Some(token));
+        volume.local_refresh_voxel_bound = Some(UAabb3::new(UVec3::splat(100), UVec3::splat(120)));
+        assert!(!volume.promotion_is_ready());
+        volume.published = Some(
+            DdgiResidentPublication::new(
+                DdgiFieldPublication::begin(token, field).unwrap(),
+                DdgiResidentField {
+                    logical: field,
+                    atlas_slot: DdgiAtlasSlot::Atlas0,
+                    sky_slot: DdgiSkySlot::Sky0,
+                },
+                3,
+            )
+            .unwrap(),
+        );
+        assert!(volume.promotion_is_ready());
+        volume.finish_local_recovery_if_stable();
+        assert!(volume.local_refresh_voxel_bound.is_some());
+        volume.local_recovery_stable_epochs = DDGI_LOCAL_RECOVERY_STABLE_EPOCHS;
+        volume.finish_local_recovery_if_stable();
+        assert!(volume.local_refresh_voxel_bound.is_none());
     }
 
     #[test]
@@ -3923,6 +3959,17 @@ mod tests {
     }
 
     #[test]
+    fn recursive_source_metadata_belongs_to_the_same_volume_as_its_atlases() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let active = DdgiVolume::for_test(grid, None);
+        let staging = DdgiVolume::for_test(grid, None);
+        let geometry = DdgiBuilderResources::new(&staging, Some(&active));
+        assert!(std::ptr::eq(geometry.transport_source_volume(), &active));
+        let temporal = DdgiBuilderResources::new(&staging, None);
+        assert!(std::ptr::eq(temporal.transport_source_volume(), &staging));
+    }
+
+    #[test]
     fn terrain_staging_reads_resident_history_through_the_external_source_slot() {
         let initial = initial_work(7, 3, 32).destination();
         let mut scheduler = super::super::DdgiTransportScheduler::new();
@@ -3949,6 +3996,19 @@ mod tests {
         assert_eq!(batch.local_refresh_voxel_bound(), Some(local_refresh));
         assert_eq!(batch.irradiance_history_retention(0.99), 0.0);
         assert_eq!(batch.visibility_history_retention(0.99), 0.0);
+
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let mut staging = DdgiVolume::for_test(grid, None);
+        staging
+            .begin_scheduled_work(work, Some(local_refresh), None, None)
+            .unwrap();
+        assert_eq!(staging.transport_query_snapshot.source_ready, 1,
+            "recursive geometry transport must query its inherited source, not unoccluded global sky");
+        let mut initial_volume = DdgiVolume::for_test(grid, None);
+        initial_volume
+            .begin_scheduled_work(initial_work(7, 3, 32), None, None, None)
+            .unwrap();
+        assert_eq!(initial_volume.transport_query_snapshot.source_ready, 0);
     }
 
     #[test]

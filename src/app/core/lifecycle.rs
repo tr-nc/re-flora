@@ -20,6 +20,7 @@ trait ShutdownActions {
     fn quiesce_producers(&mut self);
     fn shutdown_water(&mut self) -> Result<()>;
     fn discard_contree_readback(&mut self) -> Result<()>;
+    fn discard_tree_pose(&mut self) -> Result<()>;
     fn join_dependent_workers(&mut self);
     fn shutdown_audio(&mut self) -> Result<()>;
     fn wait_device_idle(&mut self);
@@ -30,6 +31,7 @@ enum ShutdownPhase {
     Transaction,
     Water,
     ContreeReadback,
+    TreePose,
     Audio,
 }
 
@@ -39,6 +41,7 @@ impl fmt::Display for ShutdownPhase {
             Self::Transaction => formatter.write_str("transaction"),
             Self::Water => formatter.write_str("water"),
             Self::ContreeReadback => formatter.write_str("Contree readback"),
+            Self::TreePose => formatter.write_str("tree pose"),
             Self::Audio => formatter.write_str("audio"),
         }
     }
@@ -154,6 +157,8 @@ impl AppShutdownLifecycle {
             actions.discard_contree_readback(),
         );
 
+        report.record(ShutdownPhase::TreePose, actions.discard_tree_pose());
+
         log::info!("[SHUTDOWN] phase=join_dependent_workers");
         actions.join_dependent_workers();
 
@@ -197,6 +202,10 @@ impl ShutdownActions for App {
         self.contree_builder
             .discard_active_cpu_chunk_cache_job()
             .context("discard active Contree CPU-cache GPU readback")
+    }
+
+    fn discard_tree_pose(&mut self) -> Result<()> {
+        self.tracer.tree_pose_solver.discard()
     }
 
     fn join_dependent_workers(&mut self) {
@@ -363,6 +372,11 @@ mod shutdown_tests {
                 .expect("Contree readback owner cannot be consumed twice")
         }
 
+        fn discard_tree_pose(&mut self) -> Result<()> {
+            self.calls.push("tree_pose");
+            Ok(())
+        }
+
         fn join_dependent_workers(&mut self) {
             self.calls.push("join");
         }
@@ -393,7 +407,15 @@ mod shutdown_tests {
 
         assert_eq!(
             actions.calls,
-            ["quiesce", "water", "discard", "join", "audio", "idle"]
+            [
+                "quiesce",
+                "water",
+                "discard",
+                "tree_pose",
+                "join",
+                "audio",
+                "idle"
+            ]
         );
         assert_eq!(
             first
@@ -411,7 +433,15 @@ mod shutdown_tests {
         assert_eq!(second, first);
         assert_eq!(
             actions.calls,
-            ["quiesce", "water", "discard", "join", "audio", "idle"]
+            [
+                "quiesce",
+                "water",
+                "discard",
+                "tree_pose",
+                "join",
+                "audio",
+                "idle"
+            ]
         );
     }
 
@@ -424,7 +454,15 @@ mod shutdown_tests {
         assert!(lifecycle.terminate(&mut actions).is_success());
         assert_eq!(
             actions.calls,
-            ["quiesce", "water", "discard", "join", "audio", "idle"]
+            [
+                "quiesce",
+                "water",
+                "discard",
+                "tree_pose",
+                "join",
+                "audio",
+                "idle"
+            ]
         );
     }
 }
