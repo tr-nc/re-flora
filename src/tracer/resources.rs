@@ -6,7 +6,7 @@ use crate::{
     },
     geom::UAabb3,
     lighting::{LOCAL_LIGHT_GPU_ABI_VERSION, LOCAL_LIGHT_GPU_CAPACITY},
-    particles::{BUTTERFLY_ATLAS_ROW_FOR_VIEW, PARTICLE_CAPACITY, PARTICLE_SPRITE_FRAME_DIM},
+    particles::PARTICLE_CAPACITY,
     resource::Resource,
     tracer::{
         leaves_construct::{
@@ -14,13 +14,11 @@ use crate::{
             generate_voxel_leaf_shape, LeafVoxelShape, DEFAULT_LEAF_INNER_DENSITY,
             DEFAULT_LEAF_INNER_RADIUS, DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS,
         },
-        load_butterfly_and_remap,
         voxel_encoding::{
             encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
             FLORA_VOXEL_LOOKUP_EMPTY_KEY,
         },
-        ButterflyPalettePreset, ExtentDependentResources, LeafVertex, ParticleTextureLayout,
-        Vertex, WIND_VOLUME_BUCKET_COUNT,
+        ExtentDependentResources, LeafVertex, Vertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
@@ -406,7 +404,7 @@ pub struct ParticleInstanceGpu {
     pub position: [f32; 3],
     pub size: f32,
     pub color: [f32; 4],
-    pub tex_index: u32,
+    pub leaf_pose_flags: u32,
     /// Falling leaves (texture bit 30): held simulation quaternion for optics only.
     /// Other leaf particles: optical normal + enable. Geometry is always billboarded.
     /// Packing both optical inputs preserves the existing reflected 52-byte instance ABI.
@@ -1004,7 +1002,6 @@ impl LocalLightingResources {
 #[derive(ResourceContainer)]
 pub struct TracerTextureResources {
     pub sun_sprite_tex: Resource<Texture>,
-    pub particle_lod_tex_lut: Resource<Texture>,
     pub scalar_bn: Resource<Texture>,
     pub unit_vec2_bn: Resource<Texture>,
     pub unit_vec3_bn: Resource<Texture>,
@@ -1297,10 +1294,6 @@ impl TracerTextureResources {
     fn new(vulkan_ctx: &VulkanContext, allocator: Allocator) -> Self {
         Self {
             sun_sprite_tex: Resource::new(TracerResources::create_sun_sprite_tex(
-                vulkan_ctx,
-                allocator.clone(),
-            )),
-            particle_lod_tex_lut: Resource::new(TracerResources::create_particle_lod_tex_lut(
                 vulkan_ctx,
                 allocator.clone(),
             )),
@@ -1675,191 +1668,6 @@ impl TracerResources {
             )
             .unwrap();
         tex
-    }
-
-    fn create_particle_lod_tex_lut(vulkan_ctx: &VulkanContext, allocator: Allocator) -> Texture {
-        const PARTICLE_LOD_TEXTURE_DIR_REL_PATH: &str = "assets/texture/butterfly_16px";
-        let frame_dim = PARTICLE_SPRITE_FRAME_DIM;
-        let layout = ParticleTextureLayout::new();
-        layout.assert_valid();
-
-        let white = [255u8, 255u8, 255u8, 255u8];
-        let white_layer = white
-            .repeat((frame_dim * frame_dim) as usize)
-            .into_iter()
-            .collect::<Vec<u8>>();
-        let dir_path = get_project_root() + "/" + PARTICLE_LOD_TEXTURE_DIR_REL_PATH;
-        let mut atlas_paths = std::fs::read_dir(&dir_path)
-            .ok()
-            .into_iter()
-            .flat_map(|entries| entries.filter_map(Result::ok))
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
-            })
-            .collect::<Vec<_>>();
-        atlas_paths.sort();
-
-        assert!(
-            !atlas_paths.is_empty(),
-            "Butterfly atlas not found in '{}'",
-            dir_path
-        );
-
-        let butterfly_atlas_path = atlas_paths
-            .iter()
-            .find(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.eq_ignore_ascii_case("butterfly.png"))
-            })
-            .unwrap_or(&atlas_paths[0]);
-
-        if atlas_paths.len() > 1 {
-            log::warn!(
-                "Found multiple butterfly atlases in '{}', using '{}'",
-                dir_path,
-                butterfly_atlas_path.display()
-            );
-        }
-
-        let atlas_path_str = butterfly_atlas_path.to_string_lossy().to_string();
-        let atlas_rgba = image::open(butterfly_atlas_path)
-            .unwrap_or_else(|e| {
-                panic!("Failed to open butterfly atlas '{}': {}", atlas_path_str, e)
-            })
-            .to_rgba8();
-        let (width, height) = atlas_rgba.dimensions();
-        let expected_size = frame_dim * 5;
-        assert!(
-            width == expected_size && height == expected_size,
-            "Butterfly atlas must be {}x{}, got {}x{}",
-            expected_size,
-            expected_size,
-            width,
-            height
-        );
-
-        let mut butterfly_layers = Vec::new();
-        for preset_idx in 0..layout.butterfly_preset_count() {
-            let preset = ButterflyPalettePreset::from_index(preset_idx);
-            let config = preset.config();
-            let rgba = load_butterfly_and_remap(butterfly_atlas_path, &config);
-            let label = format!("{} ({})", atlas_path_str, preset.name());
-            for view in 0..layout.butterfly_view_count() {
-                let row = BUTTERFLY_ATLAS_ROW_FOR_VIEW[view as usize];
-                if let Some(frames) = Self::extract_row_sequence_layers(
-                    &rgba,
-                    row,
-                    layout.butterfly_frames_per_view(),
-                    &label,
-                ) {
-                    butterfly_layers.extend(frames);
-                } else {
-                    panic!(
-                        "Failed to extract butterfly frames for view {} (row {}) of '{}'",
-                        view, row, label
-                    );
-                }
-            }
-        }
-
-        let lut_layer_count = layout.total_layer_count();
-
-        let sam_desc = Default::default();
-        let img_desc = ImageDesc {
-            extent: Extent3D::new(frame_dim, frame_dim, 1),
-            array_len: lut_layer_count,
-            format: vk::Format::R8G8B8A8_SRGB,
-            usage: vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: TextureLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let tex = Texture::new(vulkan_ctx.device().clone(), allocator, &img_desc, &sam_desc);
-
-        Self::fill_particle_lut_layer(vulkan_ctx, &tex, layout.leaf_layer(), &white_layer);
-        for (frame_idx, frame_data) in butterfly_layers.iter().enumerate() {
-            Self::fill_particle_lut_layer(
-                vulkan_ctx,
-                &tex,
-                layout.butterfly_base_layer() + frame_idx as u32,
-                frame_data.as_slice(),
-            );
-        }
-
-        tex
-    }
-
-    fn extract_row_sequence_layers(
-        atlas: &image::RgbaImage,
-        row: u32,
-        target_frame_count: u32,
-        source_label: &str,
-    ) -> Option<Vec<Vec<u8>>> {
-        if target_frame_count == 0 {
-            return Some(Vec::new());
-        }
-
-        let frame_dim = PARTICLE_SPRITE_FRAME_DIM;
-        let (width, height) = atlas.dimensions();
-        let row_y = row.saturating_mul(frame_dim);
-        if width < frame_dim || height < row_y.saturating_add(frame_dim) {
-            log::warn!(
-                "Animated texture '{}' is {}x{}; row {} with {}x{} frames is unavailable",
-                source_label,
-                width,
-                height,
-                row,
-                frame_dim,
-                frame_dim
-            );
-            return None;
-        }
-
-        if width % frame_dim != 0 {
-            log::warn!(
-                "Animated texture '{}' width {} is not divisible by frame size {}; ignoring trailing pixels",
-                source_label,
-                width,
-                frame_dim
-            );
-        }
-
-        let available_frames = (width / frame_dim).max(1);
-        let mut frames = Vec::with_capacity(target_frame_count as usize);
-        for target_frame_idx in 0..target_frame_count {
-            let src_frame_idx = target_frame_idx.min(available_frames - 1);
-            let frame = image::imageops::crop_imm(
-                atlas,
-                src_frame_idx * frame_dim,
-                row_y,
-                frame_dim,
-                frame_dim,
-            )
-            .to_image();
-            frames.push(Self::to_particle_frame_bytes(frame));
-        }
-        Some(frames)
-    }
-
-    fn to_particle_frame_bytes(frame: image::RgbaImage) -> Vec<u8> {
-        frame.into_raw()
-    }
-
-    fn fill_particle_lut_layer(vulkan_ctx: &VulkanContext, tex: &Texture, layer: u32, data: &[u8]) {
-        tex.get_image()
-            .fill_with_raw_u8(
-                &vulkan_ctx.get_general_queue(),
-                vulkan_ctx.command_pool(),
-                TextureRegion::from_image(tex.get_image()),
-                data,
-                layer,
-                Some(TextureLayout::GENERAL),
-            )
-            .unwrap();
     }
 
     fn create_shadow_map_depth_tex(

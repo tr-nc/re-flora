@@ -2,15 +2,21 @@
 
 ## 操作
 
-在本工作区 `cargo run`。按 **R** 打开 Debug，找到 **Butterflies**：
+在本工作区 `cargo run`。按 **R** 打开 Debug，找到 **Butterflies**。
 
-- **3D Pixel Wings (off = Original Rendering)**：运行时 A/B。勾选新翼面渲染，取消恢复此前的渲染；不改变飞行方案。当前默认开启。
+实时翼面现在是唯一蝴蝶渲染方式；Color Blocks、旧动画及渲染 A/B 开关已删除，无回退路径。
 - **Pixels per Butterfly (N x N, All Distances)**：全局8–64，默认 **22**。每只使用相同规格，远近不会切换成更低规格。
 - **Wing Animation FPS**：2–60，默认60；只量化拍翼，不量化相机或改变飞行物理。
 - **Wing Self Shadows (Game Sun)**：翼面之间的太阳自阴影，默认开启。
 - **Preview 7 Palettes Near / Mid / Far (Camera-relative)**：默认关闭。显式渲染调试样本，三排分别距相机0.25、0.5、1世界单位；原有7种配色，不必等待生态生成。它们使用真实世界光照/深度，会被地形或树遮挡。样本跟随镜头，不是新增生态个体；取消即可移除。
 
-这些设置全部由 `config/gui.toml` 声明，复用统一 Save/加载机制。没有 App-only 设置或单独保存钩子。预览开关不会修改自然生成率；正常游戏中的蝴蝶出现仍由既有生态逻辑决定。
+这些设置全部由 `config/gui.toml` 声明，复用统一 Save/加载机制。没有 App-only 设置或单独保存钩子。预览开关不会修改自然生成率；正常游戏中的蝴蝶出现仍由既有生态逻辑决定。已有保存值优先于初始默认值；本次保留了用户的16px、8FPS及预览开启设置。
+
+## 旧链路退役与兼容
+
+旧 Aseprite、生产 spritesheet、实验中的手绘参考副本/对照动画及其分析脚本已删除。运行时不再分配或读取粒子贴图 LUT，不再维护序列帧计时、方向行、水平翻转、索引调色板重映射或色块外观状态。落叶、地形粒子和水滴原来只读取纯白层，现在直接使用原有顶点色，保留预乘 alpha、深度与落叶光学标志的行为。
+
+飞行、风、生命周期、七个配色 ID 与生态分布保持独立。保存的 `DartingSprite` / `DartingBlock` 只作为反序列化别名迁移到 `Darting`；`OriginalSprite` 迁移到运动方案 `Original`，也一律用新翼面渲染。旧 `butterfly_mesh_enabled` 会在加载时剔除，下次保存不再写回。自然个体统一保留已批准翼面模式的2.1体素标称尺寸，不再被旧色块开关改变大小。
 
 ## 实现
 
@@ -46,20 +52,21 @@ cargo run --release -- --latest-log
 cargo run --release -- --tail-latest-log 200
 ```
 
-显式 GPU fixture 通过 `RE_FLORA_BUTTERFLY_MESH_REVIEW=sweep` 激活，固定视觉时间，依次切换22→8→64→旧方式→22无自阴影→22有自阴影；不保存改过的参数。它不是正常单元测试。会回读生产 GPU 纹素，检查全部有效覆盖点的深度与 CPU 最近三角形射线结果，导出每只原生尺寸的诊断 PNG。诊断PNG为夹取后的线性RGB，不是游戏最终色调映射截图。
+显式 GPU fixture 通过 `RE_FLORA_BUTTERFLY_MESH_REVIEW=sweep` 激活，固定视觉时间，依次切换22→8→64→22无自阴影→22有自阴影；不保存改过的参数。它不是正常单元测试。会回读生产 GPU 纹素，检查全部有效覆盖点的深度与 CPU 最近三角形射线结果，导出每只原生尺寸的诊断 PNG。诊断PNG为夹取后的线性RGB，不是游戏最终色调映射截图。
 
-`cargo fmt --check`、`cargo check` 通过；`cargo test` 为 **1031 + 4 passed，2 ignored**，包含全部声明设置的保存/重载回归、57种全局分辨率与59种相位采样的纯逻辑检查。
+`cargo fmt --check`、`cargo check` 通过；`cargo test` 为 **1029 + 4 passed，2 ignored**，包含全部声明设置的保存/重载回归、旧外观设置迁移且保留用户参数的检查、57种全局分辨率与59种相位采样的纯逻辑检查。
 
 本次 RTX 3060 Ti、release、隐藏静音验证：
 
 - 21只真实提交/dispatch，不依赖自然生成。
+- 另用 `RE_FLORA_FALLEN_LEAF_REVIEW=fixture` 跑隐藏静音实机：8只生产落叶持续更新并渲染，删除白色贴图层后无 Vulkan 错误，正常退出。
 - 22×22的736个命中点、8×8的63个、64×64的6234个，与CPU深度计算吻合。最大深度误差约 `4.1e-6`，全部浮点有限、深度合法。
-- 运行时开关/分辨率/动画FPS/自阴影变更无 Vulkan validation error、panic 或资源访问错误，正常 `failures=0` 退出。
+- 退役后重新验证分辨率/动画FPS/自阴影变更，无 Vulkan validation error、panic 或资源访问错误，正常 `failures=0` 退出。
 - 原生PNG按各实例检查尺寸；截图确认新翼面像素格确实进入游戏画面，且地形遮住部分远排样本。
-- 默认22×22、21只样本的 `butterfly.tiles` GPU scope 在一次短跑中中位数约 **0.104ms**。这是小格生成一项的初测，不是整帧增量、完整A/B基准或最终性能验收；诊断回读本身也不属于正常运行。
+- 初次接入时，22×22、21只样本的 `butterfly.tiles` GPU scope 在一次短跑中中位数约 **0.104ms**。这是小格生成一项的初测，不是整帧增量、完整A/B基准或最终性能验收；诊断回读本身也不属于正常运行。
 - 原有自然场景10秒检查未生成蝴蝶，因此明确不把该空场景当作新渲染路径的验收。
 
-日志/截图：`target/butterfly-resume/`；原生回读：`target/butterfly-resume/game-tiles/`。生成 Rust 变更仅来自 GUI 构建生成器。
+日志/截图：`target/butterfly-resume/`；原生回读：`target/butterfly-resume/game-tiles/`。生成 Rust 变更仅来自 GUI 构建生成器。当前浏览器入口及双预览也重新通过自动检查（全部FPS/分辨率、宽窄视口、无控制台或请求错误）；旧手绘对照页面的历史链接已从当前 HTML 入口移除。
 
 ## 边界与后续
 

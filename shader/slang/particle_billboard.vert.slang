@@ -14,15 +14,13 @@ import tracer_types;
 [[vk::binding(9, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
 [[vk::binding(10, 0)]] Sampler2D leaf_shadow_mask_tex;
 
-static const uint SPRITE_FLIP_BIT = 0x80000000u;
-
 struct VertexInput
 {
     [[vk::location(0)]] uint packed_data : TEXCOORD0;
     [[vk::location(2)]] float3 instance_position : POSITION0;
     [[vk::location(3)]] float instance_size : TEXCOORD2;
     [[vk::location(4)]] float4 instance_color : COLOR0;
-    [[vk::location(5)]] uint instance_texture_index : TEXCOORD3;
+    [[vk::location(5)]] uint leaf_pose_flags : TEXCOORD3;
     [[vk::location(6)]] float4 leaf_optics : TEXCOORD4;
 };
 
@@ -30,8 +28,6 @@ struct VertexOutput
 {
     float4 position : SV_Position;
     [[vk::location(0)]] float4 color : COLOR0;
-    [[vk::location(1)]] float2 uv : TEXCOORD0;
-    [[vk::location(2)]] nointerpolation uint texture_index : TEXCOORD1;
 };
 
 void unpackVertexData(uint packedData, out int3 voxelLocalPosition,
@@ -90,7 +86,7 @@ VertexOutput main(VertexInput input)
 
     float scale = max(input.instance_size, 0.001) * 1.25;
     float3 vertexPosition = input.instance_position + billboardVertexOffset(vertexOffset, scale);
-    bool hasFlightPose = (input.instance_texture_index & LEAF_FLIGHT_BIT) != 0u;
+    bool hasFlightPose = (input.leaf_pose_flags & LEAF_FLIGHT_BIT) != 0u;
 
     VertexOutput output;
     output.position = applyDepthOffset(vertexPosition, input.instance_position);
@@ -115,7 +111,7 @@ VertexOutput main(VertexInput input)
             : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
         output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
             environmentLight, shadow.sun_transmittance, input.instance_position,
-            leafParticleOpticalNormal(input.leaf_optics, input.instance_texture_index),
+            leafParticleOpticalNormal(input.leaf_optics, input.leaf_pose_flags),
             camera_info.pos.xyz, sun_info,
             gui_input.leaf_transmission_strength);
     }
@@ -127,12 +123,5 @@ VertexOutput main(VertexInput input)
             shadow.weight, input.instance_position, float3(voxelLocalPosition));
     }
 
-    output.uv = float2(float(vertexOffset.x), 1.0 - float(vertexOffset.y));
-    if ((input.instance_texture_index & SPRITE_FLIP_BIT) != 0u)
-    {
-        output.uv.x = 1.0 - output.uv.x;
-    }
-    output.texture_index = input.instance_texture_index
-        & ~(SPRITE_FLIP_BIT | LEAF_FLIGHT_BIT);
     return output;
 }

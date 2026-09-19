@@ -400,14 +400,14 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
-        logical_path: "shader/particles/particle_lod_textured.frag",
-        source_path: "shader/slang/particle_lod_textured.frag.slang",
+        logical_path: "shader/particles/particle_billboard.frag",
+        source_path: "shader/slang/particle_billboard.frag.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
-        logical_path: "shader/particles/particle_lod_textured.vert",
-        source_path: "shader/slang/particle_lod_textured.vert.slang",
+        logical_path: "shader/particles/particle_billboard.vert",
+        source_path: "shader/slang/particle_billboard.vert.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Vertex,
     },

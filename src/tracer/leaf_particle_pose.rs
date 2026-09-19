@@ -72,7 +72,6 @@ mod tests {
         assert_eq!(encode(&snapshot), ([0., 1., 0., 1.], 0));
         for kind in [
             ParticleRenderKind::Butterfly,
-            ParticleRenderKind::ButterflyBlock,
             ParticleRenderKind::WaterDroplet,
             ParticleRenderKind::TerrainVoxel,
         ] {

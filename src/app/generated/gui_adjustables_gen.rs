@@ -1148,12 +1148,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
-        id: "butterfly_mesh_enabled",
-        kind: "bool",
-        label: "3D Pixel Wings (off = Original Rendering)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Butterflies",
         id: "butterfly_pixel_resolution",
         kind: "uint",
         label: "Pixels per Butterfly (N x N, All Distances)",
@@ -1547,7 +1541,6 @@ pub struct GuiAdjustables {
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
-    pub butterfly_mesh_enabled: crate::gui_adjustables::BoolParam,
     pub butterfly_pixel_resolution: crate::gui_adjustables::UintParam,
     pub butterfly_animation_fps: crate::gui_adjustables::UintParam,
     pub butterfly_self_shadows: crate::gui_adjustables::BoolParam,
@@ -1782,7 +1775,6 @@ impl GuiAdjustables {
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut butterfly_mesh_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterfly_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut butterfly_animation_fps_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut butterfly_self_shadows_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3074,11 +3066,6 @@ impl GuiAdjustables {
                             butterflies_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "butterfly_mesh_enabled" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            butterfly_mesh_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "butterfly_pixel_resolution" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
@@ -3496,7 +3483,6 @@ impl GuiAdjustables {
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
-            butterfly_mesh_enabled: butterfly_mesh_enabled_field.expect("Missing parameter: butterfly_mesh_enabled"),
             butterfly_pixel_resolution: butterfly_pixel_resolution_field.expect("Missing parameter: butterfly_pixel_resolution"),
             butterfly_animation_fps: butterfly_animation_fps_field.expect("Missing parameter: butterfly_animation_fps"),
             butterfly_self_shadows: butterfly_self_shadows_field.expect("Missing parameter: butterfly_self_shadows"),
@@ -3770,7 +3756,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
-        "butterfly_mesh_enabled" => Some(&adjustables.butterfly_mesh_enabled),
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         _ => None,
@@ -4037,7 +4022,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
-        "butterfly_mesh_enabled" => Some(&mut adjustables.butterfly_mesh_enabled),
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         _ => None,

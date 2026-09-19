@@ -29,7 +29,7 @@ enabled = true
 scale = 5.0
 
 [butterfly_flight]
-variant = "DartingSprite"
+variant = "Darting"
 
 [butterfly_flight.tuning]
 flight_frequency_hz = 6.0
@@ -2150,15 +2150,6 @@ name = "Butterflies"
 id = "butterflies_enabled"
 kind = "bool"
 label = "Enable Butterflies"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "butterfly_mesh_enabled"
-kind = "bool"
-label = "3D Pixel Wings (off = Original Rendering)"
 type = "Bool"
 
 [section.param.data]

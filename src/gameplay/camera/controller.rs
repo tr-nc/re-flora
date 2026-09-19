@@ -208,10 +208,6 @@ impl Camera {
         true
     }
 
-    pub fn vectors(&self) -> &CameraVectors {
-        &self.vectors
-    }
-
     /// Returns the camera's position as a Vec4 with the w component set to 1.0.
     #[allow(dead_code)]
     pub fn position_vec4(&self) -> Vec4 {

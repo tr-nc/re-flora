@@ -17,7 +17,9 @@
 
 ## 同源 8 / 12 / 16px 实际渲染
 
-[静态逐帧对照](native-resolution-contact.png) · [含原手绘的 5fps 动画对照](resolution-comparison.gif) · [测量](metrics.json)
+[Blender 静态逐帧对照](native-resolution-contact.png) · [测量](metrics.json)
+
+旧手绘参考及含它的动画对照已随旧渲染链路删除。汇编脚本现在只对比三种 Blender 原生分辨率，不再加载手绘参考。
 
 不是把 16px 图缩小：重新打开保存的 `.blend`，保留相同相机、2.95 正交尺度、几何、动画、材质，直接在三种分辨率渲染五个方向。每个方向额外渲染第 26 帧检查循环端点。复用 v2 的调色板映射；展示时统一放到 96px 格子，最近邻缩放，避免以缩小显示尺寸假装降低像素密度。原画行顺序是参考，不表示与 Blender 相机严格等价。
 

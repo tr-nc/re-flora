@@ -27,6 +27,6 @@
 <div class="arrow">↕ 同一相机 · 同一时刻 · 同一三维光照结果</div>
 <section class="preview pixel" aria-labelledby="pixel-title"><div><div class="board"><canvas id="pixel-canvas" tabindex="0" aria-label="实时像素画，拖动旋转并同步上方视角，方向键旋转，滚轮缩放"></canvas></div><p id="pixel-size" class="caption">低分辨率渲染 → 可选边框 → 最近邻放大</p></div><div><div class="eyebrow">LIVE PIXEL RENDER</div><h2 id="pixel-title">最后的像素画面</h2><p>模型直接渲染到 <strong id="resolution-label">12 × 12</strong>。光照和翼面间投影先进入这个小画布，随后才加一圈像素边框。</p><p class="note">边框颜色和 alpha 不参与三维光照。外侧边框是透明叠加，内部边框保留原有翼面覆盖；不会把背景色混进导出的 PNG。</p><button id="download" disabled>导出当前像素帧 PNG</button><p class="note">阴影会引入更多明暗层级，目前不做固定调色板量化。低分辨率下仍可能跳点；边缘接近画布边界时，外扩部分可能被裁掉。</p></div></section>
 <p id="camera-state" class="camera">相机待载入</p>
-<div class="links"><a href="comparison-v4.html">上一轮任意视角预览</a><a href="comparison-v3.html">历史手绘对照</a><a href="blender-v5/README.md">v5 制作记录</a></div>
+<div class="links"><a href="comparison-v4.html">上一轮任意视角预览</a><a href="blender-v5/README.md">v5 制作记录</a></div>
 <footer>这些是网页实验控制，刷新后重置；尚未形成游戏内保存设置。没有修改游戏渲染器或正式素材。</footer>
 </main><script type="module" src="material-preview.js"></script></body></html>

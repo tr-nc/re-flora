@@ -25,9 +25,8 @@ def main():
     metrics = []
     contact = Image.new('RGB', (5 * 96 + 130, 3 * (5 * 96 + 28)), '#253039')
     draw = ImageDraw.Draw(contact)
-    animation_frames = [Image.new('RGB', (4 * 150, 5 * 112 + 28), '#253039') for _ in range(5)]
-    reference = Image.open(root / 'reference-production-80.png').convert('RGBA')
-    sheets = [('Hand drawn 16', reference, 16)]
+    animation_frames = [Image.new('RGB', (3 * 150, 5 * 112 + 28), '#253039') for _ in range(5)]
+    sheets = []
     for index, size in enumerate((8, 12, 16)):
         sheet = Image.new('RGBA', (size * 5, size * 5))
         for row, angle in enumerate(angles):

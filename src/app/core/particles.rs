@@ -114,7 +114,7 @@ fn detached_terrain_voxel_spawn(world_voxel: glam::UVec3, color: Vec4) -> Partic
         motion_mode: crate::particles::MotionMode::Free,
         sink_on_lifetime: false,
         sink_speed: 0.1,
-        texture_variant: 0,
+        palette_index: 0,
         render_kind: ParticleRenderKind::TerrainVoxel,
         despawn_on_lifetime: true,
         despawn_below_ground: true,
@@ -347,7 +347,7 @@ impl App {
                 motion_mode: crate::particles::MotionMode::Free,
                 sink_on_lifetime: false,
                 sink_speed: 0.0,
-                texture_variant: 0,
+                palette_index: 0,
                 render_kind: ParticleRenderKind::Leaf,
                 despawn_on_lifetime: false,
                 despawn_below_ground: false,
@@ -521,7 +521,7 @@ impl App {
         let world_max =
             super::CHUNK_DIM.as_vec3() + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
         for emitter in &mut self.butterfly_emitters {
-            emitter.advance_block_flight(
+            emitter.advance_guided_flight(
                 &mut self.particle_system,
                 dt,
                 world_max,
@@ -552,12 +552,12 @@ impl App {
         let plan_ms = plan_start.elapsed().as_secs_f32() * 1000.0;
 
         let snapshot_start = Instant::now();
-        self.particle_system.write_snapshots_with_block_pose(
+        self.particle_system.write_snapshots_with_flight_pose(
             &mut self.particle_snapshots,
             |handle, position| {
                 self.butterfly_emitters
                     .iter()
-                    .find_map(|emitter| emitter.block_render_position(handle))
+                    .find_map(|emitter| emitter.flight_render_position(handle))
                     .unwrap_or(position)
             },
         );
@@ -571,7 +571,6 @@ impl App {
         let upload_start = Instant::now();
         let settings = &self.debug_settings.adjustables;
         let butterfly_mesh = crate::tracer::ButterflyMeshSettings {
-            enabled: settings.butterfly_mesh_enabled.value,
             resolution: settings.butterfly_pixel_resolution.value,
             fps: settings.butterfly_animation_fps.value,
             self_shadows: settings.butterfly_self_shadows.value,
@@ -642,8 +641,7 @@ impl App {
                 color: WATER_DEBUG_COLOR,
                 size: water_particle_size,
                 kind: ParticleRenderKind::Leaf,
-                texture_variant: 0,
-                animation_frame_offset: 0,
+                palette_index: 0,
                 animation_phase_offset: 0.0,
                 leaf_orientation: None,
             });
@@ -681,8 +679,7 @@ impl App {
                     color: Vec4::ONE,
                     size: 0.03,
                     kind: ParticleRenderKind::Butterfly,
-                    texture_variant: preset,
-                    animation_frame_offset: 1,
+                    palette_index: preset,
                     animation_phase_offset: 0.,
                     leaf_orientation: None,
                 });
@@ -701,14 +698,13 @@ impl App {
             let settings = &mut self.debug_settings.adjustables;
             settings.butterfly_mesh_preview.value = true;
             if mode == "sweep" {
-                let stage = (frame / 60).min(5);
-                settings.butterfly_mesh_enabled.value = stage != 3;
+                let stage = (frame / 60).min(4);
                 settings.butterfly_pixel_resolution.value = match stage {
                     1 => 8,
                     2 => 64,
                     _ => 22,
                 };
-                settings.butterfly_self_shadows.value = stage != 4;
+                settings.butterfly_self_shadows.value = stage != 3;
                 settings.butterfly_animation_fps.value = if stage == 1 { 2 } else { 60 };
             }
             return;
@@ -727,12 +723,7 @@ impl App {
         let butterflies = self
             .particle_snapshots
             .iter()
-            .filter(|s| {
-                matches!(
-                    s.kind,
-                    ParticleRenderKind::Butterfly | ParticleRenderKind::ButterflyBlock
-                )
-            })
+            .filter(|s| matches!(s.kind, ParticleRenderKind::Butterfly))
             .collect::<Vec<_>>();
         if frame >= 240 && review.subject_frame.is_none() {
             if let Some(subject) = butterflies.iter().find(|s| {
@@ -783,22 +774,11 @@ impl App {
                     .map(|s| (
                         s.position_ws.to_array(),
                         s.velocity.to_array(),
-                        s.texture_variant,
+                        s.palette_index,
                         s.color.w
                     ))
                     .collect::<Vec<_>>()
             );
-        }
-        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("switch") {
-            let next = match review.subject_frame.map(|start| frame - start) {
-                Some(120) => Some(ButterflyFlightVariant::DartingBlock),
-                Some(240) => Some(ButterflyFlightVariant::DartingSprite),
-                _ => None,
-            };
-            if let Some(next) = next {
-                self.debug_settings.butterfly_flight.variant = next;
-                log::info!("[BUTTERFLY_REVIEW] scripted_switch={next:?} frame={frame}");
-            }
         }
         if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("tuning") {
             let next = match review.subject_frame.map(|start| frame - start) {
@@ -1083,9 +1063,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::gui_config::butterfly_flight::{
-        draw_butterfly_flight_ab_controls, draw_butterfly_flight_tuning,
-    };
+    use crate::app::gui_config::butterfly_flight::draw_butterfly_flight_tuning;
 
     #[test]
     fn butterfly_tuning_sliders_respond_to_pointer_input_without_reset() {
@@ -1145,72 +1123,6 @@ mod tests {
         assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
         assert_ne!(edited.speed, initial.speed);
         assert_ne!(edited.wind_drift, initial.wind_drift);
-    }
-
-    #[test]
-    fn butterfly_debug_checkbox_defaults_to_b_and_clicks_b_a_b_without_config_changes() {
-        let context = egui::Context::default();
-        context.memory_mut(|memory| memory.set_everything_is_visible(true));
-        let mut settings = crate::app::DebugSettings::load();
-        // The callback fixture does not depend on user-editable sliders or section layout.
-        settings.config.section = vec![crate::app::gui_config_model::GuiSection {
-            name: "Butterflies".to_owned(),
-            param: Vec::new(),
-        }];
-        let original_config = serde_json::to_value(&settings.config).unwrap();
-        let mut saved = crate::app::gui_config_model::SavedCustomSettings::default();
-        let mut rect = egui::Rect::NOTHING;
-        let mut draw = |events: Vec<egui::Event>| {
-            let _ = context.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(900.0, 1200.0),
-                    )),
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    rect = draw_butterfly_flight_ab_controls(
-                        &mut crate::app::gui_config::saved_controls::SavedControls::for_test(
-                            ui, &mut saved,
-                        ),
-                    )
-                    .rect;
-                },
-            );
-            (saved.butterfly_flight.variant, rect)
-        };
-        draw(Vec::new());
-        let (initial, rect) = draw(Vec::new());
-        assert_eq!(initial, ButterflyFlightVariant::DartingSprite);
-        assert!(rect.is_positive());
-        for expected in [
-            ButterflyFlightVariant::DartingBlock,
-            ButterflyFlightVariant::DartingSprite,
-        ] {
-            let pos = rect.center();
-            draw(vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]);
-            let (actual, _) = draw(vec![egui::Event::PointerButton {
-                pos,
-                button: egui::PointerButton::Primary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            }]);
-            assert_eq!(actual, expected);
-        }
-        assert_eq!(
-            serde_json::to_value(&settings.config).unwrap(),
-            original_config
-        );
     }
 
     #[test]

@@ -16,10 +16,6 @@ pub use butterfly_mesh::ButterflyMeshSettings;
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
-mod palette_remap;
-
-mod particle_texture_layout;
-pub use particle_texture_layout::*;
 mod leaf_particle_pose;
 
 mod sprinkler_resources;
@@ -6546,128 +6542,26 @@ impl Tracer {
         )?;
         let capacity = PARTICLE_CAPACITY;
         let count = snapshots.len().min(capacity);
-        let texture_layout = ParticleTextureLayout::new();
-        texture_layout.assert_valid();
-        let texture_layer_count = self
-            .resources
-            .textures
-            .particle_lod_tex_lut
-            .get_image()
-            .get_desc()
-            .array_len;
-        debug_assert_eq!(
-            texture_layer_count,
-            texture_layout.total_layer_count(),
-            "Particle texture LUT layer count mismatch (runtime {}, expected {})",
-            texture_layer_count,
-            texture_layout.total_layer_count()
-        );
-        let butterfly_frame_count = texture_layout.butterfly_frames_per_view();
-        let camera_right_xz =
-            Vec2::new(self.camera.vectors().right.x, self.camera.vectors().right.z)
-                .normalize_or_zero();
-        let camera_forward_xz =
-            Vec2::new(self.camera.vectors().front.x, self.camera.vectors().front.z)
-                .normalize_or_zero();
-        const SPRITE_FLIP_BIT: u32 = 1 << 31;
-        const MIN_SPEED_SQ: f32 = 0.01 * 0.01;
-
-        let is_moving_right_relative_to_player = |velocity: Vec3| -> bool {
-            let velocity_xz = Vec2::new(velocity.x, velocity.z);
-            if velocity_xz.length_squared() <= MIN_SPEED_SQ {
-                return false;
-            }
-            if camera_right_xz.length_squared() <= f32::EPSILON {
-                return false;
-            }
-
-            velocity_xz.normalize().dot(camera_right_xz) > 0.0
-        };
-        let pack_particle_tex_index = |tex_index: u32, flip_sprite_x: bool| -> u32 {
-            let base = tex_index & !SPRITE_FLIP_BIT;
-            if flip_sprite_x {
-                base | SPRITE_FLIP_BIT
-            } else {
-                base
-            }
-        };
-
         self.particle_instance_scratch.clear();
         self.particle_instance_scratch.reserve(count);
         self.translucent_particle_instance_scratch.clear();
         self.translucent_particle_instance_scratch.reserve(count);
         for snap in snapshots.iter().take(capacity) {
-            if butterfly_mesh.enabled && butterfly_mesh::is_butterfly(snap.kind) {
+            if snap.kind == crate::particles::ParticleRenderKind::Butterfly {
                 continue;
             }
-            let butterfly_tex_index = {
-                let vel_xz = Vec2::new(snap.velocity.x, snap.velocity.z);
-                let vel_dir_xz = if vel_xz.length_squared() > MIN_SPEED_SQ {
-                    vel_xz.normalize()
-                } else {
-                    Vec2::ZERO
-                };
-                let view_index = if vel_dir_xz == Vec2::ZERO {
-                    0
-                } else {
-                    let z = vel_dir_xz.dot(camera_forward_xz);
-
-                    if z >= 0.0 {
-                        0
-                    } else {
-                        1
-                    }
-                };
-
-                let palette_preset = ButterflyPalettePreset::from_index(snap.texture_variant);
-                let preset_base_layer =
-                    texture_layout.butterfly_preset_base_layer(palette_preset as u32);
-                let frame_offset = snap.animation_frame_offset % butterfly_frame_count.max(1);
-                let tex_index =
-                    preset_base_layer + view_index * butterfly_frame_count + frame_offset;
-                debug_assert!(
-                    texture_layout.contains_layer(tex_index),
-                    "Butterfly texture index {} out of LUT bounds {}",
-                    tex_index,
-                    texture_layout.total_layer_count()
-                );
-                tex_index
-            };
             let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);
             let instance = ParticleInstanceGpu {
                 leaf_optics,
+                leaf_pose_flags,
                 position: snap.position_ws.to_array(),
                 size: snap.size,
                 color: snap.color.to_array(),
-                tex_index: match snap.kind {
-                    crate::particles::ParticleRenderKind::Leaf => {
-                        texture_layout.leaf_layer() | leaf_pose_flags
-                    }
-                    crate::particles::ParticleRenderKind::ButterflyBlock => {
-                        texture_layout.leaf_layer()
-                    }
-                    crate::particles::ParticleRenderKind::Butterfly => pack_particle_tex_index(
-                        butterfly_tex_index,
-                        is_moving_right_relative_to_player(snap.velocity),
-                    ),
-                    crate::particles::ParticleRenderKind::WaterDroplet => {
-                        texture_layout.leaf_layer()
-                    }
-                    crate::particles::ParticleRenderKind::TerrainVoxel => {
-                        texture_layout.leaf_layer()
-                    }
-                },
             };
-            match snap.kind {
-                crate::particles::ParticleRenderKind::WaterDroplet => {
-                    self.translucent_particle_instance_scratch.push(instance)
-                }
-                crate::particles::ParticleRenderKind::Leaf
-                | crate::particles::ParticleRenderKind::ButterflyBlock
-                | crate::particles::ParticleRenderKind::Butterfly
-                | crate::particles::ParticleRenderKind::TerrainVoxel => {
-                    self.particle_instance_scratch.push(instance)
-                }
+            if snap.kind == crate::particles::ParticleRenderKind::WaterDroplet {
+                self.translucent_particle_instance_scratch.push(instance);
+            } else {
+                self.particle_instance_scratch.push(instance);
             }
         }
 
@@ -6693,7 +6587,7 @@ impl Tracer {
         self.particle_resources.instance_count = self.particle_instance_scratch.len() as u32;
         self.particle_resources.translucent_instance_count =
             self.translucent_particle_instance_scratch.len() as u32;
-        // Publish ordinary particles even if the experimental tile pool rejects
+        // Publish ordinary particles even if the butterfly tile pool rejects
         // an oversized batch; never leave unrelated particles on a stale frame.
         self.butterfly_mesh_renderer.upload(
             &self.resources.butterfly_mesh,

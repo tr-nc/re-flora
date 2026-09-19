@@ -167,7 +167,7 @@ impl SprinklerEmitter {
             motion_mode: MotionMode::Free,
             sink_on_lifetime: false,
             sink_speed: 0.0,
-            texture_variant: 0,
+            palette_index: 0,
             render_kind: ParticleRenderKind::WaterDroplet,
             despawn_on_lifetime: true,
             despawn_below_ground: true,

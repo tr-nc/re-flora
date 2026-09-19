@@ -544,15 +544,15 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
-        let particle_lod_textured_vert_sm = ShaderModule::from_precompiled(
+        let particle_billboard_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/particles/particle_lod_textured.vert",
+            "shader/particles/particle_billboard.vert",
             "main",
         )
         .unwrap();
-        let particle_lod_textured_frag_sm = ShaderModule::from_precompiled(
+        let particle_billboard_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/particles/particle_lod_textured.frag",
+            "shader/particles/particle_billboard.frag",
             "main",
         )
         .unwrap();
@@ -640,8 +640,8 @@ impl PipelineBuilder {
             butterfly_tile_comp_sm,
             butterfly_tile_vert_sm,
             butterfly_tile_frag_sm,
-            particle_lod_textured_vert_sm,
-            particle_lod_textured_frag_sm,
+            particle_billboard_vert_sm,
+            particle_billboard_frag_sm,
             water_droplet_frag_sm,
             glass_vert_sm,
             glass_frag_sm,
@@ -1314,8 +1314,8 @@ impl PipelineBuilder {
         );
         let particle_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
-            &shader_modules.particle_lod_textured_vert_sm,
-            &shader_modules.particle_lod_textured_frag_sm,
+            &shader_modules.particle_billboard_vert_sm,
+            &shader_modules.particle_billboard_frag_sm,
             &render_passes.render_pass_color_and_depth,
             Some(2),
             pool,
@@ -1329,7 +1329,7 @@ impl PipelineBuilder {
         );
         let water_droplet_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
-            &shader_modules.particle_lod_textured_vert_sm,
+            &shader_modules.particle_billboard_vert_sm,
             &shader_modules.water_droplet_frag_sm,
             &render_passes.render_pass_color_and_depth,
             Some(2),
@@ -2427,8 +2427,8 @@ pub struct ShaderModules {
     pub butterfly_tile_comp_sm: ShaderModule,
     pub butterfly_tile_vert_sm: ShaderModule,
     pub butterfly_tile_frag_sm: ShaderModule,
-    pub particle_lod_textured_vert_sm: ShaderModule,
-    pub particle_lod_textured_frag_sm: ShaderModule,
+    pub particle_billboard_vert_sm: ShaderModule,
+    pub particle_billboard_frag_sm: ShaderModule,
     pub water_droplet_frag_sm: ShaderModule,
     pub glass_vert_sm: ShaderModule,
     pub glass_frag_sm: ShaderModule,
