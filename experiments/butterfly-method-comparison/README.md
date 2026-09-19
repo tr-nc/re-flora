@@ -4,7 +4,9 @@
 
 已把仓库外的两版实验收进当前 worktree，作为后续迭代基线；没有修改游戏代码或正式素材。
 
-**最新候选：[v3 同步对照页](comparison-v3.html)**。已针对 12px 调整翼形、俯仰、关键姿态与相机，保留原手绘/v2/16px 对照；完整 90 帧重放与网页交互检查通过。美术仍待用户确认。制作细节见 [v3 记录](blender-v3/README.md)，页面验证见 [浏览器检查](blender-v3/browser-validation.md)。
+**最新候选：[v4 任意视角双预览](comparison-v4.html)**。按用户要求从源模型删除身体几何，上方真实三维、下方原生低分辨率渲染；拖动任一个，两边共用相机与动画，不再受五方向图集限制。可切12/16/24/32/48px与正交/透视，未接入游戏。见 [v4 记录](blender-v4/README.md)及[页面验证](blender-v4/browser-validation.md)。
+
+上一轮 [v3 同步对照页](comparison-v3.html) 保留原手绘/v2/16px 对照以及带身体的历史源模型；它不是当前 v4 模型。
 
 原始来源：`/home/terence/Documents/Codex/2026-09-06/realtime-voice-chat-3/outputs/butterfly-method-comparison/`，以及其同级 `butterfly-art-workflow.html`。原目录保留备份。除 Python 缓存和 Blender `.blend1` 自动备份外，保留原始交付；HTML 暂留作可用的对照入口，不是后续必须维护的交付规范。后续进展以本 Markdown 为入口。
 
@@ -32,7 +34,7 @@
 python3 -m http.server 8788 --bind 127.0.0.1 --directory experiments/butterfly-method-comparison
 ```
 
-访问 `http://127.0.0.1:8788/comparison-v3.html` 查看最新候选，或 `comparison-v2.html` 查看原手绘/v1/v2；`index.html` 是上一轮 AI/Blender 对照。页面使用随附的 model-viewer，许可证在 `blender/MODEL-VIEWER-LICENSE.txt`。
+访问 `http://127.0.0.1:8788/comparison-v4.html` 查看最新候选，或 `comparison-v3.html` / `comparison-v2.html` 查看历史对照；`index.html` 是上一轮 AI/Blender 对照。页面使用随附的 model-viewer，许可证在 `blender/MODEL-VIEWER-LICENSE.txt`。
 
 保留手动编辑的模型并重新导出：
 
@@ -52,6 +54,7 @@ BLENDER=/path/to/blender /usr/bin/python3 experiments/butterfly-method-compariso
 2. 已完整复跑保存的 v2 模型，未重建或覆盖归档源文件。
 3. 已完成[一手案例复核](../../docs/research/butterfly_blender_pipeline_followup.md)：Dead Cells 的三维预渲染、Celeste 作者的手工像素设计，以及三维参考后重画的混合流程。不能把约 50px 角色的成功直接外推到 8–16px 蝴蝶，也尚未证明本项目的制作成本一定更低。
 4. 已新增隔离诊断脚本，实际渲染 16/12/8px 并生成同显示尺寸的逐帧图和 GIF。8px 出现触边且轮廓损失明显；12px 值得进一步专门设计，不能仅靠降低分辨率解决 v2 姿态问题。
-5. 已按用户确认的方向制作 v3 12px 候选和 HTML，完成导出及网页验证。用户确认视觉效果后再决定游戏接入、批量导出接口及性能验证。若做游戏内 A/B，必须使用 Debug 面板运行时复选框保留原模式。
+5. 已按用户确认的方向制作 v3 12px 候选和 HTML，完成导出及网页验证。
+6. 用户随后要求移除身体、取消固定视角限制：已完成 v4 纯翼面源、任意角度共享相机的实时高/低分辨率双预览及验证。下一步游戏接入需另处理场景深度、遮挡、采样网格与多实例；若做游戏内 A/B，必须使用 Debug 面板运行时复选框保留原模式。
 
 讨论留待技术复验和案例调研汇总后，带实际候选一起进行；不以提问阻塞可自主完成的检查。

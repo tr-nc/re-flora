@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>蝴蝶 v4 · 同一视角，两种渲染</title>
+<script type="importmap">{"imports":{"three":"./vendor/three-0.183.0/build/three.module.js","three/addons/":"./vendor/three-0.183.0/examples/jsm/"}}</script>
+<style>
+:root{color-scheme:dark;--bg:#111b1b;--panel:#1a2827;--ink:#e1ece3;--muted:#a5b9ad;--line:#354943;--accent:#bce892;--stage:#253039}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 system-ui,sans-serif}main{max-width:1100px;margin:auto;padding:38px 28px 64px}.eyebrow{font:12px ui-monospace,monospace;letter-spacing:.16em;color:var(--accent)}h1{font-size:clamp(28px,4vw,44px);line-height:1.2;letter-spacing:-.04em;margin:14px 0}h2{font-size:23px;line-height:1.3;margin:10px 0}p{margin:10px 0}.muted,.note{color:var(--muted)}.note{font-size:13px}a{color:var(--accent);text-underline-offset:4px}.toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px;padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:24px 0 10px}label{display:flex;flex-direction:column;font-size:12px;gap:5px;color:var(--muted)}button,select,input{font:inherit}button,select{color:var(--ink);background:#243730;border:1px solid #53685b;border-radius:7px;min-height:42px;padding:8px 11px}button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}button:hover{border-color:var(--accent)}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible,canvas:focus-visible{outline:2px solid var(--accent);outline-offset:3px}#play{background:var(--accent);color:#16221a;min-width:90px}input[type=range]{accent-color:var(--accent)}.phase{flex:1;min-width:160px}.status{font-size:13px;color:var(--muted);min-height:24px}.error{color:#ffb5a3}.preview{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:28px;align-items:center;padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:16px;margin:22px 0}.preview.pixel{border-color:#829e69}.board{min-width:0;display:flex;align-items:center;justify-content:center;padding:12px 0;background:var(--stage);border-radius:10px}.board canvas{display:block;touch-action:none;cursor:grab;max-width:100%}.board canvas:active{cursor:grabbing}#pixel-canvas{image-rendering:pixelated;image-rendering:crisp-edges}.caption{font:12px/1.5 ui-monospace,monospace;color:var(--muted);margin-top:10px}.badge{display:inline-block;border:1px solid var(--line);border-radius:20px;font-size:12px;padding:3px 10px;margin:8px 0}.links{display:flex;flex-wrap:wrap;gap:10px 18px;margin:16px 0}.notes{border-top:1px solid var(--line);padding-top:18px;margin-top:28px}.notes ul{padding-left:20px}.camera{overflow-wrap:anywhere;font:12px/1.7 ui-monospace,monospace;color:var(--muted)}footer{margin-top:26px;color:var(--muted);font-size:12px}.arrow{color:var(--accent);text-align:center;font-size:13px;letter-spacing:.06em}noscript{color:#ffb5a3}
+@media(max-width:680px){main{padding:24px 14px 40px}.preview{grid-template-columns:1fr;padding:14px;gap:14px}.toolbar{padding:12px;gap:10px}.phase{flex-basis:100%}h2{font-size:21px}}
+</style>
+</head><body><main>
+<header><div class="eyebrow">RE: FLORA / BUTTERFLY LAB / 04</div><h1>同一视角，两种渲染。</h1><p class="muted">身体已经从 3D 源文件中删除。现在只保留两块翼面；下面两幅画面共享同一个模型、动画和相机。</p><span class="badge">任意视角实时渲染 · 非固定方向选帧 · 尚未接入游戏</span></header>
+<section class="toolbar" aria-label="共享渲染控制">
+<button id="play" disabled>暂停</button><button id="reset" disabled>恢复视角</button>
+<label>像素画布<select id="resolution"><option value="12" selected>12 × 12</option><option value="16">16 × 16</option><option value="24">24 × 24</option><option value="32">32 × 32</option><option value="48">48 × 48</option></select></label>
+<label>动画采样<select id="sampling"><option value="continuous" selected>连续动画</option><option value="stepped">5fps 对照</option></select></label>
+<label>投影<select id="projection"><option value="orthographic" selected>正交</option><option value="perspective">透视</option></select></label>
+<label>背景<select id="background"><option value="#253039">夜色</option><option value="#45664b">草地</option><option value="#e5dfcc">浅纸</option></select></label>
+<label class="phase">动画相位 <output id="phase-label">0.000 s</output><input id="phase" type="range" min="0" max="999" value="0" step="1" aria-label="共享动画相位"></label>
+</section>
+<p id="status" class="status" role="status">正在载入本地纯翼面模型与渲染器…</p><noscript>此实验需要启用 JavaScript 和 WebGL。</noscript>
+<section class="preview" aria-labelledby="source-title">
+<div><div class="board"><canvas id="source-canvas" tabindex="0" aria-label="原始三维模型，拖动旋转，方向键旋转，滚轮缩放"></canvas></div><p id="source-size" class="caption">高分辨率实时预览</p></div>
+<div><div class="eyebrow">EDITABLE SOURCE</div><h2 id="source-title">原始三维源</h2><p>拖动这里，下方像素画的视角也会同步改变。也可以反过来拖动下方画面。</p><p class="note">同一个相机对象，不是近似同步两组角度。默认正交投影；切换透视时两边也一起切换。动画连续播放，拖动相位滑块可暂停检查。</p><div class="links"><a href="blender-v4/butterfly-prototype.blend" download>可编辑 .blend</a><a href="blender-v4/butterfly-prototype.glb" download>同源 .glb</a></div><p class="note">已删除 head / thorax / abdomen 网格与腹部动画节点，不是隐藏身体。整体升沉和俯仰仍由一个不可见的变换节点控制。</p></div>
+</section>
+<div class="arrow">↕ 同一相机 · 同一动画时刻 · 相同取景范围</div>
+<section class="preview pixel" aria-labelledby="pixel-title">
+<div><div class="board"><canvas id="pixel-canvas" tabindex="0" aria-label="实时像素画模型，拖动旋转并同步上方视角，方向键旋转，滚轮缩放"></canvas></div><p id="pixel-size" class="caption">原生低分辨率渲染 → 最近邻放大</p></div>
+<div><div class="eyebrow">LIVE PIXEL RENDER</div><h2 id="pixel-title">真正从这个方向渲染</h2><p>每次相机变化，都把同一模型重新光栅化到 <strong id="resolution-label">12 × 12</strong> 的实际像素画布。没有读 sprite sheet，也没有选“最近的方向”。</p><p class="note">关闭多重采样抗锯齿，不用平滑滤镜；放大只用最近邻。蓝色来自模型材质，这里没有额外做固定调色板量化或像素描边。</p><button id="download" disabled>导出当前像素帧 PNG</button><p class="note">极端侧缘或合翼时仍可能只剩少数像素；可换 16/24px 看区别。把分辨率变低不会自动解决姿态可读性。</p></div>
+</section>
+<p id="camera-state" class="camera">相机待载入</p>
+<section class="notes"><h2>这轮在验证什么</h2><ul><li>验证“真实几何 + 任意视角 + 低分辨率光栅化”，而非扩大预渲染方向数量。</li><li>高分辨率区和像素区共享几何、相机与动画，只改变渲染分辨率和抗锯齿。</li><li>网页没有地形遮挡、游戏内光照和大量实例；游戏接入还需要处理深度、合成、像素网格稳定性和成本。</li><li>离线 Blender 的五方向导出保留为回归样本，不再限制这两个实时预览。</li></ul><div class="links"><a href="comparison-v3.html">上一轮 v3 与手绘对照</a><a href="blender-v4/README.md">v4 制作与验证</a><a href="blender-v4/validation.json">模型验证数据</a></div></section>
+<footer>局部实验，不是全画面像素化滤镜 · 本地资源，无 CDN · 未修改游戏素材或渲染器</footer>
+</main><script type="module" src="free-view-preview.js"></script></body></html>
