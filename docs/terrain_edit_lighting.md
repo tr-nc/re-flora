@@ -6,6 +6,10 @@ Current validation command: `python3 scripts/check_ddgi_sustained_edits.py targe
 Rollback: pushed annotated `checkpoint/terrain-edit-lighting-start-ad7e4bd6`
 (`ad7e4bd6d8e5aa20b112e23d177f7f8e9caf8869`).
 
+Evidence paths in the implementation sections below are relative to the retained worker
+`/home/terence/code/re-flora-agent-terrain-edit-lighting`. The final integration section uses
+`/home/terence/code/re-flora-agent-butterfly-block-flight`, the user's current branch/worktree.
+
 ## Reproduction and baseline
 
 `python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/baseline-no-capture`
@@ -193,3 +197,36 @@ No format change. Full RFIRR terrain-lifecycle acceptance remains unverified for
 capture-owner failure and superseded private-recovery/latest-only assertions described above.
 The saved user cavity was unavailable; this fixture covers the real terrain publication path,
 unavailable display pixel, supported-dark shader contract, and sustained publication liveness.
+
+## Integration and saved-configuration compatibility
+
+All six implementation commits through `bcbfd666` were fast-forwarded into
+`agent/butterfly-block-flight` and pushed; remote commit equality was verified. Independent
+integration validation passed fmt/check, **1025 main + 4 library tests** (2 ignored), 16 Slang
+CPU tests, 63 capture-analyzer tests, the release default startup, and tree wind/stiffness/resize
+smoke. Logs: `target/terrain-lighting-integration-{check,tests,slang-tests,capture-tests,trees,default,tail}.log`.
+
+The actual sustained-edit runner was repeated in this worktree at
+`target/edit-lighting/integration32/`: **40 edits, 22 during-edit promotions, receiver 31/255**,
+2560×1440 and the same GUI hash as the matched baseline. Images were inspected alongside the
+baseline. Sampled render mean/max were **3491.22/4318us**; the difference from the worker's
+4097us mean underscores run-to-run variability. Neither result establishes performance acceptance.
+
+Integration found a missing old-save migration for the new GUI field. A real loader regression
+was first RED (`target/terrain-lighting-config-red.log`); it is now GREEN. The shared existing
+parameter migration fills this field from the compiled declarative schema, while preserving saved
+authored values. A built release binary was also launched with the checkpoint's actual old GUI
+file (without rebuilding against that file), then with the current file; both passed hidden/muted
+startup. Evidence: `target/terrain-lighting-integration-old-config.log`. GUI/camera bytes were restored.
+
+The broader Python suite ran **337 tests with one existing error**: the BD2 wrapper test requires
+a named `bd2` camera snapshot absent from the checked-in camera file. The identical targeted test
+was executed against archived `scripts/` and `config/` from the pre-change checkpoint and failed
+with the same `StopIteration`. No camera or unrelated test behavior was changed. Logs:
+`target/terrain-lighting-integration-python-tests.log` and `target/terrain-lighting-baseline-bd2-test.log`.
+
+The starting worktree was clean before tagging. Its pre-existing lockfile metadata is preserved
+in stash object `689c74202f370f310dc61f22b651e7582eb95994`; it was not discarded or included in
+feature commits. Build-regenerated copies of that identical metadata were removed after validation
+so the final worktree can remain clean. The checkpoint tag is the rollback boundary; no release tag,
+force-push, or destructive reset was used, and no visible game was launched.

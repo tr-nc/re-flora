@@ -63,6 +63,7 @@ impl GuiConfigLoader {
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
+        Self::add_missing_param(&mut config, "Shadow", "terrain_missing_lighting_strength");
         // Retired experimental geometry: accept old saves, but never retain the
         // switch in the live config or write it back on the next save.
         for section in &mut config.section {
@@ -612,6 +613,38 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_configs_receive_terrain_lighting_fallback_and_keep_authored_strength() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| p.id != "terrain_missing_lighting_strength");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        let control = loaded.section.iter_mut().flat_map(|s| &mut s.param)
+            .find(|p| p.id == "terrain_missing_lighting_strength")
+            .expect("old saved settings must receive the fallback control before generated GUI construction");
+        assert_eq!(
+            control.value.get_float().unwrap(),
+            (0.035, Some(0.), Some(0.2))
+        );
+        control.value = crate::app::gui_config_model::GuiParamValue::Float {
+            value: 0.08,
+            min: Some(0.),
+            max: Some(0.2),
+        };
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        assert_eq!(
+            toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+            toml::to_string(&loaded).unwrap()
+        );
+    }
+
     #[test]
     fn old_configs_receive_neutral_stiffness_and_authored_values_survive_saving() {
         use crate::app::gui_config_model::GuiParamValue;
