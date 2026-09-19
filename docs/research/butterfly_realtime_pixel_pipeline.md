@@ -4,7 +4,7 @@
 
 **要消除视角锁定，应保留运行时真实翼面几何，由游戏当前相机投影，再只对蝴蝶做低分辨率采样与合成；不是继续增加预渲图集方向，也不是把整个游戏像素化。** 去掉身体是已接受的美术约束，不以解剖完整性为理由加回来；侧视辨识度应靠翼形、曲率、色块和动作解决。
 
-本笔记只研究，不修改资产或代码。已读[前次调研](butterfly_blender_pipeline_followup.md)、[v3 说明](../../experiments/butterfly-method-comparison/blender-v3/README.md)及[网页验证](../../experiments/butterfly-method-comparison/blender-v3/browser-validation.md)。v3 是原生 12/16/128px、五方向五相位的离线输出，另有 GLB；网页把图集 canvas 和可旋转的 model-viewer 并排展示。**网页原型不是游戏集成，也没有证明真实游戏中的低像素几何、遮挡或性能。** v3 尚保留胸腹；“无身体”是后续约束，不是该资产已经实现的事实。
+本笔记只研究，不修改资产或代码。已读[前次调研](butterfly_blender_pipeline_followup.md)、[v3 说明](../../experiments/butterfly-method-comparison/blender-v3/README.md)及[网页验证](../../experiments/butterfly-method-comparison/blender-v3/browser-validation.md)。v3 是原生 12/16/128px、五方向五相位的离线输出，另有 GLB；网页把图集 canvas 和可旋转的 model-viewer 并排展示。**网页原型不是游戏集成，也没有证明真实游戏中的低像素几何、遮挡或性能。** 研究起点的 v3 尚保留胸腹。集成时已有 [v4 纯翼面源](../../experiments/butterfly-method-comparison/blender-v4/README.md)和[任意视角双预览](../../experiments/butterfly-method-comparison/comparison-v4.html)：身体网格已删除，两块画布共享同一相机/场景/动画，低像素区实际渲染到 N×N WebGL 缓冲，不请求图集。默认正交也支持透视，未加后期量化。这解决了网页中的自由视角演示，仍不代表下面建议的游戏遮挡与多实例方案已经实现。
 
 ## 常见路线：差异在运行时表示，不在是否用 Blender
 

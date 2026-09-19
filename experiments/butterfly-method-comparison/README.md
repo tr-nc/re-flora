@@ -6,6 +6,8 @@
 
 **最新候选：[v4 任意视角双预览](comparison-v4.html)**。按用户要求从源模型删除身体几何，上方真实三维、下方原生低分辨率渲染；拖动任一个，两边共用相机与动画，不再受五方向图集限制。可切12/16/24/32/48px与正交/透视，未接入游戏。见 [v4 记录](blender-v4/README.md)及[页面验证](blender-v4/browser-validation.md)。
 
+配套调研：[任意镜头下的实时 3D 低像素管线](../../docs/research/butterfly_realtime_pixel_pipeline.md)，区分预渲、手工清理和实时局部像素层，记录与当前网页/游戏实现的边界。
+
 上一轮 [v3 同步对照页](comparison-v3.html) 保留原手绘/v2/16px 对照以及带身体的历史源模型；它不是当前 v4 模型。
 
 原始来源：`/home/terence/Documents/Codex/2026-09-06/realtime-voice-chat-3/outputs/butterfly-method-comparison/`，以及其同级 `butterfly-art-workflow.html`。原目录保留备份。除 Python 缓存和 Blender `.blend1` 自动备份外，保留原始交付；HTML 暂留作可用的对照入口，不是后续必须维护的交付规范。后续进展以本 Markdown 为入口。
