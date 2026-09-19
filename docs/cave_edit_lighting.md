@@ -1,5 +1,9 @@
 # Cave edit brightening investigation
 
+Implementation evidence paths below are relative to the retained worker
+`/home/terence/code/re-flora-agent-cave-edit-lighting`. The integration section records
+independent verification in `/home/terence/code/re-flora-agent-butterfly-block-flight`.
+
 ## Reproduction (unfixed baseline)
 
 `python3 scripts/check_ddgi_cave_edits.py target/cave-edits/warm-baseline3`
@@ -149,3 +153,26 @@ accuracy are not declared solved. Full RFIRR capture and the broader Python suit
 not acceptance claims here (recorded baseline limitations remain). No visible game
 was launched, no fixed-color fallback restored, no generated bindings changed, and
 no unrelated Cargo.lock registry metadata included.
+
+## Independent integration verification
+
+Commits `e24e9d66`, `413e47e8`, and `b542e5b8` were reviewed and fast-forwarded into
+`agent/butterfly-block-flight`; the push was verified against the remote branch SHA.
+The complete five-run matrix was independently repeated with the same GUI hash in
+`target/cave-edits/integration32/`: active and repeat **0.317340/255**, settled
+**0.317334/255**, sealed **0.317339/255**, opened interior wall **24.196900/255**.
+Every edit run completed 40 edits and 22 during-edit publications without runtime errors.
+`comparison.png` shows baseline-active / fixed-active / fixed-opened, left to right.
+The baseline image is from the worker's `warm-baseline3`; the fixed images are from integration.
+
+Fmt/check, 1027 main + 4 library tests (2 ignored), 16 Slang tests, and 63 capture-analyzer
+tests passed. The first full Rust run failed once in the unchanged asynchronous emitter test
+`stale_not_ready_result_cannot_requeue_after_live_revision_changes` (0 publications vs 1 within
+its 1000-yield loop); the isolated recheck and full-suite repeat passed. This transient test
+failure is retained in `target/cave-integration-tests-first-attempt.log`, not hidden or claimed
+as a reproduced baseline failure. Other logs use `target/cave-integration-*.log`.
+
+Default release hidden/muted startup and tree wind/stiffness/resize smoke also passed, with
+canonical log-tail inspection. GUI/camera bytes were restored. The pre-existing Cargo.lock
+patch was compared byte-for-byte with the starting patch and remains unchanged and uncommitted.
+No visible game was launched and no release was made.
