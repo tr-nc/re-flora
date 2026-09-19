@@ -61,3 +61,36 @@ Git revision/diff, config hash, commands, copied run logs, and image paths. Test
 (67 passed). Tests explicitly catch a spatial spike diluted in the frame mean, delayed
 writer completion, missing files, and absent successful-write markers. No lighting
 algorithm or shader changed. No performance improvement is claimed.
+
+## Lit shallow-edit fixture: a limited red reproduction
+
+Added `cave-edits-portal`: the existing 40 warm-start shallow roof removals, with a
+persistent 16×20-voxel roof aperture disjoint from every removal. Unit tests verify
+the aperture is initially empty and edit bounds never intersect it. Geometry changes
+still use the real publication path; no lighting or rendering policy changed.
+
+```
+python3 scripts/check_ddgi_cave_edits.py target/history-temporal/portal-repeat \
+  --temporal --case cave-edits-portal --duration 20 --max-mean-jump 1
+```
+
+This command ran RED with complete captures and live publication. The exploratory
+1-code-value mean-jump threshold was selected after the first run, not a pre-existing
+acceptance budget. First run (`portal-baseline`, default 3 threshold) had left-wall
+maximum mean jump 1.29466/255, spatial p99 7.333/255, pixel maximum 8.333/255 and
+17.287% area jumping >3/255. Right-wall max mean was 0.28378/255. Both had 40 edits,
+22 promotions and 47 during-edit captures. The repeat also reproduces the mean-jump
+failure; exact values and all per-frame statistics are in its report.
+
+Fresh image `target/ddgi-portal-view.png` was inspected. This is a dark lit cavity,
+not the user's saved scene. Exploratory stable near roof/side-wall ROIs did **not**
+show strong flicker (<0.013 mean, <=0.667 pixel jump); the lower far-wall ROI does.
+Therefore this establishes a limited far-wall noise loop, **not** full reproduction
+of strong near AND far flicker. ROI exploration reports are retained beside the first
+run; they were not used to rewrite its original measurements. No cause established.
+
+Validation: fmt/check; full Rust tests 1030 passed, 2 ignored; all 16 Slang CPU tests.
+Initial new unit test failed compilation using private AABB `.max` rather than the
+public `.max()` accessor; corrected before validation. No GPU runtime errors in either
+portal run. No generated files changed. Next required work remains independent final-
+geometry DDGI reference, real response controls, and only then attributed experiments.

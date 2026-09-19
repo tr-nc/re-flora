@@ -222,6 +222,8 @@ const SHELL_MIN: Vec3 = Vec3::new(96.0, 84.0, 216.0);
 const SHELL_MAX: Vec3 = Vec3::new(238.0, 236.0, 392.0);
 const INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
 const INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 376.0);
+const CAVE_PORTAL_MIN: Vec3 = Vec3::new(202.0, 216.0, 300.0);
+const CAVE_PORTAL_MAX: Vec3 = Vec3::new(218.0, 244.0, 320.0);
 const SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
 const SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 244.0, 334.0);
 
@@ -557,6 +559,7 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::CaveEditsPortal
             | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
             EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
@@ -1590,6 +1593,16 @@ impl TestSceneGeometry {
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
                 Vec::new(),
             ),
+            EnvironmentLightingTestCase::CaveEditsPortal => (
+                Vec::new(),
+                vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
+                vec![
+                    Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX),
+                    // A persistent small light opening disjoint from all shallow removals.
+                    Cuboid::from_min_max(CAVE_PORTAL_MIN, CAVE_PORTAL_MAX),
+                ],
+                Vec::new(),
+            ),
             EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::RadianceChanges
             | EnvironmentLightingTestCase::PointLightChanges
@@ -1720,7 +1733,9 @@ fn prepare_initial_environment_lighting_test_scene(
 fn is_cave_edit_case(case: EnvironmentLightingTestCase) -> bool {
     matches!(
         case,
-        EnvironmentLightingTestCase::CaveEdits | EnvironmentLightingTestCase::CaveEditsOpen
+        EnvironmentLightingTestCase::CaveEdits
+            | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::CaveEditsPortal
     )
 }
 
@@ -1893,6 +1908,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::TerrainEditsInflightCapture
         | EnvironmentLightingTestCase::CaveEdits
         | EnvironmentLightingTestCase::CaveEditsOpen
+        | EnvironmentLightingTestCase::CaveEditsPortal
         | EnvironmentLightingTestCase::TerrainEditsSustained
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
@@ -6324,6 +6340,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::CaveEditsPortal
             | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
@@ -7112,6 +7129,31 @@ mod tests {
             let geometry = TestSceneGeometry::build(case);
             assert_eq!(geometry.carved_empty.len(), 1);
         }
+    }
+
+    #[test]
+    fn lit_cave_edits_leave_the_persistent_aperture_unchanged() {
+        let initial = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::CaveEditsPortal,
+        )
+        .unwrap();
+        let center = (CAVE_PORTAL_MIN + CAVE_PORTAL_MAX) * 0.5;
+        assert_eq!(
+            initial.planned_cuboid_voxel_type_at(center),
+            Some(VOXEL_TYPE_EMPTY)
+        );
+        for count in 0..40 {
+            let plan = cave_interior_edit_plan(count).unwrap();
+            assert_eq!(plan.planned_cuboid_voxel_type_at(center), None);
+            let bounds = plan
+                .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                .unwrap()
+                .unwrap();
+            assert!(bounds.max().x < CAVE_PORTAL_MIN.x as u32);
+        }
+        assert!(is_cave_edit_case(
+            EnvironmentLightingTestCase::CaveEditsPortal
+        ));
     }
 
     #[test]

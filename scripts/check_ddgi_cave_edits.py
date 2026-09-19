@@ -45,7 +45,7 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
     parser.add_argument("--temporal", action="store_true", help="Capture sampled display RGB throughout one real edit run")
-    parser.add_argument("--case", choices=("cave-edits", "cave-edits-open", "terrain-edits-sustained"), default="cave-edits")
+    parser.add_argument("--case", choices=("cave-edits", "cave-edits-open", "cave-edits-portal", "terrain-edits-sustained"), default="cave-edits")
     parser.add_argument("--interval", type=float, default=.1)
     parser.add_argument("--duration", type=float, default=58)
     parser.add_argument("--max-mean-jump", type=float, default=3,
