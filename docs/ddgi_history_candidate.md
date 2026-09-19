@@ -4,14 +4,17 @@
 
 Integrated into `agent/butterfly-block-flight` after merging `main` at `6fb81dfa`.
 Both saved controls remain **off by default**. At the default 32-voxel spacing, open
-**Debug → Lighting Diagnostics** and enable both **DDGI continuous accepted-batch sampling
+**Debug → DDGI Experiments** and enable both **DDGI continuous accepted-batch sampling
 (experimental A/B)** and **DDGI geometry-qualified aggregate history (experimental A/B)**.
 Uncheck both for the original mode; changes latch at the next field. This is a measured
 visual candidate, not universal acceptance: 64-voxel spacing has a known wall-spike regression.
 The integration section below records personal follow-up verification, including 16-voxel tests.
 
-Implementation evidence below lives in the retained worker worktree; integration evidence lives
-in `/home/terence/code/re-flora-agent-butterfly-block-flight`. No further subagents were used for
+Implementation evidence below was produced in the worker worktree. Before removing completed
+worktrees, their ignored evidence was archived under
+`/home/terence/code/re-flora/target/collected-worktree-evidence/` (see `manifest.json` and
+`docs/premerge_cleanup.md`). Historical paths below identify provenance, not live checkouts.
+Integration evidence lives in `/home/terence/code/re-flora-agent-butterfly-block-flight`. No further subagents were used for
 integration or those follow-up runs.
 
 Worktree `re-flora-agent-ddgi-history-candidate`, base `06d8257b`. Only the existing

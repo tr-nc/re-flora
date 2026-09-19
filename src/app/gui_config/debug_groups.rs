@@ -51,16 +51,21 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Lighting Diagnostics",
-        description: "Flora lighting and terrain path-tracing reference controls. DDGI A/B: off = original; switches apply next field. Candidates validated at 32-voxel spacing; 64-voxel left-wall spikes regressed.",
+        description: "Flora lighting and terrain path-tracing reference controls.",
         initially_open: false,
         params: &[
-            "ddgi_continuous_sampling",
-            "ddgi_aggregate_history",
             "raster_flora_ddgi_lighting",
             "path_tracing_reference",
             "path_tracing_ambient_light",
             "path_tracing_max_bounces",
         ],
+    },
+    ControlGroup {
+        parent: None,
+        title: "DDGI Experiments",
+        description: "Optional A/B candidates, off by default. Off = original policy; changes apply next field. Tested at 32-voxel spacing; 64-voxel wall spikes regressed. Not required for the digging performance fix.",
+        initially_open: false,
+        params: &["ddgi_continuous_sampling", "ddgi_aggregate_history"],
     },
     ControlGroup {
         parent: None,
@@ -122,6 +127,19 @@ mod tests {
     use super::*;
     use crate::app::gui_config::{DebugSettings, GuiConfigLoader};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn optional_ddgi_candidates_are_isolated_in_a_collapsed_experiment_group() {
+        let group = GROUPS
+            .iter()
+            .find(|group| group.title == "DDGI Experiments")
+            .unwrap();
+        assert!(!group.initially_open);
+        assert_eq!(
+            group.params,
+            &["ddgi_continuous_sampling", "ddgi_aggregate_history"]
+        );
+    }
 
     #[test]
     fn every_debug_parameter_has_exactly_one_group() {
