@@ -375,6 +375,7 @@ struct DdgiFrameEncoder<'a> {
     chunk_bound: UAabb3,
     voxels_per_world_unit: UVec3,
     history_retention: f32,
+    aggregate_history: bool,
     sampling_progress: Option<&'a crate::ddgi::DdgiSamplingProgress>,
     capture_enabled: bool,
     glass_experiment_enabled: bool,
@@ -575,8 +576,22 @@ impl DdgiFrameEncoder<'_> {
     }
 
     fn record_irradiance_filter(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+        let (local_refresh_enabled, mut local_refresh_world_min, mut local_refresh_world_max) =
             self.local_refresh_push_constants(batch);
+        let reuse_bound = batch.edited_voxel_bound().filter(|_| {
+            self.aggregate_history
+                && batch.irradiance_history_is_valid()
+                && batch.source().is_some_and(|source| {
+                    source.field().radiance_revision() == batch.radiance_revision()
+                })
+        });
+        if let Some(bound) = reuse_bound {
+            let scale = self.voxels_per_world_unit.as_vec3();
+            let min = bound.min().as_vec3() / scale;
+            let max = bound.max().as_vec3() / scale;
+            local_refresh_world_min = [min.x, min.y, min.z, 0.0];
+            local_refresh_world_max = [max.x, max.y, max.z, 0.0];
+        }
         let push_constants = DdgiAtlasFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
@@ -585,12 +600,24 @@ impl DdgiFrameEncoder<'_> {
             destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
             source_slot: batch.source_slot_index(),
             has_history: u32::from(batch.irradiance_history_is_valid()),
-            history_retention: batch.irradiance_history_retention(self.history_retention),
+            history_retention: if reuse_bound.is_some() {
+                self.history_retention
+                    .min(crate::ddgi::DDGI_TOPOLOGY_RECOVERY_HISTORY_RETENTION)
+            } else {
+                batch.irradiance_history_retention(self.history_retention)
+            },
             epoch_rotation: self.rotation(batch),
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
-            filter_evidence: [u32::from(self.capture_enabled), 0, 0, 0],
+            filter_evidence: [
+                u32::from(self.capture_enabled),
+                u32::from(reuse_bound.is_some()),
+                u32::from(batch.source().is_some_and(|source| {
+                    source.field().geometry_revision() != batch.geometry_revision()
+                })),
+                0,
+            ],
         };
         self.pipelines.compute().ddgi_irradiance_filter_ppl.record(
             cmdbuf,
@@ -625,7 +652,14 @@ impl DdgiFrameEncoder<'_> {
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
-            filter_evidence: [u32::from(self.capture_enabled), 0, 0, 0],
+            filter_evidence: [
+                u32::from(self.capture_enabled),
+                u32::from(self.aggregate_history && batch.edited_voxel_bound().is_some()),
+                u32::from(batch.source().is_some_and(|source| {
+                    source.field().geometry_revision() != batch.geometry_revision()
+                })),
+                0,
+            ],
         };
         self.pipelines.compute().ddgi_visibility_filter_ppl.record(
             cmdbuf,
@@ -1358,6 +1392,7 @@ pub struct TerrainFrameInput {
     pub ddgi_receiver_visibility_bias_world: f32,
     pub ddgi_history_retention: f32,
     pub ddgi_continuous_sampling: bool,
+    pub ddgi_aggregate_history: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1622,6 +1657,7 @@ pub struct Tracer {
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
     ddgi_continuous_sampling: bool,
+    ddgi_aggregate_history: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
@@ -1967,6 +2003,7 @@ impl Tracer {
             ddgi_runtime,
             ddgi_history_retention: 0.99,
             ddgi_continuous_sampling: false,
+            ddgi_aggregate_history: false,
             ddgi_sampling_progress: Default::default(),
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
@@ -2366,6 +2403,9 @@ impl Tracer {
         build_token: Option<DdgiBuildToken>,
     ) -> Result<()> {
         let stats = progress.stats();
+        if batch.local_refresh_voxel_bound().is_some() {
+            log::info!("[DDGI][HISTORY] geometry={} epoch={} first={} probes={} retain={} blend_zero={} qualified_blend={} placement_reset={} edit_proximity_reset={}", batch.geometry_revision(), batch.update_epoch(), batch.first_probe_index, batch.probe_count, stats.history_diagnostics[0], stats.history_diagnostics[1], stats.history_diagnostics[2], stats.history_diagnostics[3], stats.history_diagnostics[4]);
+        }
         if progress.filtered_probe_count() == batch.probe_count
             || progress.filtered_probe_count() == progress.probe_count()
             || progress.filtered_probe_count().is_multiple_of(1_024)
@@ -2991,6 +3031,7 @@ impl Tracer {
         self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
         self.ddgi_continuous_sampling = terrain.ddgi_continuous_sampling;
+        self.ddgi_aggregate_history = terrain.ddgi_aggregate_history;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3400,6 +3441,7 @@ impl Tracer {
             chunk_bound: self.chunk_bound,
             voxels_per_world_unit: self.desc.voxel_dim_per_chunk,
             history_retention: self.ddgi_history_retention,
+            aggregate_history: self.ddgi_aggregate_history,
             sampling_progress: self
                 .ddgi_continuous_sampling
                 .then_some(&self.ddgi_sampling_progress),

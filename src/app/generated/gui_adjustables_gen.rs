@@ -26,6 +26,12 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "ddgi_aggregate_history",
+        kind: "bool",
+        label: "DDGI geometry-qualified aggregate history (experimental A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "ddgi_continuous_sampling",
         kind: "bool",
         label: "DDGI continuous accepted-batch sampling (experimental A/B)",
@@ -1336,6 +1342,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
@@ -1567,6 +1574,7 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1789,6 +1797,11 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "ddgi_aggregate_history" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            ddgi_aggregate_history_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "ddgi_continuous_sampling" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             ddgi_continuous_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3253,6 +3266,7 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
@@ -3693,6 +3707,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
@@ -3956,6 +3971,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),

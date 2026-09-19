@@ -13,6 +13,10 @@ static const float DDGI_VISIBILITY_FILTER_EXPONENT = 50.0;
 readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
     ddgi_probe_metadata;
 
+[[vk::binding(40, 0)]]
+readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
+    ddgi_transport_source_probe_metadata;
+
 [[vk::binding(25, 0)]]
 readonly GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
     ddgi_transient_ray_data;
@@ -60,6 +64,18 @@ void main(uint3 groupId : SV_GroupID,
     DdgiFilterHistoryDecision historyDecision = ddgiFilterHistoryDecision(
         pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
         pc.local_refresh_enabled.y, pc.history_retention);
+    if (pc.filter_evidence.y != 0u)
+    {
+        // Never let aggregate radiance reuse freeze remote distance moments through repeated
+        // edits. All probes observe current geometry, using the original epoch response cap.
+        // A changed placement has no visibility history in the destination coordinate system.
+        DdgiProbeMetadata sourceMetadata = pc.filter_evidence.z != 0u
+            ? ddgi_transport_source_probe_metadata.data[probeIndex] : metadata;
+        historyDecision.action = pc.has_history != 0u &&
+            ddgiAggregatePlacementMatches(metadata, sourceMetadata) && pc.history_retention > 0.0
+            ? DdgiFilterHistoryAction::Blend : DdgiFilterHistoryAction::Replace;
+        historyDecision.retention = pc.history_retention;
+    }
     bool electedEvidenceLane = all(localInvocationId.xy == uint2(0u));
     bool freshAvailable =
         metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&

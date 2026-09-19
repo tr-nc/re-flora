@@ -64,6 +64,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
+        Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -655,32 +656,34 @@ mod tests {
     #[test]
     fn old_configs_default_ddgi_sampling_to_original_and_save_experiment() {
         use crate::app::gui_config_model::GuiParamValue;
-        let mut config: GuiConfigFile =
-            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        for section in &mut config.section {
-            section.param.retain(|p| p.id != "ddgi_continuous_sampling");
+        for id in ["ddgi_continuous_sampling", "ddgi_aggregate_history"] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            for section in &mut config.section {
+                section.param.retain(|p| p.id != id);
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let mut loaded = GuiConfigLoader::load_from_path(&path);
+            let control = loaded
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == id)
+                .unwrap();
+            assert!(matches!(
+                control.value,
+                GuiParamValue::Bool { value: false }
+            ));
+            control.value = GuiParamValue::Bool { value: true };
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                toml::to_string(&loaded).unwrap(),
+                toml::to_string(&reloaded).unwrap()
+            );
         }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("gui.toml");
-        GuiConfigLoader::save_to_path(&config, &path).unwrap();
-        let mut loaded = GuiConfigLoader::load_from_path(&path);
-        let control = loaded
-            .section
-            .iter_mut()
-            .flat_map(|s| &mut s.param)
-            .find(|p| p.id == "ddgi_continuous_sampling")
-            .unwrap();
-        assert!(matches!(
-            control.value,
-            GuiParamValue::Bool { value: false }
-        ));
-        control.value = GuiParamValue::Bool { value: true };
-        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-        let reloaded = GuiConfigLoader::load_from_path(&path);
-        assert_eq!(
-            toml::to_string(&loaded).unwrap(),
-            toml::to_string(&reloaded).unwrap()
-        );
     }
 
     #[test]

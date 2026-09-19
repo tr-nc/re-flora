@@ -114,3 +114,16 @@ public void ddgiRecordVisibilitySampleDecision(
             : DDGI_VISIBILITY_SAMPLE_REJECT,
         1u);
 }
+
+// Diagnostic counters are independent of RFIRR capture ownership and its exact-retention proof.
+// One elected lane per probe; these describe executed decisions, not CPU-requested caps.
+public void ddgiRecordHistoryDiagnostic(bool elected, DdgiFilterHistoryDecision decision,
+    bool experimental, bool samePlacement)
+{
+    if (!elected) return;
+    uint lane = decision.action == DdgiFilterHistoryAction::Retain ? 31u :
+        decision.action == DdgiFilterHistoryAction::Blend && decision.retention == 0.0 ? 32u :
+        experimental && decision.action == DdgiFilterHistoryAction::Blend ? 33u :
+        experimental && !samePlacement ? 34u : experimental ? 35u : 0u;
+    if (lane != 0u) ddgiRecordFilterStat(lane, 1u);
+}

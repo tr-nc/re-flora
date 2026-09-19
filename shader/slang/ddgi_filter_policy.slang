@@ -1,5 +1,7 @@
 module ddgi_filter_policy;
 
+import ddgi_types;
+
 public static const uint DDGI_FILTER_POLICY_OWNER_VERSION = 1u;
 
 public enum DdgiFilterVisibilityAction : uint
@@ -76,6 +78,38 @@ public DdgiFilterHistoryDecision ddgiFilterHistoryDecision(
     {
         float epoch = float(recoveryEpoch);
         result.retention = min(result.retention, epoch / (epoch + 1.0));
+    }
+    return result;
+}
+
+public bool ddgiAggregatePlacementMatches(DdgiProbeMetadata current, DdgiProbeMetadata source)
+{
+    return current.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
+        source.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
+        all(current.nominal_position_and_min_clearance == source.nominal_position_and_min_clearance) &&
+        all(current.actual_position_and_clearance == source.actual_position_and_clearance);
+}
+
+// Aggregate history is an approximate prior, not a cache of individually validated rays.
+// Exact unchanged placement and clearance, with edits outside that clearance region, qualify
+// it for bounded blending only. First-segment evidence never implies unchanged radiance:
+// every probe incorporates fresh current-visibility transport, including the remote partition.
+public DdgiFilterHistoryDecision ddgiAggregateHistoryDecision(
+    DdgiProbeMetadata current, DdgiProbeMetadata source,
+    float3 editMin, float3 editMax, float retention)
+{
+    DdgiFilterHistoryDecision result;
+    result.owner_version = DDGI_FILTER_POLICY_OWNER_VERSION;
+    result.action = DdgiFilterHistoryAction::Replace;
+    result.retention = 0.0;
+    bool samePlacement = ddgiAggregatePlacementMatches(current, source);
+    float3 nearestEdit = clamp(current.actual_position_and_clearance.xyz, editMin, editMax);
+    bool outsideClearance = distance(nearestEdit, current.actual_position_and_clearance.xyz) >
+        current.actual_position_and_clearance.w;
+    if (samePlacement && outsideClearance)
+    {
+        result.action = DdgiFilterHistoryAction::Blend;
+        result.retention = saturate(retention);
     }
     return result;
 }

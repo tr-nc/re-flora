@@ -54,3 +54,9 @@ public void ddgiOwnerStoreFreshIrradiance(
     ddgiOwnerStoreIrradianceValue(
         destinationIsTransportSource, coordinate, executed.value);
 }
+
+public void ddgiOwnerHistoryDiagnostic(bool elected, DdgiFilterHistoryDecision decision,
+    bool experimental, bool samePlacement)
+{
+    ddgiRecordHistoryDiagnostic(elected, decision, experimental, samePlacement);
+}

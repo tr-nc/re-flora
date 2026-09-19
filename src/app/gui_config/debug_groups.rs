@@ -55,6 +55,7 @@ const GROUPS: &[ControlGroup] = &[
         initially_open: false,
         params: &[
             "ddgi_continuous_sampling",
+            "ddgi_aggregate_history",
             "raster_flora_ddgi_lighting",
             "path_tracing_reference",
             "path_tracing_ambient_light",

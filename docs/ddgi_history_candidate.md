@@ -63,3 +63,52 @@ frame-input wiring, accepted-work/revision/density sequence tests added. Generat
 These capture timings are not performance evidence. Opening/closing compatibility,
 no-capture performance, stronger sequence variation, live-toggle GPU exercises and actual
 geometry-qualified aggregate reuse are the next experiment stage, not claimed complete.
+
+## Experiment 2: placement-qualified aggregate history
+
+Independent saved checkbox **DDGI geometry-qualified aggregate history (experimental A/B)**,
+unchecked original. The original edit bounds are latched with scheduled work and retained
+only through local recovery (not reconstructed by shrinking clamped invalidation bounds).
+An irradiance prior qualifies only with valid source/current probes, exactly equal nominal
+and actual placement/clearance, and an edit box disjoint from that clearance ball. Changed
+placement, clearance, invalid probes or edits entering that region replace history. This is
+**approximate aggregate prior qualification**, not validation of its individual old rays or
+proof of invariant radiance. No old ray contribution can be removed exactly from this atlas.
+
+Qualified irradiance uses the existing topology-recovery cap min(configured, .93), not
+an unbounded accumulated sample age. Every probe blends freshly traced current-visibility
+transport, including the original Retain partition. 32 accepted updates reduce a constant
+old-history error below 10% (recursive field settling is not guaranteed by that scalar bound).
+Visibility does **not** inherit mature history: every probe refreshes moments at the original
+epoch cap, and moved/invalid probes replace. Thus continuous local edits cannot indefinitely
+freeze remote moments. Geometry-changing e0 reads source-owned metadata binding 40; subsequent
+same-geometry updates use destination metadata. Readiness/source tuple ownership is unchanged.
+
+Five separate diagnostic lanes report original Retain, zero-retention Blend, qualified Blend,
+placement/validity reset and edit-proximity reset; RFIRR owner/proof lanes are unchanged.
+`[DDGI][HISTORY]` records batch identity and those counts. For the first portal edit, 3,835 of
+4,913 probes qualified and 1,078 were placement/validity resets. These are not all relocated:
+invalid probes are included explicitly. Full per-batch records are retained in run logs.
+
+Measured single-variable sequence (same source/camera/geometry, 40 edits / 22 publications):
+
+| mode | left mean-jump p95 | p99/max | peak spatial p99 | peak pixel | >3 area |
+|---|---:|---:|---:|---:|---:|
+| history only, original remote moments (diagnostic) | .00687 | .05938 | 1 | 1 | 0 |
+| history only, current remote moments (candidate) | .00964 | .06163 | 1 | 1 | 0 |
+| both candidates | .00265 | .00337 | 0 | 1 | 0 |
+
+The remote-moment diagnostic was revised, not retained as a selectable mode. Runs:
+`aggregate-alone`, `aggregate-reference` (diagnostic), `aggregate-current-visibility`,
+`combined`, and `combined-reference`. Same runner flags plus `--aggregate-history`, with
+`--continuous-sampling` only for combined runs. Combined independent-reference error at 56s:
+left mean .02468 / p99 .66667; right mean .01486 / p99 .33333, within the explicit <=1 budget.
+
+Validation: full Rust 1033 main + 4 library passed (2 ignored), all 17 Slang CPU tests,
+fmt/check and locked hidden release smoke (`aggregate-smoke{,-tail}.log`, failures=0).
+New Slang tests exercise unchanged placement, moved probes, changed clearance, failed source,
+edit intersection and both increasing/decreasing transport response. Existing source-owner
+wiring and trace-buffer-size tests caught required integration changes and pass after fixes;
+a test initially projected a batch from an uninitialized fixture, corrected to inspect its
+latched work instead. Generated GUI file only. No physical geometry/material behavior changed.
+Response compatibility and no-capture timing remain a separate validation step below.
