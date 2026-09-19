@@ -62,6 +62,7 @@ impl GuiConfigLoader {
         }
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
+        Self::add_missing_param(&mut config, "Butterflies", "butterfly_wing_transmission");
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
@@ -749,6 +750,35 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn old_butterfly_settings_gain_zero_transmission_without_other_changes() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| p.id != "butterfly_wing_transmission");
+        }
+        let expected = toml::to_string(&config).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        let transmission = loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "butterfly_wing_transmission")
+            .unwrap();
+        assert_eq!(transmission.value.get_float().unwrap().0, 0.);
+        for section in &mut loaded.section {
+            section
+                .param
+                .retain(|p| p.id != "butterfly_wing_transmission");
+        }
+        assert_eq!(toml::to_string(&loaded).unwrap(), expected);
     }
 
     #[test]

@@ -7,6 +7,7 @@
 实时翼面现在是唯一蝴蝶渲染方式；Color Blocks、旧动画及渲染 A/B 开关已删除，无回退路径。
 - **Pixels per Butterfly (N x N, All Distances)**：全局8–64，默认 **22**。每只使用相同规格，远近不会切换成更低规格。
 - **Wing Animation FPS**：2–60，默认60；只量化拍翼，不量化相机或改变飞行物理。
+- **Wing Light Transmission (0 = Opaque, 1 = Equal Sides)**：0–1，默认0保留原效果。逐步提亮薄翼背光面；1时上下表面使用同一朝光法线，在相同遮挡条件下趋于同亮。只混合光照，不改变透明度、覆盖或深度；通过统一 Save 保存，旧配置自动补0。
 - **Wing Self Shadows (Game Sun)**：翼面之间的太阳自阴影，默认开启。
 - **Preview 7 Palettes Near / Mid / Far (Camera-relative)**：默认关闭。显式渲染调试样本，三排分别距相机0.25、0.5、1世界单位；原有7种配色，不必等待生态生成。它们使用真实世界光照/深度，会被地形或树遮挡。样本跟随镜头，不是新增生态个体；取消即可移除。
 
@@ -32,7 +33,7 @@
 
 - 全局N×N与距离无关。不是把整张屏幕降分辨率，也不是一只一个 renderer/draw call。
 - 接游戏太阳方向、颜色与亮度，真实面法线的 Lambert 明暗；读取世界/树叶/云阴影，并接入当前 DDGI / 原有环境光模式。
-- 翼面自阴影沿游戏太阳方向检测本实例三角形。不使用网页固定方向光，不把暗色后画在像素边缘。
+- 翼面自阴影沿游戏太阳方向检测本实例三角形。不使用网页固定方向光，不把暗色后画在像素边缘。透光分量使用朝光法线计算太阳与环境光，忽略同一片翼的闭合薄壳，避免它自己把透射光全挡住；另一片翼以及场景阴影仍保留。0时完全沿用原有不透光计算。
 - 颜色/深度放在共享结构化存储缓冲的小格中，再通过 `butterfly_tile.vert/frag.slang` 批量合成；整数寻址，无 mip 或线性过滤。每个有覆盖纹素写回几何交点深度，接入既有 terrain-depth-prefill / raster / hybrid-composition 链。
 - 透明区域遵守既有粒子管线的预乘零色＋深度1合同。显式顶点/实例流沿用当前 Vulkan 能力集，不增加 shaderDrawParameters / shaderDemoteToHelperInvocation 要求。
 - 生命周期淡出按远到近提交；不是透明翼材质。相交透明物体的通用排序并非本次解决范围。
@@ -47,14 +48,14 @@ cargo fmt --check
 cargo check
 cargo test
 cargo run --release -- --hidden --mute --auto-exit 0.5
-python3 scripts/validate_butterfly_mesh.py --seconds 8
+python3 scripts/validate_butterfly_mesh.py --seconds 12
 cargo run --release -- --latest-log
 cargo run --release -- --tail-latest-log 200
 ```
 
-显式 GPU fixture 通过 `RE_FLORA_BUTTERFLY_MESH_REVIEW=sweep` 激活，固定视觉时间，依次切换22→8→64→22无自阴影→22有自阴影；不保存改过的参数。它不是正常单元测试。会回读生产 GPU 纹素，检查全部有效覆盖点的深度与 CPU 最近三角形射线结果，导出每只原生尺寸的诊断 PNG。诊断PNG为夹取后的线性RGB，不是游戏最终色调映射截图。
+显式 GPU fixture 通过 `RE_FLORA_BUTTERFLY_MESH_REVIEW=sweep` 激活，固定视觉时间，依次切换22→8→64→22无自阴影→22有自阴影→50%透光→100%透光；不保存改过的参数。它不是正常单元测试。会回读生产 GPU 纹素，检查全部有效覆盖点的深度与 CPU 最近三角形射线结果，导出每只原生尺寸的诊断 PNG。诊断PNG为夹取后的线性RGB，不是游戏最终色调映射截图。
 
-`cargo fmt --check`、`cargo check` 通过；`cargo test` 为 **1029 + 4 passed，2 ignored**，包含全部声明设置的保存/重载回归、旧外观设置迁移且保留用户参数的检查、57种全局分辨率与59种相位采样的纯逻辑检查。
+`cargo fmt --check`、`cargo check` 通过；`cargo test` 为 **1030 + 4 passed，2 ignored**，包含全部声明设置的保存/重载回归、旧外观设置迁移且保留用户参数的检查、57种全局分辨率与59种相位采样的纯逻辑检查。
 
 本次 RTX 3060 Ti、release、隐藏静音验证：
 
@@ -62,6 +63,7 @@ cargo run --release -- --tail-latest-log 200
 - 另用 `RE_FLORA_FALLEN_LEAF_REVIEW=fixture` 跑隐藏静音实机：8只生产落叶持续更新并渲染，删除白色贴图层后无 Vulkan 错误，正常退出。
 - 22×22的736个命中点、8×8的63个、64×64的6234个，与CPU深度计算吻合。最大深度误差约 `4.1e-6`，全部浮点有限、深度合法。
 - 退役后重新验证分辨率/动画FPS/自阴影变更，无 Vulkan validation error、panic 或资源访问错误，正常 `failures=0` 退出。
+- 0/50/100%透光实机回读检查通过：21只样本的覆盖掩码全部不变，100%下有195个纹素改变光照；已检查原生对照图，背光侧逐步提亮。该设置尚未做独立性能验收。
 - 原生PNG按各实例检查尺寸；截图确认新翼面像素格确实进入游戏画面，且地形遮住部分远排样本。
 - 初次接入时，22×22、21只样本的 `butterfly.tiles` GPU scope 在一次短跑中中位数约 **0.104ms**。这是小格生成一项的初测，不是整帧增量、完整A/B基准或最终性能验收；诊断回读本身也不属于正常运行。
 - 原有自然场景10秒检查未生成蝴蝶，因此明确不把该空场景当作新渲染路径的验收。

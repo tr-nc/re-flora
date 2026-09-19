@@ -31,6 +31,30 @@ bool intersectTriangle(float3 origin, float3 direction, ButterflyMeshTriangle tr
     return u>=-1e-6 && v>=-1e-6 && u+v<=1.000001 && t>0.0;
 }
 
+// At zero transmission this is exactly the original opaque lighting path.
+float3 wingLighting(ButterflyMeshInstance instance, uint hit, float3 position, float3 normal, bool thinWing) {
+    float3 sunDirection=normalize(sun_info.sun_dir);
+    float direct=max(0.0,dot(normal,sunDirection));
+    if (instance.metadata.w!=0u && direct>0.0) {
+        float3 shadowOrigin=position+normal*max(instance.position_size.w*0.0001,1e-6);
+        for (uint i=0; i<instance.metadata.y; ++i) {
+            uint index=instance.metadata.x+i;
+            if (index==hit) continue;
+            // A thin wing must not occlude transmission through its own closed shell.
+            // The other wing still casts a shadow, as do the world and foliage.
+            if (thinWing && butterfly_mesh_triangles[index].e1.w==butterfly_mesh_triangles[hit].e1.w) continue;
+            float distance;
+            if (intersectTriangle(shadowOrigin,sunDirection,butterfly_mesh_triangles[index],distance)) { direct=0.0; break; }
+        }
+    }
+    StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,
+        shadow_map_tex_for_vsm_ping,leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,cloud_shadow_tex,position,normal);
+    float3 ambient=gui_input.raster_flora_ddgi_lighting!=0u
+        ? sampleDiffuseEnvironment(gui_input,shading_info,position,normal)
+        : LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;
+    return applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*shadow.sun_transmittance,ambient);
+}
+
 [numthreads(8,8,1)]
 [shader("compute")]
 void main(uint3 id : SV_DispatchThreadID) {
@@ -61,22 +85,14 @@ void main(uint3 id : SV_DispatchThreadID) {
     float4 clip=mul(camera_info.view_proj_mat,float4(position,1.0));
     float depth=clip.z/clip.w;
     if (depth<0.0 || depth>=1.0) return;
-    float3 sunDirection=normalize(sun_info.sun_dir);
-    float direct=max(0.0,dot(normal,sunDirection));
-    if (instance.metadata.w!=0u && direct>0.0) {
-        float3 shadowOrigin=position+normal*max(instance.position_size.w*0.0001,1e-6);
-        for (uint i=0; i<instance.metadata.y; ++i) {
-            uint index=instance.metadata.x+i;
-            if (index==hit) continue;
-            float distance;
-            if (intersectTriangle(shadowOrigin,sunDirection,butterfly_mesh_triangles[index],distance)) { direct=0.0; break; }
-        }
+    float transmission=saturate(instance.lighting.x);
+    float3 color=wingLighting(instance,hit,position,normal,false);
+    if (transmission>0.0) {
+        // The sun-facing normal is identical for the two sides of a thin sheet.
+        // Blend lighting, not alpha: coverage, depth and lifetime fading are unchanged.
+        float3 lightNormal=dot(normal,sun_info.sun_dir)>=0.0 ? normal : -normal;
+        float3 transmitted=wingLighting(instance,hit,position,lightNormal,true);
+        color=lerp(color,transmitted,transmission);
     }
-    StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,
-        shadow_map_tex_for_vsm_ping,leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,cloud_shadow_tex,position,normal);
-    float3 ambient=gui_input.raster_flora_ddgi_lighting!=0u
-        ? sampleDiffuseEnvironment(gui_input,shading_info,position,normal)
-        : LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;
-    float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*shadow.sun_transmittance,ambient);
     butterfly_pixel_tiles[address]=float4(color,depth);
 }

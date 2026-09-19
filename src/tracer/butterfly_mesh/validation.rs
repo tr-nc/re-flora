@@ -150,9 +150,10 @@ impl ButterflyMeshRenderer {
             }
             hits.push(count);
             image.save(directory.join(format!(
-                "{n}px-{}fps-shadow{}-{index:02}.png",
+                "{n}px-{}fps-shadow{}-trans{}-{index:02}.png",
                 mode.1,
-                u32::from(mode.2)
+                u32::from(mode.2),
+                (f32::from_bits(mode.3) * 100.).round() as u32
             )))?;
         }
         ensure!(

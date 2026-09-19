@@ -25,6 +25,7 @@ pub struct ButterflyMeshSettings {
     pub resolution: u32,
     pub fps: u32,
     pub self_shadows: bool,
+    pub transmission: f32,
     pub time_seconds: f32,
 }
 
@@ -35,6 +36,7 @@ struct Instance {
     color: [f32; 4],
     // triangle start/count, tile resolution, self-shadow enabled
     metadata: [u32; 4],
+    lighting: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -131,8 +133,8 @@ pub(super) struct ButterflyMeshRenderer {
     instances: Vec<Instance>,
     triangles: Vec<Triangle>,
     pub resolution: u32,
-    previous_mode: Option<(u32, u32, bool)>,
-    validated_mode: Option<(u32, u32, bool)>,
+    previous_mode: Option<(u32, u32, bool, u32)>,
+    validated_mode: Option<(u32, u32, bool, u32)>,
 }
 impl Default for ButterflyMeshRenderer {
     fn default() -> Self {
@@ -203,7 +205,7 @@ impl ButterflyMeshRenderer {
                 });
                 self.triangles.push(Triangle {
                     a: p[0].extend(0.).to_array(),
-                    e1: (p[1] - p[0]).extend(0.).to_array(),
+                    e1: (p[1] - p[0]).extend(triangle.side).to_array(),
                     e2: (p[2] - p[0]).extend(0.).to_array(),
                 });
             }
@@ -216,6 +218,7 @@ impl ButterflyMeshRenderer {
                     rgb[2] as f32 / 255.,
                     snapshot.color.w,
                 ],
+                lighting: [settings.transmission.clamp(0., 1.), 0., 0., 0.],
                 metadata: [
                     start,
                     self.mesh.triangles.len() as u32,
@@ -239,9 +242,18 @@ impl ButterflyMeshRenderer {
             resources.butterfly_mesh_instances.fill(&self.instances)?;
             resources.butterfly_mesh_triangles.fill(&self.triangles)?;
         }
-        let mode = (self.resolution, settings.fps, settings.self_shadows);
+        let mode = (
+            self.resolution,
+            settings.fps,
+            settings.self_shadows,
+            settings.transmission.clamp(0., 1.).to_bits(),
+        );
         if self.previous_mode != Some(mode) {
             log::info!("[BUTTERFLY-MESH] tile={}x{} fps={} self_shadows={} triangles_per_animal={} active={} capacity={CAPACITY} sun=game depth=per_texel", self.resolution,self.resolution,settings.fps,settings.self_shadows,self.mesh.triangles.len(),self.count());
+            log::info!(
+                "[BUTTERFLY-MESH] transmission={}",
+                settings.transmission.clamp(0., 1.)
+            );
             self.previous_mode = Some(mode);
         }
         Ok(())
@@ -270,7 +282,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 48);
+        assert_eq!(std::mem::size_of::<Instance>(), 64);
         assert_eq!(std::mem::size_of::<Triangle>(), 48);
     }
     #[test]
@@ -295,6 +307,7 @@ mod tests {
             resolution: 22,
             fps: 60,
             self_shadows: true,
+            transmission: 0.,
             time_seconds: 0.,
         };
         for n in 8..=64 {
@@ -305,6 +318,13 @@ mod tests {
             assert_eq!(renderer.instances[0].position_size[2], -2.);
             assert_eq!(renderer.instances[0].color, renderer.instances[1].color);
             assert_eq!(renderer.triangles.len(), 312);
+            assert!(renderer.triangles.iter().all(|t| t.e1[3].abs() == 1.));
+        }
+        for (requested, expected) in [(-1., 0.), (0., 0.), (0.5, 0.5), (1., 1.), (2., 1.)] {
+            settings.transmission = requested;
+            renderer.prepare(&snapshots, settings, Vec3::ZERO).unwrap();
+            assert!(renderer.instances.iter().all(|i| i.lighting[0] == expected));
+            assert!(renderer.instances.iter().all(|i| i.color[3] == 1.));
         }
         renderer.prepare(&[], settings, Vec3::ZERO).unwrap();
         assert_eq!(renderer.count(), 0);

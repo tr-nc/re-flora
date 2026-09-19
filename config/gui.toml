@@ -2178,6 +2178,17 @@ min = 2
 max = 60
 
 [[section.param]]
+id = "butterfly_wing_transmission"
+kind = "float"
+label = "Wing Light Transmission (0 = Opaque, 1 = Equal Sides)"
+type = "Float"
+
+[section.param.data]
+value = 0.0
+min = 0.0
+max = 1.0
+
+[[section.param]]
 id = "butterfly_self_shadows"
 kind = "bool"
 label = "Wing Self Shadows (Game Sun)"

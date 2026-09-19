@@ -574,6 +574,7 @@ impl App {
             resolution: settings.butterfly_pixel_resolution.value,
             fps: settings.butterfly_animation_fps.value,
             self_shadows: settings.butterfly_self_shadows.value,
+            transmission: settings.butterfly_wing_transmission.value,
             time_seconds: self.butterfly_mesh_preview_time(),
         };
         if let Err(err) = self
@@ -698,7 +699,12 @@ impl App {
             let settings = &mut self.debug_settings.adjustables;
             settings.butterfly_mesh_preview.value = true;
             if mode == "sweep" {
-                let stage = (frame / 60).min(4);
+                let stage = (frame / 60).min(6);
+                settings.butterfly_wing_transmission.value = match stage {
+                    5 => 0.5,
+                    6 => 1.0,
+                    _ => 0.0,
+                };
                 settings.butterfly_pixel_resolution.value = match stage {
                     1 => 8,
                     2 => 64,
