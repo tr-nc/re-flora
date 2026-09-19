@@ -1,0 +1,648 @@
+{
+  "draft": false,
+  "replay_frames": 90,
+  "all_boundaries_clear": true,
+  "loop_checks": 15,
+  "glb_channels": [
+    [
+      "Flight pose",
+      "translation"
+    ],
+    [
+      "Flight pose",
+      "rotation"
+    ],
+    [
+      "Wing hinge L",
+      "rotation"
+    ],
+    [
+      "Wing hinge R",
+      "rotation"
+    ]
+  ],
+  "mesh_nodes": [
+    "L continuous fore-hind wing",
+    "R continuous fore-hind wing"
+  ],
+  "body_geometry_absent": true,
+  "surface_materials": [
+    "Wing lower",
+    "Wing upper"
+  ],
+  "metrics": [
+    {
+      "size": 12,
+      "angle": 0,
+      "frame": 0,
+      "opaque_pixels": 40,
+      "bbox": [
+        2,
+        3,
+        10,
+        9
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 0,
+      "frame": 1,
+      "opaque_pixels": 34,
+      "bbox": [
+        2,
+        2,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 0,
+      "frame": 2,
+      "opaque_pixels": 18,
+      "bbox": [
+        4,
+        2,
+        8,
+        7
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 0,
+      "frame": 3,
+      "opaque_pixels": 34,
+      "bbox": [
+        2,
+        2,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 0,
+      "frame": 4,
+      "opaque_pixels": 44,
+      "bbox": [
+        2,
+        3,
+        10,
+        10
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 45,
+      "frame": 0,
+      "opaque_pixels": 37,
+      "bbox": [
+        1,
+        2,
+        10,
+        10
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 45,
+      "frame": 1,
+      "opaque_pixels": 36,
+      "bbox": [
+        1,
+        2,
+        10,
+        9
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 45,
+      "frame": 2,
+      "opaque_pixels": 19,
+      "bbox": [
+        3,
+        2,
+        9,
+        7
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 45,
+      "frame": 3,
+      "opaque_pixels": 34,
+      "bbox": [
+        2,
+        2,
+        10,
+        9
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 45,
+      "frame": 4,
+      "opaque_pixels": 39,
+      "bbox": [
+        1,
+        2,
+        10,
+        11
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 90,
+      "frame": 0,
+      "opaque_pixels": 41,
+      "bbox": [
+        2,
+        2,
+        9,
+        10
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 90,
+      "frame": 1,
+      "opaque_pixels": 31,
+      "bbox": [
+        2,
+        2,
+        9,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 90,
+      "frame": 2,
+      "opaque_pixels": 23,
+      "bbox": [
+        3,
+        2,
+        10,
+        6
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 90,
+      "frame": 3,
+      "opaque_pixels": 29,
+      "bbox": [
+        2,
+        2,
+        9,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 90,
+      "frame": 4,
+      "opaque_pixels": 40,
+      "bbox": [
+        2,
+        3,
+        9,
+        11
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 135,
+      "frame": 0,
+      "opaque_pixels": 37,
+      "bbox": [
+        1,
+        1,
+        10,
+        9
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 135,
+      "frame": 1,
+      "opaque_pixels": 35,
+      "bbox": [
+        1,
+        1,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 135,
+      "frame": 2,
+      "opaque_pixels": 23,
+      "bbox": [
+        3,
+        1,
+        9,
+        7
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 135,
+      "frame": 3,
+      "opaque_pixels": 33,
+      "bbox": [
+        2,
+        1,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 135,
+      "frame": 4,
+      "opaque_pixels": 38,
+      "bbox": [
+        1,
+        2,
+        10,
+        10
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 180,
+      "frame": 0,
+      "opaque_pixels": 40,
+      "bbox": [
+        2,
+        2,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 180,
+      "frame": 1,
+      "opaque_pixels": 36,
+      "bbox": [
+        2,
+        2,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 180,
+      "frame": 2,
+      "opaque_pixels": 24,
+      "bbox": [
+        4,
+        1,
+        8,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 180,
+      "frame": 3,
+      "opaque_pixels": 36,
+      "bbox": [
+        2,
+        2,
+        10,
+        8
+      ]
+    },
+    {
+      "size": 12,
+      "angle": 180,
+      "frame": 4,
+      "opaque_pixels": 38,
+      "bbox": [
+        2,
+        3,
+        10,
+        9
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 0,
+      "frame": 0,
+      "opaque_pixels": 76,
+      "bbox": [
+        2,
+        3,
+        14,
+        12
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 0,
+      "frame": 1,
+      "opaque_pixels": 64,
+      "bbox": [
+        3,
+        3,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 0,
+      "frame": 2,
+      "opaque_pixels": 34,
+      "bbox": [
+        5,
+        2,
+        11,
+        10
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 0,
+      "frame": 3,
+      "opaque_pixels": 58,
+      "bbox": [
+        3,
+        3,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 0,
+      "frame": 4,
+      "opaque_pixels": 74,
+      "bbox": [
+        2,
+        4,
+        14,
+        13
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 45,
+      "frame": 0,
+      "opaque_pixels": 72,
+      "bbox": [
+        1,
+        2,
+        14,
+        14
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 45,
+      "frame": 1,
+      "opaque_pixels": 65,
+      "bbox": [
+        2,
+        2,
+        13,
+        12
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 45,
+      "frame": 2,
+      "opaque_pixels": 36,
+      "bbox": [
+        4,
+        2,
+        12,
+        9
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 45,
+      "frame": 3,
+      "opaque_pixels": 59,
+      "bbox": [
+        2,
+        2,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 45,
+      "frame": 4,
+      "opaque_pixels": 68,
+      "bbox": [
+        1,
+        3,
+        14,
+        15
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 90,
+      "frame": 0,
+      "opaque_pixels": 70,
+      "bbox": [
+        3,
+        3,
+        12,
+        13
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 90,
+      "frame": 1,
+      "opaque_pixels": 60,
+      "bbox": [
+        3,
+        2,
+        12,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 90,
+      "frame": 2,
+      "opaque_pixels": 40,
+      "bbox": [
+        4,
+        2,
+        13,
+        8
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 90,
+      "frame": 3,
+      "opaque_pixels": 57,
+      "bbox": [
+        3,
+        2,
+        13,
+        10
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 90,
+      "frame": 4,
+      "opaque_pixels": 69,
+      "bbox": [
+        3,
+        4,
+        12,
+        14
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 135,
+      "frame": 0,
+      "opaque_pixels": 69,
+      "bbox": [
+        1,
+        2,
+        14,
+        12
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 135,
+      "frame": 1,
+      "opaque_pixels": 67,
+      "bbox": [
+        2,
+        1,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 135,
+      "frame": 2,
+      "opaque_pixels": 42,
+      "bbox": [
+        4,
+        1,
+        12,
+        10
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 135,
+      "frame": 3,
+      "opaque_pixels": 60,
+      "bbox": [
+        2,
+        1,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 135,
+      "frame": 4,
+      "opaque_pixels": 65,
+      "bbox": [
+        1,
+        3,
+        14,
+        13
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 180,
+      "frame": 0,
+      "opaque_pixels": 72,
+      "bbox": [
+        2,
+        3,
+        14,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 180,
+      "frame": 1,
+      "opaque_pixels": 68,
+      "bbox": [
+        3,
+        2,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 180,
+      "frame": 2,
+      "opaque_pixels": 40,
+      "bbox": [
+        5,
+        2,
+        11,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 180,
+      "frame": 3,
+      "opaque_pixels": 60,
+      "bbox": [
+        3,
+        2,
+        13,
+        11
+      ]
+    },
+    {
+      "size": 16,
+      "angle": 180,
+      "frame": 4,
+      "opaque_pixels": 68,
+      "bbox": [
+        2,
+        4,
+        14,
+        12
+      ]
+    }
+  ],
+  "sha256": {
+    "butterfly-prototype.blend": "9f3e19b4d3d567db0daf4910b8d8b1b0be4fd9af617631beb871d09562783fc4",
+    "butterfly-prototype.glb": "37e35520e3ab22551dc8bfc6b71411952133f276a12cbd0847aa6dd87f138288",
+    "create_export_blender.py": "66f035ed0b1e22dd544b2a41117075a925c4de999bc3f914f9057ee434cf8812",
+    "run.py": "2efa1528665ea62233e0da249835797023c2c6af6d1aafa7adf816ee696ebc88",
+    "atlas-12-blue-indexed.png": "1711dbc7b63943fac650bdf427bce08bb1064dc2ccb3f4ec41daae5b879b6e78",
+    "atlas-12-gray-indexed.png": "004c21091316edffaf17be30be9680fb2feb291133bff4d15c1bd95e4bf4a9e5",
+    "atlas-12-rgba.png": "aee25306d41a7f5286cb106fc0d26c28702137e0bef953af3272af4fb29f8e0c",
+    "atlas-128-rgba.png": "b2c8da6b94dff6d8c2ce67e6f21e63e41c00cc821540eeebdd6e6d380600a078",
+    "atlas-16-blue-indexed.png": "ee5982614e7c26e068a6930d299023a4d419a4b807992a9e5c43acfcf4e12009",
+    "atlas-16-gray-indexed.png": "ef6a99411c56388f1abda325d26e2dba5f99ef46c0889e9c3b97a429bbfcede4",
+    "atlas-16-rgba.png": "df2283c3fbf71c432d5e2dce4a8fea1088b3a0b81685a480f39cdfa00e9f6bc8"
+  }
+}
