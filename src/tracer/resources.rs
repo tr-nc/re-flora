@@ -1408,6 +1408,8 @@ impl TracerMeshResources {
 
 #[derive(ResourceContainer)]
 pub struct TracerResources {
+    #[resource(nested)]
+    pub butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources,
     pub tree_scene_info: Resource<Buffer>,
     pub tree_skin_rest: Resource<Buffer>,
     pub tree_skin_bindings: Resource<Buffer>,
@@ -1489,6 +1491,10 @@ impl TracerResources {
             .unwrap();
 
         Self {
+            butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources::new(
+                device.clone(),
+                allocator.clone(),
+            ),
             tree_attachment_keys: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 16),
             tree_attachment_poses: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 32),
             tree_scene_rest_cells: tree_buffer(super::TREE_CELL_CAPACITY * 16),

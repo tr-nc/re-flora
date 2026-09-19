@@ -382,6 +382,24 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/particles/butterfly_tile.comp",
+        source_path: "shader/slang/butterfly_tile.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/particles/butterfly_tile.vert",
+        source_path: "shader/slang/butterfly_tile.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/particles/butterfly_tile.frag",
+        source_path: "shader/slang/butterfly_tile.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/particles/particle_lod_textured.frag",
         source_path: "shader/slang/particle_lod_textured.frag.slang",
         module_path: "shader/slang",

@@ -526,6 +526,24 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let butterfly_tile_comp_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/particles/butterfly_tile.comp",
+            "main",
+        )
+        .unwrap();
+        let butterfly_tile_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/particles/butterfly_tile.vert",
+            "main",
+        )
+        .unwrap();
+        let butterfly_tile_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/particles/butterfly_tile.frag",
+            "main",
+        )
+        .unwrap();
         let particle_lod_textured_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/particles/particle_lod_textured.vert",
@@ -619,6 +637,9 @@ impl PipelineBuilder {
             dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
             dynamic_fruit_shadow_frag_sm,
+            butterfly_tile_comp_sm,
+            butterfly_tile_vert_sm,
+            butterfly_tile_frag_sm,
             particle_lod_textured_vert_sm,
             particle_lod_textured_frag_sm,
             water_droplet_frag_sm,
@@ -724,6 +745,19 @@ impl PipelineBuilder {
             &shader_modules.ddgi_voxel_visibility_blocks_sm,
             pool,
             &[ddgi_voxel_visibility],
+        );
+        let butterfly_tile_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.butterfly_tile_comp_sm,
+            pool,
+            &[
+                resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                ddgi_volume,
+                ddgi_voxel_visibility,
+            ],
         );
         let tree_skin_ppl =
             ComputePipeline::new(device, &shader_modules.tree_skin_sm, pool, &[resources]);
@@ -940,6 +974,7 @@ impl PipelineBuilder {
             raster_tree_lighting_ppl,
             tree_skin_ppl,
             tree_refit_ppl,
+            butterfly_tile_ppl,
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
@@ -1262,6 +1297,21 @@ impl PipelineBuilder {
             },
         );
 
+        let butterfly_tile_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.butterfly_tile_vert_sm,
+            &shader_modules.butterfly_tile_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(1),
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let particle_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.particle_lod_textured_vert_sm,
@@ -1327,6 +1377,7 @@ impl PipelineBuilder {
             raster_tree_shadow_ppl,
             dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
+            butterfly_tile_ppl,
             particle_ppl,
             water_droplet_ppl,
             glass_ppl,
@@ -1536,6 +1587,7 @@ macro_rules! declare_ddgi_consumer_registry {
 
 declare_ddgi_consumer_registry! {
     Tracer => Compute(compute.tracer_ppl),
+    ButterflyTiles => Compute(compute.butterfly_tile_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
     Flora => Graphics(graphics.flora_ppl),
@@ -1788,6 +1840,7 @@ impl PipelineTopology {
             &self.compute.raster_tree_lighting_ppl,
             &self.compute.tree_skin_ppl,
             &self.compute.tree_refit_ppl,
+            &self.compute.butterfly_tile_ppl,
             &self.compute.tracer_ppl,
             &self.compute.tracer_shadow_ppl,
             &self.compute.player_collider_ppl,
@@ -1883,6 +1936,7 @@ impl PipelineTopology {
             &self.graphics.environment_probe_visualization_depth_ppl,
             &self.graphics.environment_probe_visualization_overlay_ppl,
             &self.graphics.dynamic_fruit_ppl,
+            &self.graphics.butterfly_tile_ppl,
             &self.graphics.particle_ppl,
             &self.graphics.water_droplet_ppl,
         ] {
@@ -2370,6 +2424,9 @@ pub struct ShaderModules {
     pub dynamic_fruit_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_frag_sm: ShaderModule,
+    pub butterfly_tile_comp_sm: ShaderModule,
+    pub butterfly_tile_vert_sm: ShaderModule,
+    pub butterfly_tile_frag_sm: ShaderModule,
     pub particle_lod_textured_vert_sm: ShaderModule,
     pub particle_lod_textured_frag_sm: ShaderModule,
     pub water_droplet_frag_sm: ShaderModule,
@@ -2378,6 +2435,7 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
+    pub butterfly_tile_ppl: ComputePipeline,
     pub ddgi_global_sky_filter_ppl: ComputePipeline,
     pub ddgi_octahedral_gutter_ppl: ComputePipeline,
     pub ddgi_probe_relocate_ppl: ComputePipeline,
@@ -2428,6 +2486,7 @@ pub struct RenderPasses {
 }
 
 pub struct GraphicsPipelines {
+    pub butterfly_tile_ppl: GraphicsPipeline,
     pub terrain_depth_prefill_ppl: GraphicsPipeline,
     pub flora_ppl: GraphicsPipeline,
     pub flora_lod_ppl: GraphicsPipeline,

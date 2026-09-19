@@ -187,6 +187,8 @@ pub struct ParticleSnapshot {
     pub kind: ParticleRenderKind,
     pub texture_variant: u32,
     pub animation_frame_offset: u32,
+    /// Stable per-life phase seed for render-only articulated wing animation.
+    pub animation_phase_offset: f32,
     /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
     /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
@@ -804,6 +806,10 @@ impl ParticleSystem {
                 kind,
                 texture_variant: self.texture_variants[*slot],
                 animation_frame_offset: self.animation_frame_offsets[*slot],
+                animation_phase_offset: (((*slot as u32).wrapping_mul(0x9e37_79b9)
+                    ^ self.generations[*slot].wrapping_mul(0x85eb_ca6b))
+                    >> 8) as f32
+                    / 16_777_216.0,
                 leaf_orientation: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_display[*slot].orientation),

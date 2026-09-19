@@ -1525,6 +1525,7 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
+                .or_else(|| std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW"))
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),

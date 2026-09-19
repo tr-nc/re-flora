@@ -565,10 +565,22 @@ impl App {
         let sim_snapshot_count = self.particle_snapshots.len();
         self.log_fallen_leaf_review();
         self.append_water_debug_snapshots();
+        self.append_butterfly_mesh_preview();
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
-        if let Err(err) = self.tracer.upload_particles(&self.particle_snapshots) {
+        let settings = &self.debug_settings.adjustables;
+        let butterfly_mesh = crate::tracer::ButterflyMeshSettings {
+            enabled: settings.butterfly_mesh_enabled.value,
+            resolution: settings.butterfly_pixel_resolution.value,
+            fps: settings.butterfly_animation_fps.value,
+            self_shadows: settings.butterfly_self_shadows.value,
+            time_seconds: self.butterfly_mesh_preview_time(),
+        };
+        if let Err(err) = self
+            .tracer
+            .upload_particles(&self.particle_snapshots, butterfly_mesh)
+        {
             log::error!("Failed to upload particles: {}", err);
         }
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
@@ -632,18 +644,75 @@ impl App {
                 kind: ParticleRenderKind::Leaf,
                 texture_variant: 0,
                 animation_frame_offset: 0,
+                animation_phase_offset: 0.0,
                 leaf_orientation: None,
             });
         }
     }
 
-    /// Opt-in capture observer. Uses natural spawns; never places or creates butterflies.
+    fn butterfly_mesh_preview_time(&self) -> f32 {
+        if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some() {
+            0.237
+        } else {
+            self.time_info.time_since_start()
+        }
+    }
+
+    /// Explicit Debug inspection fixture, not ecological spawns or simulation particles.
+    /// Uses the exact same rendering path, palette selection, sun and scene depth.
+    fn append_butterfly_mesh_preview(&mut self) {
+        if !self.debug_settings.adjustables.butterfly_mesh_preview.value {
+            return;
+        }
+        let origin = self.tracer.camera_position();
+        let front = self.tracer.camera_front().normalize();
+        let right = front.cross(Vec3::Y).normalize_or_zero();
+        let up = right.cross(front).normalize();
+        let time = self.butterfly_mesh_preview_time();
+        for (row, distance) in [0.25, 0.5, 1.0].into_iter().enumerate() {
+            for preset in 0..crate::tracer::ButterflyPalettePreset::COUNT {
+                let heading = preset as f32 * 0.35 + time * 0.3;
+                self.particle_snapshots.push(ParticleSnapshot {
+                    position_ws: origin
+                        + front * distance
+                        + right * ((preset as f32 - 3.) * 0.16 * distance)
+                        + up * ((1. - row as f32) * 0.22 * distance),
+                    velocity: Vec3::new(heading.sin(), 0., -heading.cos()) * 0.05,
+                    color: Vec4::ONE,
+                    size: 0.03,
+                    kind: ParticleRenderKind::Butterfly,
+                    texture_variant: preset,
+                    animation_frame_offset: 1,
+                    animation_phase_offset: 0.,
+                    leaf_orientation: None,
+                });
+            }
+        }
+    }
+
+    /// Natural-flight observer, or an explicitly requested render-only mesh fixture.
     fn review_butterfly_frame(&mut self, dt: f32) {
         let Some(review) = self.butterfly_review.as_mut() else {
             return;
         };
         review.frame += 1;
         let frame = review.frame;
+        if let Ok(mode) = std::env::var("RE_FLORA_BUTTERFLY_MESH_REVIEW") {
+            let settings = &mut self.debug_settings.adjustables;
+            settings.butterfly_mesh_preview.value = true;
+            if mode == "sweep" {
+                let stage = (frame / 60).min(5);
+                settings.butterfly_mesh_enabled.value = stage != 3;
+                settings.butterfly_pixel_resolution.value = match stage {
+                    1 => 8,
+                    2 => 64,
+                    _ => 22,
+                };
+                settings.butterfly_self_shadows.value = stage != 4;
+                settings.butterfly_animation_fps.value = if stage == 1 { 2 } else { 60 };
+            }
+            return;
+        }
         let height_review = std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("height");
         let terrain_y = |position: Vec3| {
             let origin = Vec3::new(

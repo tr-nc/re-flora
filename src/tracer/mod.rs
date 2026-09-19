@@ -11,6 +11,8 @@ pub(crate) use capture_frame::{
     RadianceCaptureCheckpoint, RadianceCaptureRequest, RenderedCaptureFrame,
 };
 
+mod butterfly_mesh;
+pub use butterfly_mesh::ButterflyMeshSettings;
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
@@ -1633,6 +1635,7 @@ pub struct Tracer {
     raster_lighting_state: ResolvedRasterLightingState,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
+    butterfly_mesh_renderer: butterfly_mesh::ButterflyMeshRenderer,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -1975,6 +1978,7 @@ impl Tracer {
             raster_lighting_state,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
+            butterfly_mesh_renderer: butterfly_mesh::ButterflyMeshRenderer::default(),
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -3711,6 +3715,9 @@ impl Tracer {
         if self.particle_resources.instance_count > 0 {
             record_instance(&self.particle_resources.instance_buffer);
         }
+        if self.butterfly_mesh_renderer.count() > 0 {
+            record_instance(&self.resources.butterfly_mesh.draw_indices);
+        }
         if self.particle_resources.translucent_instance_count > 0 {
             record_instance(&self.particle_resources.translucent_instance_buffer);
         }
@@ -3857,6 +3864,26 @@ impl Tracer {
             );
             // Clear transitions and the later composition pipeline own the transfer-to-shader
             // dependency; no global fallback barrier is needed here.
+        }
+
+        if render_flags.enable_particles && self.butterfly_mesh_renderer.count() > 0 {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "butterfly.tiles",
+                || {
+                    self.pipeline_topology.compute().butterfly_tile_ppl.record(
+                        cmdbuf,
+                        Extent3D::new(
+                            self.butterfly_mesh_renderer.resolution,
+                            self.butterfly_mesh_renderer.resolution,
+                            self.butterfly_mesh_renderer.count(),
+                        ),
+                        None,
+                    );
+                },
+            );
         }
 
         if has_graphics_pass {
@@ -4634,6 +4661,12 @@ impl Tracer {
                 .prepare_descriptor_resources(cmdbuf);
         }
         if enable_particles {
+            if self.butterfly_mesh_renderer.count() > 0 {
+                self.pipeline_topology
+                    .graphics()
+                    .butterfly_tile_ppl
+                    .prepare_descriptor_resources(cmdbuf);
+            }
             self.pipeline_topology
                 .graphics()
                 .particle_ppl
@@ -5176,6 +5209,27 @@ impl Tracer {
                 &particle_resources.instance_buffer,
                 particle_resources.instance_count,
             );
+            if self.butterfly_mesh_renderer.count() > 0 {
+                let pipeline = &self.pipeline_topology.graphics().butterfly_tile_ppl;
+                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                cmdbuf.bind_index_buffer_u32(&particle_resources.indices);
+                cmdbuf.bind_vertex_buffers(
+                    0,
+                    &[
+                        &particle_resources.vertices,
+                        &self.resources.butterfly_mesh.draw_indices,
+                    ],
+                );
+                pipeline.record_indexed(
+                    cmdbuf,
+                    particle_resources.indices_len,
+                    self.butterfly_mesh_renderer.count(),
+                    0,
+                    0,
+                    0,
+                    None,
+                );
+            }
             // Translucent droplets are sorted back-to-front and rendered after ordinary
             // particles. Their nearest depth lets the hybrid compositor place them over the
             // ray-traced terrain while preserving correct blending between sorted droplets.
@@ -6480,7 +6534,16 @@ impl Tracer {
         self.dynamic_fruit_resources.clear();
     }
 
-    pub fn upload_particles(&mut self, snapshots: &[ParticleSnapshot]) -> Result<()> {
+    pub fn upload_particles(
+        &mut self,
+        snapshots: &[ParticleSnapshot],
+        butterfly_mesh: ButterflyMeshSettings,
+    ) -> Result<()> {
+        self.butterfly_mesh_renderer.validate_completed_tiles(
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            &self.resources,
+        )?;
         let capacity = PARTICLE_CAPACITY;
         let count = snapshots.len().min(capacity);
         let texture_layout = ParticleTextureLayout::new();
@@ -6534,6 +6597,9 @@ impl Tracer {
         self.translucent_particle_instance_scratch.clear();
         self.translucent_particle_instance_scratch.reserve(count);
         for snap in snapshots.iter().take(capacity) {
+            if butterfly_mesh.enabled && butterfly_mesh::is_butterfly(snap.kind) {
+                continue;
+            }
             let butterfly_tex_index = {
                 let vel_xz = Vec2::new(snap.velocity.x, snap.velocity.z);
                 let vel_dir_xz = if vel_xz.length_squared() > MIN_SPEED_SQ {
@@ -6627,7 +6693,14 @@ impl Tracer {
         self.particle_resources.instance_count = self.particle_instance_scratch.len() as u32;
         self.particle_resources.translucent_instance_count =
             self.translucent_particle_instance_scratch.len() as u32;
-        Ok(())
+        // Publish ordinary particles even if the experimental tile pool rejects
+        // an oversized batch; never leave unrelated particles on a stale frame.
+        self.butterfly_mesh_renderer.upload(
+            &self.resources.butterfly_mesh,
+            snapshots,
+            butterfly_mesh,
+            self.camera.position(),
+        )
     }
 
     fn pack_tree_leaf_voxel_local_pos(local_pos: IVec3) -> Result<u32> {
