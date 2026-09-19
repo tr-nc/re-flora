@@ -1,0 +1,74 @@
+INFO Draco mesh compression is available, use library at /home/terence/.local/opt/blender-4.5.13-linux-x64/4.5/scripts/addons_core/io_scene_gltf2/libextern_draco.so
+02:06:06 | INFO: Starting glTF 2.0 export
+02:06:06 | INFO: Extracting primitive: R forewing_blue
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R forewing_blue.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R forewing_border
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R forewing_cyan
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R forewing_cyan.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R forewing_highlight
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R forewing_highlight.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_blue
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_blue.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_border
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_cyan
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_cyan.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_highlight
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: R hindwing_highlight.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_blue
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_blue.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_border
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_cyan
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_cyan.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_highlight
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L forewing_highlight.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_blue
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_blue.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_border
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_cyan
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_cyan.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_highlight
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: L hindwing_highlight.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: Sphere
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: Sphere.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: Sphere.002
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: Antenna
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Extracting primitive: Antenna.001
+02:06:06 | INFO: Primitives created: 1
+02:06:06 | INFO: Finished glTF 2.0 export in 0.0467226505279541 s
+
+Blender 4.5.13 LTS (hash daeeeca98fb0 built 2026-08-25 01:31:19)
+Read blend: "/home/terence/Documents/Codex/2026-09-06/realtime-voice-chat-3/outputs/butterfly-method-comparison/blender/butterfly-prototype.blend"
+
+Blender quit

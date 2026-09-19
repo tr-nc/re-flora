@@ -1,0 +1,24 @@
+INFO Draco mesh compression is available, use library at /home/terence/.local/opt/blender-4.5.13-linux-x64/4.5/scripts/addons_core/io_scene_gltf2/libextern_draco.so
+02:38:55 | INFO: Starting glTF 2.0 export
+02:38:55 | INFO: Extracting primitive: Abdomen
+02:38:55 | INFO: Primitives created: 2
+02:38:55 | INFO: Extracting primitive: Abdomen tip
+02:38:55 | INFO: Primitives created: 1
+02:38:55 | INFO: Extracting primitive: Antenna
+02:38:55 | INFO: Primitives created: 1
+02:38:55 | INFO: Extracting primitive: Antenna.001
+02:38:55 | INFO: Primitives created: 1
+02:38:55 | INFO: Extracting primitive: Head
+02:38:55 | INFO: Primitives created: 1
+02:38:55 | INFO: Extracting primitive: Thorax
+02:38:55 | INFO: Primitives created: 2
+02:38:55 | INFO: Extracting primitive: L continuous fore-hind wing
+02:38:55 | INFO: Primitives created: 3
+02:38:55 | INFO: Extracting primitive: R continuous fore-hind wing
+02:38:55 | INFO: Primitives created: 3
+02:38:55 | INFO: Finished glTF 2.0 export in 0.02408742904663086 s
+
+Blender 4.5.13 LTS (hash daeeeca98fb0 built 2026-08-25 01:31:19)
+Read blend: "/home/terence/Documents/Codex/2026-09-06/realtime-voice-chat-3/outputs/butterfly-method-comparison/blender-v2/butterfly-prototype.blend"
+
+Blender quit
