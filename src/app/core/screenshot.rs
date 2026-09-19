@@ -67,12 +67,14 @@ impl ScreenshotFrameReadiness {
 struct ScheduledScreenshot {
     path: String,
     delay_seconds: f32,
-    taken: bool,
+    remaining: u32,
+    sequence: Option<(u32, f32)>,
 }
 
 pub(super) struct ScreenshotRuntime {
     scheduled: Option<ScheduledScreenshot>,
     clipboard_requested: bool,
+    writer: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(target_os = "linux")]
@@ -181,9 +183,11 @@ impl ScreenshotRuntime {
             scheduled: options.map(|options| ScheduledScreenshot {
                 path: options.path,
                 delay_seconds: options.delay,
-                taken: false,
+                remaining: options.sequence.map_or(1, |(count, _)| count),
+                sequence: options.sequence,
             }),
             clipboard_requested: false,
+            writer: None,
         }
     }
 
@@ -205,17 +209,27 @@ impl ScreenshotRuntime {
         }
 
         let scheduled = self.scheduled.as_mut()?;
-        if scheduled.taken {
+        if scheduled.remaining == 0 {
             return None;
         }
-        let elapsed = readiness.elapsed_if_ready(scheduled.delay_seconds)?;
-        scheduled.taken = true;
-        log::info!(
-            "[SCREENSHOT] Capturing after {:.2}s to {}",
-            elapsed,
-            scheduled.path
-        );
-        Some(ScreenshotDestination::File(scheduled.path.clone()))
+        let elapsed = if scheduled.sequence.is_some() {
+            readiness
+                .render_elapsed_seconds
+                .filter(|elapsed| *elapsed >= scheduled.delay_seconds)?
+        } else {
+            readiness.elapsed_if_ready(scheduled.delay_seconds)?
+        };
+        let path = if let Some((count, interval)) = scheduled.sequence {
+            let path = format!("{}.{:06}.png", scheduled.path, count - scheduled.remaining);
+            // Do not catch up with duplicate frames after a slow readback.
+            scheduled.delay_seconds = elapsed + interval;
+            path
+        } else {
+            scheduled.path.clone()
+        };
+        scheduled.remaining -= 1;
+        log::info!("[SCREENSHOT] Capturing after {:.6}s to {}", elapsed, path);
+        Some(ScreenshotDestination::File(path))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -227,6 +241,16 @@ impl ScreenshotRuntime {
         frame: &AcquiredFrame,
         readiness: ScreenshotFrameReadiness,
     ) -> Option<PendingScreenshot> {
+        if self
+            .writer
+            .as_ref()
+            .is_some_and(|writer| !writer.is_finished())
+        {
+            return None;
+        }
+        if let Some(writer) = self.writer.take() {
+            writer.join().expect("screenshot writer panicked");
+        }
         let destination = self.claim_destination(readiness)?;
         let readback = match prepare_swapchain_readback(
             tracer,
@@ -255,14 +279,26 @@ impl ScreenshotRuntime {
         })
     }
 
-    pub(super) fn complete(&self, readback: PendingScreenshot) {
-        std::thread::Builder::new()
-            .name("screenshot-readback".to_owned())
-            .spawn(move || write_screenshot_readback(readback))
-            .unwrap_or_else(|err| {
-                log::error!("[SCREENSHOT] Failed to start readback thread: {err}");
-                panic!("failed to start screenshot readback thread: {err}");
-            });
+    pub(super) fn complete(&mut self, readback: PendingScreenshot) {
+        self.writer = Some(
+            std::thread::Builder::new()
+                .name("screenshot-readback".to_owned())
+                .spawn(move || write_screenshot_readback(readback))
+                .unwrap_or_else(|err| {
+                    log::error!("[SCREENSHOT] Failed to start readback thread: {err}");
+                    panic!("failed to start screenshot readback thread: {err}");
+                }),
+        );
+    }
+}
+
+impl Drop for ScreenshotRuntime {
+    fn drop(&mut self) {
+        if let Some(writer) = self.writer.take() {
+            if writer.join().is_err() {
+                log::error!("[SCREENSHOT] writer panicked during shutdown");
+            }
+        }
     }
 }
 
@@ -413,6 +449,7 @@ mod runtime_tests {
         let mut runtime = ScreenshotRuntime::new(Some(ScreenshotOptions {
             path: "scheduled.png".to_owned(),
             delay: 2.0,
+            sequence: None,
         }));
         assert!(runtime.is_scheduled());
         assert_eq!(runtime.claim_destination(ready_after(1.0)), None);
@@ -435,6 +472,7 @@ mod runtime_tests {
             Some(ScreenshotOptions {
                 path: "scheduled.png".to_owned(),
                 delay: 2.0,
+                sequence: None,
             })
         };
         let mut no_render = ScreenshotRuntime::new(options());
@@ -456,6 +494,27 @@ mod runtime_tests {
             )),
             None
         );
+    }
+
+    #[test]
+    fn sequence_observes_unready_frames_and_never_catches_up_with_duplicates() {
+        let mut runtime = ScreenshotRuntime::new(Some(ScreenshotOptions {
+            path: "frame".to_owned(),
+            delay: 2.0,
+            sequence: Some((2, 0.1)),
+        }));
+        let unready = |time| ScreenshotFrameReadiness::new(Some(time), false, false);
+        assert_eq!(runtime.claim_destination(unready(1.9)), None);
+        assert_eq!(
+            runtime.claim_destination(unready(2.0)),
+            Some(ScreenshotDestination::File("frame.000000.png".to_owned()))
+        );
+        assert_eq!(runtime.claim_destination(unready(2.05)), None);
+        assert_eq!(
+            runtime.claim_destination(unready(5.0)),
+            Some(ScreenshotDestination::File("frame.000001.png".to_owned()))
+        );
+        assert_eq!(runtime.claim_destination(unready(6.0)), None);
     }
 
     #[test]

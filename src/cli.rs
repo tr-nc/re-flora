@@ -458,6 +458,7 @@ pub struct FoliageDenoiserOptions {
 pub struct ScreenshotOptions {
     pub path: String,
     pub delay: f32,
+    pub sequence: Option<(u32, f32)>,
 }
 
 #[derive(Clone, Debug)]
@@ -1348,7 +1349,30 @@ fn parse_screenshot_request(args: &[String]) -> Result<Option<ParsedScreenshot>,
         .filter_map(|(index, arg)| (arg == "--screenshot").then_some(index))
         .collect();
 
+    let sequence = if let Some(count) = parse_optional_u32_after(args, "--screenshot-sequence")? {
+        let index = args
+            .iter()
+            .position(|arg| arg == "--screenshot-sequence")
+            .unwrap();
+        let interval = args
+            .get(index + 2)
+            .and_then(|value| value.parse::<f32>().ok());
+        let Some(interval) = interval.filter(|value| value.is_finite() && *value > 0.0) else {
+            return Err("Expected --screenshot-sequence <count> <positive-interval-sec> with --screenshot <preset> <path> --screenshot-delay <sec>".to_owned());
+        };
+        if count == 0 {
+            return Err("--screenshot-sequence count must be positive".to_owned());
+        }
+        Some((count, interval))
+    } else {
+        None
+    };
     if screenshot_indices.is_empty() {
+        if sequence.is_some() {
+            return Err(format!(
+                "--screenshot-sequence requires --screenshot. {SCREENSHOT_USAGE}"
+            ));
+        }
         if args.iter().any(|arg| arg == "--screenshot-delay") {
             return Err(format!(
                 "--screenshot-delay requires --screenshot. {SCREENSHOT_USAGE}\n{CAMERA_SNAPSHOT_LIST_HINT}"
@@ -1370,7 +1394,11 @@ fn parse_screenshot_request(args: &[String]) -> Result<Option<ParsedScreenshot>,
 
     Ok(Some(ParsedScreenshot {
         preset_name,
-        options: ScreenshotOptions { path, delay },
+        options: ScreenshotOptions {
+            path,
+            delay,
+            sequence,
+        },
     }))
 }
 
@@ -1461,6 +1489,11 @@ Options:
   --screenshot <preset> <path>
                               Save one screenshot from exactly one camera snapshot preset
   --screenshot-delay <sec>    Required delay before screenshot capture when --screenshot is used
+  --screenshot-sequence <count> <interval-sec>
+                             Capture numbered <path>.000000.png files from render elapsed delay,
+                             WITHOUT waiting for scene/lighting readiness. Positive count/interval.
+                             Bounded to one readback writer; actual capture times are logged.
+                             Example: --screenshot player-default target/frame --screenshot-delay 0 --screenshot-sequence 100 0.1 --auto-exit 15
   --terrain-load <path>      Load terrain and vegetation during startup
   --terrain-save <path>      Save terrain and vegetation once startup is ready
   --denoiser-bench <preset> <report.toml>
@@ -2658,9 +2691,57 @@ mod tests {
                 capture: ScreenshotOptions {
                     path: "out.png".to_owned(),
                     delay: 2.5,
+                    sequence: None,
                 },
             }
         );
+    }
+
+    #[test]
+    fn screenshot_sequence_validates_count_interval_and_parent() {
+        for tail in [
+            vec!["0", "0.1"],
+            vec!["2", "0"],
+            vec!["2", "NaN"],
+            vec!["2"],
+        ] {
+            let mut args = vec![
+                "re-flora",
+                "--screenshot",
+                "player-default",
+                "target/frame",
+                "--screenshot-delay",
+                "0",
+                "--screenshot-sequence",
+            ];
+            args.extend(tail);
+            assert!(LaunchCommand::try_from_arg_strings(
+                args.iter().map(|v| (*v).to_owned()).collect()
+            )
+            .is_err());
+        }
+        assert!(LaunchCommand::try_from_arg_strings(
+            ["re-flora", "--screenshot-sequence", "2", "0.1"]
+                .iter()
+                .map(|v| (*v).to_owned())
+                .collect()
+        )
+        .is_err());
+        let options = parse(&[
+            "re-flora",
+            "--screenshot",
+            "player-default",
+            "target/frame",
+            "--screenshot-delay",
+            "0",
+            "--screenshot-sequence",
+            "2",
+            "0.1",
+        ]);
+        let CameraAutomation::Screenshot { capture, .. } = options.automation.camera else {
+            panic!("expected screenshot")
+        };
+        assert_eq!(capture.sequence, Some((2, 0.1)));
     }
 
     #[test]
