@@ -63,6 +63,51 @@ archive into a fresh directory; paths inside preserve the original worktree-rela
 
 ## Completion record
 
-Pending final staged validation, target advancement, and containment-checked removal. The
-initial inventory is preserved above; the final action record will be appended after completion.
-This is scoped feature cleanup, not authorization to collect the entire repository into main.
+Integrated source `3b69cce8b8285b7fb07eb4af9efe15fd771a2f6b` into `main` by a validated
+fast-forward, then pushed and verified `origin/main` equality. This completion record and the
+archive pointers are a documentation-only follow-up; no rendering policy was changed afterwards.
+
+Removed, after rechecking exact tips, cleanliness, absence of a Herdr workspace, and containment
+in main: the DDGI candidate, DDGI measurement, and DDGI research worktrees and their three local
+branches. Used non-force `git worktree remove` / `git branch -d`. Remote branches were not deleted.
+The operation-owned `/tmp/re-flora-ddgi-premerge-integration` checkout and
+`integration/ddgi-premerge-cleanup` branch were removed last; its run logs were preserved.
+
+Final inventory: main and the current feature checkout are retained at the integrated source plus
+this documentation record. The other retained checkouts/branches are exactly those in the initial
+ledger: butterfly-blend (advanced to `ed309bc7efcfb30aed3dea8fca2d551cee4c83d0`, with uncommitted
+saved GUI values), terrain-material-refresh (`7bdd3640`), terrain-material-candidate (`c4705022`),
+butterfly-pipeline-research (`4ec166d4`), and butterfly-runtime-research (`215760df`). The latter
+four revisions did not move. None was merged or removed as part of this scoped cleanup.
+
+Validation: fmt/check; **1042 main + 4 library tests passed, 2 ignored**; **73 targeted Python**
+and **17 Slang CPU** tests passed. The isolated staged release passed default hidden/muted startup,
+tree/resize/wood-edit smoke, and the native terrain-edit regression. Main was rebuilt and independently
+passed the native regression (zero during-edit tree recompiles, maximum logged edit frame **19.02 ms**)
+and hidden/muted release startup with canonical log inspection. Main check/tests were repeated.
+Saved GUI/camera bytes were restored; no generated source changed.
+
+An initial attempt to reuse main's Cargo target directory across the temporary checkout reused old
+shader artifacts and failed at the irradiance-filter descriptor binding. That failed attempt was
+not accepted: an isolated staging build compiled all 117 shaders and passed. Main's stale per-package
+Vulkan build cache was then cleaned in both release and dev profiles and regenerated in main; the
+fresh main release passed. No renderer workaround was added, and cross-worktree Cargo target reuse
+should be avoided. Failed logs and successful reruns are retained under
+`target/premerge-cleanup/` in the feature checkout, with a copy alongside the evidence archives.
+
+**Review complete:** every initial worktree/local branch was inventoried and classified.
+**Scoped cleanup complete:** all three completed DDGI worker checkouts were safely removed.
+**Repository-wide collection incomplete, intentionally:** the active caller checkout and separate
+butterfly/material work remain; their deletion or wholesale integration was not part of this cleanup.
+
+### Subsequent user instructions
+
+After this cleanup, the user explicitly requested main-to-Butterfly-Blend integration, deletion of
+our temporary checkpoint tags, pushing main, and shutdown after integration. Those are separate
+follow-up operations. Butterfly Blend is settled but retains user GUI changes (tree mode/wind,
+butterfly resolution/FPS/transmission and preview). Preserve those changes; do not silently commit,
+stash, discard, or overwrite them to make the checkout clean.
+
+Both temporary tags listed above were subsequently deleted locally and from origin with explicit
+user authorization; remote absence was verified. Their underlying commits remain ancestors of main.
+The tag references earlier in this document describe the historical preservation step, not live refs.

@@ -23,7 +23,7 @@ unverified. Display RGB is sampled, not HDR or a physical reference.
 
 ## Experiment 1: sampling progression only
 
-Saved Debug / Lighting Diagnostics checkbox **DDGI continuous accepted-batch sampling
+Saved Debug / DDGI Experiments checkbox **DDGI continuous accepted-batch sampling
 (experimental A/B)** defaults unchecked (original). Checked mode retains a deterministic
 spatial-batch sequence across geometry allocations. Trace and both filters use the same
 rotation. Only successful runtime batch completion advances the position; stale readback,
