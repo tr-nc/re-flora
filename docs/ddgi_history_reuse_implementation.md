@@ -32,3 +32,32 @@ Four fresh numbered images and no ERROR/panic/VUID; logs
 files, GUI defaults, terrain, physics, or lighting algorithm changed in this step.
 No visible game launched. Temporal symptom reproduction and history experiments
 remain outstanding; these startup images are capture plumbing evidence only.
+
+## Sampled temporal analyzer and merged cave baseline
+
+`python3 scripts/check_ddgi_cave_edits.py target/history-temporal/sealed-baseline --temporal`
+ran successfully: 40 edits, 22 complete during-edit publications, 47 captures recorded
+during the gesture. Maximum gap 105.179ms (requested 100ms). Left lower-wall maximum
+frame mean absolute RGB jump was 0.0000294/255; right was zero. Maximum individual
+pixel mean-RGB jump was 1/255 on the left. Neither wall had pixels jumping >3/255.
+This **does not reproduce the remaining strong flicker**: the sealed fixture is a
+negative control, not justification for a history change. ROI labels remain left/right,
+not near/far: depth and stable surface provenance still need a nonblack scene audit.
+
+The same runner now supports sampled sequences, retains all screenshots and actual
+capture timestamps, emits per-frame pixel p95/p99/max/mean jumps and spike area, then
+summarizes those measures across time. It rejects nonempty output directories, missing
+write-completion markers, missing frames, nonmonotonic times, incomplete edit intervals,
+insufficient captures, and large capture gaps. A configurable mean-jump threshold can
+fail a run; this is a measurement threshold, never a renderer brightness cap. Spatial
+spike measures are separately reported rather than hidden by the ROI mean. Exact HDR
+readback and the legacy RFIRR evidence-owner panic are not exercised or waived.
+
+The original five-run matrix also passed at
+`target/history-temporal/compatibility-baseline/`; active-repeat minus settled was
+0.000006/255, real opening still brightens. All captures are fresh and output includes
+Git revision/diff, config hash, commands, copied run logs, and image paths. Tests:
+`python3 -m unittest scripts.tests.test_ddgi_temporal scripts.tests.test_analyze_environment_irradiance_capture`
+(67 passed). Tests explicitly catch a spatial spike diluted in the frame mean, delayed
+writer completion, missing files, and absent successful-write markers. No lighting
+algorithm or shader changed. No performance improvement is claimed.
