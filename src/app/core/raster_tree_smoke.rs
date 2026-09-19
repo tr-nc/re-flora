@@ -57,7 +57,8 @@ impl RasterTreeSmoke {
                     "B did not record a color draw"
                 );
                 ensure!(
-                    app.tracer.raster_trees.revision == Some(app.visible_terrain_revision),
+                    app.tracer.raster_trees.source.terrain_revision()
+                        == Some(app.visible_terrain_revision),
                     "stale tree mesh"
                 );
                 log::info!(
@@ -65,7 +66,7 @@ impl RasterTreeSmoke {
                     self.frame,
                     app.tracer.raster_trees.color_draws,
                     app.tracer.raster_trees.index_count / 3,
-                    app.tracer.raster_trees.revision
+                    app.tracer.raster_trees.source.terrain_revision()
                 );
             }
             40 => {

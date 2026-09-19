@@ -28,6 +28,7 @@ pub use geometry_preview_resources::*;
 
 mod raster_tree;
 mod tree_scene;
+pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
 pub use tree_scene::TreeAttachment;
@@ -6340,7 +6341,6 @@ impl Tracer {
         &mut self,
         mesh: &RasterTreeMesh,
         cells: &[[u32; 4]],
-        revision: u32,
     ) -> Result<()> {
         // App has waited for all submitted frames before readback/replacement.
         self.resources.raster_tree_cells.fill(cells)?;
@@ -6365,7 +6365,6 @@ impl Tracer {
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             mesh,
-            revision,
         )?;
         if !self.raster_trees.skin.bindings.is_empty() {
             self.resources

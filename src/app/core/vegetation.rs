@@ -1106,6 +1106,7 @@ impl TreePublicationReceipt {
 
 pub(super) struct GardenTrees {
     records: HashMap<u32, TreeRecord>,
+    canonical_revision: u64,
     trunk_tree_ids_by_chunk: HashMap<UVec3, HashSet<u32>>,
     next_tree_id: u32,
     next_canopy_acoustic_generation: u64,
@@ -1121,6 +1122,7 @@ impl GardenTrees {
             records: HashMap::new(),
             trunk_tree_ids_by_chunk: HashMap::new(),
             next_tree_id: 1,
+            canonical_revision: 0,
             next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
             staged_tuned_mature_desc: None,
@@ -1134,6 +1136,7 @@ impl GardenTrees {
             records: HashMap::new(),
             trunk_tree_ids_by_chunk: HashMap::new(),
             next_tree_id: self.next_tree_id,
+            canonical_revision: self.canonical_revision.wrapping_add(1),
             next_canopy_acoustic_generation: self.next_canopy_acoustic_generation,
             tuned_tree_id: self.tuned_tree_id,
             staged_tuned_mature_desc: None,
@@ -1277,6 +1280,7 @@ impl GardenTrees {
         self.previous_bound = self.previous_bound.union_with(&record.bound);
         self.index_trunk(tree_id, &record);
         self.records.insert(tree_id, record);
+        self.canonical_revision = self.canonical_revision.wrapping_add(1);
         TreeCanonicalCommitTiming {
             leaf_emitter_elapsed,
             canonical_record_elapsed: canonical_record_started_at.elapsed(),
@@ -1286,6 +1290,7 @@ impl GardenTrees {
     fn commit_removal(&mut self, tree_id: u32) -> Option<TreeRecord> {
         self.leaf_emitters.remove(tree_id);
         let record = self.records.remove(&tree_id)?;
+        self.canonical_revision = self.canonical_revision.wrapping_add(1);
         self.unindex_trunk(tree_id, &record);
         Some(record)
     }
@@ -4192,6 +4197,27 @@ mod tests {
     }
 
     #[test]
+    fn tree_surface_source_revision_tracks_canonical_changes_and_empty_shells() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        let initial = garden.canonical_revision;
+        garden.place(prepared_tree(1, 11, 101), &mut host).unwrap();
+        let placed = garden.canonical_revision;
+        assert_ne!(placed, initial);
+        garden
+            .replace(prepared_tree(1, 12, 102), &mut host)
+            .unwrap();
+        let replaced = garden.canonical_revision;
+        assert_ne!(replaced, placed);
+        assert_ne!(garden.empty_shell().canonical_revision, replaced);
+        garden.remove(1, &mut host).unwrap();
+        assert_ne!(garden.canonical_revision, replaced);
+        let removed = garden.canonical_revision;
+        garden.remove(404, &mut host).unwrap();
+        assert_eq!(garden.canonical_revision, removed);
+    }
+
+    #[test]
     fn garden_tree_ordinary_placement_publishes_one_canonical_identity_in_order() {
         let mut garden = GardenTrees::new(LeafEmitterDesc::default());
         let mut host = RecordingTreePublicationHost::default();
@@ -4738,7 +4764,9 @@ impl App {
         let palette_us = palette_started.elapsed().as_secs_f64() * 1e6;
         let physics_started = Instant::now();
         self.terrain_physics.publish_tree_surface(
-            surface.as_ref().and(self.tracer.raster_trees.revision),
+            surface
+                .as_ref()
+                .and(self.tracer.raster_trees.source.terrain_revision()),
             &self.tracer.raster_trees.rest_mesh.solid_cells,
             surface.as_ref(),
             &self.tracer.raster_trees.rest_mesh.indices,
@@ -4804,16 +4832,26 @@ impl App {
             self.tracer.raster_trees.enabled = false;
             return Ok(());
         }
-        if self.tracer.raster_trees.revision != Some(self.visible_terrain_revision) {
+        if !self
+            .tracer
+            .raster_trees
+            .source
+            .is_current(self.visible_terrain_revision, self.trees.canonical_revision)
+        {
             self.tracer.invalidate_local_direct_sun_shadow_histories();
             self.vulkan_ctx.device().wait_idle();
             let started = Instant::now();
             let mut mesh = crate::tracer::RasterTreeMesh::default();
             let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+            let mut read_bounds = Vec::with_capacity(self.trees.records.len());
             for record in self.trees.records.values() {
-                let origin = record.bound.min().saturating_sub(UVec3::splat(2));
-                let end = (record.bound.max() + UVec3::splat(3)).min(world_dim);
-                let dim = end.saturating_sub(origin);
+                let bound = crate::tracer::tree_surface_cache::tree_surface_read_bound(
+                    record.bound,
+                    world_dim,
+                );
+                read_bounds.push(bound);
+                let origin = bound.min();
+                let dim = bound.max().saturating_sub(origin);
                 let bytes = self.plain_builder.read_chunk_atlas_region(origin, dim)?;
                 mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
             }
@@ -4842,8 +4880,7 @@ impl App {
                         .or_insert((tree_id, binding.branch));
                 }
             }
-            self.tracer
-                .upload_static_raster_trees(&mesh, &cells, self.visible_terrain_revision)?;
+            self.tracer.upload_static_raster_trees(&mesh, &cells)?;
             self.tracer.bind_tree_attachments(
                 attachment_map
                     .into_iter()
@@ -4856,6 +4893,11 @@ impl App {
                     )
                     .collect(),
             )?;
+            self.tracer.raster_trees.source.compiled(
+                self.visible_terrain_revision,
+                self.trees.canonical_revision,
+                read_bounds,
+            );
             log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
                 self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());
         }
