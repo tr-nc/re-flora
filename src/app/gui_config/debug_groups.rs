@@ -54,6 +54,7 @@ const GROUPS: &[ControlGroup] = &[
         description: "Flora lighting and terrain path-tracing reference controls.",
         initially_open: false,
         params: &[
+            "ddgi_continuous_sampling",
             "raster_flora_ddgi_lighting",
             "path_tracing_reference",
             "path_tracing_ambient_light",

@@ -216,3 +216,5 @@ impl DdgiDebugView {
         }
     }
 }
+
+pub(crate) use resources::DdgiSamplingProgress;

@@ -42,6 +42,7 @@ pub(super) fn freeze_render_frame_inputs(
         ray_origin_offset_world: gui.terrain_ray_origin_offset_world.value,
         ddgi_receiver_visibility_bias_world: gui.ddgi_receiver_visibility_bias_world.value,
         ddgi_history_retention: gui.ddgi_history_retention.value,
+        ddgi_continuous_sampling: gui.ddgi_continuous_sampling.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -310,6 +311,7 @@ mod tests {
         }
 
         gui.flora_growth_override_enabled.value = true;
+        gui.ddgi_continuous_sampling.value = true;
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
@@ -441,6 +443,7 @@ mod tests {
                 ray_origin_offset_world: terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
                 ddgi_history_retention,
+                ddgi_continuous_sampling: true,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,

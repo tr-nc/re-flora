@@ -44,6 +44,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
+    parser.add_argument("--batch-order", choices=("forward", "reverse"), default="forward")
+    parser.add_argument("--continuous-sampling", action="store_true", help="Enable the saved runtime continuous-sampling A/B control for this run")
     parser.add_argument("--temporal", action="store_true", help="Capture sampled display RGB throughout one real edit run")
     parser.add_argument("--case", choices=("cave-edits", "cave-edits-open", "cave-edits-portal", "terrain-edits-sustained"), default="cave-edits")
     parser.add_argument("--reference", action="store_true", help="Also compare settled edited portal with independent final-geometry DDGI initialization")
@@ -72,6 +74,12 @@ def main():
         paths = [Path("config/gui.toml"), Path("config/camera_snapshots.toml")]
         original = {p: p.read_bytes() if p.exists() else None for p in paths}
         try:
+            if args.continuous_sampling:
+                text = paths[0].read_text()
+                text, count = re.subn(r'(id = "ddgi_continuous_sampling".*?value = )false', r'\g<1>true', text, count=1, flags=re.S)
+                if count != 1:
+                    raise ValueError("continuous-sampling control must exist and start unchecked")
+                paths[0].write_text(text)
             report["gui_sha256"] = hashlib.sha256(paths[0].read_bytes()).hexdigest()
             paths[1].write_text('''[[snapshots]]
 name = "ddgi-cave-repro"
@@ -98,6 +106,7 @@ fly_mode = true
                 command = ["target/release/re-flora", "--hidden", "--mute", "--windowed",
                            "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays",
                            "--no-lens-flare", "--perf", "--environment-lighting-test-scene", case,
+                           "--ddgi-batch-order", args.batch_order,
                            "--auto-exit", str(args.duration), "--environment-probe-spacing-voxels", str(args.spacing),
                            "--screenshot", "ddgi-cave-repro", str(output / f"{name}.png"),
                            "--screenshot-delay", str(delay)]

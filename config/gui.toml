@@ -92,6 +92,15 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "ddgi_continuous_sampling"
+kind = "bool"
+label = "DDGI continuous accepted-batch sampling (experimental A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "raster_tree_wind"
 kind = "bool"
 label = "Animate raster trees with wind"
