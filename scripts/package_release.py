@@ -15,6 +15,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+from release_notes import ReleaseNotesError, committed_notes
+
 APP_NAME = "re-flora"
 PACKAGE_DIRS = ["assets", "config"]
 PACKAGE_FILES = [
@@ -267,6 +269,7 @@ def zip_dir(src_dir: Path, archive_path: Path) -> None:
 def package(args: argparse.Namespace) -> Path:
     root = repo_root()
     version = args.version or cargo_version(root)
+    player_notes = committed_notes(root, version)
     channel = args.channel or default_channel()
     package_name = f"{APP_NAME}-{safe_component(version)}-{safe_component(channel)}"
 
@@ -283,6 +286,7 @@ def package(args: argparse.Namespace) -> Path:
 
     binary_path = copy_binary(root, stage_root, target_dir)
     copy_runtime_tree(root, stage_root)
+    (stage_root / "RELEASE_NOTES.md").write_text(player_notes, encoding="utf-8")
     copied_vulkan = copy_macos_vulkan_runtime(stage_root)
     fix_unix_runtime_paths(
         binary_path,
@@ -317,7 +321,11 @@ def main() -> int:
         print(cargo_version(root))
         return 0
 
-    archive_path = package(args)
+    try:
+        archive_path = package(args)
+    except ReleaseNotesError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     print(archive_path)
     return 0
 
