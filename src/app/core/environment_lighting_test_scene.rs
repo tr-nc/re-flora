@@ -561,6 +561,7 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
             | EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
             EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
@@ -1595,6 +1596,7 @@ impl TestSceneGeometry {
                 Vec::new(),
             ),
             EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::CaveEditsPortalFinal => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
@@ -1738,12 +1740,25 @@ fn prepare_initial_environment_lighting_test_scene(
         .context("compile deterministic environment-lighting test scene")
 }
 
+// Hidden runtime compatibility replay: same portal geometry and forty edits, all saved control
+// combinations, ending back in original mode. No special renderer or publication path.
+fn ddgi_history_toggle_phase(edit: u32) -> (bool, bool) {
+    [
+        (false, false),
+        (true, false),
+        (false, true),
+        (true, true),
+        (false, false),
+    ][(edit / 8) as usize]
+}
+
 fn is_cave_edit_case(case: EnvironmentLightingTestCase) -> bool {
     matches!(
         case,
         EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
             | EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
     )
 }
 
@@ -1925,6 +1940,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::CaveEdits
         | EnvironmentLightingTestCase::CaveEditsOpen
         | EnvironmentLightingTestCase::CaveEditsPortal
+        | EnvironmentLightingTestCase::CaveEditsHistoryToggles
         | EnvironmentLightingTestCase::CaveEditsPortalFinal
         | EnvironmentLightingTestCase::TerrainEditsSustained
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
@@ -3164,6 +3180,23 @@ impl App {
             if let Some((last_edit, count)) = environment.sustained_edits {
                 if count < 40 {
                     if last_edit.elapsed().as_secs_f32() >= 0.1 {
+                        if case == EnvironmentLightingTestCase::CaveEditsHistoryToggles
+                            && count % 8 == 0
+                        {
+                            let (sequence, aggregate) = ddgi_history_toggle_phase(count);
+                            self.debug_settings
+                                .adjustables
+                                .ddgi_continuous_sampling
+                                .value = sequence;
+                            self.debug_settings.adjustables.ddgi_aggregate_history.value =
+                                aggregate;
+                            log::info!(
+                                "[DDGI_HISTORY_TOGGLE] edit={} sequence={} aggregate={}",
+                                count,
+                                sequence,
+                                aggregate
+                            );
+                        }
                         let edit = if count % 2 == 0 {
                             TerrainEdit::CloseSkylight
                         } else {
@@ -6358,6 +6391,7 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
             | EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
             | EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
@@ -7124,6 +7158,30 @@ mod tests {
     }
 
     #[test]
+    fn history_toggle_replay_covers_each_live_mode_and_returns_to_original() {
+        assert_eq!(
+            (0..40)
+                .step_by(8)
+                .map(ddgi_history_toggle_phase)
+                .collect::<Vec<_>>(),
+            vec![
+                (false, false),
+                (true, false),
+                (false, true),
+                (true, true),
+                (false, false)
+            ]
+        );
+        let original = TestSceneGeometry::build(EnvironmentLightingTestCase::CaveEditsPortal);
+        let toggles =
+            TestSceneGeometry::build(EnvironmentLightingTestCase::CaveEditsHistoryToggles);
+        assert_eq!(
+            format!("{:?}", original.compile().unwrap()),
+            format!("{:?}", toggles.compile().unwrap())
+        );
+    }
+
+    #[test]
     fn cave_edits_never_breach_the_roof() {
         for count in 0..40 {
             let min = UVec3::new(144 + (count % 10) * 4, 216, 274 + (count / 10) * 4);
@@ -7207,6 +7265,9 @@ mod tests {
         }
         assert!(is_cave_edit_case(
             EnvironmentLightingTestCase::CaveEditsPortal
+        ));
+        assert!(is_cave_edit_case(
+            EnvironmentLightingTestCase::CaveEditsHistoryToggles
         ));
     }
 

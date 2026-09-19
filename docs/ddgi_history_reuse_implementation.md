@@ -155,3 +155,12 @@ outstanding. The existing alternating skylight runner is liveness compatibility,
 those response/accuracy measurements. No runtime configuration migration is needed
 because no saved setting was added. This branch is measurement groundwork, **not** a
 finished solution to the requested history-reuse task.
+
+## Follow-up implementation
+
+The limited far-wall loop above was sufficient to proceed with controlled experiments;
+it was not a reason to block all lighting work on the user's exact saved cave. The isolated
+follow-up now has two saved runtime A/B candidates, measured single-variable attribution,
+independent-final-state comparisons and response/compatibility evidence. See
+[DDGI history candidate experiments](ddgi_history_candidate.md). Near-surface reproduction
+remains limited, and the candidate's known 64-voxel-spacing regression is explicitly recorded.

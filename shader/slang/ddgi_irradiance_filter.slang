@@ -75,10 +75,10 @@ void main(uint3 groupId : SV_GroupID,
             pc.local_refresh_world_max.xyz, pc.history_retention);
     }
     bool electedEvidenceLane = all(localInvocationId.xy == uint2(0u));
-    ddgiOwnerHistoryDiagnostic(electedEvidenceLane, historyDecision, pc.filter_evidence.y != 0u, samePlacement);
     bool freshAvailable =
         metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
         metadata.state_and_reserved.y == pc.terrain_revision;
+    ddgiOwnerHistoryDiagnostic(electedEvidenceLane, historyDecision, freshAvailable, pc.filter_evidence.y != 0u, samePlacement);
     float4 history = float4(0.0);
     if (pc.has_history != 0u)
         history = ddgiOwnerLoadIrradiance(pc.source_slot, atlasCoordinate);

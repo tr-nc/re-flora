@@ -56,7 +56,8 @@ public void ddgiOwnerStoreFreshIrradiance(
 }
 
 public void ddgiOwnerHistoryDiagnostic(bool elected, DdgiFilterHistoryDecision decision,
-    bool experimental, bool samePlacement)
+    bool freshAvailable, bool experimental, bool samePlacement)
 {
-    ddgiRecordHistoryDiagnostic(elected, decision, experimental, samePlacement);
+    DdgiExecutedHistory4 executed = ddgiExecuteHistory(decision, freshAvailable, float4(0.0), float4(0.0));
+    ddgiRecordHistoryDiagnostic(elected, executed.decision, experimental, samePlacement && freshAvailable);
 }

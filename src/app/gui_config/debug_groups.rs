@@ -51,7 +51,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Lighting Diagnostics",
-        description: "Flora lighting and terrain path-tracing reference controls.",
+        description: "Flora lighting and terrain path-tracing reference controls. DDGI A/B: off = original; switches apply next field. Candidates validated at 32-voxel spacing; 64-voxel left-wall spikes regressed.",
         initially_open: false,
         params: &[
             "ddgi_continuous_sampling",

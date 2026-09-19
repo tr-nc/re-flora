@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 
 try:
@@ -40,15 +41,34 @@ def measure(path):
     return values
 
 
+def configure_experiments(text, continuous_sampling=False, aggregate_history=False):
+    """Set both A/B modes explicitly without allowing a match to cross parameter blocks."""
+    for param, enabled in (("ddgi_continuous_sampling", continuous_sampling),
+                           ("ddgi_aggregate_history", aggregate_history)):
+        pattern = r'(id = "' + param + r'"\n(?:(?!\[\[section).)*?value = )(true|false)'
+        text, count = re.subn(pattern, lambda match: match[1] + str(enabled).lower(),
+                              text, flags=re.S)
+        if count != 1:
+            raise ValueError(f"expected exactly one {param} control")
+    return text
+
+
+def terminate(signum, _frame):
+    raise SystemExit(128 + signum)
+
+
 def main():
+    signal.signal(signal.SIGTERM, terminate)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
     parser.add_argument("--batch-order", choices=("forward", "reverse"), default="forward")
     parser.add_argument("--aggregate-history", action="store_true")
     parser.add_argument("--continuous-sampling", action="store_true", help="Enable the saved runtime continuous-sampling A/B control for this run")
+    parser.add_argument("--no-capture", action="store_true", help="Measure release GPU timings for one replay, without readback/PNG cost")
+    parser.add_argument("--response", action="store_true", help="Compare settled initial-open, real closing and real opening controls")
     parser.add_argument("--temporal", action="store_true", help="Capture sampled display RGB throughout one real edit run")
-    parser.add_argument("--case", choices=("cave-edits", "cave-edits-open", "cave-edits-portal", "terrain-edits-sustained"), default="cave-edits")
+    parser.add_argument("--case", choices=("cave-edits", "cave-edits-open", "cave-edits-portal", "cave-edits-history-toggles", "terrain-edits-sustained"), default="cave-edits")
     parser.add_argument("--reference", action="store_true", help="Also compare settled edited portal with independent final-geometry DDGI initialization")
     parser.add_argument("--interval", type=float, default=.1)
     parser.add_argument("--duration", type=float, default=58)
@@ -61,6 +81,10 @@ def main():
         parser.error("interval and duration must be finite and positive")
     if not all(math.isfinite(v) and v >= 0 for v in (args.max_mean_jump, args.max_reference_error)):
         parser.error("error thresholds must be finite and nonnegative")
+    if sum((args.temporal, args.no_capture, args.response)) > 1:
+        parser.error("choose only one of --temporal, --no-capture or --response")
+    if args.response and args.duration <= 2:
+        parser.error("--response requires --duration >2 for its settled capture")
     if args.reference and (not args.temporal or args.case != "cave-edits-portal" or args.duration < 20):
         parser.error("--reference requires --temporal --case cave-edits-portal and duration >=20")
     output = args.output.resolve()
@@ -74,14 +98,12 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX)
         paths = [Path("config/gui.toml"), Path("config/camera_snapshots.toml")]
         original = {p: p.read_bytes() if p.exists() else None for p in paths}
+        for path, content in original.items():
+            if content is not None:
+                (output / (path.name + ".before")).write_bytes(content)
         try:
-            for param, enabled in (("ddgi_continuous_sampling", args.continuous_sampling), ("ddgi_aggregate_history", args.aggregate_history)):
-                if enabled:
-                    text = paths[0].read_text()
-                    text, count = re.subn(r'(id = "' + param + r'".*?value = )false', r'\g<1>true', text, count=1, flags=re.S)
-                    if count != 1:
-                        raise ValueError(f"{param} control must exist and start unchecked")
-                    paths[0].write_text(text)
+            paths[0].write_text(configure_experiments(paths[0].read_text(),
+                args.continuous_sampling, args.aggregate_history))
             report["gui_sha256"] = hashlib.sha256(paths[0].read_bytes()).hexdigest()
             paths[1].write_text('''[[snapshots]]
 name = "ddgi-cave-repro"
@@ -104,14 +126,23 @@ fly_mode = true
                 if args.reference:
                     cases += (("settled", args.duration - 2, args.case),
                               ("reference", args.duration - 2, "cave-edits-portal-final"))
+            if args.no_capture:
+                cases = (("timing", 0, args.case),)
+            if args.response:
+                cases = tuple((name, args.duration - 2, case) for name, case in (
+                    ("initial-open", "portal"), ("closed", "terrain-edits-closed"),
+                    ("opened", "cave-edits-open")))
             for name, delay, case in cases:
                 command = ["target/release/re-flora", "--hidden", "--mute", "--windowed",
                            "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays",
                            "--no-lens-flare", "--perf", "--environment-lighting-test-scene", case,
                            "--ddgi-batch-order", args.batch_order,
-                           "--auto-exit", str(args.duration), "--environment-probe-spacing-voxels", str(args.spacing),
-                           "--screenshot", "ddgi-cave-repro", str(output / f"{name}.png"),
-                           "--screenshot-delay", str(delay)]
+                           "--auto-exit", str(args.duration), "--environment-probe-spacing-voxels", str(args.spacing)]
+                if args.no_capture:
+                    command += ["--camera-snapshot", "ddgi-cave-repro"]
+                else:
+                    command += ["--screenshot", "ddgi-cave-repro", str(output / f"{name}.png"),
+                                "--screenshot-delay", str(delay)]
                 if name == "temporal":
                     command += ["--screenshot-sequence", str(int(args.duration / args.interval) + 1), str(args.interval)]
                 environment = dict(os.environ)
@@ -131,6 +162,14 @@ fly_mode = true
                 run = {"command": command, "returncode": result.returncode, "errors": errors,
                        "canonical_log": latest, "edits": active.count("[DDGI_SUSTAINED] edit="),
                        "promotions": len(re.findall(r"staging promoted", active))}
+                if args.no_capture:
+                    run["sampled_active_gpu_us"] = {}
+                    for scope in ("frame.render", "ddgi.probe_trace", "ddgi.irradiance_filter", "ddgi.visibility_filter", "ddgi.probe_relocate"):
+                        values = [int(v) for v in re.findall(re.escape(scope) + r"=(\d+)us", active)]
+                        if values:
+                            run["sampled_active_gpu_us"][scope] = {"samples": len(values), "p50": ddgi_temporal.percentile(values, .5), **ddgi_temporal.summary(values)}
+                if args.case == "cave-edits-history-toggles":
+                    run["runtime_toggles"] = re.findall(r"\[DDGI_HISTORY_TOGGLE\] edit=\d+ sequence=(\w+) aggregate=(\w+)", text)
                 image = output / f"{name}.png"
                 if name == "temporal":
                     try:
@@ -147,11 +186,27 @@ fly_mode = true
                 else:
                     path.write_bytes(content)
     runs = report["runs"]
+    if args.no_capture or args.response:
+        report["passed"] = all(r["returncode"] == 0 and not r["errors"] for r in runs.values())
+        if args.no_capture:
+            report["passed"] &= runs["timing"]["edits"] == 40 and runs["timing"]["promotions"] >= 2 and bool(runs["timing"]["sampled_active_gpu_us"])
+        else:
+            complete = all("roi" in r for r in runs.values())
+            report["passed"] &= complete
+            if complete:
+                report["closing_darkens"] = runs["initial-open"]["roi"]["sRGB"] > runs["closed"]["roi"]["sRGB"] + 10
+                report["opening_brightens"] = runs["opened"]["roi"]["sRGB"] > runs["closed"]["roi"]["sRGB"] + 10
+                report["passed"] &= report["closing_darkens"] and report["opening_brightens"]
+        (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps({"passed": report["passed"], "report": str(output / "report.json")}, indent=2))
+        return 0 if report["passed"] else 1
     if args.temporal:
         run = runs["temporal"]
         complete = run["returncode"] == 0 and not run["errors"] and "temporal" in run
         live = run["edits"] == 40 and run["promotions"] >= 2
         coverage = complete and run["temporal"]["capture_gap_seconds"]["max"] <= max(.25, args.interval * 2)
+        if args.case == "cave-edits-history-toggles":
+            complete &= run["runtime_toggles"] == [("false", "false"), ("true", "false"), ("false", "true"), ("true", "true"), ("false", "false")]
         report["temporal_coverage"] = coverage
         report["passed"] = complete and live and coverage and all(
             roi["temporal"]["mean"]["max"] <= args.max_mean_jump

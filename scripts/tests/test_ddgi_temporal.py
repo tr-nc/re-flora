@@ -45,5 +45,23 @@ class TemporalTests(unittest.TestCase):
             temporal.analyze('', Path('frame'), {})
 
 
+class ExperimentConfigTests(unittest.TestCase):
+    def test_modes_are_explicit_and_other_controls_unchanged(self):
+        from scripts.check_ddgi_cave_edits import configure_experiments
+        text = Path("config/gui.toml").read_text()
+        enabled = configure_experiments(text, True, True)
+        self.assertNotEqual(enabled, text)
+        self.assertEqual(configure_experiments(enabled), text)
+        sequence = configure_experiments(text, True, False)
+        self.assertIn('id = "ddgi_continuous_sampling"', sequence)
+        self.assertEqual(configure_experiments(sequence), text)
+
+    def test_missing_control_cannot_modify_the_following_control(self):
+        from scripts.check_ddgi_cave_edits import configure_experiments
+        text = Path("config/gui.toml").read_text().replace('id = "ddgi_aggregate_history"', 'id = "unrelated"')
+        with self.assertRaises(ValueError):
+            configure_experiments(text, True, True)
+
+
 if __name__ == '__main__':
     unittest.main()

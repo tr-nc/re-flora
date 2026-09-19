@@ -356,6 +356,7 @@ struct DdgiVisibilityFilterPushConstants {
 struct DdgiPendingTraceStatsReadback {
     batch: DdgiRayBatch,
     filter_configuration: DdgiFilterConfigurationIdentity,
+    continuous_sampling: bool,
 }
 
 struct DdgiFrameEncoding {
@@ -478,6 +479,7 @@ impl DdgiFrameEncoder<'_> {
                 .record_trace_readback(cmdbuf, plan.iteration_will_complete);
             DdgiPendingTraceStatsReadback {
                 batch,
+                continuous_sampling: self.sampling_progress.is_some(),
                 filter_configuration: DdgiFilterConfigurationIdentity::from_grid(
                     self.frame.grid(),
                     self.history_retention,
@@ -1659,6 +1661,7 @@ pub struct Tracer {
     ddgi_continuous_sampling: bool,
     ddgi_aggregate_history: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
+    ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
@@ -2005,6 +2008,7 @@ impl Tracer {
             ddgi_continuous_sampling: false,
             ddgi_aggregate_history: false,
             ddgi_sampling_progress: Default::default(),
+            ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
             ddgi_local_light_gpu_evidence_complete: None,
@@ -3297,7 +3301,7 @@ impl Tracer {
             };
             if !matches!(&completion, DdgiBatchCompletion::Stale(_)) {
                 if batch.first_probe_index == 0 {
-                    log::info!("[DDGI][SAMPLING] accepted first={} count={} sequence={} continuous={} geometry={} epoch={}", batch.first_probe_index, batch.probe_count, self.ddgi_sampling_progress.index(batch), self.ddgi_continuous_sampling, batch.geometry_revision(), batch.update_epoch());
+                    log::info!("[DDGI][SAMPLING] accepted first={} count={} sequence={} continuous={} geometry={} epoch={}", batch.first_probe_index, batch.probe_count, self.ddgi_sampling_progress.index(batch), pending.continuous_sampling, batch.geometry_revision(), batch.update_epoch());
                 }
                 self.ddgi_sampling_progress.accept(batch);
             }
@@ -3435,15 +3439,22 @@ impl Tracer {
         }
 
         let ddgi_frame = self.ddgi_runtime.begin_frame()?;
+        let experiments = self.ddgi_experiment_latch.for_field(
+            ddgi_frame.plan().ray_batch.map(|batch| batch.logical()),
+            crate::ddgi::DdgiExperimentSettings {
+                continuous_sampling: self.ddgi_continuous_sampling,
+                aggregate_history: self.ddgi_aggregate_history,
+            },
+        );
         let ddgi_encoding = DdgiFrameEncoder {
             frame: ddgi_frame,
             pipelines: &self.pipeline_topology,
             chunk_bound: self.chunk_bound,
             voxels_per_world_unit: self.desc.voxel_dim_per_chunk,
             history_retention: self.ddgi_history_retention,
-            aggregate_history: self.ddgi_aggregate_history,
-            sampling_progress: self
-                .ddgi_continuous_sampling
+            aggregate_history: experiments.aggregate_history,
+            sampling_progress: experiments
+                .continuous_sampling
                 .then_some(&self.ddgi_sampling_progress),
             capture_enabled: self.desc.environment_irradiance_capture_enabled,
             glass_experiment_enabled: self.desc.glass_experiment_enabled,
