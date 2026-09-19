@@ -2,9 +2,11 @@ use glam::Vec3;
 use std::time::Duration;
 
 use crate::lighting::{LocalLightGpuPayload, LocalLightInfluenceBound};
+use crate::terrain_material::TerrainMaterialParams;
 
-// Hash the compiled sky model as well as snapshotting its runtime strength. A capture or cached
-// field must identify both the radiance definition and the authored values that produced it.
+// Hash compiled sky and material evaluation as well as snapshotting runtime sky strength,
+// palette and material parameters. Captures and immutable fields must identify both the
+// radiance definition and the authored values that produced it.
 pub(crate) const DDGI_AUTHORED_SKY_MODEL_IDENTITY: u64 = authored_sky_model_identity();
 const FNV1A64_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV1A64_PRIME: u64 = 0x100000001b3;
@@ -25,6 +27,14 @@ const fn authored_sky_model_identity() -> u64 {
         hash,
         include_bytes!("../shader/slang/ddgi_global_sky_filter.slang"),
     );
+    hash = hash_bytes(
+        hash,
+        include_bytes!("../shader/slang/terrain_material.slang"),
+    );
+    hash = hash_bytes(
+        hash,
+        include_bytes!("../shader/slang/tracer_material.slang"),
+    );
     hash_bytes(
         hash,
         include_bytes!("../shader/slang/ddgi_probe_trace.slang"),
@@ -43,6 +53,7 @@ const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct DdgiVoxelPaletteSnapshot {
+    pub terrain_material: TerrainMaterialParams,
     pub dirt_color: Vec3,
     pub sand_color: Vec3,
     pub cherry_wood_color: Vec3,
@@ -82,6 +93,7 @@ impl DdgiRadianceSnapshot {
             ddgi_receiver_visibility_bias_world: self.ddgi_receiver_visibility_bias_world.to_bits(),
             glass_experiment_enabled: self.glass_experiment_enabled,
             glass_material_revision: self.glass_material_revision,
+            terrain_material: self.voxel_palette.terrain_material.identity(),
             dirt_color: self.voxel_palette.dirt_color.to_array().map(f32::to_bits),
             sand_color: self.voxel_palette.sand_color.to_array().map(f32::to_bits),
             cherry_wood_color: self
@@ -123,6 +135,7 @@ struct DdgiRadianceIdentity {
     ddgi_receiver_visibility_bias_world: u32,
     glass_experiment_enabled: bool,
     glass_material_revision: u32,
+    terrain_material: [u32; 8],
     dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
@@ -141,6 +154,7 @@ impl DdgiRadianceIdentity {
             && self.ddgi_receiver_visibility_bias_world == other.ddgi_receiver_visibility_bias_world
             && self.glass_experiment_enabled == other.glass_experiment_enabled
             && self.glass_material_revision == other.glass_material_revision
+            && self.terrain_material == other.terrain_material
             && self.dirt_color == other.dirt_color
             && self.sand_color == other.sand_color
             && self.cherry_wood_color == other.cherry_wood_color
@@ -560,6 +574,7 @@ mod tests {
             glass_experiment_enabled: false,
             glass_material_revision: 0,
             voxel_palette: DdgiVoxelPaletteSnapshot {
+                terrain_material: TerrainMaterialParams::default(),
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
                 cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
@@ -710,6 +725,59 @@ mod tests {
             let first = authored.observe(input(snapshot()), Duration::ZERO);
             let changed = authored.observe(input(changed), Duration::from_millis(1));
             assert_eq!(changed.revision, first.revision + 1);
+        }
+    }
+
+    #[test]
+    fn every_terrain_material_control_invalidates_the_frozen_transport() {
+        let base = TerrainMaterialParams::default();
+        let variants = [
+            TerrainMaterialParams {
+                enabled: !base.enabled,
+                ..base
+            },
+            TerrainMaterialParams {
+                soil_scale_voxels: 32.0,
+                ..base
+            },
+            TerrainMaterialParams {
+                soil_strength: 0.6,
+                ..base
+            },
+            TerrainMaterialParams {
+                rock_scale_voxels: 24.0,
+                ..base
+            },
+            TerrainMaterialParams {
+                rock_strength: 0.5,
+                ..base
+            },
+            TerrainMaterialParams {
+                rock_layer_tilt_degrees: -25.0,
+                ..base
+            },
+            TerrainMaterialParams {
+                color_band: 0.8,
+                ..base
+            },
+            TerrainMaterialParams {
+                seed: base.seed + 1,
+                ..base
+            },
+        ];
+        for params in variants {
+            let mut authored = AuthoredEnvironmentLighting::default();
+            let initial = authored.observe(input(snapshot()), Duration::ZERO);
+            let frozen =
+                EnvironmentLightingState::freeze(1, initial, DdgiRadianceChange::default());
+            let mut edited = snapshot();
+            edited.voxel_palette.terrain_material = params;
+            let edited = authored.observe(input(edited), Duration::from_millis(1));
+            assert_eq!(edited.revision, initial.revision + 1);
+            let change = edited.change_from_transport(frozen).unwrap();
+            assert_eq!(change.reason, DdgiRadianceChangeReason::TransportInputStep);
+            assert!(change.resets_irradiance_history());
+            assert_eq!(frozen.snapshot().voxel_palette.terrain_material, base);
         }
     }
 

@@ -6,6 +6,12 @@ Investigated revision: `1b996946` (`agent/terrain-material-research`)
 
 Scope: investigation and design only. This document does not authorize or implement a material-system refactor.
 
+Decision update (2026-09-06): the user subsequently selected a simpler, image-free procedural
+macro-material implementation. The texture-array/catalog recommendation below is retained as
+historical research, not the current plan. See [the implemented terrain materials](../terrain_materials.md)
+for the shared continuous soil/rock fields, controls, frozen transport ownership and explicit
+remaining moisture/fallback approximations.
+
 Post-investigation update: the fertilizer tool, fertility state, fertilizer-granule shading, and their dedicated GPU path were removed on 2026-09-06. The presentation-only two-bit terrain color hash, its derived-surface payload, GUI control, primary/Glass/DDGI consumers, and lighting identity field were also removed. Bits 6-7 of the atlas byte are reserved again, while bits 30-31 of derived surface data are now unused. References below to either removed path describe the investigated revision only; the current baseline is one stable authored base color per voxel type plus the retained moisture response.
 
 ## Recommendation

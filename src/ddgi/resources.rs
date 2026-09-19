@@ -2409,6 +2409,7 @@ impl DdgiVolume {
                 sky_light_strength: snapshot.sky_light_strength,
                 ..DdgiRadianceSun::zeroed()
             })?;
+        let terrain = snapshot.voxel_palette.terrain_material.gpu();
         self.resources()
             .ddgi_radiance_voxel_palette
             .fill_uniform(&DdgiRadianceVoxelPalette {
@@ -2419,6 +2420,10 @@ impl DdgiVolume {
                 rock_color: snapshot.voxel_palette.rock_color.to_array(),
                 emissive_color: snapshot.voxel_palette.emissive_color.to_array(),
                 emissive_radiance: snapshot.voxel_palette.emissive_radiance,
+                terrain_soil: terrain.soil,
+                terrain_rock: terrain.rock,
+                terrain_seed: terrain.seed,
+                terrain_enabled: terrain.enabled,
                 ..DdgiRadianceVoxelPalette::zeroed()
             })?;
         self.transport_query_snapshot.visibility_bias_world =
@@ -3528,7 +3533,7 @@ mod tests {
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 48);
-        assert_eq!(bytes.radiance_voxel_palette, 96);
+        assert_eq!(bytes.radiance_voxel_palette, 144);
         assert_eq!(bytes.transport_query_info, 64);
     }
 

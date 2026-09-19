@@ -1,6 +1,6 @@
 use crate::app::ResolvedLightingFrameInputs;
 use crate::ddgi::DdgiVolumeGrid;
-use crate::environment_lighting::EnvironmentLightingState;
+use crate::environment_lighting::{DdgiVoxelPaletteSnapshot, EnvironmentLightingState};
 use crate::flora::species::{species, MAX_FLORA_SPECIES};
 use crate::generated::gpu_structs::{
     EnvInfo, FloraGrowthInfo, GodRayInfo, GuiInput, PlayerColliderInfo, PostProcessingInfo,
@@ -205,25 +205,23 @@ impl BufferUpdater {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn update_voxel_colors(
         resources: &TracerResources,
-        dirt_color: Vec3,
-        sand_color: Vec3,
-        cherry_wood_color: Vec3,
-        oak_wood_color: Vec3,
-        rock_color: Vec3,
-        emissive_color: Vec3,
-        emissive_radiance: f32,
+        palette: &DdgiVoxelPaletteSnapshot,
     ) -> Result<()> {
+        let terrain = palette.terrain_material.gpu();
         resources.uniforms.voxel_colors.fill_uniform(&VoxelColors {
-            dirt_color: dirt_color.to_array(),
-            sand_color: sand_color.to_array(),
-            cherry_wood_color: cherry_wood_color.to_array(),
-            oak_wood_color: oak_wood_color.to_array(),
-            rock_color: rock_color.to_array(),
-            emissive_color: emissive_color.to_array(),
-            emissive_radiance,
+            dirt_color: palette.dirt_color.to_array(),
+            sand_color: palette.sand_color.to_array(),
+            cherry_wood_color: palette.cherry_wood_color.to_array(),
+            oak_wood_color: palette.oak_wood_color.to_array(),
+            rock_color: palette.rock_color.to_array(),
+            emissive_color: palette.emissive_color.to_array(),
+            emissive_radiance: palette.emissive_radiance,
+            terrain_soil: terrain.soil,
+            terrain_rock: terrain.rock,
+            terrain_seed: terrain.seed,
+            terrain_enabled: terrain.enabled,
             ..VoxelColors::zeroed()
         })
     }
