@@ -270,8 +270,8 @@ impl DdgiTerrainRefresh {
         self.candidate == Some(token) && !self.token_can_promote(token)
     }
 
-    /// Completes the authoritative candidate. Newer edits keep their own pending domain;
-    /// older covered surface edits no longer need unavailable-lighting treatment.
+    /// Completes the authoritative candidate. Only newer edits remain queued;
+    /// already covered edits must not expand the next refresh domain.
     pub fn mark_promoted(&mut self, token: DdgiBuildToken) -> bool {
         if !self.token_can_promote(token) {
             return false;

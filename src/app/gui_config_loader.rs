@@ -63,13 +63,14 @@ impl GuiConfigLoader {
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
-        Self::add_missing_param(&mut config, "Shadow", "terrain_missing_lighting_strength");
-        // Retired experimental geometry: accept old saves, but never retain the
-        // switch in the live config or write it back on the next save.
+        // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
-            section
-                .param
-                .retain(|param| param.id != "raster_tree_axis_aligned");
+            section.param.retain(|param| {
+                !matches!(
+                    param.id.as_str(),
+                    "raster_tree_axis_aligned" | "terrain_missing_lighting_strength"
+                )
+            });
         }
 
         log::info!(
@@ -614,35 +615,40 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn old_configs_receive_terrain_lighting_fallback_and_keep_authored_strength() {
-        let mut config: GuiConfigFile =
-            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        for section in &mut config.section {
-            section
+    fn retired_terrain_fallback_is_removed_without_changing_other_settings() {
+        for strength in [0., 0.035, 0.2] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let expected = toml::to_string(&config).unwrap();
+            let shadow = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Shadow")
+                .unwrap();
+            let mut retired = shadow
                 .param
-                .retain(|p| p.id != "terrain_missing_lighting_strength");
+                .iter()
+                .find(|p| p.id == "terrain_ray_origin_offset_world")
+                .unwrap()
+                .clone();
+            retired.id = "terrain_missing_lighting_strength".into();
+            retired.value = crate::app::gui_config_model::GuiParamValue::Float {
+                value: strength,
+                min: Some(0.),
+                max: Some(0.2),
+            };
+            shadow.param.push(retired);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(toml::to_string(&loaded).unwrap(), expected);
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                expected
+            );
         }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("gui.toml");
-        GuiConfigLoader::save_to_path(&config, &path).unwrap();
-        let mut loaded = GuiConfigLoader::load_from_path(&path);
-        let control = loaded.section.iter_mut().flat_map(|s| &mut s.param)
-            .find(|p| p.id == "terrain_missing_lighting_strength")
-            .expect("old saved settings must receive the fallback control before generated GUI construction");
-        assert_eq!(
-            control.value.get_float().unwrap(),
-            (0.035, Some(0.), Some(0.2))
-        );
-        control.value = crate::app::gui_config_model::GuiParamValue::Float {
-            value: 0.08,
-            min: Some(0.),
-            max: Some(0.2),
-        };
-        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-        assert_eq!(
-            toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
-            toml::to_string(&loaded).unwrap()
-        );
     }
 
     #[test]

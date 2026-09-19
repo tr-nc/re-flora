@@ -3,7 +3,8 @@
 
 Usage: python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/baseline
 Builds release, serializes GPU access, restores GUI/camera bytes even on failure.
-Requires ImageMagick (`magick`) for the fixed-camera unavailable-surface pixel assertion.
+Requires ImageMagick (`magick`) for a diagnostic receiver measurement, not a brightness floor.
+Terrain now displays physical estimates directly; the old --fallback-strength option is retired.
 """
 import argparse
 import hashlib
@@ -21,11 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
-    parser.add_argument("--fallback-strength", type=float,
-                        help="override authored fallback for this run only (restored afterward)")
     args = parser.parse_args()
-    if args.fallback_strength is not None and not 0 <= args.fallback_strength <= 0.2:
-        parser.error("--fallback-strength must be between 0 and 0.2")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cargo", "build", "--release"], check=True)
@@ -43,14 +40,6 @@ def main():
         paths = [Path("config/gui.toml"), Path("config/camera_snapshots.toml")]
         original = {p: p.read_bytes() if p.exists() else None for p in paths}
         try:
-            if args.fallback_strength is not None:
-                config, replacements = re.subn(
-                    r'(id = "terrain_missing_lighting_strength".*?value = )[^\n]+',
-                    lambda match: match[1] + str(args.fallback_strength),
-                    paths[0].read_text(), count=1, flags=re.DOTALL)
-                if replacements != 1:
-                    raise ValueError("config has no authored terrain fallback setting")
-                paths[0].write_text(config)
             effective_gui_sha256 = hashlib.sha256(paths[0].read_bytes()).hexdigest()
             paths[1].write_text("""[[snapshots]]
 name = "ddgi-edit-repro"
@@ -80,14 +69,14 @@ fly_mode = true
     errors = re.findall(r".*(?:ERROR|panicked|VUID-).*", text)
     report = {"command": command,
               "gui_sha256": effective_gui_sha256,
-              "fallback_override": args.fallback_strength,
               "screenshot_during_edits": "[SCREENSHOT] Saved" in active, "edits": active.count("[DDGI_SUSTAINED] edit="),
               "promoted_during_edits": promotions, "errors": errors,
               "render_us_mean": sum(frame_us) / len(frame_us) if frame_us else None,
               "render_us_max": max(frame_us) if frame_us else None}
-    # A fixed receiver on the newly exposed, unlit left skylight reveal. Its
-    # pending surface state makes lighting unavailable, regardless of old atlas
-    # luminance. This is a display assertion, separate from publication liveness.
+    # Measure the newly exposed left skylight reveal without imposing a nonzero
+    # floor: a physical estimate may be dark or unconverged. Display wiring is
+    # covered by terrain_and_raster_consumers_share_the_ddgi_sampler_contract;
+    # this real GPU run verifies publication liveness and records visual evidence.
     pixel = None
     if (output / "editing.png").exists():
         sample = subprocess.check_output([
@@ -97,9 +86,9 @@ fly_mode = true
         width, height, pixel = int(sample[0]), int(sample[1]), float(sample[2])
         report["image_dimensions"] = [width, height]
         if abs(width / height - 16 / 9) > 0.01:
-            raise ValueError("fixed receiver pixel assertion requires the fixture's 16:9 viewport")
-    report["unavailable_receiver_rgb_mean_u8"] = pixel
-    passed = result.returncode == 0 and end > begin >= 0 and len(promotions) >= 2 and "[SCREENSHOT] Saved" in active and not errors and pixel is not None and pixel > 4
+            raise ValueError("fixed receiver measurement requires the fixture's 16:9 viewport")
+    report["latest_estimate_receiver_rgb_mean_u8"] = pixel
+    passed = result.returncode == 0 and end > begin >= 0 and report["edits"] == 40 and len(promotions) >= 2 and "[SCREENSHOT] Saved" in active and not errors and pixel is not None
     report["passed"] = passed
     (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))

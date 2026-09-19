@@ -79,10 +79,11 @@ editing stops, the final requested revision is rebuilt and convergence proceeds 
 Density candidates remain discardable when superseded or preempted by terrain. Radiance
 changes finish one immutable in-flight epoch and coalesce queued changes to the latest snapshot.
 
-Terrain final display has an authored albedo-scaled missing-support fallback. Query availability
-comes from trustworthy geometric support and pending edited-surface validity, not irradiance
-magnitude; current supported darkness and occlusion remain dark. Outstanding edited voxels
-plus one voxel use the fallback until covered by a complete publication. The fallback does not enter transport or raw irradiance diagnostics.
+Terrain final display multiplies the latest sampled physical irradiance by material albedo.
+Pending edits do not replace that result with a constant or an albedo-only fallback: even an
+unconverged estimate keeps its environmental color. Completely unsupported samples can remain
+dark until a usable field arrives. Edited bounds continue to guide refresh scheduling, not display
+color. Direct light, emission, and the normal brush boundary indicator remain independent.
 See [terrain edit lighting](terrain_edit_lighting.md) for the sustained-edit regression,
 measurements, and legacy acceptance limitations.
 

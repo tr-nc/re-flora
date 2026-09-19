@@ -627,10 +627,9 @@ void getPixelColor(out float3 color, out float depth,
         color = environmentIrradiance;
         return;
     }
-    environmentIrradiance = ddgiTerrainDisplayIrradiance(consumerResult,
-        ddgiTerrainSurfaceLightingPending(shading_info, ddgiReceiverPosition),
-        gui_input.terrain_missing_lighting_strength);
-    color = environmentIrradiance * albedo;
+    // Show the latest physical estimate even while an edit is awaiting a newer
+    // publication. Incomplete convergence must not introduce a fixed-color patch.
+    color = consumerResult.irradiance * albedo;
     color += directLight;
     color += voxelSurfaceEmission(voxel_colors, result.voxel_type);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,

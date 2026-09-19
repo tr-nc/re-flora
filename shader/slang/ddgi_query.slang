@@ -81,9 +81,6 @@ public DdgiProbeMetadata getDdgiProbeMetadata(uint probeIndex)
 public struct DdgiQueryResult
 {
     public float3 irradiance;
-    // Availability is geometric support, never a luminance test. Occluded/black
-    // samples with trustworthy support remain valid dark lighting.
-    public bool lighting_available;
     public float accumulated_weight;
     public float accumulated_base_weight;
     public float mean_visibility;
@@ -393,7 +390,6 @@ public DdgiQueryResult makeEmptyDdgiQueryResult()
 {
     DdgiQueryResult result;
     result.irradiance = float3(0.0);
-    result.lighting_available = false;
     result.accumulated_weight = 0.0;
     result.accumulated_base_weight = 0.0;
     result.mean_visibility = 0.0;
@@ -701,8 +697,6 @@ void accumulateDdgiEqualWeightContribution(
 void finalizeDdgiQueryResultWithWeight(
     inout DdgiQueryResult result, float normalizationWeight)
 {
-    result.lighting_available =
-        result.accumulated_base_weight > DDGI_QUERY_WEIGHT_EPSILON;
     if (result.accumulated_base_weight > DDGI_QUERY_WEIGHT_EPSILON)
     {
         result.mean_visibility /= result.accumulated_base_weight;
@@ -749,7 +743,6 @@ public DdgiQueryResult sampleDdgiExactTerrainReference(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -791,7 +784,6 @@ public DdgiQueryResult sampleDdgiUnoccludedTerrainReference(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -825,7 +817,6 @@ public DdgiQueryResult sampleDdgiEqualWeightTerrainReference(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -860,7 +851,6 @@ public DdgiQueryResult sampleDdgiSpatialWeightTerrainReference(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -1019,7 +1009,6 @@ DdgiQueryResult sampleDdgiDiffuseEnvironmentFromAtlas(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -1062,7 +1051,6 @@ DdgiQueryResult sampleDdgiTerrainSmoothEnvironmentFromAtlas(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -1193,7 +1181,6 @@ DdgiQueryResult sampleDdgiTransportEnvironmentFromAtlas(
     if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
     if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
     {
-        result.lighting_available = true;
         result.irradiance = sampleDdgiGlobalSky(normal);
         result.mean_visibility = 1.0;
         return result;
@@ -1323,26 +1310,4 @@ public float3 sampleDdgiVisibilityAtlasDebug(U_ShadingInfo lighting,
                   saturate(variance /
                            max(supportDistance * supportDistance, 1.0e-6)),
                   0.0);
-}
-
-// Display-only fallback: deliberately not fed back into transported radiance or
-// diagnostic irradiance captures. Material albedo multiplication remains at the caller.
-public float3 ddgiDisplayIrradiance(DdgiQueryResult sample, float missingStrength)
-{
-    return sample.lighting_available ? sample.irradiance : float3(max(0.0, missingStrength));
-}
-
-public bool ddgiTerrainSurfaceLightingPending(U_ShadingInfo lighting, float3 worldPosition)
-{
-    return lighting.terrain_lighting_pending != 0u &&
-        all(worldPosition >= lighting.terrain_lighting_pending_world_min) &&
-        all(worldPosition <= lighting.terrain_lighting_pending_world_max);
-}
-
-public float3 ddgiTerrainDisplayIrradiance(DdgiQueryResult sample, bool surfacePending, float strength)
-{
-    // The old field can have support but describe the solid material just removed.
-    // Do not mistake that stale, supported zero for a valid dark new cavity surface.
-    sample.lighting_available = sample.lighting_available && !surfacePending;
-    return ddgiDisplayIrradiance(sample, strength);
 }

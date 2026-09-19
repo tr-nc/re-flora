@@ -861,7 +861,11 @@ mod tests {
         assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
-        assert!(terrain.contains("color = environmentIrradiance * albedo"));
+        // Display the newest physical estimate, including while terrain edits are
+        // pending. Do not substitute a brush-local constant for the sampled light.
+        assert!(terrain.contains("color = consumerResult.irradiance * albedo"));
+        assert!(!terrain.contains("ddgiTerrainDisplayIrradiance("));
+        assert!(!terrain.contains("terrain_missing_lighting_strength"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
