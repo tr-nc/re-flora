@@ -3,7 +3,7 @@
 
 Usage: python3 scripts/check_ddgi_cave_edits.py target/cave-edits/baseline
 Release GPU test, not a unit test. Restores exact GUI/camera bytes under the GPU lock.
-The central image ROI excludes sky, HUD, and the outer silhouette. RGB measurements
+The lower interior-wall ROI excludes sky, HUD, and the outer silhouette. RGB measurements
 exclude alpha; linear means are diagnostic, displayed RGB drives the visual tolerance.
 """
 import argparse
@@ -18,11 +18,17 @@ import subprocess
 
 
 def measure(path):
+    width, height = map(int, subprocess.check_output(
+        ["magick", str(path), "-format", "%w %h", "info:"], text=True).split())
+    if abs(width / height - 16 / 9) > 0.01:
+        raise ValueError("the fixed receiver ROI requires a 16:9 viewport")
+    # x=[25%,75%), y=[60%,80%): interior wall, including in the opened control.
+    crop = f"{width // 2}x{height // 5}+{width // 4}+{height * 3 // 5}"
     values = {}
     for space in ("sRGB", "RGB"):
         values[space] = float(subprocess.check_output([
-            "magick", str(path), "-alpha", "off", "-gravity", "center",
-            "-crop", "50%x50%+0+0", "-colorspace", space,
+            "magick", str(path), "-alpha", "off",
+            "-crop", crop, "-colorspace", space,
             "-format", "%[fx:mean*255]", "info:",
         ], text=True))
     return values

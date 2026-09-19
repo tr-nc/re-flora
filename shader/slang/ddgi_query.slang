@@ -67,6 +67,12 @@ Sampler2D ddgi_global_sky_irradiance;
 readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
     ddgi_probe_metadata;
 
+// Recursive irradiance and moments must be interpreted at their source-owned
+// positions, never at a freshly relocated destination probe with the same index.
+[[vk::binding(40, 0)]]
+readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
+    ddgi_transport_source_probe_metadata;
+
 [[vk::binding(27, 0)]]
 Sampler2D ddgi_irradiance_atlas;
 
@@ -111,6 +117,7 @@ struct DdgiProbeContribution
 // uniform. Consumer and transport adapters can therefore share the exact same implementation.
 struct DdgiQueryInfo
 {
+    bool transport_source_metadata;
     uint3 grid_dimensions;
     float3 world_to_grid_scale;
     float visibility_bias_world;
@@ -126,6 +133,7 @@ struct DdgiQueryInfo
 DdgiQueryInfo ddgiConsumerQueryInfo(U_ShadingInfo lighting)
 {
     DdgiQueryInfo query;
+    query.transport_source_metadata = false;
     query.grid_dimensions = lighting.environment_probe_grid_dimensions;
     query.world_to_grid_scale = lighting.environment_probe_world_to_grid_scale;
     query.visibility_bias_world = lighting.environment_probe_visibility_bias_world;
@@ -142,6 +150,7 @@ DdgiQueryInfo ddgiConsumerQueryInfo(U_ShadingInfo lighting)
 DdgiQueryInfo ddgiTransportQueryInfo(U_DdgiTransportQueryInfo transport)
 {
     DdgiQueryInfo query;
+    query.transport_source_metadata = true;
     query.grid_dimensions = transport.grid_dimensions;
     query.world_to_grid_scale = transport.world_to_grid_scale;
     query.visibility_bias_world = transport.visibility_bias_world;
@@ -436,7 +445,9 @@ DdgiProbeContribution getDdgiUnoccludedSpatialWeightProbeContributionAt(
     uint probeIndex = cornerCoordinate.x +
         dimensions.x * (cornerCoordinate.y +
                         dimensions.y * cornerCoordinate.z);
-    DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
+    DdgiProbeMetadata metadata = query.transport_source_metadata
+        ? ddgi_transport_source_probe_metadata.data[probeIndex]
+        : ddgi_probe_metadata.data[probeIndex];
     contribution.probe_index = probeIndex;
     contribution.probe_state = metadata.state_and_reserved.x;
     contribution.actual_position = metadata.actual_position_and_clearance.xyz;

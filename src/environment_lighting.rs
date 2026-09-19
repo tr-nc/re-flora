@@ -846,6 +846,12 @@ mod tests {
         assert!(trace.contains("bool useHistory = pc.has_history != 0u;"));
         let query = include_str!("../shader/slang/ddgi_query.slang");
         assert!(query.contains("query.geometry_revision = ddgiPublishedVoxelGeometryRevision();"));
+        assert!(query.contains("query.transport_source_metadata = true;"));
+        assert!(query.contains("? ddgi_transport_source_probe_metadata.data[probeIndex]"));
+        let bindings = include_str!("tracer/pipeline_builder.rs");
+        assert!(
+            bindings.contains("write_resource!(trace, \"ddgi_transport_source_probe_metadata\");")
+        );
     }
 
     #[test]

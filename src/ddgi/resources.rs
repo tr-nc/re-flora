@@ -1689,9 +1689,23 @@ impl<'a> DdgiBuilderResources<'a> {
     }
 }
 
+impl DdgiBuilderResources<'_> {
+    fn transport_source_volume(&self) -> &DdgiVolume {
+        self.inherited_source.unwrap_or(self.builder)
+    }
+}
+
 impl ResourceContainer for DdgiBuilderResources<'_> {
     fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
+            "ddgi_transport_source_probe_metadata" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(
+                    &self
+                        .transport_source_volume()
+                        .resources()
+                        .ddgi_probe_metadata,
+                ))
+            }
             "ddgi_transport_source_irradiance_atlas" => {
                 ResourceLookup::Unique(DescriptorResource::Texture(
                     self.inherited_source
@@ -1874,9 +1888,11 @@ impl DdgiVolumes {
 impl ResourceContainer for DdgiVolume {
     fn resolve_resource(&self, name: &str) -> ResourceLookup<'_> {
         match name {
-            "ddgi_probe_metadata" => ResourceLookup::Unique(DescriptorResource::Buffer(
-                &self.resources().ddgi_probe_metadata,
-            )),
+            "ddgi_probe_metadata" | "ddgi_transport_source_probe_metadata" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(
+                    &self.resources().ddgi_probe_metadata,
+                ))
+            }
             "ddgi_transient_ray_data" => ResourceLookup::Unique(DescriptorResource::Buffer(
                 &self.resources().ddgi_transient_ray_data,
             )),
@@ -3940,6 +3956,17 @@ mod tests {
         assert_eq!(changed_batch.visibility_history_retention(0.98), 0.98);
         assert!(!changed_batch.writes_visibility());
         assert!(changed_batch.needs_visibility_preservation());
+    }
+
+    #[test]
+    fn recursive_source_metadata_belongs_to_the_same_volume_as_its_atlases() {
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let active = DdgiVolume::for_test(grid, None);
+        let staging = DdgiVolume::for_test(grid, None);
+        let geometry = DdgiBuilderResources::new(&staging, Some(&active));
+        assert!(std::ptr::eq(geometry.transport_source_volume(), &active));
+        let temporal = DdgiBuilderResources::new(&staging, None);
+        assert!(std::ptr::eq(temporal.transport_source_volume(), &staging));
     }
 
     #[test]

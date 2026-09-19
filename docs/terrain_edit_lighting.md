@@ -1,5 +1,8 @@
 # Terrain edit lighting
 
+For the subsequent edit-specific cave brightening diagnosis, source-readiness/source-placement
+fixes, and matched closed-room/opening controls, see [cave edit lighting](cave_edit_lighting.md).
+
 Current validation command: `python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/recheck`
 (release, hidden/muted, GPU lock, screenshot/receiver measurement + during-edit publication assertions).
 

@@ -89,3 +89,63 @@ bindings select the inherited field, but the shared probe metadata binding selec
 the destination placement. The readiness fix exposes that path correctly for the
 first time during local e0. This closed-roof fixture does not establish accuracy when
 relocation changes; it needs ownership repair/validation rather than a brightness tweak.
+
+## Complete source ownership and final acceptance
+
+Recursive query metadata now has a source-owned descriptor alongside source irradiance
+and visibility. `DdgiBuilderResources` chooses inherited Active for geometry and the
+builder itself for same-volume temporal epochs. New probe origins still use destination
+metadata. Consumers are unchanged. This adds one read-only descriptor, not another
+allocation or a temporal delay. The source-selection unit test covers both owners;
+the shader/binding wiring guard was RED against the previous shader
+(`/tmp/cave-metadata-red.log`) and now passes. These are ownership/wiring guards, not a
+numerical relocation-accuracy benchmark. The readiness mismatch, not relocation, was
+the measured cause of the broad brightening in this fixture.
+
+An intermediate source-metadata implementation failed startup because the initial
+pipeline provider lacked the new descriptor (`target/cave-edits/source-metadata`).
+The initial Volume provider now supplies its own metadata, with the builder view
+rebinding the inherited source at the normal lifecycle seam. Subsequent
+`source-metadata2`, final32, dense sustained, and default startup all pass. This new
+failure was fixed, not treated as the unrelated legacy RFIRR owner panic.
+
+**ROI correction:** inspection found the original central rectangle included sky in
+the opened image. The runner now measures x=[25%,75%), y=[60%,80%), a lower interior-wall
+rectangle that never includes sky. Existing baseline images were remeasured with the
+same function; results are in `warm-baseline3/wall-roi-reanalysis.json`. Original tables
+above describe the original central ROI and are retained for provenance.
+
+`python3 scripts/check_ddgi_cave_edits.py target/cave-edits/final32` passes, repeated
+active captures identical at the printed precision:
+
+| Interior-wall mean | Baseline sRGB /255 | Final sRGB /255 | Baseline linear /255 | Final linear /255 |
+|---|---:|---:|---:|---:|
+| Active | 40.177800 | 0.317340 | 7.873960 | 0.024562 |
+| Active repeat | 40.695400 | 0.317340 | 7.963830 | 0.024562 |
+| Settled, same geometry | 0.329550 | 0.317334 | 0.025507 | 0.024562 |
+| Sealed, no edits | 0.317339 | 0.317339 | 0.024562 | 0.024562 |
+| Actual opening | 24.202100 | 24.196900 | 2.857220 | 2.856250 |
+
+Every final32 edit run retains 22 complete publications during the 40 edits. No
+ERROR/panic/VUID. Full-resolution active/settled/opened screenshots are retained and
+were inspected. Final active GPU render sparse mean/max: 3013.7/4245us and
+4147.8/5397us on repeat (substantial runtime variance, **not** a speedup claim).
+
+Final validation: `cargo fmt --check`, `cargo check`, `cargo test` (1027 main + 4
+library passed, 2 ignored), `python3 scripts/run_slang_tests.py` (16 passed),
+`python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture`
+(63 passed), and `cargo run --release -- --hidden --mute --auto-exit 0.5` under
+GPU lock (X11 environment). Logs `/tmp/cave-final-{check,tests,slang,analyzer,smoke}.log`.
+Dense existing scheduling test:
+`python3 scripts/check_ddgi_sustained_edits.py target/cave-edits/final-sustained16 --spacing 16`
+passes (40 edits, 3 during-edit publications, no errors; receiver 95.6667/255,
+sparse GPU render mean/max 4047.11/6439us).
+
+Limitations: the numerical cave regression is spacing32, a deterministic cuboid
+removal fixture using the real terrain-publication path, not a replay of the user's
+saved cave or shovel stroke. Dense spacing16 validation covers publication liveness,
+not the full closed-room numerical matrix. Static leakage and general DDGI relocation
+accuracy are not declared solved. Full RFIRR capture and the broader Python suite are
+not acceptance claims here (recorded baseline limitations remain). No visible game
+was launched, no fixed-color fallback restored, no generated bindings changed, and
+no unrelated Cargo.lock registry metadata included.

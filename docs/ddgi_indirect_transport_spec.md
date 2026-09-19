@@ -54,6 +54,11 @@ For geometry and density updates, epoch zero:
 - uses zero local accumulation retention, but geometry refreshes retain the previous complete
   radiance estimate for recursive transport, gated by current exact voxel visibility;
 - initial/density allocations without a source use zero indirect history;
+- recursive query readiness follows the complete **source**, not the unpublished destination;
+  inherited geometry sources must not route indoor hit shading to Global Sky Irradiance;
+- recursive source irradiance, visibility, and probe placement are one owner tuple. Geometry e0
+  reads inherited Active placement; same-volume temporal epochs read that Volume's placement.
+  Destination relocation is used only for new probe ray origins and destination filtering;
 - writes both irradiance and visibility to a private destination;
 - becomes the immutable generation root after the entire atlas validates.
 
@@ -84,7 +89,8 @@ Pending edits do not replace that result with a constant or an albedo-only fallb
 unconverged estimate keeps its environmental color. Completely unsupported samples can remain
 dark until a usable field arrives. Edited bounds continue to guide refresh scheduling, not display
 color. Direct light, emission, and the normal brush boundary indicator remain independent.
-See [terrain edit lighting](terrain_edit_lighting.md) for the sustained-edit regression,
+See [cave edit lighting](cave_edit_lighting.md) for the sealed-interior energy regression and
+[terrain edit lighting](terrain_edit_lighting.md) for the sustained-edit regression,
 measurements, and legacy acceptance limitations.
 
 ## Sampling and temporal accumulation
