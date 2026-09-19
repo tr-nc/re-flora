@@ -132,3 +132,21 @@ h 应按 **有效更新次数／时间** 校准，而非照搬论文“几帧”
 - **[RGI]** Ouyang et al., [ReSTIR GI 第一方论文页面](https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing)；[RTXDI GI 集成文档，固定 commit a6efab966b7c3b272da0461578eb56ac61c7cbff](https://github.com/NVIDIA-RTX/RTXDI/blob/a6efab966b7c3b272da0461578eb56ac61c7cbff/Doc/RestirGI.md)：sample/PDF/radiance、Jacobian 与 visibility 接口。
 
 **未获证据支持：** 没找到第一方 DDGI 对“连续体素挖掘、逐方向可证明有效历史复用”的完整现成方案；没有证明编辑 AABB 外照度不变；没有证明稳定序列必然减少本项目闪烁；没有可安全照抄的 relocation-history 阈值或本项目 hysteresis 默认；没有证明任意历史复用无偏；没有测量上述路线的 GPU 收益。最值得借鉴的是**细粒度置信度、几何与辐射分开、稳定诊断与持续探索分开**，而不是某个魔法 h。
+
+## 9. 与本项目实现的逐项核对
+
+以下为整合时对 `6a91614a` 的只读代码审计，不是运行实验。另独立读取了固定 RTXGI header、blending shader 与 P21 全文，核对了第 2 节默认值／实际阈值及“扩一格用于唤醒”的区别。
+
+| 本地事实 | 对方案选择的影响 |
+|---|---|
+| [GUI 配置](../config/gui.toml) 的 `ddgi_history_retention` 为 **0.99**；[资源层](../src/ddgi/resources.rs) GeometryUpdate 设置 Accumulating，恢复序号取新 field 的 update_epoch；[滤波策略](../shader/slang/ddgi_filter_policy.slang) 按 `n/(n+1)` 限制局部历史 | e0/e1/e2/e3/e4 的上限仍是 **0 / 0.5 / 0.667 / 0.75 / 0.8**。继续提高滑杆不能绕过这个重启；需要区分“新几何版本”与“仍可信的累计历史量”。 |
+| 同一滤波策略对局部以外请求 Retain；[执行函数](../shader/slang/ddgi_filter_execution.slang) 直接复制 source | 不能声称所有远处 texel 都被清零。要查实际 dirty 覆盖、插值邻域、后续全场更新和各通道，而不是先调半径。 |
+| [请求合并](../src/ddgi/terrain_refresh.rs) 用 AABB union，再按 probe spacing 向每侧扩一格 | 分离编辑可能被一个大框覆盖；“需要检查的范围”和“必须失效的历史”值得分开。范围本身不是非局部 GI 影响的界限。 |
+| [epoch rotation](../src/ddgi/resources.rs) 的 seed 含 geometry/radiance revision 和 update_epoch，整个 epoch 使用同一旋转 | 编辑会换全场采样相位；序列连续性是可单独验证的变量，但尚未证明是用户闪烁的主因。 |
+| [恢复结束逻辑](../src/ddgi/resources.rs) 清除局部范围后进入 TopologyRecovery，历史上限为 [0.93](../src/ddgi/config.rs) | 后续远处更新并非始终使用 GUI 的 0.99。该 config 文件仍有“私有候选直到稳定才可见”的历史注释；当前 `promotion_is_ready` 允许完整 e0 发布，不能根据旧注释判断画面时序。 |
+| [probe relocation](../shader/slang/ddgi_probe_relocate.slang) 是几何相关的确定性搜索；[递归 query](../shader/slang/ddgi_query.slang) 读取 source-owned metadata 与 atlas | 未发现按 geometry revision 随机搬动 probe 的逻辑。保留历史时仍需验证坐标／状态变化，不能破坏刚修好的 source tuple 一致性。 |
+| [资源布局](../src/ddgi/resources.rs) 保存聚合 irradiance／visibility，射线数据是 batch-sized transient buffer；当前 [每 probe 64 rays](../shader/slang/ddgi_config.slang) | 先研究保留有效的聚合估计。若要逐条保留、删除旧 ray 的贡献，是新的缓存与依赖设计，不是改一个 h，也不能忽略显存／带宽成本。 |
+
+建议第一阶段只建立时间序列测量和两个独立实验：**采样进度跨编辑连续**、**几何证据允许时不重置成熟历史**。分别记录实际保留量、近／远 ROI 闪烁、开闭洞响应及独立重建后的最终误差；二者单独有效后再组合。每次更新的 h 要结合实际 probe 刷新频率解释，不是每显示帧的 h。
+
+本轮只新增调研文档；没有修改渲染、GUI 参数或生成文件，没有运行应用，也没有宣称候选方案已通过视觉／性能验收。
