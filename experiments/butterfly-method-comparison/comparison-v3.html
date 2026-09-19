@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>蝴蝶工作台 · 12px 候选 v3</title>
+<script type="module" src="blender/model-viewer-4.3.1.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#111b1b;--panel:#1a2827;--ink:#e1ece3;--muted:#a5b9ad;--line:#354943;--accent:#bce892;--stage:#253039;--sprite:96px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 system-ui,sans-serif}main{max-width:1360px;margin:auto;padding:44px 32px 70px}header{max-width:900px;margin-bottom:26px}.eyebrow{color:var(--accent);font:12px/1.5 ui-monospace,monospace;letter-spacing:.18em}h1{font-size:clamp(29px,4vw,48px);line-height:1.2;letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;font-weight:600;margin:0 0 12px}h3{font-size:16px;margin:0}p{margin:8px 0}.muted,.note{color:var(--muted)}.note{font-size:13px}.toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:14px;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:14px}label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}button,select,input{font:inherit}button,select{border:1px solid #53685b;border-radius:7px;background:#23352f;color:var(--ink);padding:9px 12px;min-height:42px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:wait}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}#toggle{background:var(--accent);color:#16221a;border-color:var(--accent);min-width:96px}.phase{display:flex;align-items:center;gap:12px;flex:1;min-width:205px}.phase label{flex:1}input[type=range]{width:100%;accent-color:var(--accent)}#frame-label{min-width:65px;font:13px ui-monospace,monospace}#status{font-size:13px;color:var(--muted);min-height:24px}.error{color:#ffb0a3!important}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0}.card{min-width:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel)}.card.featured{border-color:var(--accent);box-shadow:0 0 0 1px #bce89222}.card-head{padding:16px 16px 12px}.tag{font:11px ui-monospace,monospace;color:var(--accent);letter-spacing:.04em}.stage{height:240px;background:var(--stage);display:flex;align-items:center;justify-content:center}.stage canvas{width:var(--sprite);height:var(--sprite)}canvas{image-rendering:pixelated;image-rendering:crisp-edges}.card-foot{padding:12px 14px 16px}.native{display:flex;gap:10px;align-items:center;min-height:26px;color:var(--muted);font-size:12px}.strip{display:flex;justify-content:space-between;gap:3px;margin-top:12px}.strip button{padding:4px;min-height:0;border-color:transparent;background:var(--stage);border-radius:5px;flex:1;min-width:0}.strip button.active{border-color:var(--accent)}.strip canvas{width:100%;height:auto;display:block;aspect-ratio:1}.summary{display:grid;grid-template-columns:1.2fr 1fr;gap:28px;padding:24px 0;border-top:1px solid var(--line)}.summary ul{padding-left:20px;margin:8px 0}.model-layout{display:grid;grid-template-columns:1.3fr 1fr;gap:22px;align-items:center;background:var(--panel);padding:22px;border:1px solid var(--line);border-radius:14px}model-viewer{display:block;width:100%;height:360px;background:var(--stage);border-radius:10px;--poster-color:transparent}a{color:var(--accent);text-underline-offset:4px}.files{display:flex;flex-wrap:wrap;gap:10px 18px;margin:16px 0}.badge{display:inline-block;border:1px solid var(--line);padding:3px 9px;border-radius:20px;font-size:12px;color:var(--muted)}footer{margin-top:28px;color:var(--muted);font-size:12px}#model-status{font-size:13px;color:var(--muted)}
+@media(max-width:1000px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){main{padding:24px 14px 40px}.grid{gap:8px}.card-head{padding:12px 10px}h3{font-size:14px}.card-foot{padding:10px 8px}.stage{height:210px;overflow:auto}.summary,.model-layout{grid-template-columns:1fr}.toolbar{gap:10px;padding:12px}.phase{flex-basis:100%}model-viewer{height:290px}.note{font-size:12px}.native{gap:5px;font-size:11px}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="eyebrow">RE: FLORA / BUTTERFLY LAB / 03</div><h1>先让 12 个像素，像一只蝴蝶。</h1><p class="muted">这次不是单纯缩小图集：重新调整翼形、收翼姿态和观察角度，让更粗的色块保留展开与合拢的节奏。</p><span class="badge">实验候选 · 未替换游戏素材</span></header>
+<section aria-label="同步动画控制" class="toolbar">
+<button id="toggle" disabled>暂停</button><button id="step" disabled>下一帧 →</button>
+<label>观察方向<select id="view"><option value="0">0° · 正面参考</option><option value="1" selected>45° · 游戏使用行</option><option value="2">90° · 侧面参考</option><option value="3">135° · 游戏使用行</option><option value="4">180° · 背面参考</option></select></label>
+<label>同一显示尺寸<select id="zoom"><option value="48">48px</option><option value="96" selected>96px</option><option value="192">192px</option></select></label>
+<label>播放速度<select id="speed"><option value="2.5">0.5× · 2.5fps</option><option value="5" selected>1× · 5fps</option><option value="10">2× · 10fps</option></select></label>
+<label>背景<select id="background"><option value="#253039">夜色</option><option value="#45664b">草地</option><option value="#e5dfcc">浅纸</option></select></label>
+<div class="phase"><label for="frame">共同相位<input type="range" id="frame" min="0" max="4" step="1" value="0" aria-label="动画帧"></label><output id="frame-label">1 / 5</output></div>
+</section>
+<p id="status" role="status">正在加载四组本地序列帧…</p>
+<section class="grid" id="cards" aria-label="四组同步对照"></section>
+<p class="note">所有大图占用相同显示尺寸，均为整数倍最近邻放大；下方另有真实 1× 小图。原手绘仅在网页中统一成蓝色四阶，轮廓、位置与帧未改。原画的方向是行对应参考，不是已知相机真值；v2 为 45°仰角，v3 为 60°，并非只改分辨率的受控对照。</p>
+<section class="summary">
+<div><h2>这轮具体动了哪里</h2><ul><li>翼根加宽、翼面微拱，减少平薄片在过渡姿态中的消失。</li><li>去掉完整黑翼框与亚像素触角，保留大色块。</li><li>降低身体俯仰幅度，重排五个收放翼姿态；不逐帧居中。</li><li>12px 原生渲染，16px 也是独立原生渲染，不是放大版本。</li></ul></div>
+<div><h2>还需要看什么</h2><p class="muted">主要看 45° 和 135°：是否还像蝴蝶、收放是否清楚、色块会不会跳散。浅底能暴露无黑翼框的对比度问题。</p><p class="note">已通过 90 帧独立重放、15 组循环端点与边界检查。但斜向收翼仍可能读成一块亮色，腹部跟随也不是每帧都可见。这里没有把工程通过当作美术通过。</p><div class="files"><a href="blender-v3/contact.png">完整逐帧图</a><a href="blender-v3/README.md">制作与验证记录</a><a href="comparison-v2.html">上轮完整对照</a></div></div>
+</section>
+<section class="model-layout" aria-label="同源三维模型">
+<div><model-viewer id="model" src="blender-v3/butterfly-prototype.glb" loading="eager" camera-controls interaction-prompt="none" camera-target="0m 0m 0m" camera-orbit="225deg 30deg 5.8m" max-camera-orbit="auto auto 12m" field-of-view="35deg" max-field-of-view="60deg" alt="v3 同源可旋转蝴蝶模型，跟随当前像素动画相位"></model-viewer><p id="model-status">正在加载同源 GLB…</p></div>
+<div><div class="eyebrow">EDITABLE SOURCE</div><h2>同一份模型，不同方向。</h2><p class="muted">拖动可旋转查看。这里跟随上方五帧相位，而不是用更流畅的 3D 播放掩盖像素动画。浏览器使用透视投影，sprite 用固定正交相机。</p><button id="reset-camera">恢复所选方向</button><div class="files"><a href="blender-v3/butterfly-prototype.blend" download>可编辑 .blend</a><a href="blender-v3/butterfly-prototype.glb" download>同源 .glb</a><a href="blender-v3/atlas-12-gray-indexed.png" download>12px 灰阶图集</a><a href="blender-v3/validation.json">验证数据</a></div><p class="note">游戏当前导入约定是 16px。12px 候选还未接入游戏，不能直接覆盖正式素材。</p></div>
+</section>
+<footer>本地实验 · 无外部服务 · 原手绘 / v1 / v2 保留 · v3 尚待视觉确认</footer>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const definitions = [
+ {id:'ref',title:'原手绘 · 16px',tag:'BASELINE',description:'原有轮廓与节奏',size:16,path:'reference-production-80.png'},
+ {id:'old',title:'v2 · 12px',tag:'SAME RESOLUTION',description:'上轮模型直接降到 12px',size:12,path:'resolution-study/atlas-12-rgba.png'},
+ {id:'new',title:'v3 · 12px',tag:'NEW CANDIDATE',description:'本轮为小尺寸重做的候选',size:12,path:'blender-v3/atlas-12-blue-indexed.png'},
+ {id:'detail',title:'v3 · 16px',tag:'RESOLUTION CONTROL',description:'同一新模型，保留更多像素',size:16,path:'blender-v3/atlas-16-blue-indexed.png'}
+];
+const state = {ready:false,playing:true,frame:0,row:1,fps:5,last:0,modelReady:false};
+const cards = definitions.map(def => {
+ const article = document.createElement('article');article.className='card'+(def.id==='new'?' featured':'');
+ article.innerHTML=`<div class="card-head"><div class="tag">${def.tag}</div><h3>${def.title}</h3><p class="note">${def.description}</p></div><div class="stage"><canvas width="${def.size}" height="${def.size}" aria-label="${def.title}当前帧"></canvas></div><div class="card-foot"><div class="native"><canvas width="${def.size}" height="${def.size}" aria-label="${def.title}原始尺寸"></canvas><span>1× · ${def.size} × ${def.size}</span></div><div class="strip" aria-label="${def.title}五个关键帧"></div></div>`;
+ $('cards').append(article);
+ const strip=article.querySelector('.strip');
+ const cells=Array.from({length:5},(_,i)=>{
+  const button=document.createElement('button');button.type='button';button.setAttribute('aria-label',`${def.title}第 ${i+1} 帧`);
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=def.size;button.append(canvas);strip.append(button);
+  button.addEventListener('click',()=>seek(i));return {button,canvas};
+ });
+ return {...def,article,main:article.querySelector('.stage canvas'),native:article.querySelector('.native canvas'),cells};
+});
+function paint(canvas,image,size,frame,row){const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,frame*size,row*size,size,size,0,0,canvas.width,canvas.height);}
+function render(){
+ if(!state.ready)return;
+ for(const card of cards){
+  paint(card.main,card.image,card.size,state.frame,state.row);paint(card.native,card.image,card.size,state.frame,state.row);
+  card.cells.forEach(({button,canvas},i)=>{paint(canvas,card.image,card.size,i,state.row);button.classList.toggle('active',i===state.frame);button.setAttribute('aria-pressed',String(i===state.frame));});
+ }
+ $('frame').value=state.frame;$('frame-label').textContent=`${state.frame+1} / 5`;
+ if(state.modelReady)$('model').currentTime=state.frame/5;
+}
+function playing(value){state.playing=value;state.last=performance.now();$('toggle').textContent=value?'暂停':'播放';$('toggle').setAttribute('aria-pressed',String(value));}
+function seek(frame){playing(false);state.frame=frame;render();}
+function resetCamera(){const angle=[0,45,90,135,180][state.row];$('model').cameraOrbit=`${180+angle}deg 30deg 5.8m`;}
+$('toggle').addEventListener('click',()=>playing(!state.playing));
+$('step').addEventListener('click',()=>seek((state.frame+1)%5));
+$('frame').addEventListener('input',event=>seek(Number(event.target.value)));
+$('view').addEventListener('change',event=>{state.row=Number(event.target.value);resetCamera();render();});
+$('zoom').addEventListener('change',event=>document.documentElement.style.setProperty('--sprite',event.target.value+'px'));
+$('background').addEventListener('change',event=>document.documentElement.style.setProperty('--stage',event.target.value));
+$('speed').addEventListener('change',event=>{state.fps=Number(event.target.value);state.last=performance.now();});
+$('reset-camera').addEventListener('click',resetCamera);
+function tintReference(image){
+ const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);const data=ctx.getImageData(0,0,canvas.width,canvas.height);
+ const levels=[0,148,179,255],colors=[[24,32,48],[63,93,124],[80,190,220],[205,246,248]];
+ for(let i=0;i<data.data.length;i+=4){if(!data.data[i+3])continue;const role=levels.indexOf(data.data[i]);if(role<0)throw new Error('原画出现未知调色板值');data.data.set(colors[role],i);}
+ ctx.putImageData(data,0,0);return canvas;
+}
+Promise.all(cards.map(card=>new Promise((resolve,reject)=>{
+ const image=new Image();image.onload=()=>{try{if(image.width!==card.size*5||image.height!==card.size*5)throw new Error('图集尺寸不符：'+card.path);card.image=card.id==='ref'?tintReference(image):image;resolve();}catch(error){reject(error);}};
+ image.onerror=()=>reject(new Error('素材加载失败：'+card.path));image.src=card.path;
+}))).then(()=>{state.ready=true;playing(!matchMedia('(prefers-reduced-motion: reduce)').matches);$('toggle').disabled=$('step').disabled=false;$('status').textContent='四组素材已就绪 · 同步五帧 · 默认 5fps / 一秒循环';render();}).catch(error=>{$('status').textContent=error.message;$('status').classList.add('error');});
+const model=$('model');
+model.addEventListener('load',async()=>{model.animationName=model.availableAnimations[0];await model.updateComplete;model.pause();state.modelReady=true;model.currentTime=state.frame/5;$('model-status').textContent='同源 GLB 已就绪 · 可拖动旋转 · 跟随像素相位';});
+model.addEventListener('error',()=>{$('model-status').textContent='3D 预览加载失败；上方像素对照仍可独立使用。';$('model-status').classList.add('error');});
+function tick(now){if(state.ready&&state.playing&&now-state.last>=1000/state.fps){const steps=Math.floor((now-state.last)/(1000/state.fps));state.frame=(state.frame+steps)%5;state.last+=steps*1000/state.fps;render();}requestAnimationFrame(tick);}
+requestAnimationFrame(tick);
+document.addEventListener('visibilitychange',()=>{state.last=performance.now();});
+</script>
+</body>
+</html>

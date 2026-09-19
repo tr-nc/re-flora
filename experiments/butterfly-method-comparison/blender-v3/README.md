@@ -37,4 +37,4 @@
 
 源、GLB、图集与脚本哈希和逐格测量见 `validation.json`。`source-manifest.json` 描述配方创建的模型；手动修改 `.blend` 后该配方说明不自动更新。实际导出以保存工程为准。
 
-`raw/`、`replay/`、运行日志与 Blender 自动备份不入库；跟踪源工程、GLB、脚本、最终图集、contact sheet 和验证记录。网页入口为 `../comparison-v3.html`（独立后续提交）。
+`raw/`、`replay/`、运行日志与 Blender 自动备份不入库；跟踪源工程、GLB、脚本、最终图集、contact sheet 和验证记录。网页入口为 `../comparison-v3.html`；同步控制、GLB 相位及两种视口检查见 [页面验证](browser-validation.md)。
