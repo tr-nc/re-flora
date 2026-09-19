@@ -552,7 +552,8 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::Walls
             | EnvironmentLightingTestCase::Donor
-            | EnvironmentLightingTestCase::Dogleg => Self::Static,
+            | EnvironmentLightingTestCase::Dogleg
+            | EnvironmentLightingTestCase::CaveEditsPortalFinal => Self::Static,
             EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
@@ -1583,7 +1584,7 @@ fn test_rebuild_bound(case: EnvironmentLightingTestCase) -> UAabb3 {
 impl TestSceneGeometry {
     fn build(case: EnvironmentLightingTestCase) -> Self {
         let test_rebuild_bound = test_rebuild_bound(case);
-        let (cleared_test_scene, rock, carved_empty, sand) = match case {
+        let (cleared_test_scene, rock, mut carved_empty, sand) = match case {
             EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
             | EnvironmentLightingTestCase::Sealed
@@ -1593,7 +1594,8 @@ impl TestSceneGeometry {
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
                 Vec::new(),
             ),
-            EnvironmentLightingTestCase::CaveEditsPortal => (
+            EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsPortalFinal => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![
@@ -1670,6 +1672,12 @@ impl TestSceneGeometry {
             ),
         };
 
+        if case == EnvironmentLightingTestCase::CaveEditsPortalFinal {
+            carved_empty.extend((0..40).map(|count| {
+                let bound = cave_interior_edit_bound(count);
+                Cuboid::from_min_max(bound.min().as_vec3(), bound.max().as_vec3())
+            }));
+        }
         let emissive = if case == EnvironmentLightingTestCase::PointLightChanges {
             vec![Cuboid::from_min_max(
                 POINT_LIGHT_EMISSIVE_MIN,
@@ -1740,7 +1748,7 @@ fn is_cave_edit_case(case: EnvironmentLightingTestCase) -> bool {
 }
 
 // Forty disjoint shallow removals expose new roof surfaces but leave 18 voxels of roof.
-fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
+fn cave_interior_edit_bound(count: u32) -> UAabb3 {
     assert!(count < 40);
     let min = Vec3::new(
         144.0 + (count % 10) as f32 * 4.0,
@@ -1748,12 +1756,20 @@ fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
         274.0 + (count / 10) as f32 * 4.0,
     );
     let max = min + Vec3::new(4.0, 2.0, 4.0);
+    UAabb3::new(min.as_uvec3(), max.as_uvec3())
+}
+
+fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
+    let bound = cave_interior_edit_bound(count);
     Ok(WorldEditTransaction::terrain_change(
         vec![stamp_cuboids(
-            vec![Cuboid::from_min_max(min, max)],
+            vec![Cuboid::from_min_max(
+                bound.min().as_vec3(),
+                bound.max().as_vec3(),
+            )],
             VOXEL_TYPE_EMPTY,
         )?],
-        UAabb3::new(min.as_uvec3(), max.as_uvec3()),
+        bound,
     ))
 }
 
@@ -1909,6 +1925,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::CaveEdits
         | EnvironmentLightingTestCase::CaveEditsOpen
         | EnvironmentLightingTestCase::CaveEditsPortal
+        | EnvironmentLightingTestCase::CaveEditsPortalFinal
         | EnvironmentLightingTestCase::TerrainEditsSustained
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
@@ -7129,6 +7146,43 @@ mod tests {
             let geometry = TestSceneGeometry::build(case);
             assert_eq!(geometry.carved_empty.len(), 1);
         }
+    }
+
+    #[test]
+    fn independent_lit_cave_reference_contains_exactly_the_completed_removals() {
+        let final_scene = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::CaveEditsPortalFinal,
+        )
+        .unwrap();
+        let initial = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::CaveEditsPortal,
+        )
+        .unwrap();
+        for count in 0..40 {
+            let bound = cave_interior_edit_bound(count);
+            for x in bound.min().x..bound.max().x {
+                for y in bound.min().y..bound.max().y {
+                    for z in bound.min().z..bound.max().z {
+                        let sample = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                        assert_eq!(
+                            initial.planned_cuboid_voxel_type_at(sample),
+                            Some(VOXEL_TYPE_ROCK)
+                        );
+                        assert_eq!(
+                            final_scene.planned_cuboid_voxel_type_at(sample),
+                            Some(VOXEL_TYPE_EMPTY)
+                        );
+                    }
+                }
+            }
+        }
+        assert!(!is_cave_edit_case(
+            EnvironmentLightingTestCase::CaveEditsPortalFinal
+        ));
+        assert_eq!(
+            EnvironmentPhaseFamily::for_case(EnvironmentLightingTestCase::CaveEditsPortalFinal),
+            EnvironmentPhaseFamily::Static
+        );
     }
 
     #[test]

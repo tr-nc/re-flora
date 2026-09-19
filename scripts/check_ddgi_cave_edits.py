@@ -46,21 +46,26 @@ def main():
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
     parser.add_argument("--temporal", action="store_true", help="Capture sampled display RGB throughout one real edit run")
     parser.add_argument("--case", choices=("cave-edits", "cave-edits-open", "cave-edits-portal", "terrain-edits-sustained"), default="cave-edits")
+    parser.add_argument("--reference", action="store_true", help="Also compare settled edited portal with independent final-geometry DDGI initialization")
     parser.add_argument("--interval", type=float, default=.1)
     parser.add_argument("--duration", type=float, default=58)
+    parser.add_argument("--max-reference-error", type=float, default=1,
+                        help="Fail independent DDGI comparison above this spatial p99 RGB error")
     parser.add_argument("--max-mean-jump", type=float, default=3,
                         help="Fail temporal run above this per-ROI mean RGB jump (code values)")
     args = parser.parse_args()
     if not all(math.isfinite(v) and v > 0 for v in (args.interval, args.duration)):
         parser.error("interval and duration must be finite and positive")
-    if not math.isfinite(args.max_mean_jump) or args.max_mean_jump < 0:
-        parser.error("max-mean-jump must be finite and nonnegative")
+    if not all(math.isfinite(v) and v >= 0 for v in (args.max_mean_jump, args.max_reference_error)):
+        parser.error("error thresholds must be finite and nonnegative")
+    if args.reference and (not args.temporal or args.case != "cave-edits-portal" or args.duration < 20):
+        parser.error("--reference requires --temporal --case cave-edits-portal and duration >=20")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         parser.error("output directory must be empty; use a fresh path for capture provenance")
     subprocess.run(["cargo", "build", "--release"], check=True)
-    report = {"runs": {}, "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+    report = {"runs": {}, "binary_sha256": hashlib.sha256(Path("target/release/re-flora").read_bytes()).hexdigest(), "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
               "git_diff": subprocess.check_output(["git", "diff"], text=True)}
     with open("/tmp/re-flora-summer-gpu.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -76,6 +81,7 @@ pitch_deg = 42.878903
 fov_deg = 60.0
 fly_mode = true
 ''')
+            report["camera_sha256"] = hashlib.sha256(paths[1].read_bytes()).hexdigest()
             cases = (
                 ("active", 0, "cave-edits"),
                 ("active-repeat", 0, "cave-edits"),
@@ -85,6 +91,9 @@ fly_mode = true
             )
             if args.temporal:
                 cases = (("temporal", 0, args.case),)
+                if args.reference:
+                    cases += (("settled", args.duration - 2, args.case),
+                              ("reference", args.duration - 2, "cave-edits-portal-final"))
             for name, delay, case in cases:
                 command = ["target/release/re-flora", "--hidden", "--mute", "--windowed",
                            "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays",
@@ -92,7 +101,7 @@ fly_mode = true
                            "--auto-exit", str(args.duration), "--environment-probe-spacing-voxels", str(args.spacing),
                            "--screenshot", "ddgi-cave-repro", str(output / f"{name}.png"),
                            "--screenshot-delay", str(delay)]
-                if args.temporal:
+                if name == "temporal":
                     command += ["--screenshot-sequence", str(int(args.duration / args.interval) + 1), str(args.interval)]
                 environment = dict(os.environ)
                 environment.pop("WAYLAND_DISPLAY", None)
@@ -106,16 +115,15 @@ fly_mode = true
                 begin, end = text.find("[DDGI_SUSTAINED] begin"), text.find("[DDGI_SUSTAINED] end")
                 active = text[begin:end] if 0 <= begin < end else ""
                 errors = re.findall(r".*(?:ERROR|panicked|VUID-).*", text)
+                if latest is None:
+                    errors.append("run did not report its own canonical log path")
                 run = {"command": command, "returncode": result.returncode, "errors": errors,
                        "canonical_log": latest, "edits": active.count("[DDGI_SUSTAINED] edit="),
                        "promotions": len(re.findall(r"staging promoted", active))}
                 image = output / f"{name}.png"
-                if args.temporal:
+                if name == "temporal":
                     try:
-                        run["temporal"] = ddgi_temporal.analyze(text, image, {
-                            "wall_left": (.25, .60, .45, .80),
-                            "wall_right": (.55, .60, .75, .80),
-                        })
+                        run["temporal"] = ddgi_temporal.analyze(text, image, ddgi_temporal.WALL_ROIS)
                     except ValueError as error:
                         run["errors"].append(str(error))
                 elif image.exists() and f" to {image}" in text:
@@ -137,6 +145,22 @@ fly_mode = true
         report["passed"] = complete and live and coverage and all(
             roi["temporal"]["mean"]["max"] <= args.max_mean_jump
             for roi in run["temporal"]["rois"].values())
+        if args.reference:
+            reference_complete = all(runs[name]["returncode"] == 0 and not runs[name]["errors"] and "roi" in runs[name]
+                                     for name in ("settled", "reference"))
+            report["passed"] = report["passed"] and reference_complete
+            if reference_complete:
+                report["independent_ddgi_reference"] = {
+                    "description": "Independent final-geometry DDGI initialization, NOT physical path tracing or HDR",
+                    "capture_delay_seconds": args.duration - 2,
+                    "display_rgb_u8_error": {name: ddgi_temporal.frame_delta(
+                        ddgi_temporal.read_roi(output / "reference.png", roi),
+                        ddgi_temporal.read_roi(output / "settled.png", roi), 3)
+                        for name, roi in ddgi_temporal.WALL_ROIS.items()}}
+                report["reference_matches"] = all(error["p99"] <= args.max_reference_error
+                    for error in report["independent_ddgi_reference"]["display_rgb_u8_error"].values())
+                report["passed"] = report["passed"] and report["reference_matches"]
+            report["max_reference_error_rgb_u8"] = args.max_reference_error
         report["max_mean_jump_rgb_u8"] = args.max_mean_jump
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"passed": report["passed"], "complete": complete, "live": live,

@@ -10,6 +10,11 @@ import subprocess
 from pathlib import Path
 
 
+# Fixed camera receiver rectangles. Do not move these to select favorable A/B results.
+WALL_ROIS = {"wall_left": (.25, .60, .45, .80),
+             "wall_right": (.55, .60, .75, .80)}
+
+
 def percentile(values, fraction):
     if not values:
         raise ValueError("percentile requires samples")
@@ -28,6 +33,7 @@ def frame_delta(previous, current, spike_threshold):
     delta = [sum(abs(current[i + c] - previous[i + c]) for c in range(3)) / 3
              for i in range(0, len(current), 3)]
     return {**summary(delta),
+            "rgb_rmse": math.sqrt(sum((a - b) ** 2 for a, b in zip(previous, current)) / len(current)),
             "spike_area": sum(v > spike_threshold for v in delta) / len(delta)}
 
 

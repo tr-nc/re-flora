@@ -94,3 +94,64 @@ Initial new unit test failed compilation using private AABB `.max` rather than t
 public `.max()` accessor; corrected before validation. No GPU runtime errors in either
 portal run. No generated files changed. Next required work remains independent final-
 geometry DDGI reference, real response controls, and only then attributed experiments.
+
+## Independent final-geometry DDGI comparison
+
+`cave-edits-portal-final` builds the same shell, aperture and all 40 removal cuboids
+in its initial transaction, with no prior DDGI history. The live edit fixture and
+reference share the canonical removal-bound function. A unit test checks all removed
+voxel centers were rock initially and are empty in the independently built final scene;
+the reference has a static lifecycle, not a simulated editing history.
+
+```
+python3 scripts/check_ddgi_cave_edits.py target/history-temporal/portal-reference-final \
+  --temporal --case cave-edits-portal --reference --max-mean-jump 1
+```
+
+Fresh release matrix: RED for transient wall jumps, complete/live. 40 edits, 22 during-
+edit promotions, 46 during-edit captures, maximum sampled gap 104.349ms. Left wall
+maximum mean jump 1.28755/255; right 0.23457/255. The captured edit stream has fewer
+large jumps than the first run, so temporal p95 alone would conceal the repeated
+p99/max failure. This is why the raw per-frame series remains in the report.
+
+Two additional runs capture edited/independent-final scenes at 56 render-elapsed
+seconds with identical camera/config/spacing. Display-RGB errors (not HDR):
+
+| Receiver | mean absolute | component RMSE | pixel p99 | pixel maximum |
+| --- | ---: | ---: | ---: | ---: |
+| left wall | 0.007467 | 0.086410 | 0.333333 | 0.666667 |
+| right wall | 0.022861 | 0.151199 | 0.333333 | 0.666667 |
+
+These are **DDGI-reference comparisons**, not path-tracing truth. They support lack
+of a large persistent history-path error in this specific baseline fixture after 56s;
+they do not establish physical accuracy, a universal settling deadline, or correctness
+of any proposed history reuse. The runner also enforces an explicit configurable
+spatial p99 reference-error budget (default 1/255); this guard was added after the
+matrix above and its reported values meet that budget. Binary and camera hashes are
+now recorded along with source revision/diff and GUI hash.
+
+Validation: fmt/check, 1031 main Rust tests passed (2 ignored), 67 targeted Python
+analyzer tests. Earlier Slang run: all 16 CPU tests passed; no shader changed since.
+Final locked release hidden/muted 0.5s smoke passed with `failures=0`; canonical tail
+in `target/ddgi-reference-smoke-tail.log`. Existing sustained opening/closing runner
+passed at `target/history-temporal/sustained-compatibility` (receiver 86/255 diagnostic,
+not an acceptance brightness floor). Earlier five-run cave/opening compatibility also
+passed. No ERROR/panic/VUID in these GPU runs. GUI/camera bytes are restored. No
+Cargo.lock or generated files changed. No performance claim: sampled captures add
+readback/PNG cost; these are not authoritative no-capture performance comparisons.
+
+## Outstanding scope / handoff
+
+**No lighting fix or candidate A/B checkbox has been implemented.** No history cap,
+sequence, recursive feedback, visibility, relocation, global brightness, material,
+wind or physics behavior has changed. The available lit fixture reproduces only modest
+far-wall transients, not the requested strong near-and-far symptom. Implementing a
+history-retention design before obtaining that loop would violate the diagnosis gate.
+The user's saved lit excavation scene/camera or a stronger procedural reproducer is
+still needed for that exact symptom. Near/far ROI depth auditing, linear HDR readback,
+legacy RFIRR-owner panic diagnosis, distant multi-bounce response, quantified opening
+AND closing response curves, multiple-seed coverage, and runtime A/B experiments remain
+outstanding. The existing alternating skylight runner is liveness compatibility, not
+those response/accuracy measurements. No runtime configuration migration is needed
+because no saved setting was added. This branch is measurement groundwork, **not** a
+finished solution to the requested history-reuse task.
