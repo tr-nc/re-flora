@@ -2518,7 +2518,10 @@ impl DdgiVolume {
                     "initial DDGI update must not retain a current-revision complete field"
                 );
                 self.consecutive_below_threshold = 0;
-                self.set_transport_source_ready(false)?;
+                // A fresh destination has no accumulation history, but geometry updates
+                // can inherit a complete recursive source. Readiness describes that source,
+                // not the destination; false would make hit queries use global sky indoors.
+                self.set_transport_source_ready(resident.source.is_some())?;
             }
             DdgiScheduledWorkKind::RadianceUpdate | DdgiScheduledWorkKind::ConvergenceUpdate => {
                 if radiance_changed {
@@ -3966,6 +3969,19 @@ mod tests {
         assert_eq!(batch.local_refresh_voxel_bound(), Some(local_refresh));
         assert_eq!(batch.irradiance_history_retention(0.99), 0.0);
         assert_eq!(batch.visibility_history_retention(0.99), 0.0);
+
+        let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
+        let mut staging = DdgiVolume::for_test(grid, None);
+        staging
+            .begin_scheduled_work(work, Some(local_refresh), None, None)
+            .unwrap();
+        assert_eq!(staging.transport_query_snapshot.source_ready, 1,
+            "recursive geometry transport must query its inherited source, not unoccluded global sky");
+        let mut initial_volume = DdgiVolume::for_test(grid, None);
+        initial_volume
+            .begin_scheduled_work(initial_work(7, 3, 32), None, None, None)
+            .unwrap();
+        assert_eq!(initial_volume.transport_query_snapshot.source_ready, 0);
     }
 
     #[test]

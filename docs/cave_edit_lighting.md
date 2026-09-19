@@ -36,3 +36,56 @@ passed. No full RFIRR capture is used or claimed validated.
 Harness validation: cargo fmt --check, cargo check, cargo test (1025 main + 4 library,
 2 ignored before adding the roof-bound test); hidden/muted release smoke. Evidence
 `/tmp/cave-{check,tests,smoke-x11}.log`. No generated binding changes.
+
+## Confirmed cause and source-readiness fix
+
+The geometry e0 trace already enables recursive feedback (`pc.has_history != 0`), but
+`DdgiVolume::begin_scheduled_work` unconditionally set `source_ready=0` for geometry.
+`ddgiTransportQueryInfo` copied that bit; the shared domain classifier interprets an
+unready field as GlobalSky. Consequently every front-face terrain hit received
+unoccluded sky as **indirect** irradiance, regardless of cave enclosure, on each new
+e0. Later same-geometry epochs set readiness true and dissipated that injected energy.
+This is not a fixed-color fallback (none was restored), nor ordinary steady leakage.
+
+Diagnostic one-variable experiment: temporarily disabling recursive hit shading gave
+active ROI **0.306865/255** (`target/cave-edits/no-recursion`). Restoring recursion and
+changing readiness to `resident.source.is_some()` gave **0.306870/255**
+(`target/cave-edits/source-ready`). Thus fresh sky misses/direct hit light are not the
+source of this fixture's excess; it enters through the recursive unready query. The
+no-recursion diagnostic was removed. Visibility/filter/normalization code was unchanged.
+The lifecycle regression `terrain_staging_reads_resident_history_through_the_external_source_slot`
+failed with source_ready 0 vs expected 1 before the fix (`/tmp/cave-source-ready-red.log`).
+It now checks both inherited-source and initial-no-source cases and passes.
+
+Full matched retest:
+`python3 scripts/check_ddgi_cave_edits.py target/cave-edits/source-ready-full` **GREEN**.
+
+| Central RGB mean /255 | Baseline | Source-ready fix |
+|---|---:|---:|
+| Active | 41.012900 | 0.306870 |
+| Active repeat | 41.105900 | 0.306870 |
+| Settled, same final geometry | 0.318261 | 0.306881 |
+| Sealed, no edits | 0.306851 | 0.306851 |
+| Actual skylight opened | 40.877900 | 40.872800 |
+
+Every edit run completed 40 real terrain publications and **22 complete DDGI promotions
+during the gesture**, with no ERROR/panic/VUID. Active/settled images are nearly black;
+the opening remains visibly bright. The small residual dark value is measured, not
+claimed zero energy. No geometry/physics, convergence schedule, history retention,
+brightness, or rendering settings changed. The GUI hash is identical in both runs.
+Sparse active-gesture release GPU render mean/max (microseconds): baseline active
+5092.9/6250, repeat 4828.6/5480; fixed active 4836.2/5882, repeat 4701.7/4810. These are
+not controlled performance acceptance measurements; no speedup is claimed.
+
+Validation: fmt/check, 1026 main + 4 library tests (2 ignored), 16 Slang CPU tests,
+63 analyzer tests, hidden/muted release smoke all pass (`/tmp/cave-ready-*.log`). The
+existing sustained skylight runner also passes in `target/cave-edits/source-ready-sustained`
+(receiver 86/255, no errors). No generated files changed for this Rust-only fix.
+Unrelated regenerated Cargo.lock registry metadata is excluded. Full RFIRR capture
+remains untested; the separately recorded baseline evidence-owner panic is not waived.
+
+One additional source-tuple concern remains under investigation: transport atlas
+bindings select the inherited field, but the shared probe metadata binding selects
+the destination placement. The readiness fix exposes that path correctly for the
+first time during local e0. This closed-roof fixture does not establish accuracy when
+relocation changes; it needs ownership repair/validation rather than a brightness tweak.
