@@ -753,9 +753,17 @@ mod tests {
     }
 
     #[test]
-    fn old_butterfly_settings_gain_zero_transmission_without_other_changes() {
+    fn old_butterfly_settings_gain_authored_transmission_without_other_changes() {
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let authored_transmission = config
+            .section
+            .iter()
+            .flat_map(|section| &section.param)
+            .find(|param| param.id == "butterfly_wing_transmission")
+            .unwrap()
+            .value
+            .get_float();
         for section in &mut config.section {
             section
                 .param
@@ -772,7 +780,7 @@ mod tests {
             .flat_map(|s| &s.param)
             .find(|p| p.id == "butterfly_wing_transmission")
             .unwrap();
-        assert_eq!(transmission.value.get_float().unwrap().0, 0.);
+        assert_eq!(transmission.value.get_float(), authored_transmission);
         for section in &mut loaded.section {
             section
                 .param
