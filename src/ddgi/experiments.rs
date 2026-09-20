@@ -21,11 +21,6 @@ impl DdgiExperimentLatch {
     ) -> DdgiExperimentSettings {
         let Some(field) = field else { return requested };
         if self.field.is_none_or(|(previous, _)| previous != field) {
-            log::info!(
-                "[DDGI][EXPERIMENT] field={field:?} continuous_sampling={} aggregate_history={}",
-                requested.continuous_sampling,
-                requested.aggregate_history
-            );
             self.field = Some((field, requested));
         }
         self.field.expect("latched field").1
