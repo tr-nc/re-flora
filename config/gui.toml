@@ -32,10 +32,11 @@ scale = 5.0
 variant = "Darting"
 
 [butterfly_flight.tuning]
+wingbeat_coupling = true
 flight_frequency_hz = 6.0
 height_above_ground = 0.08
 maneuver_tempo = 2.75
-vertical_strength = 3.2
+vertical_strength = 4.0
 turn_sharpness = 1.0
 speed = 0.25
 wind_drift = 1.0
@@ -2202,7 +2203,7 @@ label = "Wing Light Transmission (0 = Opaque, 1 = Equal Sides)"
 type = "Float"
 
 [section.param.data]
-value = 0.8
+value = 0.9
 min = 0
 max = 1
 
