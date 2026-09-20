@@ -32,7 +32,7 @@ public float3 terrainColorAtVoxel(U_VoxelColors colors, uint voxelType,
 {
     return applyTerrainMaterial(voxelColorByType(colors, voxelType), voxelType,
         voxelCenterWorld, colors.terrain_variation,
-        colors.terrain_seed, colors.terrain_enabled);
+        colors.terrain_seed);
 }
 
 public float3 voxelSurfaceEmission(U_VoxelColors colors, uint voxelType)
@@ -77,7 +77,7 @@ public float3 ddgiTerrainColorAtVoxel(U_DdgiRadianceVoxelPalette colors,
 {
     return applyTerrainMaterial(ddgiVoxelColorByType(colors, voxelType), voxelType,
         voxelCenterWorld, colors.terrain_variation,
-        colors.terrain_seed, colors.terrain_enabled);
+        colors.terrain_seed);
 }
 
 public float3 applyTerrainMoisture(float3 baseColor, uint voxelType, uint moistureLevel)

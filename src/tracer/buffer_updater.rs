@@ -220,7 +220,6 @@ impl BufferUpdater {
             emissive_radiance: palette.emissive_radiance,
             terrain_variation: terrain.variation,
             terrain_seed: terrain.seed,
-            terrain_enabled: terrain.enabled,
             ..VoxelColors::zeroed()
         })
     }

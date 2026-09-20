@@ -1,6 +1,22 @@
 # Procedural terrain materials
 
-## 当前：逐 voxel 独立颜色变化
+## 当前：已接受的逐 voxel 颜色
+
+用户已认可逐 voxel 效果，要求只保留新逻辑。A/B checkbox 与旧模式运行时分支已删除；
+Cool Dark / Warm Light Band 滑杆也已删除，固定为共享 Slang 源中的 `TERRAIN_COLOR_BAND = 0.25`。
+该源码仍参与 compiled radiance-model identity，live 与 DDGI 不会各用一份不同常量。
+
+Debug → **Terrain Material** 只保留土壤/沙地强度、岩石强度和 seed。保留用户试用时保存的
+土壤强度 **0.135**；岩石 **0.32**，seed **17**。没有开关需要勾选。零强度自然得到基色，
+不是保留旧模式。旧 GUI 的开关/冷暖色带字段加载时退休，不覆盖仍有效的用户设置。
+
+palette 现为 **112 字节**（两个强度 float + seed，相对原 main 增加 16 字节），运行时
+材质 identity 仅包含三个有效控制。详情与最终验证见
+[逐 voxel 迭代记录](terrain_material_per_voxel.md#用户接受后的收尾2026-09-20)。
+
+以下 A/B、五项参数、128 字节布局等描述为接受前的**历史记录**，不代表当前 UI/API。
+
+## 历史：逐 voxel 独立颜色变化
 
 用户视觉复评否定了连续宏观斑驳：即使 scale 最低为 8，邻近 voxel 的渐变也不是所需效果。
 现改为 Dirt/Sand/Rock 各体素按 `floor(worldPosition * 256)` 和 seed 哈希取得稳定颜色，

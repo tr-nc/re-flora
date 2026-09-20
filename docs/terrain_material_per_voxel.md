@@ -2,6 +2,8 @@
 
 日期：2026-09-20。Worker：`agent/terrain-material-refresh`，起点 `7bdd3640`。
 
+> 以下 A/B 阶段记录对应 `6d55135b`。用户随后接受效果，当前唯一逻辑与最终验证见文末“用户接受后的收尾”。
+
 ## 用户反馈与实现
 
 用户试用了从固定 `c47050223d0394f2e36eb3074b8caa646ad5fe7a` 迁移的宏观候选，认为尺度过大，明确希望相邻 voxel 独立变色，而非连续渐变；批准按体素坐标生成稳定颜色并以强度控制。
@@ -41,3 +43,21 @@
 未自动重启可见游戏；等待用户下一次试用。独立颜色不是保证所有相邻 voxel 肉眼不同：强度为零、暗色、色彩量化都会降低差异。逐 voxel 细节在远处可能混叠，本次没有新的移动相机/抗闪烁接受或交互切换 GPU 捕获。
 
 旧宏观候选的 +2.17% GPU 和失败 gate 保留在 `terrain_materials.md` 的历史部分，不是本实现测量。本次没有性能优化/新阈值或性能通过声明；先供视觉复评。
+
+## 用户接受后的收尾（2026-09-20）
+
+用户确认新效果不错，授权移除 A/B、老模式和看不出区别的冷暖色带控件。新的 per-voxel 求值成为唯一材质路径；不再传 enabled，也不保留运行时旧模式分支。冷暖系数固定为 `shader/slang/terrain_material.slang` 的命名常量 0.25，受现有 compiled model hash 保护。
+
+保留用户刚保存的土壤强度 0.135，Rust fallback 同步；岩石 0.32、seed 17 不变。shader/Rust identity 移除 enabled/color-band，两个 palette 从 128 降为 112 字节。旧配置会移除旧开关、冷暖色带、早期 scale/tilt，保留强度/seed；测试包含旧 false 开关，不能再使新逻辑关闭。通用 base-color helper 与零强度分支仍用于组合材质，不是旧实验模式。
+
+最终证据：`target/terrain-material-final/`。
+
+- fmt/check 通过；完整 Rust 1032 + 4 通过，2 ignored，0 filtered。
+- 17 Slang CPU 测试通过，材质 `failures=0 reseeded=128 neighbors_changed=128,128,128`；63 capture analyzer 测试通过。
+- 必需 release hidden/muted 0.5s smoke 通过；同一二进制额外加载 `6d55135b` 实际旧 GUI（含 false 开关）也通过。沿用 X11 环境和 GPU lock，没有启动可见游戏。
+- 本 worktree 的 `--latest-log` / `--tail-latest-log 200` helpers 和完整日志扫描无 ERROR/panic/VUID，正常退出，`failures=0`。
+- Canonical logs：`target/re-flora-logs/re-flora-20260920-221022.165-1011598.log`、`re-flora-20260920-221102.215-1012738.log`。
+- GUI/camera SHA-256 在验证前后完全一致；原用户的 0.135 是有意保留的输入，不是测试写回。
+- GUI/GPU 生成绑定由 `cargo check` 重建；RFIRR fixture 从 Rust serializer 输出更新，仅 8 字节模型身份变化。首次测试的旧 fixture hash 失败及最终通过日志均保留。
+
+本次用户接受的是视觉效果，仍没有新的性能接受测量或阈值。用户另授权通过 Dispatch 交给 main Worker 集成，只有 main 验证成功、源 HEAD 被包含且当前 Worker settled/clean 后才能移除当前 Worker；旧 `re-flora-terrain-material`、远端分支及其他 Worker 必须保留。

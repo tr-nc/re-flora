@@ -695,10 +695,9 @@ pub struct DdgiRadianceVoxelPalette {
     pub _pad4: [u8; 4],
     pub emissive_color: [f32; 3],
     pub emissive_radiance: f32,
-    pub terrain_variation: [f32; 4],
+    pub terrain_variation: [f32; 2],
     pub terrain_seed: u32,
-    pub terrain_enabled: u32,
-    pub _pad5: [u8; 8],
+    pub _pad5: [u8; 4],
 }
 
 /// Auto-generated from `U_DdgiTransportQueryInfo` (native Slang source of truth).
@@ -1140,10 +1139,9 @@ pub struct VoxelColors {
     pub _pad4: [u8; 4],
     pub emissive_color: [f32; 3],
     pub emissive_radiance: f32,
-    pub terrain_variation: [f32; 4],
+    pub terrain_variation: [f32; 2],
     pub terrain_seed: u32,
-    pub terrain_enabled: u32,
-    pub _pad5: [u8; 8],
+    pub _pad5: [u8; 4],
 }
 
 /// Auto-generated from `U_VoxelPropertySampleInfo` (native Slang source of truth).

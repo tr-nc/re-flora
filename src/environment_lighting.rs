@@ -135,7 +135,7 @@ struct DdgiRadianceIdentity {
     ddgi_receiver_visibility_bias_world: u32,
     glass_experiment_enabled: bool,
     glass_material_revision: u32,
-    terrain_material: [u32; 5],
+    terrain_material: [u32; 3],
     dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
@@ -733,19 +733,11 @@ mod tests {
         let base = TerrainMaterialParams::default();
         let variants = [
             TerrainMaterialParams {
-                enabled: !base.enabled,
-                ..base
-            },
-            TerrainMaterialParams {
                 soil_strength: 0.6,
                 ..base
             },
             TerrainMaterialParams {
                 rock_strength: 0.5,
-                ..base
-            },
-            TerrainMaterialParams {
-                color_band: 0.8,
                 ..base
             },
             TerrainMaterialParams {

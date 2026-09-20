@@ -74,6 +74,8 @@ impl GuiConfigLoader {
                         | "terrain_soil_scale_voxels"
                         | "terrain_rock_scale_voxels"
                         | "terrain_rock_layer_tilt"
+                        | "terrain_material_enabled"
+                        | "terrain_material_color_band"
                 )
             });
         }
@@ -642,7 +644,7 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn terrain_material_migration_preserves_authored_settings_and_defaults_to_original() {
+    fn terrain_material_migration_preserves_authored_settings_and_adds_missing_controls() {
         use crate::app::gui_config_model::GuiParamValue;
         for partial in [false, true] {
             let mut config: GuiConfigFile =
@@ -653,8 +655,12 @@ mod tests {
                 .find(|s| s.name == "Terrain Material")
                 .unwrap();
             if partial {
-                section.param.retain(|p| p.id == "terrain_material_enabled");
-                section.param[0].value = GuiParamValue::Bool { value: true };
+                section.param.retain(|p| p.id == "terrain_soil_strength");
+                section.param[0].value = GuiParamValue::Float {
+                    value: 0.6,
+                    min: Some(0.0),
+                    max: Some(0.75),
+                };
             } else {
                 config.section.retain(|s| s.name != "Terrain Material");
             }
@@ -678,8 +684,10 @@ mod tests {
                 );
             }
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
-            assert_eq!(gui.terrain_material_enabled.value, partial);
-            assert_eq!(gui.terrain_soil_strength.value, 0.35);
+            assert_eq!(
+                gui.terrain_soil_strength.value,
+                if partial { 0.6 } else { 0.135 }
+            );
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             assert_eq!(
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
@@ -689,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn old_macro_material_controls_retire_without_resetting_saved_variation() {
+    fn retired_material_controls_do_not_reset_saved_variation() {
         use crate::app::gui_config_model::GuiParamValue;
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -716,6 +724,7 @@ mod tests {
             "terrain_soil_scale_voxels",
             "terrain_rock_scale_voxels",
             "terrain_rock_layer_tilt",
+            "terrain_material_color_band",
         ] {
             let mut retired = section
                 .param
@@ -726,6 +735,11 @@ mod tests {
             retired.id = id.into();
             section.param.push(retired);
         }
+        let mut retired_toggle = section.param[0].clone();
+        retired_toggle.id = "terrain_material_enabled".into();
+        retired_toggle.kind = crate::app::gui_config_model::GuiParamKind::Bool;
+        retired_toggle.value = GuiParamValue::Bool { value: false };
+        section.param.push(retired_toggle);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("gui.toml");
         GuiConfigLoader::save_to_path(&config, &path).unwrap();

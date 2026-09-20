@@ -2306,22 +2306,13 @@ value = "#7A7D80"
 name = "Terrain Material"
 
 [[section.param]]
-id = "terrain_material_enabled"
-kind = "bool"
-label = "A/B: Per-Voxel Color Variation (off = original)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "terrain_soil_strength"
 kind = "float"
 label = "Soil / Sand Color Variation Strength"
 type = "Float"
 
 [section.param.data]
-value = 0.35
+value = 0.135
 min = 0
 max = 0.75
 
@@ -2335,17 +2326,6 @@ type = "Float"
 value = 0.32
 min = 0
 max = 0.75
-
-[[section.param]]
-id = "terrain_material_color_band"
-kind = "float"
-label = "Cool Dark / Warm Light Band"
-type = "Float"
-
-[section.param.data]
-value = 0.25
-min = 0
-max = 1
 
 [[section.param]]
 id = "terrain_material_seed"
