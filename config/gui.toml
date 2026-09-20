@@ -37,7 +37,7 @@ height_above_ground = 0.08
 maneuver_tempo = 2.75
 vertical_strength = 3.2
 turn_sharpness = 1.0
-speed = 0.4
+speed = 0.25
 wind_drift = 1.0
 
 [tree]
@@ -2222,7 +2222,7 @@ label = "Preview 7 Palettes Near / Mid / Far (Camera-relative)"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "butterfly_spawn_rate_per_source"
