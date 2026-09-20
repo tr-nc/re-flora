@@ -13,6 +13,10 @@ static const float DDGI_FOUR = 4.0;
 readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
     ddgi_probe_metadata;
 
+[[vk::binding(40, 0)]]
+readonly GLSLShaderStorageBuffer<B_DdgiProbeMetadata, Std430DataLayout>
+    ddgi_transport_source_probe_metadata;
+
 [[vk::binding(25, 0)]]
 readonly GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
     ddgi_transient_ray_data;
@@ -58,10 +62,23 @@ void main(uint3 groupId : SV_GroupID,
     DdgiFilterHistoryDecision historyDecision = ddgiFilterHistoryDecision(
         pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
         pc.local_refresh_enabled.y, pc.history_retention);
+    bool samePlacement = false;
+    if (pc.filter_evidence.y != 0u)
+    {
+        // Geometry-changing e0 reads the immutable source placement. Later iterations use the
+        // same geometry/placement as their source, even when the atlas slot has ping-ponged.
+        DdgiProbeMetadata sourceMetadata = pc.filter_evidence.z != 0u
+            ? ddgi_transport_source_probe_metadata.data[probeIndex] : metadata;
+        samePlacement = ddgiAggregatePlacementMatches(metadata, sourceMetadata);
+        historyDecision = ddgiAggregateHistoryDecision(
+            metadata, sourceMetadata, pc.local_refresh_world_min.xyz,
+            pc.local_refresh_world_max.xyz, pc.history_retention);
+    }
     bool electedEvidenceLane = all(localInvocationId.xy == uint2(0u));
     bool freshAvailable =
         metadata.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
         metadata.state_and_reserved.y == pc.terrain_revision;
+    ddgiOwnerHistoryDiagnostic(electedEvidenceLane, historyDecision, freshAvailable, pc.filter_evidence.y != 0u, samePlacement);
     float4 history = float4(0.0);
     if (pc.has_history != 0u)
         history = ddgiOwnerLoadIrradiance(pc.source_slot, atlasCoordinate);

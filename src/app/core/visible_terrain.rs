@@ -153,7 +153,7 @@ pub(super) trait VisibleTerrainPublicationHost {
         revision: u32,
         affected_voxels: UAabb3,
     ) -> Result<()>;
-    fn commit_visible_terrain_revision(&mut self, revision: u32);
+    fn commit_visible_terrain_revision(&mut self, revision: u32, affected_voxels: UAabb3);
     fn discard_previous_terrain_edits(&mut self) -> Result<()>;
     fn prepare_snapshot_world_collider_import(&mut self) -> Result<()>;
     fn begin_world_collider_import(&mut self) -> Result<usize>;
@@ -418,7 +418,7 @@ impl VisibleTerrainPublication {
         if let Some(revision) = revision {
             host.mark_terrain_colliders_dirty(self.affected_voxels);
             host.ddgi_observe_visible_terrain(revision, self.affected_voxels)?;
-            host.commit_visible_terrain_revision(revision);
+            host.commit_visible_terrain_revision(revision, self.affected_voxels);
         }
         self.changed_revision = revision;
         Ok(())
@@ -532,7 +532,11 @@ impl VisibleTerrainPublicationHost for App {
             .observe_published_environment_probe_terrain(revision, affected_voxels)
     }
 
-    fn commit_visible_terrain_revision(&mut self, revision: u32) {
+    fn commit_visible_terrain_revision(&mut self, revision: u32, affected_voxels: UAabb3) {
+        self.tracer
+            .raster_trees
+            .source
+            .observe_terrain(revision, affected_voxels);
         self.visible_terrain_revision = revision;
     }
 
@@ -735,7 +739,7 @@ mod tests {
             Ok(())
         }
 
-        fn commit_visible_terrain_revision(&mut self, revision: u32) {
+        fn commit_visible_terrain_revision(&mut self, revision: u32, _affected_voxels: UAabb3) {
             self.events.push(Event::Revision(revision));
             self.revision = revision;
         }

@@ -328,7 +328,7 @@ pub struct RasterTreeGeometry {
     pub skin: GpuTreeSkin,
     pub indices: Resource<Buffer>,
     pub index_count: u32,
-    pub revision: Option<u32>,
+    pub(crate) source: super::tree_surface_cache::TreeSurfaceCache,
     pub enabled: bool,
     pub color_draws: u64,
     pub rest_mesh: RasterTreeMesh,
@@ -352,7 +352,7 @@ impl RasterTreeGeometry {
                 4,
             )),
             index_count: 0,
-            revision: None,
+            source: super::tree_surface_cache::TreeSurfaceCache::default(),
             enabled: false,
             color_draws: 0,
             rest_mesh: RasterTreeMesh::default(),
@@ -465,7 +465,6 @@ impl RasterTreeGeometry {
         device: Device,
         allocator: Allocator,
         mesh: &RasterTreeMesh,
-        revision: u32,
     ) -> Result<()> {
         let count = u32::try_from(mesh.indices.len())?;
         let draw_indices = mesh.indices.as_slice();
@@ -490,7 +489,6 @@ impl RasterTreeGeometry {
         self.posed_surface = None;
         self.rest_mesh = mesh.clone();
         self.index_count = count;
-        self.revision = Some(revision);
         Ok(())
     }
 }

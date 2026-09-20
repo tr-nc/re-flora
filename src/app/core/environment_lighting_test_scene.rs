@@ -222,6 +222,8 @@ const SHELL_MIN: Vec3 = Vec3::new(96.0, 84.0, 216.0);
 const SHELL_MAX: Vec3 = Vec3::new(238.0, 236.0, 392.0);
 const INTERIOR_MIN: Vec3 = Vec3::new(112.0, 100.0, 242.0);
 const INTERIOR_MAX: Vec3 = Vec3::new(222.0, 216.0, 376.0);
+const CAVE_PORTAL_MIN: Vec3 = Vec3::new(202.0, 216.0, 300.0);
+const CAVE_PORTAL_MAX: Vec3 = Vec3::new(218.0, 244.0, 320.0);
 const SKYLIGHT_MIN: Vec3 = Vec3::new(144.0, 216.0, 270.0);
 const SKYLIGHT_MAX: Vec3 = Vec3::new(192.0, 244.0, 334.0);
 
@@ -550,13 +552,16 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::Walls
             | EnvironmentLightingTestCase::Donor
-            | EnvironmentLightingTestCase::Dogleg => Self::Static,
+            | EnvironmentLightingTestCase::Dogleg
+            | EnvironmentLightingTestCase::CaveEditsPortalFinal => Self::Static,
             EnvironmentLightingTestCase::DensityChanges
             | EnvironmentLightingTestCase::TerrainEdits
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
             EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
@@ -1580,7 +1585,7 @@ fn test_rebuild_bound(case: EnvironmentLightingTestCase) -> UAabb3 {
 impl TestSceneGeometry {
     fn build(case: EnvironmentLightingTestCase) -> Self {
         let test_rebuild_bound = test_rebuild_bound(case);
-        let (cleared_test_scene, rock, carved_empty, sand) = match case {
+        let (cleared_test_scene, rock, mut carved_empty, sand) = match case {
             EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
             | EnvironmentLightingTestCase::Sealed
@@ -1588,6 +1593,18 @@ impl TestSceneGeometry {
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
                 vec![Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX)],
+                Vec::new(),
+            ),
+            EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
+            | EnvironmentLightingTestCase::CaveEditsPortalFinal => (
+                Vec::new(),
+                vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
+                vec![
+                    Cuboid::from_min_max(INTERIOR_MIN, INTERIOR_MAX),
+                    // A persistent small light opening disjoint from all shallow removals.
+                    Cuboid::from_min_max(CAVE_PORTAL_MIN, CAVE_PORTAL_MAX),
+                ],
                 Vec::new(),
             ),
             EnvironmentLightingTestCase::Portal
@@ -1657,6 +1674,12 @@ impl TestSceneGeometry {
             ),
         };
 
+        if case == EnvironmentLightingTestCase::CaveEditsPortalFinal {
+            carved_empty.extend((0..40).map(|count| {
+                let bound = cave_interior_edit_bound(count);
+                Cuboid::from_min_max(bound.min().as_vec3(), bound.max().as_vec3())
+            }));
+        }
         let emissive = if case == EnvironmentLightingTestCase::PointLightChanges {
             vec![Cuboid::from_min_max(
                 POINT_LIGHT_EMISSIVE_MIN,
@@ -1717,15 +1740,30 @@ fn prepare_initial_environment_lighting_test_scene(
         .context("compile deterministic environment-lighting test scene")
 }
 
+// Hidden runtime compatibility replay: same portal geometry and forty edits, all saved control
+// combinations, ending back in original mode. No special renderer or publication path.
+fn ddgi_history_toggle_phase(edit: u32) -> (bool, bool) {
+    [
+        (false, false),
+        (true, false),
+        (false, true),
+        (true, true),
+        (false, false),
+    ][(edit / 8) as usize]
+}
+
 fn is_cave_edit_case(case: EnvironmentLightingTestCase) -> bool {
     matches!(
         case,
-        EnvironmentLightingTestCase::CaveEdits | EnvironmentLightingTestCase::CaveEditsOpen
+        EnvironmentLightingTestCase::CaveEdits
+            | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
     )
 }
 
 // Forty disjoint shallow removals expose new roof surfaces but leave 18 voxels of roof.
-fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
+fn cave_interior_edit_bound(count: u32) -> UAabb3 {
     assert!(count < 40);
     let min = Vec3::new(
         144.0 + (count % 10) as f32 * 4.0,
@@ -1733,12 +1771,20 @@ fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
         274.0 + (count / 10) as f32 * 4.0,
     );
     let max = min + Vec3::new(4.0, 2.0, 4.0);
+    UAabb3::new(min.as_uvec3(), max.as_uvec3())
+}
+
+fn cave_interior_edit_plan(count: u32) -> Result<WorldEditTransaction> {
+    let bound = cave_interior_edit_bound(count);
     Ok(WorldEditTransaction::terrain_change(
         vec![stamp_cuboids(
-            vec![Cuboid::from_min_max(min, max)],
+            vec![Cuboid::from_min_max(
+                bound.min().as_vec3(),
+                bound.max().as_vec3(),
+            )],
             VOXEL_TYPE_EMPTY,
         )?],
-        UAabb3::new(min.as_uvec3(), max.as_uvec3()),
+        bound,
     ))
 }
 
@@ -1893,6 +1939,9 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::TerrainEditsInflightCapture
         | EnvironmentLightingTestCase::CaveEdits
         | EnvironmentLightingTestCase::CaveEditsOpen
+        | EnvironmentLightingTestCase::CaveEditsPortal
+        | EnvironmentLightingTestCase::CaveEditsHistoryToggles
+        | EnvironmentLightingTestCase::CaveEditsPortalFinal
         | EnvironmentLightingTestCase::TerrainEditsSustained
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
@@ -3131,6 +3180,23 @@ impl App {
             if let Some((last_edit, count)) = environment.sustained_edits {
                 if count < 40 {
                     if last_edit.elapsed().as_secs_f32() >= 0.1 {
+                        if case == EnvironmentLightingTestCase::CaveEditsHistoryToggles
+                            && count % 8 == 0
+                        {
+                            let (sequence, aggregate) = ddgi_history_toggle_phase(count);
+                            self.debug_settings
+                                .adjustables
+                                .ddgi_continuous_sampling
+                                .value = sequence;
+                            self.debug_settings.adjustables.ddgi_aggregate_history.value =
+                                aggregate;
+                            log::info!(
+                                "[DDGI_HISTORY_TOGGLE] edit={} sequence={} aggregate={}",
+                                count,
+                                sequence,
+                                aggregate
+                            );
+                        }
                         let edit = if count % 2 == 0 {
                             TerrainEdit::CloseSkylight
                         } else {
@@ -6324,6 +6390,8 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::CaveEdits
             | EnvironmentLightingTestCase::CaveEditsOpen
+            | EnvironmentLightingTestCase::CaveEditsPortal
+            | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::TerrainEditsSustained
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
@@ -7090,6 +7158,30 @@ mod tests {
     }
 
     #[test]
+    fn history_toggle_replay_covers_each_live_mode_and_returns_to_original() {
+        assert_eq!(
+            (0..40)
+                .step_by(8)
+                .map(ddgi_history_toggle_phase)
+                .collect::<Vec<_>>(),
+            vec![
+                (false, false),
+                (true, false),
+                (false, true),
+                (true, true),
+                (false, false)
+            ]
+        );
+        let original = TestSceneGeometry::build(EnvironmentLightingTestCase::CaveEditsPortal);
+        let toggles =
+            TestSceneGeometry::build(EnvironmentLightingTestCase::CaveEditsHistoryToggles);
+        assert_eq!(
+            format!("{:?}", original.compile().unwrap()),
+            format!("{:?}", toggles.compile().unwrap())
+        );
+    }
+
+    #[test]
     fn cave_edits_never_breach_the_roof() {
         for count in 0..40 {
             let min = UVec3::new(144 + (count % 10) * 4, 216, 274 + (count / 10) * 4);
@@ -7112,6 +7204,71 @@ mod tests {
             let geometry = TestSceneGeometry::build(case);
             assert_eq!(geometry.carved_empty.len(), 1);
         }
+    }
+
+    #[test]
+    fn independent_lit_cave_reference_contains_exactly_the_completed_removals() {
+        let final_scene = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::CaveEditsPortalFinal,
+        )
+        .unwrap();
+        let initial = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::CaveEditsPortal,
+        )
+        .unwrap();
+        for count in 0..40 {
+            let bound = cave_interior_edit_bound(count);
+            for x in bound.min().x..bound.max().x {
+                for y in bound.min().y..bound.max().y {
+                    for z in bound.min().z..bound.max().z {
+                        let sample = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+                        assert_eq!(
+                            initial.planned_cuboid_voxel_type_at(sample),
+                            Some(VOXEL_TYPE_ROCK)
+                        );
+                        assert_eq!(
+                            final_scene.planned_cuboid_voxel_type_at(sample),
+                            Some(VOXEL_TYPE_EMPTY)
+                        );
+                    }
+                }
+            }
+        }
+        assert!(!is_cave_edit_case(
+            EnvironmentLightingTestCase::CaveEditsPortalFinal
+        ));
+        assert_eq!(
+            EnvironmentPhaseFamily::for_case(EnvironmentLightingTestCase::CaveEditsPortalFinal),
+            EnvironmentPhaseFamily::Static
+        );
+    }
+
+    #[test]
+    fn lit_cave_edits_leave_the_persistent_aperture_unchanged() {
+        let initial = prepare_initial_environment_lighting_test_scene(
+            EnvironmentLightingTestCase::CaveEditsPortal,
+        )
+        .unwrap();
+        let center = (CAVE_PORTAL_MIN + CAVE_PORTAL_MAX) * 0.5;
+        assert_eq!(
+            initial.planned_cuboid_voxel_type_at(center),
+            Some(VOXEL_TYPE_EMPTY)
+        );
+        for count in 0..40 {
+            let plan = cave_interior_edit_plan(count).unwrap();
+            assert_eq!(plan.planned_cuboid_voxel_type_at(center), None);
+            let bounds = plan
+                .affected_voxels(crate::app::core::VOXEL_DIM_PER_CHUNK)
+                .unwrap()
+                .unwrap();
+            assert!(bounds.max().x < CAVE_PORTAL_MIN.x as u32);
+        }
+        assert!(is_cave_edit_case(
+            EnvironmentLightingTestCase::CaveEditsPortal
+        ));
+        assert!(is_cave_edit_case(
+            EnvironmentLightingTestCase::CaveEditsHistoryToggles
+        ));
     }
 
     #[test]

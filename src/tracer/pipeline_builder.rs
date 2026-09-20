@@ -2051,6 +2051,8 @@ impl PipelineTopology {
         write_resource!(trace, "ddgi_radiance_voxel_palette");
         write_resource!(trace, "ddgi_transport_query_info");
         write_resource!(trace, "ddgi_transport_source_probe_metadata");
+        write_resource!(irradiance_filter, "ddgi_transport_source_probe_metadata");
+        write_resource!(visibility_filter, "ddgi_transport_source_probe_metadata");
         write_resource!(trace, "ddgi_local_light_info");
         write_resource!(trace, "ddgi_local_lights");
         write_resource!(trace, "ddgi_transport_source_irradiance_atlas");

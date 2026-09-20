@@ -177,6 +177,7 @@ pub(crate) struct DdgiRuntimeWork {
     authored_lighting: EnvironmentLightingState,
     radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
     local_refresh_voxel_bound: Option<UAabb3>,
+    edited_voxel_bound: Option<UAabb3>,
     probe_priority: Option<DdgiProbePriority>,
 }
 
@@ -1567,6 +1568,8 @@ impl DdgiRuntime {
             authored_lighting,
             radiance_history_policy,
             local_refresh_voxel_bound,
+            edited_voxel_bound: local_refresh_voxel_bound
+                .and(self.terrain_refresh.edited_voxel_bound()),
             probe_priority,
         })
     }
@@ -1587,6 +1590,7 @@ impl DdgiRuntime {
         builder.begin_scheduled_work(
             work.scheduled,
             work.local_refresh_voxel_bound,
+            work.edited_voxel_bound,
             work.radiance_history_policy,
             work.probe_priority,
         )?;

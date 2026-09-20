@@ -26,6 +26,7 @@ pub use geometry_preview_resources::*;
 
 mod raster_tree;
 mod tree_scene;
+pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
 pub use tree_scene::TreeAttachment;
@@ -354,6 +355,7 @@ struct DdgiVisibilityFilterPushConstants {
 struct DdgiPendingTraceStatsReadback {
     batch: DdgiRayBatch,
     filter_configuration: DdgiFilterConfigurationIdentity,
+    continuous_sampling: bool,
 }
 
 struct DdgiFrameEncoding {
@@ -373,6 +375,8 @@ struct DdgiFrameEncoder<'a> {
     chunk_bound: UAabb3,
     voxels_per_world_unit: UVec3,
     history_retention: f32,
+    aggregate_history: bool,
+    sampling_progress: Option<&'a crate::ddgi::DdgiSamplingProgress>,
     capture_enabled: bool,
     glass_experiment_enabled: bool,
 }
@@ -474,6 +478,7 @@ impl DdgiFrameEncoder<'_> {
                 .record_trace_readback(cmdbuf, plan.iteration_will_complete);
             DdgiPendingTraceStatsReadback {
                 batch,
+                continuous_sampling: self.sampling_progress.is_some(),
                 filter_configuration: DdgiFilterConfigurationIdentity::from_grid(
                     self.frame.grid(),
                     self.history_retention,
@@ -540,6 +545,13 @@ impl DdgiFrameEncoder<'_> {
         )
     }
 
+    fn rotation(&self, batch: DdgiRayBatch) -> [f32; 4] {
+        self.sampling_progress.map_or_else(
+            || batch.epoch_rotation(),
+            |progress| progress.rotation(batch),
+        )
+    }
+
     fn record_probe_trace(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
         let far_distance_world = self.chunk_bound.dimensions().as_vec3().length() * 2.0;
         let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
@@ -552,7 +564,7 @@ impl DdgiFrameEncoder<'_> {
             source_slot: batch.source_slot_index(),
             far_distance_world,
             _padding: [0; 2],
-            epoch_rotation: batch.epoch_rotation(),
+            epoch_rotation: self.rotation(batch),
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
@@ -565,8 +577,22 @@ impl DdgiFrameEncoder<'_> {
     }
 
     fn record_irradiance_filter(&self, cmdbuf: &CommandBuffer, batch: DdgiRayBatch) {
-        let (local_refresh_enabled, local_refresh_world_min, local_refresh_world_max) =
+        let (local_refresh_enabled, mut local_refresh_world_min, mut local_refresh_world_max) =
             self.local_refresh_push_constants(batch);
+        let reuse_bound = batch.edited_voxel_bound().filter(|_| {
+            self.aggregate_history
+                && batch.irradiance_history_is_valid()
+                && batch.source().is_some_and(|source| {
+                    source.field().radiance_revision() == batch.radiance_revision()
+                })
+        });
+        if let Some(bound) = reuse_bound {
+            let scale = self.voxels_per_world_unit.as_vec3();
+            let min = bound.min().as_vec3() / scale;
+            let max = bound.max().as_vec3() / scale;
+            local_refresh_world_min = [min.x, min.y, min.z, 0.0];
+            local_refresh_world_max = [max.x, max.y, max.z, 0.0];
+        }
         let push_constants = DdgiAtlasFilterPushConstants {
             first_probe_index: batch.first_probe_index,
             probe_count: batch.probe_count,
@@ -575,12 +601,24 @@ impl DdgiFrameEncoder<'_> {
             destination_is_transport_source: u32::from(batch.destination_is_transport_source()),
             source_slot: batch.source_slot_index(),
             has_history: u32::from(batch.irradiance_history_is_valid()),
-            history_retention: batch.irradiance_history_retention(self.history_retention),
-            epoch_rotation: batch.epoch_rotation(),
+            history_retention: if reuse_bound.is_some() {
+                self.history_retention
+                    .min(crate::ddgi::DDGI_TOPOLOGY_RECOVERY_HISTORY_RETENTION)
+            } else {
+                batch.irradiance_history_retention(self.history_retention)
+            },
+            epoch_rotation: self.rotation(batch),
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
-            filter_evidence: [u32::from(self.capture_enabled), 0, 0, 0],
+            filter_evidence: [
+                u32::from(self.capture_enabled),
+                u32::from(reuse_bound.is_some()),
+                u32::from(batch.source().is_some_and(|source| {
+                    source.field().geometry_revision() != batch.geometry_revision()
+                })),
+                0,
+            ],
         };
         self.pipelines.compute().ddgi_irradiance_filter_ppl.record(
             cmdbuf,
@@ -611,11 +649,18 @@ impl DdgiFrameEncoder<'_> {
             source_slot: batch.source_slot_index(),
             has_history: u32::from(batch.visibility_history_is_valid()),
             history_retention: batch.visibility_history_retention(self.history_retention),
-            epoch_rotation: batch.epoch_rotation(),
+            epoch_rotation: self.rotation(batch),
             local_refresh_enabled,
             local_refresh_world_min,
             local_refresh_world_max,
-            filter_evidence: [u32::from(self.capture_enabled), 0, 0, 0],
+            filter_evidence: [
+                u32::from(self.capture_enabled),
+                u32::from(self.aggregate_history && batch.edited_voxel_bound().is_some()),
+                u32::from(batch.source().is_some_and(|source| {
+                    source.field().geometry_revision() != batch.geometry_revision()
+                })),
+                0,
+            ],
         };
         self.pipelines.compute().ddgi_visibility_filter_ppl.record(
             cmdbuf,
@@ -1347,6 +1392,8 @@ pub struct TerrainFrameInput {
     pub ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
     pub ddgi_history_retention: f32,
+    pub ddgi_continuous_sampling: bool,
+    pub ddgi_aggregate_history: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1610,6 +1657,10 @@ pub struct Tracer {
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
+    ddgi_continuous_sampling: bool,
+    ddgi_aggregate_history: bool,
+    ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
+    ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
     ddgi_local_light_gpu_evidence_accumulating: Option<DdgiLocalLightGpuEvidence>,
     ddgi_local_light_gpu_evidence_complete: Option<DdgiLocalLightGpuEvidence>,
@@ -1954,6 +2005,10 @@ impl Tracer {
             ddgi_voxel_visibility,
             ddgi_runtime,
             ddgi_history_retention: 0.99,
+            ddgi_continuous_sampling: false,
+            ddgi_aggregate_history: false,
+            ddgi_sampling_progress: Default::default(),
+            ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
             ddgi_local_light_gpu_evidence_complete: None,
@@ -2353,6 +2408,9 @@ impl Tracer {
         build_token: Option<DdgiBuildToken>,
     ) -> Result<()> {
         let stats = progress.stats();
+        if batch.local_refresh_voxel_bound().is_some() {
+            log::info!("[DDGI][HISTORY] geometry={} epoch={} first={} probes={} retain={} blend_zero={} qualified_blend={} placement_reset={} edit_proximity_reset={}", batch.geometry_revision(), batch.update_epoch(), batch.first_probe_index, batch.probe_count, stats.history_diagnostics[0], stats.history_diagnostics[1], stats.history_diagnostics[2], stats.history_diagnostics[3], stats.history_diagnostics[4]);
+        }
         if progress.filtered_probe_count() == batch.probe_count
             || progress.filtered_probe_count() == progress.probe_count()
             || progress.filtered_probe_count().is_multiple_of(1_024)
@@ -2977,6 +3035,8 @@ impl Tracer {
         self.vegetation_response.pose_hz = vegetation.motion.response_pose_hz;
         self.raster_lighting_state = lighting_frame.raster_lighting_state();
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
+        self.ddgi_continuous_sampling = terrain.ddgi_continuous_sampling;
+        self.ddgi_aggregate_history = terrain.ddgi_aggregate_history;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3240,6 +3300,12 @@ impl Tracer {
                     |resources| topology.publish_ddgi_consumers(resources, next_generation),
                 )?
             };
+            if !matches!(&completion, DdgiBatchCompletion::Stale(_)) {
+                if batch.first_probe_index == 0 {
+                    log::info!("[DDGI][SAMPLING] accepted first={} count={} sequence={} continuous={} geometry={} epoch={}", batch.first_probe_index, batch.probe_count, self.ddgi_sampling_progress.index(batch), pending.continuous_sampling, batch.geometry_revision(), batch.update_epoch());
+                }
+                self.ddgi_sampling_progress.accept(batch);
+            }
             match completion {
                 DdgiBatchCompletion::Stale(stale) => {
                     log::warn!(
@@ -3374,12 +3440,23 @@ impl Tracer {
         }
 
         let ddgi_frame = self.ddgi_runtime.begin_frame()?;
+        let experiments = self.ddgi_experiment_latch.for_field(
+            ddgi_frame.plan().ray_batch.map(|batch| batch.logical()),
+            crate::ddgi::DdgiExperimentSettings {
+                continuous_sampling: self.ddgi_continuous_sampling,
+                aggregate_history: self.ddgi_aggregate_history,
+            },
+        );
         let ddgi_encoding = DdgiFrameEncoder {
             frame: ddgi_frame,
             pipelines: &self.pipeline_topology,
             chunk_bound: self.chunk_bound,
             voxels_per_world_unit: self.desc.voxel_dim_per_chunk,
             history_retention: self.ddgi_history_retention,
+            aggregate_history: experiments.aggregate_history,
+            sampling_progress: experiments
+                .continuous_sampling
+                .then_some(&self.ddgi_sampling_progress),
             capture_enabled: self.desc.environment_irradiance_capture_enabled,
             glass_experiment_enabled: self.desc.glass_experiment_enabled,
         }
@@ -6314,7 +6391,6 @@ impl Tracer {
         &mut self,
         mesh: &RasterTreeMesh,
         cells: &[[u32; 4]],
-        revision: u32,
     ) -> Result<()> {
         // App has waited for all submitted frames before readback/replacement.
         self.resources.raster_tree_cells.fill(cells)?;
@@ -6339,7 +6415,6 @@ impl Tracer {
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             mesh,
-            revision,
         )?;
         if !self.raster_trees.skin.bindings.is_empty() {
             self.resources

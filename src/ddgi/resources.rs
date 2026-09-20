@@ -26,7 +26,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const DDGI_IRRADIANCE_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 const DDGI_VISIBILITY_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
-const DDGI_TRACE_STATS_COUNT: usize = 31;
+const DDGI_TRACE_STATS_COUNT: usize = 36;
+const DDGI_FILTER_STATS_END: usize = 31;
 const DDGI_FILTER_STATS_START: usize = 13;
 pub const DDGI_FILTER_POLICY_OWNER_VERSION: u32 = 1;
 pub const DDGI_FILTER_POLICY_OWNER_MASK: u32 = 1 << DDGI_FILTER_POLICY_OWNER_VERSION;
@@ -347,6 +348,7 @@ struct DdgiResidentIteration {
     source: Option<DdgiResidentField>,
     destination: DdgiResidentField,
     local_refresh_voxel_bound: Option<UAabb3>,
+    edited_voxel_bound: Option<UAabb3>,
     probe_priority: Option<DdgiProbePriority>,
     history_mode: DdgiHistoryMode,
     radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
@@ -406,6 +408,7 @@ fn resident_iteration_for_work_with_policy(
                 source,
                 destination,
                 local_refresh_voxel_bound,
+                edited_voxel_bound: None,
                 probe_priority,
                 history_mode,
                 radiance_history_policy,
@@ -440,6 +443,7 @@ fn resident_iteration_for_work_with_policy(
                 source: Some(source),
                 destination,
                 local_refresh_voxel_bound,
+                edited_voxel_bound: None,
                 probe_priority,
                 history_mode,
                 radiance_history_policy,
@@ -554,6 +558,10 @@ impl DdgiRayBatch {
         self.resident.probe_priority
     }
 
+    pub fn edited_voxel_bound(self) -> Option<UAabb3> {
+        self.resident.edited_voxel_bound
+    }
+
     pub fn local_recovery_epoch(self) -> u32 {
         self.update_epoch()
     }
@@ -627,6 +635,48 @@ impl DdgiRayBatch {
     }
 }
 
+/// Sequence positions belong to spatial batches, not geometry revisions. Only validated batches
+/// consume a position; a stale/cancelled readback or an encoding retry does not. Retained probes
+/// may skip positions: this is a direction schedule, never an effective sample-count estimate.
+#[derive(Default)]
+pub(crate) struct DdgiSamplingProgress {
+    accepted: std::collections::BTreeMap<(u32, u32, u32), (u64, u64)>,
+}
+
+impl DdgiSamplingProgress {
+    fn key(batch: DdgiRayBatch) -> (u32, u32, u32) {
+        (
+            batch.spacing_voxels(),
+            batch.first_probe_index,
+            batch.probe_count,
+        )
+    }
+
+    fn position(&self, batch: DdgiRayBatch) -> (u64, u64) {
+        self.accepted.get(&Self::key(batch)).copied().unwrap_or((
+            u64::from(batch.geometry_revision()) | (u64::from(batch.radiance_revision()) << 21),
+            0,
+        ))
+    }
+
+    pub fn index(&self, batch: DdgiRayBatch) -> u64 {
+        self.position(batch).1
+    }
+
+    pub fn rotation(&self, batch: DdgiRayBatch) -> [f32; 4] {
+        // Match the initial baseline phase. Rotate (rather than shift) the full index so the
+        // sequence does not silently repeat after 2^22 accepted batches.
+        let (seed, index) = self.position(batch);
+        ddgi_rotation_from_seed(seed ^ index.rotate_left(42))
+    }
+
+    pub fn accept(&mut self, batch: DdgiRayBatch) {
+        let (seed, index) = self.position(batch);
+        self.accepted
+            .insert(Self::key(batch), (seed, index.wrapping_add(1)));
+    }
+}
+
 fn splitmix64(mut value: u64) -> u64 {
     value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
     value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -649,6 +699,10 @@ fn ddgi_epoch_rotation(
     let seed = u64::from(geometry_revision)
         | (u64::from(radiance_revision) << 21)
         | (u64::from(update_epoch) << 42);
+    ddgi_rotation_from_seed(seed)
+}
+
+fn ddgi_rotation_from_seed(seed: u64) -> [f32; 4] {
     let u1 = unit_f64(splitmix64(seed));
     let u2 = unit_f64(splitmix64(seed ^ 0xa076_1d64_78bd_642f));
     let u3 = unit_f64(splitmix64(seed ^ 0xe703_7ed1_a0b4_28db));
@@ -683,7 +737,8 @@ pub struct DdgiTraceStats {
     pub emissive_surface_hits: u32,
     /// Scene-linear emitted radiance luminance accumulated as unsigned Q24.8 values.
     pub emissive_surface_radiance_luma_q8: u32,
-    filter_raw: [u32; DDGI_TRACE_STATS_COUNT - DDGI_FILTER_STATS_START],
+    filter_raw: [u32; DDGI_FILTER_STATS_END - DDGI_FILTER_STATS_START],
+    pub history_diagnostics: [u32; 5],
 }
 
 impl DdgiTraceStats {
@@ -702,7 +757,10 @@ impl DdgiTraceStats {
             local_light_irradiance_luma_q8: values[10],
             emissive_surface_hits: values[11],
             emissive_surface_radiance_luma_q8: values[12],
-            filter_raw: values[DDGI_FILTER_STATS_START..]
+            history_diagnostics: values[DDGI_FILTER_STATS_END..]
+                .try_into()
+                .expect("history diagnostic lanes"),
+            filter_raw: values[DDGI_FILTER_STATS_START..DDGI_FILTER_STATS_END]
                 .try_into()
                 .expect("fixed DDGI filter-stat lane count"),
         }
@@ -713,7 +771,7 @@ impl DdgiTraceStats {
         batch: DdgiRayBatch,
         capture_enabled: bool,
     ) -> Result<Option<DdgiFilterBatchEvidence>> {
-        let mut raw = [0_u32; DDGI_TRACE_STATS_COUNT];
+        let mut raw = [0_u32; DDGI_FILTER_STATS_END];
         raw[DDGI_FILTER_STATS_START..].copy_from_slice(&self.filter_raw);
         DdgiFilterBatchEvidence::decode(raw, batch, capture_enabled)
     }
@@ -908,7 +966,7 @@ pub struct DdgiFilterBatchEvidence {
 
 impl DdgiFilterBatchEvidence {
     pub fn decode(
-        raw: [u32; DDGI_TRACE_STATS_COUNT],
+        raw: [u32; DDGI_FILTER_STATS_END],
         batch: DdgiRayBatch,
         capture_enabled: bool,
     ) -> Result<Option<Self>> {
@@ -1589,6 +1647,7 @@ pub(super) struct DdgiVolume {
     filtered_probe_count: u32,
     next_batch_ordinal: u32,
     local_refresh_voxel_bound: Option<UAabb3>,
+    edited_voxel_bound: Option<UAabb3>,
     local_recovery_stable_epochs: u32,
     history_mode: DdgiHistoryMode,
     visibility_preserved_for_iteration: bool,
@@ -2223,6 +2282,7 @@ impl DdgiVolume {
             filtered_probe_count: 0,
             next_batch_ordinal: 0,
             local_refresh_voxel_bound: None,
+            edited_voxel_bound: None,
             local_recovery_stable_epochs: 0,
             history_mode: DdgiHistoryMode::Accumulating,
             visibility_preserved_for_iteration: false,
@@ -2295,6 +2355,7 @@ impl DdgiVolume {
             filtered_probe_count: 0,
             next_batch_ordinal: 0,
             local_refresh_voxel_bound: None,
+            edited_voxel_bound: None,
             local_recovery_stable_epochs: 0,
             history_mode: DdgiHistoryMode::Accumulating,
             visibility_preserved_for_iteration: false,
@@ -2363,6 +2424,7 @@ impl DdgiVolume {
             && self.local_recovery_stable_epochs >= DDGI_LOCAL_RECOVERY_STABLE_EPOCHS
         {
             self.local_refresh_voxel_bound = None;
+            self.edited_voxel_bound = None;
             self.history_mode = DdgiHistoryMode::TopologyRecovery;
             self.local_recovery_stable_epochs = 0;
         }
@@ -2472,6 +2534,7 @@ impl DdgiVolume {
         &mut self,
         work: DdgiScheduledWork,
         local_refresh_voxel_bound: Option<UAabb3>,
+        edited_voxel_bound: Option<UAabb3>,
         radiance_history_policy: Option<DdgiRadianceHistoryPolicy>,
         probe_priority: Option<DdgiProbePriority>,
     ) -> Result<()> {
@@ -2495,6 +2558,7 @@ impl DdgiVolume {
         match work.kind() {
             DdgiScheduledWorkKind::GeometryUpdate => {
                 self.local_refresh_voxel_bound = local_refresh_voxel_bound;
+                self.edited_voxel_bound = edited_voxel_bound;
                 self.local_recovery_stable_epochs = 0;
                 self.history_mode = DdgiHistoryMode::Accumulating;
             }
@@ -2506,6 +2570,7 @@ impl DdgiVolume {
                 // This physical volume may have been the previous active geometry volume. Do not
                 // carry its completed or preempted topology-recovery region into a density build.
                 self.local_refresh_voxel_bound = None;
+                self.edited_voxel_bound = None;
                 self.local_recovery_stable_epochs = 0;
                 self.history_mode = DdgiHistoryMode::Accumulating;
             }
@@ -2519,7 +2584,7 @@ impl DdgiVolume {
                 }
             }
         }
-        let resident = resident_iteration_for_work_with_policy(
+        let mut resident = resident_iteration_for_work_with_policy(
             work,
             self.published.map(|published| published.resident),
             self.local_refresh_voxel_bound,
@@ -2527,6 +2592,7 @@ impl DdgiVolume {
             radiance_history_policy,
             probe_priority,
         )?;
+        resident.edited_voxel_bound = self.edited_voxel_bound;
         match work.kind() {
             DdgiScheduledWorkKind::GeometryUpdate | DdgiScheduledWorkKind::DensityUpdate => {
                 ensure!(
@@ -2580,6 +2646,7 @@ impl DdgiVolume {
         self.local_recovery_stable_epochs = 0;
         self.history_mode = DdgiHistoryMode::Accumulating;
         self.local_refresh_voxel_bound = None;
+        self.edited_voxel_bound = None;
         self.stage = DdgiVolumeStage::RelocationPending;
         true
     }
@@ -3428,6 +3495,7 @@ mod tests {
         let field = initial_work(11, 3, 32).destination();
         let mut volume = DdgiVolume::for_test(grid, Some(token));
         volume.local_refresh_voxel_bound = Some(UAabb3::new(UVec3::splat(100), UVec3::splat(120)));
+        volume.edited_voxel_bound = volume.local_refresh_voxel_bound;
         assert!(!volume.promotion_is_ready());
         volume.published = Some(
             DdgiResidentPublication::new(
@@ -3447,6 +3515,7 @@ mod tests {
         volume.local_recovery_stable_epochs = DDGI_LOCAL_RECOVERY_STABLE_EPOCHS;
         volume.finish_local_recovery_if_stable();
         assert!(volume.local_refresh_voxel_bound.is_none());
+        assert!(volume.edited_voxel_bound.is_none());
     }
 
     #[test]
@@ -3523,7 +3592,7 @@ mod tests {
         assert_eq!(bytes.transport_source_visibility_atlas, 12_882_240);
         assert_eq!(bytes.probe_metadata, 235_824);
         assert_eq!(bytes.transient_ray_data, 524_288);
-        assert_eq!(bytes.trace_stats, 124);
+        assert_eq!(bytes.trace_stats, 144);
         assert_eq!(bytes.relocation_stats, 56);
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
@@ -3588,6 +3657,7 @@ mod tests {
                 source: None,
                 destination,
                 local_refresh_voxel_bound: None,
+                edited_voxel_bound: None,
                 probe_priority: None,
                 history_mode: DdgiHistoryMode::Accumulating,
                 radiance_history_policy: None,
@@ -4000,13 +4070,17 @@ mod tests {
         let grid = DdgiVolumeGrid::new(UVec3::splat(512), probe_spacing(32)).unwrap();
         let mut staging = DdgiVolume::for_test(grid, None);
         staging
-            .begin_scheduled_work(work, Some(local_refresh), None, None)
+            .begin_scheduled_work(work, Some(local_refresh), Some(local_refresh), None, None)
             .unwrap();
+        assert_eq!(
+            staging.building_iteration.unwrap().edited_voxel_bound,
+            Some(local_refresh)
+        );
         assert_eq!(staging.transport_query_snapshot.source_ready, 1,
             "recursive geometry transport must query its inherited source, not unoccluded global sky");
         let mut initial_volume = DdgiVolume::for_test(grid, None);
         initial_volume
-            .begin_scheduled_work(initial_work(7, 3, 32), None, None, None)
+            .begin_scheduled_work(initial_work(7, 3, 32), None, None, None, None)
             .unwrap();
         assert_eq!(initial_volume.transport_query_snapshot.source_ready, 0);
     }
@@ -4037,6 +4111,35 @@ mod tests {
         };
         assert!(initial_batch.writes_visibility());
         assert!(temporal_batch.writes_visibility());
+    }
+
+    #[test]
+    fn sampling_progress_consumes_only_accepted_spatial_batches() {
+        let batch = filter_evidence_batch(0, 64);
+        let other = filter_evidence_batch(64, 64);
+        let mut progress = DdgiSamplingProgress::default();
+        assert_eq!(progress.rotation(batch), batch.epoch_rotation());
+        let first = progress.rotation(batch);
+        // Encoding, cancellation, and retry are reads; only validated completion calls accept.
+        assert_eq!(progress.rotation(batch), first);
+        assert_eq!(progress.index(batch), 0);
+        progress.accept(batch);
+        assert_eq!(progress.index(batch), 1);
+        assert_eq!(progress.index(other), 0);
+        assert_ne!(progress.rotation(batch), first);
+        let work = initial_work(99, 3, 32);
+        let changed = DdgiRayBatch {
+            resident: resident_iteration_for_work(work, None, None, DdgiHistoryMode::Accumulating)
+                .unwrap(),
+            ..batch
+        };
+        assert_eq!(progress.rotation(changed), progress.rotation(batch));
+        assert_eq!(
+            progress.index(filter_evidence_batch_for_spacing(0, 64, 16)),
+            0
+        );
+        progress.accept(other);
+        assert_eq!(progress.rotation(other), progress.rotation(batch));
     }
 
     #[test]
@@ -4270,6 +4373,7 @@ mod tests {
                 source: None,
                 destination: resident,
                 local_refresh_voxel_bound: None,
+                edited_voxel_bound: None,
                 probe_priority: None,
                 history_mode: DdgiHistoryMode::Accumulating,
                 radiance_history_policy: None,

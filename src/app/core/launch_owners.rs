@@ -843,6 +843,7 @@ mod tests {
                     capture: ScreenshotOptions {
                         path: "frame.png".to_owned(),
                         delay: 0.5,
+                        sequence: None,
                     },
                 },
                 Some("tree"),
