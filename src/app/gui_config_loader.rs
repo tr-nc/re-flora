@@ -63,6 +63,11 @@ impl GuiConfigLoader {
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
         Self::add_missing_param(&mut config, "Butterflies", "butterfly_wing_transmission");
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if param.id == "butterfly_animation_fps" {
+                param.label = "Butterfly Update FPS (Position + Heading + Wings)".into();
+            }
+        }
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");

@@ -1329,7 +1329,7 @@ wind_drift = 1.0
     }
 
     #[test]
-    fn live_butterfly_settings_and_disabled_b_controls_persist_without_reset_button() {
+    fn live_butterfly_settings_persist_with_one_presentation_rate() {
         let mut settings = DebugSettings::load();
         let context = egui::Context::default();
         context.memory_mut(|m| m.set_everything_is_visible(true));
@@ -1337,7 +1337,8 @@ wind_drift = 1.0
             settings.draw(ui, |_, _| {});
         });
         let text = format!("{:?}", output.shapes);
-        assert!(text.contains("Shared flight frequency"));
+        assert!(text.contains("Butterfly Update FPS"));
+        assert!(!text.contains("Shared flight frequency"));
         assert!(text.contains("Flight height above ground"));
         assert!(!text.contains("Horizontal maneuver tempo"));
         assert!(!text.contains("Reset B flight controls"));

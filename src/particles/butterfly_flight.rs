@@ -42,6 +42,7 @@ impl ButterflyFlightVariant {
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ButterflyFlightTuning {
+    /// Saved physical vertical-intent rhythm (legacy key). Does not clock rendering.
     pub flight_frequency_hz: f32,
     /// World units above local terrain; the walking camera's default eye height is 0.08.
     pub height_above_ground: f32,
@@ -128,8 +129,8 @@ impl ButterflyFlightTuning {
     }
 }
 
-/// One beat owns both the vertical intent and the publication of a real trajectory
-/// point. No independent display timer, phase jitter, or vertical pulse timer.
+/// Physical vertical-intent rhythm and trajectory anchor for steering/terrain probes.
+/// This anchor is not a displayed pose: ButterflyPresentation alone clocks rendering.
 #[derive(Debug)]
 struct SharedFlightRhythm {
     position: Vec3,
@@ -342,6 +343,7 @@ impl DartingFlightState {
         self.rhythm.publish(position);
     }
 
+    #[cfg(test)]
     pub(super) fn render_position(&self) -> Vec3 {
         self.rhythm.position
     }

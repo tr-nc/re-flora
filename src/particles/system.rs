@@ -1,6 +1,7 @@
 use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Quat, Vec3, Vec4};
 
+use super::butterfly_presentation::{ButterflyFrame, ButterflyPresentation};
 use super::leaf_flight::LeafFlight;
 use crate::wind_field::WindFieldFrame;
 
@@ -185,6 +186,8 @@ pub struct ParticleSnapshot {
     pub palette_index: u32,
     /// Stable per-life phase seed for render-only articulated wing animation.
     pub animation_phase_offset: f32,
+    /// Timestamp published atomically with butterfly position and heading.
+    pub animation_sample_time: Option<f32>,
     /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
     /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
@@ -246,6 +249,7 @@ pub struct ParticleSystem {
     speed_noise: FastNoiseLite,
     leaf_flight: Vec<LeafFlight>,
     leaf_display: Vec<LeafDisplayPose>,
+    butterfly_display: Vec<ButterflyPresentation>,
 }
 
 impl ParticleSystem {
@@ -304,6 +308,7 @@ impl ParticleSystem {
             },
             speed_noise,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
+            butterfly_display: vec![ButterflyPresentation::default(); max_particles],
             leaf_display: vec![
                 LeafDisplayPose {
                     position: Vec3::ZERO,
@@ -378,6 +383,7 @@ impl ParticleSystem {
         );
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
+        self.butterfly_display[slot] = ButterflyPresentation::default();
         self.leaf_display[slot] = LeafDisplayPose {
             position: spawn.position,
             velocity: spawn.velocity,
@@ -686,8 +692,29 @@ impl ParticleSystem {
         self.write_snapshots_with_flight_pose(out, |_, position| position);
     }
 
-    /// Leaves keep their world-tick pose; only B butterflies use the supplied shared-rhythm pose.
-    /// Neither presentation path feeds back into authoritative simulation state.
+    /// Publish a complete butterfly pose on one clock; leaves retain their existing path.
+    pub fn write_snapshots_for_frame(
+        &mut self,
+        out: &mut Vec<ParticleSnapshot>,
+        frame: ButterflyFrame,
+    ) {
+        self.write_snapshots_with_flight_pose(out, |_, position| position);
+        for (&slot, snapshot) in self.alive_indices.iter().zip(out) {
+            if snapshot.kind == ParticleRenderKind::Butterfly {
+                let pose = self.butterfly_display[slot].sample(
+                    frame,
+                    snapshot.position_ws,
+                    snapshot.velocity,
+                );
+                snapshot.position_ws = pose.position;
+                snapshot.velocity = pose.velocity;
+                snapshot.animation_sample_time = Some(pose.time_seconds());
+            }
+        }
+    }
+
+    /// Raw collection, with an optional physics-rhythm anchor for motion diagnostics.
+    /// The game publishes this data through write_snapshots_for_frame instead.
     pub fn write_snapshots_with_flight_pose(
         &self,
         out: &mut Vec<ParticleSnapshot>,
@@ -735,6 +762,7 @@ impl ParticleSystem {
                 },
                 kind,
                 palette_index: self.palette_indices[*slot],
+                animation_sample_time: None,
                 animation_phase_offset: (((*slot as u32).wrapping_mul(0x9e37_79b9)
                     ^ self.generations[*slot].wrapping_mul(0x85eb_ca6b))
                     >> 8) as f32

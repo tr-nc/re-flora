@@ -628,6 +628,7 @@ impl ButterflyEmitter {
         self.flight_variant
     }
 
+    #[cfg(test)]
     pub fn flight_render_position(&self, handle: ParticleHandle) -> Option<Vec3> {
         if !self.flight_variant.uses_darting_flight() {
             return None;

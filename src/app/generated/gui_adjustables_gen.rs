@@ -1168,7 +1168,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Butterflies",
         id: "butterfly_animation_fps",
         kind: "uint",
-        label: "Wing Animation FPS",
+        label: "Butterfly Update FPS (Position + Heading + Wings)",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",

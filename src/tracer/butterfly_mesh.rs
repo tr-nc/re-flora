@@ -26,7 +26,6 @@ pub struct ButterflyMeshSettings {
     pub fps: u32,
     pub self_shadows: bool,
     pub transmission: f32,
-    pub time_seconds: f32,
 }
 
 #[repr(C)]
@@ -117,10 +116,10 @@ impl Mesh {
         assert!(mesh.triangles.len() <= MAX_TRIANGLES);
         mesh
     }
-    fn pose(&self, phase: f32, fps: u32) -> [f32; 3] {
-        let fps = fps.clamp(2, 60) as f32;
-        let sampled = (phase.rem_euclid(1.0) * fps).floor() / fps;
-        let key = sampled * self.source_fps as f32;
+    fn pose(&self, phase: f32) -> [f32; 3] {
+        // Publication already sampled the shared clock. The per-animal offset
+        // changes wing phase, never the moment at which a pose is published.
+        let key = phase.rem_euclid(1.0) * self.source_fps as f32;
         let i = (key.floor() as usize).min(self.source_fps - 1);
         std::array::from_fn(|c| {
             self.keys[i][c] + (self.keys[i + 1][c] - self.keys[i][c]) * key.fract()
@@ -170,6 +169,12 @@ impl ButterflyMeshRenderer {
             "butterfly tile capacity exceeded: {} > {CAPACITY}",
             candidates.len()
         );
+        ensure!(
+            candidates.iter().all(|s| s
+                .animation_sample_time
+                .is_some_and(|t| t.is_finite() && t >= 0.)),
+            "butterfly snapshot missing a valid shared presentation timestamp"
+        );
         // Lifetime fading is object-level alpha, not transparent wing material.
         // Back-to-front submission preserves overlapping fading silhouettes.
         candidates.sort_by(|a, b| {
@@ -178,10 +183,12 @@ impl ButterflyMeshRenderer {
                 .total_cmp(&a.position_ws.distance_squared(camera_position))
         });
         for snapshot in candidates {
-            let [wing, pitch, bob] = self.mesh.pose(
-                settings.time_seconds + snapshot.animation_phase_offset,
-                settings.fps,
-            );
+            let sampled_time = snapshot
+                .animation_sample_time
+                .expect("validated presentation timestamp");
+            let [wing, pitch, bob] = self
+                .mesh
+                .pose(sampled_time + snapshot.animation_phase_offset);
             let velocity = snapshot.velocity;
             let speed = velocity.x.hypot(velocity.z);
             let yaw = if speed > 0.0001 {
@@ -275,7 +282,7 @@ mod tests {
             let p = t.positions.map(Vec3::from);
             assert!((p[1] - p[0]).cross(p[2] - p[0]).length_squared() > 1e-12);
             for frame in 0..60 {
-                let [wing, pitch, bob] = mesh.pose(frame as f32 / 60., 60);
+                let [wing, pitch, bob] = mesh.pose(frame as f32 / 60.);
                 let rot = Quat::from_rotation_x(pitch) * Quat::from_rotation_z(wing * t.side);
                 for v in p {
                     assert!((rot * v + Vec3::Y * bob).length() < 1.7);
@@ -295,6 +302,7 @@ mod tests {
             kind,
             palette_index: 5,
             animation_phase_offset: 0.25,
+            animation_sample_time: Some(0.),
             leaf_orientation: None,
         };
         let snapshots = [
@@ -308,7 +316,6 @@ mod tests {
             fps: 60,
             self_shadows: true,
             transmission: 0.,
-            time_seconds: 0.,
         };
         for n in 8..=64 {
             settings.resolution = n;
@@ -335,15 +342,138 @@ mod tests {
         assert_eq!(renderer.count(), 0);
         renderer.prepare(&snapshots, settings, Vec3::ZERO).unwrap();
         assert_eq!(renderer.count(), 2);
+        let mut unsampled = snapshots[0];
+        unsampled.animation_sample_time = None;
+        assert!(renderer
+            .prepare(&[snapshots[0], unsampled], settings, Vec3::ZERO)
+            .is_err());
+        assert_eq!(renderer.count(), 0);
+        assert!(renderer.triangles.is_empty());
+    }
+
+    #[test]
+    fn movement_and_wings_hold_on_the_same_tick_despite_individual_phase() {
+        let mut renderer = ButterflyMeshRenderer::default();
+        let mut previous = None;
+        for frame in 0..120 {
+            let time = frame as f32 / 120.;
+            let tick = (time * 8.).floor() as u32;
+            let snapshot = ParticleSnapshot {
+                position_ws: Vec3::new(tick as f32 * 0.01, 0., -0.5),
+                velocity: Vec3::Z,
+                color: glam::Vec4::ONE,
+                size: 0.03,
+                kind: ParticleRenderKind::Butterfly,
+                palette_index: 0,
+                animation_phase_offset: 0.31,
+                animation_sample_time: Some(
+                    crate::particles::ButterflyFrame::at(time, 8).time_seconds(),
+                ),
+                leaf_orientation: None,
+            };
+            renderer
+                .prepare(
+                    &[snapshot],
+                    ButterflyMeshSettings {
+                        resolution: 16,
+                        fps: 8,
+                        self_shadows: true,
+                        transmission: 0.,
+                    },
+                    Vec3::ZERO,
+                )
+                .unwrap();
+            let geometry = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
+            if let Some((previous_tick, ref previous_geometry)) = previous {
+                if previous_tick == tick {
+                    assert_eq!(
+                        &geometry, previous_geometry,
+                        "wings advanced while position held at frame {frame}"
+                    );
+                }
+            }
+            previous = Some((tick, geometry));
+        }
+    }
+
+    #[test]
+    fn production_snapshots_publish_position_heading_and_wings_atomically() {
+        use crate::particles::{ButterflyFrame, MotionMode, ParticleSpawn, ParticleSystem};
+        for motion_mode in [MotionMode::Free, MotionMode::GuidedFlight] {
+            let mut system = ParticleSystem::new(1);
+            let handle = system
+                .spawn(ParticleSpawn {
+                    render_kind: ParticleRenderKind::Butterfly,
+                    motion_mode,
+                    position: Vec3::new(0., 0., -0.5),
+                    lifetime: 30.,
+                    ..Default::default()
+                })
+                .unwrap();
+            system.set_butterfly_guided_flight(handle, true);
+            system.advance_guided_flight(handle, Vec3::ZERO, 0.5);
+            system.set_butterfly_guided_flight(handle, motion_mode == MotionMode::GuidedFlight);
+            let mut snapshots = Vec::new();
+            let mut renderer = ButterflyMeshRenderer::default();
+            let mut previous = None;
+            for step in 0..120 {
+                let time = step as f32 / 120.;
+                let frame = ButterflyFrame::at(time, 8);
+                let physical = Vec3::new(time * 0.1, 0., -0.5);
+                system.set_position(handle, physical);
+                system.set_velocity(handle, Vec3::new(time.sin(), 0., time.cos()));
+                system.write_snapshots_for_frame(&mut snapshots, frame);
+                assert_eq!(system.position(handle), Some(physical));
+                assert_eq!(
+                    snapshots[0].animation_sample_time,
+                    Some(frame.time_seconds())
+                );
+                renderer
+                    .prepare(
+                        &snapshots,
+                        ButterflyMeshSettings {
+                            resolution: 16,
+                            fps: 8,
+                            self_shadows: true,
+                            transmission: 0.,
+                        },
+                        Vec3::ZERO,
+                    )
+                    .unwrap();
+                assert_eq!(renderer.count(), 1);
+                let geometry = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
+                if let Some((old_frame, ref old_geometry)) = previous {
+                    if old_frame == frame {
+                        assert_eq!(&geometry, old_geometry);
+                    } else {
+                        assert_eq!(snapshots[0].position_ws, physical);
+                    }
+                }
+                previous = Some((frame, geometry));
+            }
+            // A reused slot must never inherit the previous animal's held pose.
+            system.despawn(handle);
+            system
+                .spawn(ParticleSpawn {
+                    render_kind: ParticleRenderKind::Butterfly,
+                    position: Vec3::Y,
+                    ..Default::default()
+                })
+                .unwrap();
+            system.write_snapshots_for_frame(&mut snapshots, ButterflyFrame::at(119. / 120., 8));
+            assert_eq!(snapshots[0].position_ws, Vec3::Y);
+        }
     }
 
     #[test]
     fn pose_sampling_holds_and_loops_at_every_supported_fps() {
         let mesh = Mesh::load();
         for fps in 2..=60 {
-            assert_eq!(mesh.pose(0., fps), mesh.pose(1., fps));
-            assert_eq!(mesh.pose(0., fps), mesh.pose(0.9 / fps as f32, fps));
-            assert_ne!(mesh.pose(0., fps), mesh.pose(1.01 / fps as f32, fps));
+            let pose =
+                |time| mesh.pose(crate::particles::ButterflyFrame::at(time, fps).time_seconds());
+            assert_eq!(pose(0.), pose(1.));
+            assert_eq!(pose(0.), pose(0.9 / fps as f32));
+            assert_ne!(pose(0.), pose(1.01 / fps as f32));
         }
     }
 }

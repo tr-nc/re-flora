@@ -552,20 +552,21 @@ impl App {
         let plan_ms = plan_start.elapsed().as_secs_f32() * 1000.0;
 
         let snapshot_start = Instant::now();
-        self.particle_system.write_snapshots_with_flight_pose(
-            &mut self.particle_snapshots,
-            |handle, position| {
-                self.butterfly_emitters
-                    .iter()
-                    .find_map(|emitter| emitter.flight_render_position(handle))
-                    .unwrap_or(position)
-            },
+        self.advance_butterfly_review_settings();
+        let frame = crate::particles::ButterflyFrame::at(
+            self.butterfly_presentation_time(),
+            self.debug_settings
+                .adjustables
+                .butterfly_animation_fps
+                .value,
         );
+        self.particle_system
+            .write_snapshots_for_frame(&mut self.particle_snapshots, frame);
         self.review_butterfly_frame(dt);
         let sim_snapshot_count = self.particle_snapshots.len();
         self.log_fallen_leaf_review();
         self.append_water_debug_snapshots();
-        self.append_butterfly_mesh_preview();
+        self.append_butterfly_mesh_preview(frame);
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
@@ -575,7 +576,6 @@ impl App {
             fps: settings.butterfly_animation_fps.value,
             self_shadows: settings.butterfly_self_shadows.value,
             transmission: settings.butterfly_wing_transmission.value,
-            time_seconds: self.butterfly_mesh_preview_time(),
         };
         if let Err(err) = self
             .tracer
@@ -644,12 +644,13 @@ impl App {
                 kind: ParticleRenderKind::Leaf,
                 palette_index: 0,
                 animation_phase_offset: 0.0,
+                animation_sample_time: None,
                 leaf_orientation: None,
             });
         }
     }
 
-    fn butterfly_mesh_preview_time(&self) -> f32 {
+    fn butterfly_presentation_time(&self) -> f32 {
         if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some() {
             0.237
         } else {
@@ -659,7 +660,7 @@ impl App {
 
     /// Explicit Debug inspection fixture, not ecological spawns or simulation particles.
     /// Uses the exact same rendering path, palette selection, sun and scene depth.
-    fn append_butterfly_mesh_preview(&mut self) {
+    fn append_butterfly_mesh_preview(&mut self, frame: crate::particles::ButterflyFrame) {
         if !self.debug_settings.adjustables.butterfly_mesh_preview.value {
             return;
         }
@@ -667,7 +668,7 @@ impl App {
         let front = self.tracer.camera_front().normalize();
         let right = front.cross(Vec3::Y).normalize_or_zero();
         let up = right.cross(front).normalize();
-        let time = self.butterfly_mesh_preview_time();
+        let time = frame.time_seconds();
         for (row, distance) in [0.25, 0.5, 1.0].into_iter().enumerate() {
             for preset in 0..crate::tracer::ButterflyPalettePreset::COUNT {
                 let heading = preset as f32 * 0.35 + time * 0.3;
@@ -682,14 +683,15 @@ impl App {
                     kind: ParticleRenderKind::Butterfly,
                     palette_index: preset,
                     animation_phase_offset: 0.,
+                    animation_sample_time: Some(time),
                     leaf_orientation: None,
                 });
             }
         }
     }
 
-    /// Natural-flight observer, or an explicitly requested render-only mesh fixture.
-    fn review_butterfly_frame(&mut self, dt: f32) {
+    /// Apply fixture settings before producing the single frame shared by all butterflies.
+    fn advance_butterfly_review_settings(&mut self) {
         let Some(review) = self.butterfly_review.as_mut() else {
             return;
         };
@@ -713,8 +715,18 @@ impl App {
                 settings.butterfly_self_shadows.value = stage != 3;
                 settings.butterfly_animation_fps.value = if stage == 1 { 2 } else { 60 };
             }
+        }
+    }
+
+    /// Observe published natural flight; mesh fixtures only need the settings step above.
+    fn review_butterfly_frame(&mut self, dt: f32) {
+        if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some() {
             return;
         }
+        let Some(review) = self.butterfly_review.as_mut() else {
+            return;
+        };
+        let frame = review.frame;
         let height_review = std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("height");
         let terrain_y = |position: Vec3| {
             let origin = Vec3::new(
@@ -1076,7 +1088,7 @@ mod tests {
         let context = egui::Context::default();
         let mut saved = crate::app::gui_config_model::SavedCustomSettings::default();
         let mut draw = |events| {
-            let mut rects = [egui::Rect::NOTHING; 6];
+            let mut rects = [egui::Rect::NOTHING; 5];
             let _ = context.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
@@ -1110,7 +1122,7 @@ mod tests {
                 },
             ]
         };
-        for index in 0..6 {
+        for index in 0..5 {
             let (rects, _) = draw(Vec::new());
             let rect = rects[index];
             // Use current layout and click inside the track, not a possibly-default endpoint.
@@ -1122,7 +1134,7 @@ mod tests {
             draw(click_events(pos, false));
         }
         let (_, edited) = draw(Vec::new());
-        assert_ne!(edited.flight_frequency_hz, initial.flight_frequency_hz);
+        assert_eq!(edited.flight_frequency_hz, initial.flight_frequency_hz);
         assert_ne!(edited.height_above_ground, initial.height_above_ground);
         assert_eq!(edited.maneuver_tempo, initial.maneuver_tempo);
         assert_ne!(edited.vertical_strength, initial.vertical_strength);

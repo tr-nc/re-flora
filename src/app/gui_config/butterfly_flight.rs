@@ -7,19 +7,9 @@ pub(crate) fn draw_butterfly_flight_controls(ui: &mut SavedControls<'_>) {
     draw_butterfly_flight_tuning(ui);
 }
 
-pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui::Response; 6] {
+pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui::Response; 5] {
     ui.small("Saved with Debug Panel Save. Physics stays at 120 Hz; World Tick is unchanged.");
-    let frequency = ui.slider(|s| &mut s.butterfly_flight.tuning.flight_frequency_hz, ButterflyFlightTuning::FREQUENCY_RANGE, "Shared flight frequency (Hz)", 0.05, true)
-        .on_hover_text("One beat updates BOTH vertical intent and displayed position. No independent timer or timing jitter. 0 = continuous display, no voluntary vertical intent. Large displacement may advance BOTH together; display is limited by render FPS.");
-    let tuning = ui.read(|s| &s.butterfly_flight.tuning);
-    if tuning.flight_frequency_hz > 0.0 {
-        ui.small(format!(
-            "Shared interval: {:.1} ms — vertical intent + display",
-            1000.0 / tuning.flight_frequency_hz
-        ));
-    } else {
-        ui.small("Shared stepping off — continuous display, no vertical intent");
-    }
+    ui.small("Butterfly Update FPS controls position, heading and wings together.");
     let height = ui.slider(|s| &mut s.butterfly_flight.tuning.height_above_ground, ButterflyFlightTuning::HEIGHT_RANGE, "Flight height above ground", 0.005, false)
         .on_hover_text(
             "World units above the terrain below each butterfly. 0.08 matches the walking player's default eye height. Changes attract flight gradually, never teleport it. Tree-born butterflies descend naturally. Horizontal tempo is kept at its saved value.",
@@ -32,7 +22,7 @@ pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui:
         .on_hover_text("Scales autonomous cruise, maneuver force and air-relative speed limits only. Wind drift has its own control.");
     let wind = ui.slider(|s| &mut s.butterfly_flight.tuning.wind_drift, ButterflyFlightTuning::WIND_DRIFT_RANGE, "Wind drift (x)", 0.05, false)
         .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
-    let changed = [&frequency, &height, &vertical, &sharpness, &speed, &wind]
+    let changed = [&height, &vertical, &sharpness, &speed, &wind]
         .iter()
         .any(|r| r.changed());
     if changed {
@@ -41,5 +31,5 @@ pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui:
             ui.read(|s| &s.butterfly_flight.tuning)
         );
     }
-    [frequency, height, vertical, sharpness, speed, wind]
+    [height, vertical, sharpness, speed, wind]
 }
