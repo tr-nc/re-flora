@@ -161,8 +161,7 @@ public struct U_VoxelColors
     public float3 rock_color;
     public float3 emissive_color;
     public float emissive_radiance;
-    public float4 terrain_soil;
-    public float4 terrain_rock;
+    public float4 terrain_variation;
     public uint terrain_seed;
     public uint terrain_enabled;
 };

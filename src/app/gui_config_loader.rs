@@ -69,7 +69,11 @@ impl GuiConfigLoader {
             section.param.retain(|param| {
                 !matches!(
                     param.id.as_str(),
-                    "raster_tree_axis_aligned" | "terrain_missing_lighting_strength"
+                    "raster_tree_axis_aligned"
+                        | "terrain_missing_lighting_strength"
+                        | "terrain_soil_scale_voxels"
+                        | "terrain_rock_scale_voxels"
+                        | "terrain_rock_layer_tilt"
                 )
             });
         }
@@ -221,7 +225,10 @@ impl GuiConfigLoader {
             .expect("compiled GUI defaults must define requested section");
         if let Some(saved) = config.section.iter_mut().find(|s| s.name == section_name) {
             for param in section.param {
-                if !saved.param.iter().any(|p| p.id == param.id) {
+                if let Some(existing) = saved.param.iter_mut().find(|p| p.id == param.id) {
+                    // Presentation follows the current schema; retain the user's authored value.
+                    existing.label = param.label;
+                } else {
                     saved.param.push(param);
                 }
             }
@@ -672,13 +679,73 @@ mod tests {
             }
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
             assert_eq!(gui.terrain_material_enabled.value, partial);
-            assert_eq!(gui.terrain_soil_scale_voxels.value, 16.0);
+            assert_eq!(gui.terrain_soil_strength.value, 0.35);
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             assert_eq!(
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
                 toml::to_string(&loaded).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn old_macro_material_controls_retire_without_resetting_saved_variation() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let section = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Terrain Material")
+            .unwrap();
+        let strength = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "terrain_soil_strength")
+            .unwrap();
+        strength.value = GuiParamValue::Float {
+            value: 0.6,
+            min: Some(0.0),
+            max: Some(0.75),
+        };
+        let expected = section.clone();
+        for param in &mut section.param {
+            param.label = "Old macro material label".into();
+        }
+        for id in [
+            "terrain_soil_scale_voxels",
+            "terrain_rock_scale_voxels",
+            "terrain_rock_layer_tilt",
+        ] {
+            let mut retired = section
+                .param
+                .iter()
+                .find(|p| p.id == "terrain_soil_strength")
+                .unwrap()
+                .clone();
+            retired.id = id.into();
+            section.param.push(retired);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let actual = loaded
+            .section
+            .iter()
+            .find(|s| s.name == "Terrain Material")
+            .unwrap();
+        assert_eq!(
+            toml::to_string(actual).unwrap(),
+            toml::to_string(&expected).unwrap()
+        );
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        assert_eq!(
+            toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+            toml::to_string(&loaded).unwrap()
+        );
     }
 
     #[test]

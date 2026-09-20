@@ -53,11 +53,8 @@ pub(super) fn freeze_render_frame_inputs(
     let materials = MaterialFrameInput {
         terrain_material: TerrainMaterialParams {
             enabled: gui.terrain_material_enabled.value,
-            soil_scale_voxels: gui.terrain_soil_scale_voxels.value,
             soil_strength: gui.terrain_soil_strength.value,
-            rock_scale_voxels: gui.terrain_rock_scale_voxels.value,
             rock_strength: gui.terrain_rock_strength.value,
-            rock_layer_tilt_degrees: gui.terrain_rock_layer_tilt.value,
             color_band: gui.terrain_material_color_band.value,
             seed: gui.terrain_material_seed.value,
         },
@@ -324,14 +321,11 @@ mod tests {
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
-        gui.terrain_material_enabled.value = false;
+        gui.terrain_material_enabled.value = true;
         let terrain_material = TerrainMaterialParams {
-            enabled: false,
-            soil_scale_voxels: float!(terrain_soil_scale_voxels),
+            enabled: true,
             soil_strength: float!(terrain_soil_strength),
-            rock_scale_voxels: float!(terrain_rock_scale_voxels),
             rock_strength: float!(terrain_rock_strength),
-            rock_layer_tilt_degrees: float!(terrain_rock_layer_tilt),
             color_band: float!(terrain_material_color_band),
             seed: uint!(terrain_material_seed),
         };

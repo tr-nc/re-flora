@@ -2308,27 +2308,16 @@ name = "Terrain Material"
 [[section.param]]
 id = "terrain_material_enabled"
 kind = "bool"
-label = "A/B: Procedural Terrain Material (off = original)"
+label = "A/B: Per-Voxel Color Variation (off = original)"
 type = "Bool"
 
 [section.param.data]
 value = false
 
 [[section.param]]
-id = "terrain_soil_scale_voxels"
-kind = "float"
-label = "Soil Mottling Scale (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 16
-min = 8
-max = 128
-
-[[section.param]]
 id = "terrain_soil_strength"
 kind = "float"
-label = "Soil Mottling Strength"
+label = "Soil / Sand Color Variation Strength"
 type = "Float"
 
 [section.param.data]
@@ -2337,37 +2326,15 @@ min = 0
 max = 0.75
 
 [[section.param]]
-id = "terrain_rock_scale_voxels"
-kind = "float"
-label = "Rock Layer Spacing (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 12
-min = 8
-max = 128
-
-[[section.param]]
 id = "terrain_rock_strength"
 kind = "float"
-label = "Rock Layer Strength"
+label = "Rock Color Variation Strength"
 type = "Float"
 
 [section.param.data]
 value = 0.32
 min = 0
 max = 0.75
-
-[[section.param]]
-id = "terrain_rock_layer_tilt"
-kind = "float"
-label = "Rock Layer Tilt (deg, world XY)"
-type = "Float"
-
-[section.param.data]
-value = 15
-min = -75
-max = 75
 
 [[section.param]]
 id = "terrain_material_color_band"

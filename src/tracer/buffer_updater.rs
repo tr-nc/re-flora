@@ -218,8 +218,7 @@ impl BufferUpdater {
             rock_color: palette.rock_color.to_array(),
             emissive_color: palette.emissive_color.to_array(),
             emissive_radiance: palette.emissive_radiance,
-            terrain_soil: terrain.soil,
-            terrain_rock: terrain.rock,
+            terrain_variation: terrain.variation,
             terrain_seed: terrain.seed,
             terrain_enabled: terrain.enabled,
             ..VoxelColors::zeroed()

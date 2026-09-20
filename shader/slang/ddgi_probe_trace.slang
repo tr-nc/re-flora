@@ -195,7 +195,7 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
             ddgiReceiverPosition, normal, ddgiHardVisibilityPosition).irradiance;
     }
     // Keep the existing dry-material transport approximation: live atlas moisture is not
-    // frozen with this multi-frame build. The authored macro pattern itself is shared exactly.
+    // frozen with this multi-frame build. The authored per-voxel variation itself is shared exactly.
     float3 albedo = ddgiTerrainColorAtVoxel(
         ddgi_radiance_voxel_palette, result.voxel_type, result.center_position);
     float3 surfaceEmission = ddgiVoxelSurfaceEmission(

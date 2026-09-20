@@ -31,7 +31,7 @@ public float3 terrainColorAtVoxel(U_VoxelColors colors, uint voxelType,
                                   float3 voxelCenterWorld)
 {
     return applyTerrainMaterial(voxelColorByType(colors, voxelType), voxelType,
-        voxelCenterWorld, colors.terrain_soil, colors.terrain_rock,
+        voxelCenterWorld, colors.terrain_variation,
         colors.terrain_seed, colors.terrain_enabled);
 }
 
@@ -76,7 +76,7 @@ public float3 ddgiTerrainColorAtVoxel(U_DdgiRadianceVoxelPalette colors,
                                       uint voxelType, float3 voxelCenterWorld)
 {
     return applyTerrainMaterial(ddgiVoxelColorByType(colors, voxelType), voxelType,
-        voxelCenterWorld, colors.terrain_soil, colors.terrain_rock,
+        voxelCenterWorld, colors.terrain_variation,
         colors.terrain_seed, colors.terrain_enabled);
 }
 

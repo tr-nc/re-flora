@@ -1,5 +1,8 @@
 # 材质候选迁移：视觉复评入口
 
+> 本文是 `7bdd3640` 宏观斑驳候选的迁移历史。用户复评后已改为
+> [逐 voxel 独立颜色变化](terrain_material_per_voxel.md)；本文旧控件及布局不代表当前实现。
+
 ## 版本与边界
 
 - Worker：`agent/terrain-material-refresh`，仅修改本 worktree。

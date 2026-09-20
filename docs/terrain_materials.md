@@ -1,5 +1,25 @@
 # Procedural terrain materials
 
+## 当前：逐 voxel 独立颜色变化
+
+用户视觉复评否定了连续宏观斑驳：即使 scale 最低为 8，邻近 voxel 的渐变也不是所需效果。
+现改为 Dirt/Sand/Rock 各体素按 `floor(worldPosition * 256)` 和 seed 哈希取得稳定颜色，
+不再插值、缩放噪声或生成岩石层理。同一 voxel 内颜色恒定，邻居独立取值；不是保证所有
+邻居肉眼可辨（强度、基色和显示量化仍会影响差异），也不随相机或时间随机变化。
+
+Debug → **Terrain Material** → **A/B: Per-Voxel Color Variation (off = original)**：
+默认 off 保留 main 原效果；on 启用逐 voxel 色差。仅保留 **Soil / Sand Color Variation
+Strength**、**Rock Color Variation Strength**、冷暖色带、seed。废弃尺度及倾斜控件；
+旧 GUI 加载会移除它们并刷新标签，但保留强度/开关等已有值，加载不写回。
+
+五项参数进入不可变 DDGI radiance identity，live/frozen 共用材质求值；湿度与编辑光照
+策略不变。GPU palette 现为 128 字节（相对原 main 增加 32，较宏观候选减少 16）。
+切换后仍需等待 DDGI 完整场发布才比较稳定间接光。
+
+最新验证见 [逐 voxel 迭代记录](terrain_material_per_voxel.md)。这一迭代没有新的性能
+测量或视觉接受；逐 voxel 高频颜色远处可能混叠，需用户复评。下文宏观斑驳设计、尺度、
+八项控制、144 字节布局和旧 A/B 标签均为**被本节取代的历史记录**。
+
 ## 当前迁移状态（2026-09-19）
 
 在 `agent/terrain-material-refresh` 从 main 基线

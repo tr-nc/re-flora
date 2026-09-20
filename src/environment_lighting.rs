@@ -135,7 +135,7 @@ struct DdgiRadianceIdentity {
     ddgi_receiver_visibility_bias_world: u32,
     glass_experiment_enabled: bool,
     glass_material_revision: u32,
-    terrain_material: [u32; 8],
+    terrain_material: [u32; 5],
     dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
@@ -737,23 +737,11 @@ mod tests {
                 ..base
             },
             TerrainMaterialParams {
-                soil_scale_voxels: 32.0,
-                ..base
-            },
-            TerrainMaterialParams {
                 soil_strength: 0.6,
                 ..base
             },
             TerrainMaterialParams {
-                rock_scale_voxels: 24.0,
-                ..base
-            },
-            TerrainMaterialParams {
                 rock_strength: 0.5,
-                ..base
-            },
-            TerrainMaterialParams {
-                rock_layer_tilt_degrees: -25.0,
                 ..base
             },
             TerrainMaterialParams {

@@ -2420,8 +2420,7 @@ impl DdgiVolume {
                 rock_color: snapshot.voxel_palette.rock_color.to_array(),
                 emissive_color: snapshot.voxel_palette.emissive_color.to_array(),
                 emissive_radiance: snapshot.voxel_palette.emissive_radiance,
-                terrain_soil: terrain.soil,
-                terrain_rock: terrain.rock,
+                terrain_variation: terrain.variation,
                 terrain_seed: terrain.seed,
                 terrain_enabled: terrain.enabled,
                 ..DdgiRadianceVoxelPalette::zeroed()
@@ -3533,7 +3532,7 @@ mod tests {
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 48);
-        assert_eq!(bytes.radiance_voxel_palette, 144);
+        assert_eq!(bytes.radiance_voxel_palette, 128);
         assert_eq!(bytes.transport_query_info, 64);
     }
 
