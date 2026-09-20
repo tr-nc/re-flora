@@ -98,7 +98,7 @@ label = "Animate raster trees with wind"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "tree_stiffness"
@@ -118,7 +118,7 @@ label = "Raster whole trees (B)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "flora_growth_override_enabled"
@@ -2162,7 +2162,7 @@ label = "Pixels per Butterfly (N x N, All Distances)"
 type = "Uint"
 
 [section.param.data]
-value = 22
+value = 16
 min = 8
 max = 64
 
@@ -2173,7 +2173,7 @@ label = "Wing Animation FPS"
 type = "Uint"
 
 [section.param.data]
-value = 60
+value = 8
 min = 2
 max = 60
 
@@ -2184,9 +2184,9 @@ label = "Wing Light Transmission (0 = Opaque, 1 = Equal Sides)"
 type = "Float"
 
 [section.param.data]
-value = 0.0
-min = 0.0
-max = 1.0
+value = 0.8
+min = 0
+max = 1
 
 [[section.param]]
 id = "butterfly_self_shadows"
@@ -2204,7 +2204,7 @@ label = "Preview 7 Palettes Near / Mid / Far (Camera-relative)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "butterfly_spawn_rate_per_source"
