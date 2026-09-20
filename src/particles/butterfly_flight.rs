@@ -1,4 +1,5 @@
 //! Art-directed, seeded acceleration events. See docs/research/butterfly_block_flight_motion_research.md.
+use super::butterfly_wingbeat::WingbeatCoupling;
 use glam::Vec3;
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
@@ -42,6 +43,8 @@ impl ButterflyFlightVariant {
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ButterflyFlightTuning {
+    /// A/B: retain original dynamics when false; couple authored wing strokes when true.
+    pub wingbeat_coupling: bool,
     /// Saved physical vertical-intent rhythm (legacy key). Does not clock rendering.
     pub flight_frequency_hz: f32,
     /// World units above local terrain; the walking camera's default eye height is 0.08.
@@ -64,6 +67,7 @@ pub struct ButterflyFlightSettings {
 impl Default for ButterflyFlightTuning {
     fn default() -> Self {
         Self {
+            wingbeat_coupling: false,
             flight_frequency_hz: 10.0,
             height_above_ground: 0.08,
             maneuver_tempo: 1.0,
@@ -94,6 +98,7 @@ impl ButterflyFlightTuning {
             }
         };
         Self {
+            wingbeat_coupling: self.wingbeat_coupling,
             height_above_ground: bounded(
                 self.height_above_ground,
                 Self::HEIGHT_RANGE,
@@ -218,6 +223,8 @@ fn sample_event_wait(rng: &mut SmallRng) -> f32 {
 
 #[derive(Debug)]
 pub(super) struct DartingFlightState {
+    pub(super) wingbeat: WingbeatCoupling,
+    pub(super) wingbeat_phase: f32,
     habitat_center: Vec3,
     ground_height: Option<f32>,
     cruise_direction: Vec3,
@@ -240,6 +247,8 @@ impl DartingFlightState {
         let cruise_direction =
             Vec3::new(initial_direction.x, 0.0, initial_direction.z).normalize_or(Vec3::X);
         Self {
+            wingbeat: WingbeatCoupling::default(),
+            wingbeat_phase: 0.,
             habitat_center,
             ground_height: None,
             cruise_direction,
@@ -418,7 +427,7 @@ impl DartingFlightState {
             Vec3::ZERO
         };
         if !emerging {
-            maneuver_acceleration.y = vertical_acceleration;
+            maneuver_acceleration.y = vertical_acceleration * (1. - self.wingbeat.pose.blend);
         }
         maneuver_acceleration *= tuning.speed;
         maneuver_acceleration.y *= tuning.vertical_strength;
@@ -436,6 +445,13 @@ impl DartingFlightState {
                 recovery += Vec3::Y * 1.5 - velocity * 8.0;
             }
         }
+        self.wingbeat.advance(
+            self.wingbeat_phase,
+            tuning.wingbeat_coupling,
+            dt,
+            air_velocity,
+            cruise_acceleration + maneuver_acceleration + recovery,
+        );
         let target_acceleration = (cruise_acceleration + maneuver_acceleration + recovery)
             .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed);
         self.acceleration = approach_vec3(
@@ -444,7 +460,19 @@ impl DartingFlightState {
             BUTTERFLY_FLIGHT_MAX_JERK * tuning.speed * tuning.turn_sharpness * dt,
         );
 
-        let mut next_velocity = (air_velocity + self.acceleration * dt).clamp_length_max(max_speed);
+        // Smooth navigation separately: its jerk limiter must not erase the
+        // phase-locked pulse. Existing speed, terrain and world guards still apply.
+        let acceleration = if self.wingbeat.pose.blend > 0. {
+            (self.acceleration
+                + self
+                    .wingbeat
+                    .acceleration(tuning.speed, tuning.vertical_strength, dt))
+            .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed)
+        } else {
+            // Preserve the original limiter/settling semantics exactly when off.
+            self.acceleration
+        };
+        let mut next_velocity = (air_velocity + acceleration * dt).clamp_length_max(max_speed);
         next_velocity.y = next_velocity
             .y
             .clamp(-max_vertical_speed, max_vertical_speed);
@@ -915,6 +943,7 @@ mod tests {
     fn butterfly_tuning_extremes_and_live_edits_stay_finite_and_in_world() {
         assert_eq!(
             ButterflyFlightTuning {
+                wingbeat_coupling: false,
                 flight_frequency_hz: f32::NAN,
                 height_above_ground: f32::NAN,
                 maneuver_tempo: f32::INFINITY,
@@ -932,8 +961,10 @@ mod tests {
             let mut position = Vec3::ONE;
             let mut velocity = Vec3::X * 0.15;
             for tick in 0..2400 {
+                state.wingbeat_phase = tick as f32 * dt;
                 let tuning = if (tick / 240) % 2 == 0 {
                     ButterflyFlightTuning {
+                        wingbeat_coupling: true,
                         flight_frequency_hz: 40.0,
                         height_above_ground: 0.24,
                         maneuver_tempo: 4.0,
@@ -944,6 +975,7 @@ mod tests {
                     }
                 } else {
                     ButterflyFlightTuning {
+                        wingbeat_coupling: false,
                         flight_frequency_hz: 0.0,
                         height_above_ground: 0.03,
                         maneuver_tempo: 0.25,

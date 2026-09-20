@@ -520,7 +520,9 @@ impl App {
             .update_with_wind(dt, self.particle_forces, &wind);
         let world_max =
             super::CHUNK_DIM.as_vec3() + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
+        let animation_time = self.butterfly_presentation_time();
         for emitter in &mut self.butterfly_emitters {
+            emitter.synchronize_animation_clock(animation_time, dt);
             emitter.advance_guided_flight(
                 &mut self.particle_system,
                 dt,
@@ -645,6 +647,7 @@ impl App {
                 palette_index: 0,
                 animation_phase_offset: 0.0,
                 animation_sample_time: None,
+                butterfly_wingbeat: None,
                 leaf_orientation: None,
             });
         }
@@ -684,6 +687,7 @@ impl App {
                     palette_index: preset,
                     animation_phase_offset: 0.,
                     animation_sample_time: Some(time),
+                    butterfly_wingbeat: None,
                     leaf_orientation: None,
                 });
             }
@@ -697,6 +701,24 @@ impl App {
         };
         review.frame += 1;
         let frame = review.frame;
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("wingbeat") {
+            // Opt-in runtime diagnostic, using the same saved field as the A/B UI.
+            // First enable, then exercise an off/on handoff after a subject appears.
+            let elapsed = review.subject_frame.map(|start| frame - start);
+            let enabled = match elapsed {
+                _ if frame == 1 => Some(true),
+                Some(120) => Some(false),
+                Some(240) => Some(true),
+                _ => None,
+            };
+            if let Some(enabled) = enabled {
+                self.debug_settings
+                    .butterfly_flight
+                    .tuning
+                    .wingbeat_coupling = enabled;
+                log::info!("[BUTTERFLY_WINGBEAT_REVIEW] frame={frame} enabled={enabled}");
+            }
+        }
         if let Ok(mode) = std::env::var("RE_FLORA_BUTTERFLY_MESH_REVIEW") {
             let settings = &mut self.debug_settings.adjustables;
             settings.butterfly_mesh_preview.value = true;
@@ -743,6 +765,18 @@ impl App {
             .iter()
             .filter(|s| matches!(s.kind, ParticleRenderKind::Butterfly))
             .collect::<Vec<_>>();
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("wingbeat")
+            && frame.is_multiple_of(15)
+        {
+            log::info!(
+                "[BUTTERFLY_WINGBEAT_REVIEW] frame={frame} samples={:?}",
+                butterflies
+                    .iter()
+                    .take(4)
+                    .map(|s| (s.position_ws, s.velocity, s.butterfly_wingbeat))
+                    .collect::<Vec<_>>()
+            );
+        }
         if frame >= 240 && review.subject_frame.is_none() {
             if let Some(subject) = butterflies.iter().find(|s| {
                 s.color.w >= 0.99
@@ -805,6 +839,7 @@ impl App {
                     ..ButterflyFlightTuning::default()
                 }),
                 Some(180) => Some(ButterflyFlightTuning {
+                    wingbeat_coupling: false,
                     flight_frequency_hz: 6.25,
                     height_above_ground: 0.08,
                     maneuver_tempo: 2.0,

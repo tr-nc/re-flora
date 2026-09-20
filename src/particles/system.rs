@@ -184,10 +184,12 @@ pub struct ParticleSnapshot {
     pub size: f32,
     pub kind: ParticleRenderKind,
     pub palette_index: u32,
-    /// Stable per-life phase seed for render-only articulated wing animation.
+    /// Stable per-life phase seed shared by articulated wings and coupled flight.
     pub animation_phase_offset: f32,
     /// Timestamp published atomically with butterfly position and heading.
     pub animation_sample_time: Option<f32>,
+    /// Simulation-owned wing phase and attitude, held on the same publication tick.
+    pub butterfly_wingbeat: Option<super::ButterflyWingbeatPose>,
     /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
     /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
@@ -250,6 +252,7 @@ pub struct ParticleSystem {
     leaf_flight: Vec<LeafFlight>,
     leaf_display: Vec<LeafDisplayPose>,
     butterfly_display: Vec<ButterflyPresentation>,
+    butterfly_wingbeats: Vec<Option<super::ButterflyWingbeatPose>>,
 }
 
 impl ParticleSystem {
@@ -309,6 +312,7 @@ impl ParticleSystem {
             speed_noise,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
             butterfly_display: vec![ButterflyPresentation::default(); max_particles],
+            butterfly_wingbeats: vec![None; max_particles],
             leaf_display: vec![
                 LeafDisplayPose {
                     position: Vec3::ZERO,
@@ -384,6 +388,7 @@ impl ParticleSystem {
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
         self.butterfly_display[slot] = ButterflyPresentation::default();
+        self.butterfly_wingbeats[slot] = None;
         self.leaf_display[slot] = LeafDisplayPose {
             position: spawn.position,
             velocity: spawn.velocity,
@@ -701,14 +706,16 @@ impl ParticleSystem {
         self.write_snapshots_with_flight_pose(out, |_, position| position);
         for (&slot, snapshot) in self.alive_indices.iter().zip(out) {
             if snapshot.kind == ParticleRenderKind::Butterfly {
-                let pose = self.butterfly_display[slot].sample(
+                let pose = self.butterfly_display[slot].sample_with_wingbeat(
                     frame,
                     snapshot.position_ws,
                     snapshot.velocity,
+                    snapshot.butterfly_wingbeat,
                 );
                 snapshot.position_ws = pose.position;
                 snapshot.velocity = pose.velocity;
                 snapshot.animation_sample_time = Some(pose.time_seconds());
+                snapshot.butterfly_wingbeat = pose.wingbeat;
             }
         }
     }
@@ -763,14 +770,35 @@ impl ParticleSystem {
                 kind,
                 palette_index: self.palette_indices[*slot],
                 animation_sample_time: None,
-                animation_phase_offset: (((*slot as u32).wrapping_mul(0x9e37_79b9)
-                    ^ self.generations[*slot].wrapping_mul(0x85eb_ca6b))
-                    >> 8) as f32
-                    / 16_777_216.0,
+                animation_phase_offset: self.butterfly_phase_offset(*slot),
+                butterfly_wingbeat: self.butterfly_wingbeats[*slot],
                 leaf_orientation: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_display[*slot].orientation),
             });
+        }
+    }
+
+    fn butterfly_phase_offset(&self, slot: usize) -> f32 {
+        (((slot as u32).wrapping_mul(0x9e37_79b9)
+            ^ self.generations[slot].wrapping_mul(0x85eb_ca6b))
+            >> 8) as f32
+            / 16_777_216.0
+    }
+
+    pub(super) fn wingbeat_phase(&self, handle: ParticleHandle, time: f64) -> f32 {
+        self.validate_handle(handle).map_or(0., |slot| {
+            (time + f64::from(self.butterfly_phase_offset(slot))).rem_euclid(1.) as f32
+        })
+    }
+
+    pub(super) fn set_wingbeat_pose(
+        &mut self,
+        handle: ParticleHandle,
+        pose: Option<super::ButterflyWingbeatPose>,
+    ) {
+        if let Some(slot) = self.validate_handle(handle) {
+            self.butterfly_wingbeats[slot] = pose;
         }
     }
 

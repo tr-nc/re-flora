@@ -342,6 +342,7 @@ pub struct ButterflyEmitter {
     rng: SmallRng,
     active_butterflies: Vec<ActiveButterfly>,
     flight_elapsed: f64,
+    flight_time: f64,
 }
 
 impl ButterflyEmitter {
@@ -368,6 +369,7 @@ impl ButterflyEmitter {
             rng: SmallRng::seed_from_u64(seed),
             active_butterflies: Vec::new(),
             flight_elapsed: 0.0,
+            flight_time: 0.0,
         }
     }
 
@@ -578,6 +580,12 @@ impl ButterflyEmitter {
         }
     }
 
+    /// The same animation clock used by the original renderer. Fixed substeps
+    /// sample this clock; the display FPS never advances or quantizes physics.
+    pub fn synchronize_animation_clock(&mut self, end_time: f32, dt: f32) {
+        self.flight_time = f64::from(end_time) - f64::from(dt.clamp(0., 0.25));
+    }
+
     /// Advances existing live handles only; the spawn hazard and palette RNG stay untouched.
     pub fn advance_guided_flight(
         &mut self,
@@ -587,8 +595,12 @@ impl ButterflyEmitter {
         wind: &WindFieldFrame,
         mut terrain_distance: impl FnMut(Vec3, Vec3) -> Option<f32>,
     ) {
+        self.flight_time += f64::from(dt.clamp(0., 0.25));
         if !self.flight_variant.uses_darting_flight() {
             self.flight_elapsed = 0.0;
+            for butterfly in &self.active_butterflies {
+                system.set_wingbeat_pose(butterfly.handle, None);
+            }
             return;
         }
         // Bound catch-up after a stall. No giant position step is ever published.
@@ -605,6 +617,8 @@ impl ButterflyEmitter {
                 if !emerging {
                     butterfly.emergence_target_y = None;
                 }
+                butterfly.darting_flight.wingbeat_phase =
+                    system.wingbeat_phase(butterfly.handle, self.flight_time - self.flight_elapsed);
                 let next_velocity = butterfly.darting_flight.advance(
                     position,
                     velocity,
@@ -616,6 +630,8 @@ impl ButterflyEmitter {
                     &mut terrain_distance,
                 );
                 system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
+                let pose = butterfly.darting_flight.wingbeat.pose;
+                system.set_wingbeat_pose(butterfly.handle, (pose.blend > 0.).then_some(pose));
                 if let Some(position) = system.position(butterfly.handle) {
                     butterfly.darting_flight.publish_render_pose(position);
                 }
@@ -679,6 +695,152 @@ mod tests {
             lifetime_min: 100.0,
             lifetime_max: 100.0,
             ..ButterflyEmitterDesc::default()
+        }
+    }
+
+    #[test]
+    fn coupled_flight_is_independent_of_display_fps_and_holds_complete_poses() {
+        use crate::particles::ButterflyFrame;
+        let run = |fps| {
+            let mut desc = butterfly_test_desc();
+            desc.flight_variant = ButterflyFlightVariant::Darting;
+            desc.flight_tuning.wingbeat_coupling = true;
+            let mut emitter = ButterflyEmitter::new(17, &desc);
+            let mut system = ParticleSystem::new(2);
+            let handle = emitter
+                .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+                .unwrap();
+            let mut snapshots = Vec::new();
+            let mut previous: Option<(ButterflyFrame, super::super::ParticleSnapshot)> = None;
+            for tick in 1..=480 {
+                let time = tick as f32 / 120.;
+                emitter.synchronize_animation_clock(time, 1. / 120.);
+                emitter.advance_guided_flight(
+                    &mut system,
+                    1. / 120.,
+                    Vec3::splat(4.),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
+                let frame = ButterflyFrame::at(time, fps);
+                system.write_snapshots_for_frame(&mut snapshots, frame);
+                let snapshot = snapshots[0];
+                if let Some((last_frame, last)) = previous {
+                    if frame == last_frame {
+                        assert_eq!(snapshot.position_ws, last.position_ws);
+                        assert_eq!(snapshot.velocity, last.velocity);
+                        assert_eq!(snapshot.butterfly_wingbeat, last.butterfly_wingbeat);
+                    }
+                }
+                if tick == 480 {
+                    let pose = snapshot.butterfly_wingbeat.unwrap();
+                    assert_eq!(pose.blend, 1.);
+                    assert!((pose.phase - system.wingbeat_phase(handle, 4.)).abs() < 1e-5);
+                }
+                previous = Some((frame, snapshot));
+            }
+            (
+                system.position(handle).unwrap(),
+                system.velocity(handle).unwrap(),
+            )
+        };
+        let expected = run(60);
+        for fps in [2, 8, 16] {
+            assert_eq!(run(fps), expected);
+        }
+    }
+
+    #[test]
+    fn coupled_impulses_do_not_depend_on_render_frame_partition() {
+        let run = |hz| {
+            let mut desc = butterfly_test_desc();
+            desc.flight_variant = ButterflyFlightVariant::Darting;
+            desc.flight_tuning.wingbeat_coupling = true;
+            let mut emitter = ButterflyEmitter::new(17, &desc);
+            let mut system = ParticleSystem::new(2);
+            let handle = emitter
+                .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+                .unwrap();
+            let dt = 1. / hz as f32;
+            for frame in 1..=hz * 4 {
+                emitter.synchronize_animation_clock(frame as f32 / hz as f32, dt);
+                emitter.advance_guided_flight(
+                    &mut system,
+                    dt,
+                    Vec3::splat(4.),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
+            }
+            (
+                system.position(handle).unwrap(),
+                system.velocity(handle).unwrap(),
+            )
+        };
+        let expected = run(120);
+        for hz in [30, 60, 144] {
+            let actual = run(hz);
+            assert!(
+                actual.0.distance(expected.0) < 1e-5,
+                "{hz} Hz: {actual:?} vs {expected:?}"
+            );
+            assert!(actual.1.distance(expected.1) < 1e-5);
+        }
+    }
+
+    #[test]
+    fn coupling_switch_preserves_identity_and_zero_dt_cannot_move_or_advance_wings() {
+        let mut desc = butterfly_test_desc();
+        desc.flight_variant = ButterflyFlightVariant::Darting;
+        let mut emitter = ButterflyEmitter::new(17, &desc);
+        let mut system = ParticleSystem::new(2);
+        let handle = emitter
+            .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+            .unwrap();
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        let identity = snapshots[0];
+        for enabled in [true, false, true, false] {
+            let position = system.position(handle);
+            let velocity = system.velocity(handle);
+            desc.flight_tuning.wingbeat_coupling = enabled;
+            emitter.apply_desc(&desc);
+            emitter.sync_active_motion(&mut system);
+            emitter.advance_guided_flight(
+                &mut system,
+                0.,
+                Vec3::splat(4.),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            assert_eq!(position, system.position(handle));
+            assert_eq!(velocity, system.velocity(handle));
+            for _ in 0..60 {
+                emitter.advance_guided_flight(
+                    &mut system,
+                    1. / 120.,
+                    Vec3::splat(4.),
+                    &WindFieldFrame::default(),
+                    |_, _| None,
+                );
+            }
+            system.write_snapshots(&mut snapshots);
+            assert_eq!(snapshots[0].palette_index, identity.palette_index);
+            assert_eq!(
+                snapshots[0].animation_phase_offset,
+                identity.animation_phase_offset
+            );
+            assert_eq!(snapshots[0].butterfly_wingbeat.is_some(), enabled);
+            let held = snapshots[0].butterfly_wingbeat;
+            emitter.advance_guided_flight(
+                &mut system,
+                0.,
+                Vec3::splat(4.),
+                &WindFieldFrame::default(),
+                |_, _| None,
+            );
+            system.write_snapshots(&mut snapshots);
+            assert_eq!(snapshots[0].butterfly_wingbeat, held);
         }
     }
 

@@ -1,6 +1,8 @@
 mod butterfly_flight;
 mod butterfly_presentation;
+pub(crate) mod butterfly_wingbeat;
 pub(crate) use butterfly_presentation::ButterflyFrame;
+pub use butterfly_wingbeat::ButterflyWingbeatPose;
 pub mod emitters;
 mod leaf_flight;
 pub mod system;

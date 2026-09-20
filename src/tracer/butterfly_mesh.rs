@@ -119,11 +119,7 @@ impl Mesh {
     fn pose(&self, phase: f32) -> [f32; 3] {
         // Publication already sampled the shared clock. The per-animal offset
         // changes wing phase, never the moment at which a pose is published.
-        let key = phase.rem_euclid(1.0) * self.source_fps as f32;
-        let i = (key.floor() as usize).min(self.source_fps - 1);
-        std::array::from_fn(|c| {
-            self.keys[i][c] + (self.keys[i + 1][c] - self.keys[i][c]) * key.fract()
-        })
+        crate::particles::butterfly_wingbeat::wing_pose(phase)
     }
 }
 
@@ -186,9 +182,19 @@ impl ButterflyMeshRenderer {
             let sampled_time = snapshot
                 .animation_sample_time
                 .expect("validated presentation timestamp");
-            let [wing, pitch, bob] = self
-                .mesh
-                .pose(sampled_time + snapshot.animation_phase_offset);
+            let original_phase = (sampled_time + snapshot.animation_phase_offset).rem_euclid(1.);
+            let coupling = snapshot.butterfly_wingbeat;
+            let blend = coupling.map_or(0., |p| p.blend);
+            let phase = coupling.map_or(original_phase, |p| {
+                if blend == 1. {
+                    p.phase
+                } else {
+                    original_phase + ((p.phase - original_phase + 0.5).rem_euclid(1.) - 0.5) * blend
+                }
+            });
+            let [wing, pitch, bob] = self.mesh.pose(phase);
+            // World displacement belongs to flight physics in the coupled mode.
+            let bob = bob * (1. - blend);
             let velocity = snapshot.velocity;
             let speed = velocity.x.hypot(velocity.z);
             let yaw = if speed > 0.0001 {
@@ -197,7 +203,14 @@ impl ButterflyMeshRenderer {
                 0.0
             };
             let flight_pitch = velocity.y.atan2(speed.max(0.001)).clamp(-0.4, 0.4);
-            let facing = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(flight_pitch);
+            let original_facing = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(flight_pitch);
+            let facing = coupling.map_or(original_facing, |p| {
+                if blend == 1. {
+                    p.orientation
+                } else {
+                    original_facing.slerp(p.orientation, blend)
+                }
+            });
             // Keep the same nominal billboard footprint as the old particles.
             // 3.4 is the approved browser's fixed framing span, not a fitted
             // per-frame silhouette: flapping must not pump the pixel scale.
@@ -293,6 +306,58 @@ mod tests {
         assert_eq!(std::mem::size_of::<Triangle>(), 48);
     }
     #[test]
+    fn coupled_mesh_uses_published_phase_attitude_and_no_duplicate_bob() {
+        let pose = crate::particles::ButterflyWingbeatPose {
+            phase: 0.4,
+            blend: 1.,
+            orientation: Quat::from_rotation_y(0.2) * Quat::from_rotation_z(0.3),
+        };
+        let mut snapshot = ParticleSnapshot {
+            position_ws: Vec3::ONE,
+            velocity: Vec3::X,
+            color: glam::Vec4::ONE,
+            size: 0.03,
+            kind: ParticleRenderKind::Butterfly,
+            palette_index: 0,
+            animation_phase_offset: 0.25,
+            animation_sample_time: Some(0.),
+            butterfly_wingbeat: Some(pose),
+            leaf_orientation: None,
+        };
+        let settings = ButterflyMeshSettings {
+            resolution: 16,
+            fps: 8,
+            self_shadows: true,
+            transmission: 0.8,
+        };
+        let mut renderer = ButterflyMeshRenderer::default();
+        renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
+        let geometry = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
+        let [wing, pitch, bob] = renderer.mesh.pose(pose.phase);
+        assert!(
+            bob.abs() > 0.01,
+            "test a source pose with visible authored bob"
+        );
+        for (source, result) in renderer.mesh.triangles.iter().zip(&renderer.triangles) {
+            let rotation = Quat::from_rotation_x(pitch) * Quat::from_rotation_z(wing * source.side);
+            let expected = snapshot.position_ws
+                + pose.orientation
+                    * (rotation * Vec3::from(source.positions[0]))
+                    * (snapshot.size * (1.53125 / 3.4));
+            assert!(Vec3::from_slice(&result.a).distance(expected) < 1e-6);
+        }
+        // The publication timestamp remains required, but cannot independently
+        // animate a coupled pose. Nor may ground-relative velocity override yaw.
+        snapshot.animation_sample_time = Some(123.731);
+        snapshot.velocity = -Vec3::Y;
+        renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
+        assert_eq!(
+            geometry,
+            bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles)
+        );
+    }
+
+    #[test]
     fn tile_resolution_is_global_and_empty_frames_do_not_retain_instances() {
         let snapshot = |distance: f32, kind| ParticleSnapshot {
             position_ws: Vec3::new(0., 0., -distance),
@@ -303,6 +368,7 @@ mod tests {
             palette_index: 5,
             animation_phase_offset: 0.25,
             animation_sample_time: Some(0.),
+            butterfly_wingbeat: None,
             leaf_orientation: None,
         };
         let snapshots = [
@@ -366,6 +432,7 @@ mod tests {
                 kind: ParticleRenderKind::Butterfly,
                 palette_index: 0,
                 animation_phase_offset: 0.31,
+                butterfly_wingbeat: None,
                 animation_sample_time: Some(
                     crate::particles::ButterflyFrame::at(time, 8).time_seconds(),
                 ),

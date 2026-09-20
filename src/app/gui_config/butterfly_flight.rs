@@ -4,6 +4,17 @@ use crate::particles::ButterflyFlightTuning;
 
 pub(crate) fn draw_butterfly_flight_controls(ui: &mut SavedControls<'_>) {
     ui.label("Flight");
+    let coupling = ui.toggle(
+        |s| &mut s.butterfly_flight.tuning.wingbeat_coupling,
+        true, false,
+        "Wingbeat-coupled flight (A/B experiment)",
+    ).on_hover_text("Unchecked: original flight. Checked: downstroke support, upstroke propulsion and banked turns. Keeps the approved wing tempo; transitions smoothly. Applies to guided flight, not the static mesh preview.");
+    if coupling.changed() {
+        log::info!(
+            "[BUTTERFLY_FLIGHT][COUPLING] enabled={}",
+            ui.read(|s| &s.butterfly_flight.tuning.wingbeat_coupling)
+        );
+    }
     draw_butterfly_flight_tuning(ui);
 }
 

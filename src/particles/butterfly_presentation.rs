@@ -1,5 +1,6 @@
 //! One publication clock for world position, heading and articulated wing time.
 //! Sampling never feeds held poses back into the high-frequency simulation.
+use super::ButterflyWingbeatPose;
 use glam::Vec3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +31,7 @@ pub(super) struct ButterflyPose {
     frame: ButterflyFrame,
     pub position: Vec3,
     pub velocity: Vec3,
+    pub wingbeat: Option<ButterflyWingbeatPose>,
 }
 impl ButterflyPose {
     pub fn time_seconds(self) -> f32 {
@@ -40,17 +42,29 @@ impl ButterflyPose {
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct ButterflyPresentation(Option<ButterflyPose>);
 impl ButterflyPresentation {
+    #[cfg(test)]
     pub fn sample(
         &mut self,
         frame: ButterflyFrame,
         position: Vec3,
         velocity: Vec3,
     ) -> ButterflyPose {
+        self.sample_with_wingbeat(frame, position, velocity, None)
+    }
+
+    pub fn sample_with_wingbeat(
+        &mut self,
+        frame: ButterflyFrame,
+        position: Vec3,
+        velocity: Vec3,
+        wingbeat: Option<ButterflyWingbeatPose>,
+    ) -> ButterflyPose {
         if self.0.is_none_or(|pose| pose.frame != frame) {
             self.0 = Some(ButterflyPose {
                 frame,
                 position,
                 velocity,
+                wingbeat,
             });
         }
         self.0.unwrap()

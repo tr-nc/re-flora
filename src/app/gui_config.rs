@@ -1344,6 +1344,7 @@ wind_drift = 1.0
         assert!(!text.contains("Reset B flight controls"));
         settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Original;
         settings.butterfly_flight.tuning = crate::particles::ButterflyFlightTuning {
+            wingbeat_coupling: true,
             flight_frequency_hz: 0.0,
             height_above_ground: 0.12,
             maneuver_tempo: 3.25,
