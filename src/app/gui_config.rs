@@ -98,7 +98,7 @@ impl DebugSettings {
                 audio_mix::draw(&mut saved_controls::SavedControls::new(ui, custom));
             }
             if section_name == "Butterflies" {
-                self::butterfly_flight::draw_butterfly_flight_ab_controls(
+                self::butterfly_flight::draw_butterfly_flight_controls(
                     &mut saved_controls::SavedControls::new(ui, custom),
                 );
             }
@@ -1058,9 +1058,8 @@ mod tests {
                 Value::Number(v) => {
                     Value::from(v.as_u64().expect("add a signed-value test policy") ^ 1)
                 }
-                Value::String(v) if v == "DartingBlock" => Value::from("OriginalSprite"),
-                Value::String(v) if v == "DartingSprite" => Value::from("DartingBlock"),
-                Value::String(v) if v == "OriginalSprite" => Value::from("DartingBlock"),
+                Value::String(v) if v == "Darting" => Value::from("Original"),
+                Value::String(v) if v == "Original" => Value::from("Darting"),
                 _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
             };
             let mut settings = DebugSettings::load();
@@ -1330,7 +1329,7 @@ wind_drift = 1.0
     }
 
     #[test]
-    fn live_butterfly_settings_and_disabled_b_controls_persist_without_reset_button() {
+    fn live_butterfly_settings_persist_with_one_presentation_rate() {
         let mut settings = DebugSettings::load();
         let context = egui::Context::default();
         context.memory_mut(|m| m.set_everything_is_visible(true));
@@ -1338,13 +1337,14 @@ wind_drift = 1.0
             settings.draw(ui, |_, _| {});
         });
         let text = format!("{:?}", output.shapes);
-        assert!(text.contains("Shared flight frequency"));
+        assert!(text.contains("Butterfly Update FPS"));
+        assert!(!text.contains("Shared flight frequency"));
         assert!(text.contains("Flight height above ground"));
         assert!(!text.contains("Horizontal maneuver tempo"));
         assert!(!text.contains("Reset B flight controls"));
-        settings.butterfly_flight.variant =
-            crate::particles::ButterflyFlightVariant::OriginalSprite;
+        settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Original;
         settings.butterfly_flight.tuning = crate::particles::ButterflyFlightTuning {
+            wingbeat_coupling: true,
             flight_frequency_hz: 0.0,
             height_above_ground: 0.12,
             maneuver_tempo: 3.25,
@@ -1359,7 +1359,7 @@ wind_drift = 1.0
         assert_eq!(settings.save_status(), Some("Settings saved"));
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
-        settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::DartingBlock;
+        settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Darting;
         settings.save_to_path(&path).unwrap();
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);

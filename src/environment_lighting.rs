@@ -925,7 +925,7 @@ mod tests {
         for consumer in [
             include_str!("../shader/slang/dynamic_fruit.vert.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
-            include_str!("../shader/slang/particle_lod_textured.vert.slang"),
+            include_str!("../shader/slang/particle_billboard.vert.slang"),
         ] {
             assert!(consumer.contains("applyStylizedVoxelLighting("));
         }
@@ -956,7 +956,7 @@ mod tests {
             include_str!("../shader/slang/flora_vertex.slang"),
             include_str!("../shader/slang/dynamic_fruit.vert.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
-            include_str!("../shader/slang/particle_lod_textured.vert.slang"),
+            include_str!("../shader/slang/particle_billboard.vert.slang"),
         ] {
             assert!(consumer.contains("gui_input, sun_info, shading_info"));
         }

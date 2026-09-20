@@ -1,1 +1,12 @@
-snapshots = []
+[[snapshots]]
+name = "glitch"
+description = ""
+position = [
+    0.9965005,
+    0.6620432,
+    0.9027385,
+]
+yaw_deg = 55.30538
+pitch_deg = 4.7783012
+fov_deg = 60.0
+fly_mode = false

@@ -1,7 +1,7 @@
 use fastnoise_lite::{FastNoiseLite, NoiseType};
 use glam::{Quat, Vec3, Vec4};
 
-use super::animation::{BUTTERFLY_ANIM_FRAME_DURATION_SEC, BUTTERFLY_FRAMES_PER_VARIANT};
+use super::butterfly_presentation::{ButterflyFrame, ButterflyPresentation};
 use super::leaf_flight::LeafFlight;
 use crate::wind_field::WindFieldFrame;
 
@@ -9,10 +9,8 @@ use crate::wind_field::WindFieldFrame;
 pub const PARTICLE_CAPACITY: usize = 16_384;
 /// Standard world-space particle quad size, matching one terrain voxel.
 pub const STANDARD_PARTICLE_SIZE: f32 = 1.0 / 256.0;
-/// The two active atlas rows average 58 opaque pixels per 16x16 frame.
-/// A fixed sqrt(256 / 58) scale matches a block's mean visible area without
-/// cancelling wingbeats through per-frame resizing. Presentation only.
-const BUTTERFLY_SPRITE_SIZE_COMPENSATION: f32 = 2.1;
+/// Preserve the approved live wing mesh's guided-flight world size.
+const BUTTERFLY_GUIDED_RENDER_SIZE: f32 = 0.008203125;
 pub const PARTICLE_UPDATE_BUCKET_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug)]
@@ -99,7 +97,7 @@ pub struct ParticleSpawn {
     /// Downward speed used during the sinking phase.
     pub sink_speed: f32,
     /// Optional texture variant for render-time atlas selection.
-    pub texture_variant: u32,
+    pub palette_index: u32,
     /// Render classification used by the particle texture LUT.
     pub render_kind: ParticleRenderKind,
     /// If false, particle lifetime does not trigger automatic despawn.
@@ -127,7 +125,7 @@ impl Default for ParticleSpawn {
             motion_mode: MotionMode::Falling,
             sink_on_lifetime: false,
             sink_speed: 0.1,
-            texture_variant: 0,
+            palette_index: 0,
             render_kind: ParticleRenderKind::Leaf,
             despawn_on_lifetime: true,
             despawn_below_ground: true,
@@ -185,8 +183,13 @@ pub struct ParticleSnapshot {
     pub color: Vec4,
     pub size: f32,
     pub kind: ParticleRenderKind,
-    pub texture_variant: u32,
-    pub animation_frame_offset: u32,
+    pub palette_index: u32,
+    /// Stable per-life phase seed shared by articulated wings and coupled flight.
+    pub animation_phase_offset: f32,
+    /// Timestamp published atomically with butterfly position and heading.
+    pub animation_sample_time: Option<f32>,
+    /// Simulation-owned wing phase and attitude, held on the same publication tick.
+    pub butterfly_wingbeat: Option<super::ButterflyWingbeatPose>,
     /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
     /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
@@ -196,7 +199,6 @@ pub struct ParticleSnapshot {
 pub enum ParticleRenderKind {
     Leaf,
     Butterfly,
-    ButterflyBlock,
     WaterDroplet,
     TerrainVoxel,
 }
@@ -233,10 +235,7 @@ pub struct ParticleSystem {
     free_list: Vec<usize>,
     max_particles: usize,
     speed_noise_offsets: Vec<f32>,
-    texture_variants: Vec<u32>,
-    butterfly_block_appearance: Vec<bool>,
-    animation_elapsed: Vec<f32>,
-    animation_frame_offsets: Vec<u32>,
+    palette_indices: Vec<u32>,
     render_kinds: Vec<ParticleRenderKind>,
     despawn_on_lifetime: Vec<bool>,
     despawn_below_ground: Vec<bool>,
@@ -252,6 +251,8 @@ pub struct ParticleSystem {
     speed_noise: FastNoiseLite,
     leaf_flight: Vec<LeafFlight>,
     leaf_display: Vec<LeafDisplayPose>,
+    butterfly_display: Vec<ButterflyPresentation>,
+    butterfly_wingbeats: Vec<Option<super::ButterflyWingbeatPose>>,
 }
 
 impl ParticleSystem {
@@ -290,10 +291,7 @@ impl ParticleSystem {
             free_list,
             max_particles,
             speed_noise_offsets: vec![0.0; max_particles],
-            texture_variants: vec![0; max_particles],
-            butterfly_block_appearance: vec![false; max_particles],
-            animation_elapsed: vec![0.0; max_particles],
-            animation_frame_offsets: vec![0; max_particles],
+            palette_indices: vec![0; max_particles],
             render_kinds: vec![ParticleRenderKind::Leaf; max_particles],
             despawn_on_lifetime: vec![true; max_particles],
             despawn_below_ground: vec![true; max_particles],
@@ -313,6 +311,8 @@ impl ParticleSystem {
             },
             speed_noise,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
+            butterfly_display: vec![ButterflyPresentation::default(); max_particles],
+            butterfly_wingbeats: vec![None; max_particles],
             leaf_display: vec![
                 LeafDisplayPose {
                     position: Vec3::ZERO,
@@ -387,6 +387,8 @@ impl ParticleSystem {
         );
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
+        self.butterfly_display[slot] = ButterflyPresentation::default();
+        self.butterfly_wingbeats[slot] = None;
         self.leaf_display[slot] = LeafDisplayPose {
             position: spawn.position,
             velocity: spawn.velocity,
@@ -408,10 +410,7 @@ impl ParticleSystem {
         self.is_alive[slot] = true;
         self.alive_indices.push(slot);
         self.speed_noise_offsets[slot] = spawn.speed_noise_offset;
-        self.texture_variants[slot] = spawn.texture_variant;
-        self.butterfly_block_appearance[slot] = spawn.motion_mode == MotionMode::GuidedFlight;
-        self.animation_elapsed[slot] = 0.0;
-        self.animation_frame_offsets[slot] = 0;
+        self.palette_indices[slot] = spawn.palette_index;
         self.render_kinds[slot] = spawn.render_kind;
         self.despawn_on_lifetime[slot] = spawn.despawn_on_lifetime;
         self.despawn_below_ground[slot] = spawn.despawn_below_ground;
@@ -484,24 +483,6 @@ impl ParticleSystem {
 
     fn bucket_step_seconds(&self) -> f32 {
         self.update_bucket_step_seconds
-    }
-
-    fn step_animation_frame(
-        elapsed: &mut f32,
-        frame_offset: &mut u32,
-        dt: f32,
-        frame_duration_sec: f32,
-        frame_count: u32,
-    ) {
-        if frame_count <= 1 || frame_duration_sec <= f32::EPSILON || dt <= 0.0 {
-            return;
-        }
-
-        *elapsed += dt;
-        while *elapsed >= frame_duration_sec {
-            *elapsed -= frame_duration_sec;
-            *frame_offset = (*frame_offset + 1) % frame_count;
-        }
     }
 
     fn is_falling_leaf(&self, slot: usize) -> bool {
@@ -669,22 +650,6 @@ impl ParticleSystem {
             }
             self.ages[slot] += sim_dt;
 
-            match self.render_kinds[slot] {
-                ParticleRenderKind::Butterfly => {
-                    Self::step_animation_frame(
-                        &mut self.animation_elapsed[slot],
-                        &mut self.animation_frame_offsets[slot],
-                        sim_dt,
-                        BUTTERFLY_ANIM_FRAME_DURATION_SEC,
-                        BUTTERFLY_FRAMES_PER_VARIANT,
-                    );
-                }
-                ParticleRenderKind::Leaf
-                | ParticleRenderKind::ButterflyBlock
-                | ParticleRenderKind::WaterDroplet
-                | ParticleRenderKind::TerrainVoxel => {}
-            }
-
             if !self.is_sinking[slot]
                 && self.sink_on_lifetime[slot]
                 && self.ages[slot] >= self.lifetimes[slot]
@@ -729,20 +694,43 @@ impl ParticleSystem {
     /// Copies the alive particle data into the provided buffer for rendering.
     #[cfg(test)]
     pub fn write_snapshots(&self, out: &mut Vec<ParticleSnapshot>) {
-        self.write_snapshots_with_block_pose(out, |_, position| position);
+        self.write_snapshots_with_flight_pose(out, |_, position| position);
     }
 
-    /// Leaves keep their world-tick pose; only B butterflies use the supplied shared-rhythm pose.
-    /// Neither presentation path feeds back into authoritative simulation state.
-    pub fn write_snapshots_with_block_pose(
+    /// Publish a complete butterfly pose on one clock; leaves retain their existing path.
+    pub fn write_snapshots_for_frame(
+        &mut self,
+        out: &mut Vec<ParticleSnapshot>,
+        frame: ButterflyFrame,
+    ) {
+        self.write_snapshots_with_flight_pose(out, |_, position| position);
+        for (&slot, snapshot) in self.alive_indices.iter().zip(out) {
+            if snapshot.kind == ParticleRenderKind::Butterfly {
+                let pose = self.butterfly_display[slot].sample_with_wingbeat(
+                    frame,
+                    snapshot.position_ws,
+                    snapshot.velocity,
+                    snapshot.butterfly_wingbeat,
+                );
+                snapshot.position_ws = pose.position;
+                snapshot.velocity = pose.velocity;
+                snapshot.animation_sample_time = Some(pose.time_seconds());
+                snapshot.butterfly_wingbeat = pose.wingbeat;
+            }
+        }
+    }
+
+    /// Raw collection, with an optional physics-rhythm anchor for motion diagnostics.
+    /// The game publishes this data through write_snapshots_for_frame instead.
+    pub fn write_snapshots_with_flight_pose(
         &self,
         out: &mut Vec<ParticleSnapshot>,
-        mut block_pose: impl FnMut(ParticleHandle, Vec3) -> Vec3,
+        mut flight_pose: impl FnMut(ParticleHandle, Vec3) -> Vec3,
     ) {
         out.clear();
         out.reserve(self.alive_indices.len());
         for slot in &self.alive_indices {
-            let mut kind = self.render_kinds[*slot];
+            let kind = self.render_kinds[*slot];
             let mut color = self.colors[*slot];
 
             if kind == ParticleRenderKind::Butterfly {
@@ -752,23 +740,6 @@ impl ParticleSystem {
 
                 // fade butterflies by modulating alpha
                 color.w *= fade;
-                if self.butterfly_block_appearance[*slot] {
-                    kind = ParticleRenderKind::ButterflyBlock;
-                    let rgb = crate::tracer::ButterflyPalettePreset::from_index(
-                        self.texture_variants[*slot],
-                    )
-                    .config()
-                    .mid_shade;
-                    // The sprite LUT is sRGB; vertex colors are linear.
-                    for axis in 0..3 {
-                        let srgb = rgb[axis] as f32 / 255.0;
-                        color[axis] = if srgb <= 0.04045 {
-                            srgb / 12.92
-                        } else {
-                            ((srgb + 0.055) / 1.055).powf(2.4)
-                        };
-                    }
-                }
             }
 
             let (position_ws, velocity) = if self.is_falling_leaf(*slot) {
@@ -779,7 +750,7 @@ impl ParticleSystem {
             };
             out.push(ParticleSnapshot {
                 position_ws: if self.motion_modes[*slot] == MotionMode::GuidedFlight {
-                    block_pose(
+                    flight_pose(
                         ParticleHandle {
                             index: *slot as u32,
                             generation: self.generations[*slot],
@@ -792,22 +763,42 @@ impl ParticleSystem {
                 velocity,
                 color,
                 size: if self.motion_modes[*slot] == MotionMode::GuidedFlight {
-                    STANDARD_PARTICLE_SIZE
-                        * if kind == ParticleRenderKind::Butterfly {
-                            BUTTERFLY_SPRITE_SIZE_COMPENSATION
-                        } else {
-                            1.0
-                        }
+                    BUTTERFLY_GUIDED_RENDER_SIZE
                 } else {
                     self.sizes[*slot]
                 },
                 kind,
-                texture_variant: self.texture_variants[*slot],
-                animation_frame_offset: self.animation_frame_offsets[*slot],
+                palette_index: self.palette_indices[*slot],
+                animation_sample_time: None,
+                animation_phase_offset: self.butterfly_phase_offset(*slot),
+                butterfly_wingbeat: self.butterfly_wingbeats[*slot],
                 leaf_orientation: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_display[*slot].orientation),
             });
+        }
+    }
+
+    fn butterfly_phase_offset(&self, slot: usize) -> f32 {
+        (((slot as u32).wrapping_mul(0x9e37_79b9)
+            ^ self.generations[slot].wrapping_mul(0x85eb_ca6b))
+            >> 8) as f32
+            / 16_777_216.0
+    }
+
+    pub(super) fn wingbeat_phase(&self, handle: ParticleHandle, time: f64) -> f32 {
+        self.validate_handle(handle).map_or(0., |slot| {
+            (time + f64::from(self.butterfly_phase_offset(slot))).rem_euclid(1.) as f32
+        })
+    }
+
+    pub(super) fn set_wingbeat_pose(
+        &mut self,
+        handle: ParticleHandle,
+        pose: Option<super::ButterflyWingbeatPose>,
+    ) {
+        if let Some(slot) = self.validate_handle(handle) {
+            self.butterfly_wingbeats[slot] = pose;
         }
     }
 
@@ -832,25 +823,14 @@ impl ParticleSystem {
         }
     }
 
-    /// Changes style on the same slot without resetting position, age, palette or animation.
-    #[cfg(test)]
-    pub fn set_butterfly_block_mode(&mut self, handle: ParticleHandle, enabled: bool) -> bool {
-        self.set_butterfly_flight_style(handle, enabled, enabled)
-    }
-
-    pub fn set_butterfly_flight_style(
-        &mut self,
-        handle: ParticleHandle,
-        guided: bool,
-        blocks: bool,
-    ) -> bool {
+    /// Changes motion ownership without resetting position, age, palette or phase seed.
+    pub fn set_butterfly_guided_flight(&mut self, handle: ParticleHandle, guided: bool) -> bool {
         let Some(idx) = self.validate_handle(handle) else {
             return false;
         };
         if self.render_kinds[idx] != ParticleRenderKind::Butterfly {
             return false;
         }
-        self.butterfly_block_appearance[idx] = blocks;
         let mode = if guided {
             MotionMode::GuidedFlight
         } else {
@@ -860,7 +840,7 @@ impl ParticleSystem {
             return false;
         }
         self.motion_modes[idx] = mode;
-        // Account for time accumulated by A, but do not move during a checkbox change.
+        // Account for pending free-flight time without moving during the handoff.
         self.ages[idx] += self.pending_sim_dt[idx];
         self.pending_sim_dt[idx] = 0.0;
         self.update_elapsed[idx] = 0.0;
@@ -876,13 +856,6 @@ impl ParticleSystem {
         self.velocities[idx] = velocity;
         self.positions[idx] += velocity * dt;
         self.ages[idx] += dt;
-        Self::step_animation_frame(
-            &mut self.animation_elapsed[idx],
-            &mut self.animation_frame_offsets[idx],
-            dt,
-            BUTTERFLY_ANIM_FRAME_DURATION_SEC,
-            BUTTERFLY_FRAMES_PER_VARIANT,
-        );
         if (self.despawn_on_lifetime[idx] && self.ages[idx] >= self.lifetimes[idx])
             || (self.despawn_below_ground[idx] && self.positions[idx].y < 0.0)
         {
@@ -956,16 +929,6 @@ impl ParticleSystem {
     pub fn set_size(&mut self, handle: ParticleHandle, size: f32) -> bool {
         if let Some(idx) = self.validate_handle(handle) {
             self.sizes[idx] = size.max(0.0001);
-            true
-        } else {
-            false
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn set_texture_variant(&mut self, handle: ParticleHandle, texture_variant: u32) -> bool {
-        if let Some(idx) = self.validate_handle(handle) {
-            self.texture_variants[idx] = texture_variant;
             true
         } else {
             false
@@ -1090,7 +1053,7 @@ mod tests {
                 position: Vec3::new(1., 2., 1.),
                 motion_mode: MotionMode::GuidedFlight,
                 render_kind: ParticleRenderKind::Butterfly,
-                texture_variant: 3,
+                palette_index: 3,
                 ..long_lived_leaf()
             })
             .unwrap();
@@ -1102,9 +1065,9 @@ mod tests {
 
         for frame in 0..240 {
             if frame == 80 || frame == 160 {
-                assert!(mixed.set_butterfly_block_mode(butterfly, frame == 160));
+                assert!(mixed.set_butterfly_guided_flight(butterfly, frame == 160));
             }
-            let block_mode = mixed.motion_modes[butterfly_slot] == MotionMode::GuidedFlight;
+            let guided_mode = mixed.motion_modes[butterfly_slot] == MotionMode::GuidedFlight;
             let before = (
                 mixed.position(butterfly),
                 mixed.velocity(butterfly),
@@ -1112,7 +1075,7 @@ mod tests {
             );
             mixed.update_with_wind(dt, ParticleForces::default(), &wind);
             leaf_only.update_with_wind(dt, ParticleForces::default(), &wind);
-            if block_mode {
+            if guided_mode {
                 assert_eq!(
                     before,
                     (
@@ -1128,15 +1091,15 @@ mod tests {
             assert_eq!(mixed.velocity(leaf), leaf_only.velocity(reference_leaf));
 
             let held_butterfly_pose = Vec3::new(1., 2., 1.);
-            let mut block_pose_calls = 0;
-            mixed.write_snapshots_with_block_pose(&mut actual, |handle, physical_position| {
+            let mut flight_pose_calls = 0;
+            mixed.write_snapshots_with_flight_pose(&mut actual, |handle, physical_position| {
                 assert_eq!(handle, butterfly);
                 assert_eq!(physical_position, mixed.position(butterfly).unwrap());
-                block_pose_calls += 1;
+                flight_pose_calls += 1;
                 held_butterfly_pose
             });
             leaf_only.write_snapshots(&mut reference);
-            assert_eq!(block_pose_calls, usize::from(block_mode));
+            assert_eq!(flight_pose_calls, usize::from(guided_mode));
             let leaf_snapshot = actual
                 .iter()
                 .find(|s| s.kind == ParticleRenderKind::Leaf)
@@ -1151,11 +1114,11 @@ mod tests {
                 .iter()
                 .find(|s| s.kind != ParticleRenderKind::Leaf)
                 .unwrap();
-            assert_eq!(butterfly_snapshot.texture_variant, 3);
+            assert_eq!(butterfly_snapshot.palette_index, 3);
             assert!(butterfly_snapshot.leaf_orientation.is_none());
             assert_eq!(
                 butterfly_snapshot.position_ws,
-                if block_mode {
+                if guided_mode {
                     held_butterfly_pose
                 } else {
                     mixed.position(butterfly).unwrap()

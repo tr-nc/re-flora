@@ -1160,6 +1160,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
+        id: "butterfly_pixel_resolution",
+        kind: "uint",
+        label: "Pixels per Butterfly (N x N, All Distances)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Butterflies",
+        id: "butterfly_animation_fps",
+        kind: "uint",
+        label: "Butterfly Update FPS (Position + Heading + Wings)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Butterflies",
+        id: "butterfly_wing_transmission",
+        kind: "float",
+        label: "Wing Light Transmission (0 = Opaque, 1 = Equal Sides)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Butterflies",
+        id: "butterfly_self_shadows",
+        kind: "bool",
+        label: "Wing Self Shadows (Game Sun)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Butterflies",
+        id: "butterfly_mesh_preview",
+        kind: "bool",
+        label: "Preview 7 Palettes Near / Mid / Far (Camera-relative)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Butterflies",
         id: "butterfly_spawn_rate_per_source",
         kind: "float",
         label: "Habitat Spawn Rate (0.00002 = Normal)",
@@ -1549,6 +1579,11 @@ pub struct GuiAdjustables {
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
+    pub butterfly_pixel_resolution: crate::gui_adjustables::UintParam,
+    pub butterfly_animation_fps: crate::gui_adjustables::UintParam,
+    pub butterfly_wing_transmission: crate::gui_adjustables::FloatParam,
+    pub butterfly_self_shadows: crate::gui_adjustables::BoolParam,
+    pub butterfly_mesh_preview: crate::gui_adjustables::BoolParam,
     pub butterfly_spawn_rate_per_source: crate::gui_adjustables::FloatParam,
     pub butterfly_height_offset_min: crate::gui_adjustables::FloatParam,
     pub butterfly_height_offset_max: crate::gui_adjustables::FloatParam,
@@ -1784,6 +1819,11 @@ impl GuiAdjustables {
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut butterfly_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut butterfly_animation_fps_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut butterfly_wing_transmission_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut butterfly_self_shadows_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut butterfly_mesh_preview_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterfly_spawn_rate_per_source_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_height_offset_min_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_height_offset_max_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3084,6 +3124,37 @@ impl GuiAdjustables {
                             butterflies_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
+                    "butterfly_pixel_resolution" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            butterfly_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "butterfly_animation_fps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            butterfly_animation_fps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "butterfly_wing_transmission" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            butterfly_wing_transmission_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "butterfly_self_shadows" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            butterfly_self_shadows_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "butterfly_mesh_preview" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            butterfly_mesh_preview_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "butterfly_spawn_rate_per_source" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3500,6 +3571,11 @@ impl GuiAdjustables {
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
+            butterfly_pixel_resolution: butterfly_pixel_resolution_field.expect("Missing parameter: butterfly_pixel_resolution"),
+            butterfly_animation_fps: butterfly_animation_fps_field.expect("Missing parameter: butterfly_animation_fps"),
+            butterfly_wing_transmission: butterfly_wing_transmission_field.expect("Missing parameter: butterfly_wing_transmission"),
+            butterfly_self_shadows: butterfly_self_shadows_field.expect("Missing parameter: butterfly_self_shadows"),
+            butterfly_mesh_preview: butterfly_mesh_preview_field.expect("Missing parameter: butterfly_mesh_preview"),
             butterfly_spawn_rate_per_source: butterfly_spawn_rate_per_source_field.expect("Missing parameter: butterfly_spawn_rate_per_source"),
             butterfly_height_offset_min: butterfly_height_offset_min_field.expect("Missing parameter: butterfly_height_offset_min"),
             butterfly_height_offset_max: butterfly_height_offset_max_field.expect("Missing parameter: butterfly_height_offset_max"),
@@ -3686,6 +3762,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_flutter_frequency_knee" => Some(&adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
+        "butterfly_wing_transmission" => Some(&adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
         "butterfly_height_offset_min" => Some(&adjustables.butterfly_height_offset_min),
         "butterfly_height_offset_max" => Some(&adjustables.butterfly_height_offset_max),
@@ -3740,6 +3817,8 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
+        "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
+        "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
         _ => None,
     }
@@ -3775,6 +3854,8 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
+        "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
+        "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         _ => None,
     }
 }
@@ -3953,6 +4034,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_flutter_frequency_knee" => Some(&mut adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
+        "butterfly_wing_transmission" => Some(&mut adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),
         "butterfly_height_offset_min" => Some(&mut adjustables.butterfly_height_offset_min),
         "butterfly_height_offset_max" => Some(&mut adjustables.butterfly_height_offset_max),
@@ -4007,6 +4089,8 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
+        "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
+        "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
         _ => None,
     }
@@ -4042,6 +4126,8 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
+        "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),
+        "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         _ => None,
     }
 }

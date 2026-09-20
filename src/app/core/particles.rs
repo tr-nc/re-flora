@@ -114,7 +114,7 @@ fn detached_terrain_voxel_spawn(world_voxel: glam::UVec3, color: Vec4) -> Partic
         motion_mode: crate::particles::MotionMode::Free,
         sink_on_lifetime: false,
         sink_speed: 0.1,
-        texture_variant: 0,
+        palette_index: 0,
         render_kind: ParticleRenderKind::TerrainVoxel,
         despawn_on_lifetime: true,
         despawn_below_ground: true,
@@ -347,7 +347,7 @@ impl App {
                 motion_mode: crate::particles::MotionMode::Free,
                 sink_on_lifetime: false,
                 sink_speed: 0.0,
-                texture_variant: 0,
+                palette_index: 0,
                 render_kind: ParticleRenderKind::Leaf,
                 despawn_on_lifetime: false,
                 despawn_below_ground: false,
@@ -520,8 +520,10 @@ impl App {
             .update_with_wind(dt, self.particle_forces, &wind);
         let world_max =
             super::CHUNK_DIM.as_vec3() + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
+        let animation_time = self.butterfly_presentation_time();
         for emitter in &mut self.butterfly_emitters {
-            emitter.advance_block_flight(
+            emitter.synchronize_animation_clock(animation_time, dt);
+            emitter.advance_guided_flight(
                 &mut self.particle_system,
                 dt,
                 world_max,
@@ -552,23 +554,35 @@ impl App {
         let plan_ms = plan_start.elapsed().as_secs_f32() * 1000.0;
 
         let snapshot_start = Instant::now();
-        self.particle_system.write_snapshots_with_block_pose(
-            &mut self.particle_snapshots,
-            |handle, position| {
-                self.butterfly_emitters
-                    .iter()
-                    .find_map(|emitter| emitter.block_render_position(handle))
-                    .unwrap_or(position)
-            },
+        self.advance_butterfly_review_settings();
+        let frame = crate::particles::ButterflyFrame::at(
+            self.butterfly_presentation_time(),
+            self.debug_settings
+                .adjustables
+                .butterfly_animation_fps
+                .value,
         );
+        self.particle_system
+            .write_snapshots_for_frame(&mut self.particle_snapshots, frame);
         self.review_butterfly_frame(dt);
         let sim_snapshot_count = self.particle_snapshots.len();
         self.log_fallen_leaf_review();
         self.append_water_debug_snapshots();
+        self.append_butterfly_mesh_preview(frame);
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
-        if let Err(err) = self.tracer.upload_particles(&self.particle_snapshots) {
+        let settings = &self.debug_settings.adjustables;
+        let butterfly_mesh = crate::tracer::ButterflyMeshSettings {
+            resolution: settings.butterfly_pixel_resolution.value,
+            fps: settings.butterfly_animation_fps.value,
+            self_shadows: settings.butterfly_self_shadows.value,
+            transmission: settings.butterfly_wing_transmission.value,
+        };
+        if let Err(err) = self
+            .tracer
+            .upload_particles(&self.particle_snapshots, butterfly_mesh)
+        {
             log::error!("Failed to upload particles: {}", err);
         }
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
@@ -630,19 +644,110 @@ impl App {
                 color: WATER_DEBUG_COLOR,
                 size: water_particle_size,
                 kind: ParticleRenderKind::Leaf,
-                texture_variant: 0,
-                animation_frame_offset: 0,
+                palette_index: 0,
+                animation_phase_offset: 0.0,
+                animation_sample_time: None,
+                butterfly_wingbeat: None,
                 leaf_orientation: None,
             });
         }
     }
 
-    /// Opt-in capture observer. Uses natural spawns; never places or creates butterflies.
-    fn review_butterfly_frame(&mut self, dt: f32) {
+    fn butterfly_presentation_time(&self) -> f32 {
+        if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some() {
+            0.237
+        } else {
+            self.time_info.time_since_start()
+        }
+    }
+
+    /// Explicit Debug inspection fixture, not ecological spawns or simulation particles.
+    /// Uses the exact same rendering path, palette selection, sun and scene depth.
+    fn append_butterfly_mesh_preview(&mut self, frame: crate::particles::ButterflyFrame) {
+        if !self.debug_settings.adjustables.butterfly_mesh_preview.value {
+            return;
+        }
+        let origin = self.tracer.camera_position();
+        let front = self.tracer.camera_front().normalize();
+        let right = front.cross(Vec3::Y).normalize_or_zero();
+        let up = right.cross(front).normalize();
+        let time = frame.time_seconds();
+        for (row, distance) in [0.25, 0.5, 1.0].into_iter().enumerate() {
+            for preset in 0..crate::tracer::ButterflyPalettePreset::COUNT {
+                let heading = preset as f32 * 0.35 + time * 0.3;
+                self.particle_snapshots.push(ParticleSnapshot {
+                    position_ws: origin
+                        + front * distance
+                        + right * ((preset as f32 - 3.) * 0.16 * distance)
+                        + up * ((1. - row as f32) * 0.22 * distance),
+                    velocity: Vec3::new(heading.sin(), 0., -heading.cos()) * 0.05,
+                    color: Vec4::ONE,
+                    size: 0.03,
+                    kind: ParticleRenderKind::Butterfly,
+                    palette_index: preset,
+                    animation_phase_offset: 0.,
+                    animation_sample_time: Some(time),
+                    butterfly_wingbeat: None,
+                    leaf_orientation: None,
+                });
+            }
+        }
+    }
+
+    /// Apply fixture settings before producing the single frame shared by all butterflies.
+    fn advance_butterfly_review_settings(&mut self) {
         let Some(review) = self.butterfly_review.as_mut() else {
             return;
         };
         review.frame += 1;
+        let frame = review.frame;
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("wingbeat") {
+            // Opt-in runtime diagnostic, using the same saved field as the A/B UI.
+            // First enable, then exercise an off/on handoff after a subject appears.
+            let elapsed = review.subject_frame.map(|start| frame - start);
+            let enabled = match elapsed {
+                _ if frame == 1 => Some(true),
+                Some(120) => Some(false),
+                Some(240) => Some(true),
+                _ => None,
+            };
+            if let Some(enabled) = enabled {
+                self.debug_settings
+                    .butterfly_flight
+                    .tuning
+                    .wingbeat_coupling = enabled;
+                log::info!("[BUTTERFLY_WINGBEAT_REVIEW] frame={frame} enabled={enabled}");
+            }
+        }
+        if let Ok(mode) = std::env::var("RE_FLORA_BUTTERFLY_MESH_REVIEW") {
+            let settings = &mut self.debug_settings.adjustables;
+            settings.butterfly_mesh_preview.value = true;
+            if mode == "sweep" {
+                let stage = (frame / 60).min(6);
+                settings.butterfly_wing_transmission.value = match stage {
+                    5 => 0.5,
+                    6 => 1.0,
+                    _ => 0.0,
+                };
+                settings.butterfly_pixel_resolution.value = match stage {
+                    1 => 8,
+                    2 => 64,
+                    _ => 22,
+                };
+                settings.butterfly_self_shadows.value = stage != 3;
+                settings.butterfly_animation_fps.value = if stage == 1 { 2 } else { 60 };
+            }
+        }
+    }
+
+    /// Observe published natural flight; mesh fixtures only need the settings step above.
+    fn review_butterfly_frame(&mut self, dt: f32) {
+        if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some() {
+            return;
+        }
+        let Some(review) = self.butterfly_review.as_mut() else {
+            return;
+        };
         let frame = review.frame;
         let height_review = std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("height");
         let terrain_y = |position: Vec3| {
@@ -658,13 +763,20 @@ impl App {
         let butterflies = self
             .particle_snapshots
             .iter()
-            .filter(|s| {
-                matches!(
-                    s.kind,
-                    ParticleRenderKind::Butterfly | ParticleRenderKind::ButterflyBlock
-                )
-            })
+            .filter(|s| matches!(s.kind, ParticleRenderKind::Butterfly))
             .collect::<Vec<_>>();
+        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("wingbeat")
+            && frame.is_multiple_of(15)
+        {
+            log::info!(
+                "[BUTTERFLY_WINGBEAT_REVIEW] frame={frame} samples={:?}",
+                butterflies
+                    .iter()
+                    .take(4)
+                    .map(|s| (s.position_ws, s.velocity, s.butterfly_wingbeat))
+                    .collect::<Vec<_>>()
+            );
+        }
         if frame >= 240 && review.subject_frame.is_none() {
             if let Some(subject) = butterflies.iter().find(|s| {
                 s.color.w >= 0.99
@@ -714,22 +826,11 @@ impl App {
                     .map(|s| (
                         s.position_ws.to_array(),
                         s.velocity.to_array(),
-                        s.texture_variant,
+                        s.palette_index,
                         s.color.w
                     ))
                     .collect::<Vec<_>>()
             );
-        }
-        if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("switch") {
-            let next = match review.subject_frame.map(|start| frame - start) {
-                Some(120) => Some(ButterflyFlightVariant::DartingBlock),
-                Some(240) => Some(ButterflyFlightVariant::DartingSprite),
-                _ => None,
-            };
-            if let Some(next) = next {
-                self.debug_settings.butterfly_flight.variant = next;
-                log::info!("[BUTTERFLY_REVIEW] scripted_switch={next:?} frame={frame}");
-            }
         }
         if std::env::var("RE_FLORA_BUTTERFLY_REVIEW").as_deref() == Ok("tuning") {
             let next = match review.subject_frame.map(|start| frame - start) {
@@ -738,6 +839,7 @@ impl App {
                     ..ButterflyFlightTuning::default()
                 }),
                 Some(180) => Some(ButterflyFlightTuning {
+                    wingbeat_coupling: false,
                     flight_frequency_hz: 6.25,
                     height_above_ground: 0.08,
                     maneuver_tempo: 2.0,
@@ -1014,16 +1116,14 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::gui_config::butterfly_flight::{
-        draw_butterfly_flight_ab_controls, draw_butterfly_flight_tuning,
-    };
+    use crate::app::gui_config::butterfly_flight::draw_butterfly_flight_tuning;
 
     #[test]
     fn butterfly_tuning_sliders_respond_to_pointer_input_without_reset() {
         let context = egui::Context::default();
         let mut saved = crate::app::gui_config_model::SavedCustomSettings::default();
         let mut draw = |events| {
-            let mut rects = [egui::Rect::NOTHING; 6];
+            let mut rects = [egui::Rect::NOTHING; 5];
             let _ = context.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
@@ -1057,7 +1157,7 @@ mod tests {
                 },
             ]
         };
-        for index in 0..6 {
+        for index in 0..5 {
             let (rects, _) = draw(Vec::new());
             let rect = rects[index];
             // Use current layout and click inside the track, not a possibly-default endpoint.
@@ -1069,79 +1169,13 @@ mod tests {
             draw(click_events(pos, false));
         }
         let (_, edited) = draw(Vec::new());
-        assert_ne!(edited.flight_frequency_hz, initial.flight_frequency_hz);
+        assert_eq!(edited.flight_frequency_hz, initial.flight_frequency_hz);
         assert_ne!(edited.height_above_ground, initial.height_above_ground);
         assert_eq!(edited.maneuver_tempo, initial.maneuver_tempo);
         assert_ne!(edited.vertical_strength, initial.vertical_strength);
         assert_ne!(edited.turn_sharpness, initial.turn_sharpness);
         assert_ne!(edited.speed, initial.speed);
         assert_ne!(edited.wind_drift, initial.wind_drift);
-    }
-
-    #[test]
-    fn butterfly_debug_checkbox_defaults_to_b_and_clicks_b_a_b_without_config_changes() {
-        let context = egui::Context::default();
-        context.memory_mut(|memory| memory.set_everything_is_visible(true));
-        let mut settings = crate::app::DebugSettings::load();
-        // The callback fixture does not depend on user-editable sliders or section layout.
-        settings.config.section = vec![crate::app::gui_config_model::GuiSection {
-            name: "Butterflies".to_owned(),
-            param: Vec::new(),
-        }];
-        let original_config = serde_json::to_value(&settings.config).unwrap();
-        let mut saved = crate::app::gui_config_model::SavedCustomSettings::default();
-        let mut rect = egui::Rect::NOTHING;
-        let mut draw = |events: Vec<egui::Event>| {
-            let _ = context.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(900.0, 1200.0),
-                    )),
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    rect = draw_butterfly_flight_ab_controls(
-                        &mut crate::app::gui_config::saved_controls::SavedControls::for_test(
-                            ui, &mut saved,
-                        ),
-                    )
-                    .rect;
-                },
-            );
-            (saved.butterfly_flight.variant, rect)
-        };
-        draw(Vec::new());
-        let (initial, rect) = draw(Vec::new());
-        assert_eq!(initial, ButterflyFlightVariant::DartingSprite);
-        assert!(rect.is_positive());
-        for expected in [
-            ButterflyFlightVariant::DartingBlock,
-            ButterflyFlightVariant::DartingSprite,
-        ] {
-            let pos = rect.center();
-            draw(vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]);
-            let (actual, _) = draw(vec![egui::Event::PointerButton {
-                pos,
-                button: egui::PointerButton::Primary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            }]);
-            assert_eq!(actual, expected);
-        }
-        assert_eq!(
-            serde_json::to_value(&settings.config).unwrap(),
-            original_config
-        );
     }
 
     #[test]

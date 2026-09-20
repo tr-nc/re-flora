@@ -1383,11 +1383,11 @@ impl App {
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
         let butterfly_emitters = Vec::new();
         if std::env::var_os("RE_FLORA_BUTTERFLY_ORIGINAL_FLIGHT_SMOKE").is_some() {
-            debug_settings.butterfly_flight.variant = ButterflyFlightVariant::OriginalSprite;
+            debug_settings.butterfly_flight.variant = ButterflyFlightVariant::Original;
         }
         let butterfly_flight_variant = debug_settings.butterfly_flight.variant;
         let butterfly_flight_tuning = debug_settings.butterfly_flight.tuning;
-        log::info!("[BUTTERFLY_AB] startup_variant={butterfly_flight_variant:?} tuning={butterfly_flight_tuning:?}");
+        log::info!("[BUTTERFLY_FLIGHT] startup_variant={butterfly_flight_variant:?} tuning={butterfly_flight_tuning:?}");
         let butterfly_emitter_desc = Self::butterfly_desc_from_gui_adjustables(
             &debug_settings.adjustables,
             butterfly_flight_variant,
@@ -1525,6 +1525,7 @@ impl App {
             butterfly_emitters,
             butterfly_emitter_desc,
             butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
+                .or_else(|| std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW"))
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),

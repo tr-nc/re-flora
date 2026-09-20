@@ -1,22 +1,23 @@
 //! Art-directed, seeded acceleration events. See docs/research/butterfly_block_flight_motion_research.md.
+use super::butterfly_wingbeat::WingbeatCoupling;
 use glam::Vec3;
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 
 pub(super) const FLIGHT_STEP_SECONDS: f64 = 1.0 / 120.0;
-const BUTTERFLY_BLOCK_CRUISE_SPEED_MIN: f32 = 0.10;
-const BUTTERFLY_BLOCK_CRUISE_SPEED_MAX: f32 = 0.16;
-const BUTTERFLY_BLOCK_MAX_SPEED: f32 = 0.30;
-const BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED: f32 = 0.20;
-const BUTTERFLY_BLOCK_MAX_ACCELERATION: f32 = 1.8;
-const BUTTERFLY_BLOCK_MAX_JERK: f32 = 14.0;
-const BUTTERFLY_BLOCK_EVENT_DURATION_MIN: f32 = 0.07;
-const BUTTERFLY_BLOCK_EVENT_DURATION_MAX: f32 = 0.20;
-const BUTTERFLY_BLOCK_EVENT_WAIT_MIN: f32 = 0.12;
-const BUTTERFLY_BLOCK_EVENT_WAIT_MAX: f32 = 0.85;
-const BUTTERFLY_BLOCK_RAPID_GAP_MIN: f32 = 0.035;
-const BUTTERFLY_BLOCK_RAPID_GAP_MAX: f32 = 0.11;
-const BUTTERFLY_BLOCK_HABITAT_RADIUS: f32 = 0.32;
-const BUTTERFLY_BLOCK_HABITAT_HEIGHT: f32 = 0.20;
+const BUTTERFLY_FLIGHT_CRUISE_SPEED_MIN: f32 = 0.10;
+const BUTTERFLY_FLIGHT_CRUISE_SPEED_MAX: f32 = 0.16;
+const BUTTERFLY_FLIGHT_MAX_SPEED: f32 = 0.30;
+const BUTTERFLY_FLIGHT_MAX_VERTICAL_SPEED: f32 = 0.20;
+const BUTTERFLY_FLIGHT_MAX_ACCELERATION: f32 = 1.8;
+const BUTTERFLY_FLIGHT_MAX_JERK: f32 = 14.0;
+const BUTTERFLY_FLIGHT_EVENT_DURATION_MIN: f32 = 0.07;
+const BUTTERFLY_FLIGHT_EVENT_DURATION_MAX: f32 = 0.20;
+const BUTTERFLY_FLIGHT_EVENT_WAIT_MIN: f32 = 0.12;
+const BUTTERFLY_FLIGHT_EVENT_WAIT_MAX: f32 = 0.85;
+const BUTTERFLY_FLIGHT_RAPID_GAP_MIN: f32 = 0.035;
+const BUTTERFLY_FLIGHT_RAPID_GAP_MAX: f32 = 0.11;
+const BUTTERFLY_FLIGHT_HABITAT_RADIUS: f32 = 0.32;
+const BUTTERFLY_FLIGHT_HABITAT_HEIGHT: f32 = 0.20;
 // WindFieldFrame carries authored strength, not world metres/second.
 const WIND_DRIFT_WORLD_SPEED_PER_STRENGTH: f32 = 0.06;
 const MAX_WIND_DRIFT_SPEED: f32 = 0.45;
@@ -24,26 +25,27 @@ const MAX_WIND_DRIFT_ACCELERATION: f32 = 0.60;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ButterflyFlightVariant {
-    /// Legacy flight retained for old recordings and diagnostics, not the appearance checkbox.
-    OriginalSprite,
+    /// Motion-only compatibility for old recordings; rendering is always the wing mesh.
+    #[serde(alias = "OriginalSprite")]
+    Original,
     #[default]
-    DartingSprite,
-    DartingBlock,
+    #[serde(alias = "DartingSprite", alias = "DartingBlock")]
+    Darting,
 }
 
 impl ButterflyFlightVariant {
     pub const fn uses_darting_flight(self) -> bool {
-        !matches!(self, Self::OriginalSprite)
-    }
-    pub const fn is_darting_block(self) -> bool {
-        matches!(self, Self::DartingBlock)
+        matches!(self, Self::Darting)
     }
 }
 
-/// Saved B-only art controls. Self propulsion and environmental drift are independent.
+/// Saved flight controls. Self propulsion and environmental drift are independent.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ButterflyFlightTuning {
+    /// A/B: retain original dynamics when false; couple authored wing strokes when true.
+    pub wingbeat_coupling: bool,
+    /// Saved physical vertical-intent rhythm (legacy key). Does not clock rendering.
     pub flight_frequency_hz: f32,
     /// World units above local terrain; the walking camera's default eye height is 0.08.
     pub height_above_ground: f32,
@@ -65,6 +67,7 @@ pub struct ButterflyFlightSettings {
 impl Default for ButterflyFlightTuning {
     fn default() -> Self {
         Self {
+            wingbeat_coupling: false,
             flight_frequency_hz: 10.0,
             height_above_ground: 0.08,
             maneuver_tempo: 1.0,
@@ -95,6 +98,7 @@ impl ButterflyFlightTuning {
             }
         };
         Self {
+            wingbeat_coupling: self.wingbeat_coupling,
             height_above_ground: bounded(
                 self.height_above_ground,
                 Self::HEIGHT_RANGE,
@@ -130,8 +134,8 @@ impl ButterflyFlightTuning {
     }
 }
 
-/// One beat owns both the vertical intent and the publication of a real trajectory
-/// point. No independent display timer, phase jitter, or vertical pulse timer.
+/// Physical vertical-intent rhythm and trajectory anchor for steering/terrain probes.
+/// This anchor is not a displayed pose: ButterflyPresentation alone clocks rendering.
 #[derive(Debug)]
 struct SharedFlightRhythm {
     position: Vec3,
@@ -213,12 +217,14 @@ impl SharedFlightRhythm {
 
 fn sample_event_wait(rng: &mut SmallRng) -> f32 {
     let unit = rng.random_range(0.0..=1.0_f32);
-    BUTTERFLY_BLOCK_EVENT_WAIT_MIN
-        + (BUTTERFLY_BLOCK_EVENT_WAIT_MAX - BUTTERFLY_BLOCK_EVENT_WAIT_MIN) * unit * unit
+    BUTTERFLY_FLIGHT_EVENT_WAIT_MIN
+        + (BUTTERFLY_FLIGHT_EVENT_WAIT_MAX - BUTTERFLY_FLIGHT_EVENT_WAIT_MIN) * unit * unit
 }
 
 #[derive(Debug)]
 pub(super) struct DartingFlightState {
+    pub(super) wingbeat: WingbeatCoupling,
+    pub(super) wingbeat_phase: f32,
     habitat_center: Vec3,
     ground_height: Option<f32>,
     cruise_direction: Vec3,
@@ -241,11 +247,14 @@ impl DartingFlightState {
         let cruise_direction =
             Vec3::new(initial_direction.x, 0.0, initial_direction.z).normalize_or(Vec3::X);
         Self {
+            wingbeat: WingbeatCoupling::default(),
+            wingbeat_phase: 0.,
             habitat_center,
             ground_height: None,
             cruise_direction,
-            cruise_speed: rng
-                .random_range(BUTTERFLY_BLOCK_CRUISE_SPEED_MIN..=BUTTERFLY_BLOCK_CRUISE_SPEED_MAX),
+            cruise_speed: rng.random_range(
+                BUTTERFLY_FLIGHT_CRUISE_SPEED_MIN..=BUTTERFLY_FLIGHT_CRUISE_SPEED_MAX,
+            ),
             acceleration: Vec3::ZERO,
             wind_velocity: Vec3::ZERO,
             rhythm: SharedFlightRhythm::new(seed, habitat_center),
@@ -285,16 +294,16 @@ impl DartingFlightState {
         );
         let maneuver_direction = turned_planar.normalize_or(current_planar);
         self.event_acceleration = maneuver_direction * self.rng.random_range(0.75..=1.55);
-        self.event_time_remaining = self
-            .rng
-            .random_range(BUTTERFLY_BLOCK_EVENT_DURATION_MIN..=BUTTERFLY_BLOCK_EVENT_DURATION_MAX);
+        self.event_time_remaining = self.rng.random_range(
+            BUTTERFLY_FLIGHT_EVENT_DURATION_MIN..=BUTTERFLY_FLIGHT_EVENT_DURATION_MAX,
+        );
         self.cruise_direction = current_direction
             .lerp(maneuver_direction, 0.65)
             .normalize_or(maneuver_direction);
 
         let gap = if self.rapid_pulses_remaining > 0 {
             self.rng
-                .random_range(BUTTERFLY_BLOCK_RAPID_GAP_MIN..=BUTTERFLY_BLOCK_RAPID_GAP_MAX)
+                .random_range(BUTTERFLY_FLIGHT_RAPID_GAP_MIN..=BUTTERFLY_FLIGHT_RAPID_GAP_MAX)
         } else {
             sample_event_wait(&mut self.rng)
         };
@@ -311,8 +320,8 @@ impl DartingFlightState {
         let planar_offset = Vec3::new(offset.x, 0.0, offset.z);
         let planar_distance = planar_offset.length();
         let mut recovery = Vec3::ZERO;
-        if planar_distance > BUTTERFLY_BLOCK_HABITAT_RADIUS {
-            let overshoot = planar_distance - BUTTERFLY_BLOCK_HABITAT_RADIUS;
+        if planar_distance > BUTTERFLY_FLIGHT_HABITAT_RADIUS {
+            let overshoot = planar_distance - BUTTERFLY_FLIGHT_HABITAT_RADIUS;
             recovery -= planar_offset.normalize_or_zero() * (0.35 + overshoot * 3.0);
             recovery -= Vec3::new(velocity.x, 0.0, velocity.z) * 0.8;
         }
@@ -320,8 +329,8 @@ impl DartingFlightState {
             // Soft terrain-relative attraction, not a position clamp. Birth can
             // still emerge through its plant before joining this flight band.
             recovery.y -= offset.y * 4.0 + velocity.y * 1.5;
-        } else if offset.y.abs() > BUTTERFLY_BLOCK_HABITAT_HEIGHT {
-            let overshoot = offset.y.abs() - BUTTERFLY_BLOCK_HABITAT_HEIGHT;
+        } else if offset.y.abs() > BUTTERFLY_FLIGHT_HABITAT_HEIGHT {
+            let overshoot = offset.y.abs() - BUTTERFLY_FLIGHT_HABITAT_HEIGHT;
             recovery.y -= offset.y.signum() * (0.30 + overshoot * 3.5);
             recovery.y -= velocity.y * 0.8;
         }
@@ -343,6 +352,7 @@ impl DartingFlightState {
         self.rhythm.publish(position);
     }
 
+    #[cfg(test)]
     pub(super) fn render_position(&self) -> Vec3 {
         self.rhythm.position
     }
@@ -359,8 +369,8 @@ impl DartingFlightState {
         terrain_distance: &mut impl FnMut(Vec3, Vec3) -> Option<f32>,
     ) -> Vec3 {
         let tuning = tuning.sanitized();
-        let max_speed = BUTTERFLY_BLOCK_MAX_SPEED * tuning.speed;
-        let max_vertical_speed = BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED * tuning.speed;
+        let max_speed = BUTTERFLY_FLIGHT_MAX_SPEED * tuning.speed;
+        let max_vertical_speed = BUTTERFLY_FLIGHT_MAX_VERTICAL_SPEED * tuning.speed;
         let dt = dt.clamp(0.0, 0.1);
         if dt <= 0.0 {
             return velocity;
@@ -417,7 +427,7 @@ impl DartingFlightState {
             Vec3::ZERO
         };
         if !emerging {
-            maneuver_acceleration.y = vertical_acceleration;
+            maneuver_acceleration.y = vertical_acceleration * (1. - self.wingbeat.pose.blend);
         }
         maneuver_acceleration *= tuning.speed;
         maneuver_acceleration.y *= tuning.vertical_strength;
@@ -435,15 +445,34 @@ impl DartingFlightState {
                 recovery += Vec3::Y * 1.5 - velocity * 8.0;
             }
         }
+        self.wingbeat.advance(
+            self.wingbeat_phase,
+            tuning.wingbeat_coupling,
+            dt,
+            air_velocity,
+            cruise_acceleration + maneuver_acceleration + recovery,
+        );
         let target_acceleration = (cruise_acceleration + maneuver_acceleration + recovery)
-            .clamp_length_max(BUTTERFLY_BLOCK_MAX_ACCELERATION * tuning.speed);
+            .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed);
         self.acceleration = approach_vec3(
             self.acceleration,
             target_acceleration,
-            BUTTERFLY_BLOCK_MAX_JERK * tuning.speed * tuning.turn_sharpness * dt,
+            BUTTERFLY_FLIGHT_MAX_JERK * tuning.speed * tuning.turn_sharpness * dt,
         );
 
-        let mut next_velocity = (air_velocity + self.acceleration * dt).clamp_length_max(max_speed);
+        // Smooth navigation separately: its jerk limiter must not erase the
+        // phase-locked pulse. Existing speed, terrain and world guards still apply.
+        let acceleration = if self.wingbeat.pose.blend > 0. {
+            (self.acceleration
+                + self
+                    .wingbeat
+                    .acceleration(tuning.speed, tuning.vertical_strength, dt))
+            .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed)
+        } else {
+            // Preserve the original limiter/settling semantics exactly when off.
+            self.acceleration
+        };
+        let mut next_velocity = (air_velocity + acceleration * dt).clamp_length_max(max_speed);
         next_velocity.y = next_velocity
             .y
             .clamp(-max_vertical_speed, max_vertical_speed);
@@ -789,7 +818,7 @@ mod tests {
         assert!(slow.0.distance(fast.0) < 1e-6);
         assert!(slow.1.distance(fast.1) < 1e-6);
         assert!(
-            slow.1.x > BUTTERFLY_BLOCK_MAX_SPEED * 0.25,
+            slow.1.x > BUTTERFLY_FLIGHT_MAX_SPEED * 0.25,
             "wind must not be capped by self-speed"
         );
         assert_eq!(run(0.25, 0.0), (Vec3::ONE, Vec3::ZERO));
@@ -914,6 +943,7 @@ mod tests {
     fn butterfly_tuning_extremes_and_live_edits_stay_finite_and_in_world() {
         assert_eq!(
             ButterflyFlightTuning {
+                wingbeat_coupling: false,
                 flight_frequency_hz: f32::NAN,
                 height_above_ground: f32::NAN,
                 maneuver_tempo: f32::INFINITY,
@@ -931,8 +961,10 @@ mod tests {
             let mut position = Vec3::ONE;
             let mut velocity = Vec3::X * 0.15;
             for tick in 0..2400 {
+                state.wingbeat_phase = tick as f32 * dt;
                 let tuning = if (tick / 240) % 2 == 0 {
                     ButterflyFlightTuning {
+                        wingbeat_coupling: true,
                         flight_frequency_hz: 40.0,
                         height_above_ground: 0.24,
                         maneuver_tempo: 4.0,
@@ -943,6 +975,7 @@ mod tests {
                     }
                 } else {
                     ButterflyFlightTuning {
+                        wingbeat_coupling: false,
                         flight_frequency_hz: 0.0,
                         height_above_ground: 0.03,
                         maneuver_tempo: 0.25,
@@ -1023,14 +1056,16 @@ mod tests {
                     &mut |_, _| None,
                 );
                 assert!(next.is_finite());
-                assert!(next.length() <= BUTTERFLY_BLOCK_MAX_SPEED + 1e-6);
-                assert!(next.y.abs() <= BUTTERFLY_BLOCK_MAX_VERTICAL_SPEED + 1e-6);
-                assert!(flight.acceleration.length() <= BUTTERFLY_BLOCK_MAX_ACCELERATION + 1e-5);
+                assert!(next.length() <= BUTTERFLY_FLIGHT_MAX_SPEED + 1e-6);
+                assert!(next.y.abs() <= BUTTERFLY_FLIGHT_MAX_VERTICAL_SPEED + 1e-6);
+                assert!(flight.acceleration.length() <= BUTTERFLY_FLIGHT_MAX_ACCELERATION + 1e-5);
                 assert!(
                     (flight.acceleration - old_acceleration).length()
-                        <= BUTTERFLY_BLOCK_MAX_JERK * dt + 1e-5
+                        <= BUTTERFLY_FLIGHT_MAX_JERK * dt + 1e-5
                 );
-                assert!((next - velocity).length() <= BUTTERFLY_BLOCK_MAX_ACCELERATION * dt + 1e-5);
+                assert!(
+                    (next - velocity).length() <= BUTTERFLY_FLIGHT_MAX_ACCELERATION * dt + 1e-5
+                );
                 position += next * dt;
                 flight.publish_render_pose(position);
                 velocity = next;

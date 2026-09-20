@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>蝴蝶调试</title>
+<script type="importmap">{"imports":{"three":"./vendor/three-0.183.0/build/three.module.js","three/addons/":"./vendor/three-0.183.0/examples/jsm/"}}</script>
+<style>
+:root{color-scheme:dark;--bg:#111b1b;--panel:#1a2827;--ink:#e1ece3;--muted:#a5b9ad;--line:#354943;--accent:#bce892;--stage:#253039}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--ink);font:13px/1.4 system-ui,sans-serif}main{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;padding:12px}.toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:9px}label,.control{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted)}label>span{display:flex;gap:8px;justify-content:space-between}output{color:var(--ink);font-variant-numeric:tabular-nums}button,select,input{font:inherit}button,select{height:32px;border:1px solid #53685b;background:#243730;color:var(--ink);border-radius:6px;padding:4px 9px}button{cursor:pointer}button:disabled{opacity:.45;cursor:wait}button:hover{border-color:var(--accent)}button:focus-visible,select:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--accent);outline-offset:2px}#play{background:var(--accent);color:#16221a;min-width:56px}.range{width:126px}.phase{flex:1;min-width:100px;max-width:210px}.check{flex-direction:row;align-items:center;color:var(--ink);font-size:13px;gap:5px}input[type=checkbox],input[type=range]{accent-color:var(--accent)}input[type=range]{margin:0;width:100%;min-width:0;cursor:pointer}input[type=checkbox]{width:16px;height:16px}#phase-label{min-width:45px}.panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-height:0}.panel{display:grid;grid-template-rows:auto minmax(0,1fr);min-width:0;min-height:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--stage)}h2{font-size:12px;font-weight:500;color:var(--muted);margin:0;padding:8px 12px;background:var(--panel)}.board{min-width:0;min-height:0;display:grid;place-items:center}.board canvas{display:block;touch-action:none;cursor:grab}.board canvas:active{cursor:grabbing}#pixel-canvas{image-rendering:pixelated;image-rendering:crisp-edges}.status:empty{display:none}.error{color:#ffb5a3;flex-basis:100%}
+/* Custom continuous color picker: no native color dialog or preset swatches. */
+debug-color-picker{display:block}.color-trigger{display:flex;align-items:center;gap:7px;font:12px ui-monospace,monospace}.color-swatch{display:block;width:17px;height:17px;border:1px solid #ffffff40;border-radius:3px}.picker-popover{position:fixed;inset:auto;margin:0;width:222px;padding:12px;border:1px solid #688577;border-radius:10px;background:#1c2b27;color:var(--ink);box-shadow:0 12px 40px #0008}.picker-popover::backdrop{background:transparent}.picker-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.picker-header strong{font-size:13px}.picker-close{height:24px;padding:0 6px}.picker-square{display:block;width:196px;height:128px;touch-action:none;cursor:crosshair;border-radius:4px;margin-bottom:10px}.picker-popover label{margin-top:8px}.picker-hue{appearance:none;height:12px;border-radius:6px;background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}.picker-popover .hex-input{width:100%;background:#101c18;border:1px solid #53685b;border-radius:5px;color:var(--ink);padding:6px 8px;font:13px ui-monospace,monospace}.hex-input[aria-invalid=true]{border-color:#ffb5a3}.hex-error{font-size:11px;color:#ffb5a3;min-height:0}.hex-error:empty{display:none}
+@media(max-width:680px){main{padding:6px;gap:6px}.toolbar{padding:8px;gap:8px 10px}.panels{gap:6px}.range{width:105px}.phase{max-width:none}.color-trigger{padding:4px 6px}h2{padding:6px 8px}}
+</style></head><body><main>
+<div class="toolbar" aria-label="调试控制" title="临时调试参数，刷新后重置">
+<button id="play" disabled>暂停</button>
+<label class="range"><span>分辨率 <output id="resolution-value">12 × 12</output></span><input id="resolution" type="range" min="8" max="64" step="1" value="12" aria-label="渲染分辨率"></label>
+<label class="range"><span>帧率 <output id="fps-value">60 FPS</output></span><input id="fps" type="range" min="2" max="60" step="1" value="60" aria-label="动画帧率"></label>
+<div class="control"><span>蝴蝶颜色</span><debug-color-picker id="wing-color" label="蝴蝶颜色" value="#50bedc"></debug-color-picker></div>
+<div class="control"><span>背景</span><debug-color-picker id="background" label="背景颜色" value="#253039"></debug-color-picker></div>
+<label class="check"><input id="shadows" type="checkbox" checked>光照 / 阴影</label>
+<label>投影<select id="projection"><option value="orthographic" selected>正交</option><option value="perspective">透视</option></select></label>
+<label class="phase"><span>相位 <output id="phase-label">0.000s</output></span><input id="phase" type="range" min="0" max="999" value="0" step="1" aria-label="动画相位"></label>
+<button id="download" disabled>导出 PNG</button><span id="status" class="status" role="status">加载中…</span>
+</div>
+<div class="panels">
+<section class="panel" aria-label="原始三维"><h2>原始</h2><div class="board"><canvas id="source-canvas" tabindex="0" aria-label="原始三维，拖动或方向键旋转，滚轮缩放"></canvas></div></section>
+<section class="panel" aria-label="像素化结果"><h2>像素</h2><div class="board"><canvas id="pixel-canvas" tabindex="0" aria-label="像素画，拖动同步旋转，方向键旋转，滚轮缩放"></canvas></div></section>
+</div>
+</main><script type="module" src="debug-preview.js"></script></body></html>

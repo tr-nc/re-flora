@@ -62,6 +62,12 @@ impl GuiConfigLoader {
         }
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
+        Self::add_missing_param(&mut config, "Butterflies", "butterfly_wing_transmission");
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if param.id == "butterfly_animation_fps" {
+                param.label = "Butterfly Update FPS (Position + Heading + Wings)".into();
+            }
+        }
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
@@ -78,6 +84,7 @@ impl GuiConfigLoader {
                         | "terrain_rock_layer_tilt"
                         | "terrain_material_enabled"
                         | "terrain_material_color_band"
+                        | "butterfly_mesh_enabled"
                 )
             });
         }
@@ -929,6 +936,105 @@ mod tests {
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn old_butterfly_settings_gain_authored_transmission_without_other_changes() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let authored_transmission = config
+            .section
+            .iter()
+            .flat_map(|section| &section.param)
+            .find(|param| param.id == "butterfly_wing_transmission")
+            .unwrap()
+            .value
+            .get_float();
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| p.id != "butterfly_wing_transmission");
+        }
+        let expected = toml::to_string(&config).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        let transmission = loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "butterfly_wing_transmission")
+            .unwrap();
+        assert_eq!(transmission.value.get_float(), authored_transmission);
+        for section in &mut loaded.section {
+            section
+                .param
+                .retain(|p| p.id != "butterfly_wing_transmission");
+        }
+        assert_eq!(toml::to_string(&loaded).unwrap(), expected);
+    }
+
+    #[test]
+    fn retired_butterfly_appearance_settings_preserve_motion_and_saved_values() {
+        use crate::app::gui_config_model::GuiParamValue;
+        use crate::particles::ButterflyFlightVariant;
+        for (legacy, variant) in [
+            ("OriginalSprite", ButterflyFlightVariant::Original),
+            ("DartingSprite", ButterflyFlightVariant::Darting),
+            ("DartingBlock", ButterflyFlightVariant::Darting),
+        ] {
+            for enabled in [false, true] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                config.custom.butterfly_flight.variant = variant;
+                config.custom.butterfly_flight.tuning.speed = 0.73;
+                for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+                    match (param.id.as_str(), &mut param.value) {
+                        ("butterfly_pixel_resolution", GuiParamValue::Uint { value, .. }) => {
+                            *value = 16
+                        }
+                        ("butterfly_animation_fps", GuiParamValue::Uint { value, .. }) => {
+                            *value = 8
+                        }
+                        ("butterfly_mesh_preview", GuiParamValue::Bool { value }) => *value = true,
+                        _ => {}
+                    }
+                }
+                let expected = toml::to_string(&config).unwrap();
+                let section = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Butterflies")
+                    .unwrap();
+                let mut retired = section
+                    .param
+                    .iter()
+                    .find(|p| p.id == "butterfly_self_shadows")
+                    .unwrap()
+                    .clone();
+                retired.id = "butterfly_mesh_enabled".into();
+                retired.value = GuiParamValue::Bool { value: enabled };
+                section.param.push(retired);
+                let legacy_text = toml::to_string(&config).unwrap().replace(
+                    &format!("variant = \"{variant:?}\""),
+                    &format!("variant = \"{legacy}\""),
+                );
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                std::fs::write(&path, legacy_text).unwrap();
+                let migrated = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(toml::to_string(&migrated).unwrap(), expected);
+                GuiConfigLoader::save_to_path(&migrated, &path).unwrap();
+                let saved = std::fs::read_to_string(&path).unwrap();
+                assert!(!saved.contains("butterfly_mesh_enabled"));
+                assert!(!saved.contains(legacy));
+                assert_eq!(
+                    toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                    expected
+                );
+            }
         }
     }
 

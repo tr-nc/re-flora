@@ -15,6 +15,14 @@ const GLASS_VOXEL_CACHE_RADIANCE_BYTES_PER_ENTRY: u64 = 16;
 const GLASS_VOXEL_CACHE_ACTIVE_SLOT_BYTES_PER_ENTRY: u64 = 4;
 pub(crate) const GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES: u64 = 4;
 
+fn god_ray_extent(rendering_extent: Extent2D) -> Extent2D {
+    // Match the scene's depth grid: no half-resolution silhouette reconstruction.
+    Extent2D::new(
+        rendering_extent.width.max(1),
+        rendering_extent.height.max(1),
+    )
+}
+
 fn lens_flare_extent(rendering_extent: Extent2D) -> Extent2D {
     Extent2D::new(
         (rendering_extent.width / LENS_FLARE_DOWNSAMPLE_FACTOR).max(1),
@@ -104,6 +112,13 @@ impl ExtentDependentResources {
             Self::create_ddgi_spatial_weight_readback(device.clone(), allocator.clone());
         let gfx_output_tex =
             Self::create_gfx_output_tex(device.clone(), allocator.clone(), rendering_extent);
+        log::info!(
+            "[GOD_RAY][RESOURCES] scene={}x{} effect={}x{} textures=3 format=R32_SFLOAT",
+            rendering_extent.width,
+            rendering_extent.height,
+            god_ray_extent(rendering_extent).width,
+            god_ray_extent(rendering_extent).height,
+        );
         let god_ray_raw_tex =
             Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
         let god_ray_history_tex =
@@ -408,12 +423,8 @@ impl ExtentDependentResources {
         allocator: Allocator,
         rendering_extent: Extent2D,
     ) -> Texture {
-        let god_ray_extent = Extent2D::new(
-            (rendering_extent.width / 2).max(1),
-            (rendering_extent.height / 2).max(1),
-        );
         let tex_desc = ImageDesc {
-            extent: god_ray_extent.into(),
+            extent: god_ray_extent(rendering_extent).into(),
             format: vk::Format::R32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
@@ -554,6 +565,18 @@ impl ExtentDependentResources {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn god_rays_match_the_internal_depth_grid_including_odd_sizes() {
+        for extent in [
+            Extent2D::new(2560, 1440),
+            Extent2D::new(1919, 1079),
+            Extent2D::new(1, 1),
+        ] {
+            assert_eq!(god_ray_extent(extent), extent);
+        }
+        assert_eq!(god_ray_extent(Extent2D::new(0, 0)), Extent2D::new(1, 1));
+    }
 
     #[test]
     fn lens_flare_runs_at_half_the_internal_render_extent() {

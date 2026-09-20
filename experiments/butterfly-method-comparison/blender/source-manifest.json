@@ -1,0 +1,61 @@
+{
+  "prototype": true,
+  "blender_version": "4.5.13 LTS",
+  "blend": "butterfly-prototype.blend",
+  "glb": "butterfly-prototype.glb",
+  "geometry": {
+    "mesh_objects": 33,
+    "faces": 126
+  },
+  "raw_frame_px": 128,
+  "view_azimuth_degrees": [
+    0,
+    45,
+    90,
+    135,
+    180
+  ],
+  "camera_elevation_degrees": 15.0,
+  "orthographic_scale": 2.6,
+  "camera_target_world": [
+    0,
+    0,
+    0
+  ],
+  "body_anchor_normalized": [
+    0.5,
+    0.5
+  ],
+  "source_fps": 25,
+  "source_frame_range": [
+    1,
+    25
+  ],
+  "loop_endpoint_frame": 26,
+  "sample_frames": [
+    1,
+    6,
+    11,
+    16,
+    21
+  ],
+  "sample_seconds": [
+    0,
+    0.2,
+    0.4,
+    0.6,
+    0.8
+  ],
+  "sample_wing_angle_degrees": [
+    0.0,
+    57.06339097770921,
+    35.267115137548394,
+    -35.26711513754836,
+    -57.06339097770922
+  ],
+  "loop_seconds": 1,
+  "sheet_layout": "row = camera, column = time; no gutters",
+  "source_transparency": "RGBA, antialiased coverage; not indexed or binary alpha",
+  "renderer": "Cycles CPU, 8 samples, seed 0, animated seed off, Standard view transform",
+  "pose_consistency": "One saved model and shared keyed hinges; only camera varies between rows."
+}

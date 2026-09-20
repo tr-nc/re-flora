@@ -1,0 +1,453 @@
+{
+  "draft": false,
+  "true_loop_endpoint_raw_and_native16_equal": true,
+  "all_raw_frames_clear_boundary": true,
+  "boundary_frames_checked": 75,
+  "replay_frames_compared": 75,
+  "replay_all_equal": true,
+  "glb_animation_count": 1,
+  "glb_channels": [
+    {
+      "name": "Flight pose",
+      "path": "translation"
+    },
+    {
+      "name": "Flight pose",
+      "path": "rotation"
+    },
+    {
+      "name": "Abdomen follow",
+      "path": "rotation"
+    },
+    {
+      "name": "Abdomen tip follow",
+      "path": "rotation"
+    },
+    {
+      "name": "Wing hinge L",
+      "path": "rotation"
+    },
+    {
+      "name": "Wing hinge R",
+      "path": "rotation"
+    }
+  ],
+  "outputs": {
+    "atlas-16-blue-indexed.png": {
+      "dimensions": [
+        80,
+        80
+      ],
+      "mode": "P",
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "palette_entries": 5,
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "883b256499aba6c285d49e94a0c26080cba4cde727b7fabc44c0c1ac1b0edbfd"
+    },
+    "atlas-16-gray-indexed.png": {
+      "dimensions": [
+        80,
+        80
+      ],
+      "mode": "P",
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "palette_entries": 5,
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "6d07827b3611b91f0aee51468c06efac9854621316bc48df5a6cee3e0f731821"
+    },
+    "atlas-32-blue-indexed.png": {
+      "dimensions": [
+        160,
+        160
+      ],
+      "mode": "P",
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "palette_entries": 5,
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "f3c3d2bd4f28fdcea7eadc503825ba917c452ce1d1b13c9e55d84bce213e291f"
+    },
+    "atlas-32-gray-indexed.png": {
+      "dimensions": [
+        160,
+        160
+      ],
+      "mode": "P",
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "palette_entries": 5,
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "92202b5f246a51fe9a95f34a4f7bbe0f7959bdcae70b4a11b430c7a1b35104d3"
+    }
+  },
+  "pixel_pose_metrics": [
+    {
+      "azimuth": 0,
+      "unique_frames": 5,
+      "opaque_pixels": [
+        64,
+        44,
+        30,
+        43,
+        76
+      ],
+      "bboxes": [
+        [
+          3,
+          3,
+          13,
+          12
+        ],
+        [
+          4,
+          3,
+          12,
+          10
+        ],
+        [
+          2,
+          6,
+          14,
+          9
+        ],
+        [
+          3,
+          5,
+          13,
+          13
+        ],
+        [
+          2,
+          4,
+          14,
+          13
+        ]
+      ],
+      "body_only_unique_frames": 4,
+      "abdomen_layer_changed_pixels": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_bob_pitch_layer_changed_pixels": [
+        18,
+        14,
+        56,
+        17,
+        26
+      ],
+      "changed_pixels_to_next_including_wrap": [
+        36,
+        46,
+        50,
+        40,
+        50
+      ]
+    },
+    {
+      "azimuth": 45,
+      "unique_frames": 5,
+      "opaque_pixels": [
+        60,
+        45,
+        42,
+        43,
+        67
+      ],
+      "bboxes": [
+        [
+          1,
+          3,
+          13,
+          12
+        ],
+        [
+          2,
+          3,
+          13,
+          11
+        ],
+        [
+          1,
+          4,
+          14,
+          11
+        ],
+        [
+          2,
+          6,
+          13,
+          14
+        ],
+        [
+          1,
+          4,
+          14,
+          15
+        ]
+      ],
+      "body_only_unique_frames": 5,
+      "abdomen_layer_changed_pixels": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_bob_pitch_layer_changed_pixels": [
+        19,
+        21,
+        47,
+        20,
+        29
+      ],
+      "changed_pixels_to_next_including_wrap": [
+        32,
+        43,
+        48,
+        53,
+        59
+      ]
+    },
+    {
+      "azimuth": 90,
+      "unique_frames": 5,
+      "opaque_pixels": [
+        53,
+        46,
+        57,
+        48,
+        58
+      ],
+      "bboxes": [
+        [
+          3,
+          3,
+          13,
+          11
+        ],
+        [
+          3,
+          3,
+          13,
+          9
+        ],
+        [
+          3,
+          2,
+          13,
+          12
+        ],
+        [
+          2,
+          6,
+          13,
+          13
+        ],
+        [
+          3,
+          5,
+          13,
+          14
+        ]
+      ],
+      "body_only_unique_frames": 5,
+      "abdomen_layer_changed_pixels": [
+        0,
+        1,
+        2,
+        2,
+        0
+      ],
+      "body_bob_pitch_layer_changed_pixels": [
+        20,
+        20,
+        42,
+        24,
+        34
+      ],
+      "changed_pixels_to_next_including_wrap": [
+        25,
+        48,
+        54,
+        46,
+        64
+      ]
+    },
+    {
+      "azimuth": 135,
+      "unique_frames": 5,
+      "opaque_pixels": [
+        48,
+        45,
+        74,
+        54,
+        46
+      ],
+      "bboxes": [
+        [
+          1,
+          2,
+          13,
+          10
+        ],
+        [
+          2,
+          1,
+          13,
+          11
+        ],
+        [
+          1,
+          1,
+          14,
+          13
+        ],
+        [
+          1,
+          4,
+          13,
+          13
+        ],
+        [
+          1,
+          5,
+          14,
+          12
+        ]
+      ],
+      "body_only_unique_frames": 5,
+      "abdomen_layer_changed_pixels": [
+        1,
+        0,
+        1,
+        0,
+        0
+      ],
+      "body_bob_pitch_layer_changed_pixels": [
+        18,
+        17,
+        41,
+        26,
+        37
+      ],
+      "changed_pixels_to_next_including_wrap": [
+        27,
+        60,
+        59,
+        41,
+        51
+      ]
+    },
+    {
+      "azimuth": 180,
+      "unique_frames": 5,
+      "opaque_pixels": [
+        46,
+        42,
+        76,
+        58,
+        46
+      ],
+      "bboxes": [
+        [
+          3,
+          3,
+          13,
+          10
+        ],
+        [
+          4,
+          2,
+          12,
+          11
+        ],
+        [
+          2,
+          3,
+          14,
+          12
+        ],
+        [
+          3,
+          5,
+          13,
+          13
+        ],
+        [
+          2,
+          6,
+          14,
+          11
+        ]
+      ],
+      "body_only_unique_frames": 4,
+      "abdomen_layer_changed_pixels": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "body_bob_pitch_layer_changed_pixels": [
+        16,
+        12,
+        34,
+        24,
+        40
+      ],
+      "changed_pixels_to_next_including_wrap": [
+        38,
+        52,
+        50,
+        42,
+        54
+      ]
+    }
+  ],
+  "body_reference_projections": "raw/body-reference-projections.json",
+  "primary_pixel_method": "Native 16px render: 1 sample, BOX filter width .01, fixed seed. No high-resolution downsample for primary candidate.",
+  "source_sha256": {
+    "butterfly-prototype.blend": "0b26ccb2cef1777ac9c1bfa0350467d644be3c8518182f8883a2cf589df6347b",
+    "butterfly-prototype.glb": "4ceff6e317db6e5d16307e98d2a3fa955116f8ded1f1d3678906122ecdabac0c",
+    "create_export_blender.py": "b88b7d032ae087a6c00832d5dc0163ccd7e406dbbefab8fd1d5a2ae53ae94a15",
+    "run.py": "34397cadf7936cc2135d1e0d7fc73ce148e4c1754958eea73c32a650835d7b99"
+  },
+  "art_verdict": "See QUALITY_REVIEW.md for human-visible assessment and limits; dimensions, counts and channels alone do not approve art."
+}

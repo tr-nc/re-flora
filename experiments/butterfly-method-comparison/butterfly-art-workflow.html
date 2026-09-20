@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Re: Flora 蝴蝶动画素材调查</title>
+  <style>
+    :root {
+      --ink: #19251f;
+      --muted: #64736a;
+      --paper: #f5f1e7;
+      --card: rgba(255, 255, 255, .78);
+      --line: rgba(40, 73, 55, .16);
+      --moss: #315b43;
+      --leaf: #5f8f63;
+      --mint: #d9ead8;
+      --sun: #e6a44b;
+      --violet: #74628c;
+      --danger: #9c5145;
+      --shadow: 0 18px 50px rgba(42, 57, 47, .12);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(143, 183, 133, .24), transparent 30rem),
+        radial-gradient(circle at 88% 18%, rgba(230, 164, 75, .16), transparent 28rem),
+        linear-gradient(180deg, #f8f5ed, var(--paper));
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    a { color: var(--moss); text-underline-offset: 3px; }
+    button { font: inherit; }
+    .wrap { width: min(1160px, calc(100% - 32px)); margin: 0 auto; }
+
+    header { padding: 72px 0 42px; }
+    .eyebrow { color: var(--moss); font-size: .78rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { max-width: 860px; margin: 12px 0 14px; font-family: Georgia, "Noto Serif SC", serif; font-size: clamp(2.3rem, 6vw, 5.3rem); line-height: .98; letter-spacing: -.035em; }
+    .lead { max-width: 820px; margin: 0; color: #425148; font-size: clamp(1.02rem, 2vw, 1.28rem); }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .badge { border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; background: rgba(255,255,255,.52); font-size: .78rem; font-weight: 750; }
+    .badge.real { color: #28533b; background: #e3f0df; }
+    .badge.warn { color: #7d493f; background: #f8e5de; }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: 1.45fr .55fr;
+      gap: 22px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: linear-gradient(135deg, rgba(255,255,255,.93), rgba(227,239,222,.72));
+      box-shadow: var(--shadow);
+    }
+    .verdict h2, section h2 { margin: 0 0 10px; font-family: Georgia, "Noto Serif SC", serif; font-size: clamp(1.55rem, 3vw, 2.35rem); line-height: 1.16; }
+    .verdict p { margin: 0; color: #405047; }
+    .score { display: grid; place-items: center; text-align: center; border-left: 1px solid var(--line); }
+    .score b { display: block; color: var(--moss); font-family: Georgia, serif; font-size: 3.2rem; line-height: 1; }
+    .score span { color: var(--muted); font-size: .8rem; font-weight: 700; }
+
+    main { padding-bottom: 80px; }
+    section { margin-top: 58px; }
+    .section-head { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 18px; }
+    .section-head p { max-width: 620px; margin: 0; color: var(--muted); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { border: 1px solid var(--line); border-radius: 20px; padding: 22px; background: var(--card); box-shadow: 0 9px 26px rgba(42,57,47,.06); backdrop-filter: blur(8px); }
+    .card h3 { margin: 0 0 8px; font-size: 1.04rem; }
+    .card p { margin: 0; color: var(--muted); }
+    .kicker { margin-bottom: 8px; color: var(--leaf); font-size: .74rem; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+
+    .atlas-stage { display: grid; place-items: center; min-height: 400px; border-radius: 16px; background-color: #dfe8df; background-image: linear-gradient(45deg,#f8faf6 25%,transparent 25%), linear-gradient(-45deg,#f8faf6 25%,transparent 25%), linear-gradient(45deg,transparent 75%,#f8faf6 75%), linear-gradient(-45deg,transparent 75%,#f8faf6 75%); background-position: 0 0,0 12px,12px -12px,-12px 0; background-size: 24px 24px; overflow: auto; }
+    .atlas-shell { position: relative; width: min(360px, 88vw); aspect-ratio: 1; }
+    .atlas-shell img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+    .atlas-grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(to right, transparent calc(20% - 1px), rgba(26,50,38,.26) calc(20% - 1px), rgba(26,50,38,.26) 20%, transparent 20%), linear-gradient(to bottom, transparent calc(20% - 1px), rgba(26,50,38,.26) calc(20% - 1px), rgba(26,50,38,.26) 20%, transparent 20%); background-size: 20% 100%, 100% 20%; border: 1px solid rgba(26,50,38,.32); }
+    .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+    .meta div { padding: 10px; border-radius: 12px; background: #edf3ea; text-align: center; }
+    .meta b { display: block; font-size: 1.05rem; }
+    .meta span { color: var(--muted); font-size: .72rem; }
+    .source-strip { width: 100%; margin-top: 14px; padding: 16px; image-rendering: pixelated; background: #dfe8df; border-radius: 12px; }
+
+    .player-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+    .player-head strong { font-variant-numeric: tabular-nums; }
+    .control { border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; color: white; background: var(--moss); cursor: pointer; }
+    .views { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .view { text-align: center; }
+    .pixel-box { display: grid; place-items: center; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 14px; background-color: #e6ece3; background-image: linear-gradient(45deg,#fbfcf9 25%,transparent 25%),linear-gradient(-45deg,#fbfcf9 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#fbfcf9 75%),linear-gradient(-45deg,transparent 75%,#fbfcf9 75%); background-position: 0 0,0 8px,8px -8px,-8px 0; background-size: 16px 16px; overflow: hidden; }
+    canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+    .view b { display: block; margin-top: 8px; font-size: .82rem; }
+    .view small { color: var(--muted); font-size: .7rem; }
+    .view.used .pixel-box { outline: 3px solid rgba(95,143,99,.54); outline-offset: 2px; }
+
+    .direction { display: grid; grid-template-columns: .8fr 1.2fr; gap: 20px; }
+    .direction-preview { max-width: 280px; margin: auto; }
+    .direction-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
+    .direction-buttons button { min-height: 58px; border: 1px solid var(--line); border-radius: 13px; color: var(--ink); background: #fbfaf5; cursor: pointer; }
+    .direction-buttons button.active { color: white; background: var(--moss); box-shadow: 0 7px 18px rgba(49,91,67,.22); }
+    .mapping { margin: 15px 0 0; padding-left: 20px; color: var(--muted); }
+    code { padding: .12em .35em; border-radius: .35em; background: rgba(49,91,67,.08); font-size: .9em; }
+
+    table { width: 100%; border-collapse: collapse; border-spacing: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.72); box-shadow: 0 9px 26px rgba(42,57,47,.05); }
+    th, td { padding: 15px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); background: #edf3ea; font-size: .76rem; letter-spacing: .05em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { font-weight: 780; }
+    .pill { display: inline-block; margin: 2px 2px 2px 0; padding: 3px 8px; border-radius: 999px; font-size: .7rem; font-weight: 800; }
+    .pill.best { color: #254d36; background: #dbeedc; }
+    .pill.mid { color: #76571e; background: #f7e7bd; }
+    .pill.low { color: #7c3f38; background: #f4dcd6; }
+
+    .route { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; counter-reset: route; }
+    .step { position: relative; min-height: 210px; padding: 50px 16px 16px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.72); }
+    .step::before { counter-increment: route; content: counter(route, decimal-leading-zero); position: absolute; top: 13px; left: 15px; color: var(--leaf); font-family: Georgia, serif; font-size: 1.35rem; font-weight: 700; }
+    .step h3 { margin: 0 0 7px; font-size: .96rem; }
+    .step p { margin: 0; color: var(--muted); font-size: .83rem; }
+    .flow-note { margin-top: 16px; padding: 18px 20px; border-left: 5px solid var(--sun); border-radius: 8px 16px 16px 8px; background: #fff8e8; }
+
+    .checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0; list-style: none; }
+    .checks li { padding: 13px 14px 13px 42px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.68); position: relative; }
+    .checks li::before { content: "✓"; position: absolute; left: 15px; color: var(--leaf); font-weight: 900; }
+
+    .sources { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .source { display: block; padding: 13px 15px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.64); text-decoration: none; }
+    .source b { display: block; }
+    .source small { color: var(--muted); }
+    footer { padding: 24px 0 48px; color: var(--muted); font-size: .8rem; }
+
+    @media (max-width: 800px) {
+      header { padding-top: 48px; }
+      .verdict, .grid-2, .direction { grid-template-columns: 1fr; }
+      .score { padding-top: 20px; border-top: 1px solid var(--line); border-left: 0; }
+      .views { grid-template-columns: repeat(3, 1fr); }
+      .route { grid-template-columns: 1fr; }
+      .step { min-height: 0; }
+      table { display: block; overflow-x: auto; white-space: normal; }
+      .sources, .checks { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <div class="eyebrow">Re: Flora · Art pipeline investigation · 2026-09-06</div>
+    <h1>让蝴蝶飞得一致，<br>比每一帧都“惊艳”更重要。</h1>
+    <p class="lead">这份演示以仓库里的真实手工图集为唯一素材依据，展示当前 5×5 帧结构、运行时方向切换，以及面向独立开发者的 AI 直出与 3D 转 2D 两条路线。</p>
+    <div class="badges">
+      <span class="badge real">真实仓库素材</span>
+      <span class="badge real">真实运行时映射</span>
+      <span class="badge warn">没有生成替换素材</span>
+      <span class="badge warn">方案示意 ≠ 游戏实机画面</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="verdict">
+      <div>
+        <div class="kicker">推荐结论</div>
+        <h2>先用 PixelLab 免费额度做一次直出门槛测试；生产版优先选择“极简 Blender 翅膀骨架 → 多角度正交渲染 → Pixelorama 收像素”。</h2>
+        <p>直接 AI 最省启动时间，但现有工具没有第一方承诺可以同时满足 Re: Flora 的「5 个角度 × 5 个严格同相位帧 × 16px × 五色索引调色板」。一个 3D 骨架只动画一次，所有视角共享同一姿态，跨帧、跨视角一致性是结构性保证。</p>
+      </div>
+      <div class="score"><div><b>1→25</b><span>一套 3D 动作，确定地产生 25 格</span></div></div>
+    </div>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">Current asset</div><h2>仓库里现在到底是什么</h2></div>
+        <p><code>butterfly.png</code> 是运行时优先加载的图集；下方像素来自该文件本身，并非重画或 AI 模拟。</p>
+      </div>
+      <div class="grid-2">
+        <article class="card">
+          <h3>真实运行时图集 · 80×80</h3>
+          <div class="atlas-stage">
+            <div class="atlas-shell">
+              <img id="atlas" alt="Re: Flora 当前 butterfly.png 图集">
+              <div class="atlas-grid" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="meta">
+            <div><b>5 × 5</b><span>视角行 × 动画列</span></div>
+            <div><b>16 × 16</b><span>每格像素</span></div>
+            <div><b>5 色</b><span>索引灰度 + 透明</span></div>
+          </div>
+        </article>
+        <article class="card">
+          <h3>素材族谱与约束</h3>
+          <p><strong>源工程：</strong><code>butterfly.aseprite</code> 是 16×80 画布、5 帧、Indexed、5 色。每个时间帧竖排五个视角，导出后五帧横排成为 80×80。</p>
+          <p style="margin-top:12px"><strong>原始参考：</strong><code>Blue.png</code> 是 80×16、五帧、单侧视角的彩色条；运行时不会选它，因为加载器明确优先同目录的 <code>butterfly.png</code>。</p>
+          <img id="raw-strip" class="source-strip" alt="原始 Blue.png 五帧参考条">
+          <p style="margin-top:12px"><strong>可见差异：</strong>计划稿写了“去黑描边”，实际运行时图集仍含黑色最暗层；加载器把它当作可重着色的 Border，而不是透明像素。</p>
+          <p style="margin-top:12px"><strong>文件指纹：</strong><code>c2d7c816…f1502c9b82</code></p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">Real playback</div><h2>五个视角，共享同一列相位</h2></div>
+        <p>以下播放器每 200ms 同时推进一列，等价于代码中的 5 fps、1 秒循环。绿色框是当前运行时真正抽取的两行。</p>
+      </div>
+      <div class="card">
+        <div class="player-head"><strong id="frame-label">当前列：0 / 4 · 0.0s</strong><button id="toggle" class="control" type="button">暂停</button></div>
+        <div class="views">
+          <div class="view"><div class="pixel-box"><canvas data-row="0" width="16" height="16"></canvas></div><b>第 1 行 · 正面</b><small>当前未消费</small></div>
+          <div class="view used"><div class="pixel-box"><canvas data-row="1" width="16" height="16"></canvas></div><b>第 2 行 · 前侧 45°</b><small>运行时 View 0</small></div>
+          <div class="view"><div class="pixel-box"><canvas data-row="2" width="16" height="16"></canvas></div><b>第 3 行 · 侧面 90°</b><small>当前未消费</small></div>
+          <div class="view used"><div class="pixel-box"><canvas data-row="3" width="16" height="16"></canvas></div><b>第 4 行 · 后侧 135°</b><small>运行时 View 1</small></div>
+          <div class="view"><div class="pixel-box"><canvas data-row="4" width="16" height="16"></canvas></div><b>第 5 行 · 背面</b><small>当前未消费</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">Runtime mapping</div><h2>游戏并没有播放全部五个角度</h2></div>
+        <p>当前是相机相对的“两行 + 水平镜像”方案。点击象限，查看实际选行与翻转；静止或过慢时回到第 2 行、不镜像。</p>
+      </div>
+      <div class="direction">
+        <div class="card direction-preview">
+          <div class="pixel-box"><canvas id="direction-canvas" width="16" height="16"></canvas></div>
+          <div id="direction-caption" style="margin-top:10px;text-align:center;font-weight:800">第 2 行 · 不镜像</div>
+        </div>
+        <div class="card">
+          <h3>相对相机的运动象限</h3>
+          <div class="direction-buttons">
+            <button class="active" data-row="1" data-flip="0">左 + 相机前向同号</button>
+            <button data-row="1" data-flip="1">右 + 相机前向同号</button>
+            <button data-row="3" data-flip="0">左 + 相机前向反号</button>
+            <button data-row="3" data-flip="1">右 + 相机前向反号</button>
+          </div>
+          <ul class="mapping">
+            <li>前后：速度与相机前向的点积正负，选择物理第 2 行或第 4 行。</li>
+            <li>左右：速度与相机右向的点积为正时，在顶点着色器里水平翻转 UV。</li>
+            <li>每只蝴蝶从第 0 帧开始；每 0.2 秒前进一帧，并以模 5 回绕。</li>
+            <li>图集以 nearest 采样、无 mipmap；透明度在着色器中以 0.5 阈值裁切。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">Tool reality check</div><h2>工具能力：会出图，不等于会守动画契约</h2></div>
+        <p>“一致性”在这里至少有四层：同一身体设计、同一像素密度、同一翅膀相位、同一投影/占框。营销页常只覆盖前两层。</p>
+      </div>
+      <table>
+        <thead><tr><th>路线 / 工具</th><th>官方确认的能力</th><th>费用与商用</th><th>对 Re: Flora 的真实判断</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>PixelLab</td>
+            <td>4/8 方向旋转；文字或骨架动画；对象可按方向做动画；参考图与强制调色板。</td>
+            <td>免费试用 40 次快速生成，之后每天 5 次慢速（最多存 20）；免费层亦标注可商用。付费 Tier 1 为 $12/月。</td>
+            <td><span class="pill best">最佳免费试验</span><span class="pill mid">仍需人工验收</span><br>功能最接近，但官方没有承诺“5 个方向的第 N 帧是同一 3D 姿态”，也没有现成的 16px/5帧/5行蝴蝶模板。</td>
+          </tr>
+          <tr>
+            <td>Scenario + RD Animation</td>
+            <td>专用 pixel-art sprite sheet 模型，短循环、方向模板、参考图、限制调色板；官方也给出“图生视频→抽关键帧”流程。</td>
+            <td>50 个免费日额度仅用于个人/评估；商用需付费，Starter $15/月；训练自定义模型在 Pro $45/月。</td>
+            <td><span class="pill mid">可做备选</span><br>预设常绑定 32×32/48×48 与行走/idle/VFX 类型，无法确认支持当前 16×16、5×5 自定义布局。低分辨率现有素材也不适合其建议的自定义训练输入。</td>
+          </tr>
+          <tr>
+            <td>Runway Gen-4 References / Video</td>
+            <td>1–3 张参考图维持主体/风格；静态图可转视频，再抽动作关键帧。</td>
+            <td>免费层一次性 125 credits，免费视频带水印；官方允许商用，用户保留与 Runway 之间的权利。</td>
+            <td><span class="pill low">只作动作参考</span><br>输出是 720p/1080p 图像或视频，不是像素网格；没有结构化方向、索引调色板、透明背景与同相位多视图保证。</td>
+          </tr>
+          <tr>
+            <td>Blender → Pixelorama</td>
+            <td>正交相机、透明 RGBA PNG、逐帧图像序列；Pixelorama 有动画时间线、onion skin、indexed mode、调色板和 spritesheet 导出。</td>
+            <td>两者均免费开源；Blender 明确说明输出作品归创作者，Pixelorama 为 MIT。</td>
+            <td><span class="pill best">生产版推荐</span><span class="pill best">一致性最高</span><br>建模/绑定有一次性学习成本，但五台相机读取同一骨架的同一帧，天然保证跨方向同相位；可复用且不依赖生成额度。</td>
+          </tr>
+          <tr>
+            <td>Aseprite（现有源格式）</td>
+            <td>原生 indexed palette、帧时间线、矩阵 sprite sheet 导入/导出与 CLI。</td>
+            <td>$19.99 一次性最低购买额；作品可用于商业游戏。源码自编译也可做商业作品，但不可转发编译版。</td>
+            <td><span class="pill mid">已有许可则继续用</span><br>它不生成缺失角度或动作，只负责可靠整理、逐像素修正与导出。没有许可时，Pixelorama 是零成本替代。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">Concrete workflow</div><h2>适合 Re: Flora 的低成本制作流程</h2></div>
+        <p>先设一个很便宜的 AI 淘汰门槛；失败就进入确定性 3D 流程，不在 25 个漂移帧上无底洞式修图。</p>
+      </div>
+      <div class="route">
+        <article class="step"><h3>锁定契约</h3><p>保留 5 行 × 5 列；列是同一翅膀相位。当前优先验收第 2、4 行，因为游戏只读取这两行。</p></article>
+        <article class="step"><h3>免费 AI 探针</h3><p>在 PixelLab 用当前蝴蝶单格的整数倍放大图作参考，先做 8 方向对象，再为两个关键方向做短翅膀循环。最多两轮。</p></article>
+        <article class="step"><h3>一致性闸门</h3><p>若身体长度、翼纹、轮廓占框或同列相位任一漂移，停止继续生成。AI 结果只留作造型/动作参考。</p></article>
+        <article class="step"><h3>确定性 3D</h3><p>Blender 中用身体 + 四片极简翼面、一个左右对称铰链动作；五个正交相机固定为 0/45/90/135/180°，渲染 5 帧透明 PNG。</p></article>
+        <article class="step"><h3>像素收口</h3><p>在 Pixelorama（或已有许可的 Aseprite）缩到 16px，清轮廓，限制为 1 透明 + 4 不透明灰阶，再按行/列拼成 80×80。</p></article>
+      </div>
+      <div class="flow-note"><strong>为什么这条混合路线更省：</strong>16px 下不需要精细 3D 雕刻；几何只负责投影和相位一致，最终风格由少量像素清理决定。未来若调整翅速、角度或新增视角，只需重渲染同一资产，而不是重新祈求 25 次生成恰好一致。</div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">Acceptance gate</div><h2>导入前一次性检查</h2></div>
+      </div>
+      <ul class="checks">
+        <li>PNG 必须严格为 80×80；每格 16×16，无 padding、无错行。</li>
+        <li>行序固定：正面、前侧 45°、侧面 90°、后侧 135°、背面。</li>
+        <li>列序固定为 5 个动作相位；同一列所有视角必须是同一翼角。</li>
+        <li>Indexed PNG 恰好 5 个 RGBA 值：1 个 alpha 0、4 个 alpha 255。</li>
+        <li>源图 RGB 必须灰度；运行时会重映射成黄/紫/橙/白/红/蓝/棕七种配色。</li>
+        <li>第 2、4 行及它们的水平镜像需单独检查，确保象限切换时身体中心不跳。</li>
+        <li>循环按 0→1→2→3→4→0 在 5 fps 下检查，首尾不应出现翼角突变。</li>
+        <li>进入项目后再做隐藏运行检查，确认加载器没有尺寸、色彩模式或调色板错误。</li>
+      </ul>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><div class="kicker">First-party evidence</div><h2>核验来源</h2></div>
+        <p>价格、额度和产品能力会变化；下列链接均为 2026-09-06 查阅的官方页面。</p>
+      </div>
+      <div class="sources">
+        <a class="source" href="https://www.pixellab.ai/" target="_blank" rel="noreferrer"><b>PixelLab 产品、价格与许可</b><small>免费额度、4/8 方向、动画、商业用途</small></a>
+        <a class="source" href="https://www.pixellab.ai/pixellab-api" target="_blank" rel="noreferrer"><b>PixelLab API 能力表</b><small>旋转、对象多方向、按方向动画、帧数与估价</small></a>
+        <a class="source" href="https://help.scenario.com/articles/4202673551-retro-diffusion-models-the-essentials" target="_blank" rel="noreferrer"><b>Scenario Retro Diffusion</b><small>RD Animation 的布局、尺寸与短循环限制</small></a>
+        <a class="source" href="https://www.scenario.com/pricing" target="_blank" rel="noreferrer"><b>Scenario Pricing</b><small>免费额度、$15/$45 档位、商用边界</small></a>
+        <a class="source" href="https://help.runwayml.com/hc/en-us/articles/40042718905875-Creating-with-Gen-4-Image-References" target="_blank" rel="noreferrer"><b>Runway Gen-4 References</b><small>主体与风格参考的实际范围</small></a>
+        <a class="source" href="https://help.runwayml.com/hc/en-us/articles/50404627334547-Free-plan-details" target="_blank" rel="noreferrer"><b>Runway Free plan</b><small>一次性 125 credits 与免费视频水印</small></a>
+        <a class="source" href="https://help.runwayml.com/hc/en-us/articles/21668707517587-Can-I-use-the-content-I-made-in-Runway-for-commercial-purposes" target="_blank" rel="noreferrer"><b>Runway commercial use</b><small>商用与权利说明</small></a>
+        <a class="source" href="https://docs.blender.org/manual/en/latest/render/output/animation.html" target="_blank" rel="noreferrer"><b>Blender 动画渲染</b><small>逐帧图像序列工作流</small></a>
+        <a class="source" href="https://docs.blender.org/manual/en/5.0/render/cameras.html" target="_blank" rel="noreferrer"><b>Blender 正交相机</b><small>无透视收敛的固定投影</small></a>
+        <a class="source" href="https://www.blender.org/about/license/" target="_blank" rel="noreferrer"><b>Blender License</b><small>免费开源与作品归属</small></a>
+        <a class="source" href="https://github.com/Orama-Interactive/Pixelorama" target="_blank" rel="noreferrer"><b>Pixelorama 官方仓库</b><small>MIT、indexed/动画/调色板/spritesheet</small></a>
+        <a class="source" href="https://www.aseprite.org/faq" target="_blank" rel="noreferrer"><b>Aseprite FAQ</b><small>$19.99 与商业作品权利</small></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">这是调查与流程演示，不是素材替换，也不代表真实游戏光照/缩放后的最终观感。AI 服务条款不等于对著作权有效性或第三方不侵权的保证。</footer>
+
+  <script>
+    const atlasData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAMAAAC5zwKfAAAAAXNSR0IArs4c6QAAAA9QTFRFAAAAAAAAlJSUs7Oz////rHrI4gAAAAV0Uk5TAP////8c0CZSAAACpklEQVRYhe2Yi27sIAxEGZv//+YrMAGPDdmm20pX6qI2KyA+cXgMdkr5lFaA67Kvv7bHvFpDRf+/umuvV3cDmM911GFwISZgdleFVneDVlR1+N6PZd4ejmWAAXDAOq4XUNtf8QAyr7VK5RaQP9a/EBkoztw1LKdl8tIDOlGUx0zqjUH0MLxSAvbxDjwb9EVwY2jV4hrCK2eHdMyqGxVeNr0DihNwzLprCOswriv4n9zfTfFg4X/Kf1HajL0xaWnC28JD/TbR1qhfZapKW+khugNBG4uArf8Rczh0BvYbWKDvH4DkUW/we5Wc7IJ3hwTbW13YJQ2C6pFIHm+JPMtY8mJAxZBEgPF2j6h6oKiqhHcCHUJtCAawXh4HH0mPRPU8Rv1EXUt/DGkkhkG4HfPYafjv74TTc36Y9ym/Xt47FLN6QMO5+4yPtBVV/VZ5rohhcw8Bcx6ql8TXDiPs7QGk2GN5CRaXLT5KJi4k3aMjaGI5PKgtwjgiDGNZorD0yunhDilZ0fYDFBQQI6BPd2dR2vIGwYe4sJj/rdAAeaneSPJXqXfVT/mThff88ywkpD2FoqMc0L2CFW/RhcopIlqq+EQQp8EF0FRXklzIfSCzAVB95IqOJ0EKwHFN9oABlo+6IZWogDH0ygAFq2sjCr0x5+OJaB74Yy4FjHDEpofhFEs+CsWY/I4lZsitO8shE5sH5ww7FuT+uJTwUcifLeHzXv4q8hV7Z9BXxDoWZwhyPCfhrjsDy3e9NljdCxrn15jXrcEGGDe7rH0zpBN6NrjUYu5dNf2RxWuFPdIAFA+U7sHMHlN9AxRWK25oiieystFWhWtI9WHvZyXolb/dFNUuswHFZ+jha90WSBl9+gz9Cti/0yiOwFTi5z6zP3vQFukj6UH5y9ntP3hPDUSNfRSgAAAAAElFTkSuQmCC";
+    const rawData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAQCAYAAACBSfjBAAAAAXNSR0IArs4c6QAAAeRJREFUWIXtV69vwkAYfeU/IEtGSCox6JnZGUwxCEyDQcwsS7D7E2ZJCKYC02AmMJ2ZqcVUYyqbkJIs/AGIm+ldru0d/a7dwkJ4yYWE9n3vu/d996PADf8WLBtXjVbF80YmzPYJj2GKS5vPQMyhykBTE4RwxquNBubLeTTSp+RwzkBTE8T7Cl7VZJQVr2GiKJ7ErWOkNe/apBxkA/9k2VCLIE+6SffKXGoXZWCoUciW5sVGncCrZ8AvVryONlNpm8TghjtehMnTK0FSsYRn+wSD5ZYcQII179ol8ThIEQepUaBv9z3HdbwIMDCA8+UcCBBFbK9X8MNFLg8dZANFgPsPH364EA92G/qS4uJc+HQ6oTfsUEyw5O6JgxS9YUcMAkp8Poj8XAzeBJyvy99SBGFyBx3GE/RHNnabBF8vjzqOknt0p7nks+RKfL5ss+dstk9KE4+DFJ/PD1X6Wr5OWxfD8SK01yvcrd/OxlCdwpYfLnAYTwAA/ZGd+62A5YcLHN0pAJQqrzsc5l1b3rtEF8RBKv436CIB062jiKM7FfqqvfUc2GC5ZYPlVr7XUU9p5ngRc7yoeKpp+RpjZU3yxbbILcSgQsU1uqGoTDOagIJviiZ8lYG1cmjA/ZUAl/4ku+GGK8cPA85ZrLgLXu0AAAAASUVORK5CYII=";
+
+    const atlas = document.getElementById("atlas");
+    const rawStrip = document.getElementById("raw-strip");
+    atlas.src = atlasData;
+    rawStrip.src = rawData;
+
+    const source = new Image();
+    source.src = atlasData;
+    let frame = 0;
+    let running = true;
+    let selectedRow = 1;
+    let selectedFlip = false;
+
+    function paint(canvas, row, flip = false) {
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, 16, 16);
+      ctx.save();
+      if (flip) { ctx.translate(16, 0); ctx.scale(-1, 1); }
+      ctx.drawImage(source, frame * 16, row * 16, 16, 16, 0, 0, 16, 16);
+      ctx.restore();
+    }
+
+    function render() {
+      document.querySelectorAll("canvas[data-row]").forEach(canvas => paint(canvas, Number(canvas.dataset.row)));
+      paint(document.getElementById("direction-canvas"), selectedRow, selectedFlip);
+      document.getElementById("frame-label").textContent = `当前列：${frame} / 4 · ${(frame * .2).toFixed(1)}s`;
+    }
+
+    source.addEventListener("load", render);
+    setInterval(() => { if (running) { frame = (frame + 1) % 5; render(); } }, 200);
+
+    document.getElementById("toggle").addEventListener("click", event => {
+      running = !running;
+      event.currentTarget.textContent = running ? "暂停" : "继续";
+    });
+
+    document.querySelectorAll(".direction-buttons button").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".direction-buttons button").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        selectedRow = Number(button.dataset.row);
+        selectedFlip = button.dataset.flip === "1";
+        document.getElementById("direction-caption").textContent = `第 ${selectedRow + 1} 行 · ${selectedFlip ? "水平镜像" : "不镜像"}`;
+        render();
+      });
+    });
+  </script>
+</body>
+</html>

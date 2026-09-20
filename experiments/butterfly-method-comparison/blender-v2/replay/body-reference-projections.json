@@ -1,0 +1,352 @@
+[
+  {
+    "azimuth": 0,
+    "column": 0,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.05000000074505806
+    ],
+    "body_pitch_degrees": -9.99999970909292,
+    "body_reference_pixel16": [
+      7.999997615814209,
+      8.191757678985596
+    ]
+  },
+  {
+    "azimuth": 0,
+    "column": 1,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.09000000357627869
+    ],
+    "body_pitch_degrees": -1.9999999845072665,
+    "body_reference_pixel16": [
+      7.999997615814209,
+      8.345163822174072
+    ]
+  },
+  {
+    "azimuth": 0,
+    "column": 2,
+    "body_world": [
+      0.0,
+      0.0,
+      0.10999999940395355
+    ],
+    "body_pitch_degrees": 25.00000012650595,
+    "body_reference_pixel16": [
+      7.999997615814209,
+      7.578132629394531
+    ]
+  },
+  {
+    "azimuth": 0,
+    "column": 3,
+    "body_world": [
+      0.0,
+      0.0,
+      0.07999999821186066
+    ],
+    "body_pitch_degrees": 7.999999938029066,
+    "body_reference_pixel16": [
+      7.999997615814209,
+      7.693187713623047
+    ]
+  },
+  {
+    "azimuth": 0,
+    "column": 4,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.07999999821186066
+    ],
+    "body_pitch_degrees": -16.999999334703237,
+    "body_reference_pixel16": [
+      7.999997615814209,
+      8.306812286376953
+    ]
+  },
+  {
+    "azimuth": 45,
+    "column": 0,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.05000000074505806
+    ],
+    "body_pitch_degrees": -9.99999970909292,
+    "body_reference_pixel16": [
+      7.999999523162842,
+      8.191754341125488
+    ]
+  },
+  {
+    "azimuth": 45,
+    "column": 1,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.09000000357627869
+    ],
+    "body_pitch_degrees": -1.9999999845072665,
+    "body_reference_pixel16": [
+      7.999999523162842,
+      8.345160484313965
+    ]
+  },
+  {
+    "azimuth": 45,
+    "column": 2,
+    "body_world": [
+      0.0,
+      0.0,
+      0.10999999940395355
+    ],
+    "body_pitch_degrees": 25.00000012650595,
+    "body_reference_pixel16": [
+      7.999999523162842,
+      7.578128814697266
+    ]
+  },
+  {
+    "azimuth": 45,
+    "column": 3,
+    "body_world": [
+      0.0,
+      0.0,
+      0.07999999821186066
+    ],
+    "body_pitch_degrees": 7.999999938029066,
+    "body_reference_pixel16": [
+      7.999999523162842,
+      7.693183898925781
+    ]
+  },
+  {
+    "azimuth": 45,
+    "column": 4,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.07999999821186066
+    ],
+    "body_pitch_degrees": -16.999999334703237,
+    "body_reference_pixel16": [
+      7.999999523162842,
+      8.306808948516846
+    ]
+  },
+  {
+    "azimuth": 90,
+    "column": 0,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.05000000074505806
+    ],
+    "body_pitch_degrees": -9.99999970909292,
+    "body_reference_pixel16": [
+      7.99999475479126,
+      8.191760540008545
+    ]
+  },
+  {
+    "azimuth": 90,
+    "column": 1,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.09000000357627869
+    ],
+    "body_pitch_degrees": -1.9999999845072665,
+    "body_reference_pixel16": [
+      7.99999475479126,
+      8.345166683197021
+    ]
+  },
+  {
+    "azimuth": 90,
+    "column": 2,
+    "body_world": [
+      0.0,
+      0.0,
+      0.10999999940395355
+    ],
+    "body_pitch_degrees": 25.00000012650595,
+    "body_reference_pixel16": [
+      7.99999475479126,
+      7.5781354904174805
+    ]
+  },
+  {
+    "azimuth": 90,
+    "column": 3,
+    "body_world": [
+      0.0,
+      0.0,
+      0.07999999821186066
+    ],
+    "body_pitch_degrees": 7.999999938029066,
+    "body_reference_pixel16": [
+      7.99999475479126,
+      7.693190574645996
+    ]
+  },
+  {
+    "azimuth": 90,
+    "column": 4,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.07999999821186066
+    ],
+    "body_pitch_degrees": -16.999999334703237,
+    "body_reference_pixel16": [
+      7.99999475479126,
+      8.306815147399902
+    ]
+  },
+  {
+    "azimuth": 135,
+    "column": 0,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.05000000074505806
+    ],
+    "body_pitch_degrees": -9.99999970909292,
+    "body_reference_pixel16": [
+      7.999996662139893,
+      8.191761493682861
+    ]
+  },
+  {
+    "azimuth": 135,
+    "column": 1,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.09000000357627869
+    ],
+    "body_pitch_degrees": -1.9999999845072665,
+    "body_reference_pixel16": [
+      7.999996662139893,
+      8.345167636871338
+    ]
+  },
+  {
+    "azimuth": 135,
+    "column": 2,
+    "body_world": [
+      0.0,
+      0.0,
+      0.10999999940395355
+    ],
+    "body_pitch_degrees": 25.00000012650595,
+    "body_reference_pixel16": [
+      7.999996662139893,
+      7.578136444091797
+    ]
+  },
+  {
+    "azimuth": 135,
+    "column": 3,
+    "body_world": [
+      0.0,
+      0.0,
+      0.07999999821186066
+    ],
+    "body_pitch_degrees": 7.999999938029066,
+    "body_reference_pixel16": [
+      7.999996662139893,
+      7.6931915283203125
+    ]
+  },
+  {
+    "azimuth": 135,
+    "column": 4,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.07999999821186066
+    ],
+    "body_pitch_degrees": -16.999999334703237,
+    "body_reference_pixel16": [
+      7.999996662139893,
+      8.306816101074219
+    ]
+  },
+  {
+    "azimuth": 180,
+    "column": 0,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.05000000074505806
+    ],
+    "body_pitch_degrees": -9.99999970909292,
+    "body_reference_pixel16": [
+      8.0,
+      8.191757678985596
+    ]
+  },
+  {
+    "azimuth": 180,
+    "column": 1,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.09000000357627869
+    ],
+    "body_pitch_degrees": -1.9999999845072665,
+    "body_reference_pixel16": [
+      8.0,
+      8.345163822174072
+    ]
+  },
+  {
+    "azimuth": 180,
+    "column": 2,
+    "body_world": [
+      0.0,
+      0.0,
+      0.10999999940395355
+    ],
+    "body_pitch_degrees": 25.00000012650595,
+    "body_reference_pixel16": [
+      8.0,
+      7.578132629394531
+    ]
+  },
+  {
+    "azimuth": 180,
+    "column": 3,
+    "body_world": [
+      0.0,
+      0.0,
+      0.07999999821186066
+    ],
+    "body_pitch_degrees": 7.999999938029066,
+    "body_reference_pixel16": [
+      8.0,
+      7.693187713623047
+    ]
+  },
+  {
+    "azimuth": 180,
+    "column": 4,
+    "body_world": [
+      0.0,
+      0.0,
+      -0.07999999821186066
+    ],
+    "body_pitch_degrees": -16.999999334703237,
+    "body_reference_pixel16": [
+      8.0,
+      8.306812286376953
+    ]
+  }
+]

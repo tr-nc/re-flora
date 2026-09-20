@@ -57,11 +57,6 @@ impl<'a> SavedControls<'a> {
     pub fn label(&mut self, text: &str) {
         self.ui.label(text);
     }
-    pub fn enabled(&mut self, enabled: bool, draw: impl FnOnce(&mut SavedControls<'_>)) {
-        self.ui.add_enabled_ui(enabled, |ui| {
-            draw(&mut SavedControls::new(ui, self.settings))
-        });
-    }
 }
 
 /// Escape hatch for explicitly temporary experiments. No raw UI is provided until

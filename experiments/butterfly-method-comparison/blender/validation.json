@@ -1,0 +1,502 @@
+{
+  "glb_shared_clip": {
+    "animation_count": 1,
+    "channels": 2,
+    "targets": [
+      {
+        "node": 14,
+        "path": "rotation"
+      },
+      {
+        "node": 29,
+        "path": "rotation"
+      }
+    ]
+  },
+  "saved_blend_replay": {
+    "frames_compared": 25,
+    "all_rgba_pixels_identical": true
+  },
+  "true_loop_endpoint": {
+    "t0_equals_t1_rgba": true
+  },
+  "all_raw_frames_have_clear_boundary": true,
+  "resampling": "Whole atlas BOX 128px to 16px/32px cells; no per-frame crops or recentering. Alpha < 128 transparent, >= 128 opaque; nearest fixed palette, no dithering.",
+  "outputs": {
+    "atlas-16-blue-indexed.png": {
+      "size": [
+        80,
+        80
+      ],
+      "mode": "P",
+      "palette_entries": 5,
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "96e9c536292bd59eddab34263654b3ca26fb8318de68a9f6fbc383c6423f0aa3"
+    },
+    "atlas-16-gray-indexed.png": {
+      "size": [
+        80,
+        80
+      ],
+      "mode": "P",
+      "palette_entries": 5,
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "f604bf54c10876a18775558f713ae16f395a98256ab43fd6d99f031f8c84344f"
+    },
+    "atlas-32-blue-indexed.png": {
+      "size": [
+        160,
+        160
+      ],
+      "mode": "P",
+      "palette_entries": 5,
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "84fc1661ed09fe42b04cae7a3a8ca289654b502efd033075a469ffb2e1545f52"
+    },
+    "atlas-32-gray-indexed.png": {
+      "size": [
+        160,
+        160
+      ],
+      "mode": "P",
+      "palette_entries": 5,
+      "used_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "alpha_values": [
+        0,
+        255
+      ],
+      "sha256": "574978be1122463d57116399264d2bd82700f37227561c78d5ad459fbb2769b4"
+    }
+  },
+  "raw_frames": [
+    {
+      "row": 0,
+      "column": 0,
+      "azimuth": 0,
+      "raw_bbox": [
+        17,
+        55,
+        111,
+        74
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 0,
+      "column": 1,
+      "azimuth": 0,
+      "raw_bbox": [
+        38,
+        31,
+        90,
+        70
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 0,
+      "column": 2,
+      "azimuth": 0,
+      "raw_bbox": [
+        25,
+        39,
+        102,
+        70
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 0,
+      "column": 3,
+      "azimuth": 0,
+      "raw_bbox": [
+        26,
+        56,
+        103,
+        98
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 0,
+      "column": 4,
+      "azimuth": 0,
+      "raw_bbox": [
+        38,
+        56,
+        90,
+        109
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 1,
+      "column": 0,
+      "azimuth": 45,
+      "raw_bbox": [
+        10,
+        53,
+        106,
+        79
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 1,
+      "column": 1,
+      "azimuth": 45,
+      "raw_bbox": [
+        22,
+        25,
+        96,
+        70
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 1,
+      "column": 2,
+      "azimuth": 45,
+      "raw_bbox": [
+        15,
+        35,
+        102,
+        70
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 1,
+      "column": 3,
+      "azimuth": 45,
+      "raw_bbox": [
+        16,
+        58,
+        102,
+        103
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 1,
+      "column": 4,
+      "azimuth": 45,
+      "raw_bbox": [
+        22,
+        58,
+        96,
+        112
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 2,
+      "column": 0,
+      "azimuth": 90,
+      "raw_bbox": [
+        27,
+        51,
+        98,
+        77
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 2,
+      "column": 1,
+      "azimuth": 90,
+      "raw_bbox": [
+        27,
+        18,
+        98,
+        68
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 2,
+      "column": 2,
+      "azimuth": 90,
+      "raw_bbox": [
+        26,
+        27,
+        98,
+        68
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 2,
+      "column": 3,
+      "azimuth": 90,
+      "raw_bbox": [
+        26,
+        57,
+        98,
+        101
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 2,
+      "column": 4,
+      "azimuth": 90,
+      "raw_bbox": [
+        27,
+        57,
+        98,
+        109
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 3,
+      "column": 0,
+      "azimuth": 135,
+      "raw_bbox": [
+        10,
+        49,
+        105,
+        76
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 3,
+      "column": 1,
+      "azimuth": 135,
+      "raw_bbox": [
+        22,
+        15,
+        96,
+        70
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 3,
+      "column": 2,
+      "azimuth": 135,
+      "raw_bbox": [
+        15,
+        25,
+        102,
+        70
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 3,
+      "column": 3,
+      "azimuth": 135,
+      "raw_bbox": [
+        15,
+        52,
+        102,
+        93
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 3,
+      "column": 4,
+      "azimuth": 135,
+      "raw_bbox": [
+        22,
+        52,
+        96,
+        103
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 4,
+      "column": 0,
+      "azimuth": 180,
+      "raw_bbox": [
+        17,
+        51,
+        112,
+        74
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 4,
+      "column": 1,
+      "azimuth": 180,
+      "raw_bbox": [
+        38,
+        18,
+        90,
+        71
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 4,
+      "column": 2,
+      "azimuth": 180,
+      "raw_bbox": [
+        25,
+        30,
+        103,
+        71
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 4,
+      "column": 3,
+      "azimuth": 180,
+      "raw_bbox": [
+        25,
+        51,
+        103,
+        89
+      ],
+      "raw_boundary_alpha": 0
+    },
+    {
+      "row": 4,
+      "column": 4,
+      "azimuth": 180,
+      "raw_bbox": [
+        38,
+        51,
+        90,
+        97
+      ],
+      "raw_boundary_alpha": 0
+    }
+  ],
+  "sampled_16px_phase_metrics": [
+    {
+      "azimuth": 0,
+      "unique_frames": 5,
+      "changed_pixels_to_next_frame_including_wrap": [
+        20,
+        13,
+        27,
+        14,
+        24
+      ],
+      "opaque_pixels_per_frame": [
+        16,
+        8,
+        13,
+        14,
+        8
+      ]
+    },
+    {
+      "azimuth": 45,
+      "unique_frames": 5,
+      "changed_pixels_to_next_frame_including_wrap": [
+        34,
+        19,
+        40,
+        21,
+        32
+      ],
+      "opaque_pixels_per_frame": [
+        14,
+        28,
+        20,
+        24,
+        31
+      ]
+    },
+    {
+      "azimuth": 90,
+      "unique_frames": 5,
+      "changed_pixels_to_next_frame_including_wrap": [
+        34,
+        12,
+        50,
+        16,
+        36
+      ],
+      "opaque_pixels_per_frame": [
+        14,
+        30,
+        25,
+        28,
+        32
+      ]
+    },
+    {
+      "azimuth": 135,
+      "unique_frames": 5,
+      "changed_pixels_to_next_frame_including_wrap": [
+        30,
+        21,
+        39,
+        20,
+        34
+      ],
+      "opaque_pixels_per_frame": [
+        15,
+        31,
+        24,
+        21,
+        28
+      ]
+    },
+    {
+      "azimuth": 180,
+      "unique_frames": 5,
+      "changed_pixels_to_next_frame_including_wrap": [
+        22,
+        14,
+        28,
+        14,
+        22
+      ],
+      "opaque_pixels_per_frame": [
+        18,
+        8,
+        14,
+        14,
+        8
+      ]
+    }
+  ],
+  "art_verdict": "Structural prototype only. Shared phase/geometry are guaranteed by source; five-frame stepping and small edge aliasing remain. No hand-cleaned pixel art approval is implied."
+}

@@ -29,15 +29,16 @@ enabled = true
 scale = 5.0
 
 [butterfly_flight]
-variant = "DartingSprite"
+variant = "Darting"
 
 [butterfly_flight.tuning]
+wingbeat_coupling = true
 flight_frequency_hz = 6.0
 height_above_ground = 0.08
 maneuver_tempo = 2.75
-vertical_strength = 3.2
+vertical_strength = 4.0
 turn_sharpness = 1.0
-speed = 0.4
+speed = 0.25
 wind_drift = 1.0
 
 [tree]
@@ -116,7 +117,7 @@ label = "Animate raster trees with wind"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "tree_stiffness"
@@ -136,7 +137,7 @@ label = "Raster whole trees (B)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "flora_growth_override_enabled"
@@ -2172,6 +2173,57 @@ type = "Bool"
 
 [section.param.data]
 value = true
+
+[[section.param]]
+id = "butterfly_pixel_resolution"
+kind = "uint"
+label = "Pixels per Butterfly (N x N, All Distances)"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 8
+max = 64
+
+[[section.param]]
+id = "butterfly_animation_fps"
+kind = "uint"
+label = "Butterfly Update FPS (Position + Heading + Wings)"
+type = "Uint"
+
+[section.param.data]
+value = 8
+min = 2
+max = 60
+
+[[section.param]]
+id = "butterfly_wing_transmission"
+kind = "float"
+label = "Wing Light Transmission (0 = Opaque, 1 = Equal Sides)"
+type = "Float"
+
+[section.param.data]
+value = 0.9
+min = 0
+max = 1
+
+[[section.param]]
+id = "butterfly_self_shadows"
+kind = "bool"
+label = "Wing Self Shadows (Game Sun)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "butterfly_mesh_preview"
+kind = "bool"
+label = "Preview 7 Palettes Near / Mid / Far (Camera-relative)"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "butterfly_spawn_rate_per_source"

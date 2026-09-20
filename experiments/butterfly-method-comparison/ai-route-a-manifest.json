@@ -1,0 +1,1153 @@
+{
+  "route": "A - built-in image_gen, actual generated result",
+  "status": "not production ready; failed alpha and animation invariants",
+  "method": "one initial generation plus one targeted edit; no external paid service or API fallback",
+  "selected_raw": "ai-route-a-candidate-v2.png",
+  "requested": {
+    "rows": 5,
+    "columns": 5,
+    "azimuth_degrees": [
+      0,
+      45,
+      90,
+      135,
+      180
+    ],
+    "phase_cycles": [
+      0,
+      0.2,
+      0.4,
+      0.6,
+      0.8
+    ],
+    "fps": 5,
+    "loop_seconds": 1,
+    "shared_wing_angles_degrees": [
+      0,
+      57,
+      35,
+      -35,
+      -57
+    ],
+    "production_sheet_pixels": [
+      80,
+      80
+    ],
+    "production_cell_pixels": [
+      16,
+      16
+    ],
+    "production_palette_entries": 5,
+    "production_palette_note": "one transparent plus four opaque grayscale indices, recolored by runtime"
+  },
+  "processing": {
+    "raw_retained": true,
+    "derivative": "whole-sheet point/nearest-neighbor resize to 80x80; no recentering or alpha repair",
+    "crop": "each original cell uses round(n*dimension/5) boundaries, no per-sprite fitted crop",
+    "measurement_warning": "dark-or-saturated foreground proxy is not a segmentation asset and its centroid is not an anatomical pivot"
+  },
+  "results": [
+    {
+      "file": "ai-route-a-candidate-v1.png",
+      "sha256": "2122dbcc9542b447ee058655aef49c5c769ecb86bc1d6657745e02dfc3d1b691",
+      "width": 1254,
+      "height": 1254,
+      "png_bit_depth": 8,
+      "png_color_type": 2,
+      "color_type_name": "RGB",
+      "unique_colors": 105227,
+      "alpha_values": [
+        255
+      ],
+      "transparent_pixels": 0,
+      "partially_transparent_pixels": 0,
+      "equal_integer_5x5_cells": false,
+      "diagnostic_cells": [
+        {
+          "row": 0,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 14992,
+          "diagnostic_foreground_bbox": [
+            85,
+            90,
+            251,
+            225
+          ],
+          "diagnostic_foreground_centroid": [
+            168.46,
+            156.65
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 12261,
+          "diagnostic_foreground_bbox": [
+            0,
+            90,
+            227,
+            225
+          ],
+          "diagnostic_foreground_centroid": [
+            157.36,
+            157.68
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            0,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8866,
+          "diagnostic_foreground_bbox": [
+            92,
+            92,
+            188,
+            225
+          ],
+          "diagnostic_foreground_centroid": [
+            140.02,
+            159.98
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7245,
+          "diagnostic_foreground_bbox": [
+            83,
+            92,
+            155,
+            225
+          ],
+          "diagnostic_foreground_centroid": [
+            117.75,
+            160.76
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8000,
+          "diagnostic_foreground_bbox": [
+            37,
+            94,
+            122,
+            225
+          ],
+          "diagnostic_foreground_centroid": [
+            79.64,
+            160.46
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 12409,
+          "diagnostic_foreground_bbox": [
+            90,
+            63,
+            243,
+            198
+          ],
+          "diagnostic_foreground_centroid": [
+            166.81,
+            130.35
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 10843,
+          "diagnostic_foreground_bbox": [
+            90,
+            61,
+            220,
+            197
+          ],
+          "diagnostic_foreground_centroid": [
+            154.49,
+            128.51
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            251,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 9162,
+          "diagnostic_foreground_bbox": [
+            82,
+            59,
+            193,
+            198
+          ],
+          "diagnostic_foreground_centroid": [
+            137.02,
+            131.57
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7719,
+          "diagnostic_foreground_bbox": [
+            67,
+            59,
+            160,
+            198
+          ],
+          "diagnostic_foreground_centroid": [
+            111.41,
+            130.96
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 6904,
+          "diagnostic_foreground_bbox": [
+            35,
+            64,
+            117,
+            197
+          ],
+          "diagnostic_foreground_centroid": [
+            72.76,
+            133.53
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 8591,
+          "diagnostic_foreground_bbox": [
+            99,
+            29,
+            222,
+            163
+          ],
+          "diagnostic_foreground_centroid": [
+            168.56,
+            100.9
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 6961,
+          "diagnostic_foreground_bbox": [
+            103,
+            35,
+            201,
+            163
+          ],
+          "diagnostic_foreground_centroid": [
+            155.84,
+            102.98
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            502,
+            250,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 6112,
+          "diagnostic_foreground_bbox": [
+            97,
+            36,
+            177,
+            162
+          ],
+          "diagnostic_foreground_centroid": [
+            138.47,
+            104.1
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 5344,
+          "diagnostic_foreground_bbox": [
+            71,
+            36,
+            143,
+            162
+          ],
+          "diagnostic_foreground_centroid": [
+            108.7,
+            104.53
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 4498,
+          "diagnostic_foreground_bbox": [
+            43,
+            39,
+            105,
+            162
+          ],
+          "diagnostic_foreground_centroid": [
+            75.95,
+            105.75
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 11950,
+          "diagnostic_foreground_bbox": [
+            84,
+            10,
+            247,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            153.54,
+            84.02
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 10002,
+          "diagnostic_foreground_bbox": [
+            81,
+            6,
+            218,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            137.63,
+            85.65
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            752,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8049,
+          "diagnostic_foreground_bbox": [
+            78,
+            6,
+            181,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            125.82,
+            85.56
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 6664,
+          "diagnostic_foreground_bbox": [
+            64,
+            10,
+            143,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            104.61,
+            84.28
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 6433,
+          "diagnostic_foreground_bbox": [
+            35,
+            10,
+            107,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            72.94,
+            85.04
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 14008,
+          "diagnostic_foreground_bbox": [
+            84,
+            0,
+            247,
+            124
+          ],
+          "diagnostic_foreground_centroid": [
+            164.59,
+            58.53
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 11236,
+          "diagnostic_foreground_bbox": [
+            90,
+            0,
+            218,
+            124
+          ],
+          "diagnostic_foreground_centroid": [
+            153.44,
+            59.79
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            1003,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8549,
+          "diagnostic_foreground_bbox": [
+            89,
+            0,
+            181,
+            124
+          ],
+          "diagnostic_foreground_centroid": [
+            134.56,
+            59.88
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7463,
+          "diagnostic_foreground_bbox": [
+            70,
+            0,
+            149,
+            124
+          ],
+          "diagnostic_foreground_centroid": [
+            109.42,
+            61.67
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7004,
+          "diagnostic_foreground_bbox": [
+            37,
+            0,
+            112,
+            124
+          ],
+          "diagnostic_foreground_centroid": [
+            74.09,
+            61.83
+          ]
+        }
+      ],
+      "nearest_80_file": "ai-route-a-v1-nearest-80.png",
+      "nearest_80_sha256": "dad1a7ae58ee84db76e8d152382c555628de4890498bab0bcf4678870ac0677c"
+    },
+    {
+      "file": "ai-route-a-candidate-v2.png",
+      "sha256": "9e54a32439218f6a4ec75a7c0d63153f4f5b4c8136d4a823dae7a39d82f99eac",
+      "width": 1254,
+      "height": 1254,
+      "png_bit_depth": 8,
+      "png_color_type": 2,
+      "color_type_name": "RGB",
+      "unique_colors": 103029,
+      "alpha_values": [
+        255
+      ],
+      "transparent_pixels": 0,
+      "partially_transparent_pixels": 0,
+      "equal_integer_5x5_cells": false,
+      "diagnostic_cells": [
+        {
+          "row": 0,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 15818,
+          "diagnostic_foreground_bbox": [
+            81,
+            70,
+            251,
+            212
+          ],
+          "diagnostic_foreground_centroid": [
+            167.74,
+            143.66
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 13066,
+          "diagnostic_foreground_bbox": [
+            0,
+            70,
+            236,
+            212
+          ],
+          "diagnostic_foreground_centroid": [
+            161.34,
+            140.72
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            0,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 9126,
+          "diagnostic_foreground_bbox": [
+            102,
+            73,
+            195,
+            214
+          ],
+          "diagnostic_foreground_centroid": [
+            147.73,
+            145.83
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7693,
+          "diagnostic_foreground_bbox": [
+            81,
+            86,
+            162,
+            214
+          ],
+          "diagnostic_foreground_centroid": [
+            121.08,
+            151.19
+          ]
+        },
+        {
+          "row": 0,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            0,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7659,
+          "diagnostic_foreground_bbox": [
+            48,
+            86,
+            130,
+            214
+          ],
+          "diagnostic_foreground_centroid": [
+            88.55,
+            151.06
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 14069,
+          "diagnostic_foreground_bbox": [
+            77,
+            58,
+            239,
+            195
+          ],
+          "diagnostic_foreground_centroid": [
+            158.19,
+            126.15
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 12185,
+          "diagnostic_foreground_bbox": [
+            88,
+            56,
+            226,
+            195
+          ],
+          "diagnostic_foreground_centroid": [
+            157.25,
+            124.95
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            251,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 10377,
+          "diagnostic_foreground_bbox": [
+            82,
+            49,
+            200,
+            195
+          ],
+          "diagnostic_foreground_centroid": [
+            139.86,
+            124.64
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 9017,
+          "diagnostic_foreground_bbox": [
+            67,
+            49,
+            168,
+            198
+          ],
+          "diagnostic_foreground_centroid": [
+            115.23,
+            126.8
+          ]
+        },
+        {
+          "row": 1,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            251,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8648,
+          "diagnostic_foreground_bbox": [
+            39,
+            54,
+            137,
+            198
+          ],
+          "diagnostic_foreground_centroid": [
+            84.93,
+            128.72
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 7778,
+          "diagnostic_foreground_bbox": [
+            95,
+            28,
+            209,
+            165
+          ],
+          "diagnostic_foreground_centroid": [
+            160.86,
+            102.87
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 6906,
+          "diagnostic_foreground_bbox": [
+            100,
+            31,
+            198,
+            165
+          ],
+          "diagnostic_foreground_centroid": [
+            154.35,
+            103.31
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            502,
+            250,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 6145,
+          "diagnostic_foreground_bbox": [
+            96,
+            36,
+            176,
+            165
+          ],
+          "diagnostic_foreground_centroid": [
+            138.28,
+            105.13
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 5430,
+          "diagnostic_foreground_bbox": [
+            74,
+            36,
+            146,
+            165
+          ],
+          "diagnostic_foreground_centroid": [
+            111.71,
+            105.72
+          ]
+        },
+        {
+          "row": 2,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            502,
+            251,
+            250
+          ],
+          "diagnostic_foreground_pixel_count": 4429,
+          "diagnostic_foreground_bbox": [
+            51,
+            42,
+            113,
+            165
+          ],
+          "diagnostic_foreground_centroid": [
+            83.81,
+            108.38
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 12491,
+          "diagnostic_foreground_bbox": [
+            83,
+            11,
+            242,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            154.28,
+            91.8
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 10630,
+          "diagnostic_foreground_bbox": [
+            86,
+            11,
+            215,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            143.4,
+            90.35
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            752,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8818,
+          "diagnostic_foreground_bbox": [
+            78,
+            11,
+            182,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            127.43,
+            91.05
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7013,
+          "diagnostic_foreground_bbox": [
+            67,
+            11,
+            151,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            107.64,
+            88.27
+          ]
+        },
+        {
+          "row": 3,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            752,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 6318,
+          "diagnostic_foreground_bbox": [
+            44,
+            19,
+            118,
+            251
+          ],
+          "diagnostic_foreground_centroid": [
+            80.85,
+            92.82
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 0,
+          "crop_xywh": [
+            0,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 14136,
+          "diagnostic_foreground_bbox": [
+            83,
+            0,
+            242,
+            127
+          ],
+          "diagnostic_foreground_centroid": [
+            161.43,
+            59.58
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 1,
+          "crop_xywh": [
+            251,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 10927,
+          "diagnostic_foreground_bbox": [
+            95,
+            0,
+            215,
+            127
+          ],
+          "diagnostic_foreground_centroid": [
+            154.39,
+            59.52
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 2,
+          "crop_xywh": [
+            502,
+            1003,
+            250,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 8730,
+          "diagnostic_foreground_bbox": [
+            91,
+            0,
+            182,
+            127
+          ],
+          "diagnostic_foreground_centroid": [
+            136.27,
+            60.56
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 3,
+          "crop_xywh": [
+            752,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7669,
+          "diagnostic_foreground_bbox": [
+            72,
+            0,
+            152,
+            127
+          ],
+          "diagnostic_foreground_centroid": [
+            111.57,
+            62.99
+          ]
+        },
+        {
+          "row": 4,
+          "frame": 4,
+          "crop_xywh": [
+            1003,
+            1003,
+            251,
+            251
+          ],
+          "diagnostic_foreground_pixel_count": 7075,
+          "diagnostic_foreground_bbox": [
+            45,
+            0,
+            118,
+            127
+          ],
+          "diagnostic_foreground_centroid": [
+            81.26,
+            63.01
+          ]
+        }
+      ],
+      "nearest_80_file": "ai-route-a-v2-nearest-80.png",
+      "nearest_80_sha256": "3b2f4baf22eab90e248910e4c811136016b6e92faf6a7884d2dadc9f5a71baa3"
+    }
+  ],
+  "acceptance": {
+    "25_butterflies": "pass - visual 5x5 population present",
+    "same_blue_purple_identity": "partial - recognizable family, markings and apparent scale drift",
+    "true_alpha": "fail - both raw results are RGB with zero transparent pixels",
+    "regular_integer_grid": "fail - raw 1254x1254 cannot divide equally into five integer cells",
+    "registration": "fail - visible cell-relative drift; no anatomical pivot lock guaranteed",
+    "same_column_phase_across_rows": "fail - side-view sequence largely narrows/shrinks instead of sharing a verifiable wing angle",
+    "seamless_loop": "fail - narrow final pose jumps back to wide first pose; return stroke not convincing",
+    "production_indexed_palette": "fail - true-color large images, not one transparent plus four opaque grayscale entries",
+    "16px_art_quality": "fail - nearest reduction exposes lost antennae/wing structure and backdrop contamination",
+    "runtime_replacement": "not attempted; neither raw nor derivative is a production replacement"
+  }
+}
