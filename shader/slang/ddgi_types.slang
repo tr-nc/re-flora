@@ -58,6 +58,8 @@ public struct U_DdgiRadianceVoxelPalette
     public float3 rock_color;
     public float3 emissive_color;
     public float emissive_radiance;
+    public float2 terrain_variation;
+    public uint terrain_seed;
 };
 
 // Builder-owned query geometry. This is intentionally separate from U_ShadingInfo, whose

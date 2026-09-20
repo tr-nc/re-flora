@@ -65,12 +65,19 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
+        Self::add_missing_section_params(&mut config, "Terrain Material");
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
             section.param.retain(|param| {
                 !matches!(
                     param.id.as_str(),
-                    "raster_tree_axis_aligned" | "terrain_missing_lighting_strength"
+                    "raster_tree_axis_aligned"
+                        | "terrain_missing_lighting_strength"
+                        | "terrain_soil_scale_voxels"
+                        | "terrain_rock_scale_voxels"
+                        | "terrain_rock_layer_tilt"
+                        | "terrain_material_enabled"
+                        | "terrain_material_color_band"
                 )
             });
         }
@@ -209,6 +216,28 @@ impl GuiConfigLoader {
             leaves
                 .param
                 .retain(|p| p.id != "leaf_flutter_frequency_multiplier");
+        }
+    }
+
+    fn add_missing_section_params(config: &mut GuiConfigFile, section_name: &str) {
+        let defaults: GuiConfigFile = toml::from_str(include_str!("../../config/gui.toml"))
+            .expect("compiled GUI defaults must be valid");
+        let section = defaults
+            .section
+            .into_iter()
+            .find(|section| section.name == section_name)
+            .expect("compiled GUI defaults must define requested section");
+        if let Some(saved) = config.section.iter_mut().find(|s| s.name == section_name) {
+            for param in section.param {
+                if let Some(existing) = saved.param.iter_mut().find(|p| p.id == param.id) {
+                    // Presentation follows the current schema; retain the user's authored value.
+                    existing.label = param.label;
+                } else {
+                    saved.param.push(param);
+                }
+            }
+        } else {
+            config.section.push(section);
         }
     }
 
@@ -616,6 +645,125 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn terrain_material_migration_preserves_authored_settings_and_adds_missing_controls() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for partial in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let section = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Terrain Material")
+                .unwrap();
+            if partial {
+                section.param.retain(|p| p.id == "terrain_soil_strength");
+                section.param[0].value = GuiParamValue::Float {
+                    value: 0.6,
+                    min: Some(0.0),
+                    max: Some(0.75),
+                };
+            } else {
+                config.section.retain(|s| s.name != "Terrain Material");
+            }
+            let before = config.clone();
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            for param in before.section.iter().flat_map(|s| &s.param) {
+                let actual = loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == param.id)
+                    .unwrap();
+                assert_eq!(
+                    toml::to_string(actual).unwrap(),
+                    toml::to_string(param).unwrap()
+                );
+            }
+            let gui = crate::app::GuiAdjustables::from_config(&loaded);
+            assert_eq!(
+                gui.terrain_soil_strength.value,
+                if partial { 0.6 } else { 0.135 }
+            );
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                toml::to_string(&loaded).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn retired_material_controls_do_not_reset_saved_variation() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let section = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Terrain Material")
+            .unwrap();
+        let strength = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "terrain_soil_strength")
+            .unwrap();
+        strength.value = GuiParamValue::Float {
+            value: 0.6,
+            min: Some(0.0),
+            max: Some(0.75),
+        };
+        let expected = section.clone();
+        for param in &mut section.param {
+            param.label = "Old macro material label".into();
+        }
+        for id in [
+            "terrain_soil_scale_voxels",
+            "terrain_rock_scale_voxels",
+            "terrain_rock_layer_tilt",
+            "terrain_material_color_band",
+        ] {
+            let mut retired = section
+                .param
+                .iter()
+                .find(|p| p.id == "terrain_soil_strength")
+                .unwrap()
+                .clone();
+            retired.id = id.into();
+            section.param.push(retired);
+        }
+        let mut retired_toggle = section.param[0].clone();
+        retired_toggle.id = "terrain_material_enabled".into();
+        retired_toggle.kind = crate::app::gui_config_model::GuiParamKind::Bool;
+        retired_toggle.value = GuiParamValue::Bool { value: false };
+        section.param.push(retired_toggle);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let actual = loaded
+            .section
+            .iter()
+            .find(|s| s.name == "Terrain Material")
+            .unwrap();
+        assert_eq!(
+            toml::to_string(actual).unwrap(),
+            toml::to_string(&expected).unwrap()
+        );
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        assert_eq!(
+            toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+            toml::to_string(&loaded).unwrap()
+        );
+    }
+
     #[test]
     fn retired_terrain_fallback_is_removed_without_changing_other_settings() {
         for strength in [0., 0.035, 0.2] {

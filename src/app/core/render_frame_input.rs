@@ -1,5 +1,6 @@
 use super::{FLORA_FULL_GROWTH_TICKS, FLORA_SPROUT_DELAY_TICKS};
 use crate::app::DebugSettings;
+use crate::terrain_material::TerrainMaterialParams;
 use crate::tracer::{
     CloudGuiParams, EnvironmentFrameInput, FloraAppearanceFrameInput, FloraGrowthFrameInput,
     FloraMotionFrameInput, FruitMotionParams, GlassGuiParams, GodRayFrameInput,
@@ -52,6 +53,11 @@ pub(super) fn freeze_render_frame_inputs(
         edit_preview_alpha: live.terrain_edit_preview_alpha,
     };
     let materials = MaterialFrameInput {
+        terrain_material: TerrainMaterialParams {
+            soil_strength: gui.terrain_soil_strength.value,
+            rock_strength: gui.terrain_rock_strength.value,
+            seed: gui.terrain_material_seed.value,
+        },
         glass: GlassGuiParams {
             tint: color_to_vec3(gui.glass_tint.value),
             reflection_strength: gui.glass_reflection_strength.value,
@@ -317,6 +323,11 @@ mod tests {
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
+        let terrain_material = TerrainMaterialParams {
+            soil_strength: float!(terrain_soil_strength),
+            rock_strength: float!(terrain_rock_strength),
+            seed: uint!(terrain_material_seed),
+        };
 
         let terrain_ray_origin_offset_world = float!(terrain_ray_origin_offset_world);
         let ddgi_receiver_visibility_bias_world = float!(ddgi_receiver_visibility_bias_world);
@@ -455,6 +466,7 @@ mod tests {
                 edit_preview_alpha: live.terrain_edit_preview_alpha,
             },
             materials: MaterialFrameInput {
+                terrain_material,
                 glass: GlassGuiParams {
                     tint: glass_tint,
                     reflection_strength: glass_reflection_strength,

@@ -1243,6 +1243,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Terrain Material",
+        id: "terrain_soil_strength",
+        kind: "float",
+        label: "Soil / Sand Color Variation Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Terrain Material",
+        id: "terrain_rock_strength",
+        kind: "float",
+        label: "Rock Color Variation Strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Terrain Material",
+        id: "terrain_material_seed",
+        kind: "uint",
+        label: "Terrain Pattern Seed",
+    },
+    GeneratedGuiParamDescriptor {
         section: "HeadBob",
         id: "headbob_vertical_amp",
         kind: "float",
@@ -1545,6 +1563,9 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
+    pub terrain_soil_strength: crate::gui_adjustables::FloatParam,
+    pub terrain_rock_strength: crate::gui_adjustables::FloatParam,
+    pub terrain_material_seed: crate::gui_adjustables::UintParam,
     pub headbob_vertical_amp: crate::gui_adjustables::FloatParam,
     pub headbob_horizontal_amp: crate::gui_adjustables::FloatParam,
     pub headbob_roll_amp: crate::gui_adjustables::FloatParam,
@@ -1777,6 +1798,9 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut terrain_soil_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_rock_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut terrain_material_seed_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut headbob_vertical_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_horizontal_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut headbob_roll_amp_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3148,6 +3172,27 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "terrain_soil_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            terrain_soil_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "terrain_rock_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            terrain_rock_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "terrain_material_seed" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            terrain_material_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "headbob_vertical_amp" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3469,6 +3514,9 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
+            terrain_soil_strength: terrain_soil_strength_field.expect("Missing parameter: terrain_soil_strength"),
+            terrain_rock_strength: terrain_rock_strength_field.expect("Missing parameter: terrain_rock_strength"),
+            terrain_material_seed: terrain_material_seed_field.expect("Missing parameter: terrain_material_seed"),
             headbob_vertical_amp: headbob_vertical_amp_field.expect("Missing parameter: headbob_vertical_amp"),
             headbob_horizontal_amp: headbob_horizontal_amp_field.expect("Missing parameter: headbob_horizontal_amp"),
             headbob_roll_amp: headbob_roll_amp_field.expect("Missing parameter: headbob_roll_amp"),
@@ -3647,6 +3695,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_frequency" => Some(&adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
+        "terrain_soil_strength" => Some(&adjustables.terrain_soil_strength),
+        "terrain_rock_strength" => Some(&adjustables.terrain_rock_strength),
         "headbob_vertical_amp" => Some(&adjustables.headbob_vertical_amp),
         "headbob_horizontal_amp" => Some(&adjustables.headbob_horizontal_amp),
         "headbob_roll_amp" => Some(&adjustables.headbob_roll_amp),
@@ -3690,6 +3740,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
+        "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
         _ => None,
     }
 }
@@ -3911,6 +3962,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_frequency" => Some(&mut adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&mut adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
+        "terrain_soil_strength" => Some(&mut adjustables.terrain_soil_strength),
+        "terrain_rock_strength" => Some(&mut adjustables.terrain_rock_strength),
         "headbob_vertical_amp" => Some(&mut adjustables.headbob_vertical_amp),
         "headbob_horizontal_amp" => Some(&mut adjustables.headbob_horizontal_amp),
         "headbob_roll_amp" => Some(&mut adjustables.headbob_roll_amp),
@@ -3954,6 +4007,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
+        "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
         _ => None,
     }
 }

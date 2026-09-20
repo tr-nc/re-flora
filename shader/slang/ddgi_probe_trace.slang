@@ -194,8 +194,10 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
             ddgi_transport_source_visibility_atlas,
             ddgiReceiverPosition, normal, ddgiHardVisibilityPosition).irradiance;
     }
-    float3 albedo = ddgiVoxelColorByType(
-        ddgi_radiance_voxel_palette, result.voxel_type);
+    // Keep the existing dry-material transport approximation: live atlas moisture is not
+    // frozen with this multi-frame build. The authored per-voxel variation itself is shared exactly.
+    float3 albedo = ddgiTerrainColorAtVoxel(
+        ddgi_radiance_voxel_palette, result.voxel_type, result.center_position);
     float3 surfaceEmission = ddgiVoxelSurfaceEmission(
         ddgi_radiance_voxel_palette, result.voxel_type);
     if ((ddgi_local_light_info.flags &

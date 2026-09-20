@@ -2321,6 +2321,42 @@ type = "Color"
 value = "#7A7D80"
 
 [[section]]
+name = "Terrain Material"
+
+[[section.param]]
+id = "terrain_soil_strength"
+kind = "float"
+label = "Soil / Sand Color Variation Strength"
+type = "Float"
+
+[section.param.data]
+value = 0.135
+min = 0
+max = 0.75
+
+[[section.param]]
+id = "terrain_rock_strength"
+kind = "float"
+label = "Rock Color Variation Strength"
+type = "Float"
+
+[section.param.data]
+value = 0.32
+min = 0
+max = 0.75
+
+[[section.param]]
+id = "terrain_material_seed"
+kind = "uint"
+label = "Terrain Pattern Seed"
+type = "Uint"
+
+[section.param.data]
+value = 17
+min = 0
+max = 65535
+
+[[section]]
 name = "HeadBob"
 
 [[section.param]]
