@@ -70,12 +70,9 @@ impl Fixture {
     }
     #[cfg(test)]
     pub fn solid(self, cell: IVec3) -> bool {
-        if self == Self::Ground
-            && (224..288).contains(&cell.x)
-            && (190..192).contains(&cell.y)
-            && (288..326).contains(&cell.z)
-        {
-            return true;
+        if (190..192).contains(&cell.y) {
+            let (back, front) = self.footing_depth();
+            return (224..288).contains(&cell.x) && (back..front).contains(&cell.z);
         }
         if !(224..288).contains(&cell.x) || !(192..300).contains(&cell.y) {
             return false;
@@ -88,12 +85,21 @@ impl Fixture {
             cell.cmpge(min.as_ivec3()).all() && cell.cmplt(max.as_ivec3()).all()
         })
     }
-    /// Merge identical adjacent height layers into cuboids for a single terrain transaction.
-    pub fn boxes(self) -> Vec<(UVec3, UVec3)> {
-        let mut boxes = Vec::new();
+    fn footing_depth(self) -> (i32, i32) {
         if self == Self::Ground {
-            boxes.push((UVec3::new(224, 190, 288), UVec3::new(288, 192, 326)));
+            (288, 326)
+        } else {
+            self.depth(192)
         }
+    }
+    /// Merge identical adjacent height layers into cuboids for a single terrain transaction.
+    /// Every shape has a two-voxel footing embedded in the sampled natural ground.
+    pub fn boxes(self) -> Vec<(UVec3, UVec3)> {
+        let (back, front) = self.footing_depth();
+        let mut boxes = vec![(
+            UVec3::new(224, 190, back as u32),
+            UVec3::new(288, 192, front as u32),
+        )];
         let mut y = 192;
         while y < 300 {
             let (back, front) = self.depth(y);

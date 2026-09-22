@@ -8,12 +8,16 @@ Other branches and the retained lower stem keep their geometry and history.
 ## Try it
 
 1. Launch this worktree (`cargo run --release` for release playback).
-2. **R → Climbing Plants**: choose **Test terrain** (flat wall, hole, outward ledge,
-   recessed wall, sloping wall, or ground-to-wall) and the root tip's rotation direction,
-   then **Create vine wall and focus**. Changing these options takes effect on the next
-   reset, not by rebuilding a living vine. Branches use opposing search directions.
-   Creation clears and authors real terrain at `(224,190,280)..(288,302,366)`.
-   Do not reset over terrain you want to preserve.
+2. **R → Climbing Plants**: changing **Test terrain** (flat wall, hole, outward ledge,
+   recessed wall, sloping wall, or ground-to-wall) immediately enables/rebuilds the test
+   patch and restarts the vine. There is no confirmation or extra reset click.
+   **Create vine wall and focus** starts the initially selected scene; **Restart wall and
+   vine** repeats it directly. Rotation direction applies on the next restart.
+   This edits real terrain: do not use the demo patch for terrain you want to preserve.
+   It is placed beside the startup tree, around voxel X=383/Z=300, with the wall base on
+   current soil/sand/rock and a two-voxel embedded footing. It ignores wood/foliage as ground
+   and waits instead of guessing when the source is unavailable. Resets reuse the site,
+   so they cannot progressively stack walls on their own previous tops.
 3. Watch the tip sweep diagonally upward, find an exposed surface and attach, then
    continue searching. Small existing holes can be bridged; a ceiling is followed
    tangentially to its edge, and growth resumes upward once clear. Let it grow. **3 / Dig**, LMB removes wall; **Shift + wheel** adjusts brush size.
@@ -24,7 +28,7 @@ Other branches and the retained lower stem keep their geometry and history.
 5. **Pause vine growth** stops extension, not terrain-triggered pruning. Turn it off
    to regrow. **Prune highest attachment** / **Prune back to root** let you trim without
    editing terrain; intact wall permits immediate regrowth.
-6. **Focus vine** recenters the remaining skeleton. Reset requires confirmation.
+6. **Focus vine** recenters the remaining skeleton. Restart is immediate.
    **Disconnect root** explicitly stops regrowth until reset; it is not a fall command.
 7. Optional markers: yellow attachment, blue next search probe, orange regrowth bud,
    red unsupported root seed.
@@ -107,10 +111,16 @@ done
 
 Each must print `fixture=<name> verified=true collision_clear=true attached_height=...`
 and a successful shutdown. The fixture review stops after 180 ready growth attempts,
-requires an attachment above voxel Y=262, and checks all stem segments and attachment
+requires an attachment at least 70 voxels above the site's ground level (reference Y=262), and checks all stem segments and attachment
 materials against the current terrain export. These checks are not satisfied merely by
 an airborne tip reaching above the obstacle. `RE_FLORA_CLIMBING_REVIEW=1` retains the
 separate prune/wait/repair/root-recovery sequence.
+
+Grounded/immediate-control regression evidence: `target/climbing-validation/live-shoot/site-*.log`.
+The initial UI tests failed on the required extra confirmation/missing selection reaction;
+the placement test failed on the old constant base Y=192. Ground-height, vegetation rejection,
+unknown/stale/no-ground/headroom checks, UI input, full tests and release prune/ground/slope
+reviews pass. At the standard scene's new site the sampled ground is Y=129, not the old Y=192.
 
 Unit tests also cover both search directions on every fixture, ground-to-wall growth,
 finite unsupported extension **across forks**, unrelated branch/tip retention, missing root support, buried stems,

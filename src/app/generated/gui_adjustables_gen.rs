@@ -1402,7 +1402,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_fixture",
         kind: "choice",
-        label: "Test terrain (applies on Create/reset)",
+        label: "Test terrain (applies immediately)",
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",

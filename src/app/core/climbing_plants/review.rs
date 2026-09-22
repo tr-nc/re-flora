@@ -1,6 +1,6 @@
 //! Deterministic real-terrain pruning / waiting / repair scenario for hidden release runs.
 use super::{
-    wall_edit, Fixture, Plant, Terrain, WorldEditTransaction, VOXEL_TYPE_EMPTY,
+    wall_edit, Fixture, Plant, Site, Terrain, WorldEditTransaction, VOXEL_TYPE_EMPTY,
     VOXEL_TYPE_LIMESTONE,
 };
 use anyhow::{ensure, Result};
@@ -22,15 +22,17 @@ enum Phase {
 pub(super) struct Review {
     phase: Phase,
     fixture: Option<Fixture>,
+    site: Site,
     before: Option<Plant>,
     stump: Option<Plant>,
     hole: Option<(UVec3, UVec3)>,
     pub ticks: u32,
 }
 impl Review {
-    pub fn for_fixture(fixture: Option<Fixture>) -> Self {
+    pub fn for_fixture(fixture: Option<Fixture>, site: Site) -> Self {
         Self {
             fixture,
+            site,
             ..Default::default()
         }
     }
@@ -78,7 +80,8 @@ impl Review {
                         ) == Some(true)
                     })
                 });
-                ensure!(height >= 262.0 && collision_clear && plant.nodes.iter().all(|n| n.position.is_finite()),
+                let minimum_height = self.site.point(glam::Vec3::Y * 262.0).y;
+                ensure!(height >= minimum_height && collision_clear && plant.nodes.iter().all(|n| n.position.is_finite()),
                     "climbing {} fixture failed: attached_height={height} collision_clear={collision_clear} nodes={}", fixture.name(), plant.nodes.len());
                 ensure!(
                     plant
@@ -146,7 +149,8 @@ impl Review {
                         Phase::Repair
                     };
                     let (min, max) = if root {
-                        (UVec3::new(224, 192, 300), UVec3::new(288, 300, 306))
+                        self.site
+                            .voxel_box((UVec3::new(224, 192, 300), UVec3::new(288, 300, 306)))
                     } else {
                         self.hole.unwrap()
                     };
@@ -186,11 +190,10 @@ impl Review {
                 );
                 self.before = Some(plant.clone());
                 self.phase = Phase::RootCut;
-                return Ok(Some(wall_edit(
-                    UVec3::new(224, 192, 300),
-                    UVec3::new(288, 300, 306),
-                    VOXEL_TYPE_EMPTY,
-                )?));
+                let (min, max) = self
+                    .site
+                    .voxel_box((UVec3::new(224, 192, 300), UVec3::new(288, 300, 306)));
+                return Ok(Some(wall_edit(min, max, VOXEL_TYPE_EMPTY)?));
             }
             Phase::RootCut if plant.nodes.len() == 1 => {
                 ensure!(

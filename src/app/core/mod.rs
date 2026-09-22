@@ -2720,9 +2720,6 @@ impl App {
                                                     });
                                                 }
                                             });
-                                            if self.climbing_plants.reset_requested {
-                                                self.debug_settings.adjustables.climbing_enabled.value = true;
-                                            }
 
                                             ui.add_space(8.0);
                                             ui.add_space(8.0);

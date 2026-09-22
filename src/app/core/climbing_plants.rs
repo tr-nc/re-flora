@@ -16,6 +16,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 mod review;
+mod site;
+use site::Site;
 
 #[derive(Default)]
 pub(super) struct ClimbingPlants {
@@ -23,6 +25,8 @@ pub(super) struct ClimbingPlants {
     created: bool,
     awaiting_seed: bool,
     fixture: Fixture,
+    last_selection: Option<Fixture>,
+    site: Option<Site>,
     seed: u64,
     pub reset_requested: bool,
     pub focus_requested: bool,
@@ -30,7 +34,6 @@ pub(super) struct ClimbingPlants {
     pub refill_tip_requested: bool,
     peel_highest_requested: bool,
     peel_all_requested: bool,
-    confirm_reset: bool,
     waiting_for_terrain: bool,
     growth_blocked: bool,
     last_action: &'static str,
@@ -66,6 +69,16 @@ impl QuantumClock {
 }
 
 impl ClimbingPlants {
+    fn observe_fixture(&mut self, fixture: Fixture) {
+        if self
+            .last_selection
+            .replace(fixture)
+            .is_some_and(|old| old != fixture)
+        {
+            self.reset_requested = true;
+        }
+    }
+
     pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui, enabled: bool) {
         ui.small("3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
         ui.horizontal(|ui| {
@@ -73,8 +86,8 @@ impl ClimbingPlants {
                 if ui.button("Create vine wall and focus").clicked() {
                     self.reset_requested = true;
                 }
-            } else if ui.button("Reset wall and vine...").clicked() {
-                self.confirm_reset = true;
+            } else if ui.button("Restart wall and vine").clicked() {
+                self.reset_requested = true;
             }
             if ui
                 .add_enabled(enabled && self.created, egui::Button::new("Focus vine"))
@@ -83,22 +96,14 @@ impl ClimbingPlants {
                 self.focus_requested = true;
             }
         });
-        let (min, max) = Fixture::bounds();
-        ui.small(format!("Create/reset changes real terrain at {:?}..{:?}. Choose the terrain above before resetting.", min.to_array(), max.to_array()));
-        if self.confirm_reset {
-            ui.colored_label(
-                egui::Color32::YELLOW,
-                "Rebuild the wall and discard this vine's growth history?",
-            );
-            ui.horizontal(|ui| {
-                if ui.button("Confirm reset").clicked() {
-                    self.reset_requested = true;
-                    self.confirm_reset = false;
-                }
-                if ui.button("Cancel").clicked() {
-                    self.confirm_reset = false;
-                }
-            });
+        ui.small("Test terrain applies immediately and restarts this vine. It edits a real, grounded patch beside the startup tree.");
+        if let Some(site) = self.site {
+            let (min, max) = site.bounds();
+            ui.small(format!(
+                "Patch voxels: {:?}..{:?}",
+                min.to_array(),
+                max.to_array()
+            ));
         }
         if !enabled {
             ui.label("Hidden / paused. Enable above to resume this session's vine.");
@@ -273,14 +278,19 @@ fn wall_edit(min: UVec3, max: UVec3, material: u32) -> Result<WorldEditTransacti
         UAabb3::new(min, max),
     ))
 }
-fn fixture_edit(fixture: Fixture) -> Result<WorldEditTransaction> {
-    let (min, max) = Fixture::bounds();
+fn fixture_edit(fixture: Fixture, site: Site) -> Result<WorldEditTransaction> {
+    let (min, max) = site.bounds();
+    let boxes: Vec<_> = fixture
+        .boxes()
+        .into_iter()
+        .map(|b| site.voxel_box(b))
+        .collect();
     let mut edits = vec![
         stamp_boxes(&[(min, max)], VOXEL_TYPE_EMPTY)?,
-        stamp_boxes(&fixture.boxes(), VOXEL_TYPE_LIMESTONE)?,
+        stamp_boxes(&boxes, VOXEL_TYPE_LIMESTONE)?,
     ];
     if let Some(hole) = fixture.hole() {
-        edits.push(stamp_boxes(&[hole], VOXEL_TYPE_EMPTY)?);
+        edits.push(stamp_boxes(&[site.voxel_box(hole)], VOXEL_TYPE_EMPTY)?);
     }
     Ok(WorldEditTransaction::terrain_change(
         edits,
@@ -293,6 +303,15 @@ impl App {
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
         let review = review_mode.is_some();
         let review_fixture = review_mode.as_deref().and_then(Fixture::parse);
+        let selected_fixture = if review {
+            review_fixture.unwrap_or_default()
+        } else {
+            Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value)
+        };
+        self.climbing_plants.observe_fixture(selected_fixture);
+        if self.climbing_plants.reset_requested {
+            self.debug_settings.adjustables.climbing_enabled.value = true;
+        }
         let enabled = self.debug_settings.adjustables.climbing_enabled.value || review;
         if !enabled {
             self.tracer.show_climbing_plant_geometry(&[])?;
@@ -302,25 +321,52 @@ impl App {
             return Ok(());
         }
         if self.climbing_plants.reset_requested || !self.climbing_plants.created {
-            let fixture = if review {
-                review_fixture.unwrap_or_default()
+            let fixture = selected_fixture;
+            let site = if let Some(site) = self.climbing_plants.site {
+                site
             } else {
-                Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value)
+                let source = self.contree_builder.cpu_voxel_source_snapshot();
+                let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+                let ContreeCpuVoxelBlockExport::Ready(block) =
+                    source.export_voxel_block(Site::COLUMN, UVec3::new(1, world_dim.y, 1))?
+                else {
+                    self.climbing_plants.waiting_for_terrain = true;
+                    return Ok(());
+                };
+                let latest = self.contree_builder.cpu_voxel_source_snapshot();
+                let fresh = block
+                    .source_dependencies
+                    .iter()
+                    .all(|d| latest.is_chunk_voxel_cache_ready(*d));
+                let patch = Patch {
+                    block: Arc::new(block),
+                    fresh,
+                    queries: None,
+                };
+                let Some(site) = Site::find(&patch, world_dim) else {
+                    self.climbing_plants.last_action =
+                        "Waiting for current soil/sand/rock with enough headroom at the test site.";
+                    return Ok(());
+                };
+                site
             };
             self.climbing_plants = ClimbingPlants {
                 created: true,
                 awaiting_seed: true,
                 fixture,
+                last_selection: Some(fixture),
+                site: Some(site),
                 seed: if review || self.debug_settings.adjustables.climbing_clockwise.value {
                     42
                 } else {
                     43
                 },
                 focus_requested: true,
-                review: review::Review::for_fixture(review_fixture),
+                review: review::Review::for_fixture(review_fixture, site),
                 ..Default::default()
             };
-            self.execute_world_edit(fixture_edit(fixture)?)?;
+            self.tracer.show_climbing_plant_geometry(&[])?;
+            self.execute_world_edit(fixture_edit(fixture, site)?)?;
             log::info!(
                 "[CLIMBING] authored editable {} fixture; history is session-only",
                 fixture.name()
@@ -329,10 +375,14 @@ impl App {
         if !self.climbing_plants.awaiting_seed && self.climbing_plants.plant.is_none() {
             return Ok(()); // loading a world must not silently seed a new vine
         }
+        let site = self
+            .climbing_plants
+            .site
+            .expect("created fixture has a grounded site");
         if self.climbing_plants.focus_requested {
             self.climbing_plants.focus_requested = false;
             let target = self.climbing_plants.plant.as_ref().map_or(
-                Vec3::new(
+                site.point(Vec3::new(
                     256.,
                     244.,
                     if self.climbing_plants.fixture == Fixture::Slope {
@@ -340,7 +390,7 @@ impl App {
                     } else {
                         308.
                     },
-                ) / 256.,
+                )) / 256.,
                 |plant| {
                     let (min, max) = plant.nodes.iter().fold(
                         (plant.nodes[0].position, plant.nodes[0].position),
@@ -396,7 +446,7 @@ impl App {
                     .min(super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK),
             )
         } else {
-            let (position, _, _) = self.climbing_plants.fixture.seed();
+            let (position, _, _) = site.seed(self.climbing_plants.fixture);
             (
                 (position - Vec3::splat(8.0)).floor().as_uvec3(),
                 (position + Vec3::splat(9.0)).ceil().as_uvec3(),
@@ -428,7 +478,7 @@ impl App {
         self.climbing_plants.waiting_for_terrain = false;
         let export_us = elapsed_us();
         if self.climbing_plants.awaiting_seed {
-            let (position, normal, cell) = self.climbing_plants.fixture.seed();
+            let (position, normal, cell) = site.seed(self.climbing_plants.fixture);
             if patch.voxel(cell) == Some(VOXEL_TYPE_LIMESTONE as u8)
                 && crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
                     == Some(true)
@@ -713,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn action_buttons_confirm_reset_and_gate_unavailable_simulation() {
+    fn action_buttons_restart_immediately_and_gate_unavailable_simulation() {
         fn text_position(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
             match shape {
                 egui::Shape::Text(text) if text.galley.job.text == label => {
@@ -770,10 +820,12 @@ mod tests {
             runtime.plant.as_mut().unwrap().grow(&Wall, 16.0);
         }
         let context = egui::Context::default();
-        click(&mut runtime, &context, true, "Reset wall and vine...");
-        assert!(runtime.confirm_reset && !runtime.reset_requested);
-        click(&mut runtime, &context, true, "Cancel");
-        assert!(!runtime.confirm_reset && !runtime.reset_requested);
+        click(&mut runtime, &context, true, "Restart wall and vine");
+        assert!(
+            runtime.reset_requested,
+            "restart still requires a confirmation click"
+        );
+        runtime.reset_requested = false;
         click(&mut runtime, &context, false, "Prune highest attachment");
         assert!(!runtime.peel_highest_requested);
         runtime.waiting_for_terrain = true;
@@ -786,9 +838,26 @@ mod tests {
         assert!(runtime.peel_all_requested);
         click(&mut runtime, &context, true, "Disconnect root");
         assert!(runtime.disconnect_root_requested);
-        click(&mut runtime, &context, true, "Reset wall and vine...");
-        click(&mut runtime, &context, true, "Confirm reset");
-        assert!(runtime.reset_requested && !runtime.confirm_reset);
+        click(&mut runtime, &context, true, "Restart wall and vine");
+        assert!(runtime.reset_requested);
+    }
+
+    #[test]
+    fn terrain_choice_immediately_requests_one_rebuild_without_reset_or_confirm() {
+        let mut runtime = ClimbingPlants::default();
+        runtime.observe_fixture(Fixture::Flat);
+        assert!(!runtime.reset_requested);
+        runtime.observe_fixture(Fixture::Hole);
+        assert!(
+            runtime.reset_requested,
+            "changing Test terrain did not apply it"
+        );
+        runtime.reset_requested = false;
+        runtime.observe_fixture(Fixture::Hole);
+        assert!(
+            !runtime.reset_requested,
+            "the unchanged dropdown rebuilt the scene again"
+        );
     }
 
     #[test]

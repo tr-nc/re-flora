@@ -2612,7 +2612,7 @@ value = false
 [[section.param]]
 id = "climbing_fixture"
 kind = "choice"
-label = "Test terrain (applies on Create/reset)"
+label = "Test terrain (applies immediately)"
 type = "Choice"
 [section.param.data]
 value = 0
