@@ -26,6 +26,7 @@ pub struct Anchor {
 pub struct Tip {
     pub node: usize,
     direction: Vec3,
+    lateral: f32,
     arc: f32,
     spacing: f32,
     rng: u64,
@@ -62,6 +63,7 @@ impl Plant {
             tips: vec![Tip {
                 node: 0,
                 direction: Vec3::Y,
+                lateral: 0.0,
                 arc: 0.0,
                 spacing: 16.0,
                 rng: seed,
@@ -84,11 +86,15 @@ impl Plant {
                 break;
             }
             let tip = &mut next.tips[index];
+            if tip.node == 0 {
+                tip.spacing = spacing;
+            }
             let start = next.nodes[tip.node].position;
             let side = Vec3::Y.cross(next.normal).normalize_or_zero();
             let noise = (random(&mut tip.rng) - 0.5) * 0.45;
             let direction =
-                (tip.direction * 0.65 + Vec3::Y * 0.35 + side * noise).normalize_or_zero();
+                (tip.direction * 0.65 + Vec3::Y * 0.35 + side * (noise + tip.lateral * 0.35))
+                    .normalize_or_zero();
             let end = start + direction * 2.0;
             let cell = (end - next.normal * (next.radius + 1.1)).floor().as_ivec3();
             let Some(material) = terrain.voxel(cell) else {
@@ -125,11 +131,14 @@ impl Plant {
             }
             changed = true;
         }
-        if changed && next.tips.len() < 4 && next.nodes.len() / 48 > self.nodes.len() / 48 {
+        if changed && next.tips.len() < 4 && next.nodes.len() / 24 > self.nodes.len() / 24 {
             let mut branch = next.tips[0].clone();
             branch.direction = (Vec3::Y
                 + Vec3::Y.cross(next.normal) * if next.tips.len() % 2 == 0 { -0.8 } else { 0.8 })
             .normalize();
+            branch.lateral = if next.tips.len() % 2 == 0 { -0.5 } else { 0.5 };
+            branch.arc = 0.0;
+            branch.spacing = spacing;
             branch.rng = branch.rng.wrapping_add(next.nodes.len() as u64);
             next.tips.push(branch);
         }
@@ -143,9 +152,17 @@ impl Plant {
 
     /// Revalidate fixed contact cells; material replacement releases adhesion, never topology.
     /// Pending/stale snapshots leave even the RNG untouched.
-    pub fn revalidate(&mut self, terrain: &impl Terrain) -> bool {
+    pub fn revalidate(
+        &mut self,
+        terrain: &impl Terrain,
+        candidates: impl IntoIterator<Item = usize>,
+    ) -> bool {
         let mut released = Vec::new();
-        for (id, anchor) in self.anchors.iter().enumerate().filter(|(_, a)| a.attached) {
+        for id in candidates {
+            let anchor = &self.anchors[id];
+            if !anchor.attached {
+                continue;
+            }
             let Some(material) = terrain.voxel(anchor.cell) else {
                 return false;
             };
@@ -315,7 +332,7 @@ mod tests {
                 assert!((n.position.distance(a.nodes[p].position) - n.rest_length).abs() < 1e-5);
             }
         }
-        let main: Vec<_> = a.anchors.iter().filter(|a| a.node < 48).collect();
+        let main: Vec<_> = a.anchors.iter().filter(|a| a.node < 24).collect();
         for pair in main.windows(2) {
             assert!((6..=10).contains(&(pair[1].node - pair[0].node)));
         }
@@ -330,16 +347,16 @@ mod tests {
         let nodes = p.nodes.clone();
         let ids: Vec<_> = p.anchors.iter().map(|a| a.node).collect();
         wall.missing.insert(IVec3::new(250, 250, 0));
-        assert!(!p.revalidate(&wall));
+        assert!(!p.revalidate(&wall, 0..p.anchors.len()));
         wall.missing.insert(p.anchors[1].cell);
-        assert!(p.revalidate(&wall));
+        assert!(p.revalidate(&wall, 0..p.anchors.len()));
         assert!(p.anchors[2].attached);
         wall.missing.insert(p.anchors[2].cell);
-        assert!(p.revalidate(&wall));
+        assert!(p.revalidate(&wall, 0..p.anchors.len()));
         assert_eq!(p.nodes, nodes);
         assert_eq!(ids, p.anchors.iter().map(|a| a.node).collect::<Vec<_>>());
         wall.missing.clear();
-        p.revalidate(&wall);
+        p.revalidate(&wall, 0..p.anchors.len());
         assert!(!p.anchors[1].attached);
     }
     #[test]
@@ -357,7 +374,7 @@ mod tests {
         ] {
             let mut p = original.clone();
             p.grow(&wall, 16.0);
-            p.revalidate(&wall);
+            p.revalidate(&wall, 0..p.anchors.len());
             p.relax(&wall);
             assert_eq!(p, original);
         }
@@ -396,5 +413,86 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn material_replacement_releases_adhesion_not_collision_or_topology() {
+        struct Replacement;
+        impl Terrain for Replacement {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(if c.z == 0 { 2 } else { 0 })
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut p = seed();
+        let wall = Wall::default();
+        for _ in 0..18 {
+            p.grow(&wall, 16.);
+        }
+        let nodes = p.nodes.clone();
+        assert!(p.revalidate(&Replacement, 0..p.anchors.len()));
+        assert_eq!(nodes, p.nodes);
+        assert!(p.anchors.iter().all(|a| !a.attached));
+        assert_eq!(
+            clear_segment(
+                &Replacement,
+                Vec3::new(20., 10., -1.),
+                Vec3::new(20., 10., 2.),
+                0.65
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn taut_pinned_span_does_not_acquire_rest_length() {
+        let mut p = seed();
+        p.nodes = (0..9)
+            .map(|id| Node {
+                position: Vec3::new(20.5, 4.5 + id as f32 * 2., 1.8),
+                parent: if id == 0 { None } else { Some(id - 1) },
+                rest_length: if id == 0 { 0. } else { 2. },
+            })
+            .collect();
+        p.anchors.push(Anchor {
+            node: 8,
+            cell: IVec3::new(20, 20, 0),
+            material: 1,
+            position: p.nodes[8].position,
+            attached: true,
+        });
+        let lengths: Vec<_> = p.nodes.iter().map(|n| n.rest_length).collect();
+        let before = p.nodes.clone();
+        for _ in 0..200 {
+            p.relax(&Wall::default());
+        }
+        assert_eq!(
+            lengths,
+            p.nodes.iter().map(|n| n.rest_length).collect::<Vec<_>>()
+        );
+        assert_eq!(p.nodes[0], before[0]);
+        assert_eq!(p.nodes[8], before[8]);
+        assert!(p
+            .nodes
+            .iter()
+            .zip(before)
+            .all(|(a, b)| a.position.distance(b.position) < 0.01));
+    }
+
+    #[test]
+    fn support_gap_stops_growth_and_preserves_rng() {
+        let mut p = seed();
+        let mut wall = Wall::default();
+        for x in -100..100 {
+            for y in -100..100 {
+                wall.missing.insert(IVec3::new(x, y, 0));
+            }
+        }
+        let before = p.clone();
+        for _ in 0..100 {
+            assert!(!p.grow(&wall, 16.));
+        }
+        assert_eq!(before, p);
     }
 }

@@ -6,6 +6,7 @@ mod boot;
 mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
+mod climbing_plants;
 mod ddgi_spatial_weight_readback;
 mod debug_panel;
 mod denoiser_bench;
@@ -477,6 +478,7 @@ pub struct App {
     butterfly_review: Option<particles::ButterflyReview>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
+    climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
@@ -1529,6 +1531,7 @@ impl App {
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
+            climbing_plants: Default::default(),
             particle_animation_time_sec: 0.0,
             water,
             particle_snapshots,
@@ -2700,7 +2703,7 @@ impl App {
                                     ui.add_space(8.0);
                                     ui.add_space(8.0);
                                     ui.collapsing("Terrain & Plants", |ui| {
-                                    ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
+                                    ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
                                     });
 
@@ -2717,7 +2720,18 @@ impl App {
 
                                             ui.add_space(8.0);
                                             ui.add_space(8.0);
-                                            ui.collapsing("Environment Probes", |ui| {
+ui.collapsing("Climbing vine actions", |ui| {
+    ui.small("Session-only history. Reset authors a real wall at voxels (224..288, 192..300, 300..306). Shovel edits release supports. Saved controls are under Climbing Plants.");
+    if ui.button("Create/reset climbing vine wall and focus").clicked() {
+        self.debug_settings.adjustables.climbing_enabled.value = true;
+        self.climbing_plants.reset_requested = true;
+    }
+    if ui.button("Focus climbing vine wall").clicked() {
+        self.climbing_plants.focus_requested = true;
+    }
+});
+ui.collapsing("Environment Probes", |ui| {
+
                                             ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
                                             if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
@@ -3321,6 +3335,11 @@ impl App {
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
 
+                if let Err(error) =
+                    self.update_climbing_plants(world_tick_steps, world_tick_seconds)
+                {
+                    log::error!("[CLIMBING] update failed: {error:#}");
+                }
                 self.world_clock.advance_daynight(
                     world_tick_steps,
                     world_tick_seconds,

@@ -2589,3 +2589,42 @@ type = "Float"
 value = 0
 min = -6
 max = 6
+
+[[section]]
+name = "Climbing Plants"
+
+[[section.param]]
+id = "climbing_enabled"
+kind = "bool"
+label = "Enable climbing vine wall (creates terrain and focuses camera)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "climbing_speed"
+kind = "float"
+label = "Vine growth quanta/sec (2 voxels/quantum)"
+type = "Float"
+[section.param.data]
+value = 12.0
+min = 0.0
+max = 40.0
+
+[[section.param]]
+id = "climbing_spacing"
+kind = "float"
+label = "Adhesion spacing (voxels; 256/world unit)"
+type = "Float"
+[section.param.data]
+value = 16.0
+min = 4.0
+max = 64.0
+
+[[section.param]]
+id = "climbing_show_anchors"
+kind = "bool"
+label = "Show anchor IDs: yellow attached / red released"
+type = "Bool"
+[section.param.data]
+value = false

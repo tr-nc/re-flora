@@ -193,6 +193,9 @@ impl DynamicFruitRendererResources {
             });
         }
 
+        if !instances_changed(&self.last_instances, &normalized) {
+            return Ok(());
+        }
         self.ensure_instance_capacity(normalized.len())?;
         self.shadow_changed |= instances_changed(&self.last_instances, &normalized);
         self.last_instances.clone_from(&normalized);
@@ -388,6 +391,7 @@ mod tests {
                 "[[vk::location(4)]] float3 base_position",
                 "[[vk::location(5)]] float4 tint",
                 "[[vk::location(6)]] float4 rotation",
+                "[[vk::location(7)]] float3 dimensions",
             ] {
                 assert!(shader.contains(declaration), "missing `{declaration}`");
             }
