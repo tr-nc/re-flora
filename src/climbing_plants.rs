@@ -38,6 +38,7 @@ pub struct Plant {
     pub tips: Vec<Tip>,
     pub normal: Vec3,
     pub radius: f32,
+    root_connected: bool,
 }
 
 fn random(state: &mut u64) -> f32 {
@@ -70,13 +71,26 @@ impl Plant {
             }],
             normal,
             radius: 0.65,
+            root_connected: true,
         }
     }
 
-    /// One fixed growth quantum. IDs are append-only indices, including released anchors.
+    /// Disconnect nutrient/root restraint without deleting any stem or wall attachment.
+    /// This slice has one connected skeleton; all of its tips lose root connectivity.
+    pub fn disconnect_root(&mut self) {
+        self.root_connected = false;
+    }
+
+    pub fn root_connected(&self) -> bool {
+        self.root_connected
+    }
+
+    /// One fixed growth quantum.
+    /// IDs are append-only indices, including released anchors.
     /// A flat wall is deliberately the first surface contract: stop at corners/tops/holes.
     pub fn grow(&mut self, terrain: &impl Terrain, spacing: f32) -> bool {
-        if !spacing.is_finite() || spacing < 4.0 || self.nodes.len() >= 512 {
+        if !self.root_connected || !spacing.is_finite() || spacing < 4.0 || self.nodes.len() >= 512
+        {
             return false;
         }
         let mut next = self.clone();
@@ -184,8 +198,8 @@ impl Plant {
     pub fn relax(&mut self, terrain: &impl Terrain) -> bool {
         let mut positions: Vec<_> = self.nodes.iter().map(|n| n.position).collect();
         let mut pinned = vec![false; positions.len()];
-        // The planted root survives loss of wall adhesion; root cutting is not exposed yet.
-        pinned[0] = true;
+        // Root connectivity and external wall adhesion are independent restraints.
+        pinned[0] = self.root_connected;
         for anchor in self.anchors.iter().filter(|a| a.attached) {
             pinned[anchor.node] = true;
         }
@@ -494,5 +508,51 @@ mod tests {
             assert!(!p.grow(&wall, 16.));
         }
         assert_eq!(before, p);
+    }
+    #[test]
+    fn all_supports_removed_can_settle_after_root_disconnection() {
+        let mut p = seed();
+        let wall = Wall::default();
+        for _ in 0..18 {
+            p.grow(&wall, 16.);
+        }
+        for anchor in &mut p.anchors {
+            anchor.attached = false;
+        }
+        p.disconnect_root();
+        let root = p.nodes[0].position;
+        for _ in 0..20 {
+            p.relax(&wall);
+        }
+        assert!(
+            p.nodes[0].position.y < root.y - 1.0,
+            "unsupported root remains pinned"
+        );
+    }
+    #[test]
+    fn cut_root_stops_growth_but_retains_wall_attachments_and_ids() {
+        let mut p = seed();
+        let wall = Wall::default();
+        for _ in 0..18 {
+            p.grow(&wall, 16.);
+        }
+        let nodes = p.nodes.clone();
+        let anchors = p.anchors.clone();
+        let tips = p.tips.clone();
+        p.disconnect_root();
+        assert!(!p.root_connected());
+        for _ in 0..30 {
+            assert!(!p.grow(&wall, 16.));
+            p.relax(&wall);
+        }
+        assert_eq!(p.anchors, anchors);
+        assert_eq!(p.tips, tips);
+        assert_eq!(p.nodes.len(), nodes.len());
+        for a in &p.anchors {
+            assert_eq!(p.nodes[a.node].position, a.position);
+        }
+        for (a, b) in p.nodes.iter().zip(nodes) {
+            assert_eq!((a.parent, a.rest_length), (b.parent, b.rest_length));
+        }
     }
 }

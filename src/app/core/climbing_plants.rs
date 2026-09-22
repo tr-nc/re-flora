@@ -18,6 +18,7 @@ pub(super) struct ClimbingPlants {
     created: bool,
     pub reset_requested: bool,
     pub focus_requested: bool,
+    pub disconnect_root_requested: bool,
     accumulator: f32,
     instances: Vec<DynamicFruitRenderInstance>,
     anchor_chunks: HashMap<UVec3, Vec<usize>>,
@@ -28,6 +29,8 @@ pub(super) struct ClimbingPlants {
     review_ticks: u32,
     review_multiple: bool,
     review_reported: bool,
+    review_root_cut: bool,
+    review_root_verified: bool,
 }
 impl ClimbingPlants {
     pub fn has_history(&self) -> bool {
@@ -206,6 +209,11 @@ impl App {
         let Some(plant) = &mut self.climbing_plants.plant else {
             return Ok(());
         };
+        if self.climbing_plants.disconnect_root_requested {
+            self.climbing_plants.disconnect_root_requested = false;
+            plant.disconnect_root();
+            log::info!("[CLIMBING] root disconnected; growth stopped, wall attachments retained");
+        }
         let before_nodes = plant.nodes.len();
         let before_anchors = plant.anchors.iter().filter(|a| a.attached).count();
         // Events narrow phase contact cells; dependency polling catches later cache publication.
@@ -377,6 +385,23 @@ impl App {
             }
             self.climbing_plants.review_reported = true;
         }
+        if review
+            && self.climbing_plants.review_root_cut
+            && self.climbing_plants.review_ticks >= 250
+            && !self.climbing_plants.review_root_verified
+        {
+            let before = self.climbing_plants.review_before_edit.as_ref().unwrap();
+            let drop = before.nodes[0].position.y - plant.nodes[0].position.y;
+            anyhow::ensure!(
+                !plant.root_connected()
+                    && plant.nodes.len() == before.nodes.len()
+                    && plant.anchors.iter().all(|a| !a.attached)
+                    && drop > 1.0,
+                "root cut review failed: drop={drop}"
+            );
+            log::info!("[CLIMBING][REVIEW] root_cut=true growth_stopped=true attached=0 root_drop_voxels={drop:.4}");
+            self.climbing_plants.review_root_verified = true;
+        }
         let review_edit = review && !self.climbing_plants.review_edited && plant.nodes.len() >= 65;
         let edit_cell = plant.anchors.get(2).map(|a| a.cell.as_uvec3());
         self.tracer.show_climbing_plant_geometry(&instances)?;
@@ -395,6 +420,17 @@ impl App {
             }
         }
 
+        if review && self.climbing_plants.review_reported && !self.climbing_plants.review_root_cut {
+            self.climbing_plants.review_root_cut = true;
+            self.climbing_plants.review_before_edit = self.climbing_plants.plant.clone();
+            self.climbing_plants.disconnect_root_requested = true;
+            self.execute_world_edit(wall_edit(
+                UVec3::new(224, 192, 299),
+                UVec3::new(288, 300, 308),
+                VOXEL_TYPE_EMPTY,
+            )?)?;
+            log::info!("[CLIMBING][REVIEW] disconnect root and remove remaining wall supports");
+        }
         if review
             && self.climbing_plants.review_edited
             && !self.climbing_plants.review_multiple
