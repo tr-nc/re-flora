@@ -1310,6 +1310,8 @@ wind_drift = 1.0
         settings.adjustables.climbing_fixture.value = 4;
         settings.adjustables.climbing_clockwise.value = false;
         settings.adjustables.climbing_paused.value = true;
+        settings.adjustables.climbing_seed.value = 65001;
+        settings.adjustables.climbing_flexibility.value = 1.7;
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
@@ -1317,16 +1319,26 @@ wind_drift = 1.0
         assert_eq!(reloaded.adjustables.climbing_fixture.value, 4);
         assert!(!reloaded.adjustables.climbing_clockwise.value);
         assert!(reloaded.adjustables.climbing_paused.value);
+        assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
+        assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
         for section in &mut settings.config.section {
-            section
-                .param
-                .retain(|p| p.id != "climbing_fixture" && p.id != "climbing_clockwise");
+            section.param.retain(|p| {
+                ![
+                    "climbing_fixture",
+                    "climbing_clockwise",
+                    "climbing_seed",
+                    "climbing_flexibility",
+                ]
+                .contains(&p.id.as_str())
+            });
         }
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
         let older = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(older.adjustables.climbing_fixture.value, 0);
         assert!(older.adjustables.climbing_clockwise.value);
         assert!(older.adjustables.climbing_paused.value);
+        assert_eq!(older.adjustables.climbing_seed.value, 42);
+        assert_eq!(older.adjustables.climbing_flexibility.value, 1.0);
     }
 
     #[test]

@@ -4,6 +4,12 @@ Date: 2026-09-23. Implemented on `grepping-plants`, following the rooted-pruning
 `2bc5c2e2`. This note separates botanical evidence, the game's abstraction, and measured
 validation; it does not reuse the old falling-solver benchmark as a baseline.
 
+**Historical implementation snapshot:** the implementation, fixtures, validation and CPU
+numbers below describe `3cdbc513`, before grounded placement and single flexible-shoot
+support. Botanical sources remain applicable; current behavior and new measurements are
+in [climbing_vine_live_shoot.md](climbing_vine_live_shoot.md). In particular, the old
+four-tip/immobile-stem description and fixed world coordinates are no longer current.
+
 ## Primary-source findings
 
 1. **Rotating exploration is a useful model, but contact and attachment are separate.**
@@ -32,7 +38,7 @@ Keep the user-approved subtree pruning and retained-bud regrowth. Do not reintro
 falling physics or imply that circular tip searching is the attachment mechanism of every
 wall-clinging species. See also [the earlier species/mechanism research](procedural_climbing_plants.md).
 
-## Implemented abstraction
+## Original implemented abstraction
 
 - A tip advances through 24 angular phases around an upward/local-tangent axis. Nominal
   extension is 2 voxels; contact correction is at most 2.5. Rotation direction is seeded;
@@ -58,7 +64,7 @@ wall-clinging species. See also [the earlier species/mechanism research](procedu
   seed can leave its floor and locate a nearby wall. The plant still has a 512-live-node,
   four-tip cap; retained history never moves or gets regenerated.
 
-## Shared terrain fixtures
+## Original shared terrain fixtures
 
 `src/climbing_plants/fixtures.rs` owns both the analytic voxel predicate and cuboid recipes
 used by the real terrain-authoring transaction. A parity test checks the two descriptions.
@@ -80,7 +86,7 @@ Old GUI files acquire defaults without losing their existing pause setting. A re
   section-schema migration now supplies missing climbing controls from `config/gui.toml`.
   Loading a world clears the vine/cache and does not silently reseed it.
 
-## Validation
+## Original validation
 
 Local artifacts: `target/climbing-validation/exploration/` (not committed). Reproduce with
 the commands in [the feature guide](../climbing_plants.md). Checked-in spacing is 16 voxels;
@@ -132,7 +138,7 @@ cost does not erase the 12–18 ms total maxima. This is a changed algorithm/wor
 A/B optimization result; no previous FPS/regression threshold is claimed to have passed.
 Visual review comes first, with performance optimization/acceptance a separate stage.
 
-## Boundaries
+## Original boundaries
 
 No elasticity, sagging or mechanically realistic detached remnants. No guarantee of
 finding a route through arbitrary mazes or across large gaps; a bounded search can stop.

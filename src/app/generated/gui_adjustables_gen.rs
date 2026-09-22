@@ -1408,7 +1408,19 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_clockwise",
         kind: "bool",
-        label: "Clockwise root tip (next reset; branches alternate)",
+        label: "Clockwise tip search (restarts vine)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_seed",
+        kind: "uint",
+        label: "Vine seed (restarts vine)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_flexibility",
+        kind: "float",
+        label: "Unattached shoot flexibility",
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
@@ -1669,6 +1681,8 @@ pub struct GuiAdjustables {
     pub climbing_enabled: crate::gui_adjustables::BoolParam,
     pub climbing_fixture: crate::gui_adjustables::ChoiceParam,
     pub climbing_clockwise: crate::gui_adjustables::BoolParam,
+    pub climbing_seed: crate::gui_adjustables::UintParam,
+    pub climbing_flexibility: crate::gui_adjustables::FloatParam,
     pub climbing_paused: crate::gui_adjustables::BoolParam,
     pub climbing_speed: crate::gui_adjustables::FloatParam,
     pub climbing_spacing: crate::gui_adjustables::FloatParam,
@@ -1917,6 +1931,8 @@ impl GuiAdjustables {
         let mut climbing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_fixture_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut climbing_clockwise_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut climbing_seed_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut climbing_flexibility_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_paused_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_spacing_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3460,6 +3476,20 @@ impl GuiAdjustables {
                             climbing_clockwise_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
+                    "climbing_seed" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            climbing_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_flexibility" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_flexibility_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "climbing_paused" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             climbing_paused_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3721,6 +3751,8 @@ impl GuiAdjustables {
             climbing_enabled: climbing_enabled_field.expect("Missing parameter: climbing_enabled"),
             climbing_fixture: climbing_fixture_field.expect("Missing parameter: climbing_fixture"),
             climbing_clockwise: climbing_clockwise_field.expect("Missing parameter: climbing_clockwise"),
+            climbing_seed: climbing_seed_field.expect("Missing parameter: climbing_seed"),
+            climbing_flexibility: climbing_flexibility_field.expect("Missing parameter: climbing_flexibility"),
             climbing_paused: climbing_paused_field.expect("Missing parameter: climbing_paused"),
             climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
             climbing_spacing: climbing_spacing_field.expect("Missing parameter: climbing_spacing"),
@@ -3906,6 +3938,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_sway_frequency_start" => Some(&adjustables.grass_sway_frequency_start),
         "grass_sway_frequency_full" => Some(&adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&adjustables.grass_sway_frequency_knee),
+        "climbing_flexibility" => Some(&adjustables.climbing_flexibility),
         "climbing_speed" => Some(&adjustables.climbing_speed),
         "climbing_spacing" => Some(&adjustables.climbing_spacing),
         _ => None,
@@ -3938,6 +3971,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
+        "climbing_seed" => Some(&adjustables.climbing_seed),
         _ => None,
     }
 }
@@ -4188,6 +4222,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_sway_frequency_start" => Some(&mut adjustables.grass_sway_frequency_start),
         "grass_sway_frequency_full" => Some(&mut adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&mut adjustables.grass_sway_frequency_knee),
+        "climbing_flexibility" => Some(&mut adjustables.climbing_flexibility),
         "climbing_speed" => Some(&mut adjustables.climbing_speed),
         "climbing_spacing" => Some(&mut adjustables.climbing_spacing),
         _ => None,
@@ -4220,6 +4255,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
+        "climbing_seed" => Some(&mut adjustables.climbing_seed),
         _ => None,
     }
 }

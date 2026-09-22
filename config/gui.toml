@@ -2621,10 +2621,30 @@ options = ["Flat wall", "Wall with a hole", "Outward ledge", "Recessed wall", "S
 [[section.param]]
 id = "climbing_clockwise"
 kind = "bool"
-label = "Clockwise root tip (next reset; branches alternate)"
+label = "Clockwise tip search (restarts vine)"
 type = "Bool"
 [section.param.data]
 value = true
+
+[[section.param]]
+id = "climbing_seed"
+kind = "uint"
+label = "Vine seed (restarts vine)"
+type = "Uint"
+[section.param.data]
+value = 42
+min = 0
+max = 65535
+
+[[section.param]]
+id = "climbing_flexibility"
+kind = "float"
+label = "Unattached shoot flexibility"
+type = "Float"
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 2.0
 
 [[section.param]]
 id = "climbing_paused"

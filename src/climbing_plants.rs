@@ -7,6 +7,7 @@ const MAX_TIPS: usize = 4;
 
 pub mod fixtures;
 mod growth;
+mod shoot;
 
 pub trait Terrain {
     /// None is unavailable, not empty. Queries belong to one immutable snapshot.
@@ -22,6 +23,8 @@ pub struct Node {
     pub parent: Option<usize>,
     pub rest_length: f32,
     pub normal: Vec3,
+    pub fixed: bool,
+    rest_direction: Vec3,
     contact: Option<Contact>,
     // Record only backing that actually existed when this edge grew. Searching
     // arcs across an existing hole do not invent wall dependencies in empty space.
@@ -71,19 +74,24 @@ pub struct Tip {
     phase: u8,
     clockwise: bool,
     exterior: Vec3,
+    under_ceiling: bool,
 }
 impl Tip {
-    fn seed(node: usize, rng: u64) -> Self {
+    fn seed(node: usize, seed: u64) -> Self {
+        let mut rng = seed;
+        let phase = growth::initial_phase(random(&mut rng));
+        let lateral = (random(&mut rng) - 0.5) * 0.7;
         Self {
             node,
-            lateral: 0.0,
+            lateral,
             arc: 0.0,
             spacing: 16.0,
             rng,
             restart: None,
-            phase: 0,
-            clockwise: rng & 1 == 0,
+            phase,
+            clockwise: seed & 1 == 0,
             exterior: Vec3::Z,
+            under_ceiling: false,
         }
     }
 }
@@ -122,6 +130,8 @@ impl Plant {
                 parent: None,
                 rest_length: 0.0,
                 normal,
+                fixed: true,
+                rest_direction: Vec3::Y,
                 contact: Some(Contact { cell, normal }),
                 backing: None,
             }],
@@ -139,6 +149,53 @@ impl Plant {
             seed,
             next_node_id: 1,
         }
+    }
+
+    pub fn relax_shoot(
+        &mut self,
+        terrain: &impl Terrain,
+        dt: f32,
+        flexibility: f32,
+        spacing: f32,
+    ) -> Option<usize> {
+        shoot::relax(self, terrain, dt, flexibility, spacing)
+    }
+
+    pub fn with_clockwise(mut self, clockwise: bool) -> Self {
+        for tip in &mut self.tips {
+            tip.clockwise = clockwise;
+        }
+        self
+    }
+
+    fn freeze_path(&mut self, mut node: usize) {
+        while !self.nodes[node].fixed {
+            self.nodes[node].fixed = true;
+            let Some(parent) = self.nodes[node].parent else {
+                break;
+            };
+            node = parent;
+        }
+    }
+
+    fn attach_tip(&mut self, index: usize, contact: Contact, spacing: f32) {
+        let tip = &self.tips[index];
+        if tip.arc < tip.spacing {
+            return;
+        }
+        let node = tip.node;
+        self.anchors.push(Anchor {
+            node,
+            cell: contact.cell,
+            normal: contact.normal,
+            material: self.anchors[0].material,
+            position: self.nodes[node].position,
+            attached: true,
+        });
+        self.freeze_path(node);
+        let tip = &mut self.tips[index];
+        tip.arc = 0.0;
+        tip.spacing = spacing * (0.85 + 0.3 * random(&mut tip.rng));
     }
 
     pub fn disconnect_root(&mut self) {
@@ -288,6 +345,17 @@ impl Plant {
         }
         self.nodes = nodes;
         self.tips = tips;
+        // A retained cut is a stable stump. Repair starts a new flexible shoot;
+        // it must not reanimate the geometry that survived the cut.
+        let stumps: Vec<_> = self
+            .tips
+            .iter()
+            .filter(|tip| tip.restart.is_some())
+            .map(|tip| tip.node)
+            .collect();
+        for stump in stumps {
+            self.freeze_path(stump);
+        }
         Pruned { removed, buds }
     }
 
@@ -304,7 +372,6 @@ impl Plant {
         }
         let mut next = self.clone();
         let mut changed = false;
-        let mut branch_source = 0;
         for index in 0..self.tips.len() {
             if next.nodes.len() >= MAX_NODES {
                 break;
@@ -322,6 +389,9 @@ impl Plant {
             if step.normal.y.abs() < 0.7 {
                 tip.exterior = step.normal;
             }
+            if step.normal.y < -0.5 && step.contact.is_some() {
+                tip.under_ceiling = true;
+            }
             if tip.node == 0 || tip.restart.is_some() {
                 tip.spacing = spacing;
             }
@@ -335,38 +405,19 @@ impl Plant {
                 parent: Some(parent),
                 rest_length: start.distance(end),
                 normal: step.normal,
+                fixed: false,
+                rest_direction: (end - start).normalize(),
                 contact: step.contact.clone(),
                 backing: step.backing,
             });
             next.next_node_id += 1;
-            if let Some(contact) = step.contact.filter(|_| tip.arc >= tip.spacing) {
-                next.anchors.push(Anchor {
-                    node: tip.node,
-                    cell: contact.cell,
-                    normal: contact.normal,
-                    material: next.anchors[0].material,
-                    position: end,
-                    attached: true,
-                });
-                tip.arc = 0.0;
-                tip.spacing = spacing * (0.85 + 0.3 * random(&mut tip.rng));
-            }
             next.tips[index] = tip;
-            if !changed {
-                branch_source = index;
+            if let Some(contact) = step.contact {
+                next.attach_tip(index, contact, spacing);
             }
             changed = true;
         }
-        if changed && next.tips.len() < MAX_TIPS && next.nodes.len() / 24 > self.nodes.len() / 24 {
-            let mut branch = next.tips[branch_source].clone();
-            growth::reverse_search(&mut branch);
-            branch.lateral = if next.tips.len() % 2 == 0 { -0.5 } else { 0.5 };
-            // A fork is not a new attachment: inherit the distance from support
-            // so branching cannot repeatedly renew the unsupported-growth budget.
-            branch.spacing = spacing;
-            branch.rng = branch.rng.wrapping_add(next.next_node_id);
-            next.tips.push(branch);
-        }
+        // A seed makes one shoot. Automatic branching is intentionally disabled.
         if terrain.current() {
             *self = next;
             changed
@@ -499,6 +550,110 @@ mod tests {
     }
 
     #[test]
+    fn a_sagged_tip_clears_its_whole_radius_past_a_ledge_before_turning_up() {
+        struct Ledge;
+        impl Terrain for Ledge {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(c.y >= 2 && c.z < 1))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut plant = Plant::seed(
+            Vec3::new(0.5, 1.17, 1.1),
+            Vec3::NEG_Y,
+            IVec3::new(0, 2, 0),
+            1,
+            42,
+        );
+        assert!(plant.grow(&Ledge, 16.0));
+        let outside = plant.nodes.last().unwrap().position;
+        assert!(outside.z > 1.65 && (outside.y - 1.17).abs() < 0.001);
+        assert!(plant.grow(&Ledge, 16.0));
+        assert!(plant.nodes.last().unwrap().position.y > outside.y + 0.5);
+    }
+
+    #[test]
+    fn randomized_single_shoots_are_reproducible_and_safe_even_when_they_stop_at_edges() {
+        struct Slope;
+        impl Terrain for Slope {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(fixtures::Fixture::Slope.solid(c)))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let run = |seed| {
+            let (position, normal, cell) = fixtures::Fixture::Slope.seed();
+            let mut plant = Plant::seed(position, normal, cell, 1, seed);
+            for _ in 0..180 {
+                plant.grow(&Slope, 16.0);
+                for _ in 0..2 {
+                    plant.relax_shoot(&Slope, 0.05, 1.0, 16.0).unwrap();
+                }
+            }
+            check_structure(&plant);
+            assert_eq!(plant.tips.len(), 1);
+            assert!(plant.tips[0].arc <= 48.001);
+            assert_eq!(plant.revalidate(&Slope).unwrap().removed, 0);
+            plant
+        };
+        for seed in [0, 43, 65535] {
+            assert_eq!(run(seed), run(seed));
+        }
+    }
+
+    #[test]
+    fn normal_growth_stays_a_single_unbranched_vine() {
+        let plant = grown();
+        assert_eq!(plant.tips.len(), 1, "normal growth still creates branches");
+        assert!(plant
+            .nodes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .all(|(i, node)| node.parent == Some(i - 1)));
+    }
+
+    #[test]
+    fn random_seed_changes_the_initial_exploration_not_just_later_attachment_spacing() {
+        let a = seed();
+        let b = Plant::seed(a.nodes[0].position, Vec3::Z, a.anchors[0].cell, 1, 44);
+        assert_ne!(
+            a.search_probes().next(),
+            b.search_probes().next(),
+            "same-handed seeds still have the same initial state"
+        );
+        assert_eq!(a, seed(), "a fixed seed must be reproducible");
+    }
+
+    #[test]
+    fn an_existing_unattached_shoot_sags_while_the_base_stays_fixed() {
+        let mut plant = seed();
+        for _ in 0..5 {
+            plant.grow(&Wall::default(), 64.0);
+        }
+        assert_eq!(plant.anchors.len(), 1);
+        let before = plant.clone();
+        for _ in 0..30 {
+            plant.relax_shoot(&Wall::default(), 0.05, 1.0, 64.0);
+        }
+        assert_eq!(plant.nodes[0], before.nodes[0]);
+        assert!(
+            plant
+                .nodes
+                .iter()
+                .zip(&before.nodes)
+                .skip(1)
+                .any(|(a, b)| a.position.y < b.position.y - 0.05),
+            "the unattached shoot is still permanently frozen"
+        );
+        check_structure(&plant);
+    }
+
+    #[test]
     fn removed_wall_prunes_upper_attached_stem_and_regrows_from_cut() {
         let mut plant = grown();
         let mut wall = Wall::default();
@@ -540,7 +695,13 @@ mod tests {
 
     #[test]
     fn local_branch_cut_preserves_other_branches_and_their_tips() {
-        let original = grown();
+        // Pruning still supports an explicit tree, although gameplay no longer makes forks.
+        let mut original = grown();
+        original.tips.push(Tip::seed(12, 99));
+        for _ in 0..24 {
+            original.grow(&Wall::default(), 16.0);
+        }
+        assert_eq!(original.tips.len(), 2);
         let (cut, node) = original
             .nodes
             .iter()
@@ -614,6 +775,8 @@ mod tests {
             parent: Some(0),
             rest_length: 2.0,
             normal: Vec3::Z,
+            fixed: true,
+            rest_direction: Vec3::Y,
             contact: Some(Contact {
                 cell: IVec3::new(20, 6, 0),
                 normal: Vec3::Z,
@@ -805,19 +968,33 @@ mod tests {
             }
         }
         for fixture in fixtures::Fixture::ALL {
-            for seed in [42, 43] {
+            for clockwise in [true, false] {
+                let seed = 42;
                 let terrain = Scene(fixture);
                 let (position, normal, cell) = fixture.seed();
-                let mut plant = Plant::seed(position, normal, cell, 1, seed);
+                let mut plant =
+                    Plant::seed(position, normal, cell, 1, seed).with_clockwise(clockwise);
                 for _ in 0..180 {
+                    let frozen: Vec<_> = plant
+                        .nodes
+                        .iter()
+                        .filter(|node| node.fixed)
+                        .cloned()
+                        .collect();
                     plant.grow(&terrain, 16.0);
+                    for _ in 0..2 {
+                        plant.relax_shoot(&terrain, 0.05, 1.0, 16.0).unwrap();
+                    }
+                    for old in &frozen {
+                        assert_eq!(plant.nodes.iter().find(|node| node.id == old.id), Some(old));
+                    }
                 }
                 let height = plant
                     .anchors
                     .iter()
                     .map(|a| a.position.y)
                     .fold(0.0, f32::max);
-                assert!(height >= 262.0, "{fixture:?} seed={seed} failed to attach above obstacle: height={height} nodes={} anchors={} tips={:?}", plant.nodes.len(), plant.anchors.len(), plant.tips.iter().map(|t| (plant.nodes[t.node].position, t.arc)).collect::<Vec<_>>());
+                assert!(height >= 262.0, "{fixture:?} seed={seed} clockwise={clockwise} failed to attach above obstacle: height={height} nodes={} anchors={} tips={:?}", plant.nodes.len(), plant.anchors.len(), plant.tips.iter().map(|t| (plant.nodes[t.node].position, t.arc)).collect::<Vec<_>>());
                 let before = plant.clone();
                 assert_eq!(
                     plant.revalidate(&terrain),

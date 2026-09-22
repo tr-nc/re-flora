@@ -11,6 +11,7 @@ use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::DynamicFruitRenderInstance;
 use anyhow::Result;
 use glam::{IVec3, Mat3, Quat, UVec3, Vec3};
+use rand::RngExt;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,9 +26,11 @@ pub(super) struct ClimbingPlants {
     created: bool,
     awaiting_seed: bool,
     fixture: Fixture,
-    last_selection: Option<Fixture>,
+    last_selection: Option<(Fixture, u64, bool)>,
     site: Option<Site>,
     seed: u64,
+    clockwise: bool,
+    randomize_requested: bool,
     pub reset_requested: bool,
     pub focus_requested: bool,
     pub disconnect_root_requested: bool,
@@ -38,6 +41,7 @@ pub(super) struct ClimbingPlants {
     growth_blocked: bool,
     last_action: &'static str,
     growth_clock: QuantumClock,
+    shoot_clock: QuantumClock,
     instances: Vec<DynamicFruitRenderInstance>,
     terrain_dirty: bool,
     last_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
@@ -69,11 +73,12 @@ impl QuantumClock {
 }
 
 impl ClimbingPlants {
-    fn observe_fixture(&mut self, fixture: Fixture) {
+    fn observe_selection(&mut self, fixture: Fixture, seed: u64, clockwise: bool) {
+        let selection = (fixture, seed, clockwise);
         if self
             .last_selection
-            .replace(fixture)
-            .is_some_and(|old| old != fixture)
+            .replace(selection)
+            .is_some_and(|old| old != selection)
         {
             self.reset_requested = true;
         }
@@ -96,7 +101,10 @@ impl ClimbingPlants {
                 self.focus_requested = true;
             }
         });
-        ui.small("Test terrain applies immediately and restarts this vine. It edits a real, grounded patch beside the startup tree.");
+        if ui.button("New random seed").on_hover_text("Choose another saved seed and restart this same grounded test patch. Restart alone repeats the current seed.").clicked() {
+            self.randomize_requested = true;
+        }
+        ui.small("Terrain, seed and winding changes restart immediately. One unbranched vine; only its young shoot bends. Restarts edit this grounded patch beside the startup tree.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
             ui.small(format!(
@@ -112,6 +120,11 @@ impl ClimbingPlants {
         }
         if let Some(plant) = &self.plant {
             let attached = plant.anchors.iter().filter(|a| a.attached).count();
+            let flexible = plant.nodes.iter().filter(|node| !node.fixed).count();
+            ui.small(format!(
+                "Seed {} · {} flexible nodes (lighter green); older stem stays fixed",
+                self.seed, flexible
+            ));
             ui.label(format!(
                 "{} stem nodes · {} tips · {} attachments · {} regrowth buds",
                 plant.nodes.len(),
@@ -308,7 +321,27 @@ impl App {
         } else {
             Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value)
         };
-        self.climbing_plants.observe_fixture(selected_fixture);
+        if std::mem::take(&mut self.climbing_plants.randomize_requested) {
+            let seed = &mut self.debug_settings.adjustables.climbing_seed;
+            let old = seed.value;
+            seed.value = rand::rng().random_range(seed.range.clone());
+            if seed.value == old {
+                seed.value = if old == *seed.range.end() {
+                    *seed.range.start()
+                } else {
+                    old + 1
+                };
+            }
+            self.climbing_plants.reset_requested = true;
+        }
+        let selected_seed = if review {
+            42
+        } else {
+            u64::from(self.debug_settings.adjustables.climbing_seed.value)
+        };
+        let selected_clockwise = review || self.debug_settings.adjustables.climbing_clockwise.value;
+        self.climbing_plants
+            .observe_selection(selected_fixture, selected_seed, selected_clockwise);
         if self.climbing_plants.reset_requested {
             self.debug_settings.adjustables.climbing_enabled.value = true;
         }
@@ -354,13 +387,10 @@ impl App {
                 created: true,
                 awaiting_seed: true,
                 fixture,
-                last_selection: Some(fixture),
+                last_selection: Some((fixture, selected_seed, selected_clockwise)),
                 site: Some(site),
-                seed: if review || self.debug_settings.adjustables.climbing_clockwise.value {
-                    42
-                } else {
-                    43
-                },
+                seed: selected_seed,
+                clockwise: selected_clockwise,
                 focus_requested: true,
                 review: review::Review::for_fixture(review_fixture, site),
                 ..Default::default()
@@ -483,18 +513,22 @@ impl App {
                 && crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
                     == Some(true)
             {
-                self.climbing_plants.plant = Some(Plant::seed(
-                    position,
-                    normal,
-                    cell,
-                    VOXEL_TYPE_LIMESTONE as u8,
-                    self.climbing_plants.seed,
-                ));
+                self.climbing_plants.plant = Some(
+                    Plant::seed(
+                        position,
+                        normal,
+                        cell,
+                        VOXEL_TYPE_LIMESTONE as u8,
+                        self.climbing_plants.seed,
+                    )
+                    .with_clockwise(self.climbing_plants.clockwise),
+                );
                 self.climbing_plants.awaiting_seed = false;
                 self.climbing_plants.terrain_dirty = true;
                 log::info!(
-                    "[CLIMBING] seed={} position={position:?} fixture={} dependencies={}",
+                    "[CLIMBING] seed={} clockwise={} position={position:?} fixture={} dependencies={}",
                     self.climbing_plants.seed,
+                    self.climbing_plants.clockwise,
                     self.climbing_plants.fixture.name(),
                     patch.block.source_dependencies.len()
                 );
@@ -555,6 +589,16 @@ impl App {
                 );
             }
         }
+        let spacing = if review {
+            16.0
+        } else {
+            self.debug_settings.adjustables.climbing_spacing.value
+        };
+        let flexibility = if review {
+            1.0
+        } else {
+            self.debug_settings.adjustables.climbing_flexibility.value
+        };
         let before_nodes = plant.nodes.len();
         let revalidate_end_us = elapsed_us();
         let dt = steps as f32 * tick_seconds;
@@ -568,15 +612,21 @@ impl App {
             )
         };
         for _ in 0..quanta {
-            plant.grow(
-                &patch,
-                self.debug_settings.adjustables.climbing_spacing.value,
-            );
+            plant.grow(&patch, spacing);
         }
         if quanta > 0 {
             self.climbing_plants.growth_blocked = plant.nodes.len() == before_nodes;
         }
         let growth_end_us = elapsed_us();
+        let pose_steps = if review {
+            2
+        } else {
+            self.climbing_plants.shoot_clock.quanta(dt, 20.0, false)
+        };
+        for _ in 0..pose_steps {
+            plant.relax_shoot(&patch, 0.05, flexibility, spacing);
+        }
+        let pose_end_us = elapsed_us();
         if before_nodes / 16 != plant.nodes.len() / 16 {
             log::info!(
                 "[CLIMBING] growth nodes={} attached={} tips={} finite={}",
@@ -605,7 +655,11 @@ impl App {
                     (start + node.position) * 0.5,
                     rotation,
                     Vec3::new(0.9, delta.length(), 0.9),
-                    Vec3::new(0.22, 0.32, 0.07),
+                    if node.fixed {
+                        Vec3::new(0.22, 0.32, 0.07)
+                    } else {
+                        Vec3::new(0.32, 0.52, 0.09)
+                    },
                 ));
                 if id % 3 == 0 {
                     let side = if id % 2 == 0 { -1. } else { 1. };
@@ -668,14 +722,15 @@ impl App {
             };
             let plant = self.climbing_plants.plant.as_ref().unwrap();
             log::info!(
-                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} quanta={quanta} queries={} export_us={export_us} prune_us={} growth_us={} render_us={} total_us={total_us}",
+                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} quanta={quanta} queries={} export_us={export_us} prune_us={} growth_us={} pose_us={} render_us={} total_us={total_us}",
                 self.climbing_plants.review.ticks,
                 plant.nodes.len(),
                 plant.anchors.iter().filter(|a| a.attached).count(),
                 patch.queries.as_ref().map_or(0, Cell::get),
                 revalidate_end_us - export_us,
                 growth_end_us - revalidate_end_us,
-                total_us - growth_end_us,
+                pose_end_us - growth_end_us,
+                total_us - pose_end_us,
             );
         }
         if let Some(transaction) = review_edit {
@@ -734,6 +789,31 @@ mod tests {
                 }
             }
             assert_eq!(total, 12);
+            outcomes.push(plant);
+        }
+        assert_eq!(outcomes[0], outcomes[1]);
+        assert_eq!(outcomes[1], outcomes[2]);
+    }
+
+    #[test]
+    fn young_shoot_keeps_settling_when_growth_is_paused_independent_of_tick_cadence() {
+        let mut outcomes = Vec::new();
+        for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
+            let mut plant = test_plant();
+            for _ in 0..5 {
+                plant.grow(&Wall, 64.0);
+            }
+            let before = plant.clone();
+            let mut growth = QuantumClock::default();
+            let mut shoot = QuantumClock::default();
+            for _ in 0..frames {
+                assert_eq!(growth.quanta(dt, 12.0, true), 0);
+                for _ in 0..shoot.quanta(dt, 20.0, false) {
+                    plant.relax_shoot(&Wall, 0.05, 1.0, 64.0).unwrap();
+                }
+            }
+            assert_eq!(plant.nodes.len(), before.nodes.len());
+            assert_ne!(plant.nodes, before.nodes);
             outcomes.push(plant);
         }
         assert_eq!(outcomes[0], outcomes[1]);
@@ -816,7 +896,7 @@ mod tests {
             plant: Some(test_plant()),
             ..Default::default()
         };
-        for _ in 0..20 {
+        for _ in 0..40 {
             runtime.plant.as_mut().unwrap().grow(&Wall, 16.0);
         }
         let context = egui::Context::default();
@@ -826,6 +906,8 @@ mod tests {
             "restart still requires a confirmation click"
         );
         runtime.reset_requested = false;
+        click(&mut runtime, &context, true, "New random seed");
+        assert!(runtime.randomize_requested);
         click(&mut runtime, &context, false, "Prune highest attachment");
         assert!(!runtime.peel_highest_requested);
         runtime.waiting_for_terrain = true;
@@ -845,19 +927,24 @@ mod tests {
     #[test]
     fn terrain_choice_immediately_requests_one_rebuild_without_reset_or_confirm() {
         let mut runtime = ClimbingPlants::default();
-        runtime.observe_fixture(Fixture::Flat);
+        runtime.observe_selection(Fixture::Flat, 42, true);
         assert!(!runtime.reset_requested);
-        runtime.observe_fixture(Fixture::Hole);
+        runtime.observe_selection(Fixture::Hole, 42, true);
         assert!(
             runtime.reset_requested,
             "changing Test terrain did not apply it"
         );
         runtime.reset_requested = false;
-        runtime.observe_fixture(Fixture::Hole);
+        runtime.observe_selection(Fixture::Hole, 42, true);
         assert!(
             !runtime.reset_requested,
-            "the unchanged dropdown rebuilt the scene again"
+            "unchanged settings rebuilt the scene again"
         );
+        runtime.observe_selection(Fixture::Hole, 43, true);
+        assert!(runtime.reset_requested, "changing the seed did not restart");
+        runtime.reset_requested = false;
+        runtime.observe_selection(Fixture::Hole, 43, false);
+        assert!(runtime.reset_requested, "changing winding did not restart");
     }
 
     #[test]

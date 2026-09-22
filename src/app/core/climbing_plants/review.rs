@@ -3,6 +3,7 @@ use super::{
     wall_edit, Fixture, Plant, Site, Terrain, WorldEditTransaction, VOXEL_TYPE_EMPTY,
     VOXEL_TYPE_LIMESTONE,
 };
+use crate::climbing_plants::Node;
 use anyhow::{ensure, Result};
 use glam::UVec3;
 
@@ -27,6 +28,9 @@ pub(super) struct Review {
     stump: Option<Plant>,
     hole: Option<(UVec3, UVec3)>,
     pub ticks: u32,
+    previous_nodes: Vec<Node>,
+    moving_samples: u32,
+    max_young_motion: f32,
 }
 impl Review {
     pub fn for_fixture(fixture: Option<Fixture>, site: Site) -> Self {
@@ -54,11 +58,45 @@ impl Review {
             Phase::Done => "done",
         }
     }
+    fn observe_shoot(&mut self, plant: &Plant) -> Result<()> {
+        ensure!(plant.tips.len() == 1, "normal growth created a branch");
+        let mut current = plant.nodes.iter().peekable();
+        let mut moved = false;
+        for old in &self.previous_nodes {
+            while current.peek().is_some_and(|node| node.id < old.id) {
+                current.next();
+            }
+            if let Some(node) = current.peek().filter(|node| node.id == old.id) {
+                if old.fixed {
+                    ensure!(
+                        node.position == old.position && node.rest_length == old.rest_length,
+                        "young-shoot deformation moved established stem history"
+                    );
+                } else {
+                    let distance = node.position.distance(old.position);
+                    self.max_young_motion = self.max_young_motion.max(distance);
+                    moved |= distance > 0.001;
+                }
+            }
+        }
+        self.moving_samples += u32::from(moved);
+        self.previous_nodes.clone_from(&plant.nodes);
+        Ok(())
+    }
+    fn verify_shoot(&self) -> Result<()> {
+        ensure!(
+            self.moving_samples > 0 && self.max_young_motion > 0.05,
+            "young shoot never visibly changed its existing geometry"
+        );
+        log::info!("[CLIMBING][REVIEW] young_shoot_moved=true frozen_history_stable=true single_tip=true moving_samples={} max_young_motion={:.4}", self.moving_samples, self.max_young_motion);
+        Ok(())
+    }
     pub fn advance(
         &mut self,
         plant: &Plant,
         terrain: &impl Terrain,
     ) -> Result<Option<WorldEditTransaction>> {
+        self.observe_shoot(plant)?;
         if let Some(fixture) = self.fixture {
             if matches!(self.phase, Phase::Done) {
                 return Ok(None);
@@ -90,16 +128,16 @@ impl Review {
                         .all(|a| terrain.voxel(a.cell) == Some(a.material)),
                     "attachment not backed by authoritative terrain"
                 );
+                self.verify_shoot()?;
                 log::info!("[CLIMBING][REVIEW] fixture={} verified=true collision_clear=true attached_height={height:.3} nodes={} anchors={}", fixture.name(), plant.nodes.len(), plant.anchors.len());
                 self.phase = Phase::Done;
             }
             return Ok(None);
         }
         match self.phase {
-            Phase::Grow if plant.nodes.len() >= 100 => {
-                // Cut below the first fork: all downstream branches must disappear,
-                // despite their still-valid upper attachments. Other-branch isolation
-                // is covered independently in the core tests.
+            Phase::Grow if plant.nodes.len() >= 64 && plant.anchors.len() >= 3 => {
+                // The single shoot's upper attachments must not preserve disconnected
+                // growth. Explicit-tree isolation remains covered in core tests.
                 let c = plant.anchors[1].cell.as_uvec3();
                 let min = c - UVec3::new(4, 4, 3);
                 let max = c + UVec3::new(5, 5, 1);
@@ -210,6 +248,7 @@ impl Review {
                     plant.nodes.starts_with(&self.stump.as_ref().unwrap().nodes),
                     "root repair moved the root"
                 );
+                self.verify_shoot()?;
                 log::info!("[CLIMBING][REVIEW] verified prune=true wait=true regrow=true root_recovery=true finite={} nodes={}", plant.nodes.iter().all(|n| n.position.is_finite()), plant.nodes.len());
                 self.phase = Phase::Done;
             }
