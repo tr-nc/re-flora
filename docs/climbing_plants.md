@@ -82,6 +82,11 @@ Require both `[CLIMBING][REVIEW] verified ...` and `root_cut=true ...`, plus cle
   A full distance/contact sweep that leaves every movable position exactly unchanged
   ends iteration early; the 128/512 caps and all final collision/length checks remain.
   This is fixed-point termination, not relaxed tolerances or a new dynamics model.
+  Normal playback advances these settling quanta at a fixed 20 Hz in world simulation
+  time, preserving the original default 50-ms behavior when World Tick Time is changed.
+  Growth has its own clock; pausing growth does not pause settling. Catch-up is bounded
+  to eight quanta without accumulating an unbounded debt. The deterministic review
+  deliberately retains one growth/settling quantum per ready frame for matched workloads.
   Tests compare exact state against the full-budget solver during growth, release,
   detachment and refill recovery.
 - Newly inserted terrain gets bounded outward recovery using the vine's known

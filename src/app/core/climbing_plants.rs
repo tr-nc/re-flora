@@ -30,7 +30,8 @@ pub(super) struct ClimbingPlants {
     waiting_for_terrain: bool,
     growth_blocked: bool,
     last_action: &'static str,
-    growth_clock: GrowthClock,
+    growth_clock: QuantumClock,
+    physics_clock: QuantumClock,
     instances: Vec<DynamicFruitRenderInstance>,
     anchor_chunks: HashMap<UVec3, Vec<usize>>,
     dirty_anchors: HashSet<usize>,
@@ -48,19 +49,31 @@ pub(super) struct ClimbingPlants {
     refill_cell: Option<UVec3>,
 }
 #[derive(Default)]
-struct GrowthClock {
-    accumulator: f32,
+struct QuantumClock {
+    accumulator: f64,
 }
-impl GrowthClock {
+impl QuantumClock {
+    fn physics_steps(&mut self, world_steps: u32, tick_seconds: f32) -> u32 {
+        // The quasi-static solver's 0.08-voxel displacement is calibrated at the
+        // original 50-ms world tick. Keep that quantum fixed when world cadence changes.
+        self.quanta(world_steps as f32 * tick_seconds, 20.0, false)
+    }
+
     fn quanta(&mut self, dt: f32, speed: f32, paused: bool) -> u32 {
         if paused {
             // No queued growth burst on resume; gravity is deliberately independent.
             self.accumulator = 0.0;
             return 0;
         }
-        self.accumulator += dt * speed;
-        let quanta = self.accumulator.floor().min(8.0) as u32;
-        self.accumulator -= quanta as f32;
+        if !dt.is_finite() || !speed.is_finite() || dt <= 0.0 || speed <= 0.0 {
+            return 0;
+        }
+        // Bound catch-up work rather than retaining an ever-growing simulation debt.
+        self.accumulator = (self.accumulator + f64::from(dt) * f64::from(speed)).min(8.0);
+        // Input tick durations are f32: tolerate their sub-micro-quantum roundoff
+        // at integer boundaries so 5 x 10 ms and 1 x 50 ms emit the same step.
+        let quanta = (self.accumulator + 1e-6).floor() as u32;
+        self.accumulator = (self.accumulator - f64::from(quanta)).max(0.0);
         quanta
     }
 }
@@ -534,7 +547,14 @@ impl App {
             self.climbing_plants.growth_blocked = plant.nodes.len() == before_nodes;
         }
         let growth_end_us = elapsed_us();
-        for _ in 0..if review { 1 } else { steps.min(8) } {
+        let physics_steps = if review {
+            1
+        } else {
+            self.climbing_plants
+                .physics_clock
+                .physics_steps(steps, tick_seconds)
+        };
+        for _ in 0..physics_steps {
             plant.relax(&patch);
         }
         let relax_end_us = elapsed_us();
@@ -699,7 +719,7 @@ impl App {
                 self.climbing_plants.review_ticks,
                 plant.nodes.len(),
                 plant.anchors.iter().filter(|a| a.attached).count(),
-                if review { 1 } else { steps.min(8) },
+                physics_steps,
                 patch.queries.as_ref().map_or(0, Cell::get),
                 revalidate_end_us - export_us,
                 growth_end_us - revalidate_end_us,
@@ -774,8 +794,60 @@ mod tests {
     use crate::builder::test_cpu_voxel_source_snapshot;
 
     #[test]
+    fn settling_speed_is_independent_of_world_tick_cadence() {
+        struct Air;
+        impl Terrain for Air {
+            fn voxel(&self, _: IVec3) -> Option<u8> {
+                Some(0)
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut outcomes = Vec::new();
+        for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
+            let mut plant = Plant::seed(Vec3::new(20.5, 4.5, 1.8), Vec3::Z, IVec3::ZERO, 1, 42);
+            plant.disconnect_root();
+            plant.release_all_anchors();
+            let mut clock = QuantumClock::default();
+            let mut total = 0;
+            for _ in 0..frames {
+                let steps = clock.physics_steps(1, dt);
+                total += steps;
+                for _ in 0..steps {
+                    plant.relax(&Air);
+                }
+            }
+            assert_eq!(
+                total, 20,
+                "one second at dt={dt} must simulate 20 identical settling steps"
+            );
+            outcomes.push(plant);
+        }
+        assert_eq!(outcomes[0], outcomes[1]);
+        assert_eq!(outcomes[1], outcomes[2]);
+    }
+
+    #[test]
+    fn quantum_clocks_bound_catch_up_and_hold_while_world_time_is_paused() {
+        let mut clock = QuantumClock::default();
+        assert_eq!(clock.quanta(100.0, 40.0, false), 8);
+        assert_eq!(clock.quanta(0.0, 40.0, false), 0);
+        assert_eq!(clock.quanta(0.01, 40.0, false), 0);
+        assert_eq!(clock.quanta(0.01, 40.0, false), 0);
+        assert_eq!(clock.quanta(0.01, 40.0, false), 1);
+        for dt in [f32::NAN, f32::INFINITY, -1.0] {
+            assert_eq!(clock.quanta(dt, 40.0, false), 0);
+        }
+        let mut physics = QuantumClock::default();
+        assert_eq!(physics.physics_steps(1, 0.025), 0);
+        assert_eq!(physics.physics_steps(0, 0.1), 0);
+        assert_eq!(physics.physics_steps(1, 0.025), 1);
+    }
+
+    #[test]
     fn pausing_growth_preserves_the_speed_without_a_resume_burst() {
-        let mut clock = GrowthClock::default();
+        let mut clock = QuantumClock::default();
         assert_eq!(clock.quanta(0.05, 12.0, false), 0);
         assert_eq!(clock.quanta(2.0, 12.0, true), 0);
         assert_eq!(clock.quanta(0.05, 12.0, false), 0);
