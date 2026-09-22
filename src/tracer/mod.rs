@@ -6413,7 +6413,8 @@ impl Tracer {
         )?;
         let [fallback, transition, reliable] = mesh.confidence_counts();
         log::info!(
-            "[TREE][NORMAL_CONFIDENCE] fallback={fallback} transition={transition} reliable={reliable}"
+            "[TREE][NORMAL_CONFIDENCE] fallback={fallback} transition={transition} reliable={reliable} single_voxel_cross_sections={} rest_fingerprint={:016x}",
+            mesh.single_voxel_cross_sections(), mesh.rest_fingerprint()
         );
         if !self.raster_trees.skin.bindings.is_empty() {
             self.resources

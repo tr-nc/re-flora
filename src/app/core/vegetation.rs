@@ -500,6 +500,10 @@ impl TreePlacementService {
 
         let (radius_min, radius_max, length_min, length_max, short_count, steep_count) =
             analyze_round_cones(&round_cones);
+        log::info!("[TREE][THIN_WOOD] preserve={} cull={} radius_min={radius_min:.6} subminimum_cones={} subhalf_voxel_cones={}",
+            tree_desc.preserve_thin_branches, tree_desc.cull_thin_branches,
+            round_cones.iter().filter(|c| c.radius_a().min(c.radius_b()) < TREE_MIN_TRUNK_THICKNESS).count(),
+            round_cones.iter().filter(|c| c.radius_a().min(c.radius_b()) < 0.5).count());
 
         let leaves_data_sequential = (0..round_cones.len()).map(|i| i as u32).collect::<Vec<_>>();
         let aabbs = round_cones.iter().map(RoundCone::aabb).collect::<Vec<_>>();

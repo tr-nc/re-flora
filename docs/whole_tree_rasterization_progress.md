@@ -9,6 +9,23 @@
 不改变几何、风动、叶片或地形外观。实现、截图入口和验证记录见
 [`tree_hybrid_lighting.md`](tree_hybrid_lighting.md)。这是视觉候选，不是新的性能验收结论。
 
+### 补齐真正细枝的验证缺口
+
+前一轮 hybrid 截图仍使用最小半径保护，不能作为真正细枝的证据。新增独立保存开关
+`Flora → Tree → Preserve authored thin branches (no minimum radius)`，默认关闭；开启后同时绕过
+初始/细分半径钳制和细枝裁剪，保留原 cull 偏好但禁用其控件。灯光 A/B 两边必须保持此开关开启。
+
+本轮真实最小半径 **0.251419 voxel**，1259 个圆锥小于半体素；实际发布的单体素截面从
+18 增至 **758**，零置信度体素从 2 增至 **757**。A/B 静止网格及法线指纹一致
+`3b2acee649ea12b2`；smoke 经挖掘、生长、删除/重建后关闭开关，恢复原保护网格指纹。
+
+fmt/check、1068 main + 4 library 测试（2 ignored）、6 项截图脚本测试、5 项基准辅助测试通过；
+release hidden/mute 默认运行、160 帧完整 smoke + resize 通过。白天、风动、夜晚共 12 张实际截图
+位于 `target/tree-thin-{visual,wind,night}/`，含 `thin-geometry.json` 证据。细枝明暗跳变减弱，
+树冠也明显更平、更亮；主干仍有体积感。**极细枝采样断点在 A/B 都存在，光照没有修复或掩盖覆盖率。**
+配置已恢复，无生成源文件变化；细枝/密林性能和视觉接受仍单独确认，不沿用旧保护几何的性能结论。
+详细初次失败与最终验证记录见 [`tree_hybrid_lighting.md`](tree_hybrid_lighting.md)。
+
 ## 当前状态：仅保留平滑风动，移除轴对齐实验
 
 用户近景体验后明确放弃每块刚性平移、保持世界轴对齐的方案：相邻木块错位产生的裂缝/重叠细节不符合期待。现在只有原体素/光栅路径开关 `Raster whole trees`，以及 `Animate raster trees with wind`。同时开启就是原先第三项关闭的平滑蒙皮模式；默认值与材质风格不变。

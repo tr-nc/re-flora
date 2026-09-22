@@ -8,6 +8,9 @@ pub(super) struct RasterTreeSmoke {
     frame: u32,
     initial_draws: u64,
     light: Option<LightId>,
+    guarded_fingerprint: u64,
+    guarded_single_voxel_cells: usize,
+    thin_fingerprint: u64,
 }
 impl RasterTreeSmoke {
     pub(super) fn new() -> Self {
@@ -15,6 +18,9 @@ impl RasterTreeSmoke {
             frame: 0,
             initial_draws: 0,
             light: None,
+            guarded_fingerprint: 0,
+            guarded_single_voxel_cells: 0,
+            thin_fingerprint: 0,
         }
     }
     pub(super) fn run_next(app: &mut App) -> bool {
@@ -70,7 +76,7 @@ impl RasterTreeSmoke {
                 app.debug_settings
                     .adjustables
                     .raster_tree_hybrid_lighting
-                    .value = self.frame == 50;
+                    .value = false;
                 self.initial_draws = app.tracer.raster_trees.color_draws;
                 app.debug_settings.adjustables.raster_tree_static.value = true;
             }
@@ -85,6 +91,32 @@ impl RasterTreeSmoke {
                         .raster_tree_hybrid_lighting
                         .value,
                 )?;
+                if self.frame == 20 {
+                    self.guarded_fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
+                    self.guarded_single_voxel_cells = app
+                        .tracer
+                        .raster_trees
+                        .rest_mesh
+                        .single_voxel_cross_sections();
+                }
+                if self.frame == 60 {
+                    let mesh = &app.tracer.raster_trees.rest_mesh;
+                    self.thin_fingerprint = mesh.rest_fingerprint();
+                    ensure!(
+                        self.thin_fingerprint != self.guarded_fingerprint,
+                        "thin geometry did not replace guarded tree"
+                    );
+                    ensure!(
+                        mesh.single_voxel_cross_sections() > self.guarded_single_voxel_cells,
+                        "fixture must actually publish additional one-voxel cross sections"
+                    );
+                    ensure!(
+                        mesh.confidence_counts()[0] > 0,
+                        "fixture has no degenerate normals"
+                    );
+                    log::info!("[TREE][THIN_WOOD_SMOKE] original_lighting=true single_voxel_cross_sections={} guarded={} rest_fingerprint={:016x}",
+                        mesh.single_voxel_cross_sections(), self.guarded_single_voxel_cells, self.thin_fingerprint);
+                }
                 if self.frame >= 60 {
                     ensure!(
                         app.tracer.raster_trees.posed_surface.is_some(),
@@ -114,8 +146,15 @@ impl RasterTreeSmoke {
                     !app.tracer.raster_trees.enabled,
                     "A did not restore voxel rendering"
                 );
+                app.debug_settings.tree.desc.preserve_thin_branches = true;
+                // Keep culling checked to exercise the explicit override, not just inflation.
+                app.replace_single_tree(app.debug_settings.tree.desc.clone(), app.debug_tree_pos)?;
             }
             61 => {
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_hybrid_lighting
+                    .value = true;
                 app.debug_settings.adjustables.tree_stiffness.value = 0.;
             }
             80 => {
@@ -148,6 +187,12 @@ impl RasterTreeSmoke {
                 app.debug_settings.adjustables.raster_tree_wind.value = true;
             }
             65 => {
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.thin_fingerprint,
+                    "lighting A/B changed thin geometry"
+                );
+                app.tracer.validate_gpu_tree_lighting(true)?;
+                log::info!("[TREE][THIN_WOOD_SMOKE] hybrid_lighting=true same_geometry=true rest_fingerprint={:016x}", self.thin_fingerprint);
                 app.tracer.validate_gpu_tree_surface()?;
                 app.validate_tree_surface_queries()?;
             }
@@ -184,7 +229,20 @@ impl RasterTreeSmoke {
                 app.tracer.validate_gpu_tree_lighting(false)?;
             }
             140 => {
-                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true hybrid_lighting_roundtrip=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
+                app.debug_settings.tree.desc.preserve_thin_branches = false;
+                app.replace_single_tree(app.debug_settings.tree.desc.clone(), app.debug_tree_pos)?;
+            }
+            155 => {
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.rest_fingerprint()
+                        == self.guarded_fingerprint,
+                    "disabling authored thin wood did not restore original guarded geometry"
+                );
+                app.tracer.validate_gpu_tree_surface()?;
+                app.tracer.validate_gpu_tree_lighting(false)?;
+            }
+            160 => {
+                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true authored_thin_geometry=true same_geometry_lighting_ab=true guarded_geometry_restored=true hybrid_lighting_roundtrip=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
                 return Ok(true);
             }
             _ => {}

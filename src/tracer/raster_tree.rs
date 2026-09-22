@@ -290,6 +290,32 @@ impl RasterTreeMesh {
         self.cells.len()
     }
 
+    /// Exposed on both sides of at least two axes: actual published one-voxel
+    /// cross sections (including isolated cells), not inferred from cone radii.
+    pub fn single_voxel_cross_sections(&self) -> usize {
+        self.cells
+            .values()
+            .filter(|(_, _, faces)| {
+                faces
+                    .chunks_exact(2)
+                    .filter(|pair| pair[0] && pair[1])
+                    .count()
+                    >= 2
+            })
+            .count()
+    }
+
+    /// Deterministic same-platform A/B identity of the compiled rest mesh,
+    /// including normals/confidence; excludes changing wind pose and lighting.
+    pub fn rest_fingerprint(&self) -> u64 {
+        bytemuck::cast_slice::<_, u8>(&self.vertices)
+            .iter()
+            .chain(bytemuck::cast_slice::<_, u8>(&self.indices))
+            .fold(0xcbf29ce484222325u64, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+            })
+    }
+
     pub fn confidence_counts(&self) -> [usize; 3] {
         let mut counts = [0; 3];
         for &(_, confidence, _) in self.cells.values() {
@@ -616,6 +642,8 @@ mod tests {
         assert_eq!(mesh.indices.len(), 10 * 6);
         assert_eq!(table.iter().filter(|e| e[3] != 0).count(), 2);
         assert_eq!(mesh.confidence_counts(), [2, 0, 0]);
+        assert_eq!(mesh.single_voxel_cross_sections(), 2);
+        assert_eq!(mesh.rest_fingerprint(), mesh.clone().rest_fingerprint());
         for cell in table.iter().filter(|e| e[3] != 0) {
             assert_eq!(((cell[3] >> 17) & 63).count_ones(), 5);
             let center =
@@ -649,6 +677,8 @@ mod tests {
         edited.finish().unwrap();
         assert_eq!(edited.cell_count(), 1);
         assert_eq!(edited.indices.len(), 36);
+        assert_eq!(edited.single_voxel_cross_sections(), 1);
+        assert_ne!(mesh.rest_fingerprint(), edited.rest_fingerprint());
     }
     #[test]
     fn neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface() {

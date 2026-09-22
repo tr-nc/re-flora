@@ -30,6 +30,9 @@ pub struct TreeDesc {
     pub thickness_reduction: f32,
     /// B experiment: omit sub-minimum wood instead of inflating it. Leaves retain their anchors.
     pub cull_thin_branches: bool,
+    /// Preserve authored radii, bypassing both minimum-radius inflation and culling.
+    /// Independent of the lighting A/B so both shaders can see identical thin geometry.
+    pub preserve_thin_branches: bool,
     pub leaves_size_level: u32,
     pub leaf_offset: u32,
     pub leaf_density: f32,
@@ -83,6 +86,7 @@ impl Default for TreeDesc {
             trunk_thickness: 0.40,
             thickness_reduction: 0.61,
             cull_thin_branches: false,
+            preserve_thin_branches: false,
             leaves_size_level: 5,
             leaf_offset: 1,
             leaf_density: 0.055,
@@ -109,6 +113,14 @@ impl Default for TreeDesc {
 }
 
 impl TreeDesc {
+    fn wood_radius(&self, authored: f32) -> f32 {
+        if self.preserve_thin_branches {
+            authored.max(0.)
+        } else {
+            authored.max(TREE_MIN_TRUNK_THICKNESS)
+        }
+    }
+
     /// Returns the authored mature tree shape interpolated toward a small sapling preset.
     ///
     /// The authored description is the exact age-1 endpoint. The mature deterministic skeleton
@@ -255,15 +267,15 @@ impl Tree {
             let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
             let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
             let cone = RoundCone::new(
-                thickness_start.max(TREE_MIN_TRUNK_THICKNESS),
+                desc.wood_radius(thickness_start),
                 segment.start,
-                thickness_end.max(TREE_MIN_TRUNK_THICKNESS),
+                desc.wood_radius(thickness_end),
                 segment.end,
             );
             // subdivision now respects the toggle
             let subdivided_cones =
                 subdivide_trunk_segment(&cone, desc, segment.level, &mut subdivision_rng);
-            if desc.cull_thin_branches {
+            if desc.cull_thin_branches && !desc.preserve_thin_branches {
                 // Always consume the original subdivision RNG, including omitted
                 // segments, so changing this checkbox does not reshuffle the tree.
                 let count = subdivided_cones.len() as f32;
@@ -455,7 +467,8 @@ fn subdivide_trunk_segment(
                 let random_dir_perp = perp1 * random_angle.cos() + perp2 * random_angle.sin();
 
                 // 0 at root, → 1 as radius gets small
-                let radius_ratio = (segment_start_radius / root_radius).clamp(0.0, 1.0);
+                let radius_ratio =
+                    (segment_start_radius / root_radius.max(f32::MIN_POSITIVE)).clamp(0.0, 1.0);
                 let tip_bias = 1.0 - radius_ratio; // 0 at base, 1 at tip-ish
 
                 let displacement_magnitude = segment_start_radius
@@ -468,9 +481,9 @@ fn subdivide_trunk_segment(
         }
 
         subdivided_trunks.push(RoundCone::new(
-            segment_start_radius.max(TREE_MIN_TRUNK_THICKNESS),
+            desc.wood_radius(segment_start_radius),
             current_pos,
-            segment_end_radius.max(TREE_MIN_TRUNK_THICKNESS),
+            desc.wood_radius(segment_end_radius),
             next_pos,
         ));
 
@@ -584,6 +597,100 @@ mod tests {
                 format!("{:?}", original.trunks()),
                 format!("{:?}", Tree::new(desc).trunks())
             );
+        }
+    }
+
+    #[test]
+    fn authored_thin_radii_survive_subdivision_and_override_culling() {
+        for subdivision in [false, true] {
+            for cull in [false, true] {
+                let mut desc = TreeDesc {
+                    size: 20.,
+                    preserve_thin_branches: true,
+                    cull_thin_branches: cull,
+                    enable_subdivision: subdivision,
+                    ..Default::default()
+                };
+                // Include young trees as well as mature sub-voxel twigs.
+                for age in [0., 0.5, 1.] {
+                    let aged = desc.at_age(age);
+                    let tree = Tree::new(aged.clone());
+                    assert!(tree
+                        .trunks()
+                        .iter()
+                        .any(|cone| cone.radius_b() < TREE_MIN_TRUNK_THICKNESS));
+                    for branch in 0..tree.branches().len() {
+                        let cones: Vec<_> = tree
+                            .trunks()
+                            .iter()
+                            .zip(tree.trunk_branch_indices())
+                            .filter_map(|(cone, &id)| (id == branch).then_some(cone))
+                            .collect();
+                        if cones.is_empty() {
+                            continue;
+                        }
+                        let level = tree.branches()[branch].level;
+                        let base = aged.trunk_thickness * aged.size;
+                        assert_eq!(
+                            cones[0].radius_a(),
+                            Tree::thickness_at_level(&aged, base, level)
+                        );
+                        assert_eq!(
+                            cones.last().unwrap().radius_b(),
+                            Tree::thickness_at_level(&aged, base, level + 1)
+                        );
+                        for pair in cones.windows(2) {
+                            assert_eq!(pair[0].radius_b(), pair[1].radius_a());
+                        }
+                        for cone in cones {
+                            assert!(cone.center_a().is_finite() && cone.center_b().is_finite());
+                            assert!(cone.radius_a() >= 0. && cone.radius_b() >= 0.);
+                            assert!(cone.signed_distance(cone.center_a()).is_finite());
+                        }
+                    }
+                }
+                let raw = Tree::new(desc.clone());
+                assert!(raw.trunks().iter().any(|c| c.radius_b() < 0.5));
+                desc.cull_thin_branches = !cull;
+                assert_eq!(
+                    format!("{:?}", raw.trunks()),
+                    format!("{:?}", Tree::new(desc.clone()).trunks())
+                );
+                desc.preserve_thin_branches = false;
+                let guarded = Tree::new(desc.clone());
+                assert_eq!(raw.branches(), guarded.branches());
+                assert_eq!(raw.leaf_branch_indices(), guarded.leaf_branch_indices());
+                assert_eq!(
+                    format!("{:?}", raw.relative_leaf_placements()),
+                    format!("{:?}", guarded.relative_leaf_placements())
+                );
+                assert!(guarded
+                    .trunks()
+                    .iter()
+                    .all(|c| c.radius_a() >= TREE_MIN_TRUNK_THICKNESS
+                        && c.radius_b() >= TREE_MIN_TRUNK_THICKNESS));
+            }
+        }
+    }
+
+    #[test]
+    fn old_tree_descriptions_keep_the_guard_and_zero_radius_does_not_make_nan() {
+        let desc = TreeDesc::default();
+        let mut old = serde_json::to_value(&desc).unwrap();
+        old.as_object_mut()
+            .unwrap()
+            .remove("preserve_thin_branches");
+        assert_eq!(serde_json::from_value::<TreeDesc>(old).unwrap(), desc);
+        let zero = Tree::new(TreeDesc {
+            preserve_thin_branches: true,
+            trunk_thickness: 0.,
+            ..desc
+        });
+        for cone in zero.trunks() {
+            assert_eq!(cone.radius_a(), 0.);
+            assert_eq!(cone.radius_b(), 0.);
+            assert!(cone.center_a().is_finite() && cone.center_b().is_finite());
+            assert!(cone.signed_distance(Vec3::ZERO).is_finite());
         }
     }
 

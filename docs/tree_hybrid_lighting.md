@@ -7,9 +7,67 @@ Enable `Raster whole trees` first. The new saved checkbox defaults off: unchecke
 original wood response; checked blends continuously according to rest-occupancy normal confidence.
 Wind can be enabled or disabled in either mode. No visible window is launched by validation.
 
-This changes wood shading, not tree voxelisation, silhouette, skinning, collisions, editing,
-leaf lighting, terrain shading, or DDGI transport's material model. It cannot recover branches
-that voxelisation omitted or guarantee coverage for subpixel geometry.
+The lighting checkbox changes wood shading, not tree voxelisation, silhouette, skinning,
+collisions, editing, leaf lighting, terrain shading, or DDGI transport's material model.
+It cannot recover branches that voxelisation omitted or guarantee coverage for subpixel geometry.
+
+## Testing genuinely thin branches
+
+**The original captures and performance table below used the guarded tree. They did not prove
+that authored sub-minimum branches worked.** The generator previously either inflated radii to
+1.05 voxel units or clipped/omitted thin branches; turning culling off alone did not remove the guard.
+
+A separate saved checkbox now lives at **Flora → Tree → Preserve authored thin branches
+(no minimum radius)**. It defaults off for old-scene compatibility. Turn it on to bypass **both**
+radius clamps (branch creation and subdivision) and the culling/threshold-clipping path. The old
+culling preference is retained but its control is disabled while overridden. The new field lives
+in `TreeDesc`, so the normal rebuild/save/load/age paths own it, not an App-only override.
+
+Keep this geometry checkbox **on in both A and B**, then use `Hybrid thin-branch lighting` to
+compare shading. Skeleton/leaf attachment identities remain unchanged; thin-branch subdivision
+jitter follows its true radius. Turning the geometry checkbox off restores the old inflate/cull
+policy. Nonnegative radius validation is retained, but there is no positive radius floor in the
+new mode. Extremely small radii can still miss voxel centres, producing sparse or absent voxels;
+this change does not inflate coverage to conceal that sampling limit.
+
+```sh
+cargo build --release
+python3 scripts/check_raster_tree_static.py --hybrid-lighting --thin-branches --output target/tree-thin-visual
+python3 scripts/check_raster_tree_static.py --hybrid-lighting --thin-branches --wind --output target/tree-thin-wind
+```
+
+`--thin-branches` requires lighting A/B. The capture script rejects missing/substitute evidence:
+it checks actual compiled cone radii below 0.5 voxel units, actual published one-voxel cross
+sections, zero-confidence cells, and identical **rest mesh + normal/confidence fingerprints** in
+A/B. Evidence is saved to `thin-geometry.json`; wind poses can evolve differently between runs,
+so the rest fingerprint is not a pixel-equivalence claim. Original configuration files are restored
+on success or failure. The hidden smoke now exercises guarded → true thin → guarded geometry,
+original/hybrid lighting on the same thin mesh, growth, editing, wind, local lights, and resize.
+
+### Unclamped validation results (Apple M4 Pro / MoltenVK)
+
+- `cargo fmt --check`, `cargo check`, and full `cargo test`: 1068 binary + 4 library tests passed,
+  two diagnostics ignored. Python capture tests: 6 passed; benchmark-helper tests: 5 passed.
+- Release hidden/muted default run and 160-frame raster smoke + resize passed, with finite GPU
+  lighting/pose readback and clean final logs (`target/tree-thin-{default,smoke}.log`).
+- Authored minimum radius **0.251419 voxel units**; 1770 cones below the old 1.05 guard, including
+  1259 below 0.5. Actual mesh: **758 one-voxel cross sections**, versus 18 guarded;
+  confidence buckets **[757, 2711, 2107]**, versus guarded [2, 1861, 2090].
+- Original and hybrid thin geometry both fingerprint **`3b2acee649ea12b2`**. Disabling preservation
+  restores guarded fingerprint **`1edac166a8fa02d6`** after editing, growth and replacement.
+- Twelve real captures under `target/tree-thin-{visual,wind,night}/`, each with a verified
+  `thin-geometry.json`. Night used `--time-of-day 0.9`. Inspected daytime A/B wood, B wind
+  wood/canopy, and nighttime A/B wood. Hybrid visibly removes much of the alternating dark/light
+  fine-twig shading and retains trunk volume; it also makes the crown noticeably flatter/brighter.
+  Night does not gain an ambient glow. Sparse/disconnected sub-voxel tips remain in **both** modes:
+  that is voxel-centre sampling, not a lighting fix or a new silhouette difference.
+- The first smoke fixture redundantly rebuilt the initial tree on frame one and hit a DDGI staging
+  owner-publication failure before thin mode was enabled. Fixture setup now happens before initial
+  tree/GI publication; the complete final smoke passes without disabling DDGI or resize. The failed
+  diagnostic is retained locally as `target/tree-thin-smoke-startup-rebuild-failure.log`.
+- GUI and camera configuration restored after captures. No generated source changes.
+  Visual approval and true-thin/forest performance acceptance remain separate; the guarded cost
+  table below must **not** be presented as a true-thin performance result.
 
 ## Confidence
 
