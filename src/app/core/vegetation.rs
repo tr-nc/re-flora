@@ -22,7 +22,7 @@ use crate::flora::species;
 use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
 use crate::particles::{LeafEmitterDesc, ParticleSystem};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
-use crate::tree_gen::{Tree, TreeDesc, TREE_MIN_TRUNK_THICKNESS};
+use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
@@ -500,17 +500,20 @@ impl TreePlacementService {
 
         let (radius_min, radius_max, length_min, length_max, short_count, steep_count) =
             analyze_round_cones(&round_cones);
-        log::info!("[TREE][THIN_WOOD] preserve={} cull={} radius_min={radius_min:.6} subminimum_cones={} subhalf_voxel_cones={}",
-            tree_desc.preserve_thin_branches, tree_desc.cull_thin_branches,
-            round_cones.iter().filter(|c| c.radius_a().min(c.radius_b()) < TREE_MIN_TRUNK_THICKNESS).count(),
-            round_cones.iter().filter(|c| c.radius_a().min(c.radius_b()) < 0.5).count());
+        log::info!(
+            "[TREE][THIN_WOOD] authored=true radius_min={radius_min:.6} subhalf_voxel_cones={}",
+            round_cones
+                .iter()
+                .filter(|c| c.radius_a().min(c.radius_b()) < 0.5)
+                .count()
+        );
 
         let leaves_data_sequential = (0..round_cones.len()).map(|i| i as u32).collect::<Vec<_>>();
         let aabbs = round_cones.iter().map(RoundCone::aabb).collect::<Vec<_>>();
 
         let bvh_nodes = build_bvh(&aabbs, &leaves_data_sequential).unwrap();
         log::info!(
-            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} canopy_generation={} canopy_samples={} canopy_weight={:.3} canopy_min_clearance_voxels={:.3} size={:.3} trunk_thickness={:.3} min_trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
+            "[TREE_DEBUG] compile trunks={} leaf_anchors={} leaf_instances={} canopy_generation={} canopy_samples={} canopy_weight={:.3} canopy_min_clearance_voxels={:.3} size={:.3} trunk_thickness={:.3} thickness_reduction={:.3} iterations={} radius_min={:.3} radius_max={:.3} length_min={:.3} length_max={:.3} short_segments={} radius_delta_gt_length={} bound_min={:?} bound_max={:?}",
             round_cones.len(),
             tree.relative_leaf_positions().len(),
             tree.relative_leaf_placements().len(),
@@ -524,7 +527,6 @@ impl TreePlacementService {
                 .fold(f32::INFINITY, f32::min),
             tree_desc.size,
             tree_desc.trunk_thickness,
-            TREE_MIN_TRUNK_THICKNESS,
             tree_desc.thickness_reduction,
             tree_desc.branching.iterations,
             radius_min,

@@ -32,36 +32,19 @@ def setting(source, name, value):
     return result
 
 
-def tree_setting(source, name, value):
-    pattern = r'(\[tree\.desc\]\n)(.*?)(?=^\[|\Z)'
-
-    def replace(match):
-        body, count = re.subn(rf'^{re.escape(name)} = [^\n]+$', f'{name} = {value}',
-                              match[2], flags=re.MULTILINE)
-        if count != 1:
-            raise ValueError(f'missing tree parameter: {name}')
-        return match[1] + body
-
-    result, count = re.subn(pattern, replace, source, count=1, flags=re.MULTILINE | re.DOTALL)
-    if count != 1:
-        raise ValueError('missing [tree.desc]')
-    return result
-
-
 def thin_geometry_evidence(text):
-    cones = re.findall(r'\[TREE\]\[THIN_WOOD\] preserve=true cull=\w+ radius_min=([\d.]+) '
-                       r'subminimum_cones=(\d+) subhalf_voxel_cones=(\d+)', text)
+    cones = re.findall(r'\[TREE\]\[THIN_WOOD\] (?:authored=true|preserve=true cull=\w+) '
+                       r'radius_min=([\d.]+) (?:subminimum_cones=\d+ )?subhalf_voxel_cones=(\d+)', text)
     meshes = re.findall(r'\[TREE\]\[NORMAL_CONFIDENCE\] fallback=(\d+) transition=(\d+) reliable=(\d+) '
                         r'single_voxel_cross_sections=(\d+) rest_fingerprint=([0-9a-f]+)', text)
     if not cones or not meshes:
         raise ValueError('missing actual thin cone/mesh evidence; rebuild the release binary')
-    radius, subminimum, subhalf = cones[-1]
+    radius, subhalf = cones[-1]
     fallback, transition, reliable, single_voxel, fingerprint = meshes[-1]
-    if not (0.0 <= float(radius) < 0.5 and int(subminimum) > 0 and int(subhalf) > 0
+    if not (0.0 <= float(radius) < 0.5 and int(subhalf) > 0
             and int(fallback) > 0 and int(single_voxel) > 0):
         raise ValueError('scene does not exercise actual thin wood and degenerate voxel normals')
-    return {'minimum_radius_voxels': float(radius), 'subminimum_cones': int(subminimum),
-            'subhalf_voxel_cones': int(subhalf), 'fallback_cells': int(fallback),
+    return {'minimum_radius_voxels': float(radius), 'subhalf_voxel_cones': int(subhalf), 'fallback_cells': int(fallback),
             'transition_cells': int(transition), 'reliable_cells': int(reliable),
             'single_voxel_cross_sections': int(single_voxel), 'rest_fingerprint': fingerprint}
 
@@ -75,7 +58,7 @@ def main():
     parser.add_argument('--hybrid-lighting', action='store_true',
                         help='Keep raster trees in A/B; compare original vs hybrid thin-branch lighting')
     parser.add_argument('--thin-branches', action='store_true',
-                        help='With --hybrid-lighting, preserve authored thin radii in BOTH modes; verify identical meshes')
+                        help='With --hybrid-lighting, verify actual thin radii and identical meshes (authored radii are always preserved)')
     parser.add_argument('--time-of-day', type=float, default=0.47,
                         help='Fixed lighting time for both captures (0..1; default: 0.47)')
     parser.add_argument('--delay', type=float, default=4.0)
@@ -100,8 +83,6 @@ def main():
             source = setting(source, 'time_of_day', str(args.time_of_day))
             source = setting(source, 'path_tracing_reference', 'false')
             source = setting(source, 'raster_tree_wind', str(args.wind).lower())
-            if args.thin_branches:
-                source = tree_setting(source, 'preserve_thin_branches', 'true')
             evidence = {}
             if args.thin_branches:
                 (out / 'thin-geometry.json').unlink(missing_ok=True)

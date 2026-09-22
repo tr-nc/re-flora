@@ -3,8 +3,9 @@
 ## Try-out
 
 `R → Debug → Whole Tree Rasterization → Hybrid thin-branch lighting (B, requires raster trees)`.
-Enable `Raster whole trees` first. The new saved checkbox defaults off: unchecked retains the
-original wood response; checked blends continuously according to rest-occupancy normal confidence.
+Enable `Raster whole trees` first. The saved hybrid-lighting checkbox now defaults on after visual
+approval: unchecked retains the original wood response; checked blends continuously according to
+rest-occupancy normal confidence.
 Wind can be enabled or disabled in either mode. No visible window is launched by validation.
 
 The lighting checkbox changes wood shading, not tree voxelisation, silhouette, skinning,
@@ -17,18 +18,25 @@ It cannot recover branches that voxelisation omitted or guarantee coverage for s
 that authored sub-minimum branches worked.** The generator previously either inflated radii to
 1.05 voxel units or clipped/omitted thin branches; turning culling off alone did not remove the guard.
 
-A separate saved checkbox now lives at **Flora → Tree → Preserve authored thin branches
-(no minimum radius)**. It defaults off for old-scene compatibility. Turn it on to bypass **both**
-radius clamps (branch creation and subdivision) and the culling/threshold-clipping path. The old
-culling preference is retained but its control is disabled while overridden. The new field lives
-in `TreeDesc`, so the normal rebuild/save/load/age paths own it, not an App-only override.
+Authored radii are now unconditional. The minimum-radius inflation and threshold clipping have
+been removed from both branch creation and subdivision. The two Flora → Tree controls for
+preserving/culling thin branches are gone; old `preserve_thin_branches` and `cull_thin_branches`
+configuration keys are accepted but ignored and are no longer saved. `RE_FLORA_THIN_BRANCH_REVIEW`
+was retired along with that geometry A/B. There was no minimum-radius slider: `Trunk Thickness`
+and `Thickness Reduction` remain ordinary authored-shape controls, not lighting safeguards.
 
-Keep this geometry checkbox **on in both A and B**, then use `Hybrid thin-branch lighting` to
-compare shading. Skeleton/leaf attachment identities remain unchanged; thin-branch subdivision
-jitter follows its true radius. Turning the geometry checkbox off restores the old inflate/cull
-policy. Nonnegative radius validation is retained, but there is no positive radius floor in the
-new mode. Extremely small radii can still miss voxel centres, producing sparse or absent voxels;
-this change does not inflate coverage to conceal that sampling limit.
+Use `Hybrid thin-branch lighting` to compare shading on the same authored geometry. Skeleton/leaf
+attachment identities remain unchanged; subdivision jitter follows the true radius. Nonnegative
+radius validation is retained, but there is no positive radius floor. Extremely small radii can
+still miss voxel centres, producing sparse or absent voxels; coverage is not inflated to conceal
+that sampling limit.
+
+The unconditional authored-geometry change passed `cargo fmt --check`, `cargo check`,
+`cargo test` (1066 binary + 4 library; 2 ignored), all 6 capture-helper tests, and Release
+hidden/default plus raster-smoke/resize runs. A/B capture and GPU smoke both retained the
+same thin rest fingerprint `ae11f950c7b738e1`; the smoke observed 758 one-voxel cross sections.
+Evidence: `target/tree-unclamped/`. No generated source changes; saved camera and non-default
+GUI settings were restored. Only the removed geometry keys and approved hybrid-on default changed.
 
 ```sh
 cargo build --release
@@ -36,15 +44,19 @@ python3 scripts/check_raster_tree_static.py --hybrid-lighting --thin-branches --
 python3 scripts/check_raster_tree_static.py --hybrid-lighting --thin-branches --wind --output target/tree-thin-wind
 ```
 
-`--thin-branches` requires lighting A/B. The capture script rejects missing/substitute evidence:
+`--thin-branches` requires lighting A/B and now only requests evidence checks, not a geometry toggle.
+The capture script rejects missing/substitute evidence:
 it checks actual compiled cone radii below 0.5 voxel units, actual published one-voxel cross
 sections, zero-confidence cells, and identical **rest mesh + normal/confidence fingerprints** in
 A/B. Evidence is saved to `thin-geometry.json`; wind poses can evolve differently between runs,
 so the rest fingerprint is not a pixel-equivalence claim. Original configuration files are restored
-on success or failure. The hidden smoke now exercises guarded → true thin → guarded geometry,
-original/hybrid lighting on the same thin mesh, growth, editing, wind, local lights, and resize.
+on success or failure. The hidden smoke exercises authored thin geometry from startup,
+original/hybrid lighting on the same thin mesh, deterministic replacement, growth, editing, wind,
+local lights, and resize.
 
-### Unclamped validation results (Apple M4 Pro / MoltenVK)
+### Historical unclamped validation results (Apple M4 Pro / MoltenVK)
+
+These results predate retirement of the geometry A/B and the later tip-energy correction.
 
 - `cargo fmt --check`, `cargo check`, and full `cargo test`: 1068 binary + 4 library tests passed,
   two diagnostics ignored. Python capture tests: 6 passed; benchmark-helper tests: 5 passed.

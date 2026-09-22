@@ -104,19 +104,6 @@ impl DebugSettings {
             }
             if section_name == "Flora" {
                 ui.collapsing("Tree", |ui| {
-                    let response = saved_controls::SavedControls::new(ui, custom).toggle(
-                        |s| &mut s.tree.desc.preserve_thin_branches, true, false,
-                        "Preserve authored thin branches (no minimum radius)",
-                    ).on_hover_text("On: preserve authored radii, including sub-voxel twigs; bypass both inflation and thin-branch culling. Independent of Hybrid thin-branch lighting, so A/B uses the same geometry. Rebuilds the tuning tree; saved with Save. Sub-voxel geometry can still disappear during voxelisation.");
-                    tree_desc_changed |= response.changed();
-                    let guarded = !custom.tree.desc.preserve_thin_branches;
-                    ui.add_enabled_ui(guarded, |ui| {
-                        let response = saved_controls::SavedControls::new(ui, custom).toggle(
-                            |s| &mut s.tree.desc.cull_thin_branches, true, false,
-                            "B: Hide branches thinner than minimum (A/B)",
-                        ).on_hover_text("Only applies when Preserve authored thin branches is off. Off: inflate thin wood to the existing minimum radius. On: omit thin wood and trim taper crossings at the threshold. Leaf and fruit anchors stay unchanged. Rebuilds the tuning tree; saved with Save.");
-                        tree_desc_changed |= response.changed();
-                    });
                     tree_desc_changed |= edit_tree_desc(
                         ui,
                         &mut custom.tree.desc,
@@ -959,107 +946,6 @@ mod tests {
         let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_generic_values_match(&loaded.config, &settings.adjustables);
         assert_generic_values_match(&loaded.config, &loaded.adjustables);
-    }
-
-    #[test]
-    fn branch_checkbox_requests_rebuild_and_saves_through_the_common_path() {
-        check_branch_checkbox(false);
-    }
-
-    #[test]
-    fn authored_thin_checkbox_requests_rebuild_and_saves_through_the_common_path() {
-        check_branch_checkbox(true);
-    }
-
-    fn check_branch_checkbox(preserve: bool) {
-        let label = if preserve {
-            "Preserve authored thin branches (no minimum radius)"
-        } else {
-            "B: Hide branches thinner than minimum (A/B)"
-        };
-        fn find(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
-            match shape {
-                egui::Shape::Text(t) if t.galley.job.text == label => {
-                    Some(t.pos + egui::vec2(5.0, 6.0))
-                }
-                egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, label)),
-                _ => None,
-            }
-        }
-        let mut settings = DebugSettings::load();
-        settings.tree.desc.cull_thin_branches = false;
-        settings.tree.desc.preserve_thin_branches = false;
-        let context = egui::Context::default();
-        // Exercise real expansion/clicks. `everything_is_visible` also forces
-        // tooltips open, which can cover the neighbouring checkbox's hit target.
-        context.global_style_mut(|style| style.animation_time = 0.);
-        let mut draw = |events, label: &str| {
-            let mut changed = false;
-            let output = context.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::vec2(1400.0, 24000.0),
-                    )),
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    changed = settings.draw(ui, |_, _| {});
-                },
-            );
-            (
-                output.shapes.iter().find_map(|s| find(&s.shape, label)),
-                changed,
-            )
-        };
-        let mut click = |label: &str| {
-            draw(Vec::new(), label);
-            let pos = draw(Vec::new(), label)
-                .0
-                .unwrap_or_else(|| panic!("{label} must be in Debug Panel"));
-            draw(
-                vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed: true,
-                        modifiers: Default::default(),
-                    },
-                ],
-                label,
-            );
-            draw(
-                vec![egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: Default::default(),
-                }],
-                label,
-            )
-            .1
-        };
-        click("Flora");
-        click("Tree");
-        assert!(
-            click(label),
-            "checkbox must request the existing tree rebuild"
-        );
-        if preserve {
-            assert!(
-                !click("B: Hide branches thinner than minimum (A/B)"),
-                "overridden culling control must be disabled"
-            );
-        }
-        assert_eq!(settings.tree.desc.preserve_thin_branches, preserve);
-        assert_eq!(settings.tree.desc.cull_thin_branches, !preserve);
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("gui.toml");
-        settings.save_to_path(&path).unwrap();
-        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert_eq!(loaded.tree.desc, settings.tree.desc);
     }
 
     #[test]

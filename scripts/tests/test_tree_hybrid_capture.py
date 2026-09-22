@@ -32,8 +32,8 @@ class HybridCaptureTests(unittest.TestCase):
                 fingerprint = 'abcd' if changed_mesh and len(observed) == 2 else '1234'
                 kwargs['stdout'].write(
                     '[TREE][RASTER_STATIC] mode=B\nApplication exited successfully\n'
-                    '[TREE][THIN_WOOD] preserve=true cull=true radius_min=0.251385 '
-                    'subminimum_cones=900 subhalf_voxel_cones=200\n'
+                    '[TREE][THIN_WOOD] authored=true radius_min=0.251385 '
+                    'subhalf_voxel_cones=200\n'
                     '[TREE][NORMAL_CONFIDENCE] fallback=100 transition=200 reliable=300 '
                     f'single_voxel_cross_sections=123 rest_fingerprint={fingerprint}\n')
 
@@ -67,9 +67,10 @@ class HybridCaptureTests(unittest.TestCase):
                                             str(index % 2 == 1).lower()), source)
             self.assertEqual(capture.setting(source, 'time_of_day', '0.3'), source)
 
-    def test_thin_geometry_is_enabled_in_both_modes(self):
+    def test_thin_geometry_validation_does_not_restore_retired_settings(self):
         for source in self.run_capture(thin=True):
-            self.assertEqual(capture.tree_setting(source, 'preserve_thin_branches', 'true'), source)
+            self.assertNotIn('preserve_thin_branches', source)
+            self.assertNotIn('cull_thin_branches', source)
 
     def test_changed_ab_geometry_is_rejected_and_configuration_restored(self):
         self.assertEqual(len(self.run_capture(thin=True, changed_mesh=True)), 2)
