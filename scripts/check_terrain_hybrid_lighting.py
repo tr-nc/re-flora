@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Capture ordinary-terrain thin-voxel lighting A/B, or measure Release on/off cost.
+"""Capture permanent thin-terrain lighting or measure repeated Release runs.
 
 Build first: cargo build --release
 Examples:
   python3 scripts/check_terrain_hybrid_lighting.py --output target/terrain-hybrid/visual
   python3 scripts/check_terrain_hybrid_lighting.py --irradiance --output target/terrain-hybrid/light
-  python3 scripts/check_terrain_hybrid_lighting.py --benchmark --output target/terrain-hybrid/perf
-The GPU lock covers GUI changes and runs. Saved configuration is always restored.
+  python3 scripts/check_terrain_hybrid_lighting.py --benchmark --runs 4 --output target/terrain-hybrid/perf
+Captures are named hybrid.png / hybrid.rfirr. Linear captures use uniform rock
+albedo for a self-contained energy check. The GPU lock covers configuration and
+runs; saved configuration is restored. There is no longer an off mode or --order.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from check_raster_tree_static import setting
 
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = ("terrain-hybrid-player", "terrain-hybrid-thin")
+DEFAULT_RUNS = 4
 
 
 @contextmanager
@@ -55,84 +58,83 @@ def validate_capture_log(text: str):
 
 def capture(binary: Path, out: Path, irradiance: bool):
     with fixed_configuration() as (gui, source):
-        for mode in ("A", "B"):
-            gui.write_text(
-                setting(source, "terrain_hybrid_lighting", str(mode == "B").lower())
-            )
-            artifact = out / f"{mode}.{'rfirr' if irradiance else 'png'}"
-            artifact.unlink(missing_ok=True)
-            command = [
-                str(binary),
-                "--hidden",
-                "--mute",
-                "--windowed",
-                "--no-flora",
-                "--no-particles",
-                "--no-clouds",
-                "--no-god-rays",
-                "--no-lens-flare",
-                "--ddgi-debug-view",
-                "final",
-                "--environment-lighting-test-scene",
-                "thin-voxels",
-                "--auto-exit",
-                "7",
+        if irradiance:
+            # All identified receivers are rock. Equal albedo lets the broad
+            # control cancel material/solar color without retaining an old renderer.
+            source = setting(source, "terrain_rock_strength", "0.0")
+        gui.write_text(source)
+        (out / "hybrid.gui.toml").write_bytes(gui.read_bytes())
+        artifact = out / f"hybrid.{'rfirr' if irradiance else 'png'}"
+        artifact.unlink(missing_ok=True)
+        command = [
+            str(binary),
+            "--hidden",
+            "--mute",
+            "--windowed",
+            "--no-flora",
+            "--no-particles",
+            "--no-clouds",
+            "--no-god-rays",
+            "--no-lens-flare",
+            "--ddgi-debug-view",
+            "final",
+            "--environment-lighting-test-scene",
+            "thin-voxels",
+            "--auto-exit",
+            "7",
+        ]
+        # One-shot irradiance capture must not preempt a delayed screenshot.
+        if irradiance:
+            command += [
+                "--environment-irradiance-capture",
+                str(artifact),
+                "--environment-irradiance-capture-target",
+                "published",
             ]
-            # Irradiance capture is a one-shot app mode and exits immediately
-            # on completion, so it must not share a run with a delayed screenshot.
-            if irradiance:
-                command += [
-                    "--environment-irradiance-capture",
-                    str(artifact),
-                    "--environment-irradiance-capture-target",
-                    "published",
-                ]
-            else:
-                command += [
-                    "--screenshot",
-                    "environment-test-scene",
-                    str(artifact),
-                    "--screenshot-delay",
-                    "4",
-                ]
-            perf_suite.write_json(out / f"{mode}-command.json", command)
-            with (out / f"{mode}.log").open("w") as log:
-                subprocess.run(
-                    command,
-                    cwd=ROOT,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    check=True,
-                    timeout=120,
-                )
-            validate_capture_log((out / f"{mode}.log").read_text())
-            if not artifact.is_file():
-                raise RuntimeError(f"{mode}: missing capture output")
-            print(artifact, flush=True)
+        else:
+            command += [
+                "--screenshot",
+                "environment-test-scene",
+                str(artifact),
+                "--screenshot-delay",
+                "4",
+            ]
+        perf_suite.write_json(out / "hybrid-command.json", command)
+        with (out / "hybrid.log").open("w") as log:
+            subprocess.run(
+                command,
+                cwd=ROOT,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=True,
+                timeout=120,
+            )
+        validate_capture_log((out / "hybrid.log").read_text())
+        if not artifact.is_file():
+            raise RuntimeError("missing capture output; inspect hybrid.log")
+        print(artifact, flush=True)
 
 
 def render_extents(text: str) -> dict[str, str]:
     surface = re.findall(r"\[RESIZE\] published[^\n]*?extent=(\d+x\d+)", text)
     scene = re.findall(r"\[GOD_RAY\]\[RESOURCES\] scene=(\d+x\d+)", text)
     if not surface or not scene:
-        raise ValueError("missing actual render extents; cannot validate A/B workload")
+        raise ValueError("missing actual render extents; cannot validate workload")
     return {"surface": surface[-1], "scene": scene[-1]}
 
 
-def benchmark(binary: Path, out: Path, selected: list[str], order: list[str]):
+def benchmark(binary: Path, out: Path, selected: list[str], runs: int):
     config = ROOT / "config/perf_scenarios.toml"
     version, scenarios = perf_suite.load_config(config)
-    comparisons = {}
+    summaries = {}
     with fixed_configuration() as (gui, source):
+        gui.write_text(source)
         for name in selected:
             scenario = scenarios[name]
-            paths = {"A": [], "B": []}
+            paths = []
             expected_extents = None
-            for index, mode in enumerate(order):
-                gui.write_text(
-                    setting(source, "terrain_hybrid_lighting", str(mode == "B").lower())
-                )
-                stem = out / f"{name}-{index}-{mode}"
+            for index in range(runs):
+                stem = out / f"{name}-{index}-hybrid"
                 stem.with_suffix(".gui.toml").write_bytes(gui.read_bytes())
                 command, text = perf_suite.run_binary(
                     root=ROOT,
@@ -146,7 +148,7 @@ def benchmark(binary: Path, out: Path, selected: list[str], order: list[str]):
                     config_path=config,
                     config_version=version,
                     scenario=scenario,
-                    label=mode,
+                    label="hybrid",
                     binary=binary,
                     command=command,
                     log_path=stem.with_suffix(".log"),
@@ -155,35 +157,24 @@ def benchmark(binary: Path, out: Path, selected: list[str], order: list[str]):
                 extents = render_extents(text)
                 if expected_extents is not None and extents != expected_extents:
                     raise ValueError(
-                        "A/B render resolution changed; rerun with stable window/monitor settings"
+                        "render resolution changed; rerun with stable window/monitor settings"
                     )
                 expected_extents = extents
                 report["environment"]["render_extents"] = extents
                 path = stem.with_suffix(".json")
                 perf_suite.write_json(path, report)
                 perf_suite.print_report(report)
-                paths[mode].append(path)
-            perf_suite.validate_comparable(paths["A"], paths["B"])
-            rows = {}
-            for metric in scenario.metrics:
-                a = perf_suite.summarize(
-                    perf_suite.combined_metric(paths["A"], metric.name)
+                paths.append(path)
+            if len(paths) > 1:
+                perf_suite.validate_comparable(paths[:1], paths[1:])
+            summaries[name] = {
+                metric.name: asdict(
+                    perf_suite.summarize(perf_suite.combined_metric(paths, metric.name))
                 )
-                b = perf_suite.summarize(
-                    perf_suite.combined_metric(paths["B"], metric.name)
-                )
-                rows[metric.name] = {
-                    "A": asdict(a),
-                    "B": asdict(b),
-                    "median_delta_us": b.median_us - a.median_us,
-                    "median_delta_percent": perf_suite.percent_delta(
-                        a.median_us, b.median_us
-                    ),
-                    "p95_delta_percent": perf_suite.percent_delta(a.p95_us, b.p95_us),
-                }
-            comparisons[name] = rows
-            perf_suite.write_json(out / "comparison.json", comparisons)
-    print(out / "comparison.json", flush=True)
+                for metric in scenario.metrics
+            }
+            perf_suite.write_json(out / "summary.json", summaries)
+    print(out / "summary.json", flush=True)
 
 
 def main() -> int:
@@ -202,12 +193,12 @@ def main() -> int:
     parser.add_argument(
         "--benchmark",
         action="store_true",
-        help="Measure cost instead of taking visual captures",
+        help="Measure repeated runs instead of taking captures",
     )
     parser.add_argument(
         "--irradiance",
         action="store_true",
-        help="Capture linear lighting planes instead of PNGs (not for benchmark runs)",
+        help="Capture linear lighting planes instead of PNGs (not with --benchmark)",
     )
     parser.add_argument(
         "--scenario",
@@ -216,26 +207,32 @@ def main() -> int:
         help="Benchmark only this scenario; default: both",
     )
     parser.add_argument(
-        "--order",
-        default="A,B,B,A",
-        help="Benchmark order; A=off, B=on (default: A,B,B,A)",
+        "--runs",
+        type=int,
+        help=f"Repetitions; requires --benchmark (default: {DEFAULT_RUNS})",
+    )
+    parser.add_argument(
+        "--order", help="Removed: use --benchmark --runs N, not the retired A/B order"
     )
     args = parser.parse_args()
-    if args.irradiance and args.benchmark:
-        parser.error("--irradiance is for visual captures, not benchmark runs")
-    if args.scenario and not args.benchmark:
-        parser.error("--scenario requires --benchmark")
-    order = args.order.split(",")
-    if set(order) != {"A", "B"}:
+    if args.order is not None:
         parser.error(
-            "--order must contain both A and B, separated by commas (example: A,B,B,A)"
+            "terrain hybrid lighting is permanent; --order was removed. Use --benchmark --runs 4 for repeated measurements"
         )
+    if args.irradiance and args.benchmark:
+        parser.error("--irradiance is for captures, not benchmark runs")
+    if (args.scenario or args.runs is not None) and not args.benchmark:
+        parser.error("--scenario and --runs require --benchmark")
+    if args.runs is not None and args.runs < 1:
+        parser.error("--runs must be positive; example: --benchmark --runs 4")
     binary, out = args.binary.resolve(), args.output.resolve()
     if not binary.is_file():
         parser.error("Release binary missing; run cargo build --release first")
     out.mkdir(parents=True, exist_ok=True)
     if args.benchmark:
-        benchmark(binary, out, args.scenario or list(SCENARIOS), order)
+        benchmark(
+            binary, out, args.scenario or list(SCENARIOS), args.runs or DEFAULT_RUNS
+        )
     else:
         capture(binary, out, args.irradiance)
     return 0

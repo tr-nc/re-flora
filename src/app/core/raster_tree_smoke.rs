@@ -36,9 +36,6 @@ impl RasterTreeSmoke {
         match self.frame {
             1 | 30 => {
                 app.debug_settings.adjustables.raster_tree_static.value = false;
-                // Exercise ordinary terrain/tree consumers with the same live GUI
-                // field too, including the A raster interval after frame 30.
-                app.debug_settings.adjustables.terrain_hybrid_lighting.value = self.frame == 30;
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
                 app.debug_settings
                     .adjustables
@@ -59,7 +56,6 @@ impl RasterTreeSmoke {
                     )),
                 );
                 log::info!("[TREE][HYBRID_LIGHTING] added point-light fixture");
-                app.debug_settings.adjustables.terrain_hybrid_lighting.value = true;
                 app.debug_settings
                     .adjustables
                     .raster_tree_hybrid_lighting
@@ -158,7 +154,6 @@ impl RasterTreeSmoke {
                         .expect("live tree-lighting smoke fixture");
                 }
                 log::info!("[TREE][HYBRID_LIGHTING] removed point-light fixture");
-                app.debug_settings.adjustables.terrain_hybrid_lighting.value = false;
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
                 app.debug_settings
                     .adjustables
@@ -232,7 +227,7 @@ impl RasterTreeSmoke {
                 app.tracer.validate_gpu_tree_lighting(false)?;
             }
             160 => {
-                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true authored_thin_geometry=true same_geometry_lighting_ab=true authored_geometry_restored=true hybrid_lighting_roundtrip=true terrain_hybrid_roundtrip=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
+                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true authored_thin_geometry=true same_geometry_lighting_ab=true authored_geometry_restored=true hybrid_lighting_roundtrip=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
                 return Ok(true);
             }
             _ => {}

@@ -7,7 +7,6 @@ public struct U_GuiInput
     public uint raster_flora_ddgi_lighting;
     public uint raster_tree_static;
     public uint raster_tree_hybrid_lighting;
-    public uint terrain_hybrid_lighting;
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;
     public float3 path_tracing_ambient_light;

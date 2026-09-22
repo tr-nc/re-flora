@@ -269,7 +269,6 @@ impl BufferUpdater {
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,
             raster_tree_hybrid_lighting: vegetation.tree_hybrid_lighting as u32,
-            terrain_hybrid_lighting: terrain.hybrid_lighting as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),

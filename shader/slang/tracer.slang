@@ -646,8 +646,9 @@ void getPixelColor(out float3 color, out float depth,
         return;
     }
     uint exposedFaces = voxelExposedFacesFromData(result.surface_data);
-    float normalConfidence = gui_input.terrain_hybrid_lighting != 0u &&
-        shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL && exposedFaces != 0u
+    // Published geometry confidence always selects the normal terrain response.
+    // Reference/debug views and hits without surface metadata stay independent.
+    float normalConfidence = shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL && exposedFaces != 0u
         ? voxelNormalConfidenceFromData(result.surface_data) : 1.0;
     if (normalConfidence > 0.0 && (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
         shading_info.environment_irradiance_capture_enabled != 0u))

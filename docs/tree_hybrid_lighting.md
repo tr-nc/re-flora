@@ -155,7 +155,8 @@ geometry and is invariant under camera movement and wind. The estimator does not
 branch radius or material identity. Ordinary terrain now adopts this policy through
 `occupancy_normal.slang`; thresholds have one source in `surface_normal_policy.slang`, with
 Rust constants generated at build time. See [terrain hybrid lighting](terrain_hybrid_lighting.md)
-for its separate default-off A/B, packed metadata, captures and Release cost measurements.
+for its now-permanent terrain policy, packed metadata, captures and accepted Release cost
+measurements. The terrain adoption does not remove the independent raster-tree diagnostics.
 
 ## Lighting and geometry
 

@@ -79,6 +79,7 @@ impl GuiConfigLoader {
                     param.id.as_str(),
                     "raster_tree_axis_aligned"
                         | "terrain_missing_lighting_strength"
+                        | "terrain_hybrid_lighting"
                         | "terrain_soil_scale_voxels"
                         | "terrain_rock_scale_voxels"
                         | "terrain_rock_layer_tilt"
@@ -892,9 +893,11 @@ mod tests {
     }
 
     #[test]
-    fn retired_tree_block_switch_is_removed_without_changing_other_settings() {
+    fn retired_render_switches_are_removed_without_changing_other_settings() {
         use crate::app::gui_config_model::GuiParamValue;
-        for enabled in [false, true] {
+        for (enabled, retired_id) in [false, true].into_iter().flat_map(|enabled| {
+            ["raster_tree_axis_aligned", "terrain_hybrid_lighting"].map(|id| (enabled, id))
+        }) {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
             let debug = config
@@ -913,7 +916,7 @@ mod tests {
                 .find(|p| p.id == "raster_tree_wind")
                 .unwrap()
                 .clone();
-            retired.id = "raster_tree_axis_aligned".into();
+            retired.id = retired_id.into();
             retired.value = GuiParamValue::Bool { value: enabled };
             let expected = toml::to_string(&config).unwrap();
             config
@@ -929,9 +932,7 @@ mod tests {
             let migrated = GuiConfigLoader::load_from_path(&path);
             assert_eq!(toml::to_string(&migrated).unwrap(), expected);
             GuiConfigLoader::save_to_path(&migrated, &path).unwrap();
-            assert!(!std::fs::read_to_string(&path)
-                .unwrap()
-                .contains("raster_tree_axis_aligned"));
+            assert!(!std::fs::read_to_string(&path).unwrap().contains(retired_id));
             assert_eq!(
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
                 expected

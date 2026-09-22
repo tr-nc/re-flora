@@ -43,6 +43,7 @@ class TerrainHybridCaptureTests(unittest.TestCase):
 
             with (
                 patch.object(capture, "ROOT", root),
+                patch.object(capture.fcntl, "flock"),
                 patch.object(capture.subprocess, "run", side_effect=run),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
@@ -54,21 +55,35 @@ class TerrainHybridCaptureTests(unittest.TestCase):
             self.assertEqual(gui.read_bytes(), original)
         return observed
 
-    def test_only_b_enables_terrain_lighting_and_configuration_is_restored(self):
+    def test_single_capture_needs_no_switch_and_restores_configuration(self):
         observed = self.run_capture()
-        self.assertEqual(len(observed), 2)
-        for index, source in enumerate(observed):
-            self.assertEqual(
-                setting(source, "terrain_hybrid_lighting", str(index == 1).lower()),
-                source,
-            )
-            self.assertEqual(setting(source, "path_tracing_reference", "false"), source)
-        self.assertEqual(
-            setting(observed[0], "terrain_hybrid_lighting", "true"), observed[1]
-        )
+        self.assertEqual(len(observed), 1)
+        source = observed[0]
+        self.assertNotIn('id = "terrain_hybrid_lighting"', source)
+        self.assertEqual(setting(source, "path_tracing_reference", "false"), source)
+
+    def test_linear_capture_uses_uniform_rock_for_the_control_ratio(self):
+        source = self.run_capture(irradiance=True)[0]
+        self.assertEqual(setting(source, "terrain_rock_strength", "0.0"), source)
+
+    def test_retired_order_and_invalid_repeat_counts_have_recovery_guidance(self):
+        for args, message in [
+            (["--order", "A,B"], "--order was removed"),
+            (["--benchmark", "--runs", "0"], "--runs must be positive"),
+            (["--runs", "2"], "require --benchmark"),
+        ]:
+            errors = io.StringIO()
+            with (
+                patch.object(sys, "argv", ["capture", *args]),
+                contextlib.redirect_stderr(errors),
+                self.assertRaises(SystemExit) as exit,
+            ):
+                capture.main()
+            self.assertEqual(exit.exception.code, 2)
+            self.assertIn(message, errors.getvalue())
 
     def test_one_shot_irradiance_does_not_preempt_a_delayed_screenshot(self):
-        self.assertEqual(len(self.run_capture(irradiance=True)), 2)
+        self.assertEqual(len(self.run_capture(irradiance=True)), 1)
         self.assertEqual(len(self.run_capture(fail=True, irradiance=True)), 1)
 
     def test_failure_restores_configuration(self):

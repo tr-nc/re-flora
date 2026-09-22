@@ -51,11 +51,10 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Lighting Diagnostics",
-        description: "Thin-voxel terrain A/B, flora lighting and terrain path-tracing reference. Hybrid terrain lighting affects only the normal consumer path, not reference/debug transport.",
+        description: "Flora lighting and terrain path-tracing reference. Terrain automatically uses geometry-aware hybrid lighting in the normal consumer path; reference/debug transport is independent.",
         initially_open: false,
         params: &[
             "raster_flora_ddgi_lighting",
-            "terrain_hybrid_lighting",
             "path_tracing_reference",
             "path_tracing_ambient_light",
             "path_tracing_max_bounces",

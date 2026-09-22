@@ -331,7 +331,8 @@ min_samples = 1
 budget_percent = 3.0
 
 # Measurement scenarios for scripts/check_terrain_hybrid_lighting.py --benchmark.
-# Their reports measure A/B cost; they do not introduce a release-acceptance gate.
+# Hybrid lighting is permanent; reports measure repeated runs or cross-revision
+# cost, not a runtime on/off mode. They do not introduce a release-acceptance gate.
 [scenario.terrain-hybrid-player]
 description = "Ordinary fixed player camera; effects disabled to isolate terrain consumer cost"
 args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--camera-snapshot", "player-default", "--auto-exit", "30"]

@@ -1390,7 +1390,6 @@ pub struct FruitMotionParams {
 /// Terrain state frozen by the application for one renderer update.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainFrameInput {
-    pub hybrid_lighting: bool,
     pub ray_origin_offset_world: f32,
     pub ddgi_receiver_visibility_bias_world: f32,
     pub ddgi_history_retention: f32,
