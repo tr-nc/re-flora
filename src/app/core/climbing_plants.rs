@@ -19,6 +19,7 @@ pub(super) struct ClimbingPlants {
     pub reset_requested: bool,
     pub focus_requested: bool,
     pub disconnect_root_requested: bool,
+    pub refill_tip_requested: bool,
     accumulator: f32,
     instances: Vec<DynamicFruitRenderInstance>,
     anchor_chunks: HashMap<UVec3, Vec<usize>>,
@@ -31,6 +32,9 @@ pub(super) struct ClimbingPlants {
     review_reported: bool,
     review_root_cut: bool,
     review_root_verified: bool,
+    review_refilled: bool,
+    review_refill_observed: bool,
+    refill_cell: Option<UVec3>,
 }
 impl ClimbingPlants {
     pub fn has_history(&self) -> bool {
@@ -45,8 +49,8 @@ impl ClimbingPlants {
         for (chunk, ids) in &self.anchor_chunks {
             if chunk.cmpge(lo).all() && chunk.cmple(hi).all() {
                 for &id in ids {
-                    let cell = plant.anchors[id].cell.as_uvec3();
-                    if cell.cmpge(bound.min()).all() && cell.cmple(bound.max()).all() {
+                    let (min, max) = contact_bounds(plant, id);
+                    if min.cmple(bound.max()).all() && max.cmpge(bound.min()).all() {
                         self.dirty_anchors.insert(id);
                     }
                 }
@@ -63,14 +67,38 @@ impl ClimbingPlants {
     fn index_anchors(&mut self) {
         self.anchor_chunks.clear();
         if let Some(plant) = &self.plant {
-            for (id, anchor) in plant.anchors.iter().enumerate() {
-                self.anchor_chunks
-                    .entry(anchor.cell.as_uvec3() / 256)
-                    .or_default()
-                    .push(id);
+            for id in 0..plant.anchors.len() {
+                let (min, max) = contact_bounds(plant, id);
+                let lo = min / 256;
+                let hi = max / 256;
+                for z in lo.z..=hi.z {
+                    for y in lo.y..=hi.y {
+                        for x in lo.x..=hi.x {
+                            self.anchor_chunks
+                                .entry(UVec3::new(x, y, z))
+                                .or_default()
+                                .push(id);
+                        }
+                    }
+                }
             }
         }
     }
+}
+// Fixed support identity plus the stem's exposed contact footprint. Occluding a contact
+// from the neighbouring chunk is just as relevant as deleting its support cell.
+fn contact_bounds(plant: &Plant, id: usize) -> (UVec3, UVec3) {
+    let anchor = &plant.anchors[id];
+    let min = (anchor.position - Vec3::splat(plant.radius))
+        .min(anchor.cell.as_vec3())
+        .max(Vec3::ZERO)
+        .floor()
+        .as_uvec3();
+    let max = (anchor.position + Vec3::splat(plant.radius))
+        .max(anchor.cell.as_vec3())
+        .floor()
+        .as_uvec3();
+    (min, max)
 }
 struct Patch {
     block: ContreeCpuVoxelBlock,
@@ -144,7 +172,24 @@ impl App {
                 .set_camera_pose_looking_at(target + Vec3::new(0., 0.02, 0.65), target);
             self.reset_camera_movement_input();
         }
+        if std::mem::take(&mut self.climbing_plants.refill_tip_requested) {
+            if let Some(plant) = &self.climbing_plants.plant {
+                let tip = plant.nodes.last().unwrap().position;
+                let cell = tip.floor().as_uvec3();
+                let min = UVec3::new(cell.x.saturating_sub(1), cell.y.saturating_sub(2), cell.z);
+                let max = UVec3::new(cell.x + 2, cell.y + 3, (tip.z + plant.radius).ceil() as u32)
+                    .min(super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK);
+                anyhow::ensure!(
+                    max.cmpgt(min).all(),
+                    "vine tip is outside editable refill bounds"
+                );
+                self.climbing_plants.refill_cell = Some(min);
+                self.execute_world_edit(wall_edit(min, max, VOXEL_TYPE_LIMESTONE)?)?;
+                log::info!("[CLIMBING] real refill through tip bounds={min:?}..{max:?}");
+            }
+        }
         let source = self.contree_builder.cpu_voxel_source_snapshot();
+
         let (min, max) = if let Some(plant) = &self.climbing_plants.plant {
             let mut min = plant.nodes[0].position;
             let mut max = min;
@@ -214,7 +259,23 @@ impl App {
             plant.disconnect_root();
             log::info!("[CLIMBING] root disconnected; growth stopped, wall attachments retained");
         }
+        if review
+            && self.climbing_plants.review_refilled
+            && !self.climbing_plants.review_refill_observed
+        {
+            let overlapping = plant.nodes.iter().any(|n| {
+                crate::climbing_plants::clear_segment(&patch, n.position, n.position, plant.radius)
+                    == Some(false)
+            });
+            if overlapping {
+                self.climbing_plants.review_refill_observed = true;
+                log::info!(
+                    "[CLIMBING][REVIEW] refill overlap observed in authoritative current terrain"
+                );
+            }
+        }
         let before_nodes = plant.nodes.len();
+
         let before_anchors = plant.anchors.iter().filter(|a| a.attached).count();
         // Events narrow phase contact cells; dependency polling catches later cache publication.
         for dependency in &patch.block.source_dependencies {
@@ -373,6 +434,14 @@ impl App {
                         ) == Some(true)
                     })
                 });
+                let refill_retained = self
+                    .climbing_plants
+                    .refill_cell
+                    .is_some_and(|c| patch.voxel(c.as_ivec3()) == Some(VOXEL_TYPE_LIMESTONE as u8));
+                anyhow::ensure!(
+                    self.climbing_plants.review_refill_observed && refill_retained,
+                    "review must retain the actual overlapping refill while removing supports"
+                );
                 anyhow::ensure!(
                     collision_clear
                         && stable
@@ -381,7 +450,7 @@ impl App {
                         && plant.nodes.iter().all(|n| n.position.is_finite()),
                     "climbing review invariant failed"
                 );
-                log::info!("[CLIMBING][REVIEW] verified stable_ids={stable} unaffected_supports={unaffected} collision_clear={collision_clear} finite=true max_length_error={max_length_error:.6} max_motion_voxels={max_motion:.4} nodes={} attached={}",plant.nodes.len(),plant.anchors.iter().filter(|a|a.attached).count());
+                log::info!("[CLIMBING][REVIEW] verified stable_ids={stable} unaffected_supports={unaffected} collision_clear={collision_clear} refill_retained={refill_retained} finite=true max_length_error={max_length_error:.6} max_motion_voxels={max_motion:.4} nodes={} attached={}",plant.nodes.len(),plant.anchors.iter().filter(|a|a.attached).count());
             }
             self.climbing_plants.review_reported = true;
         }
@@ -420,6 +489,14 @@ impl App {
             }
         }
 
+        if review
+            && self.climbing_plants.review_edited
+            && !self.climbing_plants.review_refilled
+            && self.climbing_plants.review_ticks >= 60
+        {
+            self.climbing_plants.review_refilled = true;
+            self.climbing_plants.refill_tip_requested = true;
+        }
         if review && self.climbing_plants.review_reported && !self.climbing_plants.review_root_cut {
             self.climbing_plants.review_root_cut = true;
             self.climbing_plants.review_before_edit = self.climbing_plants.plant.clone();
@@ -440,10 +517,10 @@ impl App {
             self.climbing_plants.review_before_edit = self.climbing_plants.plant.clone();
             self.execute_world_edit(wall_edit(
                 UVec3::new(224, 244, 299),
-                UVec3::new(288, 300, 308),
+                UVec3::new(288, 300, 306),
                 VOXEL_TYPE_EMPTY,
             )?)?;
-            log::info!("[CLIMBING][REVIEW] real terrain edit removed several upper supports");
+            log::info!("[CLIMBING][REVIEW] real terrain edit removed several upper supports, retaining refill");
         }
         Ok(())
     }
@@ -535,5 +612,32 @@ mod tests {
         assert_eq!(patch.voxel(IVec3::new(255, 1, 1)), Some(0));
         assert_eq!(patch.voxel(IVec3::new(256, 1, 1)), Some(0));
         assert_eq!(patch.voxel(IVec3::new(257, 1, 1)), None);
+    }
+    #[test]
+    fn contact_exposure_indexes_neighbouring_chunk_and_precise_refill_bounds() {
+        let plant = Plant::seed(
+            Vec3::new(255.8, 10.5, 255.8),
+            Vec3::Z,
+            IVec3::new(255, 10, 254),
+            1,
+            42,
+        );
+        let mut runtime = ClimbingPlants {
+            plant: Some(plant),
+            ..Default::default()
+        };
+        runtime.index_anchors();
+        assert!(runtime.anchor_chunks.contains_key(&UVec3::new(1, 0, 1)));
+        runtime.observe_edit(UAabb3::new(
+            UVec3::new(256, 10, 256),
+            UVec3::new(257, 11, 257),
+        ));
+        assert_eq!(runtime.dirty_anchors, HashSet::from([0]));
+        runtime.dirty_anchors.clear();
+        runtime.observe_edit(UAabb3::new(
+            UVec3::new(260, 10, 260),
+            UVec3::new(261, 11, 261),
+        ));
+        assert!(runtime.dirty_anchors.is_empty());
     }
 }

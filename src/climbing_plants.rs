@@ -180,7 +180,12 @@ impl Plant {
             let Some(material) = terrain.voxel(anchor.cell) else {
                 return false;
             };
-            if material != anchor.material {
+            let Some(exposed) =
+                clear_segment(terrain, anchor.position, anchor.position, self.radius)
+            else {
+                return false;
+            };
+            if material != anchor.material || !exposed {
                 released.push(id);
             }
         }
@@ -193,24 +198,95 @@ impl Plant {
         !released.is_empty()
     }
 
-    /// Quasi-static distance-constrained relaxation. No invented slack or render-only sag.
-    /// Reject the entire step if constraints or swept shell collision cannot be satisfied.
+    /// Quasi-static distance projection. Pinned supports partition independent movable spans;
+    /// an infeasible span never prevents another span from settling. Pending/stale queries
+    /// cannot commit motion. Newly inserted terrain is recovered toward the known exterior.
     pub fn relax(&mut self, terrain: &impl Terrain) -> bool {
-        let mut positions: Vec<_> = self.nodes.iter().map(|n| n.position).collect();
+        let original: Vec<_> = self.nodes.iter().map(|n| n.position).collect();
+        let mut positions = original.clone();
         let mut pinned = vec![false; positions.len()];
-        // Root connectivity and external wall adhesion are independent restraints.
         pinned[0] = self.root_connected;
         for anchor in self.anchors.iter().filter(|a| a.attached) {
             pinned[anchor.node] = true;
         }
-        for (p, pin) in positions.iter_mut().zip(&pinned) {
-            if !pin {
-                *p -= Vec3::Y * 0.08;
+        // Topology is an append-only tree: a movable child inherits its movable parent's
+        // span; a pin is a mechanical boundary shared by otherwise independent spans.
+        let mut membership = vec![None; positions.len()];
+        let mut spans: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
+        for (id, node) in self.nodes.iter().enumerate() {
+            if !pinned[id] {
+                let span = node.parent.and_then(|p| membership[p]).unwrap_or_else(|| {
+                    spans.push((Vec::new(), Vec::new()));
+                    spans.len() - 1
+                });
+                membership[id] = Some(span);
+                spans[span].0.push(id);
+            }
+            if let Some(parent) = node.parent {
+                if let Some(span) = membership[id].or(membership[parent]) {
+                    spans[span].1.push(id);
+                }
             }
         }
-        for _ in 0..128 {
-            for (id, node) in self.nodes.iter().enumerate().skip(1) {
-                let parent = node.parent.unwrap();
+        for (nodes, edges) in spans {
+            if let Some(candidate) = self.relax_span(terrain, &original, &pinned, &nodes, &edges) {
+                for id in nodes {
+                    positions[id] = candidate[id];
+                }
+            }
+        }
+        if !terrain.current() {
+            return false;
+        }
+        let changed = original
+            .iter()
+            .zip(&positions)
+            .any(|(a, b)| a.distance_squared(*b) > 1e-10);
+        for (node, position) in self.nodes.iter_mut().zip(positions) {
+            node.position = position;
+        }
+        changed
+    }
+
+    fn relax_span(
+        &self,
+        terrain: &impl Terrain,
+        original: &[Vec3],
+        pinned: &[bool],
+        nodes: &[usize],
+        edges: &[usize],
+    ) -> Option<Vec<Vec3>> {
+        let mut positions = original.to_vec();
+        // These constraints are temporary collision contacts, not new adhesion. Preserve the
+        // original outward exit plane throughout projection, rather than finding "air" behind
+        // a sparse terrain shell or accepting an arbitrary teleport to its opposite side.
+        let mut recovery = Vec::new();
+        for &id in edges {
+            let parent = self.nodes[id].parent?;
+            for contact in segment_contacts(terrain, original[parent], original[id], self.radius)? {
+                recovery.push((
+                    parent,
+                    id,
+                    (contact.enter + contact.exit) * 0.5,
+                    contact.exit_plane(self.normal),
+                ));
+            }
+        }
+        // Also handle a single disconnected root with no edges.
+        for &id in nodes {
+            for contact in segment_contacts(terrain, original[id], original[id], self.radius)? {
+                recovery.push((id, id, 0.0, contact.exit_plane(self.normal)));
+            }
+        }
+        if recovery.is_empty() {
+            for &id in nodes {
+                positions[id] -= Vec3::Y * 0.08;
+            }
+        }
+        let iterations = if recovery.is_empty() { 128 } else { 512 };
+        for _ in 0..iterations {
+            for &id in edges {
+                let parent = self.nodes[id].parent?;
                 let delta = positions[id] - positions[parent];
                 let length = delta.length();
                 if length < 1e-6 {
@@ -220,7 +296,8 @@ impl Plant {
                 if weights == 0 {
                     continue;
                 }
-                let correction = delta * ((length - node.rest_length) / (length * weights as f32));
+                let correction =
+                    delta * ((length - self.nodes[id].rest_length) / (length * weights as f32));
                 if !pinned[id] {
                     positions[id] -= correction;
                 }
@@ -228,41 +305,155 @@ impl Plant {
                     positions[parent] += correction;
                 }
             }
-        }
-        for (id, node) in self.nodes.iter().enumerate() {
-            if !positions[id].is_finite()
-                || clear_segment(terrain, node.position, positions[id], self.radius) != Some(true)
-            {
-                return false;
+            for &(a, b, t, plane) in &recovery {
+                project_contact(&mut positions, pinned, a, b, t, self.normal, plane);
             }
-            if let Some(parent) = node.parent {
-                if (positions[id].distance(positions[parent]) - node.rest_length).abs() > 0.002
-                    || clear_segment(terrain, positions[parent], positions[id], self.radius)
-                        != Some(true)
+            if nodes
+                .iter()
+                .any(|&id| !positions[id].is_finite() || positions[id].distance(original[id]) > 6.0)
+            {
+                return None;
+            }
+            for &id in edges {
+                let parent = self.nodes[id].parent?;
+                for contact in
+                    segment_contacts(terrain, positions[parent], positions[id], self.radius)?
                 {
-                    return false;
+                    let normal = if recovery.is_empty() {
+                        contact.separating_normal(original[parent], original[id], self.normal)
+                    } else {
+                        self.normal
+                    };
+                    project_contact(
+                        &mut positions,
+                        pinned,
+                        parent,
+                        id,
+                        (contact.enter + contact.exit) * 0.5,
+                        normal,
+                        contact.exit_plane(normal),
+                    );
                 }
             }
         }
-        if !terrain.current() {
-            return false;
+        for &id in nodes {
+            if !positions[id].is_finite() || positions[id].distance(original[id]) > 6.0 {
+                return None;
+            }
+            // Recovery exits outward first, then follows the tangential correction. A single
+            // diagonal chord can falsely collide with neighbouring cells of the inserted patch.
+            // Never exempt a box that did not already contain the old particle.
+            let lift = if recovery.is_empty() {
+                original[id]
+            } else {
+                original[id]
+                    + self.normal * (positions[id] - original[id]).dot(self.normal).max(0.0)
+            };
+            for contact in segment_contacts(terrain, original[id], lift, self.radius)? {
+                if !contact.contains(original[id])
+                    || lift.dot(self.normal) < contact.exit_plane(self.normal) - 0.0001
+                {
+                    return None;
+                }
+            }
+            if !segment_contacts(terrain, lift, positions[id], self.radius)?.is_empty() {
+                return None;
+            }
         }
-        let changed = self
-            .nodes
-            .iter()
-            .zip(&positions)
-            .any(|(n, p)| n.position.distance_squared(*p) > 1e-10);
-        for (node, position) in self.nodes.iter_mut().zip(positions) {
-            node.position = position;
+        for &id in edges {
+            let parent = self.nodes[id].parent?;
+            if (positions[id].distance(positions[parent]) - self.nodes[id].rest_length).abs()
+                > 0.002
+                || !segment_contacts(terrain, positions[parent], positions[id], self.radius)?
+                    .is_empty()
+            {
+                return None;
+            }
         }
-        changed
+        // The no-edge case must also be clear after recovery.
+        for &id in nodes {
+            if !segment_contacts(terrain, positions[id], positions[id], self.radius)?.is_empty() {
+                return None;
+            }
+        }
+        Some(positions)
+    }
+}
+
+fn project_contact(
+    positions: &mut [Vec3],
+    pinned: &[bool],
+    a: usize,
+    b: usize,
+    t: f32,
+    normal: Vec3,
+    plane: f32,
+) {
+    let depth = plane - positions[a].lerp(positions[b], t).dot(normal);
+    if depth <= 0.0 {
+        return;
+    }
+    if a == b {
+        if !pinned[a] {
+            positions[a] += normal * depth;
+        }
+        return;
+    }
+    let wa = if pinned[a] { 0.0 } else { 1.0 - t };
+    let wb = if pinned[b] { 0.0 } else { t };
+    let denominator = wa * wa + wb * wb;
+    if denominator > 1e-8 {
+        positions[a] += normal * (depth * wa / denominator);
+        positions[b] += normal * (depth * wb / denominator);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SolidContact {
+    lo: Vec3,
+    hi: Vec3,
+    enter: f32,
+    exit: f32,
+}
+impl SolidContact {
+    fn contains(self, p: Vec3) -> bool {
+        p.cmpge(self.lo).all() && p.cmple(self.hi).all()
+    }
+    fn separating_normal(self, a: Vec3, b: Vec3, fallback: Vec3) -> Vec3 {
+        let mut best = f32::INFINITY;
+        let mut normal = fallback;
+        for axis in 0..3 {
+            for (distance, sign) in [
+                (a[axis].min(b[axis]) - self.hi[axis], 1.0),
+                (self.lo[axis] - a[axis].max(b[axis]), -1.0),
+            ] {
+                if distance >= 0.0 && distance < best {
+                    best = distance;
+                    normal = Vec3::ZERO;
+                    normal[axis] = sign;
+                }
+            }
+        }
+        normal
+    }
+    fn exit_plane(self, normal: Vec3) -> f32 {
+        self.hi.dot(normal.max(Vec3::ZERO)) + self.lo.dot(normal.min(Vec3::ZERO)) + 0.001
     }
 }
 
 /// Exact segment slab test against radius-expanded voxel boxes (conservative capsule).
 pub fn clear_segment(terrain: &impl Terrain, start: Vec3, end: Vec3, radius: f32) -> Option<bool> {
+    Some(segment_contacts(terrain, start, end, radius)?.is_empty())
+}
+fn segment_contacts(
+    terrain: &impl Terrain,
+    start: Vec3,
+    end: Vec3,
+    radius: f32,
+) -> Option<Vec<SolidContact>> {
     let min = (start.min(end) - Vec3::splat(radius)).floor().as_ivec3();
     let max = (start.max(end) + Vec3::splat(radius)).floor().as_ivec3();
+    let mut contacts = Vec::new();
     for z in min.z..=max.z {
         for y in min.y..=max.y {
             for x in min.x..=max.x {
@@ -289,12 +480,17 @@ pub fn clear_segment(terrain: &impl Terrain, start: Vec3, end: Vec3, radius: f32
                     }
                 }
                 if enter <= exit {
-                    return Some(false);
+                    contacts.push(SolidContact {
+                        lo,
+                        hi,
+                        enter,
+                        exit,
+                    });
                 }
             }
         }
     }
-    Some(true)
+    Some(contacts)
 }
 
 #[cfg(test)]
@@ -553,6 +749,194 @@ mod tests {
         }
         for (a, b) in p.nodes.iter().zip(nodes) {
             assert_eq!((a.parent, a.rest_length), (b.parent, b.rest_length));
+        }
+    }
+    #[test]
+    fn refill_then_support_removal_recovers_without_freezing_other_spans() {
+        struct Refilled {
+            wall: Wall,
+        }
+        impl Terrain for Refilled {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                if (17..=24).contains(&c.x) && (17..=23).contains(&c.y) && (1..=2).contains(&c.z) {
+                    Some(1)
+                } else {
+                    self.wall.voxel(c)
+                }
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let wall = Wall::default();
+        let mut p = seed();
+        for _ in 0..10 {
+            p.grow(&wall, 16.);
+        }
+        let lengths: Vec<_> = p.nodes.iter().map(|n| n.rest_length).collect();
+        let terrain = Refilled { wall };
+        assert!(p
+            .nodes
+            .iter()
+            .any(|n| clear_segment(&terrain, n.position, n.position, p.radius) == Some(false)));
+        for a in p.anchors.iter_mut().skip(1) {
+            a.attached = false;
+        }
+        let mut replay = p.clone();
+        for _ in 0..80 {
+            p.relax(&terrain);
+            replay.relax(&terrain);
+        }
+        assert_eq!(p, replay);
+        assert!(
+            p.nodes
+                .iter()
+                .all(|n| n.parent.is_none_or(|parent| clear_segment(
+                    &terrain,
+                    p.nodes[parent].position,
+                    n.position,
+                    p.radius
+                ) == Some(true))),
+            "refill overlap never recovered"
+        );
+        assert_eq!(
+            lengths,
+            p.nodes.iter().map(|n| n.rest_length).collect::<Vec<_>>()
+        );
+        for n in &p.nodes {
+            if let Some(parent) = n.parent {
+                assert!(
+                    (n.position.distance(p.nodes[parent].position) - n.rest_length).abs() < 0.0021
+                );
+            }
+        }
+        let before = p.nodes.last().unwrap().position;
+        for _ in 0..20 {
+            p.relax(&terrain);
+        }
+        assert!(
+            p.nodes.last().unwrap().position.distance(before) > 0.1,
+            "settling remained frozen after recovery"
+        );
+    }
+    #[test]
+    fn unsatisfiable_local_refill_does_not_freeze_another_supported_span() {
+        struct Obstacle;
+        impl Terrain for Obstacle {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(c.z == 0 || c == IVec3::new(22, 4, 1)))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut p = seed();
+        p.nodes = (0..4)
+            .map(|id| Node {
+                position: Vec3::new(20.5 + 2.0 * id as f32, 4.5, 1.8),
+                parent: if id == 0 { None } else { Some(id - 1) },
+                rest_length: if id == 0 { 0. } else { 2. },
+            })
+            .collect();
+        p.anchors.push(Anchor {
+            node: 2,
+            cell: IVec3::new(24, 4, 0),
+            material: 1,
+            position: p.nodes[2].position,
+            attached: true,
+        });
+        let original = p.nodes.clone();
+        for _ in 0..10 {
+            p.relax(&Obstacle);
+        }
+        // No feasible path around the block for a perfectly taut pinned span: leave just that
+        // span unchanged, but independently relax the free span beyond the surviving anchor.
+        assert_eq!(p.nodes[..3], original[..3]);
+        assert!(p.nodes[3].position.y < original[3].position.y - 0.5);
+        assert!((p.nodes[3].position.distance(p.nodes[2].position) - 2.0).abs() < 0.0021);
+    }
+
+    #[test]
+    fn buried_contact_releases_without_rebinding_and_pending_recovery_is_transactional() {
+        struct Buried {
+            pending: bool,
+            stale: bool,
+        }
+        impl Terrain for Buried {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                if self.pending {
+                    None
+                } else {
+                    Some(u8::from(c.z == 0 || c == IVec3::new(20, 4, 1)))
+                }
+            }
+            fn current(&self) -> bool {
+                !self.stale
+            }
+        }
+        let mut p = seed();
+        let original = p.clone();
+        for terrain in [
+            Buried {
+                pending: true,
+                stale: false,
+            },
+            Buried {
+                pending: false,
+                stale: true,
+            },
+        ] {
+            p.revalidate(&terrain, 0..p.anchors.len());
+            p.relax(&terrain);
+            assert_eq!(p, original);
+        }
+        assert!(p.revalidate(
+            &Buried {
+                pending: false,
+                stale: false
+            },
+            0..p.anchors.len()
+        ));
+        assert!(!p.anchors[0].attached);
+        assert!(p.root_connected());
+        assert_eq!(p.nodes, original.nodes);
+        assert_eq!(p.anchors[0].position, original.anchors[0].position);
+    }
+    #[test]
+    fn completely_detached_skeleton_settles_on_solid_floor_without_stretch() {
+        struct Floor;
+        impl Terrain for Floor {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(c.z == 0 || c.y == 0))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut p = seed();
+        for _ in 0..10 {
+            p.grow(&Floor, 16.);
+        }
+        p.disconnect_root();
+        for a in &mut p.anchors {
+            a.attached = false;
+        }
+        let before = p.nodes.clone();
+        for _ in 0..200 {
+            p.relax(&Floor);
+        }
+        assert!(p.nodes[0].position.y < before[0].position.y - 1.);
+        for n in &p.nodes {
+            assert!(n.position.is_finite() && n.position.y >= 1.65);
+            if let Some(parent) = n.parent {
+                assert!(
+                    (n.position.distance(p.nodes[parent].position) - n.rest_length).abs() < 0.0021
+                );
+                assert_eq!(
+                    clear_segment(&Floor, p.nodes[parent].position, n.position, p.radius),
+                    Some(true)
+                );
+            }
         }
     }
 }

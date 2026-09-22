@@ -2726,6 +2726,9 @@ ui.collapsing("Climbing vine actions", |ui| {
         self.debug_settings.adjustables.climbing_enabled.value = true;
         self.climbing_plants.reset_requested = true;
     }
+    if ui.button("Refill terrain through vine tip (collision recovery test)").clicked() {
+        self.climbing_plants.refill_tip_requested = true;
+    }
     if ui.button("Disconnect vine root (stop growth, retain wall supports)").clicked() {
         self.climbing_plants.disconnect_root_requested = true;
     }
