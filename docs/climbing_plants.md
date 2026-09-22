@@ -19,6 +19,13 @@ vine explicitly after loading. Existing trees/grass retain their own ownership.
    Other supports remain; released spans settle rather than regenerating.
 5. Edit away from the vine to compare. Refilling does not resurrect old attachments.
    Reset/focus actions remain available in Debug.
+6. Click **Disconnect vine root (stop growth, retain wall supports)**. Attached
+   parts remain supported, but extension stops. Dig away the remaining supports
+   to let the entire skeleton settle. Reset restores a connected root.
+7. For refill testing, let the vine grow, then click **Refill terrain through vine
+   tip (collision recovery test)**. This inserts real limestone through the tip.
+   Dig away upper wall supports afterward; the vine recovers/settles without
+   regenerating. The small refill is real terrain and can also be dug away.
 
 Saved declarative controls: enable, growth quanta/sec, adhesion spacing in voxels,
 attachment markers. Click Debug **Save** to persist settings. Speed zero pauses
@@ -35,28 +42,37 @@ history or removing the wall. Enabling for the first time also creates/focuses i
   quantization. This is deliberately tuned to the small fixture, **not** a claim
   that research's 20–40 cm spacing was implemented literally.
 - A contact is one fixed support voxel with matching seed material (limestone in
-  the fixture). Proximity/swept collision and sparse adhesion are separate.
+  the fixture), plus its exposed stem footprint. Burying that footprint releases
+  the adhesion without rebinding it elsewhere. Proximity/swept collision and sparse adhesion are separate.
   Flat vertical surface following only: stop at missing support, tops, corners,
   or unavailable data. No snapping to a replacement surface through a wall.
 - Published terrain bounds select contacts via a chunk index and precise cell
-  checks. Dependency polling catches later decoded-cache publication. Complete
+  checks, including footprint cells in neighbouring chunks. Dependency polling catches later decoded-cache publication. Complete
   export dependencies include clearance/search halos and chunk crossings.
   Exact support/material revalidation, not revision change, releases adhesion.
 - Queries/commits are synchronous against immutable Contree exports, with current
   dependency **and readiness** checks. Pending exports freeze simulation; they
   never mean air. Existing active spans use the same current shell data.
-- Bounded quasi-static gravity and distance projection, with fixed root and surviving
-  anchors. Rest lengths never change. Candidate movement and whole final edges are
-  checked against radius-expanded voxel boxes; failed collision/length solves are
-  rejected atomically. This is a small flexible-chain solver, not a botany/XPBD engine.
+- Bounded quasi-static gravity and distance/contact projection. Root connectivity
+  is separate from wall adhesion: disconnection removes the root restraint and
+  stops all tips; it preserves skeleton and external attachments. Rest lengths
+  never change. Movable spans separated by surviving pins solve independently.
+- Newly inserted terrain gets bounded outward recovery using the vine's known
+  exterior direction, not arbitrary "air" behind a sparse shell. Recovery exits
+  pre-existing particle overlaps outward before tangential correction; other
+  boxes still block swept movement. Every committed span must pass whole-edge
+  collision and 0.002-voxel length-error checks. Buried anchors are released,
+  never moved. Unknown/stale data cannot commit recovery.
 - Independent resident cuboid mesh and capacity-managed instance buffer; stems and
   leaves use existing lit opaque/shadow pipelines with nonuniform transforms and
   inverse-scale normals. Unchanged instances are not uploaded. No preview/tree
   ownership, per-frame mesh creation, or extra terrain revision authority.
 
-## Validation (macOS / Vulkan)
+## Validation after review fixes (macOS / Vulkan)
 
-All commands ran from this worker only. Reproduce with:
+Two red regressions were reproduced before fixing: `unsupported root remains
+pinned` and `refill overlap never recovered`. Transcripts are under
+`target/climbing-validation/finalize/`, together with final check/test/run logs.
 
 ```sh
 cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && cargo fmt --check
@@ -64,47 +80,51 @@ cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && cargo check
 cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && PATH=/opt/homebrew/bin:$PATH cargo test
 cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && cargo run --release -- --hidden --mute --auto-exit 0.5
 cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && cargo run --release -- --tail-latest-log 30
-cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && RE_FLORA_CLIMBING_REVIEW=1 cargo run --release -- --hidden --mute --screenshot player-default target/climbing-limestone --screenshot-delay 0.5 --screenshot-sequence 4 2 --auto-exit 9
+cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && RE_FLORA_CLIMBING_REVIEW=1 cargo run --release -- --hidden --mute --screenshot player-default target/climbing-fixed --screenshot-delay 1 --screenshot-sequence 4 2 --auto-exit 12
 cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && cargo run --release -- --tail-latest-log 200
+cd /Users/bytedance/.herdr/worktrees/re-flora/grepping-plants && git diff --check
 ```
 
-- Formatting/check pass. Tests: **1071 + 4 passed, 2 ignored**. Pure tests cover
-  determinism, spacing, finite lengths, stable topology, local/unrelated edits,
-  one/several anchor releases, material replacement, no resurrection, pending/stale
-  queries, cross-chunk dependencies, thin-wall sweeps, support gaps, taut spans,
-  free-tip settling, and world-replacement clearing. Existing Contree tests cover
-  unfinished rebuilds even when old caches/revisions remain available.
-- Plain `cargo test` initially failed the existing lighting analyzer subprocess:
-  `/usr/bin/python3` lacks `tomllib` (`ModuleNotFoundError`). Using installed
-  Homebrew Python 3.14.7 resolves it; no repository workaround added.
-- Review mode runs one fixed growth/relaxation quantum per ready render frame;
-  it does **real WorldEditTransaction edits**, never scripted anchor deletion.
-  Counts: 66 nodes / seven attachments; first edit **7→6**; growth to 114 nodes /
-  twelve attachments; upper-wall edit **12→2**. Post-edit verification:
-  `stable_ids=true unaffected_supports=true collision_clear=true finite=true`,
-  max edge-length error **0.000180 voxels**, max movement **9.6033 voxels**.
-- Final smoke log: `target/re-flora-logs/re-flora-20260922-132758.157-73629.log`.
-  Final review log: `target/re-flora-logs/re-flora-20260922-132807.165-76271.log`.
-  Both exited successfully, `failures=0`, no ERROR/panic/VUID found. Hidden-monitor
-  fallback warning remains. Review logged a 14.997 ms fruit-physics hitch during
-  fixture creation; this warning also occurred in the pre-integration smoke
-  (96.306 ms). These observations are **not** a performance comparison/acceptance.
-- Four inspected/captured 2560×1440 images:
-  `target/climbing-limestone.000000.png` through `.000003.png` (early growth through
-  removed upper wall and displaced vine). Logs/check/test transcripts also copied
-  under `target/climbing-validation/`. Artifacts are local, not committed assets.
+- Formatting/check/diff check pass. Tests: **1078 + 4 passed, 2 ignored**, including
+  17 climbing tests. New guardrails cover cut-root growth inhibition with preserved
+  support/IDs, complete detachment and floor collision, deterministic refill then
+  support removal, a trapped span not freezing another span, buried adhesion,
+  cross-chunk exposure indexing, and pending/stale recovery.
+- Toolchain prerequisite retained: `/usr/bin/python3` lacks `tomllib`; the initial
+  implementation's plain `cargo test` failed the existing lighting analyzer
+  subprocess. Installed Homebrew Python 3.14.7 resolves it. Final full tests used
+  the explicit PATH above; no repository workaround or other validation blocker.
+- Review mode runs fixed quanta on ready frames and executes real world edits.
+  Final sequence: growth to 66 nodes, attachments **7→6**; actual refill at
+  `(234,297,306)..(237,302,308)`, confirmed overlapping current terrain; upper-wall
+  removal **13→2**, explicitly retaining the refill. Then:
+  `stable_ids=true unaffected_supports=true collision_clear=true refill_retained=true finite=true`,
+  126 nodes, max length error **0.001128 voxels**, max motion **9.6069 voxels**.
+  Cutting the root and removing remaining supports produced **2→0** attachments,
+  stopped growth and **2.3969 voxels** of root drop. No scripted anchor deletion.
+- Final smoke: `target/re-flora-logs/re-flora-20260922-134836.377-62847.log`.
+  Final review: `target/re-flora-logs/re-flora-20260922-134842.174-64934.log`.
+  Built-in log helpers inspected both. Successful exits, `failures=0`, no
+  ERROR/panic/VUID. A 15.805 ms fruit-physics hitch was logged at fixture creation;
+  this warning also existed before integration. No performance acceptance claimed.
+- Four local 5120×2880 captures: `target/climbing-fixed.000000.png` through
+  `.000003.png`; final image inspected. They cover growth, refill/support removal,
+  settling, then root disconnection/complete detachment. Earlier limestone captures
+  remain under `target/climbing-limestone.*.png`. Artifacts are not committed assets.
 
 ## Deliberate limitations / remaining review
 
 Not arbitrary click-to-plant: the discoverable Debug entry is the first playable
-scope. No moving supports, general corner traversal, root/stem cutting, physical
+scope. No moving supports, general corner traversal, arbitrary stem cuts, physical
 fracture, wilting, mature reattachment, multiple plants, or saved plant history.
-The root remains pinned even if its wall contact disappears. Leaves are visual
-followers, not colliders. No new dynamic-vine DDGI/local-light integration claimed.
+Root disconnection affects the single connected skeleton; it is not an arbitrary
+edge-cutting system. Leaves are visual followers, not colliders. No new dynamic-vine DDGI/local-light integration claimed.
 
-The conservative solver can freeze a span if collision/length constraints cannot
-be satisfied; inserting solid terrain through an existing stem is not depenetrated.
-CPU data is a surface shell, not an interior-air oracle. Manual brush interaction,
+Recovery is bounded to six voxels per candidate with finite projection iterations.
+A genuinely impossible span (e.g. a perfectly taut span pinned through newly solid
+terrain), deeply buried geometry, or a blocked outward exit remains unchanged,
+without freezing independently movable spans. Cutting the root/removing the pins
+can make recovery feasible. CPU data is a surface shell, not an interior-air oracle. Manual brush interaction,
 real snapshot-load lifecycle and broader terrain shapes still need user review
 (their wiring/pure policies are covered, not all end-to-end scenarios).
 No visible app was launched. Screenshots show a candidate, not user-approved visual
@@ -120,7 +140,12 @@ quality. No performance optimization or performance acceptance performed.
   declarative `config/gui.toml`, core guardrails and renderer upload guard.
 - `ebb3bd86`: limestone fixture (avoids automatic stucco grass), collision verification,
   accurate attachment-marker label.
-- This note is committed separately after validation.
+- `07a37d64`: root connectivity, explicit Debug disconnection action, pure and
+  hidden-runtime detachment checks (`src/climbing_plants.rs`, App runtime/UI).
+- `70d603b4`: per-span distance/contact solver, bounded refill recovery, exposed
+  contact indexing, Debug refill action and real refill/removal review sequence
+  (same three Rust files). No shaders/config/generated changes in either fix.
+- This note is updated separately after validation.
 
 Only tracked generated change: `src/app/generated/gui_adjustables_gen.rs`, produced
 by `cargo check` from GUI declarations; never hand-edited. No incidental app-save
