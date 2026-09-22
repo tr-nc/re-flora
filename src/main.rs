@@ -3,6 +3,7 @@ mod audio;
 mod branch_skeleton;
 mod builder;
 mod cli;
+mod climbing_plants;
 mod ddgi;
 mod ecology;
 mod egui_renderer;
