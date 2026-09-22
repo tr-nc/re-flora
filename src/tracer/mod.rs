@@ -1635,6 +1635,7 @@ pub struct Tracer {
     sprinkler_resources: SprinklerRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
+    climbing_plant_resources: DynamicFruitRendererResources,
     pub(crate) raster_trees: RasterTreeGeometry,
     pub(crate) tree_pose_solver: crate::tree_gen::gpu_pose::GpuTreePoseSolver,
     environment_probe_visualization_resources: EnvironmentProbeVisualizationResources,
@@ -1914,6 +1915,11 @@ impl Tracer {
             allocator.clone(),
             frame_retirement_sink.clone(),
         );
+        let climbing_plant_resources = DynamicFruitRendererResources::blocks(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            frame_retirement_sink.clone(),
+        );
         let mut ddgi_runtime = DdgiRuntime::allocate(
             &vulkan_ctx,
             allocator.clone(),
@@ -1984,6 +1990,7 @@ impl Tracer {
             sprinkler_resources,
             geometry_preview_resources,
             dynamic_fruit_resources,
+            climbing_plant_resources,
             raster_trees,
             tree_pose_solver,
             environment_probe_visualization_resources,
@@ -3565,7 +3572,8 @@ impl Tracer {
         let direct_sun_update_plan =
             (render_flags.enable_shadows && update_shadow_map).then(|| {
                 let dynamic_fruit_shadow_changed =
-                    self.dynamic_fruit_resources.take_shadow_changed();
+                    self.dynamic_fruit_resources.take_shadow_changed()
+                        | self.climbing_plant_resources.take_shadow_changed();
                 self.direct_sun_shadows
                     .plan_update(dynamic_fruit_shadow_changed)
             });
@@ -3630,9 +3638,10 @@ impl Tracer {
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "dynamic_fruit_shadow.pass",
-                    || self.record_dynamic_fruit_shadow_pass(cmdbuf),
+                    || self.record_dynamic_fruit_shadow_pass(cmdbuf, &self.dynamic_fruit_resources),
                 );
             }
+            self.record_dynamic_fruit_shadow_pass(cmdbuf, &self.climbing_plant_resources);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3772,6 +3781,12 @@ impl Tracer {
             &self.particle_resources.vertices,
             self.particle_resources.indices_len,
         );
+        record_mesh(
+            &self.climbing_plant_resources.indices,
+            &self.climbing_plant_resources.vertices,
+            self.climbing_plant_resources.indices_len,
+        );
+        record_instance(&self.climbing_plant_resources.instances);
         let glass = &self.resources.meshes.glass;
         record_mesh(&glass.indices, &glass.vertices, glass.indices_len);
 
@@ -3880,6 +3895,7 @@ impl Tracer {
             || self.geometry_preview_resources.has_visible_mesh()
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
+            || self.climbing_plant_resources.instance_count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
 
         if render_flags.enable_flora {
@@ -4193,6 +4209,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.dynamic_fruit_resources.instance_count > 0
+            || self.climbing_plant_resources.instance_count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
         if !has_graphics_pass {
             self.resources
@@ -4720,7 +4737,9 @@ impl Tracer {
                 .raster_tree_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
-        if self.dynamic_fruit_resources.instance_count > 0 {
+        if self.dynamic_fruit_resources.instance_count > 0
+            || self.climbing_plant_resources.instance_count > 0
+        {
             self.pipeline_topology
                 .graphics()
                 .dynamic_fruit_ppl
@@ -5240,7 +5259,25 @@ impl Tracer {
             }
         }
 
-        // Draw particles in the same render pass (no second CLEAR)
+        if self.climbing_plant_resources.instance_count > 0 {
+            let resources = &self.climbing_plant_resources;
+            let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
+            pipeline.record_indexed(
+                cmdbuf,
+                resources.indices_len,
+                resources.instance_count,
+                0,
+                0,
+                0,
+                None,
+            );
+        }
+
+        // Draw particles in the same render pass
         if enable_particles {
             let particles_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
@@ -5588,8 +5625,11 @@ impl Tracer {
             .record_end(cmdbuf);
     }
 
-    fn record_dynamic_fruit_shadow_pass(&self, cmdbuf: &CommandBuffer) {
-        let resources = &self.dynamic_fruit_resources;
+    fn record_dynamic_fruit_shadow_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        resources: &DynamicFruitRendererResources,
+    ) {
         if resources.instance_count == 0 {
             return;
         }
@@ -6585,6 +6625,13 @@ impl Tracer {
             self.raster_trees.skin.bindings.len() as u32,
         ]])?;
         Ok(())
+    }
+
+    pub fn show_climbing_plant_geometry(
+        &mut self,
+        instances: &[DynamicFruitRenderInstance],
+    ) -> Result<()> {
+        self.climbing_plant_resources.show(instances)
     }
 
     pub fn show_dynamic_fruit_geometry(

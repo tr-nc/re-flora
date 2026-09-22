@@ -11,6 +11,7 @@ struct VertexInput
     [[vk::location(4)]] float3 base_position : TEXCOORD1;
     [[vk::location(5)]] float4 tint : COLOR1;
     [[vk::location(6)]] float4 rotation : TEXCOORD2;
+    [[vk::location(7)]] float3 dimensions : TEXCOORD3;
 };
 
 struct VertexOutput
@@ -30,7 +31,7 @@ VertexOutput main(VertexInput input)
 {
     VertexOutput output;
     float3 worldPosition = input.base_position +
-        rotateByQuaternion(input.position * input.tint.a, input.rotation);
+        rotateByQuaternion(input.position * input.tint.a * input.dimensions, input.rotation);
     output.position = mul(
         shadow_camera_info.view_proj_mat, float4(worldPosition, 1.0));
     // Both passes deliberately share one compact vertex/instance layout. This

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Quat, Vec3, Vec4};
+use glam::{Quat, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, FrameRetirement, FrameRetirementSink, MemoryLocation,
@@ -41,14 +41,16 @@ pub struct DynamicFruitInstanceGpu {
     base_position: [f32; 3],
     tint: [f32; 4],
     rotation: [f32; 4],
+    dimensions: [f32; 3],
 }
 
 impl DynamicFruitInstanceGpu {
     fn new(instance: DynamicFruitRenderInstance) -> Self {
         Self {
             base_position: instance.position.to_array(),
-            tint: Vec4::new(1.0, 1.0, 1.0, instance.scale).to_array(),
+            tint: instance.color.extend(instance.scale).to_array(),
             rotation: instance.rotation.to_array(),
+            dimensions: instance.dimensions.to_array(),
         }
     }
 }
@@ -58,6 +60,8 @@ pub struct DynamicFruitRenderInstance {
     pub position: Vec3,
     pub rotation: Quat,
     pub scale: f32,
+    pub dimensions: Vec3,
+    pub color: Vec3,
 }
 
 impl DynamicFruitRenderInstance {
@@ -66,6 +70,8 @@ impl DynamicFruitRenderInstance {
             position,
             rotation,
             scale,
+            dimensions: Vec3::ONE,
+            color: Vec3::ONE,
         }
     }
 }
@@ -91,7 +97,25 @@ impl DynamicFruitRendererResources {
         allocator: Allocator,
         frame_retirement_sink: FrameRetirementSink,
     ) -> Self {
-        let (vertices_data, indices_data) = build_dynamic_apple_mesh();
+        Self::with_mesh(
+            device,
+            allocator,
+            frame_retirement_sink,
+            build_dynamic_apple_mesh(),
+        )
+    }
+
+    /// Independently owned resident cuboid mesh; no fruit/tree simulation ownership.
+    pub fn blocks(device: Device, allocator: Allocator, sink: FrameRetirementSink) -> Self {
+        Self::with_mesh(device, allocator, sink, build_block_mesh())
+    }
+
+    fn with_mesh(
+        device: Device,
+        allocator: Allocator,
+        frame_retirement_sink: FrameRetirementSink,
+        (vertices_data, indices_data): (Vec<DynamicFruitVertex>, Vec<u32>),
+    ) -> Self {
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -156,6 +180,12 @@ impl DynamicFruitRendererResources {
             ensure!(
                 instance.scale.is_finite() && instance.scale > 0.0,
                 "dynamic fruit scale must be finite and positive"
+            );
+            ensure!(
+                instance.dimensions.is_finite()
+                    && instance.dimensions.min_element() > 0.0
+                    && instance.color.is_finite(),
+                "invalid lit instance dimensions/color"
             );
             normalized.push(DynamicFruitRenderInstance {
                 rotation: instance.rotation.normalize(),
@@ -233,7 +263,27 @@ fn instances_changed(
         last.position.distance_squared(current.position) > POSITION_EPSILON_SQUARED
             || 1.0 - current.rotation.dot(last.rotation).abs() > ROTATION_DOT_EPSILON
             || (current.scale - last.scale).abs() > SCALE_EPSILON
+            || current.dimensions != last.dimensions
+            || current.color != last.color
     })
+}
+
+fn build_block_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
+    let normals = [-Vec3::Y, Vec3::Y, -Vec3::Z, Vec3::Z, -Vec3::X, Vec3::X];
+    let mut vertices = Vec::new();
+    for (face, normal) in normals.into_iter().enumerate() {
+        for index in &CUBE_INDICES[face * 6..face * 6 + 6] {
+            let position = VOXEL_VERTICES[*index as usize].as_vec3() - Vec3::splat(0.5);
+            // Use the actual surface, not the centre of an elongated block, for shadow reception.
+            vertices.push(DynamicFruitVertex::new(
+                position,
+                position,
+                normal,
+                Vec3::ONE,
+            ));
+        }
+    }
+    (vertices, (0..36).collect())
 }
 
 fn build_dynamic_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
@@ -268,7 +318,7 @@ mod tests {
     #[test]
     fn dynamic_fruit_layout_matches_shader_locations() {
         assert_eq!(std::mem::size_of::<DynamicFruitVertex>(), 12 * 4);
-        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 11 * 4);
+        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 14 * 4);
     }
 
     #[test]
@@ -345,7 +395,8 @@ mod tests {
         assert!(color_shader.contains("rotateByQuaternion(input.position"));
         assert!(color_shader.contains("input.position * input.tint.a"));
         assert!(color_shader.contains("rotateByQuaternion(input.voxel_center"));
-        assert!(color_shader.contains("input.shading_normal, input.rotation"));
+        assert!(color_shader
+            .contains("normalize(input.shading_normal / input.dimensions), input.rotation"));
         assert!(shadow_shader.contains("rotateByQuaternion(input.position"));
         assert!(shadow_shader.contains("input.position * input.tint.a"));
     }
