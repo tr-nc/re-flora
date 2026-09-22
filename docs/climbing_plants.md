@@ -38,6 +38,9 @@ history or removing the wall. Enabling for the first time also creates/focuses i
 
 ## CPU profiling
 
+Measured results, remaining export spikes and physics research are recorded in
+[research/climbing_vine_tuning.md](research/climbing_vine_tuning.md).
+
 Use the real release app, with the existing deterministic edit/recovery review:
 
 ```sh
