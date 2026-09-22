@@ -3,6 +3,7 @@ use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{
     ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport, ContreeCpuVoxelSourceDependency,
+    ContreeCpuVoxelSourceSnapshot,
 };
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_LIMESTONE};
 use crate::climbing_plants::{Plant, Terrain};
@@ -12,6 +13,7 @@ use anyhow::Result;
 use glam::{IVec3, Quat, UVec3, Vec3};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Default)]
@@ -28,6 +30,7 @@ pub(super) struct ClimbingPlants {
     dirty_anchors: HashSet<usize>,
     review_edited: bool,
     last_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
+    collision_cache: CollisionPatchCache,
     review_before_edit: Option<Plant>,
     review_ticks: u32,
     review_multiple: bool,
@@ -102,8 +105,46 @@ fn contact_bounds(plant: &Plant, id: usize) -> (UVec3, UVec3) {
         .as_uvec3();
     (min, max)
 }
+/// The cache owns one immutable export; dependency readiness is checked on every use.
+#[derive(Default)]
+struct CollisionPatchCache {
+    block: Option<Arc<ContreeCpuVoxelBlock>>,
+}
+impl CollisionPatchCache {
+    fn query(
+        &mut self,
+        source: &ContreeCpuVoxelSourceSnapshot,
+        min: UVec3,
+        max: UVec3,
+    ) -> Result<Option<Arc<ContreeCpuVoxelBlock>>> {
+        if let Some(block) = &self.block {
+            if min.cmpge(block.voxel_min).all()
+                && max.cmple(block.voxel_min + block.dim).all()
+                && block
+                    .source_dependencies
+                    .iter()
+                    .all(|d| source.is_chunk_voxel_cache_ready(*d))
+            {
+                return Ok(Some(Arc::clone(block)));
+            }
+        }
+        self.block = None;
+        // Bounds arrive clamped to the 256-voxel chunk grid. A 16-voxel envelope
+        // amortizes growing tips and falling spans without caching an entire world.
+        let min = min / 16 * 16;
+        let max = (max + UVec3::splat(15)) / 16 * 16;
+        let ContreeCpuVoxelBlockExport::Ready(block) = source.export_voxel_block(min, max - min)?
+        else {
+            return Ok(None);
+        };
+        let block = Arc::new(block);
+        self.block = Some(Arc::clone(&block));
+        Ok(Some(block))
+    }
+}
+
 struct Patch {
-    block: ContreeCpuVoxelBlock,
+    block: Arc<ContreeCpuVoxelBlock>,
     fresh: bool,
     queries: Option<Cell<u64>>,
 }
@@ -220,7 +261,10 @@ impl App {
         } else {
             (UVec3::new(250, 194, 298), UVec3::new(262, 208, 325))
         };
-        let ContreeCpuVoxelBlockExport::Ready(block) = source.export_voxel_block(min, max - min)?
+        let Some(block) = self
+            .climbing_plants
+            .collision_cache
+            .query(&source, min, max)?
         else {
             return Ok(());
         };
@@ -587,6 +631,63 @@ mod tests {
     use crate::builder::test_cpu_voxel_source_snapshot;
 
     #[test]
+    fn collision_cache_reuses_only_covered_current_ready_exports() {
+        let a = UVec3::ZERO;
+        let b = UVec3::X;
+        let grid = UVec3::new(2, 1, 1);
+        let dim = UVec3::splat(256);
+        let min = UVec3::new(254, 2, 2);
+        let max = UVec3::new(258, 8, 8);
+        let ready = test_cpu_voxel_source_snapshot(grid, dim, &[], &[], &[(a, 1), (b, 1)], &[]);
+        let mut cache = CollisionPatchCache::default();
+        let first = cache.query(&ready, min, max).unwrap().unwrap();
+        let second = cache.query(&ready, min + UVec3::ONE, max).unwrap().unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "unchanged terrain was re-exported"
+        );
+        // Both sides of a chunk seam are dependencies, including known-empty chunks.
+        let changed = test_cpu_voxel_source_snapshot(grid, dim, &[], &[], &[(a, 1), (b, 2)], &[]);
+        let third = cache.query(&changed, min, max).unwrap().unwrap();
+        assert!(!Arc::ptr_eq(&first, &third), "cross-chunk revision ignored");
+        // Identical revision, but a newly present chunk is not yet decoded.
+        let pending = test_cpu_voxel_source_snapshot(grid, dim, &[b], &[], &[(a, 1), (b, 2)], &[b]);
+        // Model a previously ready export with exactly the pending source's identities.
+        // Readiness must be checked even when presence AND revision still match.
+        let mut previously_ready = (*third).clone();
+        for dependency in &mut previously_ready.source_dependencies {
+            *dependency = pending
+                .chunk_source_dependency(dependency.chunk_idx)
+                .unwrap();
+        }
+        cache.block = Some(Arc::new(previously_ready));
+        assert!(cache.query(&pending, min, max).unwrap().is_none());
+        assert!(
+            cache.block.is_none(),
+            "pending terrain retained a usable old export"
+        );
+        let restored = cache.query(&changed, min, max).unwrap().unwrap();
+        assert!(!Arc::ptr_eq(&third, &restored));
+        let expanded = cache
+            .query(&changed, min, max + UVec3::splat(32))
+            .unwrap()
+            .unwrap();
+        assert!(
+            !Arc::ptr_eq(&restored, &expanded),
+            "out-of-bounds export reused"
+        );
+        let local = cache
+            .query(&ready, UVec3::splat(2), UVec3::splat(8))
+            .unwrap()
+            .unwrap();
+        let unrelated = cache
+            .query(&changed, UVec3::splat(2), UVec3::splat(8))
+            .unwrap()
+            .unwrap();
+        assert!(Arc::ptr_eq(&local, &unrelated));
+    }
+
+    #[test]
     fn local_edit_index_and_world_replacement_preserve_unrelated_state() {
         let plant = Plant::seed(
             Vec3::new(256.5, 10.5, 20.8),
@@ -653,7 +754,7 @@ mod tests {
             ContreeCpuVoxelBlockExport::NotReady(_)
         ));
         let patch = Patch {
-            block,
+            block: Arc::new(block),
             fresh: true,
             queries: None,
         };

@@ -66,7 +66,10 @@ Require both `[CLIMBING][REVIEW] verified ...` and `root_cut=true ...`, plus cle
   export dependencies include clearance/search halos and chunk crossings.
   Exact support/material revalidation, not revision change, releases adhesion.
 - Queries/commits are synchronous against immutable Contree exports, with current
-  dependency **and readiness** checks. Pending exports freeze simulation; they
+  dependency **and readiness** checks. A single cached export uses a 16-voxel envelope;
+  it is reused only when the complete query bounds are covered and every dependency
+  is still current and ready (including known-empty chunks). Reset/load drops it.
+  Pending exports freeze simulation; they
   never mean air. Existing active spans use the same current shell data.
 - Bounded quasi-static gravity and distance/contact projection. Root connectivity
   is separate from wall adhesion: disconnection removes the root restraint and
