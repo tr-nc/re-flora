@@ -2,6 +2,8 @@
 //! Keep the unnormalised evidence: a unit fallback normal cannot encode uncertainty.
 use glam::{IVec3, Mat3, Vec3};
 
+include!(concat!(env!("OUT_DIR"), "/surface_normal_policy.rs"));
+
 pub(super) struct OccupancyNormal {
     moment: IVec3,
     second_moment: Mat3,
@@ -50,7 +52,8 @@ impl OccupancyNormal {
         // Smaller eigenvalue of the 2x2 tangential covariance. Unlike sample count
         // or total variance this rejects support concentrated along a single line.
         let support = (0.5 * (a + d - ((a - d).powi(2) + 4. * b * b).sqrt())).max(0.);
-        let confidence = smoothstep(0.05, 0.35, coherence) * smoothstep(0.2, 1.2, support);
+        let confidence = smoothstep(NORMAL_COHERENCE_LOW, NORMAL_COHERENCE_HIGH, coherence)
+            * smoothstep(NORMAL_SUPPORT_LOW, NORMAL_SUPPORT_HIGH, support);
         (normal, confidence)
     }
 }

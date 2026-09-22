@@ -40,6 +40,7 @@ pub(super) fn freeze_render_frame_inputs(
 ) -> RenderFrameInputs {
     let gui = &settings.adjustables;
     let terrain = TerrainFrameInput {
+        hybrid_lighting: gui.terrain_hybrid_lighting.value,
         ray_origin_offset_world: gui.terrain_ray_origin_offset_world.value,
         ddgi_receiver_visibility_bias_world: gui.ddgi_receiver_visibility_bias_world.value,
         ddgi_history_retention: gui.ddgi_history_retention.value,
@@ -320,6 +321,7 @@ mod tests {
 
         gui.flora_growth_override_enabled.value = true;
         gui.raster_tree_hybrid_lighting.value = true;
+        gui.terrain_hybrid_lighting.value = true;
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
         gui.glass_refraction_enabled.value = false;
@@ -455,6 +457,7 @@ mod tests {
         };
         let expected = RenderFrameInputs {
             terrain: TerrainFrameInput {
+                hybrid_lighting: true,
                 ray_origin_offset_world: terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
                 ddgi_history_retention,

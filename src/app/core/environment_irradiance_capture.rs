@@ -1428,7 +1428,7 @@ mod tests {
             .split_once("float3 directLighting(")
             .expect("terrain direct-light function must exist")
             .1
-            .split_once("static const uint PATH_TRACING_MAX_BOUNCES")
+            .split_once("struct TerrainSurfaceLighting")
             .expect("terrain direct-light function must remain isolated")
             .0;
         assert!(!direct_lighting.contains("Ddgi"));
@@ -1448,6 +1448,12 @@ mod tests {
         assert!(!tracer.contains("sampleDdgiUnpublished"));
         assert!(tracer.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
-        assert!(tracer.contains("color = consumerResult.irradiance * albedo"));
+        assert!(tracer.contains("color = environmentIrradiance * albedo"));
+        assert!(tracer.contains("environmentCaptureIrradiance = environmentIrradiance"));
+        assert!(tracer.contains(
+            "directLight = lerp(surface.direct * albedo, directLight, normalConfidence)"
+        ));
+        assert!(tracer
+            .contains("result.direct = finishSurfaceIrradiance(direct, terrainSunIrradiance())"));
     }
 }

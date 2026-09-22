@@ -3,6 +3,7 @@ module surface_extraction;
 import definitions;
 import packer;
 import surface_normal_policy;
+import occupancy_normal;
 import voxel_data;
 import voxel_types;
 
@@ -155,7 +156,7 @@ uint voxelTypeAtLocalIndex(int3 workgroupBase, int3 localIndex)
            VOXEL_TYPE_MASK;
 }
 
-bool isOccluded(int3 workgroupBase, int3 voxelIndex)
+uint exposedSurfaceFaces(int3 workgroupBase, int3 voxelIndex)
 {
     static const int3 NEIGHBORS[6] =
     {
@@ -163,35 +164,20 @@ bool isOccluded(int3 workgroupBase, int3 voxelIndex)
         int3(0, -1, 0), int3(0, 0, 1), int3(0, 0, -1),
     };
 
+    uint faces = 0u;
     for (int index = 0; index < 6; ++index)
     {
-        if (!isSolidAtLocalIndex(
-                workgroupBase, voxelIndex + NEIGHBORS[index]))
-        {
-            return false;
-        }
+        if (!isSolidAtLocalIndex(workgroupBase, voxelIndex + NEIGHBORS[index]))
+            faces |= 1u << uint(index);
     }
-    return true;
+    return faces;
 }
 
-// A 5-bit X window represents offsets -2 through +2. Summing this
-// per-row moment plus the Y/Z population moments is exactly equivalent to
-// visiting all 125 voxels in the smooth estimator.
-int radiusTwoXMoment(uint occupancyWindow)
-{
-    int negativeOuter = int(occupancyWindow & 1u);
-    int negativeInner = int((occupancyWindow >> 1u) & 1u);
-    int positiveInner = int((occupancyWindow >> 3u) & 1u);
-    int positiveOuter = int((occupancyWindow >> 4u) & 1u);
-    return 2 * (positiveOuter - negativeOuter) +
-           positiveInner - negativeInner;
-}
-
-float3 calculateNormal(int3 workgroupBase, int3 voxelIndex)
+float4 calculateNormal(int3 workgroupBase, int3 voxelIndex)
 {
     int3 sharedCenter = localIndexToSharedIndex(workgroupBase, voxelIndex);
     uint windowStartX = uint(sharedCenter.x - SURFACE_NORMAL_RADIUS);
-    int3 normalSum = int3(0);
+    OccupancyNormalMoments moments = beginOccupancyNormal();
     for (int z = -SURFACE_NORMAL_RADIUS; z <= SURFACE_NORMAL_RADIUS; ++z)
     {
         for (int y = -SURFACE_NORMAL_RADIUS; y <= SURFACE_NORMAL_RADIUS; ++y)
@@ -200,18 +186,11 @@ float3 calculateNormal(int3 workgroupBase, int3 voxelIndex)
                 [sharedCenter.y + y][sharedCenter.z + z];
             uint occupancyWindow =
                 (occupancyRow >> windowStartX) & SURFACE_NORMAL_WINDOW_MASK;
-            int solidCount = int(countbits(occupancyWindow));
-            normalSum.x += radiusTwoXMoment(occupancyWindow);
-            normalSum.y += y * solidCount;
-            normalSum.z += z * solidCount;
+            accumulateOccupancyRow(occupancyWindow, y, z, moments);
         }
     }
 
-    float3 normal = float3(normalSum);
-    float normalLengthSquared = dot(normal, normal);
-    return normalLengthSquared > EPSILON * EPSILON
-        ? -normal * rsqrt(normalLengthSquared)
-        : float3(0.0, 1.0, 0.0);
+    return finishOccupancyNormal(moments);
 }
 
 public bool extractSurfaceVoxel(int3 workgroupBase, int3 voxelIndex,
@@ -225,13 +204,12 @@ public bool extractSurfaceVoxel(int3 workgroupBase, int3 voxelIndex,
     }
 
     uint voxelType = voxelTypeAtLocalIndex(workgroupBase, voxelIndex);
-    if (!isSolid(voxelType) || isOccluded(workgroupBase, voxelIndex))
-    {
-        return false;
-    }
+    if (!isSolid(voxelType)) return false;
+    uint faces = exposedSurfaceFaces(workgroupBase, voxelIndex);
+    if (faces == 0u) return false;
 
-    float3 normal = calculateNormal(workgroupBase, voxelIndex);
-    uint normalBits = packNormalOct16(normal);
-    properties = packVoxelSurfaceData(voxelType, normalBits);
+    float4 normal = calculateNormal(workgroupBase, voxelIndex);
+    uint normalBits = packNormalOct16(normal.xyz);
+    properties = packVoxelSurfaceLightingData(voxelType, normalBits, normal.w, faces);
     return true;
 }

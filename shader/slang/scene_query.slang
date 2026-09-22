@@ -101,6 +101,7 @@ public MarchingResult sceneQueryMarchingResultFromOpaqueEvent(
     result.normal = event.incident_face_normal;
     result.voxel_type = event.to_voxel_type;
     result.voxel_address = 0u;
+    result.surface_data = 0u;
     return result;
 }
 

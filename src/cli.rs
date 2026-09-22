@@ -150,6 +150,7 @@ pub enum EnvironmentLightingTestCase {
     PattSeam,
     Portal,
     Walls,
+    ThinVoxels,
     Donor,
     Dogleg,
     RadianceChanges,
@@ -178,6 +179,7 @@ impl EnvironmentLightingTestCase {
             "patt-seam" => Some(Self::PattSeam),
             "portal" => Some(Self::Portal),
             "walls" => Some(Self::Walls),
+            "thin-voxels" => Some(Self::ThinVoxels),
             "donor" => Some(Self::Donor),
             "dogleg" => Some(Self::Dogleg),
             "radiance-changes" => Some(Self::RadianceChanges),
@@ -207,6 +209,7 @@ impl EnvironmentLightingTestCase {
             Self::PattSeam => "patt-seam",
             Self::Portal => "portal",
             Self::Walls => "walls",
+            Self::ThinVoxels => "thin-voxels",
             Self::Donor => "donor",
             Self::Dogleg => "dogleg",
             Self::RadianceChanges => "radiance-changes",
@@ -798,18 +801,28 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
     } else {
         parse_required_string_after("--camera-snapshot", "a camera snapshot name")?
     };
-    let fixed_scene_screenshot = screenshot
+    let fixed_scene_screenshot = match screenshot
         .as_ref()
-        .is_some_and(|request| request.preset_name == "glass-test-scene" && glass_voxel_test_scene);
-    if screenshot
-        .as_ref()
-        .is_some_and(|request| request.preset_name == "glass-test-scene")
+        .map(|request| request.preset_name.as_str())
     {
-        if !glass_voxel_test_scene {
-            return Err(
-                "Screenshot preset 'glass-test-scene' requires --glass-voxel-test-scene".to_owned(),
-            );
+        Some("glass-test-scene") => {
+            if !glass_voxel_test_scene {
+                return Err(
+                    "Screenshot preset 'glass-test-scene' requires --glass-voxel-test-scene"
+                        .to_owned(),
+                );
+            }
+            true
         }
+        Some("environment-test-scene") => {
+            if environment_lighting_test_scene.is_none() {
+                return Err("Screenshot preset 'environment-test-scene' requires --environment-lighting-test-scene <case>".to_owned());
+            }
+            true
+        }
+        _ => false,
+    };
+    if fixed_scene_screenshot {
         camera_snapshot = None;
     }
     let screenshot_options = screenshot
@@ -1272,7 +1285,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed."
                 )
             }),
     }
@@ -1544,12 +1557,13 @@ Options:
   --lighting-mode-acceptance <artifact>
                               Run the fixed R13/E2 acceptance and write one .rflma artifact (requires --hidden --mute)
   --environment-lighting-test-scene [case]
-                              Build a lighting case: sealed (default), patt-seam, portal, walls, donor, dogleg,
+                              Build a lighting case: sealed (default), patt-seam, portal, walls, thin-voxels, donor, dogleg,
                               radiance-changes, point-light-changes, voxel-emissive-changes,
                               raster-emitter-changes, multi-source-stress, local-light-scaling,
                               density-changes, terrain-edits,
                               terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, or
                               terrain-edits-closed
+                              Screenshot preset 'environment-test-scene' retains the fixture camera.
   --environment-irradiance-capture <path>
                               Save DDGI metadata, pre-albedo irradiance/hit mask, world hit, and exact sun visibility
   --ddgi-spatial-weight-readback <path>
@@ -2022,7 +2036,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed"
         ));
     }
 
@@ -2299,6 +2313,37 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("requires --glass-voxel-test-scene"));
+    }
+
+    #[test]
+    fn environment_screenshot_retains_the_fixture_camera() {
+        let options = parse(&[
+            "re-flora",
+            "--environment-lighting-test-scene",
+            "thin-voxels",
+            "--screenshot",
+            "environment-test-scene",
+            "target/example.png",
+            "--screenshot-delay",
+            "2",
+        ]);
+        assert!(matches!(
+            options.automation.camera,
+            CameraAutomation::FixedSceneScreenshot { .. }
+        ));
+        let error = try_parse_owned(
+            [
+                "re-flora",
+                "--screenshot",
+                "environment-test-scene",
+                "target/example.png",
+                "--screenshot-delay",
+                "2",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        );
+        assert!(error.is_err());
     }
 
     #[test]

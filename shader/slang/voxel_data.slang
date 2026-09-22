@@ -58,10 +58,33 @@ public float3 voxelSurfaceNormalFromData(uint voxelData)
     return unpackNormalOct16(voxelNormalBitsFromData(voxelData));
 }
 
+// Surface records have twelve spare bits (4..7, 24..31); atlas state is a
+// different format. Store six exposed faces and six-bit normal uncertainty.
+// Zero metadata preserves the legacy reliable-normal response.
+public float voxelNormalConfidenceFromData(uint data)
+{
+    uint uncertainty = ((data >> 4u) & 15u) | ((data >> 30u) << 4u);
+    return 1.0 - float(uncertainty) / 63.0;
+}
+
+public uint voxelExposedFacesFromData(uint data)
+{
+    return (data >> 24u) & 63u;
+}
+
 public uint packVoxelSurfaceData(uint voxelType, uint normalBits)
 {
     uint voxelData = 0u;
     voxelData |= voxelType & VOXEL_TYPE_MASK;
     voxelData |= (normalBits & VOXEL_NORMAL_BITS_MASK) << 8u;
     return voxelData;
+}
+
+public uint packVoxelSurfaceLightingData(uint voxelType, uint normalBits,
+    float confidence, uint exposedFaces)
+{
+    uint uncertainty = uint(round((1.0 - saturate(confidence)) * 63.0));
+    return packVoxelSurfaceData(voxelType, normalBits)
+        | ((uncertainty & 15u) << 4u) | ((uncertainty >> 4u) << 30u)
+        | ((exposedFaces & 63u) << 24u);
 }

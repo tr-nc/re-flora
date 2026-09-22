@@ -152,7 +152,10 @@ broad half-spaces retain full confidence. Intermediate thicknesses receive inter
 Occupancy is discrete, so this is a continuous *response*, not a promise of infinitely smooth
 changes when an actual voxel is added/deleted. Confidence is rebuilt with visible terrain/tree
 geometry and is invariant under camera movement and wind. The estimator does not depend on
-branch radius or material identity, so terrain can adopt the same policy later.
+branch radius or material identity. Ordinary terrain now adopts this policy through
+`occupancy_normal.slang`; thresholds have one source in `surface_normal_policy.slang`, with
+Rust constants generated at build time. See [terrain hybrid lighting](terrain_hybrid_lighting.md)
+for its separate default-off A/B, packed metadata, captures and Release cost measurements.
 
 ## Lighting and geometry
 

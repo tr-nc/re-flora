@@ -59,6 +59,7 @@ public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingRe
                 hit.position = origin+direction*distance; hit.center_position = hit.position;
                 hit.normal = normalize(treeSceneNormal(ids.x)*(1.0-u-v)+treeSceneNormal(ids.y)*u+treeSceneNormal(ids.z)*v);
                 hit.voxel_type = 5u; hit.voxel_address = 0u;
+                hit.surface_data = 0u;
             }
         }
         index = node.escape;

@@ -917,7 +917,10 @@ mod tests {
         assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         // Display the newest physical estimate, including while terrain edits are
         // pending. Do not substitute a brush-local constant for the sampled light.
-        assert!(terrain.contains("color = consumerResult.irradiance * albedo"));
+        assert!(terrain.contains("color = environmentIrradiance * albedo"));
+        assert!(
+            terrain.contains("lerp(surface.environment, environmentIrradiance, normalConfidence)")
+        );
         assert!(!terrain.contains("ddgiTerrainDisplayIrradiance("));
         assert!(!terrain.contains("terrain_missing_lighting_strength"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
@@ -1514,8 +1517,9 @@ mod tests {
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
-        assert!(tracer.contains(
-            "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
+        let compact = tracer.split_whitespace().collect::<String>();
+        assert!(compact.contains(
+            "sampleDdgiTerrainSmoothEnvironment(shading_info,ddgiReceiverPosition,result.position,result.normal)"
         ));
     }
 }
