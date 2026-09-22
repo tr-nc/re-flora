@@ -10,7 +10,9 @@ use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::DynamicFruitRenderInstance;
 use anyhow::Result;
 use glam::{IVec3, Quat, UVec3, Vec3};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 #[derive(Default)]
 pub(super) struct ClimbingPlants {
@@ -103,9 +105,13 @@ fn contact_bounds(plant: &Plant, id: usize) -> (UVec3, UVec3) {
 struct Patch {
     block: ContreeCpuVoxelBlock,
     fresh: bool,
+    queries: Option<Cell<u64>>,
 }
 impl Terrain for Patch {
     fn voxel(&self, cell: IVec3) -> Option<u8> {
+        if let Some(queries) = &self.queries {
+            queries.set(queries.get() + 1);
+        }
         if cell.cmplt(IVec3::ZERO).any() {
             return None;
         }
@@ -188,6 +194,9 @@ impl App {
                 log::info!("[CLIMBING] real refill through tip bounds={min:?}..{max:?}");
             }
         }
+        // Opt-in CPU scopes cover the vine update, excluding fixture edits and camera actions.
+        let profile_start = self.perf_logging.then(Instant::now);
+        let elapsed_us = || profile_start.map_or(0, |start| start.elapsed().as_micros());
         let source = self.contree_builder.cpu_voxel_source_snapshot();
 
         let (min, max) = if let Some(plant) = &self.climbing_plants.plant {
@@ -225,7 +234,12 @@ impl App {
         if !fresh {
             return Ok(());
         }
-        let patch = Patch { block, fresh };
+        let patch = Patch {
+            block,
+            fresh,
+            queries: self.perf_logging.then(|| Cell::new(0)),
+        };
+        let export_us = elapsed_us();
         if self.climbing_plants.plant.is_none() {
             for z in (299..324).rev() {
                 let cell = IVec3::new(255, 198, z);
@@ -314,6 +328,7 @@ impl App {
                         .collect::<Vec<_>>()
             );
         }
+        let revalidate_end_us = elapsed_us();
         let dt = steps as f32 * tick_seconds;
         self.climbing_plants.accumulator +=
             dt * self.debug_settings.adjustables.climbing_speed.value;
@@ -331,9 +346,11 @@ impl App {
                 self.debug_settings.adjustables.climbing_spacing.value,
             );
         }
+        let growth_end_us = elapsed_us();
         for _ in 0..if review { 1 } else { steps.min(8) } {
             plant.relax(&patch);
         }
+        let relax_end_us = elapsed_us();
         if before_nodes / 16 != plant.nodes.len() / 16 {
             log::info!(
                 "[CLIMBING] growth nodes={} attached={} tips={} finite={}",
@@ -476,6 +493,33 @@ impl App {
         self.tracer.show_climbing_plant_geometry(&instances)?;
         self.climbing_plants.instances = instances;
         self.climbing_plants.index_anchors();
+        if self.perf_logging {
+            let total_us = elapsed_us();
+            let phase = if self.climbing_plants.review_root_cut {
+                "detached"
+            } else if self.climbing_plants.review_multiple {
+                "multiple_supports"
+            } else if self.climbing_plants.review_refilled {
+                "refill"
+            } else if self.climbing_plants.review_edited {
+                "single_support"
+            } else {
+                "growth"
+            };
+            let plant = self.climbing_plants.plant.as_ref().unwrap();
+            log::info!(
+                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} steps={} quanta={quanta} queries={} export_us={export_us} revalidate_us={} growth_us={} relax_us={} render_us={} total_us={total_us}",
+                self.climbing_plants.review_ticks,
+                plant.nodes.len(),
+                plant.anchors.iter().filter(|a| a.attached).count(),
+                if review { 1 } else { steps.min(8) },
+                patch.queries.as_ref().map_or(0, Cell::get),
+                revalidate_end_us - export_us,
+                growth_end_us - revalidate_end_us,
+                relax_end_us - growth_end_us,
+                total_us - relax_end_us,
+            );
+        }
         if review_edit {
             if let Some(c) = edit_cell {
                 self.climbing_plants.review_edited = true;
@@ -608,7 +652,11 @@ mod tests {
                 .unwrap(),
             ContreeCpuVoxelBlockExport::NotReady(_)
         ));
-        let patch = Patch { block, fresh: true };
+        let patch = Patch {
+            block,
+            fresh: true,
+            queries: None,
+        };
         assert_eq!(patch.voxel(IVec3::new(255, 1, 1)), Some(0));
         assert_eq!(patch.voxel(IVec3::new(256, 1, 1)), Some(0));
         assert_eq!(patch.voxel(IVec3::new(257, 1, 1)), None);

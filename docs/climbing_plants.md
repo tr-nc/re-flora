@@ -32,6 +32,21 @@ attachment markers. Click Debug **Save** to persist settings. Speed zero pauses
 extension, not gravity. Disable hides/pauses the vine without deleting its session
 history or removing the wall. Enabling for the first time also creates/focuses it.
 
+## CPU profiling
+
+Use the real release app, with the existing deterministic edit/recovery review:
+
+```sh
+RE_FLORA_CLIMBING_REVIEW=1 cargo run --release -- --hidden --mute --perf --auto-exit 16
+cargo run --release -- --latest-log
+```
+
+`[CLIMBING][PERF]` reports export, revalidation, growth, relaxation, render preparation,
+voxel query count, nodes, phase and review tick. These opt-in CPU scopes exclude fixture
+edits/camera actions and are not GPU/frame-time measurements. Compare matching phases
+and ticks (through tick 280), not whole-run averages: faster runs advance farther.
+Require both `[CLIMBING][REVIEW] verified ...` and `root_cut=true ...`, plus clean shutdown.
+
 ## Model and bounds
 
 - One deterministic seed (`42`), append-only node/anchor IDs, parent edges and fixed
