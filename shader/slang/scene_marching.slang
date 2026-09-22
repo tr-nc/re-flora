@@ -39,6 +39,7 @@ bool traceChunk(
     result.normal = voxelSurfaceNormalFromData(voxelData);
     result.voxel_type = voxelTypeFromData(voxelData);
     result.voxel_address = contreeResult.voxel_address;
+    result.surface_data = voxelData;
     return true;
 }
 
@@ -57,6 +58,7 @@ public MarchingResult marchTerrain(
     result.normal = float3(0.0);
     result.voxel_type = 0u;
     result.voxel_address = 0u;
+    result.surface_data = 0u;
 
     uint width;
     uint height;

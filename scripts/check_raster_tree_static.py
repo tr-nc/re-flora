@@ -7,6 +7,7 @@ and captures. This is a visual diagnostic, not a performance or image-equivalenc
 from pathlib import Path
 import argparse
 import fcntl
+import json
 import os
 import re
 import subprocess
@@ -31,14 +32,41 @@ def setting(source, name, value):
     return result
 
 
+def thin_geometry_evidence(text):
+    cones = re.findall(r'\[TREE\]\[THIN_WOOD\] (?:authored=true|preserve=true cull=\w+) '
+                       r'radius_min=([\d.]+) (?:subminimum_cones=\d+ )?subhalf_voxel_cones=(\d+)', text)
+    meshes = re.findall(r'\[TREE\]\[NORMAL_CONFIDENCE\] fallback=(\d+) transition=(\d+) reliable=(\d+) '
+                        r'single_voxel_cross_sections=(\d+) rest_fingerprint=([0-9a-f]+)', text)
+    if not cones or not meshes:
+        raise ValueError('missing actual thin cone/mesh evidence; rebuild the release binary')
+    radius, subhalf = cones[-1]
+    fallback, transition, reliable, single_voxel, fingerprint = meshes[-1]
+    if not (0.0 <= float(radius) < 0.5 and int(subhalf) > 0
+            and int(fallback) > 0 and int(single_voxel) > 0):
+        raise ValueError('scene does not exercise actual thin wood and degenerate voxel normals')
+    return {'minimum_radius_voxels': float(radius), 'subhalf_voxel_cones': int(subhalf), 'fallback_cells': int(fallback),
+            'transition_cells': int(transition), 'reliable_cells': int(reliable),
+            'single_voxel_cross_sections': int(single_voxel), 'rest_fingerprint': fingerprint}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, epilog=(
         'The experimental --axis-aligned mode was removed. '
         'Use --wind to capture the retained smooth animation.'))
     parser.add_argument('--output', type=Path, default=ROOT / 'target/raster-tree-evidence')
     parser.add_argument('--wind', action='store_true', help='Capture B with tree wind and scripted gusts')
+    parser.add_argument('--hybrid-lighting', action='store_true',
+                        help='Keep raster trees in A/B; compare original vs hybrid thin-branch lighting')
+    parser.add_argument('--thin-branches', action='store_true',
+                        help='With --hybrid-lighting, verify actual thin radii and identical meshes (authored radii are always preserved)')
+    parser.add_argument('--time-of-day', type=float, default=0.47,
+                        help='Fixed lighting time for both captures (0..1; default: 0.47)')
     parser.add_argument('--delay', type=float, default=4.0)
     args = parser.parse_args()
+    if args.thin_branches and not args.hybrid_lighting:
+        parser.error('--thin-branches requires --hybrid-lighting so A/B compares lighting on identical thin geometry')
+    if not 0.0 <= args.time_of_day <= 1.0:
+        parser.error('--time-of-day must be between 0 and 1')
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
@@ -52,13 +80,19 @@ def main():
         gui_original, camera_original = gui.read_bytes(), camera.read_bytes()
         try:
             source = setting(gui_original.decode(), 'auto_daynight_cycle', 'false')
-            source = setting(source, 'time_of_day', '0.47')
+            source = setting(source, 'time_of_day', str(args.time_of_day))
             source = setting(source, 'path_tracing_reference', 'false')
             source = setting(source, 'raster_tree_wind', str(args.wind).lower())
+            evidence = {}
+            if args.thin_branches:
+                (out / 'thin-geometry.json').unlink(missing_ok=True)
             camera.write_text(CAMERA)
             for foliage in [False, True]:
                 for mode in ['A', 'B']:
-                    candidate = setting(source, 'raster_tree_static', str(mode == 'B').lower())
+                    candidate = setting(source, 'raster_tree_static',
+                                        str(args.hybrid_lighting or mode == 'B').lower())
+                    candidate = setting(candidate, 'raster_tree_hybrid_lighting',
+                                        str(args.hybrid_lighting and mode == 'B').lower())
                     gui.write_text(candidate)
                     name = f'{mode}-' + ('canopy' if foliage else 'wood')
                     (out / f'{name}.png').unlink(missing_ok=True)
@@ -74,10 +108,16 @@ def main():
                     assert (out / f'{name}.png').is_file(), f'{name}: screenshot missing'
                     text = (out / f'{name}.log').read_text()
                     assert 'Application exited successfully' in text, name
-                    if mode == 'B':
+                    if mode == 'B' or args.hybrid_lighting:
                         assert '[TREE][RASTER_STATIC] mode=B' in text, name
                     assert not any(error in text for error in [' ERROR ', 'VUID-', 'panicked at']), name
+                    if args.thin_branches:
+                        evidence[name] = thin_geometry_evidence(text)
+                        if mode == 'B' and evidence[name] != evidence[name.replace('B-', 'A-', 1)]:
+                            raise ValueError(f'{name}: lighting A/B changed the thin geometry or normal metadata')
                     print(out / f'{name}.png', flush=True)
+            if args.thin_branches:
+                (out / 'thin-geometry.json').write_text(json.dumps(evidence, indent=2) + '\n')
         finally:
             gui.write_bytes(gui_original)
             camera.write_bytes(camera_original)

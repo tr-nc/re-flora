@@ -11,6 +11,7 @@ import scene_query;
 import scene_marching;
 import raster_tree_lookup;
 import skylight;
+import surface_irradiance;
 import terrain_edit_preview;
 import terrain_ray_origin;
 import tracer_material;
@@ -175,12 +176,16 @@ float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
         surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
+float3 terrainSunIrradiance()
+{
+    return sun_info.sun_color * sun_info.sun_luminance * step(0.0, sun_info.sun_dir.y);
+}
+
 float3 shadowRayColor(float3 terrainLeafReceiverPosition,
                       float3 cloudReceiverPosition,
                       float3 receiverNormal,
                       out DirectSunShadowTransmittances shadow)
 {
-    float sunAboveHorizon = step(0.0, sun_info.sun_dir.y);
     DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
         float4(terrainLeafReceiverPosition, 1.0),
         float4(terrainLeafReceiverPosition, 1.0),
@@ -194,8 +199,7 @@ float3 shadowRayColor(float3 terrainLeafReceiverPosition,
         receiver, gui_input, shadow_camera_info.view_proj_mat,
         shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
         leaf_shadow_mask_tex, cloud_shadow_tex);
-    return shadow.combined * sun_info.sun_color * sun_info.sun_luminance *
-        sunAboveHorizon;
+    return shadow.combined * terrainSunIrradiance();
 }
 
 float3 nextTracingPosition(float3 voxelCenter, float3 voxelNormal)
@@ -250,6 +254,57 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     float3 localIrradiance = tracerVisibleLocalLightIrradiance(
         surfacePosition, normal, localInvocationIndex);
     return (sunIrradiance + localIrradiance) * albedo;
+}
+
+struct TerrainSurfaceLighting
+{
+    float3 environment;
+    float3 direct;
+    float4 shadows;
+};
+
+// Same surface-area measure as raster trees, with exact axis-aligned face
+// centres from the published Contree voxel (never the mutable atlas). Only
+// weak-normal primary hits pay for these samples; transport/reference is unchanged.
+TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint localIndex)
+{
+    static const float3 NORMALS[6] = {
+        float3(1,0,0), float3(-1,0,0), float3(0,1,0),
+        float3(0,-1,0), float3(0,0,1), float3(0,0,-1)
+    };
+    SurfaceIrradianceIntegral environment = beginSurfaceIrradiance();
+    SurfaceIrradianceIntegral direct = beginSurfaceIrradiance();
+    float3 sunDirection = normalize(sun_info.sun_dir);
+    float4 shadows = float4(0);
+    float sunSupport = 0.0;
+    for (uint face = 0u; face < 6u; ++face)
+    {
+        if ((faces & (1u << face)) == 0u) continue;
+        float3 normal = NORMALS[face];
+        float3 position = center + normal * (0.5 / 256.0);
+        float3 diffuse = sampleDdgiTerrainSmoothEnvironment(
+            shading_info, position, position, normal).irradiance;
+        float3 local = tracerVisibleLocalLightIrradiance(position, normal, localIndex);
+        float cosine = max(0.0, dot(normal, sunDirection));
+        float visibility = 0.0;
+        if (cosine > 0.0)
+        {
+            float3 receiver = terrainShadowReceiverPositionFromSurface(position, normal);
+            DirectSunShadowTransmittances shadow;
+            shadowRayColor(receiver, receiver, normal, shadow);
+            visibility = shadow.combined;
+            shadows += cosine * float4(shadow.terrain, shadow.leaf, shadow.cloud, shadow.combined);
+            sunSupport += cosine;
+        }
+        accumulateSurfaceIrradiance(1.0, 0.0, 0.0, diffuse, environment);
+        accumulateSurfaceIrradiance(1.0, cosine, visibility, local, direct);
+    }
+    TerrainSurfaceLighting result;
+    result.environment = finishSurfaceIrradiance(environment, float3(0));
+    result.direct = finishSurfaceIrradiance(direct, terrainSunIrradiance());
+    // Visibility-only diagnostics use projected weighting, never shading energy.
+    result.shadows = sunSupport > 0.0 ? shadows / sunSupport : float4(1);
+    return result;
 }
 
 static const uint PATH_TRACING_MAX_BOUNCES = 8u;
@@ -590,8 +645,13 @@ void getPixelColor(out float3 color, out float depth,
                                             result.center_position);
         return;
     }
-    if (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
-        shading_info.environment_irradiance_capture_enabled != 0u)
+    uint exposedFaces = voxelExposedFacesFromData(result.surface_data);
+    // Published geometry confidence always selects the normal terrain response.
+    // Reference/debug views and hits without surface metadata stay independent.
+    float normalConfidence = shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL && exposedFaces != 0u
+        ? voxelNormalConfidenceFromData(result.surface_data) : 1.0;
+    if (normalConfidence > 0.0 && (shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL ||
+        shading_info.environment_irradiance_capture_enabled != 0u))
     {
         DirectSunShadowTransmittances shadow;
         directLight = directLighting(albedo, result.normal,
@@ -607,9 +667,10 @@ void getPixelColor(out float3 color, out float depth,
     // smooth probe field is not quantized into one irradiance step per voxel.
     float3 ddgiReceiverPosition = terrainVoxelSurfacePositionAlongNormal(
         result.center_position, result.normal);
-    DdgiQueryResult consumerResult = sampleDdgiTerrainSmoothEnvironment(
-        shading_info, ddgiReceiverPosition, result.position,
-        result.normal);
+    DdgiQueryResult consumerResult = makeEmptyDdgiQueryResult();
+    if (normalConfidence > 0.0)
+        consumerResult = sampleDdgiTerrainSmoothEnvironment(
+            shading_info, ddgiReceiverPosition, result.position, result.normal);
     environmentIrradiance = consumerResult.irradiance;
     environmentCaptureIrradiance = consumerResult.irradiance;
     if (shading_info.ddgi_debug_view != DDGI_DEBUG_FINAL)
@@ -628,9 +689,20 @@ void getPixelColor(out float3 color, out float depth,
         color = environmentIrradiance;
         return;
     }
+    if (normalConfidence < 1.0)
+    {
+        TerrainSurfaceLighting surface = thinTerrainLighting(result.center_position,
+            exposedFaces, localInvocationIndex);
+        environmentIrradiance = lerp(surface.environment, environmentIrradiance, normalConfidence);
+        environmentCaptureIrradiance = environmentIrradiance;
+        directLight = lerp(surface.direct * albedo, directLight, normalConfidence);
+        environmentCaptureDirectSunShadows = lerp(surface.shadows,
+            environmentCaptureDirectSunShadows, normalConfidence);
+        environmentCaptureReceiver.w = environmentCaptureDirectSunShadows.x;
+    }
     // Show the latest physical estimate even while an edit is awaiting a newer
     // publication. Incomplete convergence must not introduce a fixed-color patch.
-    color = consumerResult.irradiance * albedo;
+    color = environmentIrradiance * albedo;
     color += directLight;
     color += voxelSurfaceEmission(voxel_colors, result.voxel_type);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,

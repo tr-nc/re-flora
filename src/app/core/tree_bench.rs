@@ -46,17 +46,6 @@ impl TreeBench {
         };
         tree_desc.branching.initial_length = 32.0 + t * 64.0;
         tree_desc.branching.seed = 122;
-        if std::env::var_os("RE_FLORA_THIN_BRANCH_REVIEW").is_some() {
-            tree_desc.branching.initial_length = 48.0;
-            tree_desc.cull_thin_branches = sample.is_multiple_of(2);
-            let tree = crate::tree_gen::Tree::new(tree_desc.clone());
-            log::info!(
-                "[THIN_BRANCH_REVIEW] sample={sample} cull={} wood_segments={} leaf_anchors={}",
-                tree_desc.cull_thin_branches,
-                tree.trunks().len(),
-                tree.relative_leaf_positions().len()
-            );
-        }
         app.debug_settings.tree.desc = tree_desc;
 
         let start = Instant::now();

@@ -1304,13 +1304,10 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
-        // Opt-in wood-only capture; normal startup and saved leaf visibility are unchanged.
-        if let Ok(mode) = std::env::var("RE_FLORA_THIN_BRANCH_REVIEW") {
-            if mode == "A" || mode == "B" {
-                debug_settings.tree.desc.cull_thin_branches = mode == "B";
-                debug_settings.tree.render_leaves = false;
-                log::info!("[THIN_BRANCH_REVIEW] wood_only_capture={mode}");
-            }
+        // The tree smoke owns its initial fixture. Configure it before the first
+        // terrain/GI publication, not by redundantly rebuilding on frame one.
+        if launch_owners.raster_tree_smoke.is_some() {
+            debug_settings.adjustables.tree_age.value = 1.0;
         }
         // Opt-in visual review: reuse the normal camera capture and GUI parameter.
         if let Ok(value) = std::env::var("RE_FLORA_LEAF_REVIEW") {

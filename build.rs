@@ -1364,6 +1364,25 @@ fn generate_voxel_material_config() {
         .unwrap_or_else(|error| panic!("write {}: {error}", output_path.display()));
 }
 
+fn generate_surface_normal_policy() {
+    let source_path = project_root().join("shader/slang/surface_normal_policy.slang");
+    let source = fs::read_to_string(&source_path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", source_path.display()));
+    let mut code = String::from("// @generated from shader/slang/surface_normal_policy.slang\n");
+    for name in [
+        "NORMAL_COHERENCE_LOW",
+        "NORMAL_COHERENCE_HIGH",
+        "NORMAL_SUPPORT_LOW",
+        "NORMAL_SUPPORT_HIGH",
+    ] {
+        let value = parse_slang_f32_constant(&source, name);
+        code.push_str(&format!("pub const {name}: f32 = {value:?};\n"));
+    }
+    let output = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is not set"))
+        .join("surface_normal_policy.rs");
+    fs::write(&output, code).unwrap_or_else(|error| panic!("write {}: {error}", output.display()));
+}
+
 fn generate_ddgi_config() {
     let root = project_root();
     let source_path = root.join("shader/slang/ddgi_config.slang");
@@ -1451,6 +1470,7 @@ fn main() {
     println!("cargo:rerun-if-changed=shader/slang/ddgi_config.slang");
     println!("cargo:rerun-if-changed=shader/slang/sky_environment_data.slang");
     println!("cargo:rerun-if-changed=shader/slang/voxel_material.slang");
+    println!("cargo:rerun-if-changed=shader/slang/surface_normal_policy.slang");
 
     dump_env();
 
@@ -1458,5 +1478,6 @@ fn main() {
     generate_ddgi_config();
     generate_sky_environment_data();
     generate_voxel_material_config();
+    generate_surface_normal_policy();
     generate_gpu_structs();
 }

@@ -917,7 +917,10 @@ mod tests {
         assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         // Display the newest physical estimate, including while terrain edits are
         // pending. Do not substitute a brush-local constant for the sampled light.
-        assert!(terrain.contains("color = consumerResult.irradiance * albedo"));
+        assert!(terrain.contains("color = environmentIrradiance * albedo"));
+        assert!(
+            terrain.contains("lerp(surface.environment, environmentIrradiance, normalConfidence)")
+        );
         assert!(!terrain.contains("ddgiTerrainDisplayIrradiance("));
         assert!(!terrain.contains("terrain_missing_lighting_strength"));
         assert!(raster.contains("sampleDiffuseEnvironment("));
@@ -1474,6 +1477,20 @@ mod tests {
     }
 
     #[test]
+    fn terrain_hybrid_uses_published_confidence_without_a_runtime_switch() {
+        let tracer = include_str!("../shader/slang/tracer.slang");
+        let compact = tracer.split_whitespace().collect::<String>();
+        assert!(compact.contains(
+            "floatnormalConfidence=shading_info.ddgi_debug_view==DDGI_DEBUG_FINAL&&exposedFaces!=0u?voxelNormalConfidenceFromData(result.surface_data):1.0;"
+        ));
+        assert!(compact.contains("if(normalConfidence<1.0)"));
+        assert!(compact.contains("if(normalConfidence>0.0)"));
+        for source in [tracer, include_str!("../shader/slang/tracer_types.slang")] {
+            assert!(!source.contains("terrain_hybrid_lighting"));
+        }
+    }
+
+    #[test]
     fn terrain_leaf_shadows_share_voxel_receiver_while_cloud_keeps_continuous_position() {
         let tracer = include_str!("../shader/slang/tracer.slang");
         let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
@@ -1514,8 +1531,9 @@ mod tests {
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
-        assert!(tracer.contains(
-            "sampleDdgiTerrainSmoothEnvironment(\n        shading_info, ddgiReceiverPosition, result.position,\n        result.normal)"
+        let compact = tracer.split_whitespace().collect::<String>();
+        assert!(compact.contains(
+            "sampleDdgiTerrainSmoothEnvironment(shading_info,ddgiReceiverPosition,result.position,result.normal)"
         ));
     }
 }

@@ -10,4 +10,6 @@ public struct MarchingResult
     public float3 normal;
     public uint voxel_type;
     public uint voxel_address;
+    // Published Contree surface record. Zero for non-Contree hits: no fallback.
+    public uint surface_data;
 };

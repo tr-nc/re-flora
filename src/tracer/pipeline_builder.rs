@@ -772,6 +772,8 @@ impl PipelineBuilder {
                 contree_builder_resources,
                 scene_accel_resources,
                 plain_builder_resources,
+                ddgi_volume,
+                ddgi_voxel_visibility,
             ],
         );
         let flora_lighting_cache_ppl = ComputePipeline::new_uninitialized(
@@ -1596,6 +1598,7 @@ declare_ddgi_consumer_registry! {
     LeavesLod => Graphics(graphics.leaves_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
+    RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
     DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),

@@ -24,5 +24,6 @@ void main(uint3 id : SV_DispatchThreadID) {
         normal = treeSkinNormal(parent, child, weight, normal);
     }
     tree_scene_vertices[i*2u] = float4(position, 1);
-    tree_scene_vertices[i*2u+1u] = float4(normal, 0);
+    // Reliability belongs to rest occupancy, not camera/wind-dependent geometry.
+    tree_scene_vertices[i*2u+1u] = float4(normal, tree_skin_rest[i*3u+2u].w);
 }

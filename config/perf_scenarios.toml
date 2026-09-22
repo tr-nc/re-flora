@@ -329,3 +329,56 @@ source = "gpu_job_scope"
 key = "surface.build"
 min_samples = 1
 budget_percent = 3.0
+
+# Measurement scenarios for scripts/check_terrain_hybrid_lighting.py --benchmark.
+# Hybrid lighting is permanent; reports measure repeated runs or cross-revision
+# cost, not a runtime on/off mode. They do not introduce a release-acceptance gate.
+[scenario.terrain-hybrid-player]
+description = "Ordinary fixed player camera; effects disabled to isolate terrain consumer cost"
+args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--camera-snapshot", "player-default", "--auto-exit", "30"]
+warmup_frame = 600
+required_markers = ["[PERF][GPU_FRAME_SCOPE]", "Application exited successfully"]
+match_surface_workload = true
+
+[[scenario.terrain-hybrid-player.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 90
+
+[[scenario.terrain-hybrid-player.metric]]
+name = "tracer.pass"
+source = "gpu_scope"
+key = "tracer.pass"
+min_samples = 90
+
+[[scenario.terrain-hybrid-player.metric]]
+name = "frame.cpu_total"
+source = "cpu_scope"
+key = "frame.cpu_total"
+min_samples = 90
+
+[scenario.terrain-hybrid-thin]
+description = "Ordinary rock terrain: isolated voxels, rods, thin sheet and thick control"
+args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--environment-lighting-test-scene", "thin-voxels", "--auto-exit", "30"]
+warmup_frame = 600
+required_markers = ["[PERF][GPU_FRAME_SCOPE]", "Application exited successfully"]
+match_surface_workload = true
+
+[[scenario.terrain-hybrid-thin.metric]]
+name = "frame.render"
+source = "gpu_scope"
+key = "frame.render"
+min_samples = 90
+
+[[scenario.terrain-hybrid-thin.metric]]
+name = "tracer.pass"
+source = "gpu_scope"
+key = "tracer.pass"
+min_samples = 90
+
+[[scenario.terrain-hybrid-thin.metric]]
+name = "frame.cpu_total"
+source = "cpu_scope"
+key = "frame.cpu_total"
+min_samples = 90

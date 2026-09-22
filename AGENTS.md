@@ -108,7 +108,9 @@ cargo run --release -- --tail-latest-log 200
 
 ### User Try-Out Role
 
-After implementing and validating a change, do not automatically launch the visible game. If the user says they want to try it, visualize it, experience it, or otherwise asks for a live/manual check, run the game in visible mode with plain `cargo run` and no `--hidden` flag. If the implementation lives in a worker worktree, run `cargo run` from that same worktree so the user tests the intended branch and assets.
+After implementing and validating a change, do not automatically launch the visible game. If the user says they want to try it, visualize it, experience it, or otherwise asks for a live/manual check, run the game in visible Release mode with `cargo run --release` and no `--hidden` flag. Debug builds are too slow for visual try-outs; use them only when explicitly needed for debugging. If the implementation lives in a worker worktree, run `cargo run` from that same worktree so the user tests the intended branch and assets.
+
+Keep Frame Timing hidden during ordinary visual try-outs: omit `--perf` unless the user explicitly requests live timing. Hidden performance validation may still use `--perf`.
 
 ## Basic Perf Test
 

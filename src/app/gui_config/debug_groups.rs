@@ -14,7 +14,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None, title: "Whole Tree Rasterization",
         description: "A: voxel trees. B: rasterized voxel surfaces. Static lighting comparison; branch wind comes next. Static terrain remains the exact secondary-ray and collision representation.",
-        initially_open: true, params: &["raster_tree_static", "raster_tree_wind", "tree_stiffness"],
+        initially_open: true, params: &["raster_tree_static", "raster_tree_wind", "raster_tree_hybrid_lighting", "tree_stiffness"],
     },
     ControlGroup {
         parent: Some("Flora"),
@@ -51,7 +51,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Lighting Diagnostics",
-        description: "Flora lighting and terrain path-tracing reference controls.",
+        description: "Flora lighting and terrain path-tracing reference. Terrain automatically uses geometry-aware hybrid lighting in the normal consumer path; reference/debug transport is independent.",
         initially_open: false,
         params: &[
             "raster_flora_ddgi_lighting",

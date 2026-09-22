@@ -23,6 +23,7 @@ use egui::Color32;
 use glam::{UVec3, Vec3};
 
 mod local_light_scaling;
+mod thin_voxels;
 use local_light_scaling::{LocalLightScalingSample, LocalLightScalingState};
 
 const SETTLE_FRAMES: u8 = 2;
@@ -551,6 +552,7 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::PattSeam
             | EnvironmentLightingTestCase::Portal
             | EnvironmentLightingTestCase::Walls
+            | EnvironmentLightingTestCase::ThinVoxels
             | EnvironmentLightingTestCase::Donor
             | EnvironmentLightingTestCase::Dogleg
             | EnvironmentLightingTestCase::CaveEditsPortalFinal => Self::Static,
@@ -1628,6 +1630,15 @@ impl TestSceneGeometry {
                 ],
                 Vec::new(),
             ),
+            EnvironmentLightingTestCase::ThinVoxels => (
+                vec![Cuboid::from_min_max(
+                    TEST_REBUILD_MIN.as_vec3(),
+                    TEST_REBUILD_MAX.as_vec3(),
+                )],
+                thin_voxels::rock(),
+                Vec::new(),
+                Vec::new(),
+            ),
             EnvironmentLightingTestCase::Walls => {
                 let mut rock = vec![
                     Cuboid::from_min_max(WALLS_FLOOR_MIN, WALLS_FLOOR_MAX),
@@ -1946,6 +1957,7 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
+        EnvironmentLightingTestCase::ThinVoxels => thin_voxels::camera_pose(),
         EnvironmentLightingTestCase::Walls => {
             (Vec3::new(1.00, 0.62, 1.76), Vec3::new(1.00, 0.58, 1.10))
         }
@@ -6890,6 +6902,7 @@ mod tests {
             EnvironmentLightingTestCase::PattSeam,
             EnvironmentLightingTestCase::Portal,
             EnvironmentLightingTestCase::Walls,
+            EnvironmentLightingTestCase::ThinVoxels,
             EnvironmentLightingTestCase::Donor,
             EnvironmentLightingTestCase::Dogleg,
             EnvironmentLightingTestCase::RadianceChanges,
