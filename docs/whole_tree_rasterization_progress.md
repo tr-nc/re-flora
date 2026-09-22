@@ -2,6 +2,13 @@
 
 用户选择：保留现有体素方块轮廓。每个验证通过的步骤独立提交。
 
+## 新增视觉 A/B：细枝 hybrid 光照
+
+`Whole Tree Rasterization → Hybrid thin-branch lighting (B, requires raster trees)`，默认关闭。
+按静止占据的连续法线可靠度，在原木材光照与保留遮挡的逐体素柔和光照之间渐变；
+不改变几何、风动、叶片或地形外观。实现、截图入口和验证记录见
+[`tree_hybrid_lighting.md`](tree_hybrid_lighting.md)。这是视觉候选，不是新的性能验收结论。
+
 ## 当前状态：仅保留平滑风动，移除轴对齐实验
 
 用户近景体验后明确放弃每块刚性平移、保持世界轴对齐的方案：相邻木块错位产生的裂缝/重叠细节不符合期待。现在只有原体素/光栅路径开关 `Raster whole trees`，以及 `Animate raster trees with wind`。同时开启就是原先第三项关闭的平滑蒙皮模式；默认值与材质风格不变。

@@ -120,6 +120,15 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "raster_tree_hybrid_lighting"
+kind = "bool"
+label = "Hybrid thin-branch lighting (B, requires raster trees)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "tree_stiffness"
 kind = "float"
 label = "Tree stiffness (soft <-> stiff)"

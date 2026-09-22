@@ -10,6 +10,10 @@ import tree_scene_types;
 public bool treeSceneActive() { return tree_scene_info[0].x != 0u; }
 public float3 treeScenePosition(uint i) { return tree_scene_vertices[i*2u].xyz; }
 public float3 treeSceneNormal(uint i) { return tree_scene_vertices[i*2u+1u].xyz; }
+public uint treeCellVertexBase(uint slot) { return tree_scene_cell_vertices[slot]; }
+public float treeCellNormalConfidence(uint slot) {
+    return saturate(tree_scene_vertices[treeCellVertexBase(slot)*2u+1u].w);
+}
 public void treeCellReceiver(uint slot, inout float3 center, inout float3 normal) {
     if (!treeSceneActive()) return;
     uint base = tree_scene_cell_vertices[slot];

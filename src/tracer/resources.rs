@@ -1416,7 +1416,7 @@ pub struct TracerResources {
     pub tree_scene_vertices: Resource<Buffer>,
     pub tree_scene_cell_vertices: Resource<Buffer>,
     pub raster_tree_cells: Resource<Buffer>,
-    pub raster_tree_local_light_cache: Resource<Buffer>,
+    pub raster_tree_light_cache: Resource<Buffer>,
     #[resource(nested)]
     pub uniforms: TracerUniformResources,
     #[resource(nested)]
@@ -1517,10 +1517,12 @@ impl TracerResources {
             )),
             tree_scene_cell_vertices: tree_buffer(super::TREE_CELL_CAPACITY * 4),
             raster_tree_cells: Resource::new(raster_tree_cells),
-            raster_tree_local_light_cache: Resource::new(Buffer::new_sized(
+            raster_tree_light_cache: Resource::new(Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
-                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+                ),
                 MemoryLocation::GpuOnly,
                 (super::TREE_CELL_CAPACITY * 16) as u64,
             )),

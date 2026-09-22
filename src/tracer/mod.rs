@@ -72,6 +72,7 @@ pub use vertex::*;
 pub mod voxel_encoding;
 
 mod voxel_geometry;
+mod voxel_normal;
 
 mod leaves_construct;
 pub use leaves_construct::{voxel_apple_offsets, TREE_FRUIT_MAX_RADIUS_VOXELS};
@@ -1482,9 +1483,10 @@ pub struct FloraGrowthFrameInput {
     pub spawn_stagger_seconds: f32,
 }
 
-/// Vegetation owns four cohesive shader-facing snapshots instead of exposing individual GUI knobs.
+/// Vegetation shader-facing facts, frozen together at the frame boundary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VegetationFrameInput {
+    pub tree_hybrid_lighting: bool,
     pub appearance: FloraAppearanceFrameInput,
     pub motion: FloraMotionFrameInput,
     pub leaf_lighting: LeafLightingFrameInput,
@@ -6409,6 +6411,10 @@ impl Tracer {
             self.allocator.clone(),
             mesh,
         )?;
+        let [fallback, transition, reliable] = mesh.confidence_counts();
+        log::info!(
+            "[TREE][NORMAL_CONFIDENCE] fallback={fallback} transition={transition} reliable={reliable}"
+        );
         if !self.raster_trees.skin.bindings.is_empty() {
             self.resources
                 .tree_skin_rest
@@ -6467,6 +6473,43 @@ impl Tracer {
         if !poses.is_empty() {
             self.resources.tree_attachment_poses.fill(poses)?;
         }
+        Ok(())
+    }
+
+    /// Smoke-only readback of the preceding completed frame's tree lighting.
+    pub fn validate_gpu_tree_lighting(&self, hybrid: bool) -> Result<()> {
+        let bytes = (TREE_CELL_CAPACITY * 16) as u64;
+        let readback = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            re_flora_vkn::BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            re_flora_vkn::MemoryLocation::GpuToCpu,
+            bytes,
+        );
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmdbuf| {
+                self.resources
+                    .raster_tree_light_cache
+                    .record_copy_to_buffer(cmdbuf, &readback, bytes, 0, 0);
+                cmdbuf.use_buffer(&readback, BufferUse::HostRead);
+            },
+        );
+        let values: Vec<[f32; 4]> = readback
+            .read_back()?
+            .chunks_exact(16)
+            .map(bytemuck::pod_read_unaligned)
+            .collect();
+        self.raster_trees
+            .rest_mesh
+            .validate_lighting_cache(&values, hybrid)?;
+        log::info!(
+            "[TREE][HYBRID_LIGHTING] validated hybrid={hybrid} cells={} confidence_counts={:?}",
+            self.raster_trees.rest_mesh.cell_count(),
+            self.raster_trees.rest_mesh.confidence_counts()
+        );
         Ok(())
     }
 

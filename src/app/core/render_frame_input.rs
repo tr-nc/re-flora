@@ -79,6 +79,7 @@ pub(super) fn freeze_render_frame_inputs(
         voxel_rock_color: color_to_vec3(gui.voxel_rock_color.value),
     };
     let vegetation = VegetationFrameInput {
+        tree_hybrid_lighting: gui.raster_tree_hybrid_lighting.value,
         appearance: FloraAppearanceFrameInput {
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
@@ -318,6 +319,7 @@ mod tests {
         }
 
         gui.flora_growth_override_enabled.value = true;
+        gui.raster_tree_hybrid_lighting.value = true;
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
         gui.glass_refraction_enabled.value = false;
@@ -488,6 +490,7 @@ mod tests {
                 voxel_rock_color,
             },
             vegetation: VegetationFrameInput {
+                tree_hybrid_lighting: true,
                 appearance: FloraAppearanceFrameInput {
                     growth_override_enabled: true,
                     growth_override: flora_growth_override,

@@ -37,8 +37,14 @@ def main():
         'Use --wind to capture the retained smooth animation.'))
     parser.add_argument('--output', type=Path, default=ROOT / 'target/raster-tree-evidence')
     parser.add_argument('--wind', action='store_true', help='Capture B with tree wind and scripted gusts')
+    parser.add_argument('--hybrid-lighting', action='store_true',
+                        help='Keep raster trees in A/B; compare original vs hybrid thin-branch lighting')
+    parser.add_argument('--time-of-day', type=float, default=0.47,
+                        help='Fixed lighting time for both captures (0..1; default: 0.47)')
     parser.add_argument('--delay', type=float, default=4.0)
     args = parser.parse_args()
+    if not 0.0 <= args.time_of_day <= 1.0:
+        parser.error('--time-of-day must be between 0 and 1')
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
@@ -52,13 +58,16 @@ def main():
         gui_original, camera_original = gui.read_bytes(), camera.read_bytes()
         try:
             source = setting(gui_original.decode(), 'auto_daynight_cycle', 'false')
-            source = setting(source, 'time_of_day', '0.47')
+            source = setting(source, 'time_of_day', str(args.time_of_day))
             source = setting(source, 'path_tracing_reference', 'false')
             source = setting(source, 'raster_tree_wind', str(args.wind).lower())
             camera.write_text(CAMERA)
             for foliage in [False, True]:
                 for mode in ['A', 'B']:
-                    candidate = setting(source, 'raster_tree_static', str(mode == 'B').lower())
+                    candidate = setting(source, 'raster_tree_static',
+                                        str(args.hybrid_lighting or mode == 'B').lower())
+                    candidate = setting(candidate, 'raster_tree_hybrid_lighting',
+                                        str(args.hybrid_lighting and mode == 'B').lower())
                     gui.write_text(candidate)
                     name = f'{mode}-' + ('canopy' if foliage else 'wood')
                     (out / f'{name}.png').unlink(missing_ok=True)
@@ -74,7 +83,7 @@ def main():
                     assert (out / f'{name}.png').is_file(), f'{name}: screenshot missing'
                     text = (out / f'{name}.log').read_text()
                     assert 'Application exited successfully' in text, name
-                    if mode == 'B':
+                    if mode == 'B' or args.hybrid_lighting:
                         assert '[TREE][RASTER_STATIC] mode=B' in text, name
                     assert not any(error in text for error in [' ERROR ', 'VUID-', 'panicked at']), name
                     print(out / f'{name}.png', flush=True)

@@ -44,6 +44,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "raster_tree_hybrid_lighting",
+        kind: "bool",
+        label: "Hybrid thin-branch lighting (B, requires raster trees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "tree_stiffness",
         kind: "float",
         label: "Tree stiffness (soft <-> stiff)",
@@ -1393,6 +1399,7 @@ pub struct GuiAdjustables {
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
+    pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
     pub raster_tree_static: crate::gui_adjustables::BoolParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
@@ -1633,6 +1640,7 @@ impl GuiAdjustables {
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut raster_tree_static_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1874,6 +1882,11 @@ impl GuiAdjustables {
                     "raster_tree_wind" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             raster_tree_wind_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "raster_tree_hybrid_lighting" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            raster_tree_hybrid_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "tree_stiffness" => {
@@ -3385,6 +3398,7 @@ impl GuiAdjustables {
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
+            raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
             raster_tree_static: raster_tree_static_field.expect("Missing parameter: raster_tree_static"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
@@ -3840,6 +3854,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
+        "raster_tree_hybrid_lighting" => Some(&adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
@@ -4112,6 +4127,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
+        "raster_tree_hybrid_lighting" => Some(&mut adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),
