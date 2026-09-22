@@ -1,5 +1,8 @@
 //! Deterministic real-terrain pruning / waiting / repair scenario for hidden release runs.
-use super::{wall_edit, Plant, WorldEditTransaction, VOXEL_TYPE_EMPTY, VOXEL_TYPE_LIMESTONE};
+use super::{
+    wall_edit, Fixture, Plant, Terrain, WorldEditTransaction, VOXEL_TYPE_EMPTY,
+    VOXEL_TYPE_LIMESTONE,
+};
 use anyhow::{ensure, Result};
 use glam::UVec3;
 
@@ -18,16 +21,26 @@ enum Phase {
 #[derive(Default)]
 pub(super) struct Review {
     phase: Phase,
+    fixture: Option<Fixture>,
     before: Option<Plant>,
     stump: Option<Plant>,
     hole: Option<(UVec3, UVec3)>,
     pub ticks: u32,
 }
 impl Review {
+    pub fn for_fixture(fixture: Option<Fixture>) -> Self {
+        Self {
+            fixture,
+            ..Default::default()
+        }
+    }
     pub fn growing(&self) -> bool {
         !matches!(self.phase, Phase::Done)
     }
     pub fn phase(&self) -> &'static str {
+        if let Some(fixture) = self.fixture {
+            return fixture.name();
+        }
         match self.phase {
             Phase::Grow => "growth",
             Phase::Cut => "cut",
@@ -39,7 +52,46 @@ impl Review {
             Phase::Done => "done",
         }
     }
-    pub fn advance(&mut self, plant: &Plant) -> Result<Option<WorldEditTransaction>> {
+    pub fn advance(
+        &mut self,
+        plant: &Plant,
+        terrain: &impl Terrain,
+    ) -> Result<Option<WorldEditTransaction>> {
+        if let Some(fixture) = self.fixture {
+            if matches!(self.phase, Phase::Done) {
+                return Ok(None);
+            }
+            self.ticks += 1;
+            if self.ticks >= 180 {
+                let height = plant
+                    .anchors
+                    .iter()
+                    .map(|a| a.position.y)
+                    .fold(0.0f32, f32::max);
+                let collision_clear = plant.nodes.iter().all(|n| {
+                    n.parent.is_none_or(|p| {
+                        crate::climbing_plants::clear_segment(
+                            terrain,
+                            plant.nodes[p].position,
+                            n.position,
+                            plant.radius,
+                        ) == Some(true)
+                    })
+                });
+                ensure!(height >= 262.0 && collision_clear && plant.nodes.iter().all(|n| n.position.is_finite()),
+                    "climbing {} fixture failed: attached_height={height} collision_clear={collision_clear} nodes={}", fixture.name(), plant.nodes.len());
+                ensure!(
+                    plant
+                        .anchors
+                        .iter()
+                        .all(|a| terrain.voxel(a.cell) == Some(a.material)),
+                    "attachment not backed by authoritative terrain"
+                );
+                log::info!("[CLIMBING][REVIEW] fixture={} verified=true collision_clear=true attached_height={height:.3} nodes={} anchors={}", fixture.name(), plant.nodes.len(), plant.anchors.len());
+                self.phase = Phase::Done;
+            }
+            return Ok(None);
+        }
         match self.phase {
             Phase::Grow if plant.nodes.len() >= 100 => {
                 // Cut below the first fork: all downstream branches must disappear,

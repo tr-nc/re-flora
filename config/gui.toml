@@ -2602,6 +2602,23 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "climbing_fixture"
+kind = "choice"
+label = "Test terrain (applies on Create/reset)"
+type = "Choice"
+[section.param.data]
+value = 0
+options = ["Flat wall", "Wall with a hole", "Outward ledge", "Recessed wall", "Sloping wall", "Ground to wall"]
+
+[[section.param]]
+id = "climbing_clockwise"
+kind = "bool"
+label = "Clockwise root tip (next reset; branches alternate)"
+type = "Bool"
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "climbing_paused"
 kind = "bool"
 label = "Pause vine growth (wall removal still prunes)"
@@ -2612,7 +2629,7 @@ value = false
 [[section.param]]
 id = "climbing_speed"
 kind = "float"
-label = "Vine growth quanta/sec (2 voxels/quantum)"
+label = "Growth attempts/sec (up to 2.5 voxels per tip)"
 type = "Float"
 [section.param.data]
 value = 12.0
@@ -2632,7 +2649,7 @@ max = 64.0
 [[section.param]]
 id = "climbing_show_anchors"
 kind = "bool"
-label = "Show attachments: yellow attached / orange regrowth bud / red missing root"
+label = "Show markers: yellow attachment / blue search / orange regrowth / red missing root"
 type = "Bool"
 [section.param.data]
 value = false

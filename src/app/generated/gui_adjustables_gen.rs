@@ -1394,6 +1394,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
+        id: "climbing_fixture",
+        kind: "choice",
+        label: "Test terrain (applies on Create/reset)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_clockwise",
+        kind: "bool",
+        label: "Clockwise root tip (next reset; branches alternate)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
         id: "climbing_paused",
         kind: "bool",
         label: "Pause vine growth (wall removal still prunes)",
@@ -1402,7 +1414,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_speed",
         kind: "float",
-        label: "Vine growth quanta/sec (2 voxels/quantum)",
+        label: "Growth attempts/sec (up to 2.5 voxels per tip)",
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
@@ -1414,7 +1426,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_show_anchors",
         kind: "bool",
-        label: "Show attachments: yellow attached / orange regrowth bud / red missing root",
+        label: "Show markers: yellow attachment / blue search / orange regrowth / red missing root",
     },
 ];
 
@@ -1648,6 +1660,8 @@ pub struct GuiAdjustables {
     pub grass_sway_frequency_full: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_knee: crate::gui_adjustables::FloatParam,
     pub climbing_enabled: crate::gui_adjustables::BoolParam,
+    pub climbing_fixture: crate::gui_adjustables::ChoiceParam,
+    pub climbing_clockwise: crate::gui_adjustables::BoolParam,
     pub climbing_paused: crate::gui_adjustables::BoolParam,
     pub climbing_speed: crate::gui_adjustables::FloatParam,
     pub climbing_spacing: crate::gui_adjustables::FloatParam,
@@ -1893,6 +1907,8 @@ impl GuiAdjustables {
         let mut grass_sway_frequency_full_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut climbing_fixture_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut climbing_clockwise_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_paused_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_spacing_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3421,6 +3437,16 @@ impl GuiAdjustables {
                             climbing_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
+                    "climbing_fixture" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            climbing_fixture_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "climbing_clockwise" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            climbing_clockwise_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "climbing_paused" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             climbing_paused_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3679,6 +3705,8 @@ impl GuiAdjustables {
             grass_sway_frequency_full: grass_sway_frequency_full_field.expect("Missing parameter: grass_sway_frequency_full"),
             grass_sway_frequency_knee: grass_sway_frequency_knee_field.expect("Missing parameter: grass_sway_frequency_knee"),
             climbing_enabled: climbing_enabled_field.expect("Missing parameter: climbing_enabled"),
+            climbing_fixture: climbing_fixture_field.expect("Missing parameter: climbing_fixture"),
+            climbing_clockwise: climbing_clockwise_field.expect("Missing parameter: climbing_clockwise"),
             climbing_paused: climbing_paused_field.expect("Missing parameter: climbing_paused"),
             climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
             climbing_spacing: climbing_spacing_field.expect("Missing parameter: climbing_spacing"),
@@ -3902,7 +3930,10 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
-    None
+    match id {
+        "climbing_fixture" => Some(&adjustables.climbing_fixture),
+        _ => None,
+    }
 }
 
 #[allow(dead_code, unused_variables)]
@@ -3933,6 +3964,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "climbing_enabled" => Some(&adjustables.climbing_enabled),
+        "climbing_clockwise" => Some(&adjustables.climbing_clockwise),
         "climbing_paused" => Some(&adjustables.climbing_paused),
         "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
@@ -4179,7 +4211,10 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
-    None
+    match id {
+        "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
+        _ => None,
+    }
 }
 
 #[allow(dead_code, unused_variables)]
@@ -4210,6 +4245,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "climbing_enabled" => Some(&mut adjustables.climbing_enabled),
+        "climbing_clockwise" => Some(&mut adjustables.climbing_clockwise),
         "climbing_paused" => Some(&mut adjustables.climbing_paused),
         "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,

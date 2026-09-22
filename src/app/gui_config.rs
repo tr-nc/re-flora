@@ -1379,6 +1379,31 @@ wind_drift = 1.0
     }
 
     #[test]
+    fn climbing_exploration_controls_use_standard_save_and_older_defaults() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.climbing_fixture.value = 4;
+        settings.adjustables.climbing_clockwise.value = false;
+        settings.adjustables.climbing_paused.value = true;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(reloaded.adjustables.climbing_fixture.value, 4);
+        assert!(!reloaded.adjustables.climbing_clockwise.value);
+        assert!(reloaded.adjustables.climbing_paused.value);
+        for section in &mut settings.config.section {
+            section
+                .param
+                .retain(|p| p.id != "climbing_fixture" && p.id != "climbing_clockwise");
+        }
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let older = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(older.adjustables.climbing_fixture.value, 0);
+        assert!(older.adjustables.climbing_clockwise.value);
+        assert!(older.adjustables.climbing_paused.value);
+    }
+
+    #[test]
     fn current_debug_settings_write_complete_generic_and_tree_state() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.time_of_day.value = 0.987;

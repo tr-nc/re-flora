@@ -5,6 +5,9 @@ use glam::{IVec3, Vec3};
 const MAX_NODES: usize = 512;
 const MAX_TIPS: usize = 4;
 
+pub mod fixtures;
+mod growth;
+
 pub trait Terrain {
     /// None is unavailable, not empty. Queries belong to one immutable snapshot.
     fn voxel(&self, cell: IVec3) -> Option<u8>;
@@ -18,6 +21,33 @@ pub struct Node {
     pub position: Vec3,
     pub parent: Option<usize>,
     pub rest_length: f32,
+    pub normal: Vec3,
+    contact: Option<Contact>,
+    // Record only backing that actually existed when this edge grew. Searching
+    // arcs across an existing hole do not invent wall dependencies in empty space.
+    backing: Option<(Vec3, Vec3)>,
+}
+#[derive(Clone, Debug, PartialEq)]
+struct Contact {
+    cell: IVec3,
+    normal: Vec3,
+}
+#[derive(Clone, Debug, PartialEq)]
+struct Restart {
+    position: Vec3,
+    normal: Vec3,
+    contact: Option<Contact>,
+    backing: Option<(Vec3, Vec3)>,
+}
+impl From<&Node> for Restart {
+    fn from(node: &Node) -> Self {
+        Self {
+            position: node.position,
+            normal: node.normal,
+            contact: node.contact.clone(),
+            backing: node.backing,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Anchor {
@@ -26,29 +56,34 @@ pub struct Anchor {
     pub material: u8,
     pub position: Vec3,
     pub attached: bool,
+    pub normal: Vec3,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tip {
     pub node: usize,
-    direction: Vec3,
     lateral: f32,
     arc: f32,
     spacing: f32,
     rng: u64,
     // The first severed step is retried exactly, rather than picking a new direction
     // every frame and eventually jumping past the missing wall.
-    restart: Option<Vec3>,
+    restart: Option<Restart>,
+    phase: u8,
+    clockwise: bool,
+    exterior: Vec3,
 }
 impl Tip {
     fn seed(node: usize, rng: u64) -> Self {
         Self {
             node,
-            direction: Vec3::Y,
             lateral: 0.0,
             arc: 0.0,
             spacing: 16.0,
             rng,
             restart: None,
+            phase: 0,
+            clockwise: rng & 1 == 0,
+            exterior: Vec3::Z,
         }
     }
 }
@@ -57,7 +92,6 @@ pub struct Plant {
     pub nodes: Vec<Node>,
     pub anchors: Vec<Anchor>,
     pub tips: Vec<Tip>,
-    pub normal: Vec3,
     pub radius: f32,
     root_connected: bool,
     seed: u64,
@@ -77,12 +111,19 @@ fn random(state: &mut u64) -> f32 {
 
 impl Plant {
     pub fn seed(position: Vec3, normal: Vec3, cell: IVec3, material: u8, seed: u64) -> Self {
+        let mut tip = Tip::seed(0, seed);
+        if normal.y.abs() < 0.7 {
+            tip.exterior = normal;
+        }
         Self {
             nodes: vec![Node {
                 id: 0,
                 position,
                 parent: None,
                 rest_length: 0.0,
+                normal,
+                contact: Some(Contact { cell, normal }),
+                backing: None,
             }],
             anchors: vec![Anchor {
                 node: 0,
@@ -90,9 +131,9 @@ impl Plant {
                 material,
                 position,
                 attached: true,
+                normal,
             }],
-            tips: vec![Tip::seed(0, seed)],
-            normal,
+            tips: vec![tip],
             radius: 0.65,
             root_connected: true,
             seed,
@@ -113,17 +154,12 @@ impl Plant {
             .map(|tip| &self.nodes[tip.node])
     }
 
-    /// Each stem step needs a continuous backing surface, not just sparse adhesion markers.
-    /// This also detects edits between two anchors or between two sampled stem nodes.
-    fn supported_segment(&self, terrain: &impl Terrain, start: Vec3, end: Vec3) -> Option<bool> {
-        let offset = self.normal * (self.radius + 1.1);
-        segment_material(
-            terrain,
-            start - offset,
-            end - offset,
-            0.0,
-            self.anchors[0].material,
-        )
+    pub fn search_probes(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.tips.iter().map(|tip| {
+            tip.restart
+                .as_ref()
+                .map_or_else(|| growth::probe(self, tip), |restart| restart.position)
+        })
     }
 
     fn root_supported(&self, terrain: &impl Terrain) -> Option<bool> {
@@ -146,10 +182,12 @@ impl Plant {
                 cut[id] = true;
                 continue;
             }
-            let start = self.nodes[parent].position;
-            let supported = self.supported_segment(terrain, start, node.position)?;
-            let exposed = clear_segment(terrain, start, node.position, self.radius)?;
-            cut[id] = !supported || !exposed;
+            cut[id] = !growth::restart_valid(
+                self,
+                self.nodes[parent].position,
+                &Restart::from(node),
+                terrain,
+            )?;
         }
         if !terrain.current() {
             return None;
@@ -223,9 +261,8 @@ impl Plant {
                 .cloned()
                 .unwrap_or_else(|| Tip::seed(parent, self.seed.wrapping_add(node.id)));
             bud.node = parent;
-            bud.direction = (node.position - self.nodes[parent].position).normalize_or_zero();
             bud.arc = 0.0;
-            bud.restart = Some(node.position);
+            bud.restart = Some(Restart::from(node));
             tips.push(bud);
             buds += 1;
         }
@@ -273,34 +310,23 @@ impl Plant {
                 break;
             }
             let mut tip = next.tips[index].clone();
+            let start = next.nodes[tip.node].position;
+            let Some(step) = growth::advance(&next, &mut tip, terrain, spacing) else {
+                return false;
+            };
+            let Some(step) = step else {
+                next.tips[index] = tip;
+                continue;
+            };
+            let end = step.position;
+            if step.normal.y.abs() < 0.7 {
+                tip.exterior = step.normal;
+            }
             if tip.node == 0 || tip.restart.is_some() {
                 tip.spacing = spacing;
             }
-            let start = next.nodes[tip.node].position;
-            let side = Vec3::Y.cross(next.normal).normalize_or_zero();
-            let end = if let Some(end) = tip.restart {
-                end
-            } else {
-                let noise = (random(&mut tip.rng) - 0.5) * 0.45;
-                let direction =
-                    (tip.direction * 0.65 + Vec3::Y * 0.35 + side * (noise + tip.lateral * 0.35))
-                        .normalize_or_zero();
-                start + direction * 2.0
-            };
-            match next.supported_segment(terrain, start, end) {
-                None => return false,
-                Some(false) => continue,
-                Some(true) => {}
-            }
-            match clear_segment(terrain, start, end, next.radius) {
-                None => return false,
-                Some(false) => continue,
-                Some(true) => {}
-            }
-            let cell = (end - next.normal * (next.radius + 1.1)).floor().as_ivec3();
             let parent = tip.node;
             tip.node = next.nodes.len();
-            tip.direction = (end - start).normalize_or_zero();
             tip.arc += start.distance(end);
             tip.restart = None;
             next.nodes.push(Node {
@@ -308,12 +334,16 @@ impl Plant {
                 position: end,
                 parent: Some(parent),
                 rest_length: start.distance(end),
+                normal: step.normal,
+                contact: step.contact.clone(),
+                backing: step.backing,
             });
             next.next_node_id += 1;
-            if tip.arc >= tip.spacing {
+            if let Some(contact) = step.contact.filter(|_| tip.arc >= tip.spacing) {
                 next.anchors.push(Anchor {
                     node: tip.node,
-                    cell,
+                    cell: contact.cell,
+                    normal: contact.normal,
                     material: next.anchors[0].material,
                     position: end,
                     attached: true,
@@ -329,18 +359,17 @@ impl Plant {
         }
         if changed && next.tips.len() < MAX_TIPS && next.nodes.len() / 24 > self.nodes.len() / 24 {
             let mut branch = next.tips[branch_source].clone();
-            branch.direction = (Vec3::Y
-                + Vec3::Y.cross(next.normal) * if next.tips.len() % 2 == 0 { -0.8 } else { 0.8 })
-            .normalize();
+            growth::reverse_search(&mut branch);
             branch.lateral = if next.tips.len() % 2 == 0 { -0.5 } else { 0.5 };
-            branch.arc = 0.0;
+            // A fork is not a new attachment: inherit the distance from support
+            // so branching cannot repeatedly renew the unsupported-growth budget.
             branch.spacing = spacing;
             branch.rng = branch.rng.wrapping_add(next.next_node_id);
             next.tips.push(branch);
         }
-        if changed && terrain.current() {
+        if terrain.current() {
             *self = next;
-            true
+            changed
         } else {
             false
         }
@@ -512,30 +541,45 @@ mod tests {
     #[test]
     fn local_branch_cut_preserves_other_branches_and_their_tips() {
         let original = grown();
-        let tip_node = original.tips[1].node;
-        let anchor = original
-            .anchors
+        let (cut, node) = original
+            .nodes
             .iter()
+            .enumerate()
             .rev()
-            .find(|a| {
-                original.is_descendant(tip_node, a.node)
-                    && original
-                        .tips
-                        .iter()
-                        .filter(|t| original.is_descendant(t.node, a.node))
-                        .count()
-                        == 1
+            .find(|(id, n)| {
+                let Some(contact) = &n.contact else {
+                    return false;
+                };
+                let cell = contact.cell;
+                original
+                    .tips
+                    .iter()
+                    .filter(|t| original.is_descendant(t.node, *id))
+                    .count()
+                    == 1
+                    && original.nodes.iter().enumerate().all(|(other, node)| {
+                        original.is_descendant(other, *id)
+                            || (node.contact.as_ref().is_none_or(|c| c.cell != cell)
+                                && node.backing.is_none_or(|(a, b)| {
+                                    !intersects_box(
+                                        a,
+                                        b,
+                                        cell.as_vec3(),
+                                        cell.as_vec3() + Vec3::ONE,
+                                    )
+                                }))
+                    })
             })
-            .unwrap();
+            .expect("at least one branch has reached its own support");
         let mut wall = Wall::default();
-        wall.missing.insert(anchor.cell);
+        wall.missing.insert(node.contact.as_ref().unwrap().cell);
         let mut plant = original.clone();
         assert!(plant.revalidate(&wall).unwrap().removed > 0);
         assert_survivors_unchanged(&original, &plant);
         for tip in original
             .tips
             .iter()
-            .filter(|t| !original.is_descendant(t.node, anchor.node))
+            .filter(|t| !original.is_descendant(t.node, cut))
         {
             let id = original.nodes[tip.node].id;
             let kept = plant
@@ -543,10 +587,9 @@ mod tests {
                 .iter()
                 .find(|t| plant.nodes[t.node].id == id)
                 .expect("unrelated tip deleted");
-            assert_eq!(
-                (kept.rng, kept.direction, kept.arc, kept.lateral),
-                (tip.rng, tip.direction, tip.arc, tip.lateral)
-            );
+            let mut expected = tip.clone();
+            expected.node = kept.node; // compaction changes only the storage index
+            assert_eq!(kept, &expected);
         }
         let waiting = plant
             .tips
@@ -564,12 +607,23 @@ mod tests {
 
     #[test]
     fn edits_between_sparse_anchors_and_between_nodes_are_detected() {
-        let original = grown();
-        let node = &original.nodes[3];
-        let parent = &original.nodes[node.parent.unwrap()];
-        let cell = (((node.position + parent.position) * 0.5) - Vec3::Z * 1.75)
-            .floor()
-            .as_ivec3();
+        let mut original = seed();
+        original.nodes.push(Node {
+            id: 1,
+            position: Vec3::new(20.5, 6.5, 1.8),
+            parent: Some(0),
+            rest_length: 2.0,
+            normal: Vec3::Z,
+            contact: Some(Contact {
+                cell: IVec3::new(20, 6, 0),
+                normal: Vec3::Z,
+            }),
+            backing: Some((Vec3::new(20.5, 4.5, 0.9), Vec3::new(20.5, 6.5, 0.9))),
+        });
+        original.next_node_id = 2;
+        original.tips[0].node = 1;
+        let node = &original.nodes[1];
+        let cell = IVec3::new(20, 5, 0);
         assert!(!original.anchors.iter().any(|a| a.cell == cell));
         let mut wall = Wall::default();
         wall.missing.insert(cell);
@@ -737,6 +791,121 @@ mod tests {
         a.prune_to_root();
         assert_eq!(a.prune_highest_attachment(), None);
         assert_eq!(a.prune_to_root(), Pruned::default());
+    }
+
+    #[test]
+    fn rotating_tips_climb_holes_ledges_recesses_and_slopes_without_penetration() {
+        struct Scene(fixtures::Fixture);
+        impl Terrain for Scene {
+            fn voxel(&self, cell: IVec3) -> Option<u8> {
+                Some(u8::from(self.0.solid(cell)))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        for fixture in fixtures::Fixture::ALL {
+            for seed in [42, 43] {
+                let terrain = Scene(fixture);
+                let (position, normal, cell) = fixture.seed();
+                let mut plant = Plant::seed(position, normal, cell, 1, seed);
+                for _ in 0..180 {
+                    plant.grow(&terrain, 16.0);
+                }
+                let height = plant
+                    .anchors
+                    .iter()
+                    .map(|a| a.position.y)
+                    .fold(0.0, f32::max);
+                assert!(height >= 262.0, "{fixture:?} seed={seed} failed to attach above obstacle: height={height} nodes={} anchors={} tips={:?}", plant.nodes.len(), plant.anchors.len(), plant.tips.iter().map(|t| (plant.nodes[t.node].position, t.arc)).collect::<Vec<_>>());
+                let before = plant.clone();
+                assert_eq!(
+                    plant.revalidate(&terrain),
+                    Some(Pruned::default()),
+                    "newly grown shape pruned itself in {fixture:?}"
+                );
+                assert_eq!(plant, before);
+                check_structure(&plant);
+            }
+        }
+    }
+
+    #[test]
+    fn clockwise_and_counterclockwise_search_are_mirrored_and_air_growth_is_bounded() {
+        let mut a = seed();
+        let mut b = a.clone();
+        b.tips[0].clockwise = false;
+        let pa = growth::probe(&a, &a.tips[0]) - a.nodes[0].position;
+        let pb = growth::probe(&b, &b.tips[0]) - b.nodes[0].position;
+        assert!(pa.x * pb.x < 0.0 && (pa.y - pb.y).abs() < 1e-6 && (pa.z - pb.z).abs() < 1e-6);
+        struct TinySupport;
+        impl Terrain for TinySupport {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(c == IVec3::new(20, 4, 0)))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        for _ in 0..100 {
+            a.grow(&TinySupport, 16.0);
+        }
+        let count = a.nodes.len();
+        for _ in 0..100 {
+            a.grow(&TinySupport, 16.0);
+        }
+        assert_eq!(
+            a.nodes.len(),
+            count,
+            "unsupported search kept extending forever"
+        );
+        assert!(a.tips.iter().all(|tip| tip.arc <= 50.0));
+        for (id, _) in a.nodes.iter().enumerate() {
+            let mut node = id;
+            let mut unsupported = 0.0;
+            while let Some(parent) = a.nodes[node].parent {
+                if a.nodes[node].contact.is_some() {
+                    break;
+                }
+                unsupported += a.nodes[node].rest_length;
+                node = parent;
+            }
+            assert!(
+                unsupported <= 48.001,
+                "forks renewed the air-growth budget: {unsupported}"
+            );
+        }
+    }
+
+    #[test]
+    fn ground_seed_searches_upward_and_reaches_a_wall() {
+        struct GroundAndWall;
+        impl Terrain for GroundAndWall {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(c.y <= 191 || (c.z == 305 && c.y < 300)))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut plant = Plant::seed(
+            Vec3::new(255.5, 192.83, 310.5),
+            Vec3::Y,
+            IVec3::new(255, 191, 310),
+            1,
+            42,
+        );
+        for _ in 0..90 {
+            plant.grow(&GroundAndWall, 16.0);
+        }
+        assert!(
+            plant
+                .anchors
+                .iter()
+                .any(|a| a.normal == Vec3::Z && a.position.y > 202.0),
+            "ground shoot never found the wall"
+        );
+        assert_eq!(plant.revalidate(&GroundAndWall), Some(Pruned::default()));
     }
 
     #[test]

@@ -6,11 +6,11 @@ use crate::builder::{
     ContreeCpuVoxelSourceSnapshot,
 };
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_LIMESTONE};
-use crate::climbing_plants::{Plant, Terrain};
+use crate::climbing_plants::{fixtures::Fixture, Plant, Terrain};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::DynamicFruitRenderInstance;
 use anyhow::Result;
-use glam::{IVec3, Quat, UVec3, Vec3};
+use glam::{IVec3, Mat3, Quat, UVec3, Vec3};
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Instant;
@@ -21,6 +21,9 @@ mod review;
 pub(super) struct ClimbingPlants {
     plant: Option<Plant>,
     created: bool,
+    awaiting_seed: bool,
+    fixture: Fixture,
+    seed: u64,
     pub reset_requested: bool,
     pub focus_requested: bool,
     pub disconnect_root_requested: bool,
@@ -80,7 +83,8 @@ impl ClimbingPlants {
                 self.focus_requested = true;
             }
         });
-        ui.small("Create/reset changes real terrain at voxels (224..288, 192..300, 300..306).");
+        let (min, max) = Fixture::bounds();
+        ui.small(format!("Create/reset changes real terrain at {:?}..{:?}. Choose the terrain above before resetting.", min.to_array(), max.to_array()));
         if self.confirm_reset {
             ui.colored_label(
                 egui::Color32::YELLOW,
@@ -118,7 +122,7 @@ impl ClimbingPlants {
                 );
             } else if self.growth_blocked {
                 ui.label(
-                    "Waiting for suitable wall at the cut/tip. Repair the gap to resume growth.",
+                    "Searching for reachable support, or waiting at a cut. Large unsupported gaps stop extension.",
                 );
             } else {
                 ui.label("Root connected. Pruning keeps the lower stem and leaves a regrowth bud.");
@@ -207,7 +211,7 @@ impl CollisionPatchCache {
         }
         self.block = None;
         // Bounds arrive clamped to the 256-voxel chunk grid. A 16-voxel envelope
-        // amortizes growing tips and falling spans without caching an entire world.
+        // amortizes tip exploration without caching an entire world.
         let min = min / 16 * 16;
         let max = (max + UVec3::splat(15)) / 16 * 16;
         let ContreeCpuVoxelBlockExport::Ready(block) = source.export_voxel_block(min, max - min)?
@@ -249,23 +253,46 @@ impl Terrain for Patch {
     }
 }
 
+fn stamp_boxes(boxes: &[(UVec3, UVec3)], material: u32) -> Result<VoxelEdit> {
+    let cuboids: Vec<_> = boxes
+        .iter()
+        .map(|(min, max)| Cuboid::from_min_max(min.as_vec3(), max.as_vec3()))
+        .collect();
+    let bounds: Vec<_> = cuboids.iter().map(Cuboid::aabb).collect();
+    let ids: Vec<_> = (0..cuboids.len() as u32).collect();
+    Ok(VoxelEdit::StampCuboids {
+        bvh_nodes: build_bvh(&bounds, &ids).map_err(anyhow::Error::msg)?,
+        cuboids,
+        voxel_type: material,
+        atlas_state_write: Default::default(),
+    })
+}
 fn wall_edit(min: UVec3, max: UVec3, material: u32) -> Result<WorldEditTransaction> {
-    let cuboid = Cuboid::from_min_max(min.as_vec3(), max.as_vec3());
-    let bvh_nodes = build_bvh(&[cuboid.aabb()], &[0]).map_err(anyhow::Error::msg)?;
     Ok(WorldEditTransaction::terrain_change(
-        vec![VoxelEdit::StampCuboids {
-            bvh_nodes,
-            cuboids: vec![cuboid],
-            voxel_type: material,
-            atlas_state_write: Default::default(),
-        }],
+        vec![stamp_boxes(&[(min, max)], material)?],
+        UAabb3::new(min, max),
+    ))
+}
+fn fixture_edit(fixture: Fixture) -> Result<WorldEditTransaction> {
+    let (min, max) = Fixture::bounds();
+    let mut edits = vec![
+        stamp_boxes(&[(min, max)], VOXEL_TYPE_EMPTY)?,
+        stamp_boxes(&fixture.boxes(), VOXEL_TYPE_LIMESTONE)?,
+    ];
+    if let Some(hole) = fixture.hole() {
+        edits.push(stamp_boxes(&[hole], VOXEL_TYPE_EMPTY)?);
+    }
+    Ok(WorldEditTransaction::terrain_change(
+        edits,
         UAabb3::new(min, max),
     ))
 }
 
 impl App {
     pub(super) fn update_climbing_plants(&mut self, steps: u32, tick_seconds: f32) -> Result<()> {
-        let review = std::env::var_os("RE_FLORA_CLIMBING_REVIEW").is_some();
+        let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
+        let review = review_mode.is_some();
+        let review_fixture = review_mode.as_deref().and_then(Fixture::parse);
         let enabled = self.debug_settings.adjustables.climbing_enabled.value || review;
         if !enabled {
             self.tracer.show_climbing_plant_geometry(&[])?;
@@ -275,22 +302,45 @@ impl App {
             return Ok(());
         }
         if self.climbing_plants.reset_requested || !self.climbing_plants.created {
+            let fixture = if review {
+                review_fixture.unwrap_or_default()
+            } else {
+                Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value)
+            };
             self.climbing_plants = ClimbingPlants {
                 created: true,
+                awaiting_seed: true,
+                fixture,
+                seed: if review || self.debug_settings.adjustables.climbing_clockwise.value {
+                    42
+                } else {
+                    43
+                },
                 focus_requested: true,
+                review: review::Review::for_fixture(review_fixture),
                 ..Default::default()
             };
-            self.execute_world_edit(wall_edit(
-                UVec3::new(224, 192, 300),
-                UVec3::new(288, 300, 306),
-                VOXEL_TYPE_LIMESTONE,
-            )?)?;
-            log::info!("[CLIMBING] authored editable review wall; history is session-only");
+            self.execute_world_edit(fixture_edit(fixture)?)?;
+            log::info!(
+                "[CLIMBING] authored editable {} fixture; history is session-only",
+                fixture.name()
+            );
+        }
+        if !self.climbing_plants.awaiting_seed && self.climbing_plants.plant.is_none() {
+            return Ok(()); // loading a world must not silently seed a new vine
         }
         if self.climbing_plants.focus_requested {
             self.climbing_plants.focus_requested = false;
             let target = self.climbing_plants.plant.as_ref().map_or(
-                Vec3::new(256., 244., 308.) / 256.,
+                Vec3::new(
+                    256.,
+                    244.,
+                    if self.climbing_plants.fixture == Fixture::Slope {
+                        330.
+                    } else {
+                        308.
+                    },
+                ) / 256.,
                 |plant| {
                     let (min, max) = plant.nodes.iter().fold(
                         (plant.nodes[0].position, plant.nodes[0].position),
@@ -346,7 +396,11 @@ impl App {
                     .min(super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK),
             )
         } else {
-            (UVec3::new(250, 194, 298), UVec3::new(262, 208, 325))
+            let (position, _, _) = self.climbing_plants.fixture.seed();
+            (
+                (position - Vec3::splat(8.0)).floor().as_uvec3(),
+                (position + Vec3::splat(9.0)).ceil().as_uvec3(),
+            )
         };
         self.climbing_plants.waiting_for_terrain = true;
         let Some(block) = self
@@ -373,27 +427,27 @@ impl App {
         };
         self.climbing_plants.waiting_for_terrain = false;
         let export_us = elapsed_us();
-        if self.climbing_plants.plant.is_none() {
-            for z in (299..324).rev() {
-                let cell = IVec3::new(255, 198, z);
-                if let Some(material) = patch
-                    .voxel(cell)
-                    .filter(|v| *v == VOXEL_TYPE_LIMESTONE as u8)
-                {
-                    let position = cell.as_vec3() + Vec3::new(0.5, 0.5, 1.8);
-                    if crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
-                        == Some(true)
-                    {
-                        self.climbing_plants.plant =
-                            Some(Plant::seed(position, Vec3::Z, cell, material, 42));
-                        self.climbing_plants.terrain_dirty = true;
-                        log::info!(
-                            "[CLIMBING] seed=42 position={position:?} dependencies={}",
-                            patch.block.source_dependencies.len()
-                        );
-                    }
-                    break;
-                }
+        if self.climbing_plants.awaiting_seed {
+            let (position, normal, cell) = self.climbing_plants.fixture.seed();
+            if patch.voxel(cell) == Some(VOXEL_TYPE_LIMESTONE as u8)
+                && crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
+                    == Some(true)
+            {
+                self.climbing_plants.plant = Some(Plant::seed(
+                    position,
+                    normal,
+                    cell,
+                    VOXEL_TYPE_LIMESTONE as u8,
+                    self.climbing_plants.seed,
+                ));
+                self.climbing_plants.awaiting_seed = false;
+                self.climbing_plants.terrain_dirty = true;
+                log::info!(
+                    "[CLIMBING] seed={} position={position:?} fixture={} dependencies={}",
+                    self.climbing_plants.seed,
+                    self.climbing_plants.fixture.name(),
+                    patch.block.source_dependencies.len()
+                );
             }
         }
         let Some(plant) = &mut self.climbing_plants.plant else {
@@ -491,7 +545,12 @@ impl App {
             if let Some(parent) = node.parent {
                 let start = plant.nodes[parent].position;
                 let delta = node.position - start;
-                let rotation = Quat::from_rotation_arc(Vec3::Y, delta.normalize_or_zero());
+                let up = delta.normalize_or_zero();
+                let side = up
+                    .cross(node.normal)
+                    .try_normalize()
+                    .unwrap_or_else(|| up.any_orthonormal_vector());
+                let rotation = Quat::from_mat3(&Mat3::from_cols(side, up, side.cross(up)));
                 instances.push(block_instance(
                     (start + node.position) * 0.5,
                     rotation,
@@ -512,7 +571,7 @@ impl App {
         if self.debug_settings.adjustables.climbing_show_anchors.value {
             for a in &plant.anchors {
                 instances.push(block_instance(
-                    plant.nodes[a.node].position + Vec3::Z,
+                    plant.nodes[a.node].position + a.normal,
                     Quat::IDENTITY,
                     Vec3::splat(1.6),
                     if a.attached {
@@ -526,15 +585,25 @@ impl App {
         if self.debug_settings.adjustables.climbing_show_anchors.value {
             for node in plant.regrowth_nodes() {
                 instances.push(block_instance(
-                    node.position + Vec3::Z * 2.0,
+                    node.position + node.normal * 2.0,
                     Quat::IDENTITY,
                     Vec3::splat(1.8),
                     Vec3::new(1.0, 0.4, 0.05),
                 ));
             }
         }
+        if self.debug_settings.adjustables.climbing_show_anchors.value {
+            for position in plant.search_probes() {
+                instances.push(block_instance(
+                    position,
+                    Quat::IDENTITY,
+                    Vec3::splat(1.0),
+                    Vec3::new(0.1, 0.65, 1.0),
+                ));
+            }
+        }
         let review_edit = if review {
-            self.climbing_plants.review.advance(plant)?
+            self.climbing_plants.review.advance(plant, &patch)?
         } else {
             None
         };
@@ -807,6 +876,7 @@ mod tests {
         runtime.replace_world();
         assert!(runtime.plant.is_none());
         assert!(runtime.created); // load must not silently respawn the authored wall
+        assert!(!runtime.awaiting_seed); // nor silently grow a new vine in existing terrain
         assert!(!runtime.terrain_dirty);
         assert!(runtime.collision_cache.block.is_none());
     }
