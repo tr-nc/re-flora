@@ -1,15 +1,20 @@
-//! Persistent, bounded climbing skeleton. Coordinates and lengths are terrain voxels.
-//! Terrain queries are transactional: unknown or stale data never commits growth or motion.
+//! Rooted wall vines: loss of support prunes the downstream subtree and leaves a regrowth bud.
+//! Unknown/stale terrain never commits pruning or growth. Coordinates are terrain voxels.
 use glam::{IVec3, Vec3};
 
+const MAX_NODES: usize = 512;
+const MAX_TIPS: usize = 4;
+
 pub trait Terrain {
-    /// None is unavailable, not empty. The caller supplies one immutable source snapshot.
+    /// None is unavailable, not empty. Queries belong to one immutable snapshot.
     fn voxel(&self, cell: IVec3) -> Option<u8>;
     fn current(&self) -> bool;
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
+    /// Stable identity, independent of the compact storage index in `parent`.
+    pub id: u64,
     pub position: Vec3,
     pub parent: Option<usize>,
     pub rest_length: f32,
@@ -30,6 +35,22 @@ pub struct Tip {
     arc: f32,
     spacing: f32,
     rng: u64,
+    // The first severed step is retried exactly, rather than picking a new direction
+    // every frame and eventually jumping past the missing wall.
+    restart: Option<Vec3>,
+}
+impl Tip {
+    fn seed(node: usize, rng: u64) -> Self {
+        Self {
+            node,
+            direction: Vec3::Y,
+            lateral: 0.0,
+            arc: 0.0,
+            spacing: 16.0,
+            rng,
+            restart: None,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Plant {
@@ -39,6 +60,14 @@ pub struct Plant {
     pub normal: Vec3,
     pub radius: f32,
     root_connected: bool,
+    seed: u64,
+    next_node_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pruned {
+    pub removed: usize,
+    pub buds: usize,
 }
 
 fn random(state: &mut u64) -> f32 {
@@ -50,6 +79,7 @@ impl Plant {
     pub fn seed(position: Vec3, normal: Vec3, cell: IVec3, material: u8, seed: u64) -> Self {
         Self {
             nodes: vec![Node {
+                id: 0,
                 position,
                 parent: None,
                 rest_length: 0.0,
@@ -61,120 +91,251 @@ impl Plant {
                 position,
                 attached: true,
             }],
-            tips: vec![Tip {
-                node: 0,
-                direction: Vec3::Y,
-                lateral: 0.0,
-                arc: 0.0,
-                spacing: 16.0,
-                rng: seed,
-            }],
+            tips: vec![Tip::seed(0, seed)],
             normal,
             radius: 0.65,
             root_connected: true,
+            seed,
+            next_node_id: 1,
         }
     }
 
-    /// Disconnect nutrient/root restraint without deleting any stem or wall attachment.
-    /// This slice has one connected skeleton; all of its tips lose root connectivity.
     pub fn disconnect_root(&mut self) {
         self.root_connected = false;
     }
-
     pub fn root_connected(&self) -> bool {
         self.root_connected
     }
-
-    /// Peel one bond without editing terrain, topology, rest lengths or root connectivity.
-    /// IDs break height ties deterministically; released bonds never silently reattach.
-    pub fn release_highest_anchor(&mut self) -> Option<usize> {
-        let (id, _) = self
-            .anchors
+    pub fn regrowth_nodes(&self) -> impl Iterator<Item = &Node> {
+        self.tips
             .iter()
-            .enumerate()
-            .filter(|(_, anchor)| anchor.attached)
-            .max_by(|(a_id, a), (b_id, b)| {
-                a.position.y.total_cmp(&b.position.y).then(a_id.cmp(b_id))
-            })?;
-        self.anchors[id].attached = false;
-        Some(id)
+            .filter(|tip| tip.restart.is_some())
+            .map(|tip| &self.nodes[tip.node])
     }
 
-    pub fn release_all_anchors(&mut self) {
-        for anchor in &mut self.anchors {
-            anchor.attached = false;
+    /// Each stem step needs a continuous backing surface, not just sparse adhesion markers.
+    /// This also detects edits between two anchors or between two sampled stem nodes.
+    fn supported_segment(&self, terrain: &impl Terrain, start: Vec3, end: Vec3) -> Option<bool> {
+        let offset = self.normal * (self.radius + 1.1);
+        segment_material(
+            terrain,
+            start - offset,
+            end - offset,
+            0.0,
+            self.anchors[0].material,
+        )
+    }
+
+    fn root_supported(&self, terrain: &impl Terrain) -> Option<bool> {
+        let root = &self.anchors[0];
+        let material = terrain.voxel(root.cell)?;
+        let exposed = clear_segment(terrain, root.position, root.position, self.radius)?;
+        Some(material == root.material && exposed)
+    }
+
+    /// First invalid step on each root-to-tip path cuts that whole downstream subtree,
+    /// even when higher anchors are still valid. The root seed is retained for repair.
+    /// None means no mutation was committed; callers must keep the revalidation pending.
+    pub fn revalidate(&mut self, terrain: &impl Terrain) -> Option<Pruned> {
+        let mut cut = vec![false; self.nodes.len()];
+        let root_supported = self.root_supported(terrain)?;
+        cut[0] = !root_supported;
+        for (id, node) in self.nodes.iter().enumerate().skip(1) {
+            let parent = node.parent.expect("non-root stem has a parent");
+            if cut[parent] {
+                cut[id] = true;
+                continue;
+            }
+            let start = self.nodes[parent].position;
+            let supported = self.supported_segment(terrain, start, node.position)?;
+            let exposed = clear_segment(terrain, start, node.position, self.radius)?;
+            cut[id] = !supported || !exposed;
+        }
+        if !terrain.current() {
+            return None;
+        }
+        let result = self.prune_marked(&cut);
+        self.anchors[0].attached = root_supported;
+        Some(result)
+    }
+
+    pub fn prune_highest_attachment(&mut self) -> Option<Pruned> {
+        let anchor = self
+            .anchors
+            .iter()
+            .filter(|a| a.attached && a.node != 0)
+            .max_by(|a, b| {
+                a.position
+                    .y
+                    .total_cmp(&b.position.y)
+                    .then(a.node.cmp(&b.node))
+            })?;
+        let mut cut = vec![false; self.nodes.len()];
+        cut[anchor.node] = true;
+        Some(self.prune_marked(&cut))
+    }
+
+    pub fn prune_to_root(&mut self) -> Pruned {
+        self.prune_marked(&vec![true; self.nodes.len()])
+    }
+
+    fn is_descendant(&self, mut node: usize, ancestor: usize) -> bool {
+        loop {
+            if node == ancestor {
+                return true;
+            }
+            let Some(parent) = self.nodes[node].parent else {
+                return false;
+            };
+            node = parent;
         }
     }
 
-    /// One fixed growth quantum.
-    /// IDs are append-only indices, including released anchors.
-    /// A flat wall is deliberately the first surface contract: stop at corners/tops/holes.
+    /// Compact live storage to reclaim the 512-node budget. IDs and retained geometry
+    /// stay unchanged; all internal node indices are remapped in one transaction.
+    fn prune_marked(&mut self, marked: &[bool]) -> Pruned {
+        let mut cut = marked.to_vec();
+        for (id, node) in self.nodes.iter().enumerate().skip(1) {
+            cut[id] |= cut[node.parent.unwrap()];
+        }
+        cut[0] = false; // a latent root seed survives even loss of the entire backing wall
+        let removed = cut.iter().filter(|&&cut| cut).count();
+        if removed == 0 {
+            return Pruned::default();
+        }
+
+        let mut tips: Vec<_> = self
+            .tips
+            .iter()
+            .filter(|tip| !cut[tip.node])
+            .cloned()
+            .collect();
+        let mut buds = 0;
+        for (id, node) in self.nodes.iter().enumerate().skip(1) {
+            let parent = node.parent.unwrap();
+            if !cut[id] || cut[parent] {
+                continue;
+            }
+            let mut bud = self
+                .tips
+                .iter()
+                .find(|tip| self.is_descendant(tip.node, id))
+                .cloned()
+                .unwrap_or_else(|| Tip::seed(parent, self.seed.wrapping_add(node.id)));
+            bud.node = parent;
+            bud.direction = (node.position - self.nodes[parent].position).normalize_or_zero();
+            bud.arc = 0.0;
+            bud.restart = Some(node.position);
+            tips.push(bud);
+            buds += 1;
+        }
+        // Every removed frontier replaces at least one old leaf tip in the bounded tree.
+        debug_assert!(tips.len() <= MAX_TIPS);
+        let mut remap = vec![None; self.nodes.len()];
+        let mut nodes = Vec::with_capacity(self.nodes.len() - removed);
+        for (old, node) in self.nodes.iter().enumerate() {
+            if cut[old] {
+                continue;
+            }
+            let mut node = node.clone();
+            node.parent = node.parent.map(|p| remap[p].unwrap());
+            remap[old] = Some(nodes.len());
+            nodes.push(node);
+        }
+        self.anchors.retain(|anchor| !cut[anchor.node]);
+        for anchor in &mut self.anchors {
+            anchor.node = remap[anchor.node].unwrap();
+        }
+        for tip in &mut tips {
+            tip.node = remap[tip.node].unwrap();
+        }
+        self.nodes = nodes;
+        self.tips = tips;
+        Pruned { removed, buds }
+    }
+
+    /// One fixed growth quantum. Paused/blocked tips retain their RNG, including when
+    /// a different tip succeeds. A restart bud retries the exact cut step after repair.
     pub fn grow(&mut self, terrain: &impl Terrain, spacing: f32) -> bool {
-        if !self.root_connected || !spacing.is_finite() || spacing < 4.0 || self.nodes.len() >= 512
+        if !self.root_connected
+            || !spacing.is_finite()
+            || spacing < 4.0
+            || self.nodes.len() >= MAX_NODES
+            || self.root_supported(terrain) != Some(true)
         {
             return false;
         }
         let mut next = self.clone();
         let mut changed = false;
+        let mut branch_source = 0;
         for index in 0..self.tips.len() {
-            if next.nodes.len() >= 512 {
+            if next.nodes.len() >= MAX_NODES {
                 break;
             }
-            let tip = &mut next.tips[index];
-            if tip.node == 0 {
+            let mut tip = next.tips[index].clone();
+            if tip.node == 0 || tip.restart.is_some() {
                 tip.spacing = spacing;
             }
             let start = next.nodes[tip.node].position;
             let side = Vec3::Y.cross(next.normal).normalize_or_zero();
-            let noise = (random(&mut tip.rng) - 0.5) * 0.45;
-            let direction =
-                (tip.direction * 0.65 + Vec3::Y * 0.35 + side * (noise + tip.lateral * 0.35))
-                    .normalize_or_zero();
-            let end = start + direction * 2.0;
-            let cell = (end - next.normal * (next.radius + 1.1)).floor().as_ivec3();
-            let Some(material) = terrain.voxel(cell) else {
-                return false;
+            let end = if let Some(end) = tip.restart {
+                end
+            } else {
+                let noise = (random(&mut tip.rng) - 0.5) * 0.45;
+                let direction =
+                    (tip.direction * 0.65 + Vec3::Y * 0.35 + side * (noise + tip.lateral * 0.35))
+                        .normalize_or_zero();
+                start + direction * 2.0
             };
-            // Adhesion requires the original seed material; proximity is independent of adhesion.
-            if material == 0 {
-                continue;
+            match next.supported_segment(terrain, start, end) {
+                None => return false,
+                Some(false) => continue,
+                Some(true) => {}
             }
             match clear_segment(terrain, start, end, next.radius) {
                 None => return false,
                 Some(false) => continue,
                 Some(true) => {}
             }
+            let cell = (end - next.normal * (next.radius + 1.1)).floor().as_ivec3();
             let parent = tip.node;
             tip.node = next.nodes.len();
-            tip.direction = direction;
+            tip.direction = (end - start).normalize_or_zero();
             tip.arc += start.distance(end);
+            tip.restart = None;
             next.nodes.push(Node {
+                id: next.next_node_id,
                 position: end,
                 parent: Some(parent),
                 rest_length: start.distance(end),
             });
-            if tip.arc >= tip.spacing && material == next.anchors[0].material {
+            next.next_node_id += 1;
+            if tip.arc >= tip.spacing {
                 next.anchors.push(Anchor {
                     node: tip.node,
                     cell,
-                    material,
+                    material: next.anchors[0].material,
                     position: end,
                     attached: true,
                 });
                 tip.arc = 0.0;
                 tip.spacing = spacing * (0.85 + 0.3 * random(&mut tip.rng));
             }
+            next.tips[index] = tip;
+            if !changed {
+                branch_source = index;
+            }
             changed = true;
         }
-        if changed && next.tips.len() < 4 && next.nodes.len() / 24 > self.nodes.len() / 24 {
-            let mut branch = next.tips[0].clone();
+        if changed && next.tips.len() < MAX_TIPS && next.nodes.len() / 24 > self.nodes.len() / 24 {
+            let mut branch = next.tips[branch_source].clone();
             branch.direction = (Vec3::Y
                 + Vec3::Y.cross(next.normal) * if next.tips.len() % 2 == 0 { -0.8 } else { 0.8 })
             .normalize();
             branch.lateral = if next.tips.len() % 2 == 0 { -0.5 } else { 0.5 };
             branch.arc = 0.0;
             branch.spacing = spacing;
-            branch.rng = branch.rng.wrapping_add(next.nodes.len() as u64);
+            branch.rng = branch.rng.wrapping_add(next.next_node_id);
             next.tips.push(branch);
         }
         if changed && terrain.current() {
@@ -184,358 +345,54 @@ impl Plant {
             false
         }
     }
+}
 
-    /// Revalidate fixed contact cells; material replacement releases adhesion, never topology.
-    /// Pending/stale snapshots leave even the RNG untouched.
-    pub fn revalidate(
-        &mut self,
-        terrain: &impl Terrain,
-        candidates: impl IntoIterator<Item = usize>,
-    ) -> bool {
-        let mut released = Vec::new();
-        for id in candidates {
-            let anchor = &self.anchors[id];
-            if !anchor.attached {
-                continue;
-            }
-            let Some(material) = terrain.voxel(anchor.cell) else {
+/// Exact slab intersection, shared by exposed-stem collision and backing-surface checks.
+fn intersects_box(start: Vec3, end: Vec3, lo: Vec3, hi: Vec3) -> bool {
+    let delta = end - start;
+    let mut enter: f32 = 0.0;
+    let mut exit: f32 = 1.0;
+    for axis in 0..3 {
+        if delta[axis].abs() < 1e-8 {
+            if start[axis] < lo[axis] || start[axis] > hi[axis] {
                 return false;
-            };
-            let Some(exposed) =
-                clear_segment(terrain, anchor.position, anchor.position, self.radius)
-            else {
-                return false;
-            };
-            if material != anchor.material || !exposed {
-                released.push(id);
             }
+        } else {
+            let a = (lo[axis] - start[axis]) / delta[axis];
+            let b = (hi[axis] - start[axis]) / delta[axis];
+            enter = enter.max(a.min(b));
+            exit = exit.min(a.max(b));
         }
-        if !terrain.current() {
-            return false;
-        }
-        for id in &released {
-            self.anchors[*id].attached = false;
-        }
-        !released.is_empty()
     }
-
-    /// Quasi-static distance projection. Pinned supports partition independent movable spans;
-    /// an infeasible span never prevents another span from settling. Pending/stale queries
-    /// cannot commit motion. Newly inserted terrain is recovered toward the known exterior.
-    pub fn relax(&mut self, terrain: &impl Terrain) -> bool {
-        self.relax_with::<true>(terrain)
-    }
-
-    // The fixed-budget instantiation is retained only by regression tests.
-    fn relax_with<const STOP_AT_FIXED_POINT: bool>(&mut self, terrain: &impl Terrain) -> bool {
-        let original: Vec<_> = self.nodes.iter().map(|n| n.position).collect();
-        let mut positions = original.clone();
-        let mut pinned = vec![false; positions.len()];
-        pinned[0] = self.root_connected;
-        for anchor in self.anchors.iter().filter(|a| a.attached) {
-            pinned[anchor.node] = true;
-        }
-        // Topology is an append-only tree: a movable child inherits its movable parent's
-        // span; a pin is a mechanical boundary shared by otherwise independent spans.
-        let mut membership = vec![None; positions.len()];
-        let mut spans: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
-        for (id, node) in self.nodes.iter().enumerate() {
-            if !pinned[id] {
-                let span = node.parent.and_then(|p| membership[p]).unwrap_or_else(|| {
-                    spans.push((Vec::new(), Vec::new()));
-                    spans.len() - 1
-                });
-                membership[id] = Some(span);
-                spans[span].0.push(id);
-            }
-            if let Some(parent) = node.parent {
-                if let Some(span) = membership[id].or(membership[parent]) {
-                    spans[span].1.push(id);
-                }
-            }
-        }
-        for (nodes, edges) in spans {
-            if let Some(candidate) =
-                self.relax_span::<STOP_AT_FIXED_POINT>(terrain, &original, &pinned, &nodes, &edges)
-            {
-                for id in nodes {
-                    positions[id] = candidate[id];
-                }
-            }
-        }
-        if !terrain.current() {
-            return false;
-        }
-        let changed = original
-            .iter()
-            .zip(&positions)
-            .any(|(a, b)| a.distance_squared(*b) > 1e-10);
-        for (node, position) in self.nodes.iter_mut().zip(positions) {
-            node.position = position;
-        }
-        changed
-    }
-
-    fn relax_span<const STOP_AT_FIXED_POINT: bool>(
-        &self,
-        terrain: &impl Terrain,
-        original: &[Vec3],
-        pinned: &[bool],
-        nodes: &[usize],
-        edges: &[usize],
-    ) -> Option<Vec<Vec3>> {
-        let mut positions = original.to_vec();
-        // These constraints are temporary collision contacts, not new adhesion. Preserve the
-        // original outward exit plane throughout projection, rather than finding "air" behind
-        // a sparse terrain shell or accepting an arbitrary teleport to its opposite side.
-        let mut recovery = Vec::new();
-        for &id in edges {
-            let parent = self.nodes[id].parent?;
-            for contact in segment_contacts(terrain, original[parent], original[id], self.radius)? {
-                recovery.push((
-                    parent,
-                    id,
-                    (contact.enter + contact.exit) * 0.5,
-                    contact.exit_plane(self.normal),
-                ));
-            }
-        }
-        // Also handle a single disconnected root with no edges.
-        for &id in nodes {
-            for contact in segment_contacts(terrain, original[id], original[id], self.radius)? {
-                recovery.push((id, id, 0.0, contact.exit_plane(self.normal)));
-            }
-        }
-        if recovery.is_empty() {
-            for &id in nodes {
-                positions[id] -= Vec3::Y * 0.08;
-            }
-        }
-        let iterations = if recovery.is_empty() { 128 } else { 512 };
-        let mut previous = Vec::new();
-        for _ in 0..iterations {
-            if STOP_AT_FIXED_POINT {
-                previous.clear();
-                previous.extend(nodes.iter().map(|&id| positions[id]));
-            }
-            for &id in edges {
-                let parent = self.nodes[id].parent?;
-                let delta = positions[id] - positions[parent];
-                let length = delta.length();
-                if length < 1e-6 {
-                    continue;
-                }
-                let weights = usize::from(!pinned[id]) + usize::from(!pinned[parent]);
-                if weights == 0 {
-                    continue;
-                }
-                let correction =
-                    delta * ((length - self.nodes[id].rest_length) / (length * weights as f32));
-                if !pinned[id] {
-                    positions[id] -= correction;
-                }
-                if !pinned[parent] {
-                    positions[parent] += correction;
-                }
-            }
-            for &(a, b, t, plane) in &recovery {
-                project_contact(&mut positions, pinned, a, b, t, self.normal, plane);
-            }
-            if nodes
-                .iter()
-                .any(|&id| !positions[id].is_finite() || positions[id].distance(original[id]) > 6.0)
-            {
-                return None;
-            }
-            for &id in edges {
-                let parent = self.nodes[id].parent?;
-                for contact in
-                    segment_contacts(terrain, positions[parent], positions[id], self.radius)?
-                {
-                    let normal = if recovery.is_empty() {
-                        contact.separating_normal(original[parent], original[id], self.normal)
-                    } else {
-                        self.normal
-                    };
-                    project_contact(
-                        &mut positions,
-                        pinned,
-                        parent,
-                        id,
-                        (contact.enter + contact.exit) * 0.5,
-                        normal,
-                        contact.exit_plane(normal),
-                    );
-                }
-            }
-            // This is an exact fixed point of a complete distance/contact sweep,
-            // not a looser error threshold or a smaller iteration budget. Repeating
-            // the same deterministic sweep cannot improve it. All final swept and
-            // whole-edge collision / length checks below still gate the commit.
-            if STOP_AT_FIXED_POINT
-                && nodes
-                    .iter()
-                    .zip(&previous)
-                    .all(|(&id, &p)| positions[id] == p)
-            {
-                break;
-            }
-        }
-        for &id in nodes {
-            if !positions[id].is_finite() || positions[id].distance(original[id]) > 6.0 {
-                return None;
-            }
-            // Recovery exits outward first, then follows the tangential correction. A single
-            // diagonal chord can falsely collide with neighbouring cells of the inserted patch.
-            // Never exempt a box that did not already contain the old particle.
-            let lift = if recovery.is_empty() {
-                original[id]
-            } else {
-                original[id]
-                    + self.normal * (positions[id] - original[id]).dot(self.normal).max(0.0)
-            };
-            for contact in segment_contacts(terrain, original[id], lift, self.radius)? {
-                if !contact.contains(original[id])
-                    || lift.dot(self.normal) < contact.exit_plane(self.normal) - 0.0001
-                {
-                    return None;
-                }
-            }
-            if !segment_contacts(terrain, lift, positions[id], self.radius)?.is_empty() {
-                return None;
-            }
-        }
-        for &id in edges {
-            let parent = self.nodes[id].parent?;
-            if (positions[id].distance(positions[parent]) - self.nodes[id].rest_length).abs()
-                > 0.002
-                || !segment_contacts(terrain, positions[parent], positions[id], self.radius)?
-                    .is_empty()
-            {
-                return None;
-            }
-        }
-        // The no-edge case must also be clear after recovery.
-        for &id in nodes {
-            if !segment_contacts(terrain, positions[id], positions[id], self.radius)?.is_empty() {
-                return None;
-            }
-        }
-        Some(positions)
-    }
+    enter <= exit
 }
-
-fn project_contact(
-    positions: &mut [Vec3],
-    pinned: &[bool],
-    a: usize,
-    b: usize,
-    t: f32,
-    normal: Vec3,
-    plane: f32,
-) {
-    let depth = plane - positions[a].lerp(positions[b], t).dot(normal);
-    if depth <= 0.0 {
-        return;
-    }
-    if a == b {
-        if !pinned[a] {
-            positions[a] += normal * depth;
-        }
-        return;
-    }
-    let wa = if pinned[a] { 0.0 } else { 1.0 - t };
-    let wb = if pinned[b] { 0.0 } else { t };
-    let denominator = wa * wa + wb * wb;
-    if denominator > 1e-8 {
-        positions[a] += normal * (depth * wa / denominator);
-        positions[b] += normal * (depth * wb / denominator);
-    }
-}
-
-#[derive(Clone, Copy)]
-struct SolidContact {
-    lo: Vec3,
-    hi: Vec3,
-    enter: f32,
-    exit: f32,
-}
-impl SolidContact {
-    fn contains(self, p: Vec3) -> bool {
-        p.cmpge(self.lo).all() && p.cmple(self.hi).all()
-    }
-    fn separating_normal(self, a: Vec3, b: Vec3, fallback: Vec3) -> Vec3 {
-        let mut best = f32::INFINITY;
-        let mut normal = fallback;
-        for axis in 0..3 {
-            for (distance, sign) in [
-                (a[axis].min(b[axis]) - self.hi[axis], 1.0),
-                (self.lo[axis] - a[axis].max(b[axis]), -1.0),
-            ] {
-                if distance >= 0.0 && distance < best {
-                    best = distance;
-                    normal = Vec3::ZERO;
-                    normal[axis] = sign;
-                }
-            }
-        }
-        normal
-    }
-    fn exit_plane(self, normal: Vec3) -> f32 {
-        self.hi.dot(normal.max(Vec3::ZERO)) + self.lo.dot(normal.min(Vec3::ZERO)) + 0.001
-    }
-}
-
-/// Exact segment slab test against radius-expanded voxel boxes (conservative capsule).
-pub fn clear_segment(terrain: &impl Terrain, start: Vec3, end: Vec3, radius: f32) -> Option<bool> {
-    Some(segment_contacts(terrain, start, end, radius)?.is_empty())
-}
-fn segment_contacts(
+fn segment_material(
     terrain: &impl Terrain,
     start: Vec3,
     end: Vec3,
     radius: f32,
-) -> Option<Vec<SolidContact>> {
+    material: u8,
+) -> Option<bool> {
     let min = (start.min(end) - Vec3::splat(radius)).floor().as_ivec3();
     let max = (start.max(end) + Vec3::splat(radius)).floor().as_ivec3();
-    let mut contacts = Vec::new();
+    let mut matches = true;
     for z in min.z..=max.z {
         for y in min.y..=max.y {
             for x in min.x..=max.x {
                 let cell = IVec3::new(x, y, z);
-                if terrain.voxel(cell)? == 0 {
-                    continue;
-                }
                 let lo = cell.as_vec3() - Vec3::splat(radius);
                 let hi = cell.as_vec3() + Vec3::splat(1.0 + radius);
-                let delta = end - start;
-                let mut enter: f32 = 0.0;
-                let mut exit: f32 = 1.0;
-                for axis in 0..3 {
-                    if delta[axis].abs() < 1e-8 {
-                        if start[axis] < lo[axis] || start[axis] > hi[axis] {
-                            enter = 2.0;
-                            break;
-                        }
-                    } else {
-                        let a = (lo[axis] - start[axis]) / delta[axis];
-                        let b = (hi[axis] - start[axis]) / delta[axis];
-                        enter = enter.max(a.min(b));
-                        exit = exit.min(a.max(b));
-                    }
-                }
-                if enter <= exit {
-                    contacts.push(SolidContact {
-                        lo,
-                        hi,
-                        enter,
-                        exit,
-                    });
+                if intersects_box(start, end, lo, hi) {
+                    matches &= terrain.voxel(cell)? == material;
                 }
             }
         }
     }
-    Some(contacts)
+    Some(matches)
+}
+/// Conservative capsule against radius-expanded solid voxel boxes.
+pub fn clear_segment(terrain: &impl Terrain, start: Vec3, end: Vec3, radius: f32) -> Option<bool> {
+    segment_material(terrain, start, end, radius, 0)
 }
 
 #[cfg(test)]
@@ -549,11 +406,11 @@ mod tests {
         stale: bool,
     }
     impl Terrain for Wall {
-        fn voxel(&self, c: IVec3) -> Option<u8> {
+        fn voxel(&self, cell: IVec3) -> Option<u8> {
             if self.pending {
                 None
             } else {
-                Some(u8::from(c.z == 0 && !self.missing.contains(&c)))
+                Some(u8::from(cell.z == 0 && !self.missing.contains(&cell)))
             }
         }
         fn current(&self) -> bool {
@@ -569,142 +426,179 @@ mod tests {
             42,
         )
     }
-    #[test]
-    fn fixed_point_exit_matches_full_budget_without_repeating_collision_queries() {
-        use std::cell::Cell;
-        struct CountedWall(Cell<usize>);
-        impl Terrain for CountedWall {
-            fn voxel(&self, cell: IVec3) -> Option<u8> {
-                self.0.set(self.0.get() + 1);
-                Wall::default().voxel(cell)
-            }
-            fn current(&self) -> bool {
-                true
-            }
-        }
+    fn grown() -> Plant {
         let mut plant = seed();
-        for _ in 0..18 {
+        for _ in 0..50 {
             plant.grow(&Wall::default(), 16.0);
         }
-        plant.disconnect_root();
-        for anchor in &mut plant.anchors {
-            anchor.attached = false;
+        plant
+    }
+    fn check_structure(plant: &Plant) {
+        let ids: HashSet<_> = plant.nodes.iter().map(|n| n.id).collect();
+        assert_eq!(ids.len(), plant.nodes.len());
+        assert!(plant.nodes.len() <= MAX_NODES && plant.tips.len() <= MAX_TIPS);
+        for (index, node) in plant.nodes.iter().enumerate() {
+            assert!(node.position.is_finite());
+            if let Some(parent) = node.parent {
+                assert!(parent < index);
+                assert!(
+                    (node.position.distance(plant.nodes[parent].position) - node.rest_length).abs()
+                        < 0.002
+                );
+            }
         }
-        let mut reference = plant.clone();
-        let counted = CountedWall(Cell::new(0));
-        let reference_counted = CountedWall(Cell::new(0));
-        for _ in 0..20 {
-            plant.relax(&counted);
-            reference.relax_with::<false>(&reference_counted);
+        for a in &plant.anchors {
+            assert_eq!(a.position, plant.nodes[a.node].position);
+        }
+        for tip in &plant.tips {
+            assert!(tip.node < plant.nodes.len());
+        }
+    }
+    fn assert_survivors_unchanged(before: &Plant, after: &Plant) {
+        for node in &after.nodes {
+            let original = before.nodes.iter().find(|old| old.id == node.id).unwrap();
             assert_eq!(
-                plant, reference,
-                "fixed-point termination changed the state"
+                (node.position, node.rest_length),
+                (original.position, original.rest_length)
+            );
+            assert_eq!(
+                node.parent.map(|p| after.nodes[p].id),
+                original.parent.map(|p| before.nodes[p].id)
             );
         }
-        // Deterministic work guardrail, NOT a timing benchmark. Release app scopes
-        // remain authoritative for performance. A converged free span needs no 128 sweeps.
+        check_structure(after);
+    }
+
+    #[test]
+    fn removed_wall_prunes_upper_attached_stem_and_regrows_from_cut() {
+        let mut plant = grown();
+        let mut wall = Wall::default();
+        let original = plant.clone();
+        let cell = plant.anchors[1].cell;
+        wall.missing.insert(cell);
+        let result = plant.revalidate(&wall).unwrap();
         assert!(
-            counted.0.get() < reference_counted.0.get() / 4,
-            "redundant voxel queries: {} vs {}",
-            counted.0.get(),
-            reference_counted.0.get()
+            result.removed > 0 && result.buds == 1,
+            "unsupported upper stem is still suspended"
+        );
+        assert_survivors_unchanged(&original, &plant);
+        assert!(original
+            .anchors
+            .iter()
+            .skip(2)
+            .all(|a| wall.voxel(a.cell) == Some(1)));
+        assert!(
+            original.anchors.iter().skip(2).all(|a| !plant
+                .nodes
+                .iter()
+                .any(|n| n.id == original.nodes[a.node].id)),
+            "upper valid attachments must not retain severed stems"
+        );
+        let stump = plant.clone();
+        for _ in 0..20 {
+            assert!(!plant.grow(&wall, 16.0));
+        }
+        assert_eq!(plant, stump, "waiting must preserve the bud and RNG");
+        wall.missing.clear();
+        assert!(plant.grow(&wall, 16.0));
+        assert_eq!(plant.nodes.last().unwrap().parent, Some(stump.tips[0].node));
+        assert!(plant.nodes.last().unwrap().id >= original.next_node_id);
+        for old in &stump.nodes {
+            assert!(plant.nodes.iter().any(|n| n == old));
+        }
+        check_structure(&plant);
+    }
+
+    #[test]
+    fn local_branch_cut_preserves_other_branches_and_their_tips() {
+        let original = grown();
+        let tip_node = original.tips[1].node;
+        let anchor = original
+            .anchors
+            .iter()
+            .rev()
+            .find(|a| {
+                original.is_descendant(tip_node, a.node)
+                    && original
+                        .tips
+                        .iter()
+                        .filter(|t| original.is_descendant(t.node, a.node))
+                        .count()
+                        == 1
+            })
+            .unwrap();
+        let mut wall = Wall::default();
+        wall.missing.insert(anchor.cell);
+        let mut plant = original.clone();
+        assert!(plant.revalidate(&wall).unwrap().removed > 0);
+        assert_survivors_unchanged(&original, &plant);
+        for tip in original
+            .tips
+            .iter()
+            .filter(|t| !original.is_descendant(t.node, anchor.node))
+        {
+            let id = original.nodes[tip.node].id;
+            let kept = plant
+                .tips
+                .iter()
+                .find(|t| plant.nodes[t.node].id == id)
+                .expect("unrelated tip deleted");
+            assert_eq!(
+                (kept.rng, kept.direction, kept.arc, kept.lateral),
+                (tip.rng, tip.direction, tip.arc, tip.lateral)
+            );
+        }
+        let waiting = plant
+            .tips
+            .iter()
+            .find(|t| t.restart.is_some())
+            .unwrap()
+            .clone();
+        plant.grow(&wall, 16.0);
+        assert_eq!(
+            plant.tips.iter().find(|t| t.restart.is_some()).unwrap(),
+            &waiting,
+            "another growing tip consumed the waiting bud RNG"
         );
     }
 
     #[test]
-    fn fixed_point_exit_preserves_supported_growth_and_local_release() {
-        let mut plant = seed();
-        let mut reference = plant.clone();
-        let wall = Wall::default();
-        for tick in 0..60 {
-            plant.grow(&wall, 16.0);
-            reference.grow(&wall, 16.0);
-            if tick == 30 {
-                plant.anchors[1].attached = false;
-                reference.anchors[1].attached = false;
-            }
-            plant.relax(&wall);
-            reference.relax_with::<false>(&wall);
-            assert_eq!(plant, reference);
-        }
-    }
-
-    #[test]
-    fn deterministic_spacing_ids_and_finite_lengths() {
-        let mut a = seed();
-        let mut b = seed();
-        let wall = Wall::default();
-        for _ in 0..100 {
-            a.grow(&wall, 16.0);
-            b.grow(&wall, 16.0);
-        }
-        assert_eq!(a, b);
-        assert!(a.nodes.len() > 100);
-        assert!(a.tips.len() > 1);
-        for n in &a.nodes {
-            assert!(n.position.is_finite());
-            if let Some(p) = n.parent {
-                assert!((n.position.distance(a.nodes[p].position) - n.rest_length).abs() < 1e-5);
-            }
-        }
-        let main: Vec<_> = a.anchors.iter().filter(|a| a.node < 24).collect();
-        for pair in main.windows(2) {
-            assert!((6..=10).contains(&(pair[1].node - pair[0].node)));
-        }
-    }
-    #[test]
-    fn releases_preserve_topology_other_supports_and_do_not_resurrect() {
-        let mut p = seed();
+    fn edits_between_sparse_anchors_and_between_nodes_are_detected() {
+        let original = grown();
+        let node = &original.nodes[3];
+        let parent = &original.nodes[node.parent.unwrap()];
+        let cell = (((node.position + parent.position) * 0.5) - Vec3::Z * 1.75)
+            .floor()
+            .as_ivec3();
+        assert!(!original.anchors.iter().any(|a| a.cell == cell));
         let mut wall = Wall::default();
-        for _ in 0..40 {
-            p.grow(&wall, 16.0);
-        }
-        let nodes = p.nodes.clone();
-        let ids: Vec<_> = p.anchors.iter().map(|a| a.node).collect();
-        wall.missing.insert(IVec3::new(250, 250, 0));
-        assert!(!p.revalidate(&wall, 0..p.anchors.len()));
-        wall.missing.insert(p.anchors[1].cell);
-        assert!(p.revalidate(&wall, 0..p.anchors.len()));
-        assert!(p.anchors[2].attached);
-        wall.missing.insert(p.anchors[2].cell);
-        assert!(p.revalidate(&wall, 0..p.anchors.len()));
-        assert_eq!(p.nodes, nodes);
-        assert_eq!(ids, p.anchors.iter().map(|a| a.node).collect::<Vec<_>>());
-        wall.missing.clear();
-        p.revalidate(&wall, 0..p.anchors.len());
-        assert!(!p.anchors[1].attached);
-    }
-    #[test]
-    fn peeling_is_local_and_keeps_the_root_and_growth_history() {
-        let mut plant = seed();
-        let wall = Wall::default();
-        for _ in 0..30 {
-            plant.grow(&wall, 16.0);
-        }
-        let before = plant.clone();
-        let id = plant.release_highest_anchor().unwrap();
-        assert_eq!(plant.nodes, before.nodes);
-        assert_eq!(plant.tips, before.tips);
-        assert!(plant.root_connected());
-        for (index, (a, b)) in plant.anchors.iter().zip(&before.anchors).enumerate() {
-            assert_eq!(a.attached, index != id);
-            assert_eq!((a.node, a.cell, a.position), (b.node, b.cell, b.position));
-        }
-        assert!(!plant.revalidate(&wall, 0..plant.anchors.len()));
-        assert!(!plant.anchors[id].attached);
-        plant.release_all_anchors();
-        assert!(plant.root_connected());
-        assert_eq!(plant.release_highest_anchor(), None);
-        assert_eq!(plant.nodes, before.nodes);
-        for _ in 0..5 {
-            plant.relax(&wall);
-        }
-        assert_eq!(plant.nodes[0], before.nodes[0]);
+        wall.missing.insert(cell);
+        let mut plant = original.clone();
+        assert!(plant.revalidate(&wall).unwrap().removed > 0);
+        assert!(!plant.nodes.iter().any(|n| n.id == node.id));
+        assert_survivors_unchanged(&original, &plant);
+        assert!(!plant.grow(&wall, 16.0));
     }
 
     #[test]
-    fn pending_and_stale_are_transactional() {
-        let original = seed();
+    fn missing_root_retains_only_a_latent_seed_then_recovers() {
+        let mut plant = grown();
+        let original = plant.clone();
+        let mut wall = Wall::default();
+        wall.missing.insert(plant.anchors[0].cell);
+        plant.revalidate(&wall).unwrap();
+        assert_eq!(plant.nodes, original.nodes[..1]);
+        assert!(plant.root_connected() && !plant.anchors[0].attached);
+        assert!(!plant.grow(&wall, 16.0));
+        wall.missing.clear();
+        plant.revalidate(&wall).unwrap();
+        assert!(plant.anchors[0].attached);
+        assert!(plant.grow(&wall, 16.0));
+    }
+
+    #[test]
+    fn pending_and_stale_leave_even_known_cuts_transactional() {
+        let original = grown();
         for wall in [
             Wall {
                 pending: true,
@@ -712,16 +606,139 @@ mod tests {
             },
             Wall {
                 stale: true,
+                missing: HashSet::from([original.anchors[1].cell]),
                 ..Default::default()
             },
         ] {
-            let mut p = original.clone();
-            p.grow(&wall, 16.0);
-            p.revalidate(&wall, 0..p.anchors.len());
-            p.relax(&wall);
-            assert_eq!(p, original);
+            let mut plant = original.clone();
+            assert_eq!(plant.revalidate(&wall), None);
+            assert!(!plant.grow(&wall, 16.0));
+            assert_eq!(plant, original);
+        }
+        struct Partial {
+            missing: IVec3,
+            pending: IVec3,
+        }
+        impl Terrain for Partial {
+            fn voxel(&self, cell: IVec3) -> Option<u8> {
+                if cell == self.pending {
+                    None
+                } else {
+                    Some(u8::from(cell.z == 0 && cell != self.missing))
+                }
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut plant = original.clone();
+        let terrain = Partial {
+            missing: original.anchors.last().unwrap().cell,
+            pending: original.anchors[1].cell,
+        };
+        assert_eq!(plant.revalidate(&terrain), None);
+        assert_eq!(plant, original);
+    }
+
+    #[test]
+    fn foreign_material_and_buried_stems_prune_instead_of_rebinding() {
+        let original = grown();
+        let support = original.anchors[1].cell;
+        struct Changed {
+            cell: IVec3,
+            buried: bool,
+        }
+        impl Terrain for Changed {
+            fn voxel(&self, cell: IVec3) -> Option<u8> {
+                if self.buried && cell == self.cell + IVec3::Z {
+                    Some(1)
+                } else if !self.buried && cell == self.cell {
+                    Some(2)
+                } else {
+                    Some(u8::from(cell.z == 0))
+                }
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        for buried in [false, true] {
+            let mut plant = original.clone();
+            let terrain = Changed {
+                cell: support,
+                buried,
+            };
+            assert!(plant.revalidate(&terrain).unwrap().removed > 0);
+            assert_survivors_unchanged(&original, &plant);
+            assert!(!plant.grow(&terrain, 16.0));
         }
     }
+
+    #[test]
+    fn unrelated_edits_do_not_change_shape_or_history() {
+        let mut plant = grown();
+        let original = plant.clone();
+        let wall = Wall {
+            missing: HashSet::from([IVec3::new(200, 200, 0)]),
+            ..Default::default()
+        };
+        assert_eq!(plant.revalidate(&wall), Some(Pruned::default()));
+        assert_eq!(plant, original);
+    }
+
+    #[test]
+    fn repeated_pruning_reclaims_capacity_and_never_reuses_node_ids() {
+        let mut a = grown();
+        let mut b = a.clone();
+        let wall = Wall::default();
+        for _ in 0..24 {
+            let next_id = a.next_node_id;
+            a.prune_to_root();
+            b.prune_to_root();
+            assert_eq!(a.nodes.len(), 1);
+            for _ in 0..30 {
+                a.grow(&wall, 16.0);
+                b.grow(&wall, 16.0);
+            }
+            assert_eq!(a, b);
+            assert!(a.nodes.iter().skip(1).all(|n| n.id >= next_id));
+            check_structure(&a);
+        }
+        assert!(
+            a.next_node_id > MAX_NODES as u64,
+            "history must not exhaust the live-node cap"
+        );
+    }
+
+    #[test]
+    fn pruning_nested_failures_makes_only_frontier_buds_and_root_cut_stops_growth() {
+        let mut plant = grown();
+        let original = plant.clone();
+        let mut wall = Wall::default();
+        wall.missing
+            .extend(plant.anchors.iter().skip(1).map(|a| a.cell));
+        assert_eq!(plant.revalidate(&wall).unwrap().buds, 1);
+        assert_survivors_unchanged(&original, &plant);
+        plant.disconnect_root();
+        let stump = plant.clone();
+        assert!(!plant.grow(&Wall::default(), 16.0));
+        assert_eq!(plant, stump);
+    }
+
+    #[test]
+    fn manual_pruning_and_deterministic_growth_keep_structure_valid() {
+        let mut a = grown();
+        let b = grown();
+        assert_eq!(a, b);
+        assert!(a.prune_highest_attachment().unwrap().removed > 0);
+        assert_survivors_unchanged(&b, &a);
+        assert!(a.grow(&Wall::default(), 16.0));
+        check_structure(&a);
+        a.prune_to_root();
+        assert_eq!(a.prune_highest_attachment(), None);
+        assert_eq!(a.prune_to_root(), Pruned::default());
+    }
+
     #[test]
     fn thin_wall_and_segment_interior_are_not_crossed() {
         let wall = Wall::default();
@@ -733,343 +750,5 @@ mod tests {
             clear_segment(&wall, Vec3::new(1., 1., 2.), Vec3::new(1., 100., 2.), 0.65),
             Some(true)
         );
-    }
-    #[test]
-    fn released_free_tip_sags_without_stretching() {
-        let mut p = seed();
-        let wall = Wall::default();
-        for _ in 0..20 {
-            p.grow(&wall, 16.0);
-        }
-        for a in p.anchors.iter_mut().skip(1) {
-            a.attached = false;
-        }
-        let before = p.nodes.last().unwrap().position.y;
-        for _ in 0..100 {
-            p.relax(&wall);
-        }
-        assert!(p.nodes.last().unwrap().position.y < before);
-        for n in &p.nodes {
-            if let Some(parent) = n.parent {
-                assert!(
-                    (n.position.distance(p.nodes[parent].position) - n.rest_length).abs() < 0.0021
-                );
-            }
-        }
-    }
-    #[test]
-    fn material_replacement_releases_adhesion_not_collision_or_topology() {
-        struct Replacement;
-        impl Terrain for Replacement {
-            fn voxel(&self, c: IVec3) -> Option<u8> {
-                Some(if c.z == 0 { 2 } else { 0 })
-            }
-            fn current(&self) -> bool {
-                true
-            }
-        }
-        let mut p = seed();
-        let wall = Wall::default();
-        for _ in 0..18 {
-            p.grow(&wall, 16.);
-        }
-        let nodes = p.nodes.clone();
-        assert!(p.revalidate(&Replacement, 0..p.anchors.len()));
-        assert_eq!(nodes, p.nodes);
-        assert!(p.anchors.iter().all(|a| !a.attached));
-        assert_eq!(
-            clear_segment(
-                &Replacement,
-                Vec3::new(20., 10., -1.),
-                Vec3::new(20., 10., 2.),
-                0.65
-            ),
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn taut_pinned_span_does_not_acquire_rest_length() {
-        let mut p = seed();
-        p.nodes = (0..9)
-            .map(|id| Node {
-                position: Vec3::new(20.5, 4.5 + id as f32 * 2., 1.8),
-                parent: if id == 0 { None } else { Some(id - 1) },
-                rest_length: if id == 0 { 0. } else { 2. },
-            })
-            .collect();
-        p.anchors.push(Anchor {
-            node: 8,
-            cell: IVec3::new(20, 20, 0),
-            material: 1,
-            position: p.nodes[8].position,
-            attached: true,
-        });
-        let lengths: Vec<_> = p.nodes.iter().map(|n| n.rest_length).collect();
-        let before = p.nodes.clone();
-        for _ in 0..200 {
-            p.relax(&Wall::default());
-        }
-        assert_eq!(
-            lengths,
-            p.nodes.iter().map(|n| n.rest_length).collect::<Vec<_>>()
-        );
-        assert_eq!(p.nodes[0], before[0]);
-        assert_eq!(p.nodes[8], before[8]);
-        assert!(p
-            .nodes
-            .iter()
-            .zip(before)
-            .all(|(a, b)| a.position.distance(b.position) < 0.01));
-    }
-
-    #[test]
-    fn support_gap_stops_growth_and_preserves_rng() {
-        let mut p = seed();
-        let mut wall = Wall::default();
-        for x in -100..100 {
-            for y in -100..100 {
-                wall.missing.insert(IVec3::new(x, y, 0));
-            }
-        }
-        let before = p.clone();
-        for _ in 0..100 {
-            assert!(!p.grow(&wall, 16.));
-        }
-        assert_eq!(before, p);
-    }
-    #[test]
-    fn all_supports_removed_can_settle_after_root_disconnection() {
-        let mut p = seed();
-        let wall = Wall::default();
-        for _ in 0..18 {
-            p.grow(&wall, 16.);
-        }
-        for anchor in &mut p.anchors {
-            anchor.attached = false;
-        }
-        p.disconnect_root();
-        let root = p.nodes[0].position;
-        for _ in 0..20 {
-            p.relax(&wall);
-        }
-        assert!(
-            p.nodes[0].position.y < root.y - 1.0,
-            "unsupported root remains pinned"
-        );
-    }
-    #[test]
-    fn cut_root_stops_growth_but_retains_wall_attachments_and_ids() {
-        let mut p = seed();
-        let wall = Wall::default();
-        for _ in 0..18 {
-            p.grow(&wall, 16.);
-        }
-        let nodes = p.nodes.clone();
-        let anchors = p.anchors.clone();
-        let tips = p.tips.clone();
-        p.disconnect_root();
-        assert!(!p.root_connected());
-        for _ in 0..30 {
-            assert!(!p.grow(&wall, 16.));
-            p.relax(&wall);
-        }
-        assert_eq!(p.anchors, anchors);
-        assert_eq!(p.tips, tips);
-        assert_eq!(p.nodes.len(), nodes.len());
-        for a in &p.anchors {
-            assert_eq!(p.nodes[a.node].position, a.position);
-        }
-        for (a, b) in p.nodes.iter().zip(nodes) {
-            assert_eq!((a.parent, a.rest_length), (b.parent, b.rest_length));
-        }
-    }
-    #[test]
-    fn refill_then_support_removal_recovers_without_freezing_other_spans() {
-        struct Refilled {
-            wall: Wall,
-        }
-        impl Terrain for Refilled {
-            fn voxel(&self, c: IVec3) -> Option<u8> {
-                if (17..=24).contains(&c.x) && (17..=23).contains(&c.y) && (1..=2).contains(&c.z) {
-                    Some(1)
-                } else {
-                    self.wall.voxel(c)
-                }
-            }
-            fn current(&self) -> bool {
-                true
-            }
-        }
-        let wall = Wall::default();
-        let mut p = seed();
-        for _ in 0..10 {
-            p.grow(&wall, 16.);
-        }
-        let lengths: Vec<_> = p.nodes.iter().map(|n| n.rest_length).collect();
-        let terrain = Refilled { wall };
-        assert!(p
-            .nodes
-            .iter()
-            .any(|n| clear_segment(&terrain, n.position, n.position, p.radius) == Some(false)));
-        for a in p.anchors.iter_mut().skip(1) {
-            a.attached = false;
-        }
-        let mut replay = p.clone();
-        for _ in 0..80 {
-            p.relax(&terrain);
-            replay.relax_with::<false>(&terrain);
-        }
-        assert_eq!(p, replay);
-        assert!(
-            p.nodes
-                .iter()
-                .all(|n| n.parent.is_none_or(|parent| clear_segment(
-                    &terrain,
-                    p.nodes[parent].position,
-                    n.position,
-                    p.radius
-                ) == Some(true))),
-            "refill overlap never recovered"
-        );
-        assert_eq!(
-            lengths,
-            p.nodes.iter().map(|n| n.rest_length).collect::<Vec<_>>()
-        );
-        for n in &p.nodes {
-            if let Some(parent) = n.parent {
-                assert!(
-                    (n.position.distance(p.nodes[parent].position) - n.rest_length).abs() < 0.0021
-                );
-            }
-        }
-        let before = p.nodes.last().unwrap().position;
-        for _ in 0..20 {
-            p.relax(&terrain);
-        }
-        assert!(
-            p.nodes.last().unwrap().position.distance(before) > 0.1,
-            "settling remained frozen after recovery"
-        );
-    }
-    #[test]
-    fn unsatisfiable_local_refill_does_not_freeze_another_supported_span() {
-        struct Obstacle;
-        impl Terrain for Obstacle {
-            fn voxel(&self, c: IVec3) -> Option<u8> {
-                Some(u8::from(c.z == 0 || c == IVec3::new(22, 4, 1)))
-            }
-            fn current(&self) -> bool {
-                true
-            }
-        }
-        let mut p = seed();
-        p.nodes = (0..4)
-            .map(|id| Node {
-                position: Vec3::new(20.5 + 2.0 * id as f32, 4.5, 1.8),
-                parent: if id == 0 { None } else { Some(id - 1) },
-                rest_length: if id == 0 { 0. } else { 2. },
-            })
-            .collect();
-        p.anchors.push(Anchor {
-            node: 2,
-            cell: IVec3::new(24, 4, 0),
-            material: 1,
-            position: p.nodes[2].position,
-            attached: true,
-        });
-        let original = p.nodes.clone();
-        for _ in 0..10 {
-            p.relax(&Obstacle);
-        }
-        // No feasible path around the block for a perfectly taut pinned span: leave just that
-        // span unchanged, but independently relax the free span beyond the surviving anchor.
-        assert_eq!(p.nodes[..3], original[..3]);
-        assert!(p.nodes[3].position.y < original[3].position.y - 0.5);
-        assert!((p.nodes[3].position.distance(p.nodes[2].position) - 2.0).abs() < 0.0021);
-    }
-
-    #[test]
-    fn buried_contact_releases_without_rebinding_and_pending_recovery_is_transactional() {
-        struct Buried {
-            pending: bool,
-            stale: bool,
-        }
-        impl Terrain for Buried {
-            fn voxel(&self, c: IVec3) -> Option<u8> {
-                if self.pending {
-                    None
-                } else {
-                    Some(u8::from(c.z == 0 || c == IVec3::new(20, 4, 1)))
-                }
-            }
-            fn current(&self) -> bool {
-                !self.stale
-            }
-        }
-        let mut p = seed();
-        let original = p.clone();
-        for terrain in [
-            Buried {
-                pending: true,
-                stale: false,
-            },
-            Buried {
-                pending: false,
-                stale: true,
-            },
-        ] {
-            p.revalidate(&terrain, 0..p.anchors.len());
-            p.relax(&terrain);
-            assert_eq!(p, original);
-        }
-        assert!(p.revalidate(
-            &Buried {
-                pending: false,
-                stale: false
-            },
-            0..p.anchors.len()
-        ));
-        assert!(!p.anchors[0].attached);
-        assert!(p.root_connected());
-        assert_eq!(p.nodes, original.nodes);
-        assert_eq!(p.anchors[0].position, original.anchors[0].position);
-    }
-    #[test]
-    fn completely_detached_skeleton_settles_on_solid_floor_without_stretch() {
-        struct Floor;
-        impl Terrain for Floor {
-            fn voxel(&self, c: IVec3) -> Option<u8> {
-                Some(u8::from(c.z == 0 || c.y == 0))
-            }
-            fn current(&self) -> bool {
-                true
-            }
-        }
-        let mut p = seed();
-        for _ in 0..10 {
-            p.grow(&Floor, 16.);
-        }
-        p.disconnect_root();
-        for a in &mut p.anchors {
-            a.attached = false;
-        }
-        let before = p.nodes.clone();
-        for _ in 0..200 {
-            p.relax(&Floor);
-        }
-        assert!(p.nodes[0].position.y < before[0].position.y - 1.);
-        for n in &p.nodes {
-            assert!(n.position.is_finite() && n.position.y >= 1.65);
-            if let Some(parent) = n.parent {
-                assert!(
-                    (n.position.distance(p.nodes[parent].position) - n.rest_length).abs() < 0.0021
-                );
-                assert_eq!(
-                    clear_segment(&Floor, p.nodes[parent].position, n.position, p.radius),
-                    Some(true)
-                );
-            }
-        }
     }
 }

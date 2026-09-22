@@ -12,9 +12,10 @@ use crate::tracer::DynamicFruitRenderInstance;
 use anyhow::Result;
 use glam::{IVec3, Quat, UVec3, Vec3};
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+
+mod review;
 
 #[derive(Default)]
 pub(super) struct ClimbingPlants {
@@ -31,37 +32,20 @@ pub(super) struct ClimbingPlants {
     growth_blocked: bool,
     last_action: &'static str,
     growth_clock: QuantumClock,
-    physics_clock: QuantumClock,
     instances: Vec<DynamicFruitRenderInstance>,
-    anchor_chunks: HashMap<UVec3, Vec<usize>>,
-    dirty_anchors: HashSet<usize>,
-    review_edited: bool,
+    terrain_dirty: bool,
     last_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
     collision_cache: CollisionPatchCache,
-    review_before_edit: Option<Plant>,
-    review_ticks: u32,
-    review_multiple: bool,
-    review_reported: bool,
-    review_root_cut: bool,
-    review_root_verified: bool,
-    review_refilled: bool,
-    review_refill_observed: bool,
-    refill_cell: Option<UVec3>,
+    review: review::Review,
 }
 #[derive(Default)]
 struct QuantumClock {
     accumulator: f64,
 }
 impl QuantumClock {
-    fn physics_steps(&mut self, world_steps: u32, tick_seconds: f32) -> u32 {
-        // The quasi-static solver's 0.08-voxel displacement is calibrated at the
-        // original 50-ms world tick. Keep that quantum fixed when world cadence changes.
-        self.quanta(world_steps as f32 * tick_seconds, 20.0, false)
-    }
-
     fn quanta(&mut self, dt: f32, speed: f32, paused: bool) -> u32 {
         if paused {
-            // No queued growth burst on resume; gravity is deliberately independent.
+            // No queued growth burst on resume; terrain-triggered pruning is independent.
             self.accumulator = 0.0;
             return 0;
         }
@@ -80,7 +64,7 @@ impl QuantumClock {
 
 impl ClimbingPlants {
     pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui, enabled: bool) {
-        ui.small("3 / Dig: remove wall supports with LMB. Shift + wheel: brush radius. Yellow = attached; red = released.");
+        ui.small("3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
         ui.horizontal(|ui| {
             if self.plant.is_none() {
                 if ui.button("Create vine wall and focus").clicked() {
@@ -120,37 +104,41 @@ impl ClimbingPlants {
         if let Some(plant) = &self.plant {
             let attached = plant.anchors.iter().filter(|a| a.attached).count();
             ui.label(format!(
-                "{} stem nodes · {} tips · {} attached / {} released",
+                "{} stem nodes · {} tips · {} attachments · {} regrowth buds",
                 plant.nodes.len(),
                 plant.tips.len(),
                 attached,
-                plant.anchors.len() - attached
+                plant.regrowth_nodes().count()
             ));
             if !plant.root_connected() {
-                ui.label("Root disconnected: growth stopped; wall bonds still support the vine.");
+                ui.label("Root disconnected: regrowth stopped. Reset to restore the root.");
             } else if plant.nodes.len() >= 512 {
-                ui.label("Growth limit reached (512 nodes). Gravity and editing remain active.");
+                ui.label(
+                    "Growth limit reached (512 live nodes). Pruning frees room to grow again.",
+                );
             } else if self.growth_blocked {
-                ui.label("Tips cannot extend here. Try changing the nearby wall or reset.");
+                ui.label(
+                    "Waiting for suitable wall at the cut/tip. Repair the gap to resume growth.",
+                );
             } else {
-                ui.label("Root connected. Peeling wall bonds does not cut the root.");
+                ui.label("Root connected. Pruning keeps the lower stem and leaves a regrowth bud.");
             }
             ui.add_enabled_ui(enabled && !self.waiting_for_terrain, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(attached > 0, egui::Button::new("Peel highest attachment"))
-                        .on_hover_text("Release one wall bond; leaves, stems and terrain are preserved.").clicked() {
+                    if ui.add_enabled(plant.anchors.iter().any(|a| a.attached && a.node != 0), egui::Button::new("Prune highest attachment"))
+                        .on_hover_text("Remove this attachment's stem and all descendants. The wall is unchanged; the cut can regrow.").clicked() {
                         self.peel_highest_requested = true;
                     }
-                    if ui.add_enabled(attached > 0, egui::Button::new("Peel all attachments")).clicked() {
+                    if ui.add_enabled(plant.nodes.len() > 1, egui::Button::new("Prune back to root")).clicked() {
                         self.peel_all_requested = true;
                     }
                 });
                 if ui.add_enabled(plant.root_connected(), egui::Button::new("Disconnect root"))
-                    .on_hover_text("Stop growth and release the root restraint, but keep wall bonds. Peel all attachments as well to let the whole vine fall.").clicked() {
+                    .on_hover_text("Stop regrowth until reset. This mode prunes unsupported stems instead of simulating falling remnants.").clicked() {
                     self.disconnect_root_requested = true;
                 }
-                ui.collapsing("Collision recovery test", |ui| {
-                    ui.small("Inserts real limestone through a tip. Dig it away afterward if desired.");
+                ui.collapsing("Blocked-tip test", |ui| {
+                    ui.small("Inserts real limestone through a tip. The blocked stem is pruned; dig the inserted block away to regrow.");
                     if ui.button("Refill terrain through tip").clicked() {
                         self.refill_tip_requested = true;
                     }
@@ -169,17 +157,9 @@ impl ClimbingPlants {
         let Some(plant) = &self.plant else {
             return;
         };
-        let lo = bound.min() / 256;
-        let hi = bound.max() / 256;
-        for (chunk, ids) in &self.anchor_chunks {
-            if chunk.cmpge(lo).all() && chunk.cmple(hi).all() {
-                for &id in ids {
-                    let (min, max) = contact_bounds(plant, id);
-                    if min.cmple(bound.max()).all() && max.cmpge(bound.min()).all() {
-                        self.dirty_anchors.insert(id);
-                    }
-                }
-            }
+        let (min, max) = support_bounds(plant);
+        if min.cmple(bound.max()).all() && max.cmpge(bound.min()).all() {
+            self.terrain_dirty = true;
         }
     }
     /// World replacement drops history and prevents silently authoring a new wall on load.
@@ -189,41 +169,18 @@ impl ClimbingPlants {
             ..Self::default()
         };
     }
-    fn index_anchors(&mut self) {
-        self.anchor_chunks.clear();
-        if let Some(plant) = &self.plant {
-            for id in 0..plant.anchors.len() {
-                let (min, max) = contact_bounds(plant, id);
-                let lo = min / 256;
-                let hi = max / 256;
-                for z in lo.z..=hi.z {
-                    for y in lo.y..=hi.y {
-                        for x in lo.x..=hi.x {
-                            self.anchor_chunks
-                                .entry(UVec3::new(x, y, z))
-                                .or_default()
-                                .push(id);
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
-// Fixed support identity plus the stem's exposed contact footprint. Occluding a contact
-// from the neighbouring chunk is just as relevant as deleting its support cell.
-fn contact_bounds(plant: &Plant, id: usize) -> (UVec3, UVec3) {
-    let anchor = &plant.anchors[id];
-    let min = (anchor.position - Vec3::splat(plant.radius))
-        .min(anchor.cell.as_vec3())
-        .max(Vec3::ZERO)
-        .floor()
-        .as_uvec3();
-    let max = (anchor.position + Vec3::splat(plant.radius))
-        .max(anchor.cell.as_vec3())
-        .floor()
-        .as_uvec3();
-    (min, max)
+// Cover all backing surface and stem clearance, not only the sparse anchor cells.
+// Root-to-tip revalidation determines the exact affected subtree after the broad phase.
+fn support_bounds(plant: &Plant) -> (UVec3, UVec3) {
+    let (min, max) = plant.nodes.iter().fold(
+        (plant.nodes[0].position, plant.nodes[0].position),
+        |(min, max), node| (min.min(node.position), max.max(node.position)),
+    );
+    (
+        (min - Vec3::splat(3.0)).max(Vec3::ZERO).floor().as_uvec3(),
+        (max + Vec3::splat(3.0)).ceil().as_uvec3(),
+    )
 }
 /// The cache owns one immutable export; dependency readiness is checked on every use.
 #[derive(Default)]
@@ -359,9 +316,8 @@ impl App {
                     max.cmpgt(min).all(),
                     "vine tip is outside editable refill bounds"
                 );
-                self.climbing_plants.refill_cell = Some(min);
                 self.climbing_plants.last_action =
-                    "Inserted limestone through a tip; checking collision recovery.";
+                    "Inserted limestone through a tip; the blocked stem will be pruned.";
                 self.execute_world_edit(wall_edit(min, max, VOXEL_TYPE_LIMESTONE)?)?;
                 log::info!("[CLIMBING] real refill through tip bounds={min:?}..{max:?}");
             }
@@ -430,6 +386,7 @@ impl App {
                     {
                         self.climbing_plants.plant =
                             Some(Plant::seed(position, Vec3::Z, cell, material, 42));
+                        self.climbing_plants.terrain_dirty = true;
                         log::info!(
                             "[CLIMBING] seed=42 position={position:?} dependencies={}",
                             patch.block.source_dependencies.len()
@@ -439,29 +396,28 @@ impl App {
                 }
             }
         }
-        if review && self.climbing_plants.review_edited {
-            self.climbing_plants.review_ticks += 1;
-        }
         let Some(plant) = &mut self.climbing_plants.plant else {
             return Ok(());
         };
         if std::mem::take(&mut self.climbing_plants.peel_highest_requested) {
-            if let Some(id) = plant.release_highest_anchor() {
+            if let Some(pruned) = plant.prune_highest_attachment() {
                 self.climbing_plants.last_action =
-                    "Peeled the highest wall attachment; the root is unchanged.";
-                log::info!("[CLIMBING] peeled anchor={id}; terrain and topology unchanged");
+                    "Pruned the highest attachment and its upper branch; the cut can regrow.";
+                log::info!(
+                    "[CLIMBING] manually pruned nodes={} buds={}",
+                    pruned.removed,
+                    pruned.buds
+                );
             }
         }
         if std::mem::take(&mut self.climbing_plants.peel_all_requested) {
-            plant.release_all_anchors();
-            self.climbing_plants.last_action = if plant.root_connected() {
-                "Peeled all wall attachments. Disconnect the root too for a complete fall."
-            } else {
-                "All wall bonds and the root are released; the whole vine can fall."
-            };
+            let pruned = plant.prune_to_root();
+            self.climbing_plants.last_action =
+                "Pruned back to the root. Suitable wall allows new growth.";
             log::info!(
-                "[CLIMBING] peeled all wall attachments; root_connected={}",
-                plant.root_connected()
+                "[CLIMBING] pruned to root nodes={} buds={}",
+                pruned.removed,
+                pruned.buds
             );
         }
         if self.climbing_plants.disconnect_root_requested {
@@ -469,67 +425,37 @@ impl App {
             plant.disconnect_root();
             self.climbing_plants.last_action =
                 "Disconnected root; reset the wall and vine to restore growth.";
-            log::info!("[CLIMBING] root disconnected; growth stopped, wall attachments retained");
+            log::info!("[CLIMBING] root disconnected; regrowth stopped until reset");
         }
-        if review
-            && self.climbing_plants.review_refilled
-            && !self.climbing_plants.review_refill_observed
+        // Poll dependency AND readiness changes as well as published edit events.
+        // A wall gap between anchors is relevant, so revalidate all backing stem spans.
+        if self.climbing_plants.terrain_dirty
+            || self.climbing_plants.last_dependencies != patch.block.source_dependencies
         {
-            let overlapping = plant.nodes.iter().any(|n| {
-                crate::climbing_plants::clear_segment(&patch, n.position, n.position, plant.radius)
-                    == Some(false)
-            });
-            if overlapping {
-                self.climbing_plants.review_refill_observed = true;
+            let Some(pruned) = plant.revalidate(&patch) else {
+                self.climbing_plants.waiting_for_terrain = true;
+                return Ok(());
+            };
+            self.climbing_plants.terrain_dirty = false;
+            self.climbing_plants
+                .last_dependencies
+                .clone_from(&patch.block.source_dependencies);
+            if pruned.removed > 0 {
+                self.climbing_plants.last_action =
+                    "Missing or blocked wall: upper branches pruned. Repair the gap to regrow from the cut.";
                 log::info!(
-                    "[CLIMBING][REVIEW] refill overlap observed in authoritative current terrain"
+                    "[CLIMBING] support lost: pruned_nodes={} buds={} remaining_nodes={}",
+                    pruned.removed,
+                    pruned.buds,
+                    plant.nodes.len()
                 );
             }
         }
         let before_nodes = plant.nodes.len();
-
-        let before_anchors = plant.anchors.iter().filter(|a| a.attached).count();
-        // Events narrow phase contact cells; dependency polling catches later cache publication.
-        for dependency in &patch.block.source_dependencies {
-            if !self.climbing_plants.last_dependencies.contains(dependency) {
-                if let Some(ids) = self
-                    .climbing_plants
-                    .anchor_chunks
-                    .get(&dependency.chunk_idx)
-                {
-                    self.climbing_plants.dirty_anchors.extend(ids);
-                }
-            }
-        }
-        self.climbing_plants
-            .last_dependencies
-            .clone_from(&patch.block.source_dependencies);
-        let topology_before: Vec<_> = plant
-            .nodes
-            .iter()
-            .map(|n| (n.parent, n.rest_length))
-            .collect();
-        let released = plant.revalidate(&patch, self.climbing_plants.dirty_anchors.iter().copied());
-
-        self.climbing_plants.dirty_anchors.clear();
-        if released {
-            log::info!(
-                "[CLIMBING] support released attached={}->{} nodes={} stable_topology={}",
-                before_anchors,
-                plant.anchors.iter().filter(|a| a.attached).count(),
-                plant.nodes.len(),
-                topology_before
-                    == plant
-                        .nodes
-                        .iter()
-                        .map(|n| (n.parent, n.rest_length))
-                        .collect::<Vec<_>>()
-            );
-        }
         let revalidate_end_us = elapsed_us();
         let dt = steps as f32 * tick_seconds;
         let quanta = if review {
-            1
+            u32::from(self.climbing_plants.review.growing())
         } else {
             self.climbing_plants.growth_clock.quanta(
                 dt,
@@ -547,17 +473,6 @@ impl App {
             self.climbing_plants.growth_blocked = plant.nodes.len() == before_nodes;
         }
         let growth_end_us = elapsed_us();
-        let physics_steps = if review {
-            1
-        } else {
-            self.climbing_plants
-                .physics_clock
-                .physics_steps(steps, tick_seconds)
-        };
-        for _ in 0..physics_steps {
-            plant.relax(&patch);
-        }
-        let relax_end_us = elapsed_us();
         if before_nodes / 16 != plant.nodes.len() / 16 {
             log::info!(
                 "[CLIMBING] growth nodes={} attached={} tips={} finite={}",
@@ -570,7 +485,9 @@ impl App {
         let mut instances = std::mem::take(&mut self.climbing_plants.instances);
         instances.clear();
         instances.reserve(plant.nodes.len() * 2);
-        for (id, node) in plant.nodes.iter().enumerate() {
+        for node in &plant.nodes {
+            // Stable IDs keep unaffected leaves in place when live indices compact.
+            let id = node.id;
             if let Some(parent) = node.parent {
                 let start = plant.nodes[parent].position;
                 let delta = node.position - start;
@@ -606,172 +523,44 @@ impl App {
                 ));
             }
         }
-        if review
-            && self.climbing_plants.review_multiple
-            && self.climbing_plants.review_ticks >= 220
-            && !self.climbing_plants.review_reported
-        {
-            if let Some(before) = &self.climbing_plants.review_before_edit {
-                let stable = plant.nodes.len() >= before.nodes.len()
-                    && plant
-                        .nodes
-                        .iter()
-                        .zip(&before.nodes)
-                        .all(|(a, b)| a.parent == b.parent && a.rest_length == b.rest_length)
-                    && plant
-                        .anchors
-                        .iter()
-                        .zip(&before.anchors)
-                        .all(|(a, b)| a.node == b.node && a.cell == b.cell);
-                let max_motion = plant
-                    .nodes
-                    .iter()
-                    .zip(&before.nodes)
-                    .map(|(a, b)| a.position.distance(b.position))
-                    .fold(0.0f32, f32::max);
-                let max_length_error = plant
-                    .nodes
-                    .iter()
-                    .filter_map(|n| {
-                        n.parent.map(|p| {
-                            (n.position.distance(plant.nodes[p].position) - n.rest_length).abs()
-                        })
-                    })
-                    .fold(0.0f32, f32::max);
-                let unaffected = before
-                    .anchors
-                    .iter()
-                    .filter(|a| a.attached && a.cell.y < 244)
-                    .all(|a| {
-                        plant
-                            .anchors
-                            .iter()
-                            .any(|b| b.node == a.node && b.attached && b.position == a.position)
-                    });
-                let collision_clear = plant.nodes.iter().all(|n| {
-                    n.parent.is_none_or(|p| {
-                        crate::climbing_plants::clear_segment(
-                            &patch,
-                            plant.nodes[p].position,
-                            n.position,
-                            plant.radius,
-                        ) == Some(true)
-                    })
-                });
-                let refill_retained = self
-                    .climbing_plants
-                    .refill_cell
-                    .is_some_and(|c| patch.voxel(c.as_ivec3()) == Some(VOXEL_TYPE_LIMESTONE as u8));
-                anyhow::ensure!(
-                    self.climbing_plants.review_refill_observed && refill_retained,
-                    "review must retain the actual overlapping refill while removing supports"
-                );
-                anyhow::ensure!(
-                    collision_clear
-                        && stable
-                        && unaffected
-                        && max_length_error < 0.0021
-                        && plant.nodes.iter().all(|n| n.position.is_finite()),
-                    "climbing review invariant failed"
-                );
-                log::info!("[CLIMBING][REVIEW] verified stable_ids={stable} unaffected_supports={unaffected} collision_clear={collision_clear} refill_retained={refill_retained} finite=true max_length_error={max_length_error:.6} max_motion_voxels={max_motion:.4} nodes={} attached={}",plant.nodes.len(),plant.anchors.iter().filter(|a|a.attached).count());
+        if self.debug_settings.adjustables.climbing_show_anchors.value {
+            for node in plant.regrowth_nodes() {
+                instances.push(block_instance(
+                    node.position + Vec3::Z * 2.0,
+                    Quat::IDENTITY,
+                    Vec3::splat(1.8),
+                    Vec3::new(1.0, 0.4, 0.05),
+                ));
             }
-            self.climbing_plants.review_reported = true;
         }
-        if review
-            && self.climbing_plants.review_root_cut
-            && self.climbing_plants.review_ticks >= 250
-            && !self.climbing_plants.review_root_verified
-        {
-            let before = self.climbing_plants.review_before_edit.as_ref().unwrap();
-            let drop = before.nodes[0].position.y - plant.nodes[0].position.y;
-            anyhow::ensure!(
-                !plant.root_connected()
-                    && plant.nodes.len() == before.nodes.len()
-                    && plant.anchors.iter().all(|a| !a.attached)
-                    && drop > 1.0,
-                "root cut review failed: drop={drop}"
-            );
-            log::info!("[CLIMBING][REVIEW] root_cut=true growth_stopped=true attached=0 root_drop_voxels={drop:.4}");
-            self.climbing_plants.review_root_verified = true;
-        }
-        let review_edit = review && !self.climbing_plants.review_edited && plant.nodes.len() >= 65;
-        let edit_cell = plant.anchors.get(2).map(|a| a.cell.as_uvec3());
+        let review_edit = if review {
+            self.climbing_plants.review.advance(plant)?
+        } else {
+            None
+        };
         self.tracer.show_climbing_plant_geometry(&instances)?;
         self.climbing_plants.instances = instances;
-        self.climbing_plants.index_anchors();
         if self.perf_logging {
             let total_us = elapsed_us();
-            let phase = if self.climbing_plants.review_root_cut {
-                "detached"
-            } else if self.climbing_plants.review_multiple {
-                "multiple_supports"
-            } else if self.climbing_plants.review_refilled {
-                "refill"
-            } else if self.climbing_plants.review_edited {
-                "single_support"
+            let phase = if review {
+                self.climbing_plants.review.phase()
             } else {
-                "growth"
+                "play"
             };
             let plant = self.climbing_plants.plant.as_ref().unwrap();
             log::info!(
-                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} steps={} quanta={quanta} queries={} export_us={export_us} revalidate_us={} growth_us={} relax_us={} render_us={} total_us={total_us}",
-                self.climbing_plants.review_ticks,
+                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} quanta={quanta} queries={} export_us={export_us} prune_us={} growth_us={} render_us={} total_us={total_us}",
+                self.climbing_plants.review.ticks,
                 plant.nodes.len(),
                 plant.anchors.iter().filter(|a| a.attached).count(),
-                physics_steps,
                 patch.queries.as_ref().map_or(0, Cell::get),
                 revalidate_end_us - export_us,
                 growth_end_us - revalidate_end_us,
-                relax_end_us - growth_end_us,
-                total_us - relax_end_us,
+                total_us - growth_end_us,
             );
         }
-        if review_edit {
-            if let Some(c) = edit_cell {
-                self.climbing_plants.review_edited = true;
-                self.climbing_plants.review_before_edit = self.climbing_plants.plant.clone();
-                self.execute_world_edit(wall_edit(
-                    c - UVec3::new(4, 4, 3),
-                    c + UVec3::new(5, 5, 3),
-                    VOXEL_TYPE_EMPTY,
-                )?)?;
-                log::info!("[CLIMBING][REVIEW] real terrain edit at {c:?}");
-            }
-        }
-
-        if review
-            && self.climbing_plants.review_edited
-            && !self.climbing_plants.review_refilled
-            && self.climbing_plants.review_ticks >= 60
-        {
-            self.climbing_plants.review_refilled = true;
-            self.climbing_plants.refill_tip_requested = true;
-        }
-        if review && self.climbing_plants.review_reported && !self.climbing_plants.review_root_cut {
-            self.climbing_plants.review_root_cut = true;
-            self.climbing_plants.review_before_edit = self.climbing_plants.plant.clone();
-            self.climbing_plants.disconnect_root_requested = true;
-            self.execute_world_edit(wall_edit(
-                UVec3::new(224, 192, 299),
-                UVec3::new(288, 300, 308),
-                VOXEL_TYPE_EMPTY,
-            )?)?;
-            log::info!("[CLIMBING][REVIEW] disconnect root and remove remaining wall supports");
-        }
-        if review
-            && self.climbing_plants.review_edited
-            && !self.climbing_plants.review_multiple
-            && self.climbing_plants.review_ticks >= 100
-        {
-            self.climbing_plants.review_multiple = true;
-            self.climbing_plants.review_before_edit = self.climbing_plants.plant.clone();
-            self.execute_world_edit(wall_edit(
-                UVec3::new(224, 244, 299),
-                UVec3::new(288, 300, 306),
-                VOXEL_TYPE_EMPTY,
-            )?)?;
-            log::info!("[CLIMBING][REVIEW] real terrain edit removed several upper supports, retaining refill");
+        if let Some(transaction) = review_edit {
+            self.execute_world_edit(transaction)?;
         }
         Ok(())
     }
@@ -793,35 +582,39 @@ mod tests {
     use super::*;
     use crate::builder::test_cpu_voxel_source_snapshot;
 
-    #[test]
-    fn settling_speed_is_independent_of_world_tick_cadence() {
-        struct Air;
-        impl Terrain for Air {
-            fn voxel(&self, _: IVec3) -> Option<u8> {
-                Some(0)
-            }
-            fn current(&self) -> bool {
-                true
-            }
+    struct Wall;
+    impl Terrain for Wall {
+        fn voxel(&self, cell: IVec3) -> Option<u8> {
+            Some(u8::from(cell.z == 0))
         }
+        fn current(&self) -> bool {
+            true
+        }
+    }
+    fn test_plant() -> Plant {
+        Plant::seed(
+            Vec3::new(20.5, 4.5, 1.8),
+            Vec3::Z,
+            IVec3::new(20, 4, 0),
+            1,
+            42,
+        )
+    }
+    #[test]
+    fn growth_speed_is_independent_of_world_tick_cadence() {
         let mut outcomes = Vec::new();
         for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
-            let mut plant = Plant::seed(Vec3::new(20.5, 4.5, 1.8), Vec3::Z, IVec3::ZERO, 1, 42);
-            plant.disconnect_root();
-            plant.release_all_anchors();
+            let mut plant = test_plant();
             let mut clock = QuantumClock::default();
             let mut total = 0;
             for _ in 0..frames {
-                let steps = clock.physics_steps(1, dt);
+                let steps = clock.quanta(dt, 12.0, false);
                 total += steps;
                 for _ in 0..steps {
-                    plant.relax(&Air);
+                    plant.grow(&Wall, 16.0);
                 }
             }
-            assert_eq!(
-                total, 20,
-                "one second at dt={dt} must simulate 20 identical settling steps"
-            );
+            assert_eq!(total, 12);
             outcomes.push(plant);
         }
         assert_eq!(outcomes[0], outcomes[1]);
@@ -839,10 +632,6 @@ mod tests {
         for dt in [f32::NAN, f32::INFINITY, -1.0] {
             assert_eq!(clock.quanta(dt, 40.0, false), 0);
         }
-        let mut physics = QuantumClock::default();
-        assert_eq!(physics.physics_steps(1, 0.025), 0);
-        assert_eq!(physics.physics_steps(0, 0.1), 0);
-        assert_eq!(physics.physics_steps(1, 0.025), 1);
     }
 
     #[test]
@@ -905,29 +694,26 @@ mod tests {
         }
         let mut runtime = ClimbingPlants {
             created: true,
-            plant: Some(Plant::seed(
-                Vec3::new(20.5, 4.5, 1.8),
-                Vec3::Z,
-                IVec3::new(20, 4, 0),
-                1,
-                42,
-            )),
+            plant: Some(test_plant()),
             ..Default::default()
         };
+        for _ in 0..20 {
+            runtime.plant.as_mut().unwrap().grow(&Wall, 16.0);
+        }
         let context = egui::Context::default();
         click(&mut runtime, &context, true, "Reset wall and vine...");
         assert!(runtime.confirm_reset && !runtime.reset_requested);
         click(&mut runtime, &context, true, "Cancel");
         assert!(!runtime.confirm_reset && !runtime.reset_requested);
-        click(&mut runtime, &context, false, "Peel highest attachment");
+        click(&mut runtime, &context, false, "Prune highest attachment");
         assert!(!runtime.peel_highest_requested);
         runtime.waiting_for_terrain = true;
-        click(&mut runtime, &context, true, "Peel highest attachment");
+        click(&mut runtime, &context, true, "Prune highest attachment");
         assert!(!runtime.peel_highest_requested);
         runtime.waiting_for_terrain = false;
-        click(&mut runtime, &context, true, "Peel highest attachment");
+        click(&mut runtime, &context, true, "Prune highest attachment");
         assert!(runtime.peel_highest_requested);
-        click(&mut runtime, &context, true, "Peel all attachments");
+        click(&mut runtime, &context, true, "Prune back to root");
         assert!(runtime.peel_all_requested);
         click(&mut runtime, &context, true, "Disconnect root");
         assert!(runtime.disconnect_root_requested);
@@ -1007,22 +793,22 @@ mod tests {
             created: true,
             ..Default::default()
         };
-        runtime.index_anchors();
         runtime.observe_edit(UAabb3::new(
             UVec3::new(300, 10, 19),
             UVec3::new(310, 20, 25),
         ));
-        assert!(runtime.dirty_anchors.is_empty());
+        assert!(!runtime.terrain_dirty);
         assert_eq!(runtime.plant.as_ref(), Some(&plant));
         runtime.observe_edit(UAabb3::new(
             UVec3::new(255, 10, 19),
             UVec3::new(257, 12, 20),
         ));
-        assert_eq!(runtime.dirty_anchors, HashSet::from([0]));
+        assert!(runtime.terrain_dirty);
         runtime.replace_world();
         assert!(runtime.plant.is_none());
         assert!(runtime.created); // load must not silently respawn the authored wall
-        assert!(runtime.anchor_chunks.is_empty());
+        assert!(!runtime.terrain_dirty);
+        assert!(runtime.collision_cache.block.is_none());
     }
 
     #[test]
@@ -1081,18 +867,17 @@ mod tests {
             plant: Some(plant),
             ..Default::default()
         };
-        runtime.index_anchors();
-        assert!(runtime.anchor_chunks.contains_key(&UVec3::new(1, 0, 1)));
+        assert!(!runtime.terrain_dirty);
         runtime.observe_edit(UAabb3::new(
             UVec3::new(256, 10, 256),
             UVec3::new(257, 11, 257),
         ));
-        assert_eq!(runtime.dirty_anchors, HashSet::from([0]));
-        runtime.dirty_anchors.clear();
+        assert!(runtime.terrain_dirty);
+        runtime.terrain_dirty = false;
         runtime.observe_edit(UAabb3::new(
             UVec3::new(260, 10, 260),
             UVec3::new(261, 11, 261),
         ));
-        assert!(runtime.dirty_anchors.is_empty());
+        assert!(!runtime.terrain_dirty);
     }
 }

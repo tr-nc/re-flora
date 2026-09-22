@@ -1396,7 +1396,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_paused",
         kind: "bool",
-        label: "Pause vine growth (gravity stays active)",
+        label: "Pause vine growth (wall removal still prunes)",
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
@@ -1414,7 +1414,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_show_anchors",
         kind: "bool",
-        label: "Show attachments: yellow attached / red released",
+        label: "Show attachments: yellow attached / orange regrowth bud / red missing root",
     },
 ];
 

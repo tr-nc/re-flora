@@ -2604,7 +2604,7 @@ value = false
 [[section.param]]
 id = "climbing_paused"
 kind = "bool"
-label = "Pause vine growth (gravity stays active)"
+label = "Pause vine growth (wall removal still prunes)"
 type = "Bool"
 [section.param.data]
 value = false
@@ -2632,7 +2632,7 @@ max = 64.0
 [[section.param]]
 id = "climbing_show_anchors"
 kind = "bool"
-label = "Show attachments: yellow attached / red released"
+label = "Show attachments: yellow attached / orange regrowth bud / red missing root"
 type = "Bool"
 [section.param.data]
 value = false
