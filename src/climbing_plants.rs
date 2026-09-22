@@ -202,6 +202,11 @@ impl Plant {
     /// an infeasible span never prevents another span from settling. Pending/stale queries
     /// cannot commit motion. Newly inserted terrain is recovered toward the known exterior.
     pub fn relax(&mut self, terrain: &impl Terrain) -> bool {
+        self.relax_with::<true>(terrain)
+    }
+
+    // The fixed-budget instantiation is retained only by regression tests.
+    fn relax_with<const STOP_AT_FIXED_POINT: bool>(&mut self, terrain: &impl Terrain) -> bool {
         let original: Vec<_> = self.nodes.iter().map(|n| n.position).collect();
         let mut positions = original.clone();
         let mut pinned = vec![false; positions.len()];
@@ -229,7 +234,9 @@ impl Plant {
             }
         }
         for (nodes, edges) in spans {
-            if let Some(candidate) = self.relax_span(terrain, &original, &pinned, &nodes, &edges) {
+            if let Some(candidate) =
+                self.relax_span::<STOP_AT_FIXED_POINT>(terrain, &original, &pinned, &nodes, &edges)
+            {
                 for id in nodes {
                     positions[id] = candidate[id];
                 }
@@ -248,7 +255,7 @@ impl Plant {
         changed
     }
 
-    fn relax_span(
+    fn relax_span<const STOP_AT_FIXED_POINT: bool>(
         &self,
         terrain: &impl Terrain,
         original: &[Vec3],
@@ -284,7 +291,12 @@ impl Plant {
             }
         }
         let iterations = if recovery.is_empty() { 128 } else { 512 };
+        let mut previous = Vec::new();
         for _ in 0..iterations {
+            if STOP_AT_FIXED_POINT {
+                previous.clear();
+                previous.extend(nodes.iter().map(|&id| positions[id]));
+            }
             for &id in edges {
                 let parent = self.nodes[id].parent?;
                 let delta = positions[id] - positions[parent];
@@ -334,6 +346,18 @@ impl Plant {
                         contact.exit_plane(normal),
                     );
                 }
+            }
+            // This is an exact fixed point of a complete distance/contact sweep,
+            // not a looser error threshold or a smaller iteration budget. Repeating
+            // the same deterministic sweep cannot improve it. All final swept and
+            // whole-edge collision / length checks below still gate the commit.
+            if STOP_AT_FIXED_POINT
+                && nodes
+                    .iter()
+                    .zip(&previous)
+                    .all(|(&id, &p)| positions[id] == p)
+            {
+                break;
             }
         }
         for &id in nodes {
@@ -524,6 +548,66 @@ mod tests {
             42,
         )
     }
+    #[test]
+    fn fixed_point_exit_matches_full_budget_without_repeating_collision_queries() {
+        use std::cell::Cell;
+        struct CountedWall(Cell<usize>);
+        impl Terrain for CountedWall {
+            fn voxel(&self, cell: IVec3) -> Option<u8> {
+                self.0.set(self.0.get() + 1);
+                Wall::default().voxel(cell)
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut plant = seed();
+        for _ in 0..18 {
+            plant.grow(&Wall::default(), 16.0);
+        }
+        plant.disconnect_root();
+        for anchor in &mut plant.anchors {
+            anchor.attached = false;
+        }
+        let mut reference = plant.clone();
+        let counted = CountedWall(Cell::new(0));
+        let reference_counted = CountedWall(Cell::new(0));
+        for _ in 0..20 {
+            plant.relax(&counted);
+            reference.relax_with::<false>(&reference_counted);
+            assert_eq!(
+                plant, reference,
+                "fixed-point termination changed the state"
+            );
+        }
+        // Deterministic work guardrail, NOT a timing benchmark. Release app scopes
+        // remain authoritative for performance. A converged free span needs no 128 sweeps.
+        assert!(
+            counted.0.get() < reference_counted.0.get() / 4,
+            "redundant voxel queries: {} vs {}",
+            counted.0.get(),
+            reference_counted.0.get()
+        );
+    }
+
+    #[test]
+    fn fixed_point_exit_preserves_supported_growth_and_local_release() {
+        let mut plant = seed();
+        let mut reference = plant.clone();
+        let wall = Wall::default();
+        for tick in 0..60 {
+            plant.grow(&wall, 16.0);
+            reference.grow(&wall, 16.0);
+            if tick == 30 {
+                plant.anchors[1].attached = false;
+                reference.anchors[1].attached = false;
+            }
+            plant.relax(&wall);
+            reference.relax_with::<false>(&wall);
+            assert_eq!(plant, reference);
+        }
+    }
+
     #[test]
     fn deterministic_spacing_ids_and_finite_lengths() {
         let mut a = seed();
@@ -785,7 +869,7 @@ mod tests {
         let mut replay = p.clone();
         for _ in 0..80 {
             p.relax(&terrain);
-            replay.relax(&terrain);
+            replay.relax_with::<false>(&terrain);
         }
         assert_eq!(p, replay);
         assert!(

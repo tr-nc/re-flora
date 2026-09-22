@@ -75,6 +75,11 @@ Require both `[CLIMBING][REVIEW] verified ...` and `root_cut=true ...`, plus cle
   is separate from wall adhesion: disconnection removes the root restraint and
   stops all tips; it preserves skeleton and external attachments. Rest lengths
   never change. Movable spans separated by surviving pins solve independently.
+  A full distance/contact sweep that leaves every movable position exactly unchanged
+  ends iteration early; the 128/512 caps and all final collision/length checks remain.
+  This is fixed-point termination, not relaxed tolerances or a new dynamics model.
+  Tests compare exact state against the full-budget solver during growth, release,
+  detachment and refill recovery.
 - Newly inserted terrain gets bounded outward recovery using the vine's known
   exterior direction, not arbitrary "air" behind a sparse shell. Recovery exits
   pre-existing particle overlaps outward before tangential correction; other
