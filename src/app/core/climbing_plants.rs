@@ -24,7 +24,13 @@ pub(super) struct ClimbingPlants {
     pub focus_requested: bool,
     pub disconnect_root_requested: bool,
     pub refill_tip_requested: bool,
-    accumulator: f32,
+    peel_highest_requested: bool,
+    peel_all_requested: bool,
+    confirm_reset: bool,
+    waiting_for_terrain: bool,
+    growth_blocked: bool,
+    last_action: &'static str,
+    growth_clock: GrowthClock,
     instances: Vec<DynamicFruitRenderInstance>,
     anchor_chunks: HashMap<UVec3, Vec<usize>>,
     dirty_anchors: HashSet<usize>,
@@ -41,7 +47,108 @@ pub(super) struct ClimbingPlants {
     review_refill_observed: bool,
     refill_cell: Option<UVec3>,
 }
+#[derive(Default)]
+struct GrowthClock {
+    accumulator: f32,
+}
+impl GrowthClock {
+    fn quanta(&mut self, dt: f32, speed: f32, paused: bool) -> u32 {
+        if paused {
+            // No queued growth burst on resume; gravity is deliberately independent.
+            self.accumulator = 0.0;
+            return 0;
+        }
+        self.accumulator += dt * speed;
+        let quanta = self.accumulator.floor().min(8.0) as u32;
+        self.accumulator -= quanta as f32;
+        quanta
+    }
+}
+
 impl ClimbingPlants {
+    pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui, enabled: bool) {
+        ui.small("3 / Dig: remove wall supports with LMB. Shift + wheel: brush radius. Yellow = attached; red = released.");
+        ui.horizontal(|ui| {
+            if self.plant.is_none() {
+                if ui.button("Create vine wall and focus").clicked() {
+                    self.reset_requested = true;
+                }
+            } else if ui.button("Reset wall and vine...").clicked() {
+                self.confirm_reset = true;
+            }
+            if ui
+                .add_enabled(enabled && self.created, egui::Button::new("Focus vine"))
+                .clicked()
+            {
+                self.focus_requested = true;
+            }
+        });
+        ui.small("Create/reset changes real terrain at voxels (224..288, 192..300, 300..306).");
+        if self.confirm_reset {
+            ui.colored_label(
+                egui::Color32::YELLOW,
+                "Rebuild the wall and discard this vine's growth history?",
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Confirm reset").clicked() {
+                    self.reset_requested = true;
+                    self.confirm_reset = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.confirm_reset = false;
+                }
+            });
+        }
+        if !enabled {
+            ui.label("Hidden / paused. Enable above to resume this session's vine.");
+        } else if self.waiting_for_terrain {
+            ui.label("Waiting for current terrain collision data; simulation is held safely.");
+        }
+        if let Some(plant) = &self.plant {
+            let attached = plant.anchors.iter().filter(|a| a.attached).count();
+            ui.label(format!(
+                "{} stem nodes · {} tips · {} attached / {} released",
+                plant.nodes.len(),
+                plant.tips.len(),
+                attached,
+                plant.anchors.len() - attached
+            ));
+            if !plant.root_connected() {
+                ui.label("Root disconnected: growth stopped; wall bonds still support the vine.");
+            } else if plant.nodes.len() >= 512 {
+                ui.label("Growth limit reached (512 nodes). Gravity and editing remain active.");
+            } else if self.growth_blocked {
+                ui.label("Tips cannot extend here. Try changing the nearby wall or reset.");
+            } else {
+                ui.label("Root connected. Peeling wall bonds does not cut the root.");
+            }
+            ui.add_enabled_ui(enabled && !self.waiting_for_terrain, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(attached > 0, egui::Button::new("Peel highest attachment"))
+                        .on_hover_text("Release one wall bond; leaves, stems and terrain are preserved.").clicked() {
+                        self.peel_highest_requested = true;
+                    }
+                    if ui.add_enabled(attached > 0, egui::Button::new("Peel all attachments")).clicked() {
+                        self.peel_all_requested = true;
+                    }
+                });
+                if ui.add_enabled(plant.root_connected(), egui::Button::new("Disconnect root"))
+                    .on_hover_text("Stop growth and release the root restraint, but keep wall bonds. Peel all attachments as well to let the whole vine fall.").clicked() {
+                    self.disconnect_root_requested = true;
+                }
+                ui.collapsing("Collision recovery test", |ui| {
+                    ui.small("Inserts real limestone through a tip. Dig it away afterward if desired.");
+                    if ui.button("Refill terrain through tip").clicked() {
+                        self.refill_tip_requested = true;
+                    }
+                });
+            });
+        }
+        if !self.last_action.is_empty() {
+            ui.label(self.last_action);
+        }
+    }
+
     pub fn has_history(&self) -> bool {
         self.plant.is_some()
     }
@@ -212,7 +319,16 @@ impl App {
         }
         if self.climbing_plants.focus_requested {
             self.climbing_plants.focus_requested = false;
-            let target = Vec3::new(256., 244., 308.) / 256.;
+            let target = self.climbing_plants.plant.as_ref().map_or(
+                Vec3::new(256., 244., 308.) / 256.,
+                |plant| {
+                    let (min, max) = plant.nodes.iter().fold(
+                        (plant.nodes[0].position, plant.nodes[0].position),
+                        |(min, max), node| (min.min(node.position), max.max(node.position)),
+                    );
+                    (min + max) * 0.5 / 256.
+                },
+            );
             self.camera_control.apply_snapshot_mode(true);
             self.camera_control.set_orbit_focus(target);
             self.tracer
@@ -231,6 +347,8 @@ impl App {
                     "vine tip is outside editable refill bounds"
                 );
                 self.climbing_plants.refill_cell = Some(min);
+                self.climbing_plants.last_action =
+                    "Inserted limestone through a tip; checking collision recovery.";
                 self.execute_world_edit(wall_edit(min, max, VOXEL_TYPE_LIMESTONE)?)?;
                 log::info!("[CLIMBING] real refill through tip bounds={min:?}..{max:?}");
             }
@@ -261,6 +379,7 @@ impl App {
         } else {
             (UVec3::new(250, 194, 298), UVec3::new(262, 208, 325))
         };
+        self.climbing_plants.waiting_for_terrain = true;
         let Some(block) = self
             .climbing_plants
             .collision_cache
@@ -283,6 +402,7 @@ impl App {
             fresh,
             queries: self.perf_logging.then(|| Cell::new(0)),
         };
+        self.climbing_plants.waiting_for_terrain = false;
         let export_us = elapsed_us();
         if self.climbing_plants.plant.is_none() {
             for z in (299..324).rev() {
@@ -312,9 +432,30 @@ impl App {
         let Some(plant) = &mut self.climbing_plants.plant else {
             return Ok(());
         };
+        if std::mem::take(&mut self.climbing_plants.peel_highest_requested) {
+            if let Some(id) = plant.release_highest_anchor() {
+                self.climbing_plants.last_action =
+                    "Peeled the highest wall attachment; the root is unchanged.";
+                log::info!("[CLIMBING] peeled anchor={id}; terrain and topology unchanged");
+            }
+        }
+        if std::mem::take(&mut self.climbing_plants.peel_all_requested) {
+            plant.release_all_anchors();
+            self.climbing_plants.last_action = if plant.root_connected() {
+                "Peeled all wall attachments. Disconnect the root too for a complete fall."
+            } else {
+                "All wall bonds and the root are released; the whole vine can fall."
+            };
+            log::info!(
+                "[CLIMBING] peeled all wall attachments; root_connected={}",
+                plant.root_connected()
+            );
+        }
         if self.climbing_plants.disconnect_root_requested {
             self.climbing_plants.disconnect_root_requested = false;
             plant.disconnect_root();
+            self.climbing_plants.last_action =
+                "Disconnected root; reset the wall and vine to restore growth.";
             log::info!("[CLIMBING] root disconnected; growth stopped, wall attachments retained");
         }
         if review
@@ -374,21 +515,23 @@ impl App {
         }
         let revalidate_end_us = elapsed_us();
         let dt = steps as f32 * tick_seconds;
-        self.climbing_plants.accumulator +=
-            dt * self.debug_settings.adjustables.climbing_speed.value;
         let quanta = if review {
             1
         } else {
-            self.climbing_plants.accumulator.floor().min(8.) as u32
+            self.climbing_plants.growth_clock.quanta(
+                dt,
+                self.debug_settings.adjustables.climbing_speed.value,
+                self.debug_settings.adjustables.climbing_paused.value,
+            )
         };
-        if !review {
-            self.climbing_plants.accumulator -= quanta as f32;
-        }
         for _ in 0..quanta {
             plant.grow(
                 &patch,
                 self.debug_settings.adjustables.climbing_spacing.value,
             );
+        }
+        if quanta > 0 {
+            self.climbing_plants.growth_blocked = plant.nodes.len() == before_nodes;
         }
         let growth_end_us = elapsed_us();
         for _ in 0..if review { 1 } else { steps.min(8) } {
@@ -629,6 +772,97 @@ fn block_instance(
 mod tests {
     use super::*;
     use crate::builder::test_cpu_voxel_source_snapshot;
+
+    #[test]
+    fn pausing_growth_preserves_the_speed_without_a_resume_burst() {
+        let mut clock = GrowthClock::default();
+        assert_eq!(clock.quanta(0.05, 12.0, false), 0);
+        assert_eq!(clock.quanta(2.0, 12.0, true), 0);
+        assert_eq!(clock.quanta(0.05, 12.0, false), 0);
+        assert_eq!(clock.quanta(0.05, 12.0, false), 1);
+    }
+
+    #[test]
+    fn action_buttons_confirm_reset_and_gate_unavailable_simulation() {
+        fn text_position(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
+            match shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    Some(text.pos + egui::vec2(4.0, 5.0))
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| text_position(s, label)),
+                _ => None,
+            }
+        }
+        fn click(
+            runtime: &mut ClimbingPlants,
+            context: &egui::Context,
+            enabled: bool,
+            label: &str,
+        ) {
+            let mut draw = |events| {
+                context.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(900.0, 1200.0),
+                        )),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| runtime.draw_actions(ui, enabled),
+                )
+            };
+            draw(Vec::new());
+            let output = draw(Vec::new());
+            let pos = output
+                .shapes
+                .iter()
+                .find_map(|s| text_position(&s.shape, label))
+                .expect(label);
+            for pressed in [true, false] {
+                draw(vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ]);
+            }
+        }
+        let mut runtime = ClimbingPlants {
+            created: true,
+            plant: Some(Plant::seed(
+                Vec3::new(20.5, 4.5, 1.8),
+                Vec3::Z,
+                IVec3::new(20, 4, 0),
+                1,
+                42,
+            )),
+            ..Default::default()
+        };
+        let context = egui::Context::default();
+        click(&mut runtime, &context, true, "Reset wall and vine...");
+        assert!(runtime.confirm_reset && !runtime.reset_requested);
+        click(&mut runtime, &context, true, "Cancel");
+        assert!(!runtime.confirm_reset && !runtime.reset_requested);
+        click(&mut runtime, &context, false, "Peel highest attachment");
+        assert!(!runtime.peel_highest_requested);
+        runtime.waiting_for_terrain = true;
+        click(&mut runtime, &context, true, "Peel highest attachment");
+        assert!(!runtime.peel_highest_requested);
+        runtime.waiting_for_terrain = false;
+        click(&mut runtime, &context, true, "Peel highest attachment");
+        assert!(runtime.peel_highest_requested);
+        click(&mut runtime, &context, true, "Peel all attachments");
+        assert!(runtime.peel_all_requested);
+        click(&mut runtime, &context, true, "Disconnect root");
+        assert!(runtime.disconnect_root_requested);
+        click(&mut runtime, &context, true, "Reset wall and vine...");
+        click(&mut runtime, &context, true, "Confirm reset");
+        assert!(runtime.reset_requested && !runtime.confirm_reset);
+    }
 
     #[test]
     fn collision_cache_reuses_only_covered_current_ready_exports() {

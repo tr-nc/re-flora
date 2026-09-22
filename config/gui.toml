@@ -2602,6 +2602,14 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "climbing_paused"
+kind = "bool"
+label = "Pause vine growth (gravity stays active)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "climbing_speed"
 kind = "float"
 label = "Vine growth quanta/sec (2 voxels/quantum)"

@@ -2712,30 +2712,23 @@ impl App {
 
                                     debug_panel::scroll_area()
                                         .show(ui, |ui| {
+                                            let climbing_enabled = self.debug_settings.adjustables.climbing_enabled.value;
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
+                                                if section == "Climbing Plants" {
+                                                    ui.not_saved("Vine actions and live status: plant history is session-only; the settings above use Save", |ui| {
+                                                        self.climbing_plants.draw_actions(ui, climbing_enabled);
+                                                    });
+                                                }
                                             });
+                                            if self.climbing_plants.reset_requested {
+                                                self.debug_settings.adjustables.climbing_enabled.value = true;
+                                            }
 
                                             ui.add_space(8.0);
                                             ui.add_space(8.0);
-ui.collapsing("Climbing vine actions", |ui| {
-    ui.small("Session-only history. Reset authors a real wall at voxels (224..288, 192..300, 300..306). Shovel edits release supports. Saved controls are under Climbing Plants.");
-    if ui.button("Create/reset climbing vine wall and focus").clicked() {
-        self.debug_settings.adjustables.climbing_enabled.value = true;
-        self.climbing_plants.reset_requested = true;
-    }
-    if ui.button("Refill terrain through vine tip (collision recovery test)").clicked() {
-        self.climbing_plants.refill_tip_requested = true;
-    }
-    if ui.button("Disconnect vine root (stop growth, retain wall supports)").clicked() {
-        self.climbing_plants.disconnect_root_requested = true;
-    }
-    if ui.button("Focus climbing vine wall").clicked() {
-        self.climbing_plants.focus_requested = true;
-    }
-});
 ui.collapsing("Environment Probes", |ui| {
 
                                             ui.small("Not saved — Environment Probe experiments");

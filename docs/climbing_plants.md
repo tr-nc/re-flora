@@ -8,27 +8,31 @@ vine explicitly after loading. Existing trees/grass retain their own ownership.
 ## Try it
 
 1. From this worktree, run `cargo run` when ready for a visible session.
-2. Press **R** for Debug. Expand **Climbing vine actions**, then click
-   **Create/reset climbing vine wall and focus**. This modifies real terrain at
-   voxel bounds `(224,192,300)..(288,300,306)` and focuses an orbit-edit camera.
-   Do not reset over terrain you want to preserve. The wall crosses chunk boundaries.
-3. Under **Climbing Plants**, optionally enable attachment markers (yellow attached,
-   red released). Watch stems extend, adhere, branch, and produce blocky leaves.
+2. Press **R** for Debug. Expand **Climbing Plants**: saved settings, actions and
+   live status now share this section. Click **Create vine wall and focus**. This
+   modifies real terrain at voxel bounds `(224,192,300)..(288,300,306)` and focuses
+   an orbit-edit camera. Do not create/reset over terrain you want to preserve.
+   Subsequent **Reset wall and vine...** requires confirmation.
+3. Enable attachment markers (yellow attached, red released). Watch stems extend,
+   adhere, branch and produce blocky leaves. **Pause vine growth** holds extension
+   without changing the saved speed or stopping gravity. **Peel highest attachment**
+   releases one wall bond without digging; **Peel all attachments** releases all
+   wall bonds, but neither action disconnects the root.
 4. Select **3 / Dig**, point at the wall and hold LMB briefly. **Shift + wheel**
    adjusts brush radius. Remove one marked support, then several upper supports.
    Other supports remain; released spans settle rather than regenerating.
 5. Edit away from the vine to compare. Refilling does not resurrect old attachments.
-   Reset/focus actions remain available in Debug.
-6. Click **Disconnect vine root (stop growth, retain wall supports)**. Attached
-   parts remain supported, but extension stops. Dig away the remaining supports
-   to let the entire skeleton settle. Reset restores a connected root.
-7. For refill testing, let the vine grow, then click **Refill terrain through vine
-   tip (collision recovery test)**. This inserts real limestone through the tip.
+   **Focus vine** follows the current skeleton bounds, including after a fall.
+6. Click **Disconnect root**. Attached parts remain supported, but extension stops.
+   Then **Peel all attachments** (or dig away their supports) to let the entire
+   skeleton settle. Reset restores a connected root.
+7. For refill testing, let the vine grow, expand **Collision recovery test**, and
+   click **Refill terrain through tip**. This inserts real limestone through the tip.
    Dig away upper wall supports afterward; the vine recovers/settles without
    regenerating. The small refill is real terrain and can also be dug away.
 
-Saved declarative controls: enable, growth quanta/sec, adhesion spacing in voxels,
-attachment markers. Click Debug **Save** to persist settings. Speed zero pauses
+Saved declarative controls: enable, pause growth, growth quanta/sec, adhesion spacing
+in voxels, attachment markers. Click Debug **Save** to persist settings. Speed zero pauses
 extension, not gravity. Disable hides/pauses the vine without deleting its session
 history or removing the wall. Enabling for the first time also creates/focuses it.
 

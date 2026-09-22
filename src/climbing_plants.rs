@@ -85,6 +85,27 @@ impl Plant {
         self.root_connected
     }
 
+    /// Peel one bond without editing terrain, topology, rest lengths or root connectivity.
+    /// IDs break height ties deterministically; released bonds never silently reattach.
+    pub fn release_highest_anchor(&mut self) -> Option<usize> {
+        let (id, _) = self
+            .anchors
+            .iter()
+            .enumerate()
+            .filter(|(_, anchor)| anchor.attached)
+            .max_by(|(a_id, a), (b_id, b)| {
+                a.position.y.total_cmp(&b.position.y).then(a_id.cmp(b_id))
+            })?;
+        self.anchors[id].attached = false;
+        Some(id)
+    }
+
+    pub fn release_all_anchors(&mut self) {
+        for anchor in &mut self.anchors {
+            anchor.attached = false;
+        }
+    }
+
     /// One fixed growth quantum.
     /// IDs are append-only indices, including released anchors.
     /// A flat wall is deliberately the first surface contract: stop at corners/tops/holes.
@@ -653,6 +674,34 @@ mod tests {
         p.revalidate(&wall, 0..p.anchors.len());
         assert!(!p.anchors[1].attached);
     }
+    #[test]
+    fn peeling_is_local_and_keeps_the_root_and_growth_history() {
+        let mut plant = seed();
+        let wall = Wall::default();
+        for _ in 0..30 {
+            plant.grow(&wall, 16.0);
+        }
+        let before = plant.clone();
+        let id = plant.release_highest_anchor().unwrap();
+        assert_eq!(plant.nodes, before.nodes);
+        assert_eq!(plant.tips, before.tips);
+        assert!(plant.root_connected());
+        for (index, (a, b)) in plant.anchors.iter().zip(&before.anchors).enumerate() {
+            assert_eq!(a.attached, index != id);
+            assert_eq!((a.node, a.cell, a.position), (b.node, b.cell, b.position));
+        }
+        assert!(!plant.revalidate(&wall, 0..plant.anchors.len()));
+        assert!(!plant.anchors[id].attached);
+        plant.release_all_anchors();
+        assert!(plant.root_connected());
+        assert_eq!(plant.release_highest_anchor(), None);
+        assert_eq!(plant.nodes, before.nodes);
+        for _ in 0..5 {
+            plant.relax(&wall);
+        }
+        assert_eq!(plant.nodes[0], before.nodes[0]);
+    }
+
     #[test]
     fn pending_and_stale_are_transactional() {
         let original = seed();
