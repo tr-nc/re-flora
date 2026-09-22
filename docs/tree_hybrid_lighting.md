@@ -69,6 +69,58 @@ original/hybrid lighting on the same thin mesh, growth, editing, wind, local lig
   Visual approval and true-thin/forest performance acceptance remain separate; the guarded cost
   table below must **not** be presented as a true-thin performance result.
 
+## Tip over-brightening correction
+
+The first hybrid version averaged **sun visibility** over light-facing projected
+area, then applied a fixed `0.75` solar response to the whole weak-normal voxel.
+Under unoccluded light that ratio is always one: it discards the cosine and the
+fraction of exposed surface actually receiving sunlight. Tips therefore gained
+much more solar energy than their surface average justified.
+
+`shader/slang/surface_irradiance.slang` now owns one area measure for all incoming
+irradiance. The existing real-triangle samples accumulate
+`area * max(dot(normal, sunDirection), 0) * visibility`; the sun integral is divided
+by **all exposed sample area**, just like DDGI and local-light irradiance. There is
+no tip-specific dimmer, brightness clamp, minimum ambient, or new checkbox. The
+existing hybrid checkbox still compares original A against corrected B. The
+geometry, confidence estimator, receiver offsets and visibility queries are unchanged.
+
+For unit-area faces and axis-aligned unoccluded sun, an isolated voxel, an end
+voxel, and a rod interior now average `1/6`, `1/5`, and `1/4` of the incident solar
+irradiance, respectively, instead of all receiving `0.75`. These are derived
+geometric values, not tuning constants. Planar surfaces keep their Lambert cosine;
+partial shadows and deformed unequal-area samples use the same normalization.
+This remains a stylized per-voxel surface mean, not view-dependent face shading.
+
+The production reducer is exercised by `shader/tests/surface_irradiance_energy.slang`
+through `python3 scripts/run_slang_tests.py`. The test failed with the original
+normalization (`isolated=tip=rod=0.75`) before the fix. It also covers grazing-light
+continuity, full/partial shadows, rotation, diagonal light, unequal areas, sample
+splitting and scaling, empty surfaces, night, and colored sunlight.
+
+Local Release screenshots on Linux / RTX 3060 Ti are under
+`target/tree-tip-diagnostic/{before,repeat-before,after}/`. Two baseline captures
+reproduced the same upper-crown brightening. In the fixed seed-122, time-0.47,
+wind-off thin-wood view, median linear display luminance of the selected crown
+wood fell from **0.601 to 0.385**; original A remained **0.522**. These are
+fixture-specific visual observations, not a radiometric or performance acceptance
+threshold. The bright flat crown is subdued; the candidate still needs user visual
+approval. This reproduction observes tree-crown tips, not a confirmed separate
+below-ground root-tip leak. Configurations were restored after captures.
+
+Validation of the correction on that Linux machine:
+
+- `cargo fmt --check`, `cargo check`, and `cargo test`: passed (1069 binary tests,
+  4 library tests; 2 ignored diagnostics).
+- `python3 scripts/run_slang_tests.py`: all 19 shader CPU tests passed; all 6
+  `test_tree_hybrid_capture.py` tests passed.
+- Release `--hidden --mute --auto-exit 0.5` and
+  `--hidden --mute --raster-tree-smoke --resize-lifecycle-test`: passed. Smoke
+  exercised original/hybrid round trips, true-thin geometry, wind, local lights,
+  editing, age, replacement and resize. Final logs ended with `failures=0`, without
+  ERROR, panic or VUID messages. The per-worktree latest-log/tail helpers were checked.
+- No generated source or saved GUI/camera changes. No performance acceptance claim.
+
 ## Confidence
 
 `src/tracer/voxel_normal.rs` consumes the same radius-two (5×5×5) occupied-neighbour offsets as
@@ -100,8 +152,9 @@ uses a per-voxel surface average, rather than treating the numeric upward normal
   sampled. Degenerate triangles contribute nothing.
 - DDGI and local-light irradiance are averaged by sampled triangle area. Existing DDGI visibility,
   invalidation/fail-closed behavior, and finite local-light/Glass visibility remain in force.
-- Sun visibility is averaged over light-facing exposed samples, weighted by projected area, then
-  uses a flora-like 0.75 directional response. Terrain/wood, leaf, and cloud shadows remain active.
+- Sun irradiance is integrated over light-facing exposed samples, weighted by projected area
+  and visibility, then divided by total exposed surface area. Back-facing and shadowed samples
+  still count toward that area. Terrain/wood, leaf, and cloud shadows remain active.
   With no light-facing exposed support there is no sun contribution, not an ambient fill.
 - Geometric normals choose safe surface receiver offsets; the uncertain occupancy normal does not
   drive those fallback offsets. The average is a stylized small-surface approximation, not exact
@@ -145,6 +198,9 @@ checks. Python tests ensure lighting A/B keeps raster geometry in both modes and
 on capture failure.
 
 ## Validation — 2026-09-22, Apple M4 Pro / MoltenVK
+
+Historical results below predate the tip-energy correction; they do not measure its appearance
+or performance.
 
 - `cargo fmt --check`, `cargo check`, `PATH=/opt/homebrew/bin:$PATH cargo test`: passed
   (1065 binary + 4 library tests, 2 ignored). The first test run used macOS Python 3.9 and failed
