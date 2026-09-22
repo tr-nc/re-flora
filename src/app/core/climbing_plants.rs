@@ -4,7 +4,7 @@ use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{
     ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport, ContreeCpuVoxelSourceDependency,
 };
-use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_STUCCO};
+use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_LIMESTONE};
 use crate::climbing_plants::{Plant, Terrain};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::DynamicFruitRenderInstance;
@@ -128,7 +128,7 @@ impl App {
             self.execute_world_edit(wall_edit(
                 UVec3::new(224, 192, 300),
                 UVec3::new(288, 300, 306),
-                VOXEL_TYPE_STUCCO,
+                VOXEL_TYPE_LIMESTONE,
             )?)?;
             log::info!("[CLIMBING] authored editable review wall; history is session-only");
         }
@@ -181,7 +181,9 @@ impl App {
         if self.climbing_plants.plant.is_none() {
             for z in (299..324).rev() {
                 let cell = IVec3::new(255, 198, z);
-                if let Some(material) = patch.voxel(cell).filter(|v| *v == VOXEL_TYPE_STUCCO as u8)
+                if let Some(material) = patch
+                    .voxel(cell)
+                    .filter(|v| *v == VOXEL_TYPE_LIMESTONE as u8)
                 {
                     let position = cell.as_vec3() + Vec3::new(0.5, 0.5, 1.8);
                     if crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
@@ -353,14 +355,25 @@ impl App {
                             .iter()
                             .any(|b| b.node == a.node && b.attached && b.position == a.position)
                     });
+                let collision_clear = plant.nodes.iter().all(|n| {
+                    n.parent.is_none_or(|p| {
+                        crate::climbing_plants::clear_segment(
+                            &patch,
+                            plant.nodes[p].position,
+                            n.position,
+                            plant.radius,
+                        ) == Some(true)
+                    })
+                });
                 anyhow::ensure!(
-                    stable
+                    collision_clear
+                        && stable
                         && unaffected
                         && max_length_error < 0.0021
                         && plant.nodes.iter().all(|n| n.position.is_finite()),
                     "climbing review invariant failed"
                 );
-                log::info!("[CLIMBING][REVIEW] verified stable_ids={stable} unaffected_supports={unaffected} finite=true max_length_error={max_length_error:.6} max_motion_voxels={max_motion:.4} nodes={} attached={}",plant.nodes.len(),plant.anchors.iter().filter(|a|a.attached).count());
+                log::info!("[CLIMBING][REVIEW] verified stable_ids={stable} unaffected_supports={unaffected} collision_clear={collision_clear} finite=true max_length_error={max_length_error:.6} max_motion_voxels={max_motion:.4} nodes={} attached={}",plant.nodes.len(),plant.anchors.iter().filter(|a|a.attached).count());
             }
             self.climbing_plants.review_reported = true;
         }

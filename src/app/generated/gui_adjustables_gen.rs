@@ -1408,7 +1408,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Climbing Plants",
         id: "climbing_show_anchors",
         kind: "bool",
-        label: "Show anchor IDs: yellow attached / red released",
+        label: "Show attachments: yellow attached / red released",
     },
 ];
 
