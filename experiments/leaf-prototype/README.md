@@ -5,7 +5,7 @@
 `index.html` 仅保留兼容跳转，不再维护单独的叶片渲染器、后处理和界面代码。启动、模型接入接口、A/B 行为与验证方法见 [预览台说明](../model-preview/README.md)。从仓库根目录运行：
 
 ```sh
-python3 -m http.server 8765 --bind 127.0.0.1 --directory experiments
+node scripts/serve-model-preview.mjs
 ```
 
 打开 <http://127.0.0.1:8765/model-preview/?model=leaf>；此前的 `/leaf-prototype/` 地址也会跳转。

@@ -7,7 +7,7 @@
 仓库根目录：
 
 ```sh
-python3 -m http.server 8765 --bind 127.0.0.1 --directory experiments
+node scripts/serve-model-preview.mjs
 ```
 
 打开 <http://127.0.0.1:8765/model-preview/>。
@@ -18,7 +18,9 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory experiments
 
 统一工具不使用界面版本编号，也不保留带编号的旧比较页面。`/leaf-prototype/` 与 `/butterfly-method-comparison/` 这两个不带编号的书签入口仍会跳转到对应模型。旧查看器、历史边框实验和旧验证脚本均从当前树移除；历史源在提交 `86b4b81c`。已批准模型资源的内部路径不改动。参数 JSON 的格式标识用于兼容校验，不是界面版本。
 
-需要支持 WebGL 2 的浏览器；不要使用 `file://`。运行无需 npm、构建步骤、网络服务或外网依赖。Three.js 0.183.0 与许可证继续使用 `../butterfly-method-comparison/vendor/three-0.183.0/`，批准的蝴蝶 GLB 保持原路径，没有重新生成游戏素材。
+需要支持 WebGL 2 的浏览器及 Node 24；不要使用 `file://`。运行无需 npm 安装或构建步骤。服务只监听本机，既提供预览目录，也提供 `assets/models/` 中的正式游戏资源；不再只服务 `experiments/`。Three.js 0.183.0 与许可证继续使用本地 vendor。
+
+蝴蝶的游戏与网页直接读取同一个 `assets/models/butterfly.glb`，不再保留单独的游戏网格／动画导出。共享接口与跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
 
 ## 使用
 
@@ -106,4 +108,4 @@ node experiments/model-preview/tests/browser.cjs
 - Chrome / SwiftShader：模型切换与异步加载竞态、32/156 面、双向鼠标旋转/缩放、正交/透视、8–128 缓冲、分组补点、共享动画、逐帧、HSV/HEX、无光照精确颜色、自阴影、线框不污染像素图、PNG、JSON 往返像素一致及非法预设拒绝。蝴蝶补点专门包含非零补点案例、原本连通不变案例、无允许路径仍分离案例，不仅检查开关是否可点击。
 - 1440×1000、1280×720、390×844 截图与无横向溢出；无页面异常、控制台 error、失败请求或外网资源。已查看两模型与手机截图。
 - 迁移前保存的 **16 个叶片 A 样本 + 24 个蝴蝶 A 样本**，与新入口在同一浏览器/软件渲染环境下 PNG 逐字节一致。默认叶片 B 仍只补一个像素。
-- 未改 Rust、Slang、游戏配置、生成文件、GLB 或游戏模型导出；不需要 Cargo 重新生成，未运行游戏，也没有游戏性能结论。
+- 最初预览台迁移未改游戏；后续共享资产接入已改 Rust 资源读取，须同时执行 Cargo 检查、测试和隐藏 Release 验证。网页验证不提供游戏性能结论。

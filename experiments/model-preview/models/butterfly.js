@@ -8,7 +8,7 @@ export const butterflyDefinition={
   controls:[{key:'color',label:'蝴蝶颜色',type:'color'},{key:'shadows',label:'光照 / 自阴影',type:'checkbox'}],
   preview:{resolution:12,background:'#253039'},
   async create(){
-    const gltf=await new GLTFLoader().loadAsync(new URL('../../butterfly-method-comparison/blender-v5/butterfly-prototype.glb',import.meta.url).href);
+    const gltf=await new GLTFLoader().loadAsync(new URL('../../../assets/models/butterfly.glb',import.meta.url).href);
     const scene=new THREE.Scene();scene.add(gltf.scene);
     try{
       const meshes=[],materials=new Set();

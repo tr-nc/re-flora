@@ -4,19 +4,12 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const path=require('node:path');
-const http=require('node:http');
 const root=path.resolve(__dirname,'../..');
 const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(root,'../target/model-preview-validation');
-const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.glb':'model/gltf-binary'};
-const server=http.createServer(async(req,res)=>{
-  try{
-    let file=path.resolve(root,'.'+decodeURIComponent(new URL(req.url,'http://local').pathname));
-    if(!file.startsWith(root+path.sep))throw new Error('outside root');
-    if((await fs.stat(file)).isDirectory())file=path.join(file,'index.html');
-    res.setHeader('Content-Type',mime[path.extname(file)]||'application/octet-stream');res.end(await fs.readFile(file));
-  }catch{res.statusCode=404;res.end('Not found');}
-});
+let server;
 (async()=>{
+ const {createPreviewServer}=await import('../../../scripts/serve-model-preview.mjs');
+ server=createPreviewServer();
  await fs.mkdir(artifacts,{recursive:true});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const base=`http://127.0.0.1:${server.address().port}`;
  const browser=await chromium.launch({executablePath:process.env.CHROME_EXECUTABLE||'/usr/bin/google-chrome',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
@@ -108,4 +101,4 @@ const server=http.createServer(async(req,res)=>{
   assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);assert.ok(urls.every(url=>url.startsWith(base)),'no external network dependencies');
   console.log('PASS: model switching/races, both projections and controls, native buffers, 156-triangle grouped repair, original RGBA, shared animation/stepping, color/shadows, PNG, preset round-trip/rejection, layouts/mobile; no page/console/request errors.');
  }finally{await browser.close();}
-})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>server.close());
+})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>server?.close());

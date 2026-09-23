@@ -38,6 +38,7 @@ bytemuck = "1.25.0"
 petalsonic = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 toml = "1.1.2"
 tempfile = "3.23.0"
 static_assertions = "1.1"

@@ -66,12 +66,13 @@ Use the [unified model pixel preview](../experiments/model-preview/README.md) fo
 butterfly art iteration. From the repository root:
 
 ```sh
-python3 -m http.server 8765 --bind 127.0.0.1 --directory experiments
+node scripts/serve-model-preview.mjs
 ```
 
 Open `http://127.0.0.1:8765/model-preview/`. The tool shares camera controls, animation sampling,
 pixel processing, A/B comparison, and JSON presets across models. Add new assets through its model
-definitions rather than copying another HTML demo. Browser visuals do not replace in-game lighting,
+definitions rather than copying another HTML demo. Game and preview models use the
+[shared asset contract](../assets/models/README.md). Browser visuals do not replace in-game lighting,
 occlusion, or release-mode performance validation.
 
 ## Technology Overview

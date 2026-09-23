@@ -6,6 +6,5 @@ test('preview has one unnumbered entry instead of numbered comparison pages',asy
   const files=await readdir(new URL('../../butterfly-method-comparison/',import.meta.url));
   assert.deepEqual(files.filter(name=>/^comparison-v\d+\.html$/.test(name)),[]);
   await access(new URL('../index.html',import.meta.url));
-  // Source asset paths are intentionally unchanged by the viewer cleanup.
-  await access(new URL('../../butterfly-method-comparison/blender-v5/butterfly-prototype.glb',import.meta.url));
+  await access(new URL('../../../assets/models/butterfly.glb',import.meta.url));
 });

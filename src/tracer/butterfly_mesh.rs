@@ -5,7 +5,6 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
-use serde::Deserialize;
 
 use super::ButterflyPalettePreset;
 mod validation;
@@ -96,26 +95,36 @@ impl ButterflyMeshResources {
     }
 }
 
-#[derive(Deserialize)]
 struct RestTriangle {
+    node: usize,
     side: f32,
     positions: [[f32; 3]; 3],
 }
-#[derive(Deserialize)]
 struct Mesh {
-    source_fps: usize,
-    keys: Vec<[f32; 3]>,
+    source: &'static crate::model_assets::Model,
     triangles: Vec<RestTriangle>,
 }
 impl Mesh {
     fn load() -> Self {
-        let mesh: Self =
-            serde_json::from_str(include_str!("../../assets/butterfly/wing-mesh.json"))
-                .expect("validated, embedded butterfly source");
-        assert_eq!(mesh.keys.len(), mesh.source_fps + 1);
-        assert!(mesh.triangles.len() <= MAX_TRIANGLES);
-        mesh
+        let source = crate::model_assets::butterfly();
+        let left = source.node("L continuous fore-hind wing");
+        let right = source.node("R continuous fore-hind wing");
+        let triangles = source
+            .triangles
+            .iter()
+            .map(|t| {
+                assert!(t.node == left || t.node == right);
+                RestTriangle {
+                    node: t.node,
+                    side: if t.node == left { -1. } else { 1. },
+                    positions: t.positions.map(|p| p.to_array()),
+                }
+            })
+            .collect::<Vec<_>>();
+        assert!(triangles.len() <= MAX_TRIANGLES);
+        Self { source, triangles }
     }
+    #[cfg(test)]
     fn pose(&self, phase: f32) -> [f32; 3] {
         // Publication already sampled the shared clock. The per-animal offset
         // changes wing phase, never the moment at which a pose is published.
@@ -192,9 +201,12 @@ impl ButterflyMeshRenderer {
                     original_phase + ((p.phase - original_phase + 0.5).rem_euclid(1.) - 0.5) * blend
                 }
             });
-            let [wing, pitch, bob] = self.mesh.pose(phase);
-            // World displacement belongs to flight physics in the coupled mode.
-            let bob = bob * (1. - blend);
+            let transforms = self.mesh.source.transforms(phase, 0);
+            // Only authored root displacement is suppressed by flight coupling;
+            // articulated geometry and rotations still come directly from the GLB.
+            let root_motion = transforms[self.mesh.source.node("Flight pose")]
+                .w_axis
+                .truncate();
             let velocity = snapshot.velocity;
             let speed = velocity.x.hypot(velocity.z);
             let yaw = if speed > 0.0001 {
@@ -217,11 +229,12 @@ impl ButterflyMeshRenderer {
             let scale = snapshot.size * (1.53125 / 3.4);
             let start = self.triangles.len() as u32;
             for triangle in &self.mesh.triangles {
-                let rotation =
-                    Quat::from_rotation_x(pitch) * Quat::from_rotation_z(wing * triangle.side);
+                let transform = transforms[triangle.node];
                 let p = triangle.positions.map(|p| {
                     snapshot.position_ws
-                        + facing * (rotation * Vec3::from(p) + Vec3::Y * bob) * scale
+                        + facing
+                            * (transform.transform_point3(Vec3::from(p)) - root_motion * blend)
+                            * scale
                 });
                 self.triangles.push(Triangle {
                     a: p[0].extend(0.).to_array(),
@@ -287,9 +300,7 @@ mod tests {
     fn approved_source_is_closed_wing_geometry_with_looping_keys() {
         let mesh = Mesh::load();
         assert_eq!(mesh.triangles.len(), 156);
-        for (a, b) in mesh.keys[0].iter().zip(mesh.keys.last().unwrap()) {
-            assert!((a - b).abs() < 1e-6);
-        }
+        assert_eq!(mesh.source.transforms(0., 0), mesh.source.transforms(1., 0));
         for t in &mesh.triangles {
             assert!(t.side == 1.0 || t.side == -1.0);
             let p = t.positions.map(Vec3::from);
