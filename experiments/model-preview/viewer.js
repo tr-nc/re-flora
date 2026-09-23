@@ -124,9 +124,17 @@ function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   const frame=pipeline.render(asset,camera,{time,clip:state.clip,wireframe:state.wireframe,repair:state.repair,levels:state.levels});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
-  $('repair-info').textContent=frame.repair
-    ?`${frame.repair.groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')} · 补 ${frame.repair.added} 像素`
-    :'A：原始中心采样，不补点';
+  let repairMessage='A：原始中心采样，不补点';
+  if(frame.repair){
+    const {added,groups}=frame.repair;
+    const separated=groups.some(group=>group.after>1);
+    const outcome=added?`已补 ${added} 个像素${separated?'；仍有分离区域无允许的连接路径':''}`
+      :separated?'未补点：仍有分离区域，但没有允许的几何连接路径'
+      :groups.some(group=>group.before>0)?'无需补点：当前各组已八邻接连通（斜向接触也算）'
+      :'未补点：当前没有可见采样点';
+    repairMessage=`${outcome} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
+  }
+  if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
   $('camera-info').textContent=`共享视角 (${camera.position.toArray().map(v=>v.toFixed(2)).join(', ')}) · ${camera.zoom.toFixed(2)}×`;
   state.dirty=false;
 }

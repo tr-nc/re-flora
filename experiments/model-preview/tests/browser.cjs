@@ -56,6 +56,16 @@ const server=http.createServer(async(req,res)=>{
   await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,false);
   await page.screenshot({path:path.join(artifacts,'leaf.png'),fullPage:true});
   await select('butterfly');assert.equal((await state()).triangles,156);assert.equal((await state()).clips[0].duration,1);
+  // A zero-add frame is legitimate, but is NOT evidence that butterfly repair works.
+  const connectedImage=await png();assert.equal(await repairCheck(),0);assert.equal(await png(),connectedImage);
+  assert.match(await page.locator('#repair-info').textContent(),/无需补点.*八邻接连通/);
+  await page.locator('#front').click();await page.locator('#phase').fill('100');await stable();
+  assert.equal(await repairCheck(),2,'butterfly front / 12px / 0.100s must repair actual gaps');
+  assert.match(await page.locator('#repair-info').textContent(),/已补 2 个像素/);
+  await page.locator('#resolution').fill('22');await page.locator('#edge').click();await page.locator('#phase').fill('600');await stable();
+  assert.equal(await repairCheck(),0);assert.ok((await state()).repair.groups.some(group=>group.after>1));
+  assert.match(await page.locator('#repair-info').textContent(),/没有允许的几何连接路径/);
+  await select('butterfly');
   for(const fps of [2,5,12,24,60]){
     await page.locator('#fps').fill(String(fps));await page.locator('#phase').fill('237');await stable();const s=await state();assert.equal(s.sourceTime,Math.floor(.237*fps)/fps);assert.equal(s.sourceTime,s.pixelTime);
   }
