@@ -2,7 +2,8 @@
 export function sampleTime(time,duration,fps) {
   if(!(duration>0)) return 0;
   const phase=((time%duration)+duration)%duration;
-  return Math.floor((phase+1e-10)*fps)/fps;
+  const frame=Math.min(Math.floor((phase+1e-10)*fps),Math.ceil(duration*fps)-1);
+  return frame/fps;
 }
 
 export function advanceTime(time,delta,duration,speed=1) {

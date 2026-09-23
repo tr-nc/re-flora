@@ -54,5 +54,6 @@ test('all sample rates share one sampled time; static clips and wrap are defined
     assert.equal(sampleTime(phase,1,fps),Math.floor(phase*fps)/fps);
   }
   assert.equal(sampleTime(20,0,60),0);assert.equal(sampleTime(1,1,60),0);
+  assert.ok(sampleTime(1-1e-12,1,60)<1);assert.ok(sampleTime(.017-1e-12,.017,60)<.017);
   assert.equal(advanceTime(.25,10,1),.35);
 });

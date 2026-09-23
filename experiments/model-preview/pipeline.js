@@ -1,0 +1,96 @@
+import * as THREE from 'three';
+import {projectGroups} from './geometry.js';
+import {repairImage,quantizeImage} from './postprocess.mjs';
+
+// One rendering/processing pipeline for every adapter. Models own appearance,
+// not renderers, clocks, image repair, canvas controls or download behavior.
+export class PreviewPipeline{
+  constructor(sourceCanvas,pixelCanvas){
+    this.source=new THREE.WebGLRenderer({canvas:sourceCanvas,alpha:true,antialias:true,preserveDrawingBuffer:true});
+    this.pixel=new THREE.WebGLRenderer({canvas:pixelCanvas,alpha:true,antialias:false,preserveDrawingBuffer:true});
+    for(const renderer of [this.source,this.pixel]){
+      renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;
+      renderer.toneMapping=THREE.NoToneMapping;renderer.shadowMap.type=THREE.PCFShadowMap;
+    }
+    this.source.setPixelRatio(Math.min(devicePixelRatio||1,2));this.pixel.setPixelRatio(1);
+    this.idTarget=new THREE.WebGLRenderTarget(1,1);this.idTarget.texture.colorSpace=THREE.SRGBColorSpace;
+    this.idMaterials=new Map();
+    this.screen=new THREE.Scene();this.screenCamera=new THREE.Camera();
+    this.screenMaterial=new THREE.ShaderMaterial({
+      uniforms:{image:{value:null}},depthTest:false,depthWrite:false,
+      vertexShader:'varying vec2 tex; void main(){tex=uv;gl_Position=vec4(position.xy,0.,1.);}',
+      // Input bytes already contain the displayed sRGB values, not linear light.
+      fragmentShader:'uniform sampler2D image; varying vec2 tex; void main(){gl_FragColor=texture2D(image,tex);}',
+    });
+    this.screen.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),this.screenMaterial));
+    this.last=null;
+  }
+  resize(sourceSize,size){
+    this.source.setSize(sourceSize,sourceSize,false);
+    if(this.size===size)return;
+    this.size=size;this.pixel.setSize(size,size,false);this.idTarget.setSize(size,size);
+    this.bytes=new Uint8Array(size*size*4);this.idBytes=new Uint8Array(this.bytes.length);
+    this.texture?.dispose();this.texture=new THREE.DataTexture(new Uint8Array(this.bytes.length),size,size);
+    this.texture.minFilter=this.texture.magFilter=THREE.NearestFilter;
+    this.screenMaterial.uniforms.image.value=this.texture;
+  }
+  render(asset,camera,settings){
+    const {time,clip,wireframe,repair,levels}=settings;
+    asset.sample(time,clip);asset.scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
+    this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
+    asset.preparePass('source');
+    const materials=new Set(asset.meshes.flatMap(mesh=>Array.isArray(mesh.material)?mesh.material:[mesh.material]));
+    const wires=[...materials].map(material=>[material,material.wireframe]);
+    try{
+      if(wireframe)for(const [material]of wires)material.wireframe=true;
+      this.source.render(asset.scene,camera);
+    }finally{for(const [material,value]of wires)material.wireframe=value;}
+    asset.preparePass('pixel');this.pixel.render(asset.scene,camera);
+    let stats=null,projected=[];
+    if(repair||levels){
+      const gl=this.pixel.getContext();
+      gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
+      let output=quantizeImage(this.bytes,levels);
+      if(repair){
+        const owners=this.readOwners(asset,camera);
+        projected=projectGroups(asset,camera,this.size);
+        const result=repairImage(output,owners,projected,this.size);
+        output=result.rgba;stats={added:result.added,groups:result.groups};
+      }
+      this.texture.image.data.set(output);this.texture.needsUpdate=true;
+      this.pixel.render(this.screen,this.screenCamera);
+    }
+    this.last={sourceTime:time,pixelTime:time,repair:stats,projectedGroups:projected};
+    return this.last;
+  }
+  readOwners(asset,camera){
+    const saved=asset.meshes.map(mesh=>[mesh,mesh.material]);
+    const groupFor=new Map(asset.repairGroups.flatMap(group=>group.meshes.map(mesh=>[mesh,group.id])));
+    try{
+      for(const [mesh,original]of saved){
+        const id=groupFor.get(mesh)??0;
+        const side=(Array.isArray(original)?original[0]:original).side;
+        const key=`${id}:${side}`;
+        if(!this.idMaterials.has(key))this.idMaterials.set(key,new THREE.MeshBasicMaterial({color:id,side,toneMapped:false}));
+        mesh.material=this.idMaterials.get(key);
+      }
+      this.pixel.shadowMap.enabled=false;this.pixel.setRenderTarget(this.idTarget);
+      this.pixel.render(asset.scene,camera);
+      this.pixel.readRenderTargetPixels(this.idTarget,0,0,this.size,this.size,this.idBytes);
+    }finally{
+      for(const [mesh,material]of saved)mesh.material=material;
+      this.pixel.setRenderTarget(null);this.pixel.shadowMap.enabled=asset.shadows;
+    }
+    return Uint32Array.from({length:this.size*this.size},(_,i)=>
+      (this.idBytes[i*4]<<16)|(this.idBytes[i*4+1]<<8)|this.idBytes[i*4+2]);
+  }
+  releaseAsset(){
+    for(const material of this.idMaterials.values())material.dispose();this.idMaterials.clear();
+    this.source.renderLists.dispose();this.pixel.renderLists.dispose();this.last=null;
+  }
+  dispose(){
+    this.releaseAsset();this.idTarget.dispose();this.texture?.dispose();
+    this.screen.children[0].geometry.dispose();this.screenMaterial.dispose();
+    this.source.dispose();this.pixel.dispose();
+  }
+}
