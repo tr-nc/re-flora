@@ -15,13 +15,15 @@
 <div class="view-toolbar"><span>拖动任一画面旋转 · 滚轮 / 双指缩放</span><div><button id="front">正面</button><button id="back">背面</button><button id="edge">侧面</button><button id="reset-view">重置视角</button></div></div>
 <div class="views" id="views">
 <article class="view source-view"><div class="view-heading"><h2>01 / 叶片模型</h2><span>连续受光 · 原始分辨率</span></div><div class="stage"><canvas id="source" aria-label="原始叶片模型，可拖动旋转" tabindex="0"></canvas></div><footer><span id="mesh-info">正在建模…</span><label><input id="wireframe" type="checkbox"> 显示三角形</label></footer></article>
-<article class="view pixel-view"><div class="view-heading"><h2>02 / 像素化结果</h2><span id="tile-label">32 × 32</span></div><div class="stage"><canvas id="pixel" aria-label="像素叶片，可拖动旋转" tabindex="0"></canvas></div><footer><span id="pixel-info"></span><button id="download">导出透明 PNG</button></footer></article>
+<article class="view pixel-view"><div class="view-heading"><h2>02 / 像素化结果 · <span id="coverage-mode">A · 原始中心采样</span></h2><span id="tile-label">32 × 32</span></div><div class="stage"><canvas id="pixel" aria-label="像素叶片，可拖动旋转" tabindex="0"></canvas></div><footer><span id="pixel-info"></span><button id="download">导出透明 PNG</button></footer></article>
 </div>
 <div class="view-bottom"><label><input id="rotate" type="checkbox"> 自动转台</label><span id="camera-info"></span></div>
 <p id="status" role="status">正在初始化本地 WebGL 预览…</p>
 </section>
 <aside>
 <section><small>01 / PIXEL TREATMENT</small><h2>像素化</h2>
+<label><input id="conservative" type="checkbox" aria-describedby="coverage-hint"> 保留细部覆盖（B）</label>
+<p id="coverage-hint" class="hint">未勾选 = A 原始中心采样；勾选 = B 几何与像素格相交就保留。只改变右侧；细部更连续，轮廓可能稍粗。临时实验，不保存。</p>
 <label class="slider-label" for="resolution">画布像素数 <output id="resolution-value"></output></label><input id="resolution" type="range" min="8" max="128" value="32" step="1">
 <div class="presets" aria-label="像素数预设"><button data-resolution="12">12</button><button data-resolution="16">16</button><button data-resolution="22">22</button><button data-resolution="32">32</button><button data-resolution="48">48</button><button data-resolution="64">64</button></div>
 <p class="hint">真正的 N × N 渲染缓冲，最近邻放大。N 是整张画布的边长；叶片占用像素也随缩放和视角变化。</p>

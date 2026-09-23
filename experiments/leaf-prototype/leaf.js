@@ -2,46 +2,33 @@
 // Three observation layouts (?variant=compare|model|pixel), one shared model/camera.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { coverageGeometry, coverageMaterial } from './coverage.js';
 
 const $ = id => document.getElementById(id);
 const fields = ['resolution', 'steps', 'width', 'fold', 'curl', 'season', 'veins', 'light', 'transmission'];
 const defaults = Object.fromEntries(fields.map(id => [id, Number($(id).value)]));
-const state = { ...defaults, variant: 'compare', dirty: true, ready: false };
+const state = { ...defaults, conservative: false, variant: 'compare', dirty: true, ready: false };
 const sourceCanvas = $('source'), pixelCanvas = $('pixel');
 const scene = new THREE.Scene();
 const camera = new THREE.OrthographicCamera(-1.7, 1.7, 1.7, -1.7, .1, 40);
 const target = new THREE.Vector3(0, -.06, .05);
-let sourceRenderer, pixelRenderer, controls, leaf, wire, last = 0;
+let sourceRenderer, pixelRenderer, controls, leaf, wire, coverageLeaf, last = 0;
 const uniforms = {
   season: { value: state.season }, veins: { value: state.veins },
   transmission: { value: state.transmission }, steps: { value: 0 },
   lightDirection: { value: new THREE.Vector3() },
+  tileResolution: { value: state.resolution },
 };
-const material = new THREE.ShaderMaterial({
-  side: THREE.DoubleSide,
-  uniforms,
-  vertexShader: `
-    varying vec2 leafUV;
-    varying vec3 worldNormal;
-    varying vec3 worldPosition;
-    void main() {
-      leafUV = uv;
-      worldNormal = normalize(mat3(modelMatrix) * normal);
-      worldPosition = (modelMatrix * vec4(position, 1.)).xyz;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
-    }`,
-  fragmentShader: `
+// Both rasterizers share the same leaf shading; only pixel coverage changes.
+const leafShading = `
     uniform float season, veins, transmission, steps;
     uniform vec3 lightDirection;
-    varying vec2 leafUV;
-    varying vec3 worldNormal;
-    varying vec3 worldPosition;
     float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7))) * 43758.5453); }
     float noise(vec2 p) {
       vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
       return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
     }
-    void main() {
+    vec4 shadeLeaf(vec2 leafUV, vec3 worldNormal, vec3 worldPosition, bool frontFacing) {
       bool stem = leafUV.x > 1.5;
       vec2 uv = leafUV;
       float lateral = abs(uv.x-.5)*2.;
@@ -59,9 +46,9 @@ const material = new THREE.ShaderMaterial({
       float midrib = 1.-smoothstep(.012,.012+max(fwidth(uv.x),.003),abs(uv.x-.5));
       base = mix(base,base*1.45+vec3(.025,.025,.003),veins*max(midrib,branches*.6));
       base *= 1.-.16*smoothstep(.83,1.,lateral);
-      if (!gl_FrontFacing) base = mix(base,vec3(.32,.36,.13),.30);
+      if (!frontFacing) base = mix(base,vec3(.32,.36,.13),.30);
       if (stem) base = mix(vec3(.19,.23,.055),vec3(.29,.13,.033),season);
-      vec3 n = normalize(worldNormal) * (gl_FrontFacing ? 1. : -1.);
+      vec3 n = normalize(worldNormal) * (frontFacing ? 1. : -1.);
       vec3 l = normalize(lightDirection);
       float diffuse = max(dot(n,l),0.);
       float through = max(dot(-n,l),0.) * transmission * (stem ? .15 : .75);
@@ -73,10 +60,32 @@ const material = new THREE.ShaderMaterial({
       float sheen = pow(max(dot(n,normalize(l+viewDirection)),0.),24.)*.035*diffuse;
       color += vec3(sheen);
       color += base*vec3(.14,.07,0.)*through;
-      gl_FragColor = vec4(color,1.);
+      return vec4(color,1.);
+    }`;
+const material = new THREE.ShaderMaterial({
+  side: THREE.DoubleSide,
+  uniforms,
+  vertexShader: `
+    varying vec2 leafUV;
+    varying vec3 worldNormal;
+    varying vec3 worldPosition;
+    void main() {
+      leafUV = uv;
+      worldNormal = normalize(mat3(modelMatrix) * normal);
+      worldPosition = (modelMatrix * vec4(position, 1.)).xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+    }`,
+  fragmentShader: `
+    varying vec2 leafUV;
+    varying vec3 worldNormal;
+    varying vec3 worldPosition;
+    ${leafShading}
+    void main() {
+      gl_FragColor = shadeLeaf(leafUV, worldNormal, worldPosition, gl_FrontFacing);
       #include <colorspace_fragment>
     }`,
 });
+const conservativeMaterial = coverageMaterial(uniforms, leafShading);
 
 function makeGeometry() {
   const positions = [], uvs = [], indices = [];
@@ -135,6 +144,15 @@ function rebuild() {
     wire.geometry.dispose();
     wire.geometry = new THREE.WireframeGeometry(geometry);
   }
+  if (!coverageLeaf) {
+    coverageLeaf = new THREE.Mesh(coverageGeometry(geometry), conservativeMaterial);
+    // Its CPU positions are quad corners, not the final projected bounds.
+    coverageLeaf.frustumCulled = false;
+    scene.add(coverageLeaf);
+  } else {
+    coverageLeaf.geometry.dispose();
+    coverageLeaf.geometry = coverageGeometry(geometry);
+  }
   $('mesh-info').textContent = `${geometry.index.count/3} 三角形 · ${geometry.attributes.position.count} 顶点 · 双面薄片`;
   state.dirty = true;
 }
@@ -146,6 +164,7 @@ function resize() {
   sourceRenderer.setSize(size,size,false);
   sourceCanvas.style.width=sourceCanvas.style.height=`${size}px`;
   pixelRenderer.setSize(state.resolution,state.resolution,false);
+  uniforms.tileResolution.value=state.resolution;
   // Integer CSS magnification: no unevenly sized logical pixels at 1× browser scale.
   const scale=Math.max(1,Math.floor(Math.min(pixelStage.clientWidth,pixelStage.clientHeight)/state.resolution));
   pixelCanvas.style.width=pixelCanvas.style.height=`${state.resolution*scale}px`;
@@ -179,7 +198,7 @@ function updateFields() {
 }
 
 function setVariant(value) {
-  const names={compare:'A · 双视图对照',model:'B · 模型优先',pixel:'C · 像素画放大'};
+  const names={compare:'布局 1 · 双视图对照',model:'布局 2 · 模型优先',pixel:'布局 3 · 像素画放大'};
   state.variant=Object.hasOwn(names,value)?value:'compare';
   document.body.dataset.variant=state.variant;
   $('variant-label').textContent=names[state.variant];
@@ -194,11 +213,15 @@ function cycleVariant(direction) {
 }
 
 function render() {
+  leaf.visible=true;
+  coverageLeaf.visible=false;
   wire.visible=$('wireframe').checked;
   uniforms.steps.value=0;
   sourceRenderer.render(scene,camera);
   wire.visible=false; // Topology is an inspection overlay, not part of the artwork.
   uniforms.steps.value=state.steps;
+  leaf.visible=!state.conservative;
+  coverageLeaf.visible=state.conservative;
   pixelRenderer.render(scene,camera);
   $('camera-info').textContent=`共享视角 (${camera.position.toArray().map(n=>n.toFixed(2)).join(', ')}) · 缩放 ${camera.zoom.toFixed(2)}`;
   state.dirty=false;
@@ -263,19 +286,26 @@ function init() {
   for(const kind of ['front','back','edge']) $(kind).addEventListener('click',()=>setView(kind));
   $('reset-view').addEventListener('click',()=>setView());
   $('wireframe').addEventListener('change',()=>{state.dirty=true;});
+  function updateCoverage() {
+    state.conservative=$('conservative').checked;
+    $('coverage-mode').textContent=state.conservative ? 'B · 保守覆盖' : 'A · 原始中心采样';
+    state.dirty=true;
+  }
+  $('conservative').addEventListener('change',updateCoverage);
   $('background').addEventListener('change',()=>{
     document.body.classList.remove('paper','checker');
     if($('background').value!=='forest') document.body.classList.add($('background').value);
   });
   $('reset-all').addEventListener('click',()=>{
     for(const id of fields) $(id).value=defaults[id];
-    $('rotate').checked=$('wireframe').checked=false;
+    $('rotate').checked=$('wireframe').checked=$('conservative').checked=false;
+    updateCoverage();
     $('background').value='forest';document.body.classList.remove('paper','checker');
     updateFields();rebuild();setView();resize();
   });
   $('download').addEventListener('click',()=>{
     render();
-    const a=document.createElement('a');a.download=`leaf-${state.resolution}x${state.resolution}.png`;
+    const a=document.createElement('a');a.download=`leaf-${state.conservative?'B-coverage':'A-center'}-${state.resolution}x${state.resolution}.png`;
     a.href=pixelCanvas.toDataURL('image/png');a.click();
   });
   $('previous').addEventListener('click',()=>cycleVariant(-1));
@@ -296,11 +326,19 @@ function init() {
 }
 
 // Read-only inspection for prototype validation; no persistent state or game hooks.
-window.readLeafPrototype=()=>({
+window.readLeafPrototype=(includeGeometry=false)=>({
   ...state, triangles:leaf?.geometry.index.count/3,
   pixelBuffer:[pixelCanvas.width,pixelCanvas.height],
   sharedCamera:controls?.every(c=>c.object===camera&&c.target===target),
   camera:camera.position.toArray(),zoom:camera.zoom,
+  ...(includeGeometry && leaf ? {
+    projectedTriangles: Array.from({length:leaf.geometry.index.count/3},(_,i)=>
+      [0,1,2].map(j=>{
+        const point=new THREE.Vector3().fromBufferAttribute(leaf.geometry.attributes.position,leaf.geometry.index.getX(i*3+j))
+          .applyMatrix4(leaf.matrixWorld).project(camera);
+        return [(point.x*.5+.5)*state.resolution,(point.y*.5+.5)*state.resolution,point.z];
+      })),
+  } : {}),
 });
 try { init(); } catch(error) {
   state.ready=false;
