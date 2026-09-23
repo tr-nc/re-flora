@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>落叶 · 模型与像素画实验</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"../butterfly-method-comparison/vendor/three-0.183.0/build/three.module.js","three/addons/":"../butterfly-method-comparison/vendor/three-0.183.0/examples/jsm/"}}</script>
+</head>
+<body>
+<header><div><small>RE:FLORA / THROWAWAY PROTOTYPE 01</small><h1>一片叶子，两种观看方式。</h1><p>先看形态，再看它如何成为像素画。不是照片贴片，是可以翻面的低面数叶片。</p></div><span class="badge">独立实验 · 未接入游戏</span></header>
+<main>
+<section class="workspace" aria-label="模型预览">
+<div class="view-toolbar"><span>拖动任一画面旋转 · 滚轮 / 双指缩放</span><div><button id="front">正面</button><button id="back">背面</button><button id="edge">侧面</button><button id="reset-view">重置视角</button></div></div>
+<div class="views" id="views">
+<article class="view source-view"><div class="view-heading"><h2>01 / 叶片模型</h2><span>连续受光 · 原始分辨率</span></div><div class="stage"><canvas id="source" aria-label="原始叶片模型，可拖动旋转" tabindex="0"></canvas></div><footer><span id="mesh-info">正在建模…</span><label><input id="wireframe" type="checkbox"> 显示三角形</label></footer></article>
+<article class="view pixel-view"><div class="view-heading"><h2>02 / 像素化结果</h2><span id="tile-label">32 × 32</span></div><div class="stage"><canvas id="pixel" aria-label="像素叶片，可拖动旋转" tabindex="0"></canvas></div><footer><span id="pixel-info"></span><button id="download">导出透明 PNG</button></footer></article>
+</div>
+<div class="view-bottom"><label><input id="rotate" type="checkbox"> 自动转台</label><span id="camera-info"></span></div>
+<p id="status" role="status">正在初始化本地 WebGL 预览…</p>
+</section>
+<aside>
+<section><small>01 / PIXEL TREATMENT</small><h2>像素化</h2>
+<label class="slider-label" for="resolution">画布像素数 <output id="resolution-value"></output></label><input id="resolution" type="range" min="8" max="128" value="32" step="1">
+<div class="presets" aria-label="像素数预设"><button data-resolution="12">12</button><button data-resolution="16">16</button><button data-resolution="22">22</button><button data-resolution="32">32</button><button data-resolution="48">48</button><button data-resolution="64">64</button></div>
+<p class="hint">真正的 N × N 渲染缓冲，最近邻放大。N 是整张画布的边长；叶片占用像素也随缩放和视角变化。</p>
+<label class="slider-label" for="steps">明暗色阶 <output id="steps-value"></output></label><input id="steps" type="range" min="0" max="12" value="6" step="1"><p class="hint">0 = 连续明暗。仅影响右侧，左侧保留原始受光。</p>
+</section>
+<section><small>02 / LEAF FORM</small><h2>叶片形态</h2>
+<label class="slider-label" for="width">叶片宽度 <output id="width-value"></output></label><input id="width" type="range" min="0.55" max="1.45" value="1" step="0.01">
+<label class="slider-label" for="fold">主脉折起 <output id="fold-value"></output></label><input id="fold" type="range" min="0" max="0.8" value="0.28" step="0.01">
+<label class="slider-label" for="curl">叶尖卷曲 <output id="curl-value"></output></label><input id="curl" type="range" min="-0.8" max="1" value="0.35" step="0.01">
+<label class="slider-label" for="season">叶色：青绿 → 秋黄 <output id="season-value"></output></label><input id="season" type="range" min="0" max="1" value="0.25" step="0.01">
+<label class="slider-label" for="veins">叶脉强度 <output id="veins-value"></output></label><input id="veins" type="range" min="0" max="1" value="0.5" step="0.01">
+</section>
+<section><small>03 / LIGHT & PRESENTATION</small><h2>光照与观察</h2>
+<label class="slider-label" for="light">光源方位 <output id="light-value"></output></label><input id="light" type="range" min="-180" max="180" value="-35" step="1">
+<label class="slider-label" for="transmission">薄叶透光 <output id="transmission-value"></output></label><input id="transmission" type="range" min="0" max="1" value="0.45" step="0.01">
+<label class="select-label" for="background">预览底色 <select id="background"><option value="forest">深林</option><option value="paper">浅纸</option><option value="checker">透明棋盘</option></select></label>
+<button id="reset-all" class="wide">恢复所有默认值</button>
+</section>
+</aside>
+</main>
+<nav class="switcher" aria-label="观察布局"><button id="previous" aria-label="上一个布局">←</button><span id="variant-label"></span><button id="next" aria-label="下一个布局">→</button></nav>
+<script type="module" src="leaf.js"></script>
+</body>
+</html>
