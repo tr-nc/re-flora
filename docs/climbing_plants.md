@@ -4,18 +4,15 @@ The demo grows one persistent, unbranched vine. Missing support prunes the downs
 subtree, even if higher attachments still have wall behind them. A retained cut waits
 for repair and regrows with fresh IDs; there are no falling detached remnants.
 
-The **continuous-stem experiment** now permits older stem to deform. The original
-frozen-history model remains available through the saved runtime A/B checkbox.
+The continuous-stem model permits older stem to deform. Following visual approval,
+it is now the only model: the old solver and experiment checkbox have been removed.
+Older saved checkbox values are discarded without changing other user settings.
 
 ## Try it
 
 1. Run this worktree with `cargo run --release`, then **R → Climbing Plants**.
-2. **Continuous stem experiment (A/B; off = original; restarts vine)**:
-   - **Checked:** distributed bending through attachments, independently timed exploration,
-     gradual contact establishment, compliant established stem and short attachment roots.
-   - **Unchecked:** original phase-per-growth search and frozen established spans.
-   - Changing it immediately restarts the same seed/terrain for comparison. The new
-     declaration defaults to checked; the user's existing seed and other values are retained.
+2. The vine uses distributed bending through attachments, independently timed exploration,
+   gradual contact establishment, compliant established stem and short attachment roots.
 3. **Test terrain**, **Vine seed**, and **Clockwise tip search** also restart immediately.
    **Restart wall and vine** repeats the current seed; **New random seed** changes the saved
    seed. **Create vine wall and focus** starts an uncreated patch. **Focus vine** recenters it.
@@ -40,13 +37,13 @@ foliage, wood and authored limestone, and waits for available/current terrain. R
 that site prevents successive resets from stacking walls. Do not build anything you want
 preserved inside this test patch.
 
-All settings, including A/B, use the declarative Debug Save pipeline. Older GUI files
+All settings use the declarative Debug Save pipeline. Older GUI files
 receive missing declarations without losing saved fields. **Plant history is session-only**;
 world replacement clears it and does not silently author another wall.
 
 ## Continuous-body model
 
-`src/climbing_plants/rod.rs` owns the experimental mechanics; `rod/collision.rs` owns its
+`src/climbing_plants/rod.rs` owns the mechanics; `rod/collision.rs` owns its
 local obstacle constraints. `growth.rs` remains authoritative for growth/contact candidates.
 
 - Material is not regenerated: node IDs, rest lengths and parent relationships persist.
@@ -78,10 +75,10 @@ local obstacle constraints. `growth.rs` remains authoritative for growth/contact
   cannot replenish it. This is an artistic bounded search, not global terrain pathfinding or
   a guarantee that every seed reaches the top.
 
-The original unchecked model retains 24 growth-attempt phases per turn, the young-span
-solver in `shoot.rs`, instantaneous attachment freezing, and its spacing-dependent
-`clamp(3 × spacing, 12, 64)` air budget. Its historical description and measurements are
-in [research/climbing_vine_live_shoot.md](research/climbing_vine_live_shoot.md).
+The former young-span solver and phase-per-growth strategy have been deleted. Shared
+whole-segment sweep safety now belongs to `sweep.rs`. Historical descriptions and
+measurements remain in [research/climbing_vine_live_shoot.md](research/climbing_vine_live_shoot.md);
+they do not describe an available runtime mode.
 
 ## Shared history and safety
 
@@ -106,25 +103,24 @@ cargo check
 cargo test
 cargo run --release -- --hidden --mute --auto-exit 0.5
 
-# New model: six real fixtures and the separate pruning/root-recovery scenario.
+# Six real fixtures and the separate pruning/root-recovery scenario.
 for scene in flat hole outward inward slope ground 1; do
-  RE_FLORA_CLIMBING_CONTINUOUS=1 RE_FLORA_CLIMBING_REVIEW=$scene \
+  RE_FLORA_CLIMBING_REVIEW=$scene \
     cargo run --release -- --hidden --mute --perf --auto-exit 12
 done
-# Original A mode: omit RE_FLORA_CLIMBING_CONTINUOUS (review ignores saved A/B).
-RE_FLORA_CLIMBING_REVIEW=1 cargo run --release -- --hidden --mute --auto-exit 12
 cargo run --release -- --tail-latest-log 200
 ```
 
 Reviews fix seed 42, clockwise, spacing 16, flexibility 1, one growth attempt and two
 50 ms motion ticks per sample. Each fixture needs a supported attachment at least 70 voxels
 above ground after 180 attempts, finite geometry, clear stems and authoritative support.
-The new review verifies bounded stretch/attachment displacement and actual established-stem
-motion; the original still requires frozen history. Pruning tests require 30 unchanged
+Reviews verify bounded stretch/attachment displacement and actual established-stem motion. Pruning tests require 30 unchanged
 waiting frames, removal of upper attached descendants, repair with fresh IDs, and root recovery.
 Require completion markers and inspect logs for errors—not just a zero process exit.
 
 Latest implementation evidence, quantitative A/B results and unresolved visual/performance
 limits: [research/climbing_vine_continuous_stem.md](research/climbing_vine_continuous_stem.md).
 Biological motivation and limitations: [research/climbing_vine_support_search.md](research/climbing_vine_support_search.md).
-Visual approval and performance acceptance remain separate; neither follows merely from tests.
+The user approved the continuous-body direction; performance acceptance remains separate.
+The next visual issue is excessive upright extension above walls, not addressed by removing
+this model's predecessor.

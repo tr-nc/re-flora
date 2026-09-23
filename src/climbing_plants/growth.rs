@@ -18,37 +18,7 @@ pub(super) fn initial_phase(random: f32) -> u8 {
 }
 
 pub(super) fn probe(plant: &Plant, tip: &Tip) -> Vec3 {
-    if plant.continuous_stem() {
-        return super::rod::probe(plant, tip);
-    }
-    let node = &plant.nodes[tip.node];
-    let mut axis = Vec3::Y - node.normal * node.normal.y;
-    if axis.length_squared() < 0.01 {
-        axis = if node.normal.y < -0.5 && tip.under_ceiling {
-            tip.exterior
-        } else {
-            Vec3::Y
-        };
-    }
-    axis = axis.normalize();
-    let radial = if axis.dot(node.normal).abs() > 0.9 {
-        tip.exterior
-    } else {
-        node.normal
-    };
-    let side = axis.cross(radial).normalize();
-    let handedness = if tip.clockwise { 1.0 } else { -1.0 };
-    let angle =
-        std::f32::consts::TAU * f32::from(tip.phase + 1) / f32::from(STEPS_PER_TURN) * handedness;
-    // Support bias prevents collision projection from ratcheting circles away from the wall.
-    let mut direction = axis * 0.9
-        + radial * (0.85 * angle.cos() - 0.45)
-        + side * (0.85 * angle.sin() + 0.1 * tip.lateral * handedness);
-    if node.normal.y < -0.5 && tip.under_ceiling {
-        // Follow a ceiling tangentially to its edge instead of making down-up loops.
-        direction -= node.normal * direction.dot(node.normal);
-    }
-    node.position + direction.normalize() * STEP_LENGTH
+    super::rod::probe(plant, tip)
 }
 
 /// None = unavailable; Some(None) = a ready attempt without extension.
@@ -56,7 +26,6 @@ pub(super) fn advance(
     plant: &Plant,
     tip: &mut Tip,
     terrain: &impl Terrain,
-    spacing: f32,
 ) -> Option<Option<Step>> {
     let start = &plant.nodes[tip.node];
     if let Some(restart) = &tip.restart {
@@ -70,19 +39,7 @@ pub(super) fn advance(
             backing: restart.backing,
         }));
     }
-    // Sagging can slightly separate a tip from the ceiling without taking it past
-    // the ledge. Guide it by actual overhead occupancy, not a stale contact flag.
-    tip.under_ceiling = start.normal.y < -0.5
-        && !clear_segment(
-            terrain,
-            start.position,
-            start.position + Vec3::Y * STEP_LENGTH,
-            plant.radius,
-        )?;
     let end = probe(plant, tip);
-    if !plant.continuous_stem() {
-        tip.phase = (tip.phase + 1) % STEPS_PER_TURN;
-    }
     if let Some((position, contact)) = touch_surface(plant, start, end, terrain)? {
         let backing = backing_for(plant, start, position, Some(&contact), terrain)?;
         return Some(Some(Step {
@@ -92,12 +49,7 @@ pub(super) fn advance(
             backing,
         }));
     }
-    let limit = if plant.continuous_stem() {
-        super::rod::AIR_BUDGET
-    } else {
-        (spacing * 3.0).clamp(12.0, 64.0)
-    };
-    if tip.arc + STEP_LENGTH > limit
+    if tip.arc + STEP_LENGTH > super::rod::AIR_BUDGET
         || end.y < start.position.y - 0.0001
         || !clear_segment(terrain, start.position, end, plant.radius)?
     {
@@ -161,19 +113,13 @@ pub(super) fn contact_at(
         plant,
         node.position,
         terrain,
-        if plant.continuous_stem() {
-            super::rod::ATTACHMENT_EXTENSION
-        } else {
-            0.0
-        },
+        super::rod::ATTACHMENT_EXTENSION,
     )?;
-    if plant.continuous_stem() {
-        for i in (0..contacts.len()).rev() {
-            let contact = &contacts[i].1;
-            let surface = super::surface_position(node.position, contact.cell, contact.normal);
-            if !clear_segment(terrain, node.position, surface, 0.0)? {
-                contacts.remove(i);
-            }
+    for i in (0..contacts.len()).rev() {
+        let contact = &contacts[i].1;
+        let surface = super::surface_position(node.position, contact.cell, contact.normal);
+        if !clear_segment(terrain, node.position, surface, 0.0)? {
+            contacts.remove(i);
         }
     }
     Some(
@@ -211,12 +157,10 @@ fn touch_surface(
         {
             continue;
         }
-        if plant.continuous_stem()
-            && start.parent.is_some_and(|p| {
-                let incoming = (start.position - plant.nodes[p].position).normalize();
-                incoming.dot(delta.normalize()) < 25.0f32.to_radians().cos()
-            })
-        {
+        if start.parent.is_some_and(|p| {
+            let incoming = (start.position - plant.nodes[p].position).normalize();
+            incoming.dot(delta.normalize()) < 25.0f32.to_radians().cos()
+        }) {
             continue;
         }
         if !clear_segment(terrain, start.position, position, plant.radius)? {

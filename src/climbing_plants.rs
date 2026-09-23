@@ -8,7 +8,7 @@ const MAX_TIPS: usize = 4;
 pub mod fixtures;
 mod growth;
 mod rod;
-mod shoot;
+mod sweep;
 
 pub trait Terrain {
     /// None is unavailable, not empty. Queries belong to one immutable snapshot.
@@ -24,8 +24,8 @@ pub struct Node {
     pub parent: Option<usize>,
     pub rest_length: f32,
     pub normal: Vec3,
+    /// Established history (coloring), not a mechanical lock.
     pub fixed: bool,
-    rest_direction: Vec3,
     contact: Option<Contact>,
     // Record only backing that actually existed when this edge grew. Searching
     // arcs across an existing hole do not invent wall dependencies in empty space.
@@ -88,7 +88,6 @@ pub struct Tip {
     phase: u8,
     clockwise: bool,
     exterior: Vec3,
-    under_ceiling: bool,
 }
 impl Tip {
     fn seed(node: usize, seed: u64) -> Self {
@@ -105,7 +104,6 @@ impl Tip {
             phase,
             clockwise: seed & 1 == 0,
             exterior: Vec3::Z,
-            under_ceiling: false,
         }
     }
 }
@@ -118,7 +116,7 @@ pub struct Plant {
     root_connected: bool,
     seed: u64,
     next_node_id: u64,
-    rod: Option<rod::Rod>,
+    rod: rod::Rod,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -146,7 +144,6 @@ impl Plant {
                 rest_length: 0.0,
                 normal,
                 fixed: true,
-                rest_direction: Vec3::Y,
                 contact: Some(Contact { cell, normal }),
                 backing: None,
             }],
@@ -158,12 +155,12 @@ impl Plant {
                 attached: true,
                 normal,
             }],
+            rod: rod::Rod::new(&tip),
             tips: vec![tip],
             radius: 0.65,
             root_connected: true,
             seed,
             next_node_id: 1,
-            rod: None,
         }
     }
 
@@ -187,20 +184,7 @@ impl Plant {
         spacing: f32,
         exploring: bool,
     ) -> Option<usize> {
-        if self.rod.is_some() {
-            rod::step(self, terrain, dt, flexibility, spacing, exploring)
-        } else {
-            shoot::relax(self, terrain, dt, flexibility, spacing)
-        }
-    }
-
-    pub fn with_continuous_stem(mut self, enabled: bool) -> Self {
-        self.rod = enabled.then(|| rod::Rod::new(&self.tips[0]));
-        self
-    }
-
-    pub fn continuous_stem(&self) -> bool {
-        self.rod.is_some()
+        rod::step(self, terrain, dt, flexibility, spacing, exploring)
     }
 
     pub fn with_clockwise(mut self, clockwise: bool) -> Self {
@@ -218,29 +202,6 @@ impl Plant {
             };
             node = parent;
         }
-    }
-
-    fn attach_tip(&mut self, index: usize, contact: Contact, spacing: f32) {
-        if self.rod.is_some() {
-            return;
-        } // the rod establishes persistent contacts behind the apex
-        let tip = &self.tips[index];
-        if tip.arc < tip.spacing {
-            return;
-        }
-        let node = tip.node;
-        self.anchors.push(Anchor {
-            node,
-            cell: contact.cell,
-            normal: contact.normal,
-            material: self.anchors[0].material,
-            position: self.nodes[node].position,
-            attached: true,
-        });
-        self.freeze_path(node);
-        let tip = &mut self.tips[index];
-        tip.arc = 0.0;
-        tip.spacing = spacing * (0.85 + 0.3 * random(&mut tip.rng));
     }
 
     pub fn disconnect_root(&mut self) {
@@ -282,14 +243,12 @@ impl Plant {
         // established attachment dependencies remain authoritative until pruning.
         for anchor in self.anchors.iter().skip(1) {
             cut[anchor.node] = terrain.voxel(anchor.cell)? != anchor.material;
-            if self.continuous_stem() {
-                cut[anchor.node] |= !clear_segment(
-                    terrain,
-                    self.nodes[anchor.node].position,
-                    anchor.surface_position(),
-                    0.0,
-                )?;
-            }
+            cut[anchor.node] |= !clear_segment(
+                terrain,
+                self.nodes[anchor.node].position,
+                anchor.surface_position(),
+                0.0,
+            )?;
         }
         for (id, node) in self.nodes.iter().enumerate().skip(1) {
             let parent = node.parent.expect("non-root stem has a parent");
@@ -413,9 +372,7 @@ impl Plant {
             .collect();
         for stump in stumps {
             self.freeze_path(stump);
-            if let Some(rod) = &mut self.rod {
-                rod.locked_through = rod.locked_through.max(self.nodes[stump].id);
-            }
+            self.rod.locked_through = self.rod.locked_through.max(self.nodes[stump].id);
         }
         Pruned { removed, buds }
     }
@@ -439,7 +396,7 @@ impl Plant {
             }
             let mut tip = next.tips[index].clone();
             let start = next.nodes[tip.node].position;
-            let Some(step) = growth::advance(&next, &mut tip, terrain, spacing) else {
+            let Some(step) = growth::advance(&next, &mut tip, terrain) else {
                 return false;
             };
             let Some(step) = step else {
@@ -449,9 +406,6 @@ impl Plant {
             let end = step.position;
             if step.normal.y.abs() < 0.7 {
                 tip.exterior = step.normal;
-            }
-            if step.normal.y < -0.5 && step.contact.is_some() {
-                tip.under_ceiling = true;
             }
             if tip.node == 0 || tip.restart.is_some() {
                 tip.spacing = spacing;
@@ -467,15 +421,11 @@ impl Plant {
                 rest_length: start.distance(end),
                 normal: step.normal,
                 fixed: false,
-                rest_direction: (end - start).normalize(),
                 contact: step.contact.clone(),
                 backing: step.backing,
             });
             next.next_node_id += 1;
             next.tips[index] = tip;
-            if let Some(contact) = step.contact {
-                next.attach_tip(index, contact, spacing);
-            }
             changed = true;
         }
         // A seed makes one shoot. Automatic branching is intentionally disabled.
@@ -574,6 +524,11 @@ mod tests {
         let mut plant = seed();
         for _ in 0..50 {
             plant.grow(&Wall::default(), 16.0);
+            for _ in 0..2 {
+                plant
+                    .step_motion(&Wall::default(), 0.05, 1.0, 16.0, true)
+                    .unwrap();
+            }
         }
         plant
     }
@@ -592,7 +547,7 @@ mod tests {
             }
         }
         for a in &plant.anchors {
-            assert_eq!(a.position, plant.nodes[a.node].position);
+            assert!(a.position.distance(plant.nodes[a.node].position) <= 0.3);
         }
         for tip in &plant.tips {
             assert!(tip.node < plant.nodes.len());
@@ -631,11 +586,23 @@ mod tests {
             1,
             42,
         );
-        assert!(plant.grow(&Ledge, 16.0));
+        for _ in 0..60 {
+            plant.grow(&Ledge, 16.0);
+            plant.step_motion(&Ledge, 0.05, 1.0, 16.0, true).unwrap();
+            for n in &plant.nodes[1..] {
+                assert_eq!(
+                    clear_segment(
+                        &Ledge,
+                        plant.nodes[n.parent.unwrap()].position,
+                        n.position,
+                        plant.radius
+                    ),
+                    Some(true)
+                );
+            }
+        }
         let outside = plant.nodes.last().unwrap().position;
-        assert!(outside.z > 1.65 && (outside.y - 1.17).abs() < 0.001);
-        assert!(plant.grow(&Ledge, 16.0));
-        assert!(plant.nodes.last().unwrap().position.y > outside.y + 0.5);
+        assert!(outside.z > 1.65 && outside.y > 2.0);
     }
 
     #[test]
@@ -660,7 +627,7 @@ mod tests {
             }
             check_structure(&plant);
             assert_eq!(plant.tips.len(), 1);
-            assert!(plant.tips[0].arc <= 48.001);
+            assert!(plant.tips[0].arc <= rod::AIR_BUDGET + 0.001);
             assert_eq!(plant.revalidate(&Slope).unwrap().removed, 0);
             plant
         };
@@ -683,18 +650,25 @@ mod tests {
 
     #[test]
     fn random_seed_changes_the_initial_exploration_not_just_later_attachment_spacing() {
-        let a = seed();
-        let b = Plant::seed(a.nodes[0].position, Vec3::Z, a.anchors[0].cell, 1, 44);
+        let mut a = seed();
+        let mut b = Plant::seed(a.nodes[0].position, Vec3::Z, a.anchors[0].cell, 1, 44);
+        assert_eq!(a, seed(), "a fixed seed must be reproducible");
+        for _ in 0..10 {
+            for p in [&mut a, &mut b] {
+                p.grow(&Wall::default(), 64.0);
+                p.step_motion(&Wall::default(), 0.05, 1.0, 64.0, true)
+                    .unwrap();
+            }
+        }
         assert_ne!(
             a.search_probes().next(),
             b.search_probes().next(),
-            "same-handed seeds still have the same initial state"
+            "same-handed seeds must bend differently before attaching"
         );
-        assert_eq!(a, seed(), "a fixed seed must be reproducible");
     }
 
     #[test]
-    fn an_existing_unattached_shoot_sags_while_the_base_stays_fixed() {
+    fn an_existing_unattached_shoot_moves_while_the_base_stays_fixed() {
         let mut plant = seed();
         for _ in 0..5 {
             plant.grow(&Wall::default(), 64.0);
@@ -711,7 +685,7 @@ mod tests {
                 .iter()
                 .zip(&before.nodes)
                 .skip(1)
-                .any(|(a, b)| a.position.y < b.position.y - 0.05),
+                .any(|(a, b)| a.position.distance(b.position) > 0.05),
             "the unattached shoot is still permanently frozen"
         );
         check_structure(&plant);
@@ -840,7 +814,6 @@ mod tests {
             rest_length: 2.0,
             normal: Vec3::Z,
             fixed: true,
-            rest_direction: Vec3::Y,
             contact: Some(Contact {
                 cell: IVec3::new(20, 6, 0),
                 normal: Vec3::Z,
@@ -1039,19 +1012,12 @@ mod tests {
                 let mut plant =
                     Plant::seed(position, normal, cell, 1, seed).with_clockwise(clockwise);
                 for _ in 0..180 {
-                    let frozen: Vec<_> = plant
-                        .nodes
-                        .iter()
-                        .filter(|node| node.fixed)
-                        .cloned()
-                        .collect();
+                    let root = plant.nodes[0].clone();
                     plant.grow(&terrain, 16.0);
                     for _ in 0..2 {
                         plant.relax_shoot(&terrain, 0.05, 1.0, 16.0).unwrap();
                     }
-                    for old in &frozen {
-                        assert_eq!(plant.nodes.iter().find(|node| node.id == old.id), Some(old));
-                    }
+                    assert_eq!(plant.nodes[0], root);
                 }
                 let height = plant
                     .anchors
@@ -1072,13 +1038,8 @@ mod tests {
     }
 
     #[test]
-    fn clockwise_and_counterclockwise_search_are_mirrored_and_air_growth_is_bounded() {
+    fn air_growth_is_bounded() {
         let mut a = seed();
-        let mut b = a.clone();
-        b.tips[0].clockwise = false;
-        let pa = growth::probe(&a, &a.tips[0]) - a.nodes[0].position;
-        let pb = growth::probe(&b, &b.tips[0]) - b.nodes[0].position;
-        assert!(pa.x * pb.x < 0.0 && (pa.y - pb.y).abs() < 1e-6 && (pa.z - pb.z).abs() < 1e-6);
         struct TinySupport;
         impl Terrain for TinySupport {
             fn voxel(&self, c: IVec3) -> Option<u8> {
@@ -1100,7 +1061,7 @@ mod tests {
             count,
             "unsupported search kept extending forever"
         );
-        assert!(a.tips.iter().all(|tip| tip.arc <= 50.0));
+        assert!(a.tips.iter().all(|tip| tip.arc <= rod::AIR_BUDGET));
         for (id, _) in a.nodes.iter().enumerate() {
             let mut node = id;
             let mut unsupported = 0.0;
@@ -1112,7 +1073,7 @@ mod tests {
                 node = parent;
             }
             assert!(
-                unsupported <= 48.001,
+                unsupported <= rod::AIR_BUDGET + 0.001,
                 "forks renewed the air-growth budget: {unsupported}"
             );
         }
@@ -1138,6 +1099,11 @@ mod tests {
         );
         for _ in 0..90 {
             plant.grow(&GroundAndWall, 16.0);
+            for _ in 0..2 {
+                plant
+                    .step_motion(&GroundAndWall, 0.05, 1.0, 16.0, true)
+                    .unwrap();
+            }
         }
         assert!(
             plant

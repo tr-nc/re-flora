@@ -1312,7 +1312,6 @@ wind_drift = 1.0
         settings.adjustables.climbing_paused.value = true;
         settings.adjustables.climbing_seed.value = 65001;
         settings.adjustables.climbing_flexibility.value = 1.7;
-        settings.adjustables.climbing_continuous_stem.value = false;
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
@@ -1322,7 +1321,34 @@ wind_drift = 1.0
         assert!(reloaded.adjustables.climbing_paused.value);
         assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
         assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
-        assert!(!reloaded.adjustables.climbing_continuous_stem.value);
+        // An older saved checkbox must disappear, regardless of its old value.
+        let section = settings
+            .config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Climbing Plants")
+            .unwrap();
+        let mut retired = section
+            .param
+            .iter()
+            .find(|p| p.id == "climbing_clockwise")
+            .unwrap()
+            .clone();
+        retired.id = "climbing_continuous_stem".into();
+        section.param.push(retired);
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let mut migrated = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(!migrated
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "climbing_continuous_stem"));
+        assert_eq!(migrated.adjustables.climbing_seed.value, 65001);
+        migrated.save_to_path(&path).unwrap();
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_continuous_stem"));
         for section in &mut settings.config.section {
             section.param.retain(|p| {
                 ![
@@ -1330,7 +1356,6 @@ wind_drift = 1.0
                     "climbing_clockwise",
                     "climbing_seed",
                     "climbing_flexibility",
-                    "climbing_continuous_stem",
                 ]
                 .contains(&p.id.as_str())
             });
@@ -1358,10 +1383,6 @@ wind_drift = 1.0
         assert_eq!(
             older.adjustables.climbing_flexibility.value,
             defaults.adjustables.climbing_flexibility.value
-        );
-        assert_eq!(
-            older.adjustables.climbing_continuous_stem.value,
-            defaults.adjustables.climbing_continuous_stem.value
         );
     }
 

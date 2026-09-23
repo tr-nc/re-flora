@@ -13,9 +13,7 @@ impl Terrain for Scene {
 }
 fn seed(f: Fixture, s: u64) -> Plant {
     let (p, n, c) = f.seed();
-    Plant::seed(p, n, c, 1, s)
-        .with_clockwise(false)
-        .with_continuous_stem(true)
+    Plant::seed(p, n, c, 1, s).with_clockwise(false)
 }
 fn tick(plant: &mut Plant, terrain: &impl Terrain, spacing: f32) {
     plant.grow(terrain, spacing);
@@ -93,22 +91,13 @@ fn seed_3500_reproduces_and_older_stem_moves_without_sharp_joints() {
     let scene = Scene(Fixture::Inward);
     let mut a = seed(Fixture::Inward, 3500);
     let mut b = a.clone();
-    let mut original = a.clone().with_continuous_stem(false);
     let mut old_motion = 0.0f32;
     let mut max_angle = 0.0f32;
-    let mut original_angle = 0.0f32;
     for _ in 0..180 {
         let before = a.clone();
         tick(&mut a, &scene, 10.0);
         tick(&mut b, &scene, 10.0);
         assert_eq!(a, b);
-        tick(&mut original, &scene, 10.0);
-        for nodes in original.nodes.windows(3) {
-            let incoming = (nodes[1].position - nodes[0].position).normalize();
-            let outgoing = (nodes[2].position - nodes[1].position).normalize();
-            original_angle =
-                original_angle.max(incoming.dot(outgoing).clamp(-1.0, 1.0).acos().to_degrees());
-        }
         safe(&a, &scene);
         for (old, new) in before.nodes.iter().zip(&a.nodes) {
             if old.fixed {
@@ -121,11 +110,7 @@ fn seed_3500_reproduces_and_older_stem_moves_without_sharp_joints() {
             max_angle = max_angle.max(incoming.dot(outgoing).clamp(-1.0, 1.0).acos().to_degrees());
         }
     }
-    println!("established_motion={old_motion} max_joint_angle={max_angle} original_max_angle={original_angle}");
-    assert!(
-        max_angle < original_angle * 0.6,
-        "continuous body did not improve the original kink"
-    );
+    println!("established_motion={old_motion} max_joint_angle={max_angle}");
     assert!(old_motion > 0.001, "established body still frozen");
     assert!(max_angle < 35.0, "sharp joint: {max_angle}");
 }
@@ -142,9 +127,7 @@ fn hole_contacts_do_not_freeze_the_free_shoot_after_climbing() {
         }
     }
     let (p, n, c) = Fixture::Hole.seed();
-    let mut plant = Plant::seed(p + OFFSET.as_vec3(), n, c + OFFSET, 1, 42)
-        .with_clockwise(true)
-        .with_continuous_stem(true);
+    let mut plant = Plant::seed(p + OFFSET.as_vec3(), n, c + OFFSET, 1, 42).with_clockwise(true);
     let mut late_motion = 0;
     for frame in 0..180 {
         plant.grow(&Translated, 16.0);
@@ -176,10 +159,10 @@ fn phase_is_elapsed_time_not_growth_attempts_and_pause_holds_it() {
         a.step_motion(&scene, 0.05, 1.0, 16.0, true).unwrap();
         b.step_motion(&scene, 0.05, 1.0, 16.0, true).unwrap();
     }
-    assert_eq!(a.rod.as_ref().unwrap().phase, b.rod.as_ref().unwrap().phase);
-    let phase = a.rod.as_ref().unwrap().phase;
+    assert_eq!(a.rod.phase, b.rod.phase);
+    let phase = a.rod.phase;
     a.step_motion(&scene, 0.05, 1.0, 16.0, false).unwrap();
-    assert_eq!(phase, a.rod.as_ref().unwrap().phase);
+    assert_eq!(phase, a.rod.phase);
 }
 #[test]
 fn contact_requires_dwell_instead_of_freezing_at_growth() {

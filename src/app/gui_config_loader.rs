@@ -87,6 +87,7 @@ impl GuiConfigLoader {
                         | "terrain_material_enabled"
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
+                        | "climbing_continuous_stem"
                 )
             });
         }

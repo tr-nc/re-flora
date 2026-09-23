@@ -1418,12 +1418,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
-        id: "climbing_continuous_stem",
-        kind: "bool",
-        label: "Continuous stem experiment (A/B; off = original; restarts vine)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
         id: "climbing_flexibility",
         kind: "float",
         label: "Shoot exploration / flexibility",
@@ -1688,7 +1682,6 @@ pub struct GuiAdjustables {
     pub climbing_fixture: crate::gui_adjustables::ChoiceParam,
     pub climbing_clockwise: crate::gui_adjustables::BoolParam,
     pub climbing_seed: crate::gui_adjustables::UintParam,
-    pub climbing_continuous_stem: crate::gui_adjustables::BoolParam,
     pub climbing_flexibility: crate::gui_adjustables::FloatParam,
     pub climbing_paused: crate::gui_adjustables::BoolParam,
     pub climbing_speed: crate::gui_adjustables::FloatParam,
@@ -1939,7 +1932,6 @@ impl GuiAdjustables {
         let mut climbing_fixture_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut climbing_clockwise_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_seed_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut climbing_continuous_stem_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_flexibility_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_paused_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3491,11 +3483,6 @@ impl GuiAdjustables {
                             climbing_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
-                    "climbing_continuous_stem" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            climbing_continuous_stem_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "climbing_flexibility" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3765,7 +3752,6 @@ impl GuiAdjustables {
             climbing_fixture: climbing_fixture_field.expect("Missing parameter: climbing_fixture"),
             climbing_clockwise: climbing_clockwise_field.expect("Missing parameter: climbing_clockwise"),
             climbing_seed: climbing_seed_field.expect("Missing parameter: climbing_seed"),
-            climbing_continuous_stem: climbing_continuous_stem_field.expect("Missing parameter: climbing_continuous_stem"),
             climbing_flexibility: climbing_flexibility_field.expect("Missing parameter: climbing_flexibility"),
             climbing_paused: climbing_paused_field.expect("Missing parameter: climbing_paused"),
             climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
@@ -4028,7 +4014,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "climbing_enabled" => Some(&adjustables.climbing_enabled),
         "climbing_clockwise" => Some(&adjustables.climbing_clockwise),
-        "climbing_continuous_stem" => Some(&adjustables.climbing_continuous_stem),
         "climbing_paused" => Some(&adjustables.climbing_paused),
         "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
@@ -4313,7 +4298,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "climbing_enabled" => Some(&mut adjustables.climbing_enabled),
         "climbing_clockwise" => Some(&mut adjustables.climbing_clockwise),
-        "climbing_continuous_stem" => Some(&mut adjustables.climbing_continuous_stem),
         "climbing_paused" => Some(&mut adjustables.climbing_paused),
         "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,

@@ -1,9 +1,9 @@
 # One seeded vine with a flexible young shoot
 
-**Historical / original A mode:** the current saved A/B control also offers a
-[continuous-stem experiment](climbing_vine_continuous_stem.md). The user subsequently
-allowed older stem to move. Frozen-history requirements, default values and measurements
-below describe the original implementation, not requirements for the new model.
+**Historical, removed model:** the user approved the
+[continuous-stem model](climbing_vine_continuous_stem.md), which is now the sole implementation.
+The old solver and A/B checkbox have been removed. Frozen-history requirements, default
+values and measurements below describe the original implementation, not current requirements.
 
 Date: 2026-09-23. Follow-up to grounded/immediate scene controls (`66a56fbe`).
 This replaces the permanently rigid growing zone and automatic forks, not the

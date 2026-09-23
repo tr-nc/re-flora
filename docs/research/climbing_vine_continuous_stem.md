@@ -1,5 +1,10 @@
 # Continuous, terrain-aware climbing stem: first visual candidate
 
+**Historical validation record:** the user subsequently approved this direction. The old
+solver and experiment checkbox have since been removed; the model below is now the sole
+implementation. The next requested investigation concerns unsupported growth above a wall.
+A/B instructions and acceptance status below describe this report's original revision.
+
 Date: 2026-09-23. Follows `c1d8c897` and the user's approval of the
 [support-search research](climbing_vine_support_search.md). The old requirement that
 established geometry never move is intentionally relaxed, not silently broken.

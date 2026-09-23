@@ -1,7 +1,7 @@
-//! Experimental continuous stem. Material memory, a moving growth zone and local
+//! Continuous stem. Material memory, a moving growth zone and local
 //! compliant attachments are independent: an attachment never ends a bend stencil.
 //! All geometry, phase, material and contact changes commit against one snapshot.
-use super::{clear_segment, growth, shoot::clear_sweep, Anchor, Contact, Plant, Terrain, Tip};
+use super::{clear_segment, growth, sweep::clear_sweep, Anchor, Contact, Plant, Terrain, Tip};
 use glam::{Quat, Vec3};
 use std::collections::BTreeMap;
 
@@ -64,7 +64,7 @@ impl Rod {
 
 pub(super) fn probe(plant: &Plant, tip: &Tip) -> Vec3 {
     let node = &plant.nodes[tip.node];
-    let rod = plant.rod.as_ref().unwrap();
+    let rod = &plant.rod;
     let incoming = node.parent.map_or(rod.heading, |p| {
         (node.position - plant.nodes[p].position).normalize()
     });
@@ -107,7 +107,7 @@ pub(super) fn step(
     }
     let dt = dt.min(0.05);
     let mut next = plant.clone();
-    let mut rod = next.rod.as_ref().unwrap().clone();
+    let mut rod = next.rod.clone();
     let tip = &next.tips[0];
     let end = next.nodes[tip.node].position;
     let overhead = !clear_segment(terrain, end, end + Vec3::Y * 4.0, next.radius)?;
@@ -359,7 +359,7 @@ pub(super) fn step(
         next.nodes[i].backing = backing;
     }
     establish_contact(&mut next, &mut rod, dt, spacing);
-    next.rod = Some(rod);
+    next.rod = rod;
     if !terrain.current() {
         return None;
     }
@@ -438,7 +438,7 @@ fn establish_contact(plant: &mut Plant, rod: &mut Rod, dt: f32, spacing: f32) {
         attached: true,
         normal: contact.normal,
     });
-    // `fixed` retains the old mode's history coloring; it is not a rod constraint.
+    // Established-history coloring is not a mechanical lock.
     plant.freeze_path(i);
     plant.tips[0].arc = plant.nodes[i + 1..].iter().map(|n| n.rest_length).sum();
     plant.tips[0].spacing = spacing * (0.85 + 0.3 * super::random(&mut plant.tips[0].rng));
