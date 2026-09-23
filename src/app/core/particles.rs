@@ -582,6 +582,7 @@ impl App {
         let leaf_model = crate::tracer::LeafModelSettings {
             enabled: settings.falling_leaf_mesh.value,
             resolution: settings.falling_leaf_pixel_resolution.value,
+            size_scale: settings.falling_leaf_size_scale.value,
         };
         if let Err(err) =
             self.tracer

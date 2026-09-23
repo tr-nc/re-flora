@@ -27,16 +27,36 @@ const LEAF_MODEL_FLAG: u32 = 2;
 pub struct LeafModelSettings {
     pub enabled: bool,
     pub resolution: u32,
+    pub size_scale: f32,
 }
 impl Default for LeafModelSettings {
     fn default() -> Self {
         Self {
             enabled: false,
             resolution: 16,
+            size_scale: 1.,
         }
     }
 }
 impl LeafModelSettings {
+    fn display_scale(self) -> f32 {
+        if self.size_scale.is_finite() {
+            self.size_scale.clamp(0.25, 4.)
+        } else {
+            1.
+        }
+    }
+
+    /// Visual size only: never feed this back into LeafFlight's aerodynamic size.
+    /// Both A/B paths scale detached leaves, not butterflies or leaf-colored debris.
+    pub fn render_size(self, snapshot: &ParticleSnapshot) -> f32 {
+        if snapshot.kind == ParticleRenderKind::Leaf && snapshot.leaf_orientation.is_some() {
+            snapshot.size * self.display_scale()
+        } else {
+            snapshot.size
+        }
+    }
+
     pub fn uses_model(self, snapshot: &ParticleSnapshot) -> bool {
         self.enabled
             && snapshot.kind == ParticleRenderKind::Leaf
@@ -168,8 +188,8 @@ pub(super) struct ButterflyMeshRenderer {
     tile_count: u32,
     pub compute_count: u32,
     pub dispatch_resolution: u32,
-    previous_leaf_mode: Option<(bool, u32)>,
-    validated_leaf_mode: Option<(bool, u32)>,
+    previous_leaf_mode: Option<(bool, u32, u32)>,
+    validated_leaf_mode: Option<(bool, u32, u32)>,
     previous_mode: Option<(u32, u32, bool, u32)>,
     validated_mode: Option<(u32, u32, bool, u32)>,
 }
@@ -364,7 +384,10 @@ impl ButterflyMeshRenderer {
         let resolution = leaves.resolution.clamp(8, MAX_RESOLUTION);
         for snapshot in candidates {
             self.instances.push(Instance {
-                position_size: snapshot.position_ws.extend(snapshot.size).to_array(),
+                position_size: snapshot
+                    .position_ws
+                    .extend(leaves.render_size(snapshot))
+                    .to_array(),
                 color: snapshot.color.to_array(),
                 metadata: [
                     first,
@@ -411,9 +434,13 @@ impl ButterflyMeshRenderer {
             });
             resources.draw_indices.fill(&order)?;
         }
-        let leaf_mode = (leaves.enabled, leaves.resolution.clamp(8, MAX_RESOLUTION));
+        let leaf_mode = (
+            leaves.enabled,
+            leaves.resolution.clamp(8, MAX_RESOLUTION),
+            leaves.display_scale().to_bits(),
+        );
         if self.previous_leaf_mode != Some(leaf_mode) {
-            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source=assets/models/leaf.glb source_crc32={:08x} orientation=published_simulation geometry=32_triangles", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count, crc32fast::hash(crate::model_assets::LEAF_BYTES));
+            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source=assets/models/leaf.glb source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count, crc32fast::hash(crate::model_assets::LEAF_BYTES), leaves.display_scale());
             self.previous_leaf_mode = Some(leaf_mode);
         }
         let mode = (
@@ -493,6 +520,7 @@ mod tests {
                 let enabled = LeafModelSettings {
                     enabled: true,
                     resolution,
+                    ..LeafModelSettings::default()
                 };
                 renderer
                     .prepare_models(&snapshots, butterfly, enabled, Vec3::Z)
@@ -527,6 +555,83 @@ mod tests {
     }
 
     #[test]
+    fn display_scale_changes_only_detached_leaf_render_size_in_both_modes() {
+        let mut system = crate::particles::ParticleSystem::new(1);
+        system
+            .spawn(crate::particles::ParticleSpawn::default())
+            .unwrap();
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        let original = snapshots[0];
+        let butterfly = ButterflyMeshSettings {
+            resolution: 16,
+            fps: 8,
+            self_shadows: true,
+            transmission: 0.9,
+        };
+        let mut renderer = ButterflyMeshRenderer::default();
+        for scale in [0.25, 1., 2., 4.] {
+            let mut settings = LeafModelSettings {
+                size_scale: scale,
+                ..LeafModelSettings::default()
+            };
+            // The sprite path uses precisely this helper, without editing snapshots.
+            assert_eq!(settings.render_size(&original), original.size * scale);
+            settings.enabled = true;
+            renderer
+                .prepare_models(&snapshots, butterfly, settings, Vec3::Z)
+                .unwrap();
+            let instance = renderer.instances[0];
+            assert_eq!(
+                instance.position_size,
+                original
+                    .position_ws
+                    .extend(original.size * scale)
+                    .to_array()
+            );
+            assert_eq!(
+                instance.lighting,
+                original.leaf_orientation.unwrap().to_array()
+            );
+            assert_eq!(instance.color, original.color.to_array());
+            assert_eq!(instance.metadata, [0, 32, 16, LEAF_MODEL_FLAG]);
+            assert_eq!(
+                renderer.triangles[0].a,
+                crate::model_assets::leaf().triangles[0].positions[0]
+                    .extend(0.)
+                    .to_array()
+            );
+            for kind in [
+                ParticleRenderKind::Butterfly,
+                ParticleRenderKind::WaterDroplet,
+                ParticleRenderKind::TerrainVoxel,
+            ] {
+                let mut other = original;
+                other.kind = kind;
+                assert_eq!(settings.render_size(&other), original.size);
+            }
+            let mut debris = original;
+            debris.leaf_orientation = None;
+            assert_eq!(settings.render_size(&debris), original.size);
+        }
+        for (input, expected) in [(f32::NAN, 1.), (f32::INFINITY, 1.), (-1., 0.25), (100., 4.)] {
+            assert_eq!(
+                LeafModelSettings {
+                    size_scale: input,
+                    ..LeafModelSettings::default()
+                }
+                .render_size(&original),
+                original.size * expected
+            );
+        }
+        system.write_snapshots(&mut snapshots);
+        assert_eq!(snapshots[0].size, original.size);
+        assert_eq!(snapshots[0].position_ws, original.position_ws);
+        assert_eq!(snapshots[0].velocity, original.velocity);
+        assert_eq!(snapshots[0].leaf_orientation, original.leaf_orientation);
+    }
+
+    #[test]
     fn shared_leaf_geometry_is_uploaded_once_even_at_full_particle_capacity() {
         let mut system = crate::particles::ParticleSystem::new(1);
         system
@@ -548,6 +653,7 @@ mod tests {
                 LeafModelSettings {
                     enabled: true,
                     resolution: 64,
+                    ..LeafModelSettings::default()
                 },
                 Vec3::Z,
             )
@@ -562,7 +668,8 @@ mod tests {
         no_pose.leaf_orientation = None;
         assert!(!LeafModelSettings {
             enabled: true,
-            resolution: 16
+            resolution: 16,
+            ..LeafModelSettings::default()
         }
         .uses_model(&no_pose));
     }

@@ -23,6 +23,7 @@ if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);}else i
  assert.ok(text.includes('failures=0'));
  const modes=Array.from(text.matchAll(/LEAF-MODEL\] mode=([AB]) pixels=(\d+)x/g),m=>`${m[1]}${m[2]}`);
  assert.deepEqual(modes.slice(0,6),['A16','B8','B16','B64','A16','B16'],`Incomplete live sweep; rerun with a larger --seconds. ${log}`);
+ for(const [mode,scale] of [['A','2'],['B','0.25'],['B','4']])assert.match(text,new RegExp(`LEAF-MODEL\\] mode=${mode}[^\\n]* render_scale=${scale.replace('.','\\.')}\\b`),`Missing ${mode} size ${scale}; increase --seconds`);
  const files=await readdir(path.join(output,'tiles'));
  for(const n of [8,16,64]){
    assert.match(text,new RegExp(`LEAF-MODEL-CHECK\\] mode=B resolution=${n} active=8 checked_hits=[1-9]\\d*`));
@@ -30,5 +31,5 @@ if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);}else i
    for(const image of images){const data=await readFile(path.join(output,'tiles',image));assert.equal(data.readUInt32BE(16),n);assert.equal(data.readUInt32BE(20),n);}
  }
  assert.ok((await readFile(path.join(output,'scene.png'))).length>100);
- console.log(`PASS: live A/B, 8/16/64px, published flight poses, GPU/CPU depths, no Vulkan errors or saved-setting changes.\nLog: ${log}\nScreenshot: ${output}/scene.png`);
+ console.log(`PASS: live A/B, 8/16/64px, 0.25/1/2/4x display sizes, published flight poses, GPU/CPU depths, no Vulkan errors or saved-setting changes.\nLog: ${log}\nScreenshot: ${output}/scene.png`);
 }

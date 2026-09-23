@@ -65,6 +65,19 @@ impl App {
                 .adjustables
                 .falling_leaf_pixel_resolution
                 .value = resolution;
+            self.debug_settings
+                .adjustables
+                .falling_leaf_size_scale
+                .value = if mode == "ab" {
+                match frame / 30 {
+                    4 => 2.,
+                    6 => 0.25,
+                    7 => 4.,
+                    _ => 1.,
+                }
+            } else {
+                1.
+            };
         }
         if frame == 0 && fixture {
             let camera = Vec3::new(1., 1.55, 1.8);

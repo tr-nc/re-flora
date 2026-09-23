@@ -47,11 +47,15 @@ Debug → **Falling Leaves**:
 
 - `Shared 3D Leaf (B; Unchecked = Original Sprite)` — default off. A keeps the existing sprite;
   B displays the shared curved mesh. This is a render-only switch, not a flight-mode switch.
+- `Falling Leaf Display Size` — saved **0.25×–4×, default 1×** multiplier, applied to both A/B
+  displays. It does not change aerodynamic size, falling speed, rotation, collision or lifetime;
+  butterflies and non-falling leaf-colored debris are unaffected.
 - `Pixels per Falling Leaf` — separate saved control, **8–64, default 16**, matching the current
   butterfly control's range/default, without sharing its live value.
 
 The source leaf lies in local XY with +Z as its leaf normal. The renderer uses the existing published
-`leaf_orientation` quaternion directly, with the existing position, size, color, lifetime and alpha.
+`leaf_orientation` quaternion directly, with the existing position, physical size, color, lifetime
+and alpha. The display-size multiplier is applied only when encoding render instances.
 It does not add an Euler offset, face the model toward the camera, reset flight, or resample leaf
 motion at butterfly FPS. `LeafFlight` and its angle-dependent falling/rotation equations are unchanged.
 Non-falling leaf-colored particles without that physical pose remain on the existing sprite path.
@@ -88,7 +92,8 @@ of ordinary fast Cargo tests. Also run the viewer browser suite and the game's h
 when changing a shared asset or loader.
 
 Validated in this worktree: full Cargo tests, 11 Node tests, browser interaction checks, both-model
-pose parity, normal hidden Release startup, live leaf A→B(8/16/64)→A→B switching, and the existing
+pose parity, normal hidden Release startup, live leaf A→B(8/16/64)→A→B switching and display-size
+sweeps at 0.25×/1×/2×/4×, and the existing
 butterfly 8/22/64px/shadow/transmission sweep. The leaf GPU check used 8 production flight particles;
 maximum checked depth difference was below 0.0000005, with no Vulkan validation errors or saved-config
 changes. `target/leaf-model-review/` contains the run log, actual game screenshot and native pixel

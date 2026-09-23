@@ -1154,6 +1154,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Falling Leaves",
+        id: "falling_leaf_size_scale",
+        kind: "float",
+        label: "Falling Leaf Display Size (A/B; Physics Unchanged)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
         id: "falling_leaf_pixel_resolution",
         kind: "uint",
         label: "Pixels per Falling Leaf (N x N, Independent of Butterflies)",
@@ -1596,6 +1602,7 @@ pub struct GuiAdjustables {
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
     pub falling_leaf_mesh: crate::gui_adjustables::BoolParam,
+    pub falling_leaf_size_scale: crate::gui_adjustables::FloatParam,
     pub falling_leaf_pixel_resolution: crate::gui_adjustables::UintParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
@@ -1839,6 +1846,7 @@ impl GuiAdjustables {
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut falling_leaf_mesh_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut falling_leaf_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut falling_leaf_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3141,6 +3149,13 @@ impl GuiAdjustables {
                             falling_leaf_mesh_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
+                    "falling_leaf_size_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            falling_leaf_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "falling_leaf_pixel_resolution" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
@@ -3611,6 +3626,7 @@ impl GuiAdjustables {
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
             falling_leaf_mesh: falling_leaf_mesh_field.expect("Missing parameter: falling_leaf_mesh"),
+            falling_leaf_size_scale: falling_leaf_size_scale_field.expect("Missing parameter: falling_leaf_size_scale"),
             falling_leaf_pixel_resolution: falling_leaf_pixel_resolution_field.expect("Missing parameter: falling_leaf_pixel_resolution"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
@@ -3805,6 +3821,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_flutter_frequency_full" => Some(&adjustables.leaf_flutter_frequency_full),
         "leaf_flutter_frequency_knee" => Some(&adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
+        "falling_leaf_size_scale" => Some(&adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
@@ -4080,6 +4097,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_flutter_frequency_full" => Some(&mut adjustables.leaf_flutter_frequency_full),
         "leaf_flutter_frequency_knee" => Some(&mut adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
+        "falling_leaf_size_scale" => Some(&mut adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&mut adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),

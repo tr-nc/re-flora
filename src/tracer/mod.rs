@@ -6670,7 +6670,7 @@ impl Tracer {
                 leaf_optics,
                 leaf_pose_flags,
                 position: snap.position_ws.to_array(),
-                size: snap.size,
+                size: leaf_model.render_size(snap),
                 color: snap.color.to_array(),
             };
             if snap.kind == crate::particles::ParticleRenderKind::WaterDroplet {

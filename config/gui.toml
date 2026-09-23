@@ -2160,6 +2160,17 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "falling_leaf_size_scale"
+kind = "float"
+label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.25
+max = 4.0
+
+[[section.param]]
 id = "falling_leaf_pixel_resolution"
 kind = "uint"
 label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"

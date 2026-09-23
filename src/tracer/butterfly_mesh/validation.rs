@@ -58,7 +58,7 @@ impl ButterflyMeshRenderer {
         resources: &crate::tracer::resources::TracerResources,
     ) -> Result<()> {
         let leaf_review = std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
-            && self.previous_leaf_mode.is_some_and(|(enabled, _)| enabled);
+            && self.previous_leaf_mode.is_some_and(|(enabled, ..)| enabled);
         if (!leaf_review && std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_none())
             || self.compute_count == 0
             || (self.previous_mode == self.validated_mode
