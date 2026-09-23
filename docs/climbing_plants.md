@@ -1,159 +1,130 @@
 # Climbing vine: search, attach, prune, regrow
 
-The playable vine uses **rooted pruning**, not quasi-static falling. This replaces the
-previous settling model at the user's request: a missing backing surface cuts off its
-whole downstream branch, even when higher attachments still have wall behind them.
-The retained lower stem keeps its geometry and history. Normal growth now makes **one
-unbranched vine**. Only the young span beyond the latest attachment bends and sags; a new
-attachment freezes that completed span. A retained cut is also a stable growth base.
+The demo grows one persistent, unbranched vine. Missing support prunes the downstream
+subtree, even if higher attachments still have wall behind them. A retained cut waits
+for repair and regrows with fresh IDs; there are no falling detached remnants.
+
+The **continuous-stem experiment** now permits older stem to deform. The original
+frozen-history model remains available through the saved runtime A/B checkbox.
 
 ## Try it
 
-1. Launch this worktree (`cargo run --release` for release playback).
-2. **R → Climbing Plants**: changing **Test terrain** (flat wall, hole, outward ledge,
-   recessed wall, sloping wall, or ground-to-wall) immediately enables/rebuilds the test
-   patch and restarts the vine. There is no confirmation or extra reset click.
-   **Create vine wall and focus** starts the initially selected scene; **Restart wall and
-   vine** repeats it directly. **Vine seed** and **Clockwise tip search** changes also restart
-   immediately. **New random seed** picks another seed and restarts; the same seed, winding,
-   settings and simulation inputs reproduce the same initial state and exploration.
-   This edits real terrain: do not use the demo patch for terrain you want to preserve.
-   It is placed beside the startup tree, around voxel X=383/Z=300, with the wall base on
-   current soil/sand/rock and a two-voxel embedded footing. It ignores wood/foliage as ground
-   and waits instead of guessing when the source is unavailable. Resets reuse the site,
-   so they cannot progressively stack walls on their own previous tops.
-3. Watch the tip sweep diagonally upward, find an exposed surface and attach, then
-   continue searching. The lighter-green young span bends under gravity and rotating
-   exploration; older dark-green geometry stays fixed. **Unattached shoot flexibility**
-   tunes this live response (default 1, range 0–2; 0 returns toward its intrinsic shape). Small existing holes can be bridged; a ceiling is followed
-   tangentially to its edge, and growth resumes upward once clear. Let it grow. **3 / Dig**, LMB removes wall; **Shift + wheel** adjusts brush size.
-   When the edited terrain becomes current/ready, the first unsupported step and its
-   descendants disappear. There is no need to disconnect the root or wait for gravity.
-4. The retained cut becomes a regrowth bud. The cut's first step waits while its wall
-   is missing or blocked; repairing the gap allows growth from that exact cut.
-5. **Pause vine growth** stops extension/search progression, not young-shoot settling or
-   terrain-triggered pruning. A waiting cut stays completely still. Turn it off
-   to regrow. **Prune highest attachment** / **Prune back to root** let you trim without
-   editing terrain; intact wall permits immediate regrowth.
-6. **Focus vine** recenters the remaining skeleton. Restart is immediate.
-   **Disconnect root** explicitly stops regrowth until reset; it is not a fall command.
-7. Optional markers: yellow attachment, blue next search probe, orange regrowth bud,
-   red unsupported root seed.
-   **Blocked-tip test → Refill terrain through tip** embeds real limestone in a tip;
-   the blocked stem is pruned. Remove that inserted material to unblock regrowth.
+1. Run this worktree with `cargo run --release`, then **R → Climbing Plants**.
+2. **Continuous stem experiment (A/B; off = original; restarts vine)**:
+   - **Checked:** distributed bending through attachments, independently timed exploration,
+     gradual contact establishment, compliant established stem and short attachment roots.
+   - **Unchecked:** original phase-per-growth search and frozen established spans.
+   - Changing it immediately restarts the same seed/terrain for comparison. The new
+     declaration defaults to checked; the user's existing seed and other values are retained.
+3. **Test terrain**, **Vine seed**, and **Clockwise tip search** also restart immediately.
+   **Restart wall and vine** repeats the current seed; **New random seed** changes the saved
+   seed. **Create vine wall and focus** starts an uncreated patch. **Focus vine** recenters it.
+4. **Shoot exploration / flexibility** changes the response live. In continuous mode,
+   reducing it suppresses the exploration amplitude and gravity load, not the elasticity
+   or collision constraints. **Growth attempts/sec** changes elongation, not the continuous
+   oscillator's period. **Adhesion spacing** targets distance along the stem; it is neither
+   wall distance nor exploration radius. Continuous mode has an independent bounded air budget.
+5. **Pause vine growth** holds extension and exploration phase, but allows settling and
+   terrain-triggered pruning. A waiting cut is completely held. A repaired cut deliberately
+   retains a fixed surviving base so its stored absolute restart step stays valid.
+6. **3 / Dig**, LMB removes wall; **Shift + wheel** changes brush size. Repair the missing
+   support to regrow. **Prune highest attachment** / **Prune back to root** trim without
+   editing terrain. **Disconnect root** stops growth until reset.
+7. Optional markers: yellow attachment, blue next extension probe, orange retained bud,
+   red unsupported root seed. **Blocked-tip test → Refill terrain through tip** inserts real
+   limestone; removing it permits repair-gated regrowth.
 
-Enable, terrain selection, seed, rotation direction, flexibility, pause, growth speed,
-attachment spacing and marker settings use the declarative Debug **Save** path. **Plant history is session-only**, not part of terrain snapshots.
-Loading/replacing the world clears the vine and cache without automatically creating a wall.
+**Resets modify real terrain.** The patch is beside the startup tree around X=383/Z=300,
+with a two-voxel footing embedded in current natural ground. Site discovery ignores
+foliage, wood and authored limestone, and waits for available/current terrain. Reusing
+that site prevents successive resets from stacking walls. Do not build anything you want
+preserved inside this test patch.
 
-## Model and safety
+All settings, including A/B, use the declarative Debug Save pipeline. Older GUI files
+receive missing declarations without losing saved fields. **Plant history is session-only**;
+world replacement clears it and does not silently author another wall.
 
-- At most 512 **live** nodes, with one initial root/tip and no automatic branching.
-  The pruning graph still supports explicit trees for its branch-isolation guardrails.
-  Live storage compacts after pruning; monotonic node IDs are never reused. Parent,
-  anchor and tip indices are remapped together. Leaf appearance uses stable IDs.
-- Root-to-tip checks include every recorded surface contact and originally continuous
-  backing line, not just sparse attachment markers. Removing previously present backing
-  between sampled nodes counts. Exploratory arcs over **pre-existing** empty holes do not
-  invent backing dependencies and do not prune themselves. Missing recorded material,
-  material replacement or a buried stem prunes the first invalid edge.
-- A cut retains its parent and creates one frontier bud, not a bud at every deleted node.
-  Buds retry the first removed step exactly. Blocked buds do not consume RNG even while
-  other branches grow. Repeated cuts reclaim capacity rather than exhausting historical IDs.
-- Losing the entire backing wall retains only a latent root seed, which cannot extend
-  until the root's surface is suitable again. Restoring the wall does not resurrect old IDs.
-- Validation is transactional against immutable Contree exports. Unknown/stale data never
-  means empty terrain. Published edit bounds and dependency polling trigger validation;
-  cache reuse checks full bounds, presence, revision **and** readiness, including empty chunks.
-- Established nodes and retained stumps never move. The current young span uses a
-  20 Hz overdamped, gravity-biased elastic pose, with rotating distal search influence.
-  Forward kinematics preserves every segment's rest length. Bounded line search checks
-  the **whole swept segment interior** against radius-expanded voxels, not just endpoints.
-  Contacts/backing are refreshed at the new pose; stale/unavailable queries roll back
-  geometry, attachment and RNG changes together. This is not whole-plant falling,
-  inertial mechanics or detached-remnant simulation.
-- Growth combines an upward/local-tangent direction, rotating radial exploration (24
-  angular phases per turn), and a small support-seeking bias. A nominal step is 2 voxels;
-  a local contact correction is limited to 2.5 voxels and must have a clear entire segment.
-  Surface normals, rather than one global wall plane, orient subsequent search and leaves.
-- Only exposed faces of the root's material are eligible attachments. Free extension is
-  bounded by `clamp(3 × spacing, 12, 64)` voxels from its growth base (the last attachment
-  or retained cut). Deformation preserves arc length and cannot renew that budget. Blocked ordinary tips rotate their probe without
-  consuming RNG. Retained cut buds instead retry the stored severed step unchanged.
-- This is an artistic abstraction of **circumnutation**, not a claim that all wall-clinging
-  species twine, nor a biomass/elasticity simulation. Ground-to-wall and five wall fixtures
-  exercise the same terrain description in analytic tests and real editable voxels.
-  See [research/climbing_vine_circumnutation.md](research/climbing_vine_circumnutation.md).
+## Continuous-body model
 
-## Validation and CPU profiling
+`src/climbing_plants/rod.rs` owns the experimental mechanics; `rod/collision.rs` owns its
+local obstacle constraints. `growth.rs` remains authoritative for growth/contact candidates.
+
+- Material is not regenerated: node IDs, rest lengths and parent relationships persist.
+  A coupled three-node bend stencil spans attachments. Young material gradually remembers
+  its shape; older material retains finite elastic resistance. This is an overdamped
+  position-constraint model, not calibrated plant physiology, inertia, or an XPBD solver.
+- A finite growing zone receives a smooth tangent/preferred-bend field. Its transported
+  frame does not reset to each voxel face normal. The wall-clinging phenotype remembers
+  its original exposed side through hole/stair contacts; it is not an arbitrary pole twiner.
+- The oscillator advances on a 20 Hz simulation clock independently of births. New material
+  follows the existing tip tangent with a small tropic correction, rather than printing the
+  rotating direction into each new segment. Growth and motion are interleaved on that same
+  fixed tick so rendering cadence does not reorder them.
+- Candidate contacts behind the apex must persist before becoming established. Short rootlets
+  bridge surface roughness without forcing the main centerline onto every attachment point.
+  Established footprints remain fixed; the connected stem has bounded positional compliance.
+  Rootlet centerlines are checked against terrain. Decorative rootlet thickness/leaf boxes
+  are not independently swept collision bodies.
+- Local exposed-voxel constraints act on both ends of each segment/expanded-voxel intersection
+  interval, not just stem endpoints or interval midpoints. Active contacts are refreshed while
+  solving. Final whole-segment and swept convex-hull checks still decide acceptance.
+- Length error is bounded to 0.002 voxel, displacement to 0.25 voxel per motion quantum,
+  and established attachment displacement to 0.3 voxel. If no bounded, clear pose is found,
+  geometry is held rather than publishing an unconverged or penetrating solution.
+- A nominal growth step is 2 voxels; contact correction is capped at 2.5. New contact growth
+  cannot introduce a bend above 25 degrees relative to the incoming segment. This is **not**
+  a hard bound on later deformed joint angles: obstacle corners can still produce tighter bends.
+- Unsupported extension is capped at 64 voxels of rest arc in continuous mode. Deformation
+  cannot replenish it. This is an artistic bounded search, not global terrain pathfinding or
+  a guarantee that every seed reaches the top.
+
+The original unchecked model retains 24 growth-attempt phases per turn, the young-span
+solver in `shoot.rs`, instantaneous attachment freezing, and its spacing-dependent
+`clamp(3 × spacing, 12, 64)` air budget. Its historical description and measurements are
+in [research/climbing_vine_live_shoot.md](research/climbing_vine_live_shoot.md).
+
+## Shared history and safety
+
+- At most 512 live nodes. Pruning compacts storage without reusing IDs; indices are remapped
+  together. Explicit-tree pruning guardrails remain, although normal growth never branches.
+- Root-to-tip revalidation checks actual recorded contacts/backing, established anchor
+  material, clear stem geometry, and (in continuous mode) attachment rootlet centerlines.
+  Pre-existing gaps do not invent backing dependencies. Missing/changed material or a buried
+  stem removes the first invalid step and all descendants.
+- Buds retry the exact first severed step. A waiting cut commits neither geometry nor RNG
+  progression; the surviving base stays fixed after repair. Whole-wall loss leaves a latent
+  root seed. Repair creates new nodes, not resurrected identities.
+- Terrain snapshots are transactional: unavailable or stale queries do not commit pose,
+  material memory, phase, contacts, RNG, pruning, or growth. Collision cache reuse checks
+  bounds, dependencies and readiness. Loading a world clears history/cache.
+
+## Validation
 
 ```sh
 cargo fmt --check
 cargo check
 cargo test
 cargo run --release -- --hidden --mute --auto-exit 0.5
-RE_FLORA_CLIMBING_REVIEW=1 cargo run --release -- --hidden --mute --perf --auto-exit 12
+
+# New model: six real fixtures and the separate pruning/root-recovery scenario.
+for scene in flat hole outward inward slope ground 1; do
+  RE_FLORA_CLIMBING_CONTINUOUS=1 RE_FLORA_CLIMBING_REVIEW=$scene \
+    cargo run --release -- --hidden --mute --perf --auto-exit 12
+done
+# Original A mode: omit RE_FLORA_CLIMBING_CONTINUOUS (review ignores saved A/B).
+RE_FLORA_CLIMBING_REVIEW=1 cargo run --release -- --hidden --mute --auto-exit 12
 cargo run --release -- --tail-latest-log 200
 ```
 
-The new deterministic review edits real terrain, asserts downstream removal despite valid
-upper attachments, waits 30 ready frames without changing the stump, repairs the gap and
-checks new IDs/growth from the cut. It then removes the entire backing wall and verifies
-latent-root waiting and recovery after restoring the wall. Require:
+Reviews fix seed 42, clockwise, spacing 16, flexibility 1, one growth attempt and two
+50 ms motion ticks per sample. Each fixture needs a supported attachment at least 70 voxels
+above ground after 180 attempts, finite geometry, clear stems and authoritative support.
+The new review verifies bounded stretch/attachment displacement and actual established-stem
+motion; the original still requires frozen history. Pruning tests require 30 unchanged
+waiting frames, removal of upper attached descendants, repair with fresh IDs, and root recovery.
+Require completion markers and inspect logs for errors—not just a zero process exit.
 
-```text
-pruned=true upper_attached_removed=true stable_survivors=true before=64 after=22
-waiting=true root=false frames=30 nodes=22
-regrown=true from_cut=true fresh_ids=true
-waiting=true root=true frames=30 nodes=1
-verified prune=true wait=true regrow=true root_recovery=true finite=true
-young_shoot_moved=true frozen_history_stable=true single_tip=true
-phase=complete failures=0
-```
-
-2026-09-23 local evidence: `target/climbing-validation/pruning/` contains the failing
-pre-change pruning test, check/test/smoke logs and successful release review. The
-previous test failed with `unsupported upper stem is still suspended`; it now passes.
-Original exploration evidence is in `target/climbing-validation/exploration/`. In addition
-to the pruning review, run each actual terrain fixture (use longer auto-exit if needed):
-
-```sh
-for scene in flat hole outward inward slope ground; do
-  RE_FLORA_CLIMBING_REVIEW=$scene cargo run --release -- --hidden --mute --perf --auto-exit 12
-done
-```
-
-Each must print `fixture=<name> verified=true collision_clear=true attached_height=...`
-and a successful shutdown. Review fixes seed 42, clockwise search, spacing 16 and flexibility 1;
-there are two 50 ms pose steps per ready growth attempt. The fixture review stops after 180 ready growth attempts,
-requires an attachment at least 70 voxels above the site's ground level (reference Y=262), and checks all stem segments and attachment
-materials against the current terrain export. These checks are not satisfied merely by
-an airborne tip reaching above the obstacle. `RE_FLORA_CLIMBING_REVIEW=1` retains the
-separate prune/wait/repair/root-recovery sequence.
-
-Grounded/immediate-control regression evidence: `target/climbing-validation/live-shoot/site-*.log`.
-The initial UI tests failed on the required extra confirmation/missing selection reaction;
-the placement test failed on the old constant base Y=192. Ground-height, vegetation rejection,
-unknown/stale/no-ground/headroom checks, UI input, full tests and release prune/ground/slope
-reviews pass. At the standard scene's new site the sampled ground is Y=129, not the old Y=192.
-
-Current single-shoot evidence is `target/climbing-validation/live-shoot/shoot-*`:
-1107 + 4 tests passed (2 ignored), Release smoke, all six real-terrain fixtures, and the
-64 → 22 node prune/wait/repair/root-recovery sequence. Every review checked actual young-node
-motion and frozen-history invariance. Native screenshots of inward/ground/slope scenes
-show the grounded single vine; these are not user approval of its animation.
-
-Unit tests cover seed-42 search in **both independently selected directions** on every
-fixture, reproducibility/safety of additional seeds, ground-to-wall growth, finite air
-extension, explicit-tree pruning isolation, swept-interior collisions, sagging/attachment
-freezing, pause/cadence behavior, pending/stale snapshots, and saved settings/older defaults.
-Different seeds are allowed to reach a side edge and stop; bounded exploration is not a
-route planner or a guarantee that every seed reaches the top.
-
-`[CLIMBING][PERF]` now reports export, pruning/revalidation, growth, young-shoot pose (`pose_us`), render preparation and
-voxel-query counts. It excludes fixture edit/camera actions and is not a GPU/FPS measure.
-**This scenario and algorithm differ from the old settling benchmark**; do not directly
-pool or compare their workloads. Current evidence and limitations are recorded in
-[research/climbing_vine_live_shoot.md](research/climbing_vine_live_shoot.md): collision-export
-spikes still reach 25.5 ms, and performance acceptance is **not** claimed. Historical
-measurements/research remain in [research/climbing_vine_tuning.md](research/climbing_vine_tuning.md).
+Latest implementation evidence, quantitative A/B results and unresolved visual/performance
+limits: [research/climbing_vine_continuous_stem.md](research/climbing_vine_continuous_stem.md).
+Biological motivation and limitations: [research/climbing_vine_support_search.md](research/climbing_vine_support_search.md).
+Visual approval and performance acceptance remain separate; neither follows merely from tests.

@@ -7,6 +7,7 @@ const MAX_TIPS: usize = 4;
 
 pub mod fixtures;
 mod growth;
+mod rod;
 mod shoot;
 
 pub trait Terrain {
@@ -61,6 +62,19 @@ pub struct Anchor {
     pub attached: bool,
     pub normal: Vec3,
 }
+impl Anchor {
+    /// Fixed rootlet footprint just outside the exposed support face.
+    pub fn surface_position(&self) -> Vec3 {
+        surface_position(self.position, self.cell, self.normal)
+    }
+}
+fn surface_position(position: Vec3, cell: IVec3, normal: Vec3) -> Vec3 {
+    let mut surface = position.clamp(cell.as_vec3(), cell.as_vec3() + Vec3::ONE);
+    let face = cell.as_vec3() + Vec3::splat(0.5) + normal * 0.5;
+    surface += normal * (0.03 - (surface - face).dot(normal));
+    surface
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tip {
     pub node: usize,
@@ -104,6 +118,7 @@ pub struct Plant {
     root_connected: bool,
     seed: u64,
     next_node_id: u64,
+    rod: Option<rod::Rod>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -148,9 +163,11 @@ impl Plant {
             root_connected: true,
             seed,
             next_node_id: 1,
+            rod: None,
         }
     }
 
+    #[cfg(test)]
     pub fn relax_shoot(
         &mut self,
         terrain: &impl Terrain,
@@ -158,7 +175,32 @@ impl Plant {
         flexibility: f32,
         spacing: f32,
     ) -> Option<usize> {
-        shoot::relax(self, terrain, dt, flexibility, spacing)
+        self.step_motion(terrain, dt, flexibility, spacing, true)
+    }
+
+    /// Advance the independent motion clock; pausing exploration still permits settling.
+    pub fn step_motion(
+        &mut self,
+        terrain: &impl Terrain,
+        dt: f32,
+        flexibility: f32,
+        spacing: f32,
+        exploring: bool,
+    ) -> Option<usize> {
+        if self.rod.is_some() {
+            rod::step(self, terrain, dt, flexibility, spacing, exploring)
+        } else {
+            shoot::relax(self, terrain, dt, flexibility, spacing)
+        }
+    }
+
+    pub fn with_continuous_stem(mut self, enabled: bool) -> Self {
+        self.rod = enabled.then(|| rod::Rod::new(&self.tips[0]));
+        self
+    }
+
+    pub fn continuous_stem(&self) -> bool {
+        self.rod.is_some()
     }
 
     pub fn with_clockwise(mut self, clockwise: bool) -> Self {
@@ -179,6 +221,9 @@ impl Plant {
     }
 
     fn attach_tip(&mut self, index: usize, contact: Contact, spacing: f32) {
+        if self.rod.is_some() {
+            return;
+        } // the rod establishes persistent contacts behind the apex
         let tip = &self.tips[index];
         if tip.arc < tip.spacing {
             return;
@@ -233,13 +278,26 @@ impl Plant {
         let mut cut = vec![false; self.nodes.len()];
         let root_supported = self.root_supported(terrain)?;
         cut[0] = !root_supported;
+        // A compliant stem may move away from its provisional surface contact;
+        // established attachment dependencies remain authoritative until pruning.
+        for anchor in self.anchors.iter().skip(1) {
+            cut[anchor.node] = terrain.voxel(anchor.cell)? != anchor.material;
+            if self.continuous_stem() {
+                cut[anchor.node] |= !clear_segment(
+                    terrain,
+                    self.nodes[anchor.node].position,
+                    anchor.surface_position(),
+                    0.0,
+                )?;
+            }
+        }
         for (id, node) in self.nodes.iter().enumerate().skip(1) {
             let parent = node.parent.expect("non-root stem has a parent");
             if cut[parent] {
                 cut[id] = true;
                 continue;
             }
-            cut[id] = !growth::restart_valid(
+            cut[id] |= !growth::restart_valid(
                 self,
                 self.nodes[parent].position,
                 &Restart::from(node),
@@ -355,6 +413,9 @@ impl Plant {
             .collect();
         for stump in stumps {
             self.freeze_path(stump);
+            if let Some(rod) = &mut self.rod {
+                rod.locked_through = rod.locked_through.max(self.nodes[stump].id);
+            }
         }
         Pruned { removed, buds }
     }
@@ -429,13 +490,16 @@ impl Plant {
 
 /// Exact slab intersection, shared by exposed-stem collision and backing-surface checks.
 fn intersects_box(start: Vec3, end: Vec3, lo: Vec3, hi: Vec3) -> bool {
+    segment_box_interval(start, end, lo, hi).is_some()
+}
+fn segment_box_interval(start: Vec3, end: Vec3, lo: Vec3, hi: Vec3) -> Option<(f32, f32)> {
     let delta = end - start;
     let mut enter: f32 = 0.0;
     let mut exit: f32 = 1.0;
     for axis in 0..3 {
         if delta[axis].abs() < 1e-8 {
             if start[axis] < lo[axis] || start[axis] > hi[axis] {
-                return false;
+                return None;
             }
         } else {
             let a = (lo[axis] - start[axis]) / delta[axis];
@@ -444,7 +508,7 @@ fn intersects_box(start: Vec3, end: Vec3, lo: Vec3, hi: Vec3) -> bool {
             exit = exit.min(a.max(b));
         }
     }
-    enter <= exit
+    (enter <= exit).then_some((enter, exit))
 }
 fn segment_material(
     terrain: &impl Terrain,

@@ -2648,9 +2648,18 @@ min = 0
 max = 65535
 
 [[section.param]]
+id = "climbing_continuous_stem"
+kind = "bool"
+label = "Continuous stem experiment (A/B; off = original; restarts vine)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "climbing_flexibility"
 kind = "float"
-label = "Unattached shoot flexibility"
+label = "Shoot exploration / flexibility"
 type = "Float"
 
 [section.param.data]

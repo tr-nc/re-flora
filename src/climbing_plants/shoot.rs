@@ -157,7 +157,7 @@ pub(super) fn relax(
 // The convex hull of both endpoint pairs encloses the entire segment sweep.
 // SAT against radius-expanded voxels allows tangential/away motion at contacts
 // without the false blocking of an isotropically inflated old segment.
-fn clear_sweep(terrain: &impl Terrain, points: [Vec3; 4], radius: f32) -> Option<bool> {
+pub(super) fn clear_sweep(terrain: &impl Terrain, points: [Vec3; 4], radius: f32) -> Option<bool> {
     let min = (points.into_iter().fold(points[0], Vec3::min) - Vec3::splat(radius))
         .floor()
         .as_ivec3();

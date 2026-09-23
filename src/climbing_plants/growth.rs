@@ -18,6 +18,9 @@ pub(super) fn initial_phase(random: f32) -> u8 {
 }
 
 pub(super) fn probe(plant: &Plant, tip: &Tip) -> Vec3 {
+    if plant.continuous_stem() {
+        return super::rod::probe(plant, tip);
+    }
     let node = &plant.nodes[tip.node];
     let mut axis = Vec3::Y - node.normal * node.normal.y;
     if axis.length_squared() < 0.01 {
@@ -77,7 +80,9 @@ pub(super) fn advance(
             plant.radius,
         )?;
     let end = probe(plant, tip);
-    tip.phase = (tip.phase + 1) % STEPS_PER_TURN;
+    if !plant.continuous_stem() {
+        tip.phase = (tip.phase + 1) % STEPS_PER_TURN;
+    }
     if let Some((position, contact)) = touch_surface(plant, start, end, terrain)? {
         let backing = backing_for(plant, start, position, Some(&contact), terrain)?;
         return Some(Some(Step {
@@ -87,7 +92,11 @@ pub(super) fn advance(
             backing,
         }));
     }
-    let limit = (spacing * 3.0).clamp(12.0, 64.0);
+    let limit = if plant.continuous_stem() {
+        super::rod::AIR_BUDGET
+    } else {
+        (spacing * 3.0).clamp(12.0, 64.0)
+    };
     if tip.arc + STEP_LENGTH > limit
         || end.y < start.position.y - 0.0001
         || !clear_segment(terrain, start.position, end, plant.radius)?
@@ -148,8 +157,27 @@ pub(super) fn contact_at(
     node: &Node,
     terrain: &impl Terrain,
 ) -> Option<Option<Contact>> {
+    let mut contacts = nearby_contacts(
+        plant,
+        node.position,
+        terrain,
+        if plant.continuous_stem() {
+            super::rod::ATTACHMENT_EXTENSION
+        } else {
+            0.0
+        },
+    )?;
+    if plant.continuous_stem() {
+        for i in (0..contacts.len()).rev() {
+            let contact = &contacts[i].1;
+            let surface = super::surface_position(node.position, contact.cell, contact.normal);
+            if !clear_segment(terrain, node.position, surface, 0.0)? {
+                contacts.remove(i);
+            }
+        }
+    }
     Some(
-        nearby_contacts(plant, node.position, terrain)?
+        contacts
             .into_iter()
             .min_by(|(pa, a), (pb, b)| {
                 contact_score(*pa, a, node.position, node.normal).total_cmp(&contact_score(
@@ -174,12 +202,20 @@ fn touch_surface(
 ) -> Option<Option<(Vec3, Contact)>> {
     let mut best: Option<(f32, Vec3, Contact)> = None;
     let travel = end - start.position;
-    for (position, contact) in nearby_contacts(plant, end, terrain)? {
+    for (position, contact) in nearby_contacts(plant, end, terrain, 0.0)? {
         let delta = position - start.position;
         if delta.y < -0.0001
             || delta.length_squared() > 2.5 * 2.5
             || delta.length_squared() < 0.1 * 0.1
             || delta.dot(travel) < 0.01
+        {
+            continue;
+        }
+        if plant.continuous_stem()
+            && start.parent.is_some_and(|p| {
+                let incoming = (start.position - plant.nodes[p].position).normalize();
+                incoming.dot(delta.normalize()) < 25.0f32.to_radians().cos()
+            })
         {
             continue;
         }
@@ -198,9 +234,14 @@ fn nearby_contacts(
     plant: &Plant,
     end: Vec3,
     terrain: &impl Terrain,
+    attachment_reach: f32,
 ) -> Option<Vec<(Vec3, Contact)>> {
-    let min = (end - Vec3::splat(1.5)).floor().as_ivec3();
-    let max = (end + Vec3::splat(1.5)).floor().as_ivec3();
+    let min = (end - Vec3::splat(1.5 + attachment_reach))
+        .floor()
+        .as_ivec3();
+    let max = (end + Vec3::splat(1.5 + attachment_reach))
+        .floor()
+        .as_ivec3();
     let mut contacts = Vec::new();
     for z in min.z..=max.z {
         for y in min.y..=max.y {
@@ -232,7 +273,7 @@ fn nearby_contacts(
                     surface[axis] = cell[axis] as f32 + if normal[axis] > 0 { 1.0 } else { 0.0 };
                     // Local distance to an actual face, never attraction to an infinite plane.
                     if end.distance_squared(surface)
-                        > (plant.radius + CONTACT_CLEARANCE + 0.0001).powi(2)
+                        > (plant.radius + CONTACT_CLEARANCE + attachment_reach + 0.0001).powi(2)
                     {
                         continue;
                     }

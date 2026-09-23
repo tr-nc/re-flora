@@ -1312,6 +1312,7 @@ wind_drift = 1.0
         settings.adjustables.climbing_paused.value = true;
         settings.adjustables.climbing_seed.value = 65001;
         settings.adjustables.climbing_flexibility.value = 1.7;
+        settings.adjustables.climbing_continuous_stem.value = false;
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
@@ -1321,6 +1322,7 @@ wind_drift = 1.0
         assert!(reloaded.adjustables.climbing_paused.value);
         assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
         assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
+        assert!(!reloaded.adjustables.climbing_continuous_stem.value);
         for section in &mut settings.config.section {
             section.param.retain(|p| {
                 ![
@@ -1328,17 +1330,39 @@ wind_drift = 1.0
                     "climbing_clockwise",
                     "climbing_seed",
                     "climbing_flexibility",
+                    "climbing_continuous_stem",
                 ]
                 .contains(&p.id.as_str())
             });
         }
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
         let older = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert_eq!(older.adjustables.climbing_fixture.value, 0);
-        assert!(older.adjustables.climbing_clockwise.value);
+        // Migration uses compiled declarations, including user-saved defaults;
+        // it must not depend on historical seed/winding values from a prior build.
+        let defaults = DebugSettings::from_config(
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap(),
+        );
+        assert_eq!(
+            older.adjustables.climbing_fixture.value,
+            defaults.adjustables.climbing_fixture.value
+        );
+        assert_eq!(
+            older.adjustables.climbing_clockwise.value,
+            defaults.adjustables.climbing_clockwise.value
+        );
         assert!(older.adjustables.climbing_paused.value);
-        assert_eq!(older.adjustables.climbing_seed.value, 42);
-        assert_eq!(older.adjustables.climbing_flexibility.value, 1.0);
+        assert_eq!(
+            older.adjustables.climbing_seed.value,
+            defaults.adjustables.climbing_seed.value
+        );
+        assert_eq!(
+            older.adjustables.climbing_flexibility.value,
+            defaults.adjustables.climbing_flexibility.value
+        );
+        assert_eq!(
+            older.adjustables.climbing_continuous_stem.value,
+            defaults.adjustables.climbing_continuous_stem.value
+        );
     }
 
     #[test]

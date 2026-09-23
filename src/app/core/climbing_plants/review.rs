@@ -31,6 +31,9 @@ pub(super) struct Review {
     previous_nodes: Vec<Node>,
     moving_samples: u32,
     max_young_motion: f32,
+    max_established_motion: f32,
+    continuous: bool,
+    max_joint_angle: f32,
 }
 impl Review {
     pub fn for_fixture(fixture: Option<Fixture>, site: Site) -> Self {
@@ -60,6 +63,30 @@ impl Review {
     }
     fn observe_shoot(&mut self, plant: &Plant) -> Result<()> {
         ensure!(plant.tips.len() == 1, "normal growth created a branch");
+        self.continuous = plant.continuous_stem();
+        for n in plant.nodes.windows(3) {
+            let a = (n[1].position - n[0].position).normalize();
+            let b = (n[2].position - n[1].position).normalize();
+            self.max_joint_angle = self
+                .max_joint_angle
+                .max(a.dot(b).clamp(-1.0, 1.0).acos().to_degrees());
+        }
+        if self.continuous {
+            for n in plant.nodes.iter().skip(1) {
+                ensure!(
+                    (n.position.distance(plant.nodes[n.parent.unwrap()].position) - n.rest_length)
+                        .abs()
+                        <= 0.002,
+                    "continuous stem stretched beyond tolerance"
+                );
+            }
+            for anchor in &plant.anchors {
+                ensure!(
+                    plant.nodes[anchor.node].position.distance(anchor.position) <= 0.3,
+                    "attachment drifted outside its compliance bound"
+                );
+            }
+        }
         let mut current = plant.nodes.iter().peekable();
         let mut moved = false;
         for old in &self.previous_nodes {
@@ -67,13 +94,16 @@ impl Review {
                 current.next();
             }
             if let Some(node) = current.peek().filter(|node| node.id == old.id) {
-                if old.fixed {
+                if old.fixed && (!self.continuous || old.parent.is_none()) {
                     ensure!(
                         node.position == old.position && node.rest_length == old.rest_length,
                         "young-shoot deformation moved established stem history"
                     );
                 } else {
                     let distance = node.position.distance(old.position);
+                    if old.fixed {
+                        self.max_established_motion = self.max_established_motion.max(distance);
+                    }
                     self.max_young_motion = self.max_young_motion.max(distance);
                     moved |= distance > 0.001;
                 }
@@ -88,7 +118,15 @@ impl Review {
             self.moving_samples > 0 && self.max_young_motion > 0.05,
             "young shoot never visibly changed its existing geometry"
         );
-        log::info!("[CLIMBING][REVIEW] young_shoot_moved=true frozen_history_stable=true single_tip=true moving_samples={} max_young_motion={:.4}", self.moving_samples, self.max_young_motion);
+        if self.continuous {
+            ensure!(
+                self.max_established_motion > 0.001,
+                "continuous mode still freezes established stem"
+            );
+            log::info!("[CLIMBING][REVIEW] continuous=true established_moved=true single_tip=true moving_samples={} max_motion={:.4} established_motion={:.4} max_joint_angle={:.3}", self.moving_samples, self.max_young_motion, self.max_established_motion, self.max_joint_angle);
+        } else {
+            log::info!("[CLIMBING][REVIEW] young_shoot_moved=true frozen_history_stable=true single_tip=true moving_samples={} max_young_motion={:.4}", self.moving_samples, self.max_young_motion);
+        }
         Ok(())
     }
     pub fn advance(
