@@ -1306,7 +1306,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             Some(1),
             pool,
-            &[resources],
+            &environment_lighting_resources,
             GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::NONE,
                 depth_test_enable: true,

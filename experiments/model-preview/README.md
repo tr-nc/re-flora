@@ -20,7 +20,7 @@ node scripts/serve-model-preview.mjs
 
 需要支持 WebGL 2 的浏览器及 Node 24；不要使用 `file://`。运行无需 npm 安装或构建步骤。服务只监听本机，既提供预览目录，也提供 `assets/models/` 中的正式游戏资源；不再只服务 `experiments/`。Three.js 0.183.0 与许可证继续使用本地 vendor。
 
-蝴蝶的游戏与网页直接读取同一个 `assets/models/butterfly.glb`，不再保留单独的游戏网格／动画导出。共享接口与跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
+蝴蝶和落叶的游戏与网页分别直接读取同一份 `assets/models/butterfly.glb`、`assets/models/leaf.glb`，不再保留单独的游戏网格／动画导出。叶片造型滑杆只是临时预览，正式造型从唯一制作配方发布；`cargo check` 会拒绝过期产物。共享接口、发布步骤、游戏 A/B 和跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
 
 ## 使用
 

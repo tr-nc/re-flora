@@ -1,5 +1,5 @@
+import particle_model_shading;
 import butterfly_mesh_types;
-[[vk::binding(72,0)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 [[vk::binding(74,0)]] StructuredBuffer<float4> butterfly_pixel_tiles;
 struct FragmentInput {
     [[vk::location(0)]] float2 uv : TEXCOORD0;
@@ -14,7 +14,11 @@ FragmentOutput main(FragmentInput input) {
     ButterflyMeshInstance instance=butterfly_mesh_instances[input.instanceIndex];
     uint resolution=instance.metadata.z;
     uint2 pixel=min(uint2(saturate(input.uv)*float(resolution)),uint2(resolution-1));
-    float4 sample=butterfly_pixel_tiles[butterflyTileAddress(input.instanceIndex,pixel)];
+    // Leaves have a virtual N×N buffer, evaluated at snapped pixel centers.
+    // No resolution-dependent allocation per falling particle.
+    float4 sample;
+    if ((instance.metadata.w&2u)!=0u) sample=sampleParticleModel(instance,pixel);
+    else sample=butterfly_pixel_tiles[butterflyTileAddress(input.instanceIndex,pixel)];
     FragmentOutput output;
     // Same transparent-mask contract as the existing particle pipeline. Avoid
     // requiring Vulkan shaderDemoteToHelperInvocation for HLSL discard.

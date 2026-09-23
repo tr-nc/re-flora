@@ -14,7 +14,7 @@ const path=require('node:path');
   const result=await page.evaluate(async()=>{
     const THREE=await import('three'),{GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');
     const result={};
-    for(const name of ['butterfly']){
+    for(const name of ['butterfly','leaf']){
       const gltf=await new GLTFLoader().loadAsync(`/assets/models/${name}.glb`),mixer=new THREE.AnimationMixer(gltf.scene);
       if(gltf.animations[0])mixer.clipAction(gltf.animations[0]).play();
       result[name]=[];

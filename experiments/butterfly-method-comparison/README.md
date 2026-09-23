@@ -7,7 +7,7 @@
 ## 当前源与工具
 
 - `blender-v5/`：已批准的无身体双翼模型制作源与历史输出。当前正式资产为 `../../assets/models/butterfly.glb`，游戏和网页直接共用；见[共享资源约定](../../assets/models/README.md)。
-- `export-runtime-mesh.py`：从批准源导出 `assets/butterfly/wing-mesh.json`，游戏实时摆翼并按每只蝴蝶的固定 N×N 分辨率采样，不读取方向图集。
+- 游戏与网页直接读取同一份正式 GLB 的几何和节点动画；独立的游戏 JSON 导出器已删除。游戏依旧按每只蝴蝶的固定 N×N 分辨率采样，不读取方向图集。
 - `../model-preview/models/butterfly.js`：使用同一个批准 GLB、原动画、统一翼色与光照/阴影；相机、双视图、时间轴、8–128px、2–60 FPS、HSV/HEX、像素处理及预设均由统一工具维护。网页参数不自动同步游戏。
 - `../model-preview/tests/browser.cjs`：当前两模型共用的浏览器验证；`validate-debug-preview.cjs` 只是兼容转发。迁移时 24 个蝴蝶 A 样本与旧版逐字节一致。
 - `../../scripts/validate_butterfly_mesh.py`：实际游戏 GPU 原生像素、深度与自阴影检查。

@@ -57,14 +57,17 @@ impl ButterflyMeshRenderer {
         allocator: Allocator,
         resources: &crate::tracer::resources::TracerResources,
     ) -> Result<()> {
-        if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_none()
-            || self.instances.is_empty()
-            || self.previous_mode == self.validated_mode
+        let leaf_review = std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
+            && self.previous_leaf_mode.is_some_and(|(enabled, _)| enabled);
+        if (!leaf_review && std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_none())
+            || self.compute_count == 0
+            || (self.previous_mode == self.validated_mode
+                && (!leaf_review || self.previous_leaf_mode == self.validated_leaf_mode))
         {
             return Ok(());
         }
         let mode = self.previous_mode.unwrap();
-        let byte_count = self.instances.len() as u64 * 4096 * 16;
+        let byte_count = u64::from(self.compute_count) * 4096 * 16;
         let readback = Buffer::new_sized(
             context.device().clone(),
             allocator,
@@ -96,16 +99,24 @@ impl ButterflyMeshRenderer {
         let vp = projection * view;
         let inverse = vp.inverse();
         let n = self.resolution;
-        let directory = std::path::Path::new("target/butterfly-resume/game-tiles");
+        let directory = std::path::Path::new(if leaf_review {
+            "target/leaf-model-review/tiles"
+        } else {
+            "target/butterfly-resume/game-tiles"
+        });
         std::fs::create_dir_all(directory)?;
         let mut hits = Vec::new();
         let mut checked = 0;
+        let mut checked_leaf = 0;
         let mut max_depth_error = 0f32;
-        for (index, instance) in self.instances.iter().enumerate() {
-            ensure!(
-                instance.metadata[2] == n,
-                "per-instance resolution diverged"
-            );
+        for (index, instance) in self
+            .instances
+            .iter()
+            .take(self.compute_count as usize)
+            .enumerate()
+        {
+            let n = instance.metadata[2];
+            let leaf = instance.metadata[3] & LEAF_MODEL_FLAG != 0;
             let rect = bounds(instance, view, projection);
             let mut image = image::RgbaImage::new(n, n);
             let mut count = 0;
@@ -127,20 +138,33 @@ impl ButterflyMeshRenderer {
                         let direction = (far.truncate() / far.w - origin).normalize();
                         let first = instance.metadata[0] as usize;
                         let end = first + instance.metadata[1] as usize;
+                        let (ray_origin, ray_direction, scale) = if leaf {
+                            let inverse = Quat::from_array(instance.lighting).conjugate();
+                            let scale = instance.position_size[3] * (1.53125 / 3.4);
+                            (
+                                inverse * (origin - Vec3::from_slice(&instance.position_size))
+                                    / scale,
+                                inverse * direction,
+                                scale,
+                            )
+                        } else {
+                            (origin, direction, 1.)
+                        };
                         let distance = self.triangles[first..end]
                             .iter()
-                            .filter_map(|t| intersect(origin, direction, t))
+                            .filter_map(|t| intersect(ray_origin, ray_direction, t))
                             .min_by(f32::total_cmp)
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
                                     "GPU hit absent on CPU: instance={index} pixel={x},{y}"
                                 )
                             })?;
-                        let clip = vp * (origin + direction * distance).extend(1.);
+                        let clip = vp * (origin + direction * distance * scale).extend(1.);
                         let error = (pixel[3] - clip.z / clip.w).abs();
                         max_depth_error = max_depth_error.max(error);
                         ensure!(error < 0.00002, "GPU/CPU depth mismatch {error}");
                         checked += 1;
+                        checked_leaf += usize::from(leaf);
                         // Diagnostic only: unclipped HDR stays in GPU storage; the small
                         // PNG uses clamped linear RGB, not the game's display transform.
                         let rgb = [0, 1, 2].map(|i| (pixel[i].clamp(0., 1.) * 255.).round() as u8);
@@ -161,7 +185,15 @@ impl ButterflyMeshRenderer {
             "fixture dispatched but generated no visible mesh samples"
         );
         log::info!("[BUTTERFLY-MESH-CHECK] tile={n}x{n} active={} checked_hits={checked} max_depth_error={max_depth_error:.9} hits={hits:?}",self.count());
+        if leaf_review {
+            ensure!(
+                checked_leaf > 0,
+                "leaf fixture produced no checked leaf samples"
+            );
+            log::info!("[LEAF-MODEL-CHECK] mode=B resolution={} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.previous_leaf_mode.unwrap().1, self.count() - self.tile_count);
+        }
         self.validated_mode = self.previous_mode;
+        self.validated_leaf_mode = self.previous_leaf_mode;
         Ok(())
     }
 }

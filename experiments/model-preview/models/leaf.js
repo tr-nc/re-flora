@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import {disposeScene} from './resources.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {leafDefaults,leafGeometry} from '../../../assets/models/leaf-source.mjs';
 
 export const leafDefinition={
   id:'leaf',label:'落叶',
-  defaults:{width:1,fold:.28,curl:.35,season:.25,veins:.5,light:-35,transmission:.45,steps:6},
+  defaults:leafDefaults,
   controls:[
     {key:'width',label:'叶片宽度',min:.55,max:1.45,step:.01},
     {key:'fold',label:'主脉折起',min:0,max:.8,step:.01},
@@ -16,6 +18,7 @@ export const leafDefinition={
   ],
   preview:{resolution:32,background:'#253426'},
   async create(){
+    const gltf=await new GLTFLoader().loadAsync(new URL('../../../assets/models/leaf.glb',import.meta.url).href);
     const scene=new THREE.Scene(),settings={...this.defaults};
     const uniforms={season:{value:.25},veins:{value:.5},transmission:{value:.45},steps:{value:0},lightDirection:{value:new THREE.Vector3()}};
     const material=new THREE.ShaderMaterial({
@@ -65,11 +68,11 @@ export const leafDefinition={
           #include <colorspace_fragment>
         }`,
     });
-    const mesh=new THREE.Mesh(makeGeometry(settings),material);mesh.name='Leaf';scene.add(mesh);
+    const mesh=gltf.scene.getObjectByName('Leaf');mesh.material.dispose();mesh.material=material;scene.add(gltf.scene);
     return {
       scene,meshes:[mesh],repairGroups:[{id:1,label:'叶片与叶柄',meshes:[mesh]}],clips:[],
       view:{span:3.4,target:[0,-.06,.05],offset:[2.3,1.1,6],axisDistance:6,near:.1,far:40},
-      description:'32 面程序叶片 · 近似透光 · 无模型动画',
+      description:'共享正式叶片 · 32 面 · 造型滑杆仅临时预览，发布后才同步游戏',
       apply(values){
         const rebuild=['width','fold','curl'].some(key=>settings[key]!==values[key]);
         Object.assign(settings,values);
@@ -87,29 +90,9 @@ export const leafDefinition={
 };
 
 function makeGeometry(state){
-  const positions=[],uvs=[],indices=[];
-  function add(x,t,u,stem=false){
-    const z=state.fold*Math.abs(x)+state.curl*(t*t*t-.15)*.7+.055*Math.sin(t*3.6)*x;
-    positions.push(x,(t-.5)*2.25,z);uvs.push(stem?2:u,t);return positions.length/3-1;
-  }
-  const root=add(0,0,.5),rows=[];
-  for(let i=1;i<8;i++){
-    const t=i/8,halfWidth=.58*state.width*Math.pow(Math.sin(Math.PI*t),.82)*(1.08-.24*t);
-    const offset=.035*Math.sin(t*Math.PI*1.5);
-    rows.push([add(offset-halfWidth*(1.+.05*Math.sin(t*12.)),t,0),add(offset,t,.5),add(offset+halfWidth*(.95+.035*Math.cos(t*15.)),t,1)]);
-  }
-  indices.push(root,rows[0][1],rows[0][0],root,rows[0][2],rows[0][1]);
-  for(let i=0;i<rows.length-1;i++){
-    const a=rows[i],b=rows[i+1];
-    for(let j=0;j<2;j++)indices.push(a[j],a[j+1],b[j+1],a[j],b[j+1],b[j]);
-  }
-  const tip=add(-.035,1,.5),end=rows.at(-1);indices.push(end[0],end[1],tip,end[1],end[2],tip);
-  const stemRows=[-.15,-.075,.008].map(t=>{
-    const x=.09*Math.pow(t/.15,2),w=.014*(1+t*2);return [add(x-w,t,2,true),add(x+w,t,2,true)];
-  });
-  for(let i=0;i<2;i++){const a=stemRows[i],b=stemRows[i+1];indices.push(a[0],a[1],b[1],a[0],b[1],b[0]);}
-  const geometry=new THREE.BufferGeometry();
-  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
-  geometry.setIndex(indices);geometry.computeVertexNormals();return geometry;
+  const data=leafGeometry(state),geometry=new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.BufferAttribute(data.positions,3));
+  geometry.setAttribute('normal',new THREE.BufferAttribute(data.normals,3));
+  geometry.setAttribute('uv',new THREE.BufferAttribute(data.uvs,2));
+  geometry.setIndex(new THREE.BufferAttribute(data.indices,1));return geometry;
 }

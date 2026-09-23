@@ -1,5 +1,7 @@
 //! Fixed per-animal pixel tiles, independent of world distance or flight mode.
-//! The small approved mesh is traced once per tile texel, not per screen pixel.
+//! Butterflies cache one sample per tile texel. Falling leaves share this model
+//! draw path but evaluate snapped texels in the fragment shader: no per-leaf 64²
+//! allocation (16K particles would cost 1 GiB). Both consume canonical GLBs.
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Quat, Vec3};
@@ -18,6 +20,29 @@ use crate::{
 const CAPACITY: usize = 256;
 const MAX_TRIANGLES: usize = 256;
 pub const MAX_RESOLUTION: u32 = 64;
+const MODEL_CAPACITY: usize = crate::particles::PARTICLE_CAPACITY + CAPACITY;
+const LEAF_MODEL_FLAG: u32 = 2;
+
+#[derive(Clone, Copy, Debug)]
+pub struct LeafModelSettings {
+    pub enabled: bool,
+    pub resolution: u32,
+}
+impl Default for LeafModelSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            resolution: 16,
+        }
+    }
+}
+impl LeafModelSettings {
+    pub fn uses_model(self, snapshot: &ParticleSnapshot) -> bool {
+        self.enabled
+            && snapshot.kind == ParticleRenderKind::Leaf
+            && snapshot.leaf_orientation.is_some()
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ButterflyMeshSettings {
@@ -32,7 +57,7 @@ pub struct ButterflyMeshSettings {
 struct Instance {
     position_size: [f32; 4],
     color: [f32; 4],
-    // triangle start/count, tile resolution, self-shadow enabled
+    // triangle start/count, pixel resolution, flags (bit 0: self-shadow, bit 1: leaf)
     metadata: [u32; 4],
     lighting: [f32; 4],
 }
@@ -42,6 +67,9 @@ struct Triangle {
     a: [f32; 4],
     e1: [f32; 4],
     e2: [f32; 4],
+    normals: [[f32; 4]; 3],
+    uv01: [f32; 4],
+    uv2: [f32; 4],
 }
 
 #[derive(ResourceContainer)]
@@ -67,19 +95,19 @@ impl ButterflyMeshResources {
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
             MemoryLocation::CpuToGpu,
-            (CAPACITY * 4) as u64,
+            (MODEL_CAPACITY * 4) as u64,
         );
         draw_indices
-            .fill(&(0..CAPACITY as u32).collect::<Vec<_>>())
+            .fill(&(0..MODEL_CAPACITY as u32).collect::<Vec<_>>())
             .unwrap();
         Self {
             draw_indices: Resource::new(draw_indices),
             butterfly_mesh_instances: buffer(
-                CAPACITY * std::mem::size_of::<Instance>(),
+                MODEL_CAPACITY * std::mem::size_of::<Instance>(),
                 MemoryLocation::CpuToGpu,
             ),
             butterfly_mesh_triangles: buffer(
-                CAPACITY * MAX_TRIANGLES * std::mem::size_of::<Triangle>(),
+                ((CAPACITY + 1) * MAX_TRIANGLES) * std::mem::size_of::<Triangle>(),
                 MemoryLocation::CpuToGpu,
             ),
             butterfly_pixel_tiles: Resource::new(Buffer::new_sized(
@@ -137,6 +165,11 @@ pub(super) struct ButterflyMeshRenderer {
     instances: Vec<Instance>,
     triangles: Vec<Triangle>,
     pub resolution: u32,
+    tile_count: u32,
+    pub compute_count: u32,
+    pub dispatch_resolution: u32,
+    previous_leaf_mode: Option<(bool, u32)>,
+    validated_leaf_mode: Option<(bool, u32)>,
     previous_mode: Option<(u32, u32, bool, u32)>,
     validated_mode: Option<(u32, u32, bool, u32)>,
 }
@@ -147,6 +180,11 @@ impl Default for ButterflyMeshRenderer {
             instances: Vec::new(),
             triangles: Vec::new(),
             resolution: 22,
+            tile_count: 0,
+            compute_count: 0,
+            dispatch_resolution: 22,
+            previous_leaf_mode: None,
+            validated_leaf_mode: None,
             previous_mode: None,
             validated_mode: None,
         }
@@ -240,6 +278,7 @@ impl ButterflyMeshRenderer {
                     a: p[0].extend(0.).to_array(),
                     e1: (p[1] - p[0]).extend(triangle.side).to_array(),
                     e2: (p[2] - p[0]).extend(0.).to_array(),
+                    ..Triangle::zeroed()
                 });
             }
             let rgb = ButterflyPalettePreset::from_index(snapshot.palette_index).base_color_srgb();
@@ -263,17 +302,119 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
+    fn prepare_models(
+        &mut self,
+        snapshots: &[ParticleSnapshot],
+        butterflies: ButterflyMeshSettings,
+        leaves: LeafModelSettings,
+        camera_position: Vec3,
+    ) -> Result<()> {
+        self.compute_count = 0;
+        self.tile_count = 0;
+        self.prepare(snapshots, butterflies, camera_position)?;
+        self.tile_count = self.count();
+        self.compute_count = self.tile_count;
+        self.dispatch_resolution = self.resolution;
+        if !leaves.enabled {
+            return Ok(());
+        }
+        let candidates: Vec<_> = snapshots
+            .iter()
+            .filter(|s| leaves.uses_model(s) && s.size > 0. && s.color.w > 0.)
+            .collect();
+        ensure!(
+            candidates.len() <= crate::particles::PARTICLE_CAPACITY,
+            "falling leaf model capacity exceeded"
+        );
+        ensure!(
+            candidates.iter().all(|s| s
+                .leaf_orientation
+                .is_some_and(|q| q.is_finite() && q.is_normalized())),
+            "invalid published leaf orientation"
+        );
+        let model = crate::model_assets::leaf();
+        ensure!(
+            model.triangles.len() <= MAX_TRIANGLES,
+            "shared leaf exceeds triangle budget"
+        );
+        let first = self.triangles.len() as u32;
+        if !candidates.is_empty() {
+            let transforms = model.transforms(0., 0);
+            for triangle in &model.triangles {
+                let transform = transforms[triangle.node];
+                let normal_transform = transform.inverse().transpose();
+                let p = triangle.positions.map(|p| transform.transform_point3(p));
+                let uv = triangle.uvs;
+                self.triangles.push(Triangle {
+                    a: p[0].extend(0.).to_array(),
+                    e1: (p[1] - p[0]).extend(0.).to_array(),
+                    e2: (p[2] - p[0]).extend(0.).to_array(),
+                    normals: triangle.normals.map(|n| {
+                        normal_transform
+                            .transform_vector3(n)
+                            .normalize()
+                            .extend(0.)
+                            .to_array()
+                    }),
+                    uv01: [uv[0].x, uv[0].y, uv[1].x, uv[1].y],
+                    uv2: [uv[2].x, uv[2].y, 0., 0.],
+                });
+            }
+        }
+        let resolution = leaves.resolution.clamp(8, MAX_RESOLUTION);
+        for snapshot in candidates {
+            self.instances.push(Instance {
+                position_size: snapshot.position_ws.extend(snapshot.size).to_array(),
+                color: snapshot.color.to_array(),
+                metadata: [
+                    first,
+                    model.triangles.len() as u32,
+                    resolution,
+                    LEAF_MODEL_FLAG,
+                ],
+                // No resampling, local animation, velocity-facing override or reset.
+                lighting: snapshot.leaf_orientation.unwrap().to_array(),
+            });
+        }
+        if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some() {
+            // Diagnostic-only readback of the same shader function used by the
+            // production fragment path, bounded by the existing tile allocation.
+            ensure!(
+                self.instances.len() <= CAPACITY,
+                "leaf review tile capacity exceeded"
+            );
+            self.compute_count = self.count();
+            self.dispatch_resolution = self.resolution.max(resolution);
+        }
+        Ok(())
+    }
+
     pub fn upload(
         &mut self,
         resources: &ButterflyMeshResources,
         snapshots: &[ParticleSnapshot],
         settings: ButterflyMeshSettings,
+        leaves: LeafModelSettings,
         camera_position: Vec3,
     ) -> Result<()> {
-        self.prepare(snapshots, settings, camera_position)?;
+        self.prepare_models(snapshots, settings, leaves, camera_position)?;
         if !self.instances.is_empty() {
             resources.butterfly_mesh_instances.fill(&self.instances)?;
             resources.butterfly_mesh_triangles.fill(&self.triangles)?;
+            let mut order: Vec<u32> = (0..self.count()).collect();
+            order.sort_by(|a, b| {
+                let distance = |i: u32| {
+                    Vec3::from_slice(&self.instances[i as usize].position_size)
+                        .distance_squared(camera_position)
+                };
+                distance(*b).total_cmp(&distance(*a))
+            });
+            resources.draw_indices.fill(&order)?;
+        }
+        let leaf_mode = (leaves.enabled, leaves.resolution.clamp(8, MAX_RESOLUTION));
+        if self.previous_leaf_mode != Some(leaf_mode) {
+            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source=assets/models/leaf.glb source_crc32={:08x} orientation=published_simulation geometry=32_triangles", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count, crc32fast::hash(crate::model_assets::LEAF_BYTES));
+            self.previous_leaf_mode = Some(leaf_mode);
         }
         let mode = (
             self.resolution,
@@ -282,7 +423,7 @@ impl ButterflyMeshRenderer {
             settings.transmission.clamp(0., 1.).to_bits(),
         );
         if self.previous_mode != Some(mode) {
-            log::info!("[BUTTERFLY-MESH] tile={}x{} fps={} self_shadows={} triangles_per_animal={} active={} capacity={CAPACITY} sun=game depth=per_texel", self.resolution,self.resolution,settings.fps,settings.self_shadows,self.mesh.triangles.len(),self.count());
+            log::info!("[BUTTERFLY-MESH] tile={}x{} fps={} self_shadows={} triangles_per_animal={} active={} capacity={CAPACITY} sun=game depth=per_texel", self.resolution,self.resolution,settings.fps,settings.self_shadows,self.mesh.triangles.len(),self.tile_count);
             log::info!(
                 "[BUTTERFLY-MESH] transmission={}",
                 settings.transmission.clamp(0., 1.)
@@ -296,6 +437,136 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn declared_leaf_pixel_control_matches_butterfly_range_but_is_independent() {
+        let config: toml::Value = toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let params: Vec<_> = config["section"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s.get("param").and_then(toml::Value::as_array))
+            .flatten()
+            .collect();
+        let data = |id: &str| {
+            &params
+                .iter()
+                .find(|p| p["id"].as_str() == Some(id))
+                .unwrap()["data"]
+        };
+        for key in ["min", "max"] {
+            assert_eq!(
+                data("falling_leaf_pixel_resolution")[key],
+                data("butterfly_pixel_resolution")[key]
+            );
+        }
+        // Saved live values may legitimately diverge after a user edits either
+        // slider. Only the initial programmatic default is fixed at 16.
+        assert_eq!(LeafModelSettings::default().resolution, 16);
+        assert!(!LeafModelSettings::default().enabled);
+    }
+
+    #[test]
+    fn leaf_ab_consumes_existing_pose_without_retiming_or_changing_the_particle() {
+        use crate::particles::{ParticleForces, ParticleSpawn, ParticleSystem};
+        let mut system = ParticleSystem::new(1);
+        system
+            .spawn(ParticleSpawn {
+                position: Vec3::new(0., 2., 0.),
+                lifetime: 30.,
+                ..ParticleSpawn::default()
+            })
+            .unwrap();
+        let mut snapshots = Vec::new();
+        let mut renderer = ButterflyMeshRenderer::default();
+        let mut butterfly = ButterflyMeshSettings {
+            resolution: 8,
+            fps: 2,
+            self_shadows: true,
+            transmission: 0.9,
+        };
+        for _ in 0..120 {
+            system.update(1. / 120., ParticleForces::default());
+            system.write_snapshots(&mut snapshots);
+            let snapshot = snapshots[0];
+            for resolution in [8, 16, 64] {
+                let enabled = LeafModelSettings {
+                    enabled: true,
+                    resolution,
+                };
+                renderer
+                    .prepare_models(&snapshots, butterfly, enabled, Vec3::Z)
+                    .unwrap();
+                assert_eq!(renderer.count(), 1);
+                assert_eq!(renderer.tile_count, 0);
+                assert_eq!(renderer.triangles.len(), 32);
+                let gpu = renderer.instances[0];
+                assert_eq!(gpu.lighting, snapshot.leaf_orientation.unwrap().to_array());
+                assert_eq!(
+                    gpu.position_size,
+                    snapshot.position_ws.extend(snapshot.size).to_array()
+                );
+                assert_eq!(gpu.color, snapshot.color.to_array());
+                assert_eq!(gpu.metadata, [0, 32, resolution, LEAF_MODEL_FLAG]);
+                butterfly.fps = 60;
+                renderer
+                    .prepare_models(&snapshots, butterfly, enabled, Vec3::Z)
+                    .unwrap();
+                assert_eq!(
+                    bytemuck::bytes_of(&gpu),
+                    bytemuck::bytes_of(&renderer.instances[0])
+                );
+                renderer
+                    .prepare_models(&snapshots, butterfly, LeafModelSettings::default(), Vec3::Z)
+                    .unwrap();
+                assert_eq!(renderer.count(), 0);
+                assert_eq!(snapshots[0].leaf_orientation, snapshot.leaf_orientation);
+                assert_eq!(snapshots[0].position_ws, snapshot.position_ws);
+            }
+        }
+    }
+
+    #[test]
+    fn shared_leaf_geometry_is_uploaded_once_even_at_full_particle_capacity() {
+        let mut system = crate::particles::ParticleSystem::new(1);
+        system
+            .spawn(crate::particles::ParticleSpawn::default())
+            .unwrap();
+        let mut source = Vec::new();
+        system.write_snapshots(&mut source);
+        let snapshots = vec![source[0]; crate::particles::PARTICLE_CAPACITY];
+        let mut renderer = ButterflyMeshRenderer::default();
+        renderer
+            .prepare_models(
+                &snapshots,
+                ButterflyMeshSettings {
+                    resolution: 16,
+                    fps: 8,
+                    self_shadows: true,
+                    transmission: 0.9,
+                },
+                LeafModelSettings {
+                    enabled: true,
+                    resolution: 64,
+                },
+                Vec3::Z,
+            )
+            .unwrap();
+        assert_eq!(renderer.count() as usize, snapshots.len());
+        assert_eq!(renderer.triangles.len(), 32);
+        assert_eq!(
+            renderer.compute_count, 0,
+            "ordinary leaves must not allocate or dispatch per-particle tiles"
+        );
+        let mut no_pose = source[0];
+        no_pose.leaf_orientation = None;
+        assert!(!LeafModelSettings {
+            enabled: true,
+            resolution: 16
+        }
+        .uses_model(&no_pose));
+    }
+
     #[test]
     fn approved_source_is_closed_wing_geometry_with_looping_keys() {
         let mesh = Mesh::load();
@@ -314,7 +585,7 @@ mod tests {
             }
         }
         assert_eq!(std::mem::size_of::<Instance>(), 64);
-        assert_eq!(std::mem::size_of::<Triangle>(), 48);
+        assert_eq!(std::mem::size_of::<Triangle>(), 128);
     }
     #[test]
     fn coupled_mesh_uses_published_phase_attitude_and_no_duplicate_bob() {

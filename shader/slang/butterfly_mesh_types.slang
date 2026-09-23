@@ -4,12 +4,17 @@ public struct ButterflyMeshInstance {
     public float4 position_size;
     public float4 color;
     public uint4 metadata;
-    public float4 lighting; // x: thin-wing transmission; yzw reserved
+    public float4 lighting; // butterfly: x transmission; leaf (metadata.w & 2): published quaternion
 };
 public struct ButterflyMeshTriangle {
     public float4 a;
     public float4 e1; // xyz: edge; w: wing identity (-1 or +1)
     public float4 e2;
+    public float4 normal0;
+    public float4 normal1;
+    public float4 normal2;
+    public float4 uv01;
+    public float4 uv2;
 };
 
 // Project a fixed camera-space bounding cube, never fit the current wing pose.

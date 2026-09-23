@@ -5,6 +5,7 @@ use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use std::sync::OnceLock;
 
 pub const BUTTERFLY_BYTES: &[u8] = include_bytes!("../assets/models/butterfly.glb");
+pub const LEAF_BYTES: &[u8] = include_bytes!("../assets/models/leaf.glb");
 
 #[derive(Clone, Debug)]
 pub struct Triangle {
@@ -44,6 +45,11 @@ pub struct Model {
 pub fn butterfly() -> &'static Model {
     static MODEL: OnceLock<Model> = OnceLock::new();
     MODEL.get_or_init(|| Model::load(BUTTERFLY_BYTES).expect("validated shared butterfly GLB"))
+}
+
+pub fn leaf() -> &'static Model {
+    static MODEL: OnceLock<Model> = OnceLock::new();
+    MODEL.get_or_init(|| Model::load(LEAF_BYTES).expect("validated shared leaf GLB"))
 }
 
 impl Model {
@@ -325,7 +331,7 @@ mod tests {
             .expect("run asset-parity.cjs first");
         let reference: std::collections::HashMap<String, Vec<Frame>> =
             serde_json::from_str(&json).unwrap();
-        for (name, model) in [("butterfly", butterfly())] {
+        for (name, model) in [("butterfly", butterfly()), ("leaf", leaf())] {
             for frame in &reference[name] {
                 let transforms = model.transforms(frame.time, 0);
                 let actual: Vec<_> = model
@@ -347,6 +353,29 @@ mod tests {
                 reference[name].len()
             );
         }
+    }
+
+    #[test]
+    fn shared_leaf_has_static_curled_geometry_in_the_simulation_xy_plane() {
+        let model = leaf();
+        assert_eq!(model.triangles.len(), 32);
+        assert_eq!(model.duration(0), 0.);
+        assert_eq!(model.transforms(0., 0), model.transforms(100., 0));
+        assert!(model
+            .triangles
+            .iter()
+            .flat_map(|t| t.positions)
+            .all(|p| p.length() < 1.7));
+        assert!(model
+            .triangles
+            .iter()
+            .flat_map(|t| t.normals)
+            .all(|n| n.z > 0. && (n.length() - 1.).abs() < 1e-5));
+        assert!(model
+            .triangles
+            .iter()
+            .flat_map(|t| t.uvs)
+            .any(|uv| uv.x == 2.));
     }
 
     #[test]

@@ -16,7 +16,7 @@ let server;
  try{
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[],failed=[],urls=[];
   page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.type()==='error')errors.push(message.text())});
-  page.on('request',request=>urls.push(request.url()));page.on('requestfailed',request=>failed.push(request.url()));page.on('response',response=>{if(response.status()>=400)failed.push(response.url())});
+  page.on('request',request=>urls.push(request.url()));page.on('requestfailed',request=>failed.push(`${request.url()}: ${request.failure()?.errorText}`));page.on('response',response=>{if(response.status()>=400)failed.push(response.url())});
   const stable=()=>page.waitForFunction(()=>readModelPreview().ready&&!readModelPreview().loading&&!readModelPreview().dirty&&!readModelPreview().failed);
   const state=()=>page.evaluate(()=>readModelPreview());
   const png=()=>page.locator('#pixel').evaluate(c=>c.toDataURL());
@@ -87,8 +87,8 @@ let server;
   await page.locator('#play').click();const time=(await state()).pixelTime;await page.waitForTimeout(200);assert.notEqual((await state()).pixelTime,time);await page.locator('#play').click();await page.locator('#phase').fill('237');await stable();
   await page.screenshot({path:path.join(artifacts,'butterfly.png'),fullPage:true});
   // Stale asynchronous GLB loads must not replace the user's newer selection.
-  await page.route('**/butterfly-prototype.glb',async route=>{await new Promise(resolve=>setTimeout(resolve,150));await route.continue();});
-  await select('leaf');await page.locator('#model').selectOption('butterfly');await page.locator('#model').selectOption('leaf');await stable();await page.waitForTimeout(250);assert.equal((await state()).model,'leaf');await page.unroute('**/butterfly-prototype.glb');
+  await page.route('**/assets/models/butterfly.glb',async route=>{await new Promise(resolve=>setTimeout(resolve,150));await route.continue();});
+  await select('leaf');await page.locator('#model').selectOption('butterfly');await page.locator('#model').selectOption('leaf');await stable();await page.waitForTimeout(250);assert.equal((await state()).model,'leaf');await page.unroute('**/assets/models/butterfly.glb');
   for(let i=0;i<4;i++){await select('butterfly');await select('leaf');}
   for(const variant of ['model','pixel','compare']){await page.locator('#next').click();await stable();assert.equal((await state()).variant,variant);}
   for(const viewport of [{width:1280,height:720},{width:390,height:844}]){
@@ -96,6 +96,7 @@ let server;
   }
   // Migration redirects (only enabled after legacy pages have been retired).
   if(process.env.CHECK_REDIRECTS)for(const [url,model]of [['/leaf-prototype/','leaf'],['/butterfly-method-comparison/','butterfly']]){
+    await page.waitForLoadState('networkidle');
     await page.goto(base+url);await stable();assert.equal((await state()).model,model);assert.ok(page.url().includes('/model-preview/'));
   }
   assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);assert.ok(urls.every(url=>url.startsWith(base)),'no external network dependencies');

@@ -579,9 +579,13 @@ impl App {
             self_shadows: settings.butterfly_self_shadows.value,
             transmission: settings.butterfly_wing_transmission.value,
         };
-        if let Err(err) = self
-            .tracer
-            .upload_particles(&self.particle_snapshots, butterfly_mesh)
+        let leaf_model = crate::tracer::LeafModelSettings {
+            enabled: settings.falling_leaf_mesh.value,
+            resolution: settings.falling_leaf_pixel_resolution.value,
+        };
+        if let Err(err) =
+            self.tracer
+                .upload_particles(&self.particle_snapshots, butterfly_mesh, leaf_model)
         {
             log::error!("Failed to upload particles: {}", err);
         }

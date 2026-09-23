@@ -1463,7 +1463,28 @@ fn generate_sky_environment_data() {
         .unwrap_or_else(|error| panic!("write {}: {error}", output_path.display()));
 }
 
+fn validate_shared_leaf_asset() {
+    let sources = [
+        "assets/models/leaf-source.mjs",
+        "scripts/publish-leaf-model.mjs",
+    ];
+    let mut hash = crc32fast::Hasher::new();
+    for source in sources {
+        println!("cargo:rerun-if-changed={source}");
+        hash.update(&fs::read(source).expect("shared leaf authoring source"));
+    }
+    println!("cargo:rerun-if-changed=assets/models/leaf.glb");
+    let bytes =
+        fs::read("assets/models/leaf.glb").expect("run node scripts/publish-leaf-model.mjs");
+    let length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let json: serde_json::Value =
+        serde_json::from_slice(&bytes[20..20 + length]).expect("published leaf GLB JSON");
+    assert_eq!(json["extras"]["source_crc32"].as_u64(), Some(u64::from(hash.finalize())),
+        "Stale shared leaf GLB. Run node scripts/publish-leaf-model.mjs, review, and commit the generated asset.");
+}
+
 fn main() {
+    validate_shared_leaf_asset();
     // Tell Cargo to rerun this script if these files/directories change.
     // config/gui.toml drives GuiAdjustables codegen.
     println!("cargo:rerun-if-changed=config/gui.toml");

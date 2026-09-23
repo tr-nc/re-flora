@@ -1147,6 +1147,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Tip Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "falling_leaf_mesh",
+        kind: "bool",
+        label: "Shared 3D Leaf (B; Unchecked = Original Sprite)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "falling_leaf_pixel_resolution",
+        kind: "uint",
+        label: "Pixels per Falling Leaf (N x N, Independent of Butterflies)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Terrain Harvest Particles",
         id: "terrain_harvest_particles_enabled",
         kind: "bool",
@@ -1583,6 +1595,8 @@ pub struct GuiAdjustables {
     pub leaf_transmission_strength: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
+    pub falling_leaf_mesh: crate::gui_adjustables::BoolParam,
+    pub falling_leaf_pixel_resolution: crate::gui_adjustables::UintParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
@@ -1824,6 +1838,8 @@ impl GuiAdjustables {
         let mut leaf_transmission_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut falling_leaf_mesh_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut falling_leaf_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3120,6 +3136,18 @@ impl GuiAdjustables {
                             leaves_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "falling_leaf_mesh" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            falling_leaf_mesh_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "falling_leaf_pixel_resolution" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            falling_leaf_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "terrain_harvest_particles_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             terrain_harvest_particles_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3582,6 +3610,8 @@ impl GuiAdjustables {
             leaf_transmission_strength: leaf_transmission_strength_field.expect("Missing parameter: leaf_transmission_strength"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
+            falling_leaf_mesh: falling_leaf_mesh_field.expect("Missing parameter: falling_leaf_mesh"),
+            falling_leaf_pixel_resolution: falling_leaf_pixel_resolution_field.expect("Missing parameter: falling_leaf_pixel_resolution"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
@@ -3831,6 +3861,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
+        "falling_leaf_pixel_resolution" => Some(&adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
@@ -3867,6 +3898,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
+        "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
@@ -4104,6 +4136,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
+        "falling_leaf_pixel_resolution" => Some(&mut adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
@@ -4140,6 +4173,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
+        "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),

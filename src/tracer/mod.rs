@@ -12,7 +12,7 @@ pub(crate) use capture_frame::{
 };
 
 mod butterfly_mesh;
-pub use butterfly_mesh::ButterflyMeshSettings;
+pub use butterfly_mesh::{ButterflyMeshSettings, LeafModelSettings};
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
@@ -3934,7 +3934,7 @@ impl Tracer {
             // dependency; no global fallback barrier is needed here.
         }
 
-        if render_flags.enable_particles && self.butterfly_mesh_renderer.count() > 0 {
+        if render_flags.enable_particles && self.butterfly_mesh_renderer.compute_count > 0 {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3944,9 +3944,9 @@ impl Tracer {
                     self.pipeline_topology.compute().butterfly_tile_ppl.record(
                         cmdbuf,
                         Extent3D::new(
-                            self.butterfly_mesh_renderer.resolution,
-                            self.butterfly_mesh_renderer.resolution,
-                            self.butterfly_mesh_renderer.count(),
+                            self.butterfly_mesh_renderer.dispatch_resolution,
+                            self.butterfly_mesh_renderer.dispatch_resolution,
+                            self.butterfly_mesh_renderer.compute_count,
                         ),
                         None,
                     );
@@ -6646,6 +6646,7 @@ impl Tracer {
         &mut self,
         snapshots: &[ParticleSnapshot],
         butterfly_mesh: ButterflyMeshSettings,
+        leaf_model: LeafModelSettings,
     ) -> Result<()> {
         self.butterfly_mesh_renderer.validate_completed_tiles(
             &self.vulkan_ctx,
@@ -6659,7 +6660,9 @@ impl Tracer {
         self.translucent_particle_instance_scratch.clear();
         self.translucent_particle_instance_scratch.reserve(count);
         for snap in snapshots.iter().take(capacity) {
-            if snap.kind == crate::particles::ParticleRenderKind::Butterfly {
+            if snap.kind == crate::particles::ParticleRenderKind::Butterfly
+                || leaf_model.uses_model(snap)
+            {
                 continue;
             }
             let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);
@@ -6705,6 +6708,7 @@ impl Tracer {
             &self.resources.butterfly_mesh,
             snapshots,
             butterfly_mesh,
+            leaf_model,
             self.camera.position(),
         )
     }

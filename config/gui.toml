@@ -2148,6 +2148,29 @@ type = "Color"
 value = "#98CE00"
 
 [[section]]
+name = "Falling Leaves"
+
+[[section.param]]
+id = "falling_leaf_mesh"
+kind = "bool"
+label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "falling_leaf_pixel_resolution"
+kind = "uint"
+label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 8
+max = 64
+
+[[section]]
 name = "Terrain Harvest Particles"
 
 [[section.param]]
