@@ -146,6 +146,71 @@ fn hole_contacts_do_not_freeze_the_free_shoot_after_climbing() {
     );
 }
 
+// Manual red-capable diagnostics for the next mechanics iteration, not passed
+// regressions. See docs/research/climbing_vine_overhang.md before enabling them.
+#[test]
+#[ignore = "known upright cantilever; pending load-aware mechanics"]
+fn stem_above_wall_bends_under_its_own_weight_instead_of_staying_upright() {
+    let terrain = Scene(Fixture::Flat);
+    let mut plant = Plant::seed(
+        Vec3::new(255.5, 294.5, 306.8),
+        Vec3::Z,
+        IVec3::new(255, 294, 305),
+        1,
+        3500,
+    )
+    .with_clockwise(false);
+    let mut peak = plant.nodes[0].position.y;
+    let mut downward = false;
+    for _ in 0..360 {
+        tick(&mut plant, &terrain, 10.0);
+        safe(&plant, &terrain);
+        peak = peak.max(plant.nodes.last().unwrap().position.y);
+        // A growing apex may still point up on a drooping stem. Measure the
+        // simultaneous body, not just the apex tangent.
+        downward |= plant
+            .nodes
+            .windows(2)
+            .any(|n| (n[1].position - n[0].position).normalize().y < -0.2);
+    }
+    let end = plant.nodes.last().unwrap().position;
+    println!("wall_top=300 peak={peak} end={end:?} downward={downward}");
+    assert!(
+        downward && peak - end.y > 8.0,
+        "unsupported stem remains an upright antenna instead of bending down"
+    );
+}
+
+#[test]
+#[ignore = "downward growth is still prohibited; pending mechanics revision"]
+fn a_downward_tip_can_extend_along_its_tangent_without_penetration() {
+    let terrain = Scene(Fixture::Flat);
+    let mut plant = Plant::seed(
+        Vec3::new(255.5, 294.5, 306.8),
+        Vec3::Z,
+        IVec3::new(255, 294, 305),
+        1,
+        3500,
+    );
+    let mut node = plant.nodes[0].clone();
+    node.id = 1;
+    node.parent = Some(0);
+    node.position.y -= 2.0;
+    node.rest_length = 2.0;
+    node.fixed = false;
+    node.contact = growth::contact_at(&plant, &node, &terrain).unwrap();
+    plant.nodes.push(node);
+    plant.next_node_id = 2;
+    plant.tips[0].node = 1;
+    plant.tips[0].arc = 2.0;
+    assert!(
+        plant.grow(&terrain, 10.0),
+        "a safe downward extension was rejected"
+    );
+    assert!(plant.nodes[2].position.y < plant.nodes[1].position.y - 1.0);
+    safe(&plant, &terrain);
+}
+
 #[test]
 fn phase_is_elapsed_time_not_growth_attempts_and_pause_holds_it() {
     let scene = Scene(Fixture::Flat);

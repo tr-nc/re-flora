@@ -88,7 +88,8 @@ they do not describe an available runtime mode.
   material, clear stem geometry, and (in continuous mode) attachment rootlet centerlines.
   Pre-existing gaps do not invent backing dependencies. Missing/changed material or a buried
   stem removes the first invalid step and all descendants.
-- Buds retry the exact first severed step. A waiting cut commits neither geometry nor RNG
+- Buds retry the exact first severed step, including the severed established attachment's
+  original cell and rootlet footprint even if provisional contact had moved to a neighbour. A waiting cut commits neither geometry nor RNG
   progression; the surviving base stays fixed after repair. Whole-wall loss leaves a latent
   root seed. Repair creates new nodes, not resurrected identities.
 - Terrain snapshots are transactional: unavailable or stale queries do not commit pose,
@@ -123,4 +124,6 @@ limits: [research/climbing_vine_continuous_stem.md](research/climbing_vine_conti
 Biological motivation and limitations: [research/climbing_vine_support_search.md](research/climbing_vine_support_search.md).
 The user approved the continuous-body direction; performance acceptance remains separate.
 The next visual issue is excessive upright extension above walls, not addressed by removing
-this model's predecessor.
+this model's predecessor. [Overhang diagnosis](research/climbing_vine_overhang.md) records
+known-failing manual diagnostics, rejected mechanical candidates and the distinction between
+ordinary body contact and adhesion. No draping/downward-growth fix has shipped yet.
