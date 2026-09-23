@@ -2157,7 +2157,7 @@ label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "falling_leaf_size_scale"
@@ -2166,9 +2166,9 @@ label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
 type = "Float"
 
 [section.param.data]
-value = 1.0
+value = 4
 min = 0.25
-max = 4.0
+max = 4
 
 [[section.param]]
 id = "falling_leaf_pixel_resolution"
@@ -2177,7 +2177,7 @@ label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
 type = "Uint"
 
 [section.param.data]
-value = 16
+value = 22
 min = 8
 max = 64
 
