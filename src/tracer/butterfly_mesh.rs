@@ -2,11 +2,13 @@
 //! Butterflies cache one sample per tile texel. Falling leaves share this model
 //! draw path but evaluate snapped texels in the fragment shader: no per-leaf 64²
 //! allocation (16K particles would cost 1 GiB). Both consume canonical GLBs.
+use super::model_pixel_repair::{self, Node as RepairNode};
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Quat, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
+use std::sync::Arc;
 
 use super::ButterflyPalettePreset;
 mod validation;
@@ -22,6 +24,10 @@ const MAX_TRIANGLES: usize = 256;
 pub const MAX_RESOLUTION: u32 = 64;
 const MODEL_CAPACITY: usize = crate::particles::PARTICLE_CAPACITY + CAPACITY;
 const LEAF_MODEL_FLAG: u32 = 2;
+fn native_review() -> bool {
+    std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
+        || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct LeafModelSettings {
@@ -80,6 +86,7 @@ struct Instance {
     // triangle start/count, pixel resolution, flags (bit 0: self-shadow, bit 1: leaf)
     metadata: [u32; 4],
     lighting: [f32; 4],
+    repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -98,6 +105,8 @@ pub struct ButterflyMeshResources {
     pub butterfly_mesh_triangles: Resource<Buffer>,
     pub butterfly_pixel_tiles: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
+    pub particle_model_repairs: Resource<Buffer>,
+    pub particle_model_repair_output: Resource<Buffer>,
 }
 impl ButterflyMeshResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -130,6 +139,14 @@ impl ButterflyMeshResources {
                 ((CAPACITY + 1) * MAX_TRIANGLES) * std::mem::size_of::<Triangle>(),
                 MemoryLocation::CpuToGpu,
             ),
+            particle_model_repairs: buffer(
+                std::mem::size_of::<RepairNode>(),
+                MemoryLocation::CpuToGpu,
+            ),
+            particle_model_repair_output: buffer(
+                std::mem::size_of::<RepairNode>(),
+                MemoryLocation::CpuToGpu,
+            ),
             butterfly_pixel_tiles: Resource::new(Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
@@ -137,7 +154,11 @@ impl ButterflyMeshResources {
                     vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
                 ),
                 MemoryLocation::GpuOnly,
-                (CAPACITY * MAX_RESOLUTION as usize * MAX_RESOLUTION as usize * 16) as u64,
+                (CAPACITY
+                    * if native_review() { 2 } else { 1 }
+                    * MAX_RESOLUTION as usize
+                    * MAX_RESOLUTION as usize
+                    * 16) as u64,
             )),
         }
     }
@@ -183,6 +204,16 @@ impl Mesh {
 pub(super) struct ButterflyMeshRenderer {
     mesh: Mesh,
     instances: Vec<Instance>,
+    pub repair_nodes: Vec<RepairNode>,
+    reference_tiles: bool,
+    validation_calls: u64,
+    repair_frames: Vec<Option<(Arc<Buffer>, usize)>>,
+    repair_key: Vec<u8>,
+    repair_key_scratch: Vec<u8>,
+    repair_ranges: Vec<[u32; 4]>,
+    pub repair_added: usize,
+    repair_before: usize,
+    repair_after: usize,
     triangles: Vec<Triangle>,
     pub resolution: u32,
     tile_count: u32,
@@ -198,6 +229,16 @@ impl Default for ButterflyMeshRenderer {
         Self {
             mesh: Mesh::load(),
             instances: Vec::new(),
+            repair_nodes: Vec::new(),
+            reference_tiles: native_review(),
+            validation_calls: 0,
+            repair_frames: Vec::new(),
+            repair_key: Vec::new(),
+            repair_key_scratch: Vec::new(),
+            repair_ranges: Vec::new(),
+            repair_added: 0,
+            repair_before: 0,
+            repair_after: 0,
             triangles: Vec::new(),
             resolution: 22,
             tile_count: 0,
@@ -211,6 +252,10 @@ impl Default for ButterflyMeshRenderer {
     }
 }
 impl ButterflyMeshRenderer {
+    /// Bounded diagnostic reference storage, never a selectable rendering mode.
+    pub fn reference_tile_offset(&self) -> Option<u32> {
+        self.reference_tiles.then_some(CAPACITY as u32)
+    }
     pub fn count(&self) -> u32 {
         self.instances.len() as u32
     }
@@ -311,6 +356,7 @@ impl ButterflyMeshRenderer {
                     snapshot.color.w,
                 ],
                 lighting: [settings.transmission.clamp(0., 1.), 0., 0., 0.],
+                repair: [0; 4],
                 metadata: [
                     start,
                     self.mesh.triangles.len() as u32,
@@ -397,6 +443,7 @@ impl ButterflyMeshRenderer {
                 ],
                 // No resampling, local animation, velocity-facing override or reset.
                 lighting: snapshot.leaf_orientation.unwrap().to_array(),
+                repair: [0; 4],
             });
         }
         if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some() {
@@ -410,6 +457,185 @@ impl ButterflyMeshRenderer {
             self.dispatch_resolution = self.resolution.max(resolution);
         }
         Ok(())
+    }
+
+    /// Called after this frame's camera is final, before any model draw/dispatch.
+    /// Exact input comparison avoids rebuilding held poses, but GPU lighting is
+    /// evaluated afresh even when the geometry plan is reused.
+    pub fn prepare_repair_frame(
+        &mut self,
+        view: Mat4,
+        projection: Mat4,
+        resources: &ButterflyMeshResources,
+        device: Device,
+        allocator: Allocator,
+        frame_slot: usize,
+    ) -> Result<()> {
+        self.repair_key_scratch.clear();
+        self.repair_key_scratch
+            .extend_from_slice(bytemuck::bytes_of(&[
+                self.instances.len() as u64,
+                self.triangles.len() as u64,
+            ]));
+        self.repair_key_scratch
+            .extend_from_slice(bytemuck::bytes_of(&view));
+        self.repair_key_scratch
+            .extend_from_slice(bytemuck::bytes_of(&projection));
+        for instance in &self.instances {
+            self.repair_key_scratch
+                .extend_from_slice(bytemuck::bytes_of(&instance.position_size));
+            self.repair_key_scratch
+                .extend_from_slice(bytemuck::bytes_of(&instance.metadata));
+            self.repair_key_scratch
+                .extend_from_slice(bytemuck::bytes_of(&instance.lighting));
+        }
+        self.repair_key_scratch
+            .extend_from_slice(bytemuck::cast_slice(&self.triangles));
+        if self.repair_key != self.repair_key_scratch {
+            std::mem::swap(&mut self.repair_key, &mut self.repair_key_scratch);
+            self.repair_nodes.clear();
+            self.repair_ranges.clear();
+            self.repair_added = 0;
+            self.repair_before = 0;
+            self.repair_after = 0;
+            for instance in &self.instances {
+                let leaf = instance.metadata[3] & LEAF_MODEL_FLAG != 0;
+                let scale = instance.position_size[3] * (1.53125 / 3.4);
+                let center = Vec3::from_slice(&instance.position_size);
+                let bounds = model_pixel_repair::tile_bounds(
+                    center,
+                    instance.position_size[3],
+                    view,
+                    projection,
+                );
+                if bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1. {
+                    self.repair_ranges.push([0; 4]);
+                    continue;
+                }
+                let pose = if leaf {
+                    Quat::from_array(instance.lighting)
+                } else {
+                    Quat::IDENTITY
+                };
+                let start = instance.metadata[0] as usize;
+                let end = start + instance.metadata[1] as usize;
+                let triangles: Vec<_> = self.triangles[start..end]
+                    .iter()
+                    .map(|t| {
+                        let a = Vec3::from_slice(&t.a);
+                        let p = [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)];
+                        (
+                            if leaf || t.e1[3] < 0. { 1 } else { 2 },
+                            if leaf {
+                                p.map(|p| center + pose * p * scale)
+                            } else {
+                                p
+                            },
+                        )
+                    })
+                    .collect();
+                let vp = projection * view;
+                let inverse = vp.inverse();
+                let center_distance = |index: usize, x: usize, y: usize| {
+                    let uv = glam::Vec2::new(x as f32 + 0.5, y as f32 + 0.5)
+                        / instance.metadata[2] as f32;
+                    let ndc = glam::Vec2::new(bounds.x, bounds.y)
+                        + glam::Vec2::new(bounds.z - bounds.x, bounds.w - bounds.y) * uv;
+                    let near = inverse * glam::Vec4::new(ndc.x, ndc.y, 0., 1.);
+                    let far = inverse * glam::Vec4::new(ndc.x, ndc.y, 1., 1.);
+                    let origin = near.truncate() / near.w;
+                    let direction = (far.truncate() / far.w - origin).normalize();
+                    let q = -Vec3::from_slice(&instance.lighting);
+                    let rotate = |v: Vec3| v + 2. * q.cross(q.cross(v) + instance.lighting[3] * v);
+                    let (local_origin, local_direction) = if leaf {
+                        (rotate(origin - center) / scale, rotate(direction))
+                    } else {
+                        (origin, direction)
+                    };
+                    let t = &self.triangles[start + index];
+                    let distance = model_pixel_repair::ray_triangle(
+                        local_origin,
+                        local_direction,
+                        Vec3::from_slice(&t.a),
+                        Vec3::from_slice(&t.e1),
+                        Vec3::from_slice(&t.e2),
+                    )?;
+                    let clip = vp
+                        * (origin + direction * distance * if leaf { scale } else { 1. })
+                            .extend(1.);
+                    (0.0..1.0).contains(&(clip.z / clip.w)).then_some(distance)
+                };
+                let (owners, groups) = model_pixel_repair::project(
+                    &triangles,
+                    vp,
+                    bounds,
+                    instance.metadata[2] as usize,
+                    center_distance,
+                );
+                let plan =
+                    model_pixel_repair::plan(&owners, &groups, instance.metadata[2] as usize);
+                self.repair_ranges.push([
+                    self.repair_nodes.len() as u32,
+                    plan.nodes.len() as u32,
+                    0,
+                    0,
+                ]);
+                self.repair_added += plan.added;
+                self.repair_before += plan.before;
+                self.repair_after += plan.after;
+                self.repair_nodes.extend(plan.nodes);
+            }
+        }
+        for (instance, range) in self.instances.iter_mut().zip(&self.repair_ranges) {
+            instance.repair = *range;
+        }
+        if !self.instances.is_empty() {
+            resources.butterfly_mesh_instances.fill(&self.instances)?;
+        }
+        while self.repair_frames.len() <= frame_slot {
+            self.repair_frames.push(None);
+        }
+        let required = self
+            .repair_nodes
+            .len()
+            .max(1)
+            .checked_next_power_of_two()
+            .ok_or_else(|| anyhow::anyhow!("repair buffer capacity overflow"))?;
+        // Vulkan guarantees at least 128 MiB per storage-buffer binding. Never
+        // silently drop repairs or bind an out-of-range allocation on overflow.
+        ensure!(
+            required <= 128 * 1024 * 1024 / std::mem::size_of::<RepairNode>(),
+            "sparse repair plan exceeds portable storage-buffer range"
+        );
+        if self.repair_frames[frame_slot]
+            .as_ref()
+            .is_none_or(|(_, capacity)| *capacity < required)
+        {
+            let buffer = Buffer::new_sized(
+                device,
+                allocator,
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::CpuToGpu,
+                (required * std::mem::size_of::<RepairNode>()) as u64,
+            );
+            self.repair_frames[frame_slot] = Some((Arc::new(buffer), required));
+        }
+        if !self.repair_nodes.is_empty() {
+            self.repair_frames[frame_slot]
+                .as_ref()
+                .unwrap()
+                .0
+                .fill(&self.repair_nodes)?;
+        }
+        Ok(())
+    }
+
+    pub fn repair_buffer(&self, frame_slot: usize) -> Arc<Buffer> {
+        self.repair_frames[frame_slot]
+            .as_ref()
+            .expect("prepared model frame")
+            .0
+            .clone()
     }
 
     pub fn upload(
@@ -691,7 +917,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 64);
+        assert_eq!(std::mem::size_of::<Instance>(), 80);
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
     }
     #[test]

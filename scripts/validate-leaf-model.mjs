@@ -21,6 +21,10 @@ if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);}else i
  assert.doesNotMatch(text,/\bERROR\b|VUID-|panicked at/,`inspect ${log}`);
  assert.deepEqual(await readFile('config/gui.toml'),before,'Review changed saved settings');
  assert.ok(text.includes('failures=0'));
+ const repairs=Array.from(text.matchAll(/MODEL-REPAIR-CHECK\] original_samples=(\d+) original_changed=0 added=(\d+) planned=\d+ components=(\d+)->(\d+)/g),m=>m.slice(1).map(Number));
+ assert.ok(repairs.length>=8,'Missing rotating-pose repair checks');
+ assert.ok(repairs.some(([samples,added,before,after])=>samples>0&&added>0&&after<before),'No actual GPU gap was repaired');
+ assert.ok(repairs.every(([, ,before,after])=>after<=before),'Repair created detached pixels');
  const modes=Array.from(text.matchAll(/LEAF-MODEL\] mode=([AB]) pixels=(\d+)x/g),m=>`${m[1]}${m[2]}`);
  assert.deepEqual(modes.slice(0,6),['A16','B8','B16','B64','A16','B16'],`Incomplete live sweep; rerun with a larger --seconds. ${log}`);
  for(const [mode,scale] of [['A','2'],['B','0.25'],['B','4']])assert.match(text,new RegExp(`LEAF-MODEL\\] mode=${mode}[^\\n]* render_scale=${scale.replace('.','\\.')}\\b`),`Missing ${mode} size ${scale}; increase --seconds`);
@@ -31,5 +35,5 @@ if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);}else i
    for(const image of images){const data=await readFile(path.join(output,'tiles',image));assert.equal(data.readUInt32BE(16),n);assert.equal(data.readUInt32BE(20),n);}
  }
  assert.ok((await readFile(path.join(output,'scene.png'))).length>100);
- console.log(`PASS: live A/B, 8/16/64px, 0.25/1/2/4x display sizes, published flight poses, GPU/CPU depths, no Vulkan errors or saved-setting changes.\nLog: ${log}\nScreenshot: ${output}/scene.png`);
+ console.log(`PASS: live A/B, 8/16/64px, 0.25/1/2/4x display sizes, rotating published flight poses, fixed eight-neighbour repair, original RGBA/depth unchanged, endpoint colors and GPU/CPU depths, no Vulkan errors or saved-setting changes.\nLog: ${log}\nScreenshot: ${output}/scene.png`);
 }

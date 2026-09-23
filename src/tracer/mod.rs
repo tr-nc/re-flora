@@ -12,6 +12,7 @@ pub(crate) use capture_frame::{
 };
 
 mod butterfly_mesh;
+mod model_pixel_repair;
 pub use butterfly_mesh::{ButterflyMeshSettings, LeafModelSettings};
 mod butterfly_palette;
 pub use butterfly_palette::*;
@@ -3934,24 +3935,72 @@ impl Tracer {
             // dependency; no global fallback barrier is needed here.
         }
 
-        if render_flags.enable_particles && self.butterfly_mesh_renderer.compute_count > 0 {
+        if render_flags.enable_particles && self.butterfly_mesh_renderer.count() > 0 {
+            self.butterfly_mesh_renderer.prepare_repair_frame(
+                self.camera.get_view_mat(),
+                self.camera.get_proj_mat(),
+                &self.resources.butterfly_mesh,
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                gpu_profiler_frame_slot,
+            )?;
+            let repairs = self
+                .butterfly_mesh_renderer
+                .repair_buffer(gpu_profiler_frame_slot);
+            let pipeline = &self.pipeline_topology.compute().butterfly_tile_ppl;
+            pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+            let descriptors = [
+                (
+                    "particle_model_repairs",
+                    DescriptorResource::Buffer(&repairs),
+                ),
+                (
+                    "particle_model_repair_output",
+                    DescriptorResource::Buffer(&repairs),
+                ),
+            ];
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
                 cmdbuf,
                 "butterfly.tiles",
-                || {
-                    self.pipeline_topology.compute().butterfly_tile_ppl.record(
-                        cmdbuf,
-                        Extent3D::new(
-                            self.butterfly_mesh_renderer.dispatch_resolution,
-                            self.butterfly_mesh_renderer.dispatch_resolution,
-                            self.butterfly_mesh_renderer.compute_count,
-                        ),
-                        None,
-                    );
+                || -> Result<()> {
+                    let count = self.butterfly_mesh_renderer.count();
+                    if !self.butterfly_mesh_renderer.repair_nodes.is_empty() {
+                        pipeline.record_with_descriptors(
+                            cmdbuf,
+                            &descriptors,
+                            Extent3D::new(8, 8, count.div_ceil(64)),
+                            Some(bytemuck::bytes_of(&[0u32, count, 0])),
+                        )?;
+                    }
+                    if self.butterfly_mesh_renderer.compute_count > 0 {
+                        pipeline.record_with_descriptors(
+                            cmdbuf,
+                            &descriptors,
+                            Extent3D::new(
+                                self.butterfly_mesh_renderer.dispatch_resolution,
+                                self.butterfly_mesh_renderer.dispatch_resolution,
+                                self.butterfly_mesh_renderer.compute_count,
+                            ),
+                            Some(bytemuck::bytes_of(&[1u32, count, 0])),
+                        )?;
+                        if let Some(base) = self.butterfly_mesh_renderer.reference_tile_offset() {
+                            pipeline.record_with_descriptors(
+                                cmdbuf,
+                                &descriptors,
+                                Extent3D::new(
+                                    self.butterfly_mesh_renderer.dispatch_resolution,
+                                    self.butterfly_mesh_renderer.dispatch_resolution,
+                                    self.butterfly_mesh_renderer.compute_count,
+                                ),
+                                Some(bytemuck::bytes_of(&[2u32, count, base])),
+                            )?;
+                        }
+                    }
+                    Ok(())
                 },
-            );
+            )?;
         }
 
         if has_graphics_pass {
@@ -4728,13 +4777,34 @@ impl Tracer {
                 .dynamic_fruit_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
-        if enable_particles {
-            if self.butterfly_mesh_renderer.count() > 0 {
+        let prepared_model_descriptors =
+            if enable_particles && self.butterfly_mesh_renderer.count() > 0 {
+                let repairs = self
+                    .butterfly_mesh_renderer
+                    .repair_buffer(gpu_profiler_frame_slot);
+                // The transient set contains only repairs. Persistent camera,
+                // environment and DDGI images still need their normal transitions.
                 self.pipeline_topology
                     .graphics()
                     .butterfly_tile_ppl
                     .prepare_descriptor_resources(cmdbuf);
-            }
+                Some(
+                    self.pipeline_topology
+                        .graphics()
+                        .butterfly_tile_ppl
+                        .prepare_draw_descriptors(
+                            cmdbuf,
+                            &[(
+                                "particle_model_repairs",
+                                DescriptorResource::Buffer(&repairs),
+                            )],
+                        )
+                        .expect("model repair descriptors must match reflection"),
+                )
+            } else {
+                None
+            };
+        if enable_particles {
             self.pipeline_topology
                 .graphics()
                 .particle_ppl
@@ -5288,8 +5358,11 @@ impl Tracer {
                         &self.resources.butterfly_mesh.draw_indices,
                     ],
                 );
-                pipeline.record_indexed(
+                pipeline.record_indexed_with_prepared_descriptors(
                     cmdbuf,
+                    prepared_model_descriptors
+                        .as_ref()
+                        .expect("prepared model descriptors"),
                     particle_resources.indices_len,
                     self.butterfly_mesh_renderer.count(),
                     0,

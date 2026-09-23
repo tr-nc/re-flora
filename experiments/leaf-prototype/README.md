@@ -2,7 +2,7 @@
 
 **当前入口：[统一模型像素化预览台 · 落叶](../model-preview/?model=leaf)**。
 
-`index.html` 仅保留兼容跳转，不再维护单独的叶片渲染器、后处理和界面代码。启动、模型接入接口、A/B 行为与验证方法见 [预览台说明](../model-preview/README.md)。从仓库根目录运行：
+`index.html` 仅保留兼容跳转，不再维护单独的叶片渲染器、后处理和界面代码。启动、模型接入接口、固定八邻接补点行为与验证方法见 [预览台说明](../model-preview/README.md)。从仓库根目录运行：
 
 ```sh
 node scripts/serve-model-preview.mjs

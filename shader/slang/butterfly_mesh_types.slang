@@ -5,6 +5,11 @@ public struct ButterflyMeshInstance {
     public float4 color;
     public uint4 metadata;
     public float4 lighting; // butterfly: x transmission; leaf (metadata.w & 2): published quaternion
+    public uint4 repair; // sparse expression offset/count, always enabled
+};
+public struct ParticleModelRepairNode {
+    public uint4 links; // destination, endpoint refs, lerp float bits
+    public float4 colorDepth;
 };
 public struct ButterflyMeshTriangle {
     public float4 a;

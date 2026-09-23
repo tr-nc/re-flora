@@ -2513,6 +2513,8 @@ pub struct GraphicsPipelines {
 
 impl GraphicsPipelines {
     pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
+        self.butterfly_tile_ppl
+            .begin_transient_descriptor_frame(frame_slot);
         self.flora_ppl.begin_transient_descriptor_frame(frame_slot);
         self.flora_lod_ppl
             .begin_transient_descriptor_frame(frame_slot);

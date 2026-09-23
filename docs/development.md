@@ -70,7 +70,7 @@ node scripts/serve-model-preview.mjs
 ```
 
 Open `http://127.0.0.1:8765/model-preview/`. The tool shares camera controls, animation sampling,
-pixel processing, A/B comparison, and JSON presets across models. Add new assets through its model
+fixed eight-neighbor connectivity repair, pixel processing, and JSON presets across models. Add new assets through its model
 definitions rather than copying another HTML demo. Game and preview models use the
 [shared asset contract](../assets/models/README.md). Browser visuals do not replace in-game lighting,
 occlusion, or release-mode performance validation.
