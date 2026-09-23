@@ -60,6 +60,20 @@ change their source and include generated diffs only when they follow from the s
 Performance conclusions require measured release-mode app runs. Debug builds and unit tests are not
 performance evidence. See [Performance Benchmarking](./performance-benchmarking.md).
 
+## Model Art Preview
+
+Use the [unified model pixel preview](../experiments/model-preview/README.md) for leaf and animated
+butterfly art iteration. From the repository root:
+
+```sh
+python3 -m http.server 8765 --bind 127.0.0.1 --directory experiments
+```
+
+Open `http://127.0.0.1:8765/model-preview/`. The tool shares camera controls, animation sampling,
+pixel processing, A/B comparison, and JSON presets across models. Add new assets through its model
+definitions rather than copying another HTML demo. Browser visuals do not replace in-game lighting,
+occlusion, or release-mode performance validation.
+
 ## Technology Overview
 
 | Area | Primary implementation |

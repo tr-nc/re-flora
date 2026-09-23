@@ -1,4 +1,6 @@
-# 精简调试台（v6）
+# 精简调试台（v6，历史记录）
+
+> 已迁移至 [统一模型像素化预览台](../model-preview/README.md)。以下记录适用于提交 `86b4b81c` 中的旧 v6；其中旧脚本路径与独立服务方式不是当前入口。现在 `comparison-v6.html` 只跳转，`validate-debug-preview.cjs` 转发统一验证。
 
 入口 `comparison-v6.html`，场景逻辑 `debug-preview.js`，自定义色盘 `custom-color-picker.js`。
 

@@ -16,6 +16,8 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory experiments
 - 蝴蝶：`?model=butterfly`
 - 布局：`&variant=compare` / `model` / `pixel`
 
+旧 `/leaf-prototype/`、`/butterfly-method-comparison/` 与 `comparison-v6.html` 会跳转到对应模型。旧叶片和 v6 查看器脚本已退役，完整历史源在提交 `86b4b81c`；v4/v5 页面仅作为历史研究保留。不要在这些旧入口增加新功能。
+
 需要支持 WebGL 2 的浏览器；不要使用 `file://`。运行无需 npm、构建步骤、网络服务或外网依赖。Three.js 0.183.0 与许可证继续使用 `../butterfly-method-comparison/vendor/three-0.183.0/`，批准的蝴蝶 GLB 保持原路径，没有重新生成游戏素材。
 
 ## 使用
@@ -95,7 +97,7 @@ node --test experiments/model-preview/tests/*.test.mjs
 node experiments/model-preview/tests/browser.cjs
 ```
 
-支持 `CHROME_EXECUTABLE`、`PREVIEW_ARTIFACT_DIR`。迁移完成后可设置 `CHECK_REDIRECTS=1` 一并检查旧入口跳转。默认工件在 `target/model-preview-validation/`。
+支持 `CHROME_EXECUTABLE`、`PREVIEW_ARTIFACT_DIR`。设置 `CHECK_REDIRECTS=1` 一并检查已迁移的旧入口跳转。默认工件在 `target/model-preview-validation/`。
 
 本次验证：
 
