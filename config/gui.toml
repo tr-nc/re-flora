@@ -2606,33 +2606,44 @@ id = "climbing_enabled"
 kind = "bool"
 label = "Enable climbing vine wall (creates terrain and focuses camera)"
 type = "Bool"
+
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "climbing_fixture"
 kind = "choice"
 label = "Test terrain (applies immediately)"
 type = "Choice"
+
 [section.param.data]
-value = 0
-options = ["Flat wall", "Wall with a hole", "Outward ledge", "Recessed wall", "Sloping wall", "Ground to wall"]
+value = 3
+options = [
+    "Flat wall",
+    "Wall with a hole",
+    "Outward ledge",
+    "Recessed wall",
+    "Sloping wall",
+    "Ground to wall",
+]
 
 [[section.param]]
 id = "climbing_clockwise"
 kind = "bool"
 label = "Clockwise tip search (restarts vine)"
 type = "Bool"
+
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "climbing_seed"
 kind = "uint"
 label = "Vine seed (restarts vine)"
 type = "Uint"
+
 [section.param.data]
-value = 42
+value = 3500
 min = 0
 max = 65535
 
@@ -2641,16 +2652,18 @@ id = "climbing_flexibility"
 kind = "float"
 label = "Unattached shoot flexibility"
 type = "Float"
+
 [section.param.data]
-value = 1.0
-min = 0.0
-max = 2.0
+value = 2
+min = 0
+max = 2
 
 [[section.param]]
 id = "climbing_paused"
 kind = "bool"
 label = "Pause vine growth (wall removal still prunes)"
 type = "Bool"
+
 [section.param.data]
 value = false
 
@@ -2659,25 +2672,28 @@ id = "climbing_speed"
 kind = "float"
 label = "Growth attempts/sec (up to 2.5 voxels per tip)"
 type = "Float"
+
 [section.param.data]
-value = 12.0
-min = 0.0
-max = 40.0
+value = 10
+min = 0
+max = 40
 
 [[section.param]]
 id = "climbing_spacing"
 kind = "float"
 label = "Adhesion spacing (voxels; 256/world unit)"
 type = "Float"
+
 [section.param.data]
-value = 16.0
-min = 4.0
-max = 64.0
+value = 10
+min = 4
+max = 64
 
 [[section.param]]
 id = "climbing_show_anchors"
 kind = "bool"
 label = "Show markers: yellow attachment / blue search / orange regrowth / red missing root"
 type = "Bool"
+
 [section.param.data]
-value = false
+value = true
