@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {validatePreset} from '../presets.mjs';
 const definitions=[{id:'example',controls:[{key:'curl',label:'curl',min:-1,max:1},{key:'color',label:'color',type:'color'},{key:'shadows',label:'shadows',type:'checkbox'}]}];
 const preset=()=>({version:1,model:'example',modelSettings:{curl:.5,color:'#FF8800',shadows:true},layout:'compare',wireframe:false,
-  processing:{resolution:32,repair:true,levels:0},animation:{clip:0,time:.237,fps:60,speed:1},
+  processing:{resolution:32,levels:0},animation:{clip:0,time:.237,fps:60,speed:1},
   view:{projection:'orthographic',position:[0,0,6],target:[0,0,0],zoom:1},appearance:{background:'#253039',checker:false}});
 
 test('versioned presets contain validated model and shared state',()=>{

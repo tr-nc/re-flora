@@ -35,7 +35,7 @@ export class PreviewPipeline{
     this.screenMaterial.uniforms.image.value=this.texture;
   }
   render(asset,camera,settings){
-    const {time,clip,wireframe,repair,levels}=settings;
+    const {time,clip,wireframe,levels}=settings;
     asset.sample(time,clip);asset.scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
     this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
     asset.preparePass('source');
@@ -46,21 +46,14 @@ export class PreviewPipeline{
       this.source.render(asset.scene,camera);
     }finally{for(const [material,value]of wires)material.wireframe=value;}
     asset.preparePass('pixel');this.pixel.render(asset.scene,camera);
-    let stats=null,projected=[];
-    if(repair||levels){
-      const gl=this.pixel.getContext();
-      gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
-      let output=quantizeImage(this.bytes,levels);
-      if(repair){
-        const owners=this.readOwners(asset,camera);
-        projected=projectGroups(asset,camera,this.size);
-        const result=repairImage(output,owners,projected,this.size);
-        output=result.rgba;stats={added:result.added,groups:result.groups};
-      }
-      this.texture.image.data.set(output);this.texture.needsUpdate=true;
-      this.pixel.render(this.screen,this.screenCamera);
-    }
-    this.last={sourceTime:time,pixelTime:time,repair:stats,projectedGroups:projected};
+    const gl=this.pixel.getContext();
+    gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
+    const original=quantizeImage(this.bytes,levels),owners=this.readOwners(asset,camera);
+    const projected=projectGroups(asset,camera,this.size);
+    const result=repairImage(original,owners,projected,this.size);
+    this.texture.image.data.set(result.rgba);this.texture.needsUpdate=true;
+    this.pixel.render(this.screen,this.screenCamera);
+    this.last={sourceTime:time,pixelTime:time,repair:{added:result.added,groups:result.groups},projectedGroups:projected,original,owners};
     return this.last;
   }
   readOwners(asset,camera){

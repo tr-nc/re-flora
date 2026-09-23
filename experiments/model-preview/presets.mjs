@@ -21,7 +21,8 @@ export function validatePreset(input,definitions){
   if(!['compare','model','pixel'].includes(input.layout))fail('布局');
   return {
     version:1,model:definition.id,modelSettings,layout:input.layout,wireframe:boolean(input.wireframe,'线框'),
-    processing:{resolution:integer(processing.resolution,8,128,'像素数'),repair:boolean(processing.repair,'补点'),levels:integer(processing.levels,0,12,'亮度色阶')},
+    // Legacy processing.repair is deliberately ignored: repair is mandatory.
+    processing:{resolution:integer(processing.resolution,8,128,'像素数'),levels:integer(processing.levels,0,12,'亮度色阶')},
     animation:{clip:integer(animation.clip,0,1000,'动画片段'),time:number(animation.time,0,36000,'动画时刻'),fps:integer(animation.fps,2,60,'动画采样帧率'),speed:number(animation.speed,.25,2,'播放速度')},
     view:{projection:view.projection,position,target,zoom:number(view.zoom,.55,2.5,'缩放')},
     appearance:{background:color(appearance.background,'底色'),checker:boolean(appearance.checker,'棋盘')},

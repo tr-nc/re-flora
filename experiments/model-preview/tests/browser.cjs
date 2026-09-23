@@ -25,8 +25,9 @@ let server;
   });
   async function select(model){await page.locator('#model').selectOption(model);await page.waitForFunction(id=>readModelPreview().model===id&&!readModelPreview().loading&&!readModelPreview().dirty,model);}
   async function repairCheck(){
-    await page.locator('#repair').uncheck();await stable();const original=await rgba();
-    await page.locator('#repair').check();await stable();const result=await rgba();let added=0;
+    await stable();
+    const original=await page.evaluate(()=>{const s=readModelPreview(true),n=s.resolution;return Array.from({length:n*n*4},(_,i)=>s.originalRgba[(n-1-Math.floor(i/(n*4)))*n*4+i%(n*4)]);});
+    const result=await rgba();let added=0;
     for(let i=0;i<original.length;i+=4){if(original[i+3])assert.deepEqual(result.slice(i,i+4),original.slice(i,i+4));else if(result[i+3])added++;}
     assert.equal(added,(await state()).repair.added);
     return added;
@@ -46,7 +47,7 @@ let server;
   for(const [key,value]of [['curl','-0.65'],['width','1.4'],['fold','0.7'],['season','1'],['veins','0'],['transmission','0']]){
     await page.locator('#model-'+key).fill(value);await stable();assert.equal((await state()).modelSettings[key],Number(value));
   }
-  await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,false);
+  await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,true);assert.equal(await page.locator('#repair').count(),0);
   await page.screenshot({path:path.join(artifacts,'leaf.png'),fullPage:true});
   await select('butterfly');assert.equal((await state()).triangles,156);assert.equal((await state()).clips[0].duration,1);
   assert.doesNotMatch(await page.locator('body').innerText(),/\bv\d+\b|\bVersion\s*\d+/i);
@@ -80,10 +81,11 @@ let server;
   const exportPromise=page.waitForEvent('download');await page.locator('#export-preset').click();const exported=await exportPromise;const presetFile=path.join(artifacts,'preset.json');await exported.saveAs(presetFile);assert.deepEqual(JSON.parse(await fs.readFile(presetFile,'utf8')),savedPreset);
   await select('leaf');await page.locator('#preset-file').setInputFiles(presetFile);await stable();assert.equal((await state()).model,'butterfly');assert.equal(await png(),savedImage);
   await page.locator('#preset-file').setInputFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{"version":999}')});await page.waitForFunction(()=>document.querySelector('#status').classList.contains('error'));assert.equal(await png(),savedImage);
-  await page.locator('#preset-file').setInputFiles(presetFile);await stable();
+  const legacyPreset={...savedPreset,processing:{...savedPreset.processing,repair:false}};
+  await page.locator('#preset-file').setInputFiles({name:'legacy.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(legacyPreset))});await stable();assert.equal((await state()).repairEnabled,true);assert.equal(await png(),savedImage);
   const beforeWire=await png();await page.locator('#wireframe').check();await stable();assert.equal(await png(),beforeWire);await page.locator('#wireframe').uncheck();
   await page.locator('#levels').fill('4');await stable();assert.notEqual(await png(),savedImage);await page.locator('#levels').fill('0');await stable();assert.equal(await png(),savedImage);
-  const downloadPromise=page.waitForEvent('download');await page.locator('#download').click();const downloaded=await downloadPromise;assert.match(downloaded.suggestedFilename(),/butterfly-B-connectivity-32px/);const file=path.join(artifacts,'pixel.png');await downloaded.saveAs(file);const data=await fs.readFile(file);assert.equal(data.readUInt32BE(16),32);assert.equal(data.readUInt32BE(20),32);
+  const downloadPromise=page.waitForEvent('download');await page.locator('#download').click();const downloaded=await downloadPromise;assert.match(downloaded.suggestedFilename(),/butterfly-connectivity-32px/);const file=path.join(artifacts,'pixel.png');await downloaded.saveAs(file);const data=await fs.readFile(file);assert.equal(data.readUInt32BE(16),32);assert.equal(data.readUInt32BE(20),32);
   await page.locator('#play').click();const time=(await state()).pixelTime;await page.waitForTimeout(200);assert.notEqual((await state()).pixelTime,time);await page.locator('#play').click();await page.locator('#phase').fill('237');await stable();
   await page.screenshot({path:path.join(artifacts,'butterfly.png'),fullPage:true});
   // Stale asynchronous GLB loads must not replace the user's newer selection.

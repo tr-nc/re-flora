@@ -11,7 +11,7 @@ const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
 let asset,definition,modelSettings,pipeline,camera,controls,request=0,last=0;
 const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,playing:false,time:0,clip:0,fps:60,speed:1,
-  resolution:32,repair:false,levels:0,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false};
+  resolution:32,levels:0,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false};
 
 function message(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function dirty(){state.dirty=true;}
@@ -76,12 +76,12 @@ function buildModelControls(){
 }
 function syncControls(){
   for(const key of ['resolution','fps','speed','levels','projection'])$(key).value=state[key];
-  for(const key of ['repair','wireframe','rotate','checker'])$(key).checked=state[key];
+  for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
   $('background').value=state.background;updateBackground();
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
   $('levels-value').textContent=state.levels?`${state.levels} 级 / 单位亮度`:'连续';
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
-  $('coverage-mode').textContent=state.repair?'B · 八邻接补点':'A · 中心采样';
+  $('coverage-mode').textContent='八邻接最少补点';
   $('clip').replaceChildren();
   for(const [index,clip]of (asset?.clips??[]).entries())$('clip').add(new Option(clip.name,String(index)));
   if(!asset?.clips.length)$('clip').add(new Option('无动画','0'));
@@ -90,7 +90,6 @@ function syncControls(){
   const disabled=!state.ready||state.loading||state.failed;
   for(const element of document.querySelectorAll('button,input,select'))if(element.id!=='model')element.disabled=disabled;
   for(const id of ['play','previous-frame','next-frame','clip','phase','fps','speed'])$(id).disabled=disabled||!asset?.clips.length;
-  $('repair').disabled=disabled||!asset?.repairGroups.length;
   $('play').textContent=state.playing?'暂停':'播放';$('play').setAttribute('aria-pressed',String(state.playing));
 }
 async function loadModel(id,preset=null){
@@ -106,7 +105,7 @@ async function loadModel(id,preset=null){
     }
     const values=preset?.modelSettings??{...nextDefinition.defaults};next.apply(values);
     asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings={...values};
-    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,repair:false,levels:0,wireframe:false,rotate:false,checker:false,...definition.preview});
+    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,levels:0,wireframe:false,rotate:false,checker:false,...definition.preview});
     if(preset){Object.assign(state,preset.processing,preset.animation,preset.appearance,{wireframe:preset.wireframe});}
     $('model').value=id;setProjection(preset?.view.projection??'orthographic');setView();
     if(preset){target.fromArray(preset.view.target);camera.position.fromArray(preset.view.position);camera.zoom=preset.view.zoom;camera.lookAt(target);camera.updateProjectionMatrix();controls.forEach(control=>control.update());}
@@ -122,9 +121,9 @@ async function loadModel(id,preset=null){
 }
 function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
-  const frame=pipeline.render(asset,camera,{time,clip:state.clip,wireframe:state.wireframe,repair:state.repair,levels:state.levels});
+  const frame=pipeline.render(asset,camera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
-  let repairMessage='A：原始中心采样，不补点';
+  let repairMessage='八邻接最少补点';
   if(frame.repair){
     const {added,groups}=frame.repair;
     const separated=groups.some(group=>group.after>1);
@@ -156,7 +155,7 @@ function tick(now){
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function exportPreset(){
   return {version:1,model:state.model,modelSettings:{...modelSettings},layout:state.variant,wireframe:state.wireframe,
-    processing:{resolution:state.resolution,repair:state.repair,levels:state.levels},
+    processing:{resolution:state.resolution,levels:state.levels},
     animation:{clip:state.clip,time:state.time,fps:state.fps,speed:state.speed},
     view:{projection:state.projection,position:camera.position.toArray(),target:target.toArray(),zoom:camera.zoom},
     appearance:{background:state.background,checker:state.checker}};
@@ -187,7 +186,7 @@ function init(){
   for(const id of ['front','back','edge'])$(id).addEventListener('click',()=>setView(id));
   $('reset-view').addEventListener('click',()=>setView());$('projection').addEventListener('change',()=>setProjection($('projection').value));
   for(const key of ['resolution','levels','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
-  for(const key of ['repair','wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
+  for(const key of ['wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
   document.querySelectorAll('[data-resolution]').forEach(button=>button.addEventListener('click',()=>{state.resolution=Number(button.dataset.resolution);syncControls();resize();}));
   $('background').addEventListener('input',()=>{state.background=$('background').value;updateBackground();});
   $('play').addEventListener('click',()=>setPlaying(!state.playing));
@@ -197,7 +196,7 @@ function init(){
   $('reset-all').addEventListener('click',()=>loadModel(state.model));
   $('download').addEventListener('click',()=>{
     render();const time=pipeline.last.pixelTime.toFixed(3);
-    pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-${state.repair?'B-connectivity':'A-center'}-${state.resolution}px-${time}s.png`);},'image/png');
+    pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-connectivity-${state.resolution}px-${time}s.png`);},'image/png');
   });
   $('export-preset').addEventListener('click',()=>downloadBlob(new Blob([JSON.stringify(exportPreset(),null,2)+'\n'],{type:'application/json'}),`${state.model}-preview.json`));
   $('import-preset').addEventListener('click',()=>$('preset-file').click());
@@ -219,10 +218,10 @@ window.readModelPreview=(includeGeometry=false)=>({
   pixelBuffer:[pixelCanvas.width,pixelCanvas.height],sourceBuffer:[sourceCanvas.width,sourceCanvas.height],
   camera:camera?.position.toArray(),target:target.toArray(),zoom:camera?.zoom,
   sharedCamera:controls?.every(control=>control.object===camera&&control.target===target),
-  repair:pipeline?.last?.repair,repairEnabled:state.repair,
+  repair:pipeline?.last?.repair,repairEnabled:true,
   clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
-  ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,camera,state.resolution)}:{}),
+  ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,camera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
   preset:asset?exportPreset():null,
 });
 try{init();}catch(error){state.failed=true;message(`初始化失败：${error.message}`,true);console.error(error);}
