@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { coverageGeometry, coverageMaterial } from './coverage.js';
+import { projectedCoverage, repairCoverage } from './connectivity.js';
 
 const $ = id => document.getElementById(id);
 const fields = ['resolution', 'steps', 'width', 'fold', 'curl', 'season', 'veins', 'light', 'transmission'];
@@ -13,11 +14,14 @@ const scene = new THREE.Scene();
 const camera = new THREE.OrthographicCamera(-1.7, 1.7, 1.7, -1.7, .1, 40);
 const target = new THREE.Vector3(0, -.06, .05);
 let sourceRenderer, pixelRenderer, controls, leaf, wire, coverageLeaf, last = 0;
+let repairTexture, pixelReadback;
+let repairStats = null;
 const uniforms = {
   season: { value: state.season }, veins: { value: state.veins },
   transmission: { value: state.transmission }, steps: { value: 0 },
   lightDirection: { value: new THREE.Vector3() },
   tileResolution: { value: state.resolution },
+  repairMask: { value: null },
 };
 // Both rasterizers share the same leaf shading; only pixel coverage changes.
 const leafShading = `
@@ -165,6 +169,13 @@ function resize() {
   sourceCanvas.style.width=sourceCanvas.style.height=`${size}px`;
   pixelRenderer.setSize(state.resolution,state.resolution,false);
   uniforms.tileResolution.value=state.resolution;
+  if(!repairTexture || repairTexture.image.width!==state.resolution) {
+    repairTexture?.dispose();
+    repairTexture=new THREE.DataTexture(new Uint8Array(state.resolution**2),state.resolution,state.resolution,THREE.RedFormat);
+    repairTexture.minFilter=repairTexture.magFilter=THREE.NearestFilter;
+    uniforms.repairMask.value=repairTexture;
+    pixelReadback=new Uint8Array(state.resolution**2*4);
+  }
   // Integer CSS magnification: no unevenly sized logical pixels at 1× browser scale.
   const scale=Math.max(1,Math.floor(Math.min(pixelStage.clientWidth,pixelStage.clientHeight)/state.resolution));
   pixelCanvas.style.width=pixelCanvas.style.height=`${state.resolution*scale}px`;
@@ -212,6 +223,14 @@ function cycleVariant(direction) {
   setVariant(variants[(variants.indexOf(state.variant)+direction+3)%3]);
 }
 
+function projectedTriangles() {
+  return Array.from({length:leaf.geometry.index.count/3},(_,i)=>[0,1,2].map(j=>{
+    const point=new THREE.Vector3().fromBufferAttribute(leaf.geometry.attributes.position,leaf.geometry.index.getX(i*3+j))
+      .applyMatrix4(leaf.matrixWorld).project(camera);
+    return [(point.x*.5+.5)*state.resolution,(point.y*.5+.5)*state.resolution,point.z];
+  }));
+}
+
 function render() {
   leaf.visible=true;
   coverageLeaf.visible=false;
@@ -220,9 +239,30 @@ function render() {
   sourceRenderer.render(scene,camera);
   wire.visible=false; // Topology is an inspection overlay, not part of the artwork.
   uniforms.steps.value=state.steps;
-  leaf.visible=!state.conservative;
-  coverageLeaf.visible=state.conservative;
-  pixelRenderer.render(scene,camera);
+  pixelRenderer.render(scene,camera); // A is always the unmodified base image.
+  repairStats=null;
+  if(state.conservative) {
+    // Prototype CPU decision pass: read the tiny A tile, not the high-res view.
+    // Production integration must replace/measure this synchronous GPU readback.
+    const gl=pixelRenderer.getContext(), n=state.resolution;
+    gl.readPixels(0,0,n,n,gl.RGBA,gl.UNSIGNED_BYTE,pixelReadback);
+    const original=Uint8Array.from({length:n*n},(_,i)=>pixelReadback[i*4+3]>0);
+    const repair=repairCoverage(original,projectedCoverage(projectedTriangles(),n),n);
+    repairStats={before:repair.before,after:repair.after,added:repair.added};
+    if(repair.added) {
+      repairTexture.image.data.set(repair.additions);
+      repairTexture.needsUpdate=true;
+      leaf.visible=false;
+      coverageLeaf.visible=true;
+      // Draw ONLY added pixels; retain A's original colors, alpha and depth.
+      pixelRenderer.autoClear=false;
+      pixelRenderer.render(scene,camera);
+      pixelRenderer.autoClear=true;
+    }
+  }
+  $('repair-info').textContent=repairStats
+    ? `八邻接区域 ${repairStats.before} → ${repairStats.after} · 补 ${repairStats.added} 像素`
+    : 'A：原始中心采样，不补点';
   $('camera-info').textContent=`共享视角 (${camera.position.toArray().map(n=>n.toFixed(2)).join(', ')}) · 缩放 ${camera.zoom.toFixed(2)}`;
   state.dirty=false;
 }
@@ -288,7 +328,7 @@ function init() {
   $('wireframe').addEventListener('change',()=>{state.dirty=true;});
   function updateCoverage() {
     state.conservative=$('conservative').checked;
-    $('coverage-mode').textContent=state.conservative ? 'B · 保守覆盖' : 'A · 原始中心采样';
+    $('coverage-mode').textContent=state.conservative ? 'B · 八邻接补点' : 'A · 原始中心采样';
     state.dirty=true;
   }
   $('conservative').addEventListener('change',updateCoverage);
@@ -305,7 +345,7 @@ function init() {
   });
   $('download').addEventListener('click',()=>{
     render();
-    const a=document.createElement('a');a.download=`leaf-${state.conservative?'B-coverage':'A-center'}-${state.resolution}x${state.resolution}.png`;
+    const a=document.createElement('a');a.download=`leaf-${state.conservative?'B-connectivity':'A-center'}-${state.resolution}x${state.resolution}.png`;
     a.href=pixelCanvas.toDataURL('image/png');a.click();
   });
   $('previous').addEventListener('click',()=>cycleVariant(-1));
@@ -331,14 +371,8 @@ window.readLeafPrototype=(includeGeometry=false)=>({
   pixelBuffer:[pixelCanvas.width,pixelCanvas.height],
   sharedCamera:controls?.every(c=>c.object===camera&&c.target===target),
   camera:camera.position.toArray(),zoom:camera.zoom,
-  ...(includeGeometry && leaf ? {
-    projectedTriangles: Array.from({length:leaf.geometry.index.count/3},(_,i)=>
-      [0,1,2].map(j=>{
-        const point=new THREE.Vector3().fromBufferAttribute(leaf.geometry.attributes.position,leaf.geometry.index.getX(i*3+j))
-          .applyMatrix4(leaf.matrixWorld).project(camera);
-        return [(point.x*.5+.5)*state.resolution,(point.y*.5+.5)*state.resolution,point.z];
-      })),
-  } : {}),
+  repair:repairStats,
+  ...(includeGeometry && leaf ? {projectedTriangles:projectedTriangles()} : {}),
 });
 try { init(); } catch(error) {
   state.ready=false;

@@ -1,6 +1,7 @@
 // Prototype-only conservative rasterization for the fixed orthographic viewer.
 // One screen-space bounding quad per source triangle; an exact triangle/square
-// separating-axis test decides coverage. No supersampling or image dilation.
+// separating-axis test decides coverage. The repair mask admits only selected
+// missing pixels; existing A pixels are never redrawn. No image dilation.
 import * as THREE from 'three';
 
 export function coverageGeometry(source) {
@@ -70,6 +71,8 @@ export function coverageMaterial(uniforms, leafShading) {
         gl_Position=vec4(pixel/tileResolution*2.-1.,0.,1.);
       }`,
     fragmentShader: `
+      uniform sampler2D repairMask;
+      uniform float tileResolution;
       ${varyings}
       ${leafShading}
       float cross2(vec2 a,vec2 b) { return a.x*b.y-a.y*b.x; }
@@ -118,7 +121,7 @@ export function coverageMaterial(uniforms, leafShading) {
         vec4 color=shadeLeaf(w.x*texA+w.y*texB+w.z*texC,
           w.x*shadingA+w.y*shadingB+w.z*shadingC,
           w.x*worldA+w.y*worldB+w.z*worldC,area>=0.);
-        if(!covered) discard;
+        if(!covered || texture2D(repairMask,p/tileResolution).r<.5) discard;
         gl_FragDepth=(w.x*screenA.z+w.y*screenB.z+w.z*screenC.z)*.5+.5;
         gl_FragColor=color;
         #include <colorspace_fragment>

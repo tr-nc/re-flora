@@ -22,8 +22,9 @@
 </section>
 <aside>
 <section><small>01 / PIXEL TREATMENT</small><h2>像素化</h2>
-<label><input id="conservative" type="checkbox" aria-describedby="coverage-hint"> 保留细部覆盖（B）</label>
-<p id="coverage-hint" class="hint">未勾选 = A 原始中心采样；勾选 = B 几何与像素格相交就保留。只改变右侧；细部更连续，轮廓可能稍粗。临时实验，不保存。</p>
+<label><input id="conservative" type="checkbox" aria-describedby="coverage-hint"> 八邻接最少补点（B）</label>
+<p id="coverage-hint" class="hint">斜向接触已经算连通，不补成拐角。B 仅沿几何覆盖补断点，保留 A 已有像素；不会铺满所有覆盖格。临时实验，不保存。</p>
+<p id="repair-info" class="hint" role="status">A：原始中心采样，不补点</p>
 <label class="slider-label" for="resolution">画布像素数 <output id="resolution-value"></output></label><input id="resolution" type="range" min="8" max="128" value="32" step="1">
 <div class="presets" aria-label="像素数预设"><button data-resolution="12">12</button><button data-resolution="16">16</button><button data-resolution="22">22</button><button data-resolution="32">32</button><button data-resolution="48">48</button><button data-resolution="64">64</button></div>
 <p class="hint">真正的 N × N 渲染缓冲，最近邻放大。N 是整张画布的边长；叶片占用像素也随缩放和视角变化。</p>
