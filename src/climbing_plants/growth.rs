@@ -50,7 +50,6 @@ pub(super) fn advance(
         }));
     }
     if tip.arc + STEP_LENGTH > super::rod::AIR_BUDGET
-        || end.y < start.position.y - 0.0001
         || !clear_segment(terrain, start.position, end, plant.radius)?
     {
         return Some(None);
@@ -157,8 +156,7 @@ fn touch_surface(
     let travel = end - start.position;
     for (position, contact) in nearby_contacts(plant, end, terrain, 0.0)? {
         let delta = position - start.position;
-        if delta.y < -0.0001
-            || delta.length_squared() > 2.5 * 2.5
+        if delta.length_squared() > 2.5 * 2.5
             || delta.length_squared() < 0.1 * 0.1
             || delta.dot(travel) < 0.01
         {

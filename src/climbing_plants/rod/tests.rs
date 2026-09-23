@@ -58,6 +58,24 @@ fn safe(plant: &Plant, terrain: &impl Terrain) {
     }
 }
 #[test]
+fn a_young_shoot_still_establishes_its_first_slope_attachment_under_weight() {
+    let scene = Scene(Fixture::Slope);
+    let mut plant = seed(Fixture::Slope, 42);
+    for _ in 0..40 {
+        tick(&mut plant, &scene, 16.0);
+    }
+    println!(
+        "slope anchors={} tip={:?}",
+        plant.anchors.len(),
+        plant.nodes.last().unwrap().position
+    );
+    assert!(
+        plant.anchors.len() > 1,
+        "weight response pulled the young shoot off its first slope contact"
+    );
+}
+
+#[test]
 fn continuous_fixtures_are_safe_and_reach_supported_upper_wall() {
     for fixture in Fixture::ALL {
         let scene = Scene(fixture);
@@ -120,7 +138,39 @@ fn hole_contacts_do_not_freeze_the_free_shoot_after_climbing() {
     const OFFSET: IVec3 = IVec3::new(128, -63, 0);
     impl Terrain for Translated {
         fn voxel(&self, c: IVec3) -> Option<u8> {
-            Some(u8::from(Fixture::Hole.solid(c - OFFSET)))
+            let c = c - OFFSET;
+            // Real terrain exports retain the solid surface shell, not hidden
+            // interior voxels. Those extra inward faces must not change which
+            // side of a wall receives a contact reaction.
+            Some(u8::from(
+                Fixture::Hole.solid(c)
+                    && [
+                        IVec3::X,
+                        IVec3::NEG_X,
+                        IVec3::Y,
+                        IVec3::NEG_Y,
+                        IVec3::Z,
+                        IVec3::NEG_Z,
+                    ]
+                    .into_iter()
+                    .any(|n| !Fixture::Hole.solid(c + n)),
+            ))
+        }
+        fn current(&self) -> bool {
+            true
+        }
+    }
+    struct Snapshot {
+        min: IVec3,
+        max: IVec3,
+    }
+    impl Terrain for Snapshot {
+        fn voxel(&self, c: IVec3) -> Option<u8> {
+            if c.cmpge(self.min).all() && c.cmplt(self.max).all() {
+                Translated.voxel(c)
+            } else {
+                None
+            }
         }
         fn current(&self) -> bool {
             true
@@ -130,11 +180,23 @@ fn hole_contacts_do_not_freeze_the_free_shoot_after_climbing() {
     let mut plant = Plant::seed(p + OFFSET.as_vec3(), n, c + OFFSET, 1, 42).with_clockwise(true);
     let mut late_motion = 0;
     for frame in 0..180 {
-        plant.grow(&Translated, 16.0);
+        let min = plant
+            .nodes
+            .iter()
+            .fold(Vec3::splat(f32::INFINITY), |b, n| b.min(n.position));
+        let max = plant
+            .nodes
+            .iter()
+            .fold(Vec3::splat(f32::NEG_INFINITY), |b, n| b.max(n.position));
+        let terrain = Snapshot {
+            min: (min - Vec3::splat(8.0)).floor().as_ivec3(),
+            max: (max + Vec3::splat(9.0)).ceil().as_ivec3(),
+        };
+        plant.grow(&terrain, 16.0);
         for _ in 0..2 {
             let moved = plant
-                .step_motion(&Translated, 0.05, 1.0, 16.0, true)
-                .unwrap();
+                .step_motion(&terrain, 0.05, 1.0, 16.0, true)
+                .expect("motion lookahead exceeded the app's two-tick terrain snapshot");
             if frame >= 160 {
                 late_motion += moved;
             }
@@ -144,12 +206,18 @@ fn hole_contacts_do_not_freeze_the_free_shoot_after_climbing() {
         late_motion > 0,
         "one old contact froze the whole exploring body"
     );
+    let height = plant
+        .anchors
+        .iter()
+        .map(|a| a.position.y)
+        .fold(0.0f32, f32::max);
+    assert!(
+        height >= 262.0 + OFFSET.y as f32,
+        "translated hole failed to climb: {height}"
+    );
 }
 
-// Manual red-capable diagnostics for the next mechanics iteration, not passed
-// regressions. See docs/research/climbing_vine_overhang.md before enabling them.
 #[test]
-#[ignore = "known upright cantilever; pending load-aware mechanics"]
 fn stem_above_wall_bends_under_its_own_weight_instead_of_staying_upright() {
     let terrain = Scene(Fixture::Flat);
     let mut plant = Plant::seed(
@@ -182,7 +250,6 @@ fn stem_above_wall_bends_under_its_own_weight_instead_of_staying_upright() {
 }
 
 #[test]
-#[ignore = "downward growth is still prohibited; pending mechanics revision"]
 fn a_downward_tip_can_extend_along_its_tangent_without_penetration() {
     let terrain = Scene(Fixture::Flat);
     let mut plant = Plant::seed(
@@ -209,6 +276,114 @@ fn a_downward_tip_can_extend_along_its_tangent_without_penetration() {
     );
     assert!(plant.nodes[2].position.y < plant.nodes[1].position.y - 1.0);
     safe(&plant, &terrain);
+}
+
+#[test]
+fn an_unattached_stem_rests_and_moves_tangentially_on_a_wall_lip() {
+    struct NonAdhesiveLip;
+    impl Terrain for NonAdhesiveLip {
+        fn voxel(&self, c: IVec3) -> Option<u8> {
+            Some(if c == IVec3::new(255, 299, 303) {
+                1
+            } else if Fixture::Flat.solid(c) {
+                2
+            } else {
+                0
+            })
+        }
+        fn current(&self) -> bool {
+            true
+        }
+    }
+    let terrain = NonAdhesiveLip;
+    let mut plant = Plant::seed(
+        Vec3::new(255.5, 300.83, 303.0),
+        Vec3::Y,
+        IVec3::new(255, 299, 303),
+        1,
+        42,
+    );
+    for i in 1..=20 {
+        let mut node = plant.nodes[0].clone();
+        node.id = i as u64;
+        node.parent = Some(i - 1);
+        node.position += Vec3::X * (i as f32 * 2.0);
+        node.rest_length = 2.0;
+        node.fixed = false;
+        node.contact = None;
+        plant.nodes.push(node);
+    }
+    plant.next_node_id = 21;
+    plant.tips[0].node = 20;
+    plant.tips[0].arc = 40.0;
+    plant.tips[0].spacing = 64.0;
+    let mut touched = false;
+    let mut slid = false;
+    for _ in 0..180 {
+        let before = plant.nodes.clone();
+        plant.step_motion(&terrain, 0.05, 2.0, 64.0, false).unwrap();
+        safe(&plant, &terrain);
+        assert_eq!(
+            plant.anchors.len(),
+            1,
+            "ordinary contact became instant adhesion"
+        );
+        for (a, b) in before.iter().zip(&plant.nodes).skip(2).take(12) {
+            if a.position.y < 300.8 && b.position.y < 300.8 {
+                touched = true;
+                let d = b.position - a.position;
+                slid |= d.x * d.x + d.z * d.z > 1e-6;
+            }
+        }
+    }
+    println!("lip touched={touched} slid={slid}");
+    assert!(
+        touched && slid,
+        "an unglued stem must rest without being welded to the lip"
+    );
+}
+
+#[test]
+fn a_drooping_shoot_can_attach_to_a_roof_and_its_far_side() {
+    struct BroadWall;
+    impl Terrain for BroadWall {
+        fn voxel(&self, c: IVec3) -> Option<u8> {
+            Some(u8::from(
+                (224..288).contains(&c.x) && (192..300).contains(&c.y) && (264..306).contains(&c.z),
+            ))
+        }
+        fn current(&self) -> bool {
+            true
+        }
+    }
+    let mut plant = Plant::seed(
+        Vec3::new(255.5, 294.5, 306.8),
+        Vec3::Z,
+        IVec3::new(255, 294, 305),
+        1,
+        3500,
+    )
+    .with_clockwise(false);
+    for _ in 0..480 {
+        tick(&mut plant, &BroadWall, 10.0);
+        safe(&plant, &BroadWall);
+    }
+    println!(
+        "roof/back anchors={:?}",
+        plant
+            .anchors
+            .iter()
+            .map(|a| (a.normal, a.position))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        plant.anchors.iter().any(|a| a.normal == Vec3::Y),
+        "drooping stem did not establish roof contact"
+    );
+    assert!(
+        plant.anchors.iter().any(|a| a.normal == Vec3::NEG_Z),
+        "drooping stem did not establish far-side contact"
+    );
 }
 
 #[test]

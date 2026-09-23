@@ -16,11 +16,12 @@ Older saved checkbox values are discarded without changing other user settings.
 3. **Test terrain**, **Vine seed**, and **Clockwise tip search** also restart immediately.
    **Restart wall and vine** repeats the current seed; **New random seed** changes the saved
    seed. **Create vine wall and focus** starts an uncreated patch. **Focus vine** recenters it.
-4. **Shoot exploration / flexibility** changes the response live. In continuous mode,
+4. **Shoot exploration / flexibility** changes the response live;
    reducing it suppresses the exploration amplitude and gravity load, not the elasticity
    or collision constraints. **Growth attempts/sec** changes elongation, not the continuous
    oscillator's period. **Adhesion spacing** targets distance along the stem; it is neither
-   wall distance nor exploration radius. Continuous mode has an independent bounded air budget.
+   wall distance nor exploration radius. Lip transitions may attach closer; the apex retains
+   bending room. Unsupported growth has an independent bounded air budget.
 5. **Pause vine growth** holds extension and exploration phase, but allows settling and
    terrain-triggered pruning. A waiting cut is completely held. A repaired cut deliberately
    retains a fixed surviving base so its stored absolute restart step stays valid.
@@ -43,35 +44,46 @@ world replacement clears it and does not silently author another wall.
 
 ## Continuous-body model
 
-`src/climbing_plants/rod.rs` owns the mechanics; `rod/collision.rs` owns its
-local obstacle constraints. `growth.rs` remains authoritative for growth/contact candidates.
+`src/climbing_plants/rod.rs` owns the mechanics; `rod/weight.rs` handles distributed
+self-weight and long-span rotational relaxation; `rod/collision.rs` owns contact reactions. `growth.rs` remains authoritative for growth/contact candidates.
 
 - Material is not regenerated: node IDs, rest lengths and parent relationships persist.
   A coupled three-node bend stencil spans attachments. Young material gradually remembers
-  its shape; older material retains finite elastic resistance. This is an overdamped
+  its shape; maturation slows near the apex instead of immediately hardening a stalled tip.
+  Older material retains finite elastic resistance. This is an overdamped
   position-constraint model, not calibrated plant physiology, inertia, or an XPBD solver.
 - A finite growing zone receives a smooth tangent/preferred-bend field. Its transported
   frame does not reset to each voxel face normal. The wall-clinging phenotype remembers
-  its original exposed side through hole/stair contacts; it is not an arbitrary pole twiner.
+  its wall axis through sideways hole/stair contacts. Confirmed opposite-facing adhesion
+  reverses the support bias without resetting phase; it is not an arbitrary pole twiner.
 - The oscillator advances on a 20 Hz simulation clock independently of births. New material
   follows the existing tip tangent with a small tropic correction, rather than printing the
   rotating direction into each new segment. Growth and motion are interleaved on that same
   fixed tick so rendering cadence does not reorder them.
-- Candidate contacts behind the apex must persist before becoming established. Short rootlets
-  bridge surface roughness without forcing the main centerline onto every attachment point.
+- Candidate contacts at least six rest-arc voxels behind the apex must persist for 0.35 s
+  before becoming established. Rootlet reach extends two voxels beyond stem contact clearance;
+  it does not enlarge the stem collider. Lip transitions permit two-voxel attachment intervals;
+  otherwise the target interval is capped at 58 to preserve apex room within the air budget.
+  Rootlets bridge roughness without forcing the main centerline onto every attachment point.
   Established footprints remain fixed; the connected stem has bounded positional compliance.
   Rootlet centerlines are checked against terrain. Decorative rootlet thickness/leaf boxes
   are not independently swept collision bodies.
 - Local exposed-voxel constraints act on both ends of each segment/expanded-voxel intersection
   interval, not just stem endpoints or interval midpoints. Active contacts are refreshed while
-  solving. Final whole-segment and swept convex-hull checks still decide acceptance.
-- Length error is bounded to 0.002 voxel, displacement to 0.25 voxel per motion quantum,
+  solving. Angular load proposals remove inward contact velocity while retaining sliding.
+  Faces are selected from the previously safe side, including on thin exported voxel shells.
+  Final whole-segment and swept convex-hull checks still decide acceptance.
+- Length error is bounded to 0.002 voxel, displacement to 0.6 voxel per motion quantum,
   and established attachment displacement to 0.3 voxel. If no bounded, clear pose is found,
   geometry is held rather than publishing an unconverged or penetrating solution.
 - A nominal growth step is 2 voxels; contact correction is capped at 2.5. New contact growth
   cannot introduce a bend above 25 degrees relative to the incoming segment. This is **not**
   a hard bound on later deformed joint angles: obstacle corners can still produce tighter bends.
-- Unsupported extension is capped at 64 voxels of rest arc in continuous mode. Deformation
+- Self-weight bends the unsupported tail without stretching it; tangent-following births
+  may point down. Ordinary terrain contact supports, blocks or permits sliding without
+  becoming adhesion or triggering pruning. A reachable lip/far-side surface can subsequently
+  establish rootlets; reattachment is not guaranteed.
+- Unsupported extension is capped at 64 voxels of rest arc. Deformation
   cannot replenish it. This is an artistic bounded search, not global terrain pathfinding or
   a guarantee that every seed reaches the top.
 
@@ -85,7 +97,7 @@ they do not describe an available runtime mode.
 - At most 512 live nodes. Pruning compacts storage without reusing IDs; indices are remapped
   together. Explicit-tree pruning guardrails remain, although normal growth never branches.
 - Root-to-tip revalidation checks actual recorded contacts/backing, established anchor
-  material, clear stem geometry, and (in continuous mode) attachment rootlet centerlines.
+  material, clear stem geometry, and attachment rootlet centerlines.
   Pre-existing gaps do not invent backing dependencies. Missing/changed material or a buried
   stem removes the first invalid step and all descendants.
 - Buds retry the exact first severed step, including the severed established attachment's
@@ -105,7 +117,7 @@ cargo test
 cargo run --release -- --hidden --mute --auto-exit 0.5
 
 # Six real fixtures and the separate pruning/root-recovery scenario.
-for scene in flat hole outward inward slope ground 1; do
+for scene in flat hole outward inward slope ground 1 overhang; do
   RE_FLORA_CLIMBING_REVIEW=$scene \
     cargo run --release -- --hidden --mute --perf --auto-exit 12
 done
@@ -115,6 +127,8 @@ cargo run --release -- --tail-latest-log 200
 Reviews fix seed 42, clockwise, spacing 16, flexibility 1, one growth attempt and two
 50 ms motion ticks per sample. Each fixture needs a supported attachment at least 70 voxels
 above ground after 180 attempts, finite geometry, clear stems and authoritative support.
+The additional `overhang` review uses seed 3500, counterclockwise, spacing 10, flexibility 2,
+360 samples and a side-facing camera; it checks that the above-wall shoot actually drops.
 Reviews verify bounded stretch/attachment displacement and actual established-stem motion. Pruning tests require 30 unchanged
 waiting frames, removal of upper attached descendants, repair with fresh IDs, and root recovery.
 Require completion markers and inspect logs for errors—not just a zero process exit.
@@ -123,7 +137,9 @@ Latest implementation evidence, quantitative A/B results and unresolved visual/p
 limits: [research/climbing_vine_continuous_stem.md](research/climbing_vine_continuous_stem.md).
 Biological motivation and limitations: [research/climbing_vine_support_search.md](research/climbing_vine_support_search.md).
 The user approved the continuous-body direction; performance acceptance remains separate.
-The next visual issue is excessive upright extension above walls, not addressed by removing
-this model's predecessor. [Overhang diagnosis](research/climbing_vine_overhang.md) records
-known-failing manual diagnostics, rejected mechanical candidates and the distinction between
-ordinary body contact and adhesion. No draping/downward-growth fix has shipped yet.
+[Self-weight implementation and validation](research/climbing_vine_self_weight.md) records
+passing droop/downward-growth/lip/back-side regressions, native screenshots and current costs.
+The shoot still initially extends well above the wall before drooping; this is not a wall-height
+stop. Visual tuning and performance acceptance remain open.
+[Earlier overhang diagnosis](research/climbing_vine_overhang.md) preserves the original failures
+and rejected candidates; its formerly ignored diagnostics are now normal passing tests.

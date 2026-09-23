@@ -1,4 +1,8 @@
-# Unsupported growth above a wall: diagnosis, not a shipped draping solver
+# Unsupported growth above a wall: historical diagnosis
+
+> Superseded by [the self-weight implementation](climbing_vine_self_weight.md).
+> The two diagnostics below now run and pass in the normal suite. The remainder
+> records the earlier failed attempts, not the current implementation status.
 
 Date: 2026-09-24. Baseline: `5b990636` (continuous mechanics made permanent).
 The user approved the continuous stem, requested removal of its predecessor/A/B UI,

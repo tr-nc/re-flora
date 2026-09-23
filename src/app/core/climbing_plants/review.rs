@@ -33,6 +33,9 @@ pub(super) struct Review {
     max_young_motion: f32,
     max_established_motion: f32,
     max_joint_angle: f32,
+    overhang: bool,
+    peak_tip_y: f32,
+    drooped: bool,
 }
 impl Review {
     pub fn for_fixture(fixture: Option<Fixture>, site: Site) -> Self {
@@ -42,10 +45,17 @@ impl Review {
             ..Default::default()
         }
     }
+    pub fn with_overhang(mut self, overhang: bool) -> Self {
+        self.overhang = overhang;
+        self
+    }
     pub fn growing(&self) -> bool {
         !matches!(self.phase, Phase::Done)
     }
     pub fn phase(&self) -> &'static str {
+        if self.overhang {
+            return "overhang";
+        }
         if let Some(fixture) = self.fixture {
             return fixture.name();
         }
@@ -134,7 +144,28 @@ impl Review {
                 return Ok(None);
             }
             self.ticks += 1;
-            if self.ticks >= 180 {
+            if self.overhang {
+                let tip_y = plant.nodes.last().unwrap().position.y;
+                let top = self.site.point(glam::Vec3::Y * 300.0).y;
+                self.peak_tip_y = self.peak_tip_y.max(tip_y);
+                let downward = plant.nodes.windows(2).any(|n| {
+                    n[0].position.y > top && (n[1].position - n[0].position).normalize().y < -0.2
+                });
+                self.drooped |=
+                    self.peak_tip_y > top + 8.0 && self.peak_tip_y - tip_y > 8.0 && downward;
+                ensure!(
+                    plant.nodes.iter().all(|n| n.parent.is_none_or(|p| {
+                        crate::climbing_plants::clear_segment(
+                            terrain,
+                            plant.nodes[p].position,
+                            n.position,
+                            plant.radius,
+                        ) == Some(true)
+                    })),
+                    "overhanging stem penetrated terrain"
+                );
+            }
+            if self.ticks >= if self.overhang { 360 } else { 180 } {
                 let height = plant
                     .anchors
                     .iter()
@@ -161,6 +192,15 @@ impl Review {
                     "attachment not backed by authoritative terrain"
                 );
                 self.verify_shoot()?;
+                if self.overhang {
+                    ensure!(
+                        self.drooped,
+                        "shoot above wall stayed upright: peak={} tip={}",
+                        self.peak_tip_y,
+                        plant.nodes.last().unwrap().position.y
+                    );
+                    log::info!("[CLIMBING][REVIEW] overhang verified=true drooped=true collision_clear=true peak_y={:.3} tip_y={:.3}",self.peak_tip_y,plant.nodes.last().unwrap().position.y);
+                }
                 log::info!("[CLIMBING][REVIEW] fixture={} verified=true collision_clear=true attached_height={height:.3} nodes={} anchors={}", fixture.name(), plant.nodes.len(), plant.anchors.len());
                 self.phase = Phase::Done;
             }

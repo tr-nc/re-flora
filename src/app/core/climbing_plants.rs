@@ -316,7 +316,12 @@ impl App {
     pub(super) fn update_climbing_plants(&mut self, steps: u32, tick_seconds: f32) -> Result<()> {
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
         let review = review_mode.is_some();
-        let review_fixture = review_mode.as_deref().and_then(Fixture::parse);
+        let overhang_review = review_mode.as_deref() == Some("overhang");
+        let review_fixture = if overhang_review {
+            Some(Fixture::Inward)
+        } else {
+            review_mode.as_deref().and_then(Fixture::parse)
+        };
         let selected_fixture = if review {
             review_fixture.unwrap_or_default()
         } else {
@@ -335,12 +340,15 @@ impl App {
             }
             self.climbing_plants.reset_requested = true;
         }
-        let selected_seed = if review {
+        let selected_seed = if overhang_review {
+            3500
+        } else if review {
             42
         } else {
             u64::from(self.debug_settings.adjustables.climbing_seed.value)
         };
-        let selected_clockwise = review || self.debug_settings.adjustables.climbing_clockwise.value;
+        let selected_clockwise = !overhang_review
+            && (review || self.debug_settings.adjustables.climbing_clockwise.value);
         self.climbing_plants
             .observe_selection(selected_fixture, selected_seed, selected_clockwise);
         if self.climbing_plants.reset_requested {
@@ -393,7 +401,8 @@ impl App {
                 seed: selected_seed,
                 clockwise: selected_clockwise,
                 focus_requested: true,
-                review: review::Review::for_fixture(review_fixture, site),
+                review: review::Review::for_fixture(review_fixture, site)
+                    .with_overhang(overhang_review),
                 ..Default::default()
             };
             self.tracer.show_climbing_plant_geometry(&[])?;
@@ -432,8 +441,15 @@ impl App {
             );
             self.camera_control.apply_snapshot_mode(true);
             self.camera_control.set_orbit_focus(target);
-            self.tracer
-                .set_camera_pose_looking_at(target + Vec3::new(0., 0.02, 0.65), target);
+            self.tracer.set_camera_pose_looking_at(
+                target
+                    + if overhang_review {
+                        Vec3::new(0.5, 0.15, 0.65)
+                    } else {
+                        Vec3::new(0., 0.02, 0.65)
+                    },
+                target,
+            );
             self.reset_camera_movement_input();
         }
         if std::mem::take(&mut self.climbing_plants.refill_tip_requested) {
@@ -590,12 +606,16 @@ impl App {
                 );
             }
         }
-        let spacing = if review {
+        let spacing = if overhang_review {
+            10.0
+        } else if review {
             16.0
         } else {
             self.debug_settings.adjustables.climbing_spacing.value
         };
-        let flexibility = if review {
+        let flexibility = if overhang_review {
+            2.0
+        } else if review {
             1.0
         } else {
             self.debug_settings.adjustables.climbing_flexibility.value

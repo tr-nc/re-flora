@@ -8,17 +8,21 @@ use std::collections::BTreeMap;
 mod collision;
 #[cfg(test)]
 mod tests;
+mod weight;
 
 const ZONE_LENGTH: f32 = 28.0;
 const MATURATION: f32 = 3.0;
 const CONTACT_TIME: f32 = 0.35;
-const MAX_MOTION: f32 = 0.25;
+// Reserve bending room ahead of a new attachment, in arc length rather than
+// node count (contact-corrected segments can be much shorter than two voxels).
+const FREE_APEX_LENGTH: f32 = 6.0;
+const MAX_MOTION: f32 = 0.6;
 const MAX_ANCHOR_DRIFT: f32 = 0.3;
 const LENGTH_TOLERANCE: f32 = 0.002;
 pub(super) const AIR_BUDGET: f32 = 64.0;
 // Short rootlets bridge rough voxel stair faces while the main stem remains smooth.
 // This is extra reach beyond the stem's radius + normal growth clearance.
-pub(super) const ATTACHMENT_EXTENSION: f32 = 0.8;
+pub(super) const ATTACHMENT_EXTENSION: f32 = 2.0;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Material {
@@ -34,6 +38,7 @@ struct Pending {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Rod {
+    weight_cursor: usize,
     phase: f32,
     period: f32,
     amplitude: f32,
@@ -49,6 +54,7 @@ pub(super) struct Rod {
 impl Rod {
     pub fn new(tip: &Tip) -> Self {
         Self {
+            weight_cursor: 0,
             phase: f32::from(tip.phase) * std::f32::consts::TAU / 24.0,
             period: 5.5 + tip.lateral * 2.0,
             amplitude: 0.0,
@@ -119,15 +125,41 @@ pub(super) fn step(
     // Choose the most upward locally clear guide, rather than treating every
     // stair voxel as a horizontal ceiling. Smooth transport below carries the
     // existing frame into this guide; geometry still inherits its own tangent.
-    // Keep the original exposed side through local stair/hole faces. A momentary
-    // contact with the side of a hole must not turn 'out of the wall' into 'into
-    // the neighbouring wall'. This wall-clinging phenotype is not a pole twiner.
+    // Keep the established side through provisional stair/hole contacts. Only a
+    // confirmed attachment can change it; normal noise must not flip the guide.
     let mut desired_heading = rod.outward;
     for outward in [-support_bias, 0.0, 0.4, 0.8, 1.5, 4.0] {
         let candidate = (Vec3::Y + rod.outward * outward).normalize();
         if clear_segment(terrain, end, end + candidate * 4.0, next.radius)? {
             desired_heading = candidate;
             break;
+        }
+    }
+    if desired_heading.y < 0.5 {
+        // At a ceiling, the established face normal alone can point along the
+        // inside of a hole forever. Look around both horizontal axes for a clear
+        // way out, preferring candidates with actual headroom beyond the lip.
+        let side = Vec3::Y.cross(rod.outward).normalize();
+        let mut score = desired_heading.y;
+        for horizontal in [rod.outward, -rod.outward, side, -side] {
+            for tilt in [0.8, 1.5, 4.0] {
+                let candidate = (Vec3::Y + horizontal * tilt).normalize();
+                let destination = end + candidate * 4.0;
+                if !clear_segment(terrain, end, destination, next.radius)? {
+                    continue;
+                }
+                let headroom = clear_segment(
+                    terrain,
+                    destination,
+                    destination + Vec3::Y * 4.0,
+                    next.radius,
+                )?;
+                let candidate_score = candidate.y + if headroom { 0.5 } else { 0.0 };
+                if candidate_score > score {
+                    score = candidate_score;
+                    desired_heading = candidate;
+                }
+            }
         }
     }
     let heading = rod
@@ -141,9 +173,15 @@ pub(super) fn step(
         rod.phase = (rod.phase + winding * std::f32::consts::TAU * dt / rod.period)
             .rem_euclid(std::f32::consts::TAU);
     }
+    let count = next.nodes.len();
+    let old: Vec<_> = next.nodes.iter().map(|n| n.position).collect();
+    let mut distance = vec![0.0; count];
+    for i in (1..count).rev() {
+        distance[i - 1] = distance[i] + next.nodes[i].rest_length;
+    }
     rod.material
         .retain(|id, _| next.nodes.iter().any(|n| n.id == *id));
-    for node in &next.nodes {
+    for (i, node) in next.nodes.iter().enumerate() {
         let direction = node.parent.map_or(Vec3::Y, |p| {
             (node.position - next.nodes[p].position).normalize()
         });
@@ -155,13 +193,10 @@ pub(super) fn step(
         // freeze at a support. Older material retains finite elastic resistance.
         let plasticity = (1.0 - m.age / MATURATION).clamp(0.0, 1.0);
         m.direction = m.direction.lerp(direction, dt * plasticity).normalize();
-        m.age += dt;
-    }
-    let count = next.nodes.len();
-    let old: Vec<_> = next.nodes.iter().map(|n| n.position).collect();
-    let mut distance = vec![0.0; count];
-    for i in (1..count).rev() {
-        distance[i - 1] = distance[i] + next.nodes[i].rest_length;
+        // Material matures as it leaves the apical growing zone. A tip stalled
+        // at a ceiling must not age out of all shape adaptation while searching.
+        // Age never goes backwards, including after a cut.
+        m.age += dt * (distance[i] / ZONE_LENGTH).clamp(0.0, 1.0);
     }
     let mobility: Vec<_> = next
         .nodes
@@ -192,7 +227,16 @@ pub(super) fn step(
         })
         .collect();
     let mut contacts = collision::gather(&next, &old, terrain)?;
-    let mut solved = old.clone();
+    let mut solved = weight::propose(
+        &next,
+        &mut rod,
+        &old,
+        &tangents,
+        &distance,
+        terrain,
+        dt,
+        flexibility,
+    )?;
     for i in 1..count {
         if mobility[i] > 0.0 {
             solved[i].y -= 0.018 * dt * flexibility.min(2.0);
@@ -400,11 +444,29 @@ fn lengths_valid(plant: &Plant, positions: &[Vec3]) -> bool {
 }
 
 fn establish_contact(plant: &mut Plant, rod: &mut Rod, dt: f32, spacing: f32) {
-    let last = plant.anchors.last().unwrap().node;
+    let last_anchor = plant.anchors.last().unwrap();
+    let last = last_anchor.node;
+    let total_arc: f32 = plant.nodes[last + 1..].iter().map(|n| n.rest_length).sum();
     let mut arc = 0.0;
-    let candidate = (last + 1..plant.nodes.len().saturating_sub(2)).find(|&i| {
+    let candidate = (last + 1..plant.nodes.len()).find(|&i| {
         arc += plant.nodes[i].rest_length;
-        arc >= plant.tips[0].spacing && plant.nodes[i].contact.is_some()
+        if total_arc - arc < FREE_APEX_LENGTH {
+            return false;
+        }
+        let Some(contact) = &plant.nodes[i].contact else {
+            return false;
+        };
+        // Spacing is a target on one face, not a veto on the first reachable
+        // support around a corner. New faces still require finite separation,
+        // a clear rootlet and the same persistence/strengthening interval.
+        let turning_over_lip = contact.normal.dot(last_anchor.normal) < 0.5
+            && (contact.normal.y > 0.5 || last_anchor.normal.y > 0.5);
+        let interval = if turning_over_lip {
+            plant.tips[0].spacing.min(2.0)
+        } else {
+            plant.tips[0].spacing.min(AIR_BUDGET - FREE_APEX_LENGTH)
+        };
+        arc >= interval
     });
     let Some(i) = candidate else {
         rod.pending = None;
@@ -429,6 +491,12 @@ fn establish_contact(plant: &mut Plant, rod: &mut Rod, dt: f32, spacing: f32) {
     pending.time += dt;
     if pending.time < CONTACT_TIME {
         return;
+    }
+    // This wall-clinging phenotype keeps its wall axis through small sideways
+    // hole/stair faces. A confirmed opposite-facing attachment means it really
+    // reached the far side; reverse the support bias without resetting phase.
+    if contact.normal.dot(rod.outward) < -0.5 {
+        rod.outward = contact.normal;
     }
     plant.anchors.push(Anchor {
         node: i,

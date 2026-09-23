@@ -39,6 +39,7 @@ pub(super) fn gather(
                     }
                     let t = (enter + exit) * 0.5;
                     let point = a.lerp(b, t);
+                    let previous = plant.nodes[i - 1].position.lerp(plant.nodes[i].position, t);
                     let mut best: Option<(f32, Vec3, f32)> = None;
                     for axis in [
                         IVec3::X,
@@ -54,6 +55,12 @@ pub(super) fn gather(
                         let normal = axis.as_vec3();
                         let face = cell.as_vec3() + Vec3::splat(0.5) + normal * 0.5;
                         let plane = face.dot(normal) + plant.radius + 0.06;
+                        // A solver proposal may overshoot a thin voxel shell.
+                        // Its newly nearest *inside* face is not a legal escape
+                        // through the wall: retain the side of the feasible pose.
+                        if plane - previous.dot(normal) > 0.061 {
+                            continue;
+                        }
                         let depth = plane - point.dot(normal);
                         if best.is_none_or(|(d, _, _)| depth < d) {
                             best = Some((depth, normal, plane));
@@ -78,6 +85,32 @@ pub(super) fn gather(
     }
     Some(constraints)
 }
+/// Remove inward angular velocity at active ordinary contacts. Binary rejection
+/// of a combined rotation would also discard its legal sliding component and
+/// pin a free tip forever at a wall/ceiling corner.
+pub(super) fn project_turn(
+    constraints: &[Constraint],
+    positions: &[Vec3],
+    pivot: usize,
+    mut turn: Vec3,
+) -> Vec3 {
+    for _ in 0..4 {
+        for c in constraints.iter().filter(|c| c.edge > pivot) {
+            let point = positions[c.edge - 1].lerp(positions[c.edge], c.t);
+            if point.dot(c.normal) - c.plane > 0.08 {
+                continue;
+            }
+            let jacobian = (point - positions[pivot]).cross(c.normal);
+            let inward = turn.dot(jacobian);
+            let norm = jacobian.length_squared();
+            if inward < 0.0 && norm > 1e-10 {
+                turn -= jacobian * (inward / norm);
+            }
+        }
+    }
+    turn
+}
+
 pub(super) fn project(constraints: &[Constraint], mobility: &[f32], positions: &mut [Vec3]) {
     for c in constraints {
         let a = c.edge - 1;
