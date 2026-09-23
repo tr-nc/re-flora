@@ -56,6 +56,7 @@ const server=http.createServer(async(req,res)=>{
   await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,false);
   await page.screenshot({path:path.join(artifacts,'leaf.png'),fullPage:true});
   await select('butterfly');assert.equal((await state()).triangles,156);assert.equal((await state()).clips[0].duration,1);
+  assert.doesNotMatch(await page.locator('body').innerText(),/\bv\d+\b|\bVersion\s*\d+/i);
   // A zero-add frame is legitimate, but is NOT evidence that butterfly repair works.
   const connectedImage=await png();assert.equal(await repairCheck(),0);assert.equal(await png(),connectedImage);
   assert.match(await page.locator('#repair-info').textContent(),/无需补点.*八邻接连通/);
@@ -101,7 +102,7 @@ const server=http.createServer(async(req,res)=>{
     await page.setViewportSize(viewport);await stable();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(artifacts,`viewport-${viewport.width}.png`),fullPage:true});
   }
   // Migration redirects (only enabled after legacy pages have been retired).
-  if(process.env.CHECK_REDIRECTS)for(const [url,model]of [['/leaf-prototype/','leaf'],['/butterfly-method-comparison/','butterfly'],['/butterfly-method-comparison/comparison-v6.html','butterfly']]){
+  if(process.env.CHECK_REDIRECTS)for(const [url,model]of [['/leaf-prototype/','leaf'],['/butterfly-method-comparison/','butterfly']]){
     await page.goto(base+url);await stable();assert.equal((await state()).model,model);assert.ok(page.url().includes('/model-preview/'));
   }
   assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);assert.ok(urls.every(url=>url.startsWith(base)),'no external network dependencies');

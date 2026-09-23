@@ -35,7 +35,7 @@ export const butterflyDefinition={
         scene,meshes,repairGroups,
         clips:gltf.animations.map(clip=>({name:clip.name,duration:clip.duration})),
         view:{span:3.4,target:[0,0,0],offset:[-.3535533906,.8660254038,-.3535533906].map(v=>v*distance)},
-        description:'批准的 v5 双翼 GLB · 原始动画 / 材质 · 左右翼独立补点',
+        description:'双翼模型 · 原始动画 / 材质 · 左右翼独立补点',
         apply(settings){
           shadows=settings.shadows;
           for(const material of materials){

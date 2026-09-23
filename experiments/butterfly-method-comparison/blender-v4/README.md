@@ -19,4 +19,4 @@ Blender 4.5.13 LTS、系统 Python + Pillow；可以用 `BLENDER` 环境变量�
 
 GLB 验证：恰好两个网格节点，名称均为 wing；无 head/thorax/abdomen/body 节点；动画仅保留整体 translation/rotation 和左右翼 rotation，共 4 条通道。导出前后 `.blend` 哈希一致。详细数据和产物哈希在 `validation.json`，创建配方说明在 `source-manifest.json`。
 
-未修改游戏、Rust 或 shader，也未作性能声明。实时网页已实现于 `../comparison-v4.html`，技术和交互检查见 [页面验证](browser-validation.md)，非游戏已经接入。纯翼面可能在极端侧缘/合翼时消失成少数像素；不会用随相机转动的假翼面掩盖这类限制。
+本次源模型迭代未修改游戏、Rust 或 shader，也未作性能声明。旧编号网页已经移除；当前查看入口是[统一模型预览台](../../model-preview/?model=butterfly)。当时的技术和交互检查见[历史页面验证](browser-validation.md)，非游戏已经接入。纯翼面可能在极端侧缘/合翼时消失成少数像素；不会用随相机转动的假翼面掩盖这类限制。
