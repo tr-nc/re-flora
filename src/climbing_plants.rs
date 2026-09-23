@@ -38,6 +38,9 @@ struct Contact {
 }
 #[derive(Clone, Debug, PartialEq)]
 struct Restart {
+    // A compliant node's provisional contact may have moved to a neighbouring
+    // cell. Retain the actual severed attachment dependency as well.
+    attachment: Option<(IVec3, Vec3)>,
     position: Vec3,
     normal: Vec3,
     contact: Option<Contact>,
@@ -46,6 +49,7 @@ struct Restart {
 impl From<&Node> for Restart {
     fn from(node: &Node) -> Self {
         Self {
+            attachment: None,
             position: node.position,
             normal: node.normal,
             contact: node.contact.clone(),
@@ -336,7 +340,13 @@ impl Plant {
                 .unwrap_or_else(|| Tip::seed(parent, self.seed.wrapping_add(node.id)));
             bud.node = parent;
             bud.arc = 0.0;
-            bud.restart = Some(Restart::from(node));
+            let mut restart = Restart::from(node);
+            restart.attachment = self
+                .anchors
+                .iter()
+                .find(|a| a.node == id)
+                .map(|a| (a.cell, a.surface_position()));
+            bud.restart = Some(restart);
             tips.push(bud);
             buds += 1;
         }
@@ -689,6 +699,41 @@ mod tests {
             "the unattached shoot is still permanently frozen"
         );
         check_structure(&plant);
+    }
+
+    #[test]
+    fn a_cut_requires_its_established_attachment_even_after_provisional_contact_moves() {
+        let mut plant = seed();
+        let mut node = plant.nodes[0].clone();
+        node.id = 1;
+        node.parent = Some(0);
+        node.position.y += 2.0;
+        node.rest_length = 2.0;
+        node.contact = Some(Contact {
+            cell: IVec3::new(21, 6, 0),
+            normal: Vec3::Z,
+        });
+        let mut anchor = plant.anchors[0].clone();
+        anchor.node = 1;
+        anchor.cell = IVec3::new(20, 6, 0);
+        anchor.position = node.position;
+        plant.nodes.push(node);
+        plant.anchors.push(anchor.clone());
+        plant.tips[0].node = 1;
+        plant.next_node_id = 2;
+        let mut terrain = Wall::default();
+        terrain.missing.insert(anchor.cell);
+        assert_eq!(plant.revalidate(&terrain).unwrap().removed, 1);
+        let stump = plant.clone();
+        assert!(
+            !plant.grow(&terrain, 16.0),
+            "bud bypassed its missing attachment via the neighbouring contact"
+        );
+        assert_eq!(plant, stump);
+        terrain.missing.clear();
+        assert!(plant.grow(&terrain, 16.0));
+        assert_eq!(plant.nodes[1].id, 2);
+        assert_eq!(plant.nodes[0], stump.nodes[0]);
     }
 
     #[test]

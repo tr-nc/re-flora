@@ -69,6 +69,13 @@ pub(super) fn restart_valid(
     restart: &Restart,
     terrain: &impl Terrain,
 ) -> Option<bool> {
+    let attachment_ok = match restart.attachment {
+        Some((cell, footprint)) => {
+            terrain.voxel(cell)? == plant.anchors[0].material
+                && clear_segment(terrain, restart.position, footprint, 0.0)?
+        }
+        None => true,
+    };
     let contact_ok = match &restart.contact {
         Some(contact) => terrain.voxel(contact.cell)? == plant.anchors[0].material,
         None => true,
@@ -78,7 +85,7 @@ pub(super) fn restart_valid(
         None => true,
     };
     let clear = clear_segment(terrain, start, restart.position, plant.radius)?;
-    Some(contact_ok && backing_ok && clear)
+    Some(attachment_ok && contact_ok && backing_ok && clear)
 }
 
 pub(super) fn backing_for(
