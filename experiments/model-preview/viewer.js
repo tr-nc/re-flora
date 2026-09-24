@@ -187,7 +187,6 @@ function init(){
   $('reset-view').addEventListener('click',()=>setView());$('projection').addEventListener('change',()=>setProjection($('projection').value));
   for(const key of ['resolution','levels','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
   for(const key of ['wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
-  document.querySelectorAll('[data-resolution]').forEach(button=>button.addEventListener('click',()=>{state.resolution=Number(button.dataset.resolution);syncControls();resize();}));
   $('background').addEventListener('input',()=>{state.background=$('background').value;updateBackground();});
   $('play').addEventListener('click',()=>setPlaying(!state.playing));
   $('previous-frame').addEventListener('click',()=>stepFrame(-1));$('next-frame').addEventListener('click',()=>stepFrame(1));
