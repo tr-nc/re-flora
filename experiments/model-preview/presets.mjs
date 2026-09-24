@@ -10,7 +10,7 @@ export function validatePreset(input,definitions){
   const definition=definitions.find(model=>model.id===input.model);if(!definition)fail('未知模型');
   const values=object(input.modelSettings,'模型参数'),modelSettings={};
   for(const control of definition.controls){
-    const v=values[control.key];
+    const v=values[control.key]===undefined&&control.legacyDefault?definition.defaults[control.key]:values[control.key];
     modelSettings[control.key]=control.type==='color'?color(v,control.label):control.type==='checkbox'?boolean(v,control.label):number(v,control.min,control.max,control.label);
   }
   const processing=object(input.processing,'像素处理'),animation=object(input.animation,'动画'),view=object(input.view,'视角'),appearance=object(input.appearance,'观察底色');

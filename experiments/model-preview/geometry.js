@@ -25,6 +25,7 @@ export function projectGroups(asset,camera,size){
   const position=new THREE.Vector3(),clip=new THREE.Vector4();
   return asset.repairGroups.map(group=>{
     const triangles=[];
+    const preserve=(group.preserve??[]).map(feature=>({triangles:[],color:feature.color}));
     for(const mesh of group.meshes){
       if(!mesh.visible)continue;
       const geometry=mesh.geometry,count=geometry.index?.count??geometry.attributes.position.count;
@@ -36,9 +37,16 @@ export function projectGroups(asset,camera,size){
           clip.set(position.x,position.y,position.z,1).applyMatrix4(transform);return clip.toArray();
         });
         const polygon=clipTriangle(points).filter(p=>p[3]>1e-9).map(p=>[(p[0]/p[3]*.5+.5)*size,(p[1]/p[3]*.5+.5)*size,p[2]/p[3]]);
-        for(let j=1;j+1<polygon.length;j++)triangles.push([polygon[0],polygon[j],polygon[j+1]]);
+        for(let j=1;j+1<polygon.length;j++){
+          const triangle=[polygon[0],polygon[j],polygon[j+1]];
+          triangles.push(triangle);
+          (group.preserve??[]).forEach((feature,index)=>{
+            if(feature.mesh===mesh && i/3>=feature.startTriangle && i/3<feature.endTriangle)
+              preserve[index].triangles.push(triangle);
+          });
+        }
       }
     }
-    return {id:group.id,label:group.label,triangles};
+    return {id:group.id,label:group.label,triangles,preserve};
   });
 }

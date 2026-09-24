@@ -81,7 +81,7 @@ function syncControls(){
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
   $('levels-value').textContent=state.levels?`${state.levels} 级 / 单位亮度`:'连续';
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
-  $('coverage-mode').textContent='八邻接最少补点';
+  $('coverage-mode').textContent='八邻接补点 + 细结构保留';
   $('clip').replaceChildren();
   for(const [index,clip]of (asset?.clips??[]).entries())$('clip').add(new Option(clip.name,String(index)));
   if(!asset?.clips.length)$('clip').add(new Option('无动画','0'));
@@ -131,7 +131,8 @@ function render(){
       :separated?'未补点：仍有分离区域，但没有允许的几何连接路径'
       :groups.some(group=>group.before>0)?'无需补点：当前各组已八邻接连通（斜向接触也算）'
       :'未补点：当前没有可见采样点';
-    repairMessage=`${outcome} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
+    const preserved=groups.reduce((sum,group)=>sum+group.preserved,0);
+    repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个保留细结构）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
   }
   if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
   $('camera-info').textContent=`共享视角 (${camera.position.toArray().map(v=>v.toFixed(2)).join(', ')}) · ${camera.zoom.toFixed(2)}×`;

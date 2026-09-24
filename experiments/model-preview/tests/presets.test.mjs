@@ -11,6 +11,16 @@ test('versioned presets contain validated model and shared state',()=>{
   assert.equal(result.modelSettings.color,'#ff8800');assert.equal(result.animation.time,.237);
   assert.deepEqual(validatePreset(JSON.parse(JSON.stringify(result)),definitions),result);
 });
+test('older leaf presets receive defaults only for newly added controls',()=>{
+  const leaf=[{...definitions[0],defaults:{stemTint:'#FFFFFF',backTint:'#FFFFFF'},controls:[
+    ...definitions[0].controls,{key:'stemTint',label:'叶柄整体色调',type:'color',legacyDefault:true},
+    {key:'backTint',label:'叶背整体色调',type:'color',legacyDefault:true},
+  ]}];
+  const restored=validatePreset(preset(),leaf);
+  assert.equal(restored.modelSettings.stemTint,'#ffffff');
+  const bad=preset();bad.modelSettings.stemTint='red';
+  assert.throws(()=>validatePreset(bad,leaf),/预设无效/);
+});
 test('bad versions, model IDs, ranges and non-finite data are rejected before loading',()=>{
   for(const mutate of [p=>p.version=2,p=>p.model='other',p=>p.processing.resolution=0,p=>p.processing.resolution=8.5,
     p=>p.modelSettings.curl=NaN,p=>p.modelSettings.shadows='true',p=>p.modelSettings.color='red',

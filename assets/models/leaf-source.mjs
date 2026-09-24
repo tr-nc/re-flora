@@ -1,5 +1,5 @@
 // Authoring recipe, not a second game mesh. Publish with scripts/publish-leaf-model.mjs.
-export const leafDefaults={width:1,widestPoint:.5,fold:.28,curl:.35,season:.25,veins:.5,light:-35,transmission:.45,steps:6};
+export const leafDefaults={width:1,widestPoint:.5,fold:.28,curl:.35,season:.25,veins:.5,stemTint:'#FFFFFF',backTint:'#FFFFFF',light:-35,transmission:.45,steps:6};
 export function leafGeometry(state=leafDefaults){
   const positions=[],uvs=[],indices=[];
   function add(x,t,u,stem=false){

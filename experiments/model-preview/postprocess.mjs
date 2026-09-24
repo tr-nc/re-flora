@@ -8,7 +8,7 @@ const srgb=v=>v<=.0031308?v*12.92:1.055*v**(1/2.4)-.055;
 export function repairImage(rgba, owners, groups, size) {
   const result=rgba.slice(), chosenDepth=new Float64Array(size*size).fill(Infinity);
   const stats=[];
-  for(const {id,triangles} of groups) {
+  for(const {id,triangles,preserve=[]} of groups) {
     const original=Uint8Array.from({length:size*size},(_,i)=>rgba[i*4+3]>0&&owners[i]===id);
     const coverage=projectedCoverage(triangles,size);
     const support={shares(a,b){
@@ -30,7 +30,18 @@ export function repairImage(rgba, owners, groups, size) {
     for(let i=0;i<original.length;i++) if(repair.additions[i]&&!rgba[i*4+3]&&coverage.depth[i]<chosenDepth[i]) {
       chosenDepth[i]=coverage.depth[i];result.set(colors.subarray(i*4,i*4+4),i*4);
     }
-    stats.push({id,before:repair.before,after:repair.after,added:repair.added});
+    // Connectivity repair cannot seed a feature that missed every pixel center.
+    // Conservatively cover only explicitly marked thin geometry, without painting
+    // over center-sampled pixels or another group's closer preserved feature.
+    let preserved=0;
+    for(const feature of preserve){
+      const footprint=projectedCoverage(feature.triangles,size);
+      if(original.some((visible,i)=>visible&&footprint.has(i))) continue;
+      for(let i=0;i<original.length;i++) if(!rgba[i*4+3]&&footprint.has(i)&&footprint.depth[i]<chosenDepth[i]){
+        chosenDepth[i]=footprint.depth[i];result.set([...feature.color,255],i*4);preserved++;
+      }
+    }
+    stats.push({id,before:repair.before,after:repair.after,added:repair.added,preserved});
   }
   let added=0;
   for(let i=0;i<owners.length;i++) if(!rgba[i*4+3]&&result[i*4+3]) added++;

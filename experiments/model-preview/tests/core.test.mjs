@@ -42,6 +42,21 @@ test('different repair groups never bridge to one another; existing RGBA is reta
   assert.ok(joined.rgba[16]>20&&joined.rgba[16]<90);
 });
 
+test('a visible subpixel leaf stem survives even when no center pixel was sampled',()=>{
+  const size=8,rgba=new Uint8Array(size*size*4),owners=new Uint32Array(size*size);
+  const stem=[[[3.98,1.2,.2],[4.02,1.2,.2],[3.98,3.6,.2]],[[4.02,1.2,.2],[4.02,3.6,.2],[3.98,3.6,.2]]];
+  const result=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
+  assert.ok(result.added>0);
+  assert.ok(Array.from({length:size*size},(_,i)=>result.rgba[i*4+3]).some(Boolean));
+  assert.deepEqual(result.rgba.subarray(1*size*4+4*4,1*size*4+4*4+4),Uint8Array.from([110,75,30,255]));
+  rgba.set([7,8,9,255],(size+4)*4);owners[size+4]=2;
+  const occluded=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
+  assert.deepEqual(occluded.rgba.subarray((size+4)*4,(size+5)*4),Uint8Array.from([7,8,9,255]));
+  rgba.fill(0);owners.fill(0);rgba.set([2,3,4,255],(size+4)*4);owners[size+4]=1;
+  const sampled=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
+  assert.equal(sampled.added,0,'do not thicken a stem already sampled');
+});
+
 test('common luminance treatment is opt-in and preserves alpha',()=>{
   const rgba=Uint8Array.from([15,80,99,255,0,0,0,0]);
   assert.equal(quantizeImage(rgba,0),rgba);
