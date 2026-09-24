@@ -10,7 +10,7 @@
 <header><div><small>RE:FLORA / MODEL PREVIEW</small><h1>模型像素化预览台</h1><p>同一个模型、同一个动画时刻。先看形态，再看像素。</p></div><label class="model-select">选择模型 <select id="model"></select></label></header>
 <main>
 <section class="workspace" aria-label="模型预览">
-<div class="view-toolbar"><span>拖动任一画面旋转 · 滚轮 / 双指缩放</span><div><button id="front">正面</button><button id="back">背面</button><button id="edge">侧面</button><button id="reset-view">重置视角</button><select id="projection" aria-label="投影"><option value="orthographic">正交</option><option value="perspective">透视</option></select></div></div>
+<div class="view-toolbar"><span>拖动任一画面同步旋转 · 仅左侧可滚轮 / 双指放大细节</span><div><button id="front">正面</button><button id="back">背面</button><button id="edge">侧面</button><button id="reset-view">重置视角</button><select id="projection" aria-label="投影"><option value="orthographic">正交</option><option value="perspective">透视</option></select></div></div>
 <div class="views">
 <article class="view source-view"><div class="view-heading"><h2>01 / 原始模型</h2><span id="model-info"></span></div><div class="stage"><canvas id="source" tabindex="0" aria-label="原始模型，拖动或方向键旋转"></canvas></div><footer><span id="geometry-info"></span><label><input type="checkbox" id="wireframe"> 线框</label></footer></article>
 <article class="view pixel-view"><div class="view-heading"><h2>02 / 像素结果 · <span id="coverage-mode">A</span></h2><span id="tile-label"></span></div><div class="stage"><canvas id="pixel" tabindex="0" aria-label="像素结果，拖动同步旋转"></canvas></div><footer><span id="pixel-info"></span><button id="download" disabled>导出透明 PNG</button></footer></article>

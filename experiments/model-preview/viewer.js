@@ -9,7 +9,7 @@ import './color-picker.js';
 
 const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
-let asset,definition,modelSettings,pipeline,camera,controls,request=0,last=0;
+let asset,definition,modelSettings,pipeline,camera,pixelCamera,controls,request=0,last=0;
 const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,playing:false,time:0,clip:0,fps:60,speed:1,
   resolution:32,levels:0,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false};
 
@@ -23,6 +23,7 @@ function cameraFor(kind){
 function setProjection(kind){
   const old=camera;camera=cameraFor(kind);camera.position.copy(old.position);camera.quaternion.copy(old.quaternion);camera.zoom=old.zoom;
   if(asset&&camera.isOrthographicCamera){const half=asset.view.span/2;camera.left=-half;camera.right=half;camera.top=half;camera.bottom=-half;}
+  pixelCamera=camera.clone();
   state.projection=kind;camera.updateProjectionMatrix();controls.forEach(control=>{control.object=camera;control.update();});$('projection').value=kind;dirty();
 }
 function setView(kind='reset'){
@@ -32,6 +33,15 @@ function setView(kind='reset'){
   const offset={front:[0,0,distance],back:[0,0,-distance],edge:[distance,0,.1],reset:asset.view.offset}[kind];
   camera.position.copy(target).add(new THREE.Vector3(...offset));camera.up.set(0,1,0);camera.zoom=1;
   camera.lookAt(target);camera.updateProjectionMatrix();controls.forEach(control=>control.update());dirty();
+}
+function syncPixelCamera(){
+  // Game tiles use a fixed 3.4-unit model framing (butterfly_mesh.rs).
+  // Keep the viewing direction, never the author's inspection zoom/distance.
+  const direction=camera.position.clone().sub(target).normalize();
+  const distance=asset.view.axisDistance??new THREE.Vector3(...asset.view.offset).length();
+  pixelCamera.position.copy(target).addScaledVector(direction,distance);
+  pixelCamera.quaternion.copy(camera.quaternion);
+  pixelCamera.zoom=1;pixelCamera.updateProjectionMatrix();
 }
 function resize(){
   if(!pipeline)return;
@@ -121,7 +131,8 @@ async function loadModel(id,preset=null){
 }
 function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
-  const frame=pipeline.render(asset,camera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels});
+  syncPixelCamera();
+  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
   let repairMessage='八邻接最少补点';
   if(frame.repair){
@@ -135,7 +146,7 @@ function render(){
     repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个保留细结构）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
   }
   if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
-  $('camera-info').textContent=`共享视角 (${camera.position.toArray().map(v=>v.toFixed(2)).join(', ')}) · ${camera.zoom.toFixed(2)}×`;
+  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定游戏取景`;
   state.dirty=false;
 }
 function tick(now){
@@ -172,6 +183,7 @@ function init(){
   controls=[sourceCanvas,pixelCanvas].map(canvas=>{
     const control=new OrbitControls(camera,canvas);control.target=target;control.enablePan=false;control.enableDamping=false;
     control.minZoom=.55;control.maxZoom=2.5;control.minDistance=3.5;control.maxDistance=12;
+    if(canvas===pixelCanvas)control.enableZoom=false;
     control.minPolarAngle=.01;control.maxPolarAngle=Math.PI-.01;control.addEventListener('change',dirty);
     canvas.addEventListener('keydown',event=>{
       const delta={ArrowLeft:[-.12,0],ArrowRight:[.12,0],ArrowUp:[0,-.12],ArrowDown:[0,.12]}[event.key];if(!delta)return;
@@ -217,11 +229,12 @@ window.readModelPreview=(includeGeometry=false)=>({
   ...state,modelSettings:{...modelSettings},sourceTime:pipeline?.last?.sourceTime,pixelTime:pipeline?.last?.pixelTime,
   pixelBuffer:[pixelCanvas.width,pixelCanvas.height],sourceBuffer:[sourceCanvas.width,sourceCanvas.height],
   camera:camera?.position.toArray(),target:target.toArray(),zoom:camera?.zoom,
-  sharedCamera:controls?.every(control=>control.object===camera&&control.target===target),
+  pixelCamera:pixelCamera?.position.toArray(),pixelZoom:pixelCamera?.zoom,
+  linkedRotation:pixelCamera&&camera?pixelCamera.quaternion.angleTo(camera.quaternion)<1e-6:false,
   repair:pipeline?.last?.repair,repairEnabled:true,
   clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
-  ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,camera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
+  ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,pixelCamera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
   preset:asset?exportPreset():null,
 });
 try{init();}catch(error){state.failed=true;message(`初始化失败：${error.message}`,true);console.error(error);}

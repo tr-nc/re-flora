@@ -34,22 +34,22 @@ export class PreviewPipeline{
     this.texture.minFilter=this.texture.magFilter=THREE.NearestFilter;
     this.screenMaterial.uniforms.image.value=this.texture;
   }
-  render(asset,camera,settings){
+  render(asset,sourceCamera,pixelCamera,settings){
     const {time,clip,wireframe,levels}=settings;
-    asset.sample(time,clip);asset.scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
+    asset.sample(time,clip);asset.scene.updateMatrixWorld(true);sourceCamera.updateMatrixWorld(true);pixelCamera.updateMatrixWorld(true);
     this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
     asset.preparePass('source');
     const materials=new Set(asset.meshes.flatMap(mesh=>Array.isArray(mesh.material)?mesh.material:[mesh.material]));
     const wires=[...materials].map(material=>[material,material.wireframe]);
     try{
       if(wireframe)for(const [material]of wires)material.wireframe=true;
-      this.source.render(asset.scene,camera);
+      this.source.render(asset.scene,sourceCamera);
     }finally{for(const [material,value]of wires)material.wireframe=value;}
-    asset.preparePass('pixel');this.pixel.render(asset.scene,camera);
+    asset.preparePass('pixel');this.pixel.render(asset.scene,pixelCamera);
     const gl=this.pixel.getContext();
     gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
-    const original=quantizeImage(this.bytes,levels),owners=this.readOwners(asset,camera);
-    const projected=projectGroups(asset,camera,this.size);
+    const original=quantizeImage(this.bytes,levels),owners=this.readOwners(asset,pixelCamera);
+    const projected=projectGroups(asset,pixelCamera,this.size);
     const result=repairImage(original,owners,projected,this.size);
     this.texture.image.data.set(result.rgba);this.texture.needsUpdate=true;
     this.pixel.render(this.screen,this.screenCamera);

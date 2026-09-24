@@ -40,10 +40,19 @@ let server;
   }
   for(const id of ['source','pixel']){
     const before=(await state()).camera,b=await page.locator('#'+id).boundingBox();
-    await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2+65,b.y+b.height/2+20,{steps:8});await page.mouse.up();await stable();assert.notDeepEqual((await state()).camera,before);assert.equal((await state()).sharedCamera,true);
+    await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2+65,b.y+b.height/2+20,{steps:8});await page.mouse.up();await stable();assert.notDeepEqual((await state()).camera,before);assert.equal((await state()).linkedRotation,true);
   }
-  const zoom=(await state()).zoom;await page.mouse.wheel(0,-180);await page.waitForTimeout(100);await stable();assert.notEqual((await state()).zoom,zoom);
+  const fixedImage=await png(),zoom=(await state()).zoom;
+  await page.locator('#source').hover();await page.mouse.wheel(0,-180);await stable();
+  assert.notEqual((await state()).zoom,zoom);assert.equal((await state()).pixelZoom,1);
+  assert.equal(await png(),fixedImage,'source inspection zoom must not change game-framed pixels');
+  const sourceZoom=(await state()).zoom;await page.locator('#pixel').hover();await page.mouse.wheel(0,-180);await stable();
+  assert.equal((await state()).zoom,sourceZoom,'pixel canvas wheel does not zoom either camera');
   await page.locator('#projection').selectOption('perspective');await stable();await repairCheck();
+  const perspectiveImage=await png(),sourcePosition=(await state()).camera;
+  await page.locator('#source').hover();await page.mouse.wheel(0,-180);await stable();
+  assert.notDeepEqual((await state()).camera,sourcePosition);
+  assert.equal(await png(),perspectiveImage,'perspective inspection dolly must not change fixed tile framing');
   for(const [key,value]of [['curl','-0.65'],['width','1.4'],['fold','0.7'],['season','1'],['veins','0'],['transmission','0']]){
     await page.locator('#model-'+key).fill(value);await stable();assert.equal((await state()).modelSettings[key],Number(value));
   }
