@@ -54,7 +54,8 @@ test('a visible subpixel leaf stem survives even when no center pixel was sample
   assert.deepEqual(occluded.rgba.subarray((size+4)*4,(size+5)*4),Uint8Array.from([7,8,9,255]));
   rgba.fill(0);owners.fill(0);rgba.set([2,3,4,255],(size+4)*4);owners[size+4]=1;
   const sampled=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
-  assert.equal(sampled.added,0,'do not thicken a stem already sampled');
+  assert.deepEqual(sampled.rgba.subarray((size+4)*4,(size+5)*4),Uint8Array.from([2,3,4,255]));
+  assert.ok(sampled.added>0,'preserve the rest of a stem even when one center pixel was sampled');
 });
 
 test('common luminance treatment is opt-in and preserves alpha',()=>{

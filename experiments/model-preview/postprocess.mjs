@@ -36,7 +36,6 @@ export function repairImage(rgba, owners, groups, size) {
     let preserved=0;
     for(const feature of preserve){
       const footprint=projectedCoverage(feature.triangles,size);
-      if(original.some((visible,i)=>visible&&footprint.has(i))) continue;
       for(let i=0;i<original.length;i++) if(!rgba[i*4+3]&&footprint.has(i)&&footprint.depth[i]<chosenDepth[i]){
         chosenDepth[i]=footprint.depth[i];result.set([...feature.color,255],i*4);preserved++;
       }
