@@ -26,8 +26,8 @@
 <label class="slider-label" for="levels">后处理亮度色阶 <output id="levels-value">连续</output></label><input id="levels" type="range" min="0" max="12" step="1" value="0"><p class="hint">0 = 关闭，仅影响右侧。模型本身的材质参数在下方。</p>
 </section>
 <section><small>02 / MODEL APPEARANCE</small><h2>模型参数</h2><div id="model-controls"></div></section>
-<section><small>03 / REVIEW & PRESETS</small><h2>观察与预设</h2><div class="select-label"><span>预览底色</span><debug-color-picker id="background" label="背景颜色" value="#253426"></debug-color-picker></div><label class="check-row"><input id="checker" type="checkbox"> 透明棋盘</label>
-<button id="reset-all" class="wide">恢复当前模型默认值</button><div class="preset-actions"><button id="export-preset">导出参数 JSON</button><button id="import-preset">导入参数 JSON</button></div><input id="preset-file" type="file" accept=".json,application/json" hidden><p class="hint">参数只存内存；JSON 可手动复现模型、视角、动画时刻和处理设置。不自动同步游戏。</p></section>
+<section><small>03 / REVIEW</small><h2>观察</h2><div class="select-label"><span>预览底色</span><debug-color-picker id="background" label="背景颜色" value="#253426"></debug-color-picker></div><label class="check-row"><input id="checker" type="checkbox"> 透明棋盘</label>
+<button id="reset-all" class="wide">恢复当前模型默认值</button><p class="hint">当前设置仅在本次页面有效，不自动同步游戏。</p></section>
 </aside>
 </main>
 <nav class="switcher" aria-label="观察布局"><button id="previous" aria-label="上一个布局">←</button><span id="variant-label"></span><button id="next" aria-label="下一个布局">→</button></nav>

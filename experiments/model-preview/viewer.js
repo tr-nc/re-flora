@@ -3,7 +3,6 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {PreviewPipeline} from './pipeline.js';
 import {modelDefinitions,definitionFor} from './models/index.js';
 import {sampleTime,advanceTime} from './timeline.mjs';
-import {validatePreset} from './presets.mjs';
 import {projectGroups} from './geometry.js';
 import './color-picker.js';
 
@@ -102,24 +101,18 @@ function syncControls(){
   for(const id of ['play','previous-frame','next-frame','clip','phase','fps','speed'])$(id).disabled=disabled||!asset?.clips.length;
   $('play').textContent=state.playing?'暂停':'播放';$('play').setAttribute('aria-pressed',String(state.playing));
 }
-async function loadModel(id,preset=null){
+async function loadModel(id){
   const nextDefinition=definitionFor(id);if(!nextDefinition)throw new Error('未知模型');
   const token=++request;state.loading=true;setPlaying(false);syncControls();message(`正在加载${nextDefinition.label}…`);
   let next;
   try{
     next=await nextDefinition.create();
     if(token!==request){next.dispose();return;}
-    if(preset){
-      if(next.clips.length){if(!next.clips[preset.animation.clip]||preset.animation.time>=next.clips[preset.animation.clip].duration)throw new Error('预设动画片段或时刻超出模型范围');}
-      else if(preset.animation.clip!==0||preset.animation.time!==0)throw new Error('静态模型不能使用非零动画时刻');
-    }
-    const values=preset?.modelSettings??{...nextDefinition.defaults};next.apply(values);
-    asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings={...values};
+    const values={...nextDefinition.defaults};next.apply(values);
+    asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings=values;
     Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,levels:0,wireframe:false,rotate:false,checker:false,...definition.preview});
-    if(preset){Object.assign(state,preset.processing,preset.animation,preset.appearance,{wireframe:preset.wireframe});}
-    $('model').value=id;setProjection(preset?.view.projection??'orthographic');setView();
-    if(preset){target.fromArray(preset.view.target);camera.position.fromArray(preset.view.position);camera.zoom=preset.view.zoom;camera.lookAt(target);camera.updateProjectionMatrix();controls.forEach(control=>control.update());}
-    buildModelControls();syncControls();setVariant(preset?.layout??state.variant);
+    $('model').value=id;setProjection('orthographic');setView();
+    buildModelControls();syncControls();setVariant(state.variant);
     $('model-info').textContent=definition.label;
     const triangles=asset.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0);
     $('geometry-info').textContent=`${triangles} 三角形 · ${asset.repairGroups.length} 个补点组`;
@@ -165,13 +158,6 @@ function tick(now){
   requestAnimationFrame(tick);
 }
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function exportPreset(){
-  return {version:1,model:state.model,modelSettings:{...modelSettings},layout:state.variant,wireframe:state.wireframe,
-    processing:{resolution:state.resolution,levels:state.levels},
-    animation:{clip:state.clip,time:state.time,fps:state.fps,speed:state.speed},
-    view:{projection:state.projection,position:camera.position.toArray(),target:target.toArray(),zoom:camera.zoom},
-    appearance:{background:state.background,checker:state.checker}};
-}
 function stepFrame(direction){
   if(!asset?.clips.length)return;setPlaying(false);
   const duration=asset.clips[state.clip].duration,count=Math.ceil(duration*state.fps);
@@ -210,13 +196,6 @@ function init(){
     render();const time=pipeline.last.pixelTime.toFixed(3);
     pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-connectivity-${state.resolution}px-${time}s.png`);},'image/png');
   });
-  $('export-preset').addEventListener('click',()=>downloadBlob(new Blob([JSON.stringify(exportPreset(),null,2)+'\n'],{type:'application/json'}),`${state.model}-preview.json`));
-  $('import-preset').addEventListener('click',()=>$('preset-file').click());
-  $('preset-file').addEventListener('change',async()=>{
-    const file=$('preset-file').files[0];$('preset-file').value='';if(!file)return;
-    try{if(file.size>1024*1024)throw new Error('预设文件超过 1 MB');const preset=validatePreset(JSON.parse(await file.text()),modelDefinitions);await loadModel(preset.model,preset);}
-    catch(error){message(error.message,true);}
-  });
   $('previous').addEventListener('click',()=>cycleVariant(-1));$('next').addEventListener('click',()=>cycleVariant(1));
   document.addEventListener('keydown',event=>{if(event.target.closest('input,select,textarea,canvas,debug-color-picker,[contenteditable]'))return;if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();cycleVariant(event.key==='ArrowLeft'?-1:1);}});
   document.addEventListener('visibilitychange',()=>{last=performance.now();});
@@ -235,6 +214,5 @@ window.readModelPreview=(includeGeometry=false)=>({
   clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
   ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,pixelCamera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
-  preset:asset?exportPreset():null,
 });
 try{init();}catch(error){state.failed=true;message(`初始化失败：${error.message}`,true);console.error(error);}

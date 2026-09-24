@@ -8,13 +8,13 @@ export const leafDefinition={
   defaults:leafDefaults,
   controls:[
     {key:'width',label:'叶片宽度',min:.55,max:1.45,step:.01},
-    {key:'widestPoint',label:'最宽处位置（叶柄 0 → 叶尖 1）',min:0,max:1,step:.01,legacyDefault:true},
+    {key:'widestPoint',label:'最宽处位置（叶柄 0 → 叶尖 1）',min:0,max:1,step:.01},
     {key:'fold',label:'主脉折起',min:0,max:.8,step:.01},
     {key:'curl',label:'叶尖卷曲',min:-1.8,max:1.8,step:.01},
-    {key:'season',label:'叶色：青绿 → 秋黄',min:0,max:1,step:.01},
     {key:'veins',label:'叶脉强度',min:0,max:1,step:.01},
-    {key:'stemTint',label:'叶柄整体色调',type:'color',legacyDefault:true},
-    {key:'backTint',label:'叶背整体色调',type:'color',legacyDefault:true},
+    {key:'leafColor',label:'叶面基色',type:'color'},
+    {key:'stemTint',label:'叶柄基色',type:'color'},
+    {key:'backTint',label:'叶背基色',type:'color'},
     {key:'light',label:'光源方位',min:-180,max:180,step:1},
     {key:'transmission',label:'薄叶透光',min:0,max:1,step:.01},
     {key:'steps',label:'叶片受光色阶（0 = 连续）',min:0,max:12,step:1},
@@ -23,7 +23,7 @@ export const leafDefinition={
   async create(){
     const gltf=await new GLTFLoader().loadAsync(new URL('../../../assets/models/leaf.glb',import.meta.url).href);
     const scene=new THREE.Scene(),settings={...this.defaults};
-    const uniforms={season:{value:.25},veins:{value:.5},transmission:{value:.45},steps:{value:0},stemTint:{value:new THREE.Color(0xffffff)},backTint:{value:new THREE.Color(0xffffff)},lightDirection:{value:new THREE.Vector3()}};
+    const uniforms={veins:{value:.5},transmission:{value:.45},steps:{value:0},leafColor:{value:new THREE.Color()},stemTint:{value:new THREE.Color()},backTint:{value:new THREE.Color()},lightDirection:{value:new THREE.Vector3()}};
     const material=new THREE.ShaderMaterial({
       side:THREE.DoubleSide,uniforms,
       vertexShader:`
@@ -34,7 +34,7 @@ export const leafDefinition={
           gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
         }`,
       fragmentShader:`
-        uniform float season,veins,transmission,steps; uniform vec3 lightDirection,stemTint,backTint;
+        uniform float veins,transmission,steps; uniform vec3 lightDirection,leafColor,stemTint,backTint;
         varying vec2 leafUV; varying vec3 worldNormal; varying vec3 worldPosition;
         float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
         float noise(vec2 p){
@@ -44,19 +44,17 @@ export const leafDefinition={
         void main(){
           bool stem=leafUV.x>1.5;vec2 uv=leafUV;
           float lateral=abs(uv.x-.5)*2.;float mottling=noise(uv*vec2(13.,19.));
-          vec3 green=vec3(.105,.24,.026),ochre=vec3(.57,.225,.023);
-          vec3 base=mix(green,ochre,clamp(season+(mottling-.5)*.15,0.,1.));
-          base*=.87+.19*mottling;
+          vec3 base=leafColor*(.87+.19*mottling);
           float branchPhase=uv.y*7.-lateral*1.45;
           float branchDistance=abs(fract(branchPhase+.5)-.5);
           float branchAA=max(fwidth(branchPhase)*.65,.012);
           float branches=(1.-smoothstep(.015,.015+branchAA,branchDistance))
             *smoothstep(.03,.12,lateral)*(1.-smoothstep(.73,1.,lateral));
           float midrib=1.-smoothstep(.012,.012+max(fwidth(uv.x),.003),abs(uv.x-.5));
-          base=mix(base,base*1.45+vec3(.025,.025,.003),veins*max(midrib,branches*.6));
+          if(!gl_FrontFacing)base=backTint*(.87+.19*mottling);
+          base=mix(base,base*1.45+vec3(.025),veins*max(midrib,branches*.6));
           base*=1.-.16*smoothstep(.83,1.,lateral);
-          if(!gl_FrontFacing)base=mix(base,vec3(.32,.36,.13),.30)*backTint;
-          if(stem)base=mix(vec3(.19,.23,.055),vec3(.29,.13,.033),season)*stemTint*(gl_FrontFacing?vec3(1.):backTint);
+          if(stem)base=stemTint;
           vec3 n=normalize(worldNormal)*(gl_FrontFacing?1.:-1.);
           vec3 l=normalize(lightDirection);
           float diffuse=max(dot(n,l),0.);
@@ -81,14 +79,11 @@ export const leafDefinition={
         const rebuild=['width','widestPoint','fold','curl'].some(key=>settings[key]!==values[key]);
         Object.assign(settings,values);
         if(rebuild){mesh.geometry.dispose();mesh.geometry=makeGeometry(settings);}
-        for(const key of ['season','veins','transmission'])uniforms[key].value=settings[key];
+        for(const key of ['veins','transmission'])uniforms[key].value=settings[key];
+        uniforms.leafColor.value.set(settings.leafColor);
         uniforms.stemTint.value.set(settings.stemTint);
         uniforms.backTint.value.set(settings.backTint);
-        const base=new THREE.Color().setRGB(
-          THREE.MathUtils.lerp(.19,.29,settings.season),
-          THREE.MathUtils.lerp(.23,.13,settings.season),
-          THREE.MathUtils.lerp(.055,.033,settings.season));
-        base.multiply(uniforms.stemTint.value).multiplyScalar(.8).convertLinearToSRGB();
+        const base=uniforms.stemTint.value.clone().multiplyScalar(.8).convertLinearToSRGB();
         stemFeature.color=[base.r,base.g,base.b].map(value=>Math.round(255*THREE.MathUtils.clamp(value,0,1)));
         const angle=THREE.MathUtils.degToRad(settings.light);
         uniforms.lightDirection.value.set(Math.sin(angle),.65,Math.cos(angle)).normalize();
