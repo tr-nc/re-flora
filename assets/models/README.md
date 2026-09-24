@@ -26,7 +26,7 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 ## Publish a leaf shape
 
-Edit `leaf-source.mjs` (including `leafDefaults` for approved width/fold/curl), then run:
+Edit `leaf-source.mjs` (including `leafDefaults` for approved width/length/fold/curl), then run:
 
 ```sh
 node scripts/publish-leaf-model.mjs
@@ -39,7 +39,7 @@ build time; no Node/browser/runtime file loading is required in a packaged game.
 
 The browser's shape sliders remain **temporary art experiments**, not automatic edits to committed
 assets. The initial approved shape loads from the shared GLB; publishing a changed recipe updates
-both consumers. Browser JSON presets and shared-asset publication are deliberately different actions.
+both consumers. Browser color presets change only the four preview color pickers; they do not publish a game palette or modify geometry. Curl rotates the midrib's tangent, shortening its Y projection while preserving its arc length; the length slider scales that arc separately.
 
 ## In-game falling leaf A/B
 

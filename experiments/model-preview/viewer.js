@@ -82,6 +82,22 @@ function buildModelControls(){
       const output=$(`model-${schema.key}-value`);if(output)output.textContent=modelSettings[schema.key];asset.apply(modelSettings);dirty();
     });
   }
+  if(definition.colorPresets){
+    const section=document.createElement('div');section.className='color-presets';
+    const title=document.createElement('strong');title.textContent='叶片配色 · 仅覆盖颜色';section.append(title);
+    const buttons=document.createElement('div');buttons.className='preset-buttons';section.append(buttons);
+    for(const preset of definition.colorPresets){
+      const button=document.createElement('button');button.type='button';button.textContent=preset.name;
+      button.dataset.preset=preset.name;
+      button.addEventListener('click',()=>{
+        Object.assign(modelSettings,preset.colors);
+        for(const [key,color] of Object.entries(preset.colors))$(`model-${key}`).value=color;
+        asset.apply(modelSettings);dirty();
+      });
+      buttons.append(button);
+    }
+    $('model-controls').append(section);
+  }
 }
 function syncControls(){
   for(const key of ['resolution','fps','speed','levels','projection'])$(key).value=state[key];

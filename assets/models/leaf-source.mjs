@@ -1,10 +1,24 @@
 // Authoring recipe, not a second game mesh. Publish with scripts/publish-leaf-model.mjs.
-export const leafDefaults={width:1,widestPoint:.5,fold:.28,curl:.35,veins:.5,leafColor:'#81852C',stemTint:'#807D3F',backTint:'#898F43',light:-35,transmission:.45,steps:8};
+export const leafDefaults={width:1,length:1,widestPoint:.5,fold:.28,curl:.35,veinColor:'#b5ba55',leafColor:'#81852C',stemTint:'#807D3F',backTint:'#898F43',light:-35,transmission:.45,steps:8};
 export function leafGeometry(state=leafDefaults){
   const positions=[],uvs=[],indices=[];
+  // Curl bends the midrib rather than displacing it only in Z: each infinitesimal
+  // segment has length 2.25*dt, so increasing curl shortens its Y projection.
+  function midrib(t,stem){
+    if(stem||t<0)return [(t-.5)*2.25,state.curl*.7*(t*t*t-.15)];
+    const steps=32,h=t/steps,angle=s=>.95*state.curl*s*s;
+    const length=2.25*(state.length??1);
+    let y=0,z=0;
+    for(let i=0;i<=steps;i++){
+      const weight=i===0||i===steps?1:i%2?4:2;
+      y+=weight*Math.cos(angle(i*h));z+=weight*Math.sin(angle(i*h));
+    }
+    return [-1.125+length*h*y/3,-.105*state.curl+length*h*z/3];
+  }
   function add(x,t,u,stem=false){
-    const z=state.fold*Math.abs(x)+state.curl*(t*t*t-.15)*.7+.055*Math.sin(t*3.6)*x;
-    positions.push(x,(t-.5)*2.25,z);uvs.push(stem?2:u,t);return positions.length/3-1;
+    const [y,centerZ]=midrib(t,stem);
+    const z=centerZ+state.fold*Math.abs(x)+.055*Math.sin(t*3.6)*x;
+    positions.push(x,y,z);uvs.push(stem?2:u,t);return positions.length/3-1;
   }
   // Tilt the existing smooth taper, then normalize so moving the widest point
   // does not also change the width slider's effective maximum. The end vertices

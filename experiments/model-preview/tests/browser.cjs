@@ -67,11 +67,20 @@ let server;
   await page.locator('#source').hover();await page.mouse.wheel(0,-180);await stable();
   assert.notDeepEqual((await state()).camera,sourcePosition);
   assert.equal(await png(),perspectiveImage,'perspective inspection dolly must not change fixed tile framing');
-  for(const [key,value]of [['curl','-0.65'],['width','1.4'],['fold','0.7'],['veins','0'],['transmission','0']]){
+  for(const [key,value]of [['curl','-0.65'],['width','1.4'],['length','1.15'],['fold','0.7'],['transmission','0']]){
     await page.locator('#model-'+key).fill(value);await stable();assert.equal((await state()).modelSettings[key],Number(value));
   }
   assert.equal(await page.locator('#model-season').count(),0);
-  for(const key of ['leafColor','stemTint','backTint']){
+  assert.equal(await page.locator('#model-veins').count(),0);
+  const beforePreset=(await state()).modelSettings;
+  await page.locator('[data-preset="秋日黄叶"]').click();await stable();
+  const yellow=(await state()).modelSettings;
+  assert.deepEqual(Object.keys(yellow).filter(key=>yellow[key]!==beforePreset[key]).sort(),['backTint','leafColor','stemTint','veinColor']);
+  for(const key of ['leafColor','veinColor','stemTint','backTint'])assert.equal(await page.locator('#model-'+key).evaluate(picker=>picker.value),yellow[key]);
+  const yellowImage=await png();
+  await page.locator('[data-preset="盛夏绿叶"]').click();await stable();
+  assert.notEqual(await png(),yellowImage,'color preset should recolor the visible leaf');
+  for(const key of ['leafColor','veinColor','stemTint','backTint']){
     await page.locator('#model-'+key).evaluate(picker=>{picker.value='#FFFFFF';picker.dispatchEvent(new Event('input',{bubbles:true}));});
     await stable();assert.equal((await state()).modelSettings[key].toLowerCase(),'#ffffff');
   }
@@ -79,6 +88,8 @@ let server;
   const whiteLeaf=await rgba(),colored=Array.from({length:whiteLeaf.length/4},(_,i)=>i).filter(i=>whiteLeaf[i*4+3]);
   assert.ok(colored.length>0);
   assert.ok(colored.every(i=>Math.abs(whiteLeaf[i*4]-whiteLeaf[i*4+1])<=2&&Math.abs(whiteLeaf[i*4+1]-whiteLeaf[i*4+2])<=2),'white base color must not retain the green palette');
+  await page.locator('#model-veinColor').evaluate(picker=>{picker.value='#ff00ff';picker.dispatchEvent(new Event('input',{bubbles:true}));});
+  await stable();assert.notDeepEqual(await rgba(),whiteLeaf,'vein picker should change rendered vein pixels without changing leaf base');
   await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,true);assert.equal(await page.locator('#repair').count(),0);
   await page.screenshot({path:path.join(artifacts,'leaf.png'),fullPage:true});
   await select('butterfly');assert.equal((await state()).triangles,156);assert.equal((await state()).clips[0].duration,1);
