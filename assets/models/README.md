@@ -61,7 +61,7 @@ motion at butterfly FPS. `LeafFlight` and its angle-dependent falling/rotation e
 Non-falling leaf-colored particles without that physical pose remain on the existing sprite path.
 
 Game lighting/palette/transmission remain the game's leaf lighting, not the preview's studio shader.
-The mesh, vertex normals and UVs are shared. **Eight-neighbor minimal repair is always enabled**
+The mesh, vertex normals and UVs are shared. **Conservative projected coverage plus eight-neighbor minimal bridging are always enabled**
 for both shared game models and the HTML preview. There is no repair toggle. The existing leaf A/B
 still compares the original sprite against the shared model, not two repair algorithms.
 
@@ -74,25 +74,29 @@ geometry's depth for world occlusion. The pixel grid stays fixed for an animal's
 footprint, not fitted to each rotating silhouette. Large-population performance acceptance remains a
 separate Release measurement after visual review.
 
-## Fixed connectivity processing
+## Fixed geometric coverage and connectivity
 
-`src/tracer/model_pixel_repair.rs` mirrors the preview's eight-neighbor, geometry-supported
-shortest-bridge/pruning algorithm. A leaf is one repair group; butterfly wings remain separate.
-Diagonal contact needs no thickening. Fully unsampled parts and gaps with no permitted path remain
-unreconstructed; this is not silhouette dilation or a promise of connectivity through occluders.
+`src/tracer/model_pixel_repair.rs` mirrors the preview's geometry-supported conservative footprint
+and eight-neighbor shortest-bridge/pruning stages. A leaf is one repair group; butterfly wings remain
+separate. Diagonal contact needs no bridge, but a projected silhouette can still gain pixels even
+when its original mask was connected. Fully unsampled geometry is recovered when its opaque projected
+triangles cover the tile. Conservative coverage can thicken silhouettes; it does not guarantee a
+connection through occluders.
 
 The game projects the current published pose after the camera is final and classifies centers using
-the same local/world ray convention as its renderer. It builds sparse ordered color expressions,
-not full per-leaf image allocations. Frame-local storage grows within a checked portable 128 MiB
+the same local/world ray convention as its renderer. It builds sparse ordered bridge expressions
+and source-triangle coverage seeds, not full per-leaf image allocations. Frame-local storage grows within a checked portable 128 MiB
 storage-binding limit (overflow fails explicitly, never silently disables repair); exact geometry/camera
 keys reuse held plans, while lighting is evaluated afresh on the GPU. A compute pass evaluates
-original endpoint colors in linear HDR; existing center hits always win, and missing endpoints
-cannot invent colored pixels. Pruned intermediate expressions remain available to descendants.
+original endpoint colors in linear HDR and shades coverage seeds using the source triangle's
+material, normal, UV and lighting. Existing center hits always win. Pruned intermediate expressions
+remain available to descendants.
 There is **no production GPU image readback** and no flight/pose/timing modification.
 
 Only explicit native review runs allocate separate center-only reference tiles (never displayed).
-They compare original RGBA/depth bit-for-bit, evaluate repair colors independently, check depth and
-absence of new islands, and sample rotating poses periodically. The CPU depth diagnostic reports
+They compare original RGBA/depth bit-for-bit, evaluate bridge colors independently, verify geometry
+seeds are displayed with valid depth, and sample rotating poses periodically. Conservative coverage
+may create a visible component that had no center samples; this is expected, not a new island bug. The CPU depth diagnostic reports
 rare edge hits within a scale-aware 16-ULP spatial envelope: a captured 0.25x leaf case differed by
 about 3.7e-7 world units at a triangle boundary. This diagnostic tolerance does not expand rendered
 geometry or change original pixels. GPU/CPU floating-point boundaries and different camera/lighting
@@ -118,7 +122,7 @@ python3 scripts/validate_butterfly_mesh.py --seconds 12
 ```
 
 The repair oracle compares 140 WebGL/JS masks across both models, views, resolutions and animation
-phases against the native planner, including genuine additions and unchanged cases.
+phases against the native planner's final additions, including entirely missed features.
 The asset parity check compares actual Three.js world-space vertices to the game's loader at 102 clip
 times including wrap for both models, with tolerance 2e-6 model units. It is an explicit integration check, not part
 of ordinary fast Cargo tests. Also run the viewer browser suite and the game's hidden Release smoke
@@ -129,9 +133,9 @@ pose parity, normal hidden Release startup, live leaf A→B(8/16/64)→A→B swi
 sweeps at 0.25×/1×/2×/4×, and the existing
 butterfly 8/22/64px/shadow/transmission sweep. The leaf GPU check used 8 production flight particles;
 maximum checked depth difference was below 0.0000005, with no Vulkan validation errors or saved-config
-changes. The fixed-repair regression checked 42 leaf frames (7,621 original samples, 85 additions)
-and 71 butterfly frames (76,437 original samples, 20 additions), preserving original RGBA/depth
-bit-for-bit and checking interpolated colors. `target/leaf-model-review/` contains the run log,
+changes. The earlier connectivity-only regression counted 85 leaf and 20 butterfly additions;
+those historical counts no longer apply after general projected coverage. Current GPU review checks
+preserve original RGBA/depth bit-for-bit and validate model-shaded coverage seeds and bridge colors. `target/leaf-model-review/` contains the run log,
 actual game screenshot and native pixel images. This is correctness/visual evidence, not a
 large-population performance approval.
 

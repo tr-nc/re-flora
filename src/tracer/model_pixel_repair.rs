@@ -1,6 +1,6 @@
-//! Geometry-constrained eight-neighbour repair. Mirrors the preview's pure
-//! connectivity.mjs contract; cross-runtime fixtures exercise this exact seam.
-//! Produces sparse, ordered color expressions, never reads GPU pixels back.
+//! Geometry-constrained eight-neighbour bridges and conservative projected
+//! coverage. Cross-runtime fixtures compare final browser and native masks.
+//! Produces sparse bridge expressions and model-shaded surface seeds; no GPU image readback.
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 
@@ -11,7 +11,8 @@ pub const HIDDEN: u32 = u32::MAX;
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Node {
     // destination (HIDDEN for intermediate/pruned nodes), endpoints, lerp bits.
-    // Endpoint bit 31 selects an earlier expression, otherwise an original pixel.
+    // links[1]==HIDDEN seeds a projected surface from links[2]'s source triangle.
+    // Otherwise bit 31 selects an earlier expression or an original pixel.
     pub links: [u32; 4],
     pub color_depth: [f32; 4],
 }
@@ -19,6 +20,8 @@ pub struct Node {
 pub struct Group {
     pub id: u32,
     pub triangles: Vec<[[f64; 3]; 3]>,
+    #[serde(default)]
+    pub sources: Vec<u32>,
 }
 #[derive(Default)]
 pub struct Plan {
@@ -95,14 +98,16 @@ struct Coverage {
     words: usize,
     bits: Vec<u32>,
     depth: Vec<f64>,
+    source: Vec<u32>,
 }
 impl Coverage {
-    fn new(triangles: &[[[f64; 3]; 3]], n: usize) -> Self {
+    fn new(triangles: &[[[f64; 3]; 3]], sources: &[u32], n: usize) -> Self {
         let words = triangles.len().div_ceil(32).max(1);
         let mut out = Self {
             words,
             bits: vec![0; n * n * words],
             depth: vec![f64::INFINITY; n * n],
+            source: vec![0; n * n],
         };
         for (index, t) in triangles.iter().enumerate() {
             let lo = [0, 1].map(|a| t.iter().map(|p| p[a]).fold(f64::INFINITY, f64::min));
@@ -138,7 +143,11 @@ impl Coverage {
                         let p = y * n + x;
                         out.bits[p * words + index / 32] |= 1 << (index % 32);
                         let w = weights(t, x as f64 + 0.5, y as f64 + 0.5);
-                        out.depth[p] = out.depth[p].min((0..3).map(|i| w[i] * t[i][2]).sum());
+                        let z: f64 = (0..3).map(|i| w[i] * t[i][2]).sum();
+                        if z < out.depth[p] {
+                            out.depth[p] = z;
+                            out.source[p] = sources.get(index).copied().unwrap_or(index as u32);
+                        }
                     }
                 }
             }
@@ -156,16 +165,13 @@ pub fn plan(owners: &[u32], groups: &[Group], n: usize) -> Plan {
     let mut chosen = vec![None::<usize>; n * n];
     let mut depth = vec![f64::INFINITY; n * n];
     let mut group_masks = Vec::new();
+    let mut node_groups = Vec::new();
     for group in groups {
         let original: Vec<bool> = owners.iter().map(|id| *id == group.id).collect();
         let mut mask = original.clone();
         let (mut labels, mut count) = label(&mask, n);
         output.before += count;
-        if count <= 1 {
-            group_masks.push((group.id, original));
-            continue;
-        }
-        let coverage = Coverage::new(&group.triangles, n);
+        let coverage = Coverage::new(&group.triangles, &group.sources, n);
         let mut additions = vec![false; n * n];
         let mut references: Vec<u32> = (0..(n * n) as u32).collect();
         while count > 1 {
@@ -225,6 +231,7 @@ pub fn plan(owners: &[u32], groups: &[Group], n: usize) -> Plan {
                     ],
                     color_depth: [0., 0., 0., coverage.depth[p] as f32],
                 });
+                node_groups.push(group.id);
                 mask[p] = true;
                 additions[p] = true;
             }
@@ -258,22 +265,28 @@ pub fn plan(owners: &[u32], groups: &[Group], n: usize) -> Plan {
                 depth[p] = coverage.depth[p];
             }
         }
+        // Coverage is a second pass: the minimum-bridge graph remains intact,
+        // but every unoccupied projected cell receives a material ray sample.
+        for p in 0..n * n {
+            if owners[p] != 0 || !coverage.depth[p].is_finite() || coverage.depth[p] > depth[p] {
+                continue;
+            }
+            if let Some(old) = chosen[p] {
+                output.nodes[old].links[0] = HIDDEN;
+            }
+            let index = output.nodes.len();
+            output.nodes.push(Node {
+                links: [p as u32, HIDDEN, coverage.source[p], 0],
+                color_depth: [0., 0., 0., coverage.depth[p] as f32],
+            });
+            node_groups.push(group.id);
+            chosen[p] = Some(index);
+            depth[p] = coverage.depth[p];
+        }
         group_masks.push((group.id, original));
     }
     output.added = chosen.iter().filter(|i| i.is_some()).count();
     // Final visible connectivity, including depth competition between groups.
-    // Each expression is created within one group; track its group via the
-    // original anchors (which can recursively refer to earlier expressions).
-    let mut node_groups = Vec::with_capacity(output.nodes.len());
-    for node in &output.nodes {
-        let a = node.links[1];
-        let id = if a & EXPRESSION != 0 {
-            node_groups[(a & !EXPRESSION) as usize]
-        } else {
-            owners[a as usize]
-        };
-        node_groups.push(id);
-    }
     for (id, mut mask) in group_masks {
         for (p, index) in chosen.iter().enumerate() {
             if let Some(i) = index {
@@ -382,6 +395,7 @@ pub fn project(
             groups.push(Group {
                 id: *id,
                 triangles: Vec::new(),
+                sources: Vec::new(),
             });
             groups.len() - 1
         };
@@ -399,6 +413,7 @@ pub fn project(
                 ]
             });
             groups[group].triangles.push(t);
+            groups[group].sources.push(triangle_index as u32);
             let lo = [0, 1].map(|a| t.iter().map(|p| p[a]).fold(f64::INFINITY, f64::min));
             let hi = [0, 1].map(|a| t.iter().map(|p| p[a]).fold(f64::NEG_INFINITY, f64::max));
             // Bound the ray queries conservatively, but classify original centers
@@ -435,43 +450,35 @@ mod tests {
         Group {
             id: 1,
             triangles: vec![[[0., 0., 0.5], [5., 5., 0.5], [4.8, 5., 0.5]]],
+            sources: vec![0],
         }
     }
     #[test]
-    fn diagonal_touch_is_complete_and_only_genuine_gaps_are_bridged() {
+    fn projected_geometry_survives_missing_centers_without_crossing_occupied_pixels() {
         let mut owners = vec![0; 25];
         owners[0] = 1;
         owners[6] = 1;
-        assert_eq!(plan(&owners, &[diagonal()], 5).added, 0);
+        let partial = plan(&owners, &[diagonal()], 5);
+        assert!(partial.added > 0);
+        assert_eq!(partial.after, 1);
         owners[6] = 0;
         owners[12] = 1;
         let p = plan(&owners, &[diagonal()], 5);
-        assert_eq!(p.added, 1);
+        assert!(p.added > 0);
         assert_eq!((p.before, p.after), (2, 1));
-        assert_eq!(
-            p.nodes
-                .iter()
-                .filter(|n| n.links[0] != HIDDEN)
-                .map(|n| n.links[0])
-                .collect::<Vec<_>>(),
-            vec![6]
-        );
         owners[12] = 2;
-        assert_eq!(
-            plan(
-                &owners,
-                &[
-                    diagonal(),
-                    Group {
-                        id: 2,
-                        ..diagonal()
-                    }
-                ],
-                5
-            )
-            .added,
-            0
+        let split = plan(
+            &owners,
+            &[
+                diagonal(),
+                Group {
+                    id: 2,
+                    ..diagonal()
+                },
+            ],
+            5,
         );
+        assert!(split.nodes.iter().all(|node| node.links[0] != 12));
     }
     #[test]
     fn near_clipping_preserves_sampler_ownership_and_valid_depths() {
@@ -512,6 +519,28 @@ mod tests {
         assert!(groups.is_empty());
     }
     #[test]
+    fn coverage_seed_tracks_source_triangle_even_without_center_hits() {
+        let points = [
+            Vec3::new(0.006, -0.5, 0.5),
+            Vec3::new(0.012, -0.5, 0.5),
+            Vec3::new(0.006, 0.4, 0.5),
+        ];
+        let (_, groups) = project(
+            &[(1, points)],
+            Mat4::IDENTITY,
+            Vec4::new(-1., -1., 1., 1.),
+            8,
+            |_, _, _| None,
+        );
+        let output = plan(&[0; 64], &groups, 8);
+        assert!(output.added > 0);
+        for node in output.nodes.iter().filter(|n| n.links[0] != HIDDEN) {
+            assert_eq!(node.links[1], HIDDEN);
+            assert_eq!(node.links[2], 0);
+            assert!(node.color_depth[3] < 1.);
+        }
+    }
+    #[test]
     fn triangle_identity_does_not_wrap_at_32_and_outside_bounds_stay_empty() {
         let outside = [[-20., -20., 0.5], [-10., -20., 0.5], [-20., -10., 0.5]];
         let mut triangles = vec![outside; 156];
@@ -520,20 +549,34 @@ mod tests {
         let mut owners = vec![0; 9];
         owners[0] = 1;
         owners[2] = 1;
-        assert_eq!(plan(&owners, &[Group { id: 1, triangles }], 3).added, 0);
+        let filled = plan(
+            &owners,
+            &[Group {
+                id: 1,
+                triangles,
+                sources: vec![],
+            }],
+            3,
+        );
+        assert!(filled.added > 0);
+        assert!(filled
+            .nodes
+            .iter()
+            .all(|node| node.links[0] != 0 && node.links[0] != 2));
         assert_eq!(
             plan(
                 &owners,
                 &[Group {
                     id: 1,
-                    triangles: vec![outside]
+                    triangles: vec![outside],
+                    sources: vec![],
                 }],
                 3
             )
             .added,
             0
         );
-        assert_eq!(plan(&[0; 9], &[diagonal()], 3).added, 0);
+        assert!(plan(&[0; 9], &[diagonal()], 3).added > 0);
     }
     #[test]
     fn bridge_color_expressions_only_reference_originals_or_earlier_nodes() {
@@ -546,6 +589,7 @@ mod tests {
             &[Group {
                 id: 1,
                 triangles: vec![[[0., 0., 0.5], [6., 0., 0.5], [3., 6., 0.5]]],
+                sources: vec![],
             }],
             6,
         );
@@ -557,7 +601,9 @@ mod tests {
             .any(|n| n.links[1] & EXPRESSION != 0 || n.links[2] & EXPRESSION != 0));
         for (i, node) in p.nodes.iter().enumerate() {
             for r in &node.links[1..3] {
-                if r & EXPRESSION != 0 {
+                if *r == HIDDEN {
+                    assert_eq!(node.links[1], HIDDEN); // ray-sampled coverage seed
+                } else if r & EXPRESSION != 0 {
                     assert!((r & !EXPRESSION) < i as u32);
                 } else {
                     assert_eq!(owners[*r as usize], 1);
@@ -566,7 +612,7 @@ mod tests {
         }
     }
     #[test]
-    #[ignore = "export tests/repair-parity.cjs first"]
+    #[ignore = "generate browser fixtures with experiments/model-preview/tests/repair-parity.cjs first"]
     fn browser_repair_plan_parity() {
         #[derive(serde::Deserialize)]
         struct Fixture {

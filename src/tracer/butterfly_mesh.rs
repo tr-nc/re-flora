@@ -585,6 +585,10 @@ impl ButterflyMeshRenderer {
                 self.repair_after += plan.after;
                 self.repair_nodes.extend(plan.nodes);
             }
+            if native_review() {
+                log::info!("[MODEL_COVERAGE_REVIEW] instances={} added={} original_components={} final_components={} nodes={}",
+                    self.instances.len(), self.repair_added, self.repair_before, self.repair_after, self.repair_nodes.len());
+            }
         }
         for (instance, range) in self.instances.iter_mut().zip(&self.repair_ranges) {
             instance.repair = *range;

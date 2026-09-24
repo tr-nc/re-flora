@@ -183,6 +183,7 @@ impl ButterflyMeshRenderer {
             // frame's GPU center-only references, including hidden parent nodes.
             let mut expressions: Vec<[f32; 4]> = Vec::new();
             let mut expected_repairs = vec![None; (n * n) as usize];
+            let mut seed_depths = vec![None; (n * n) as usize];
             let first = instance.repair[0] as usize;
             for node in &self.repair_nodes[first..first + instance.repair[1] as usize] {
                 let endpoint = |r: u32| {
@@ -196,6 +197,15 @@ impl ButterflyMeshRenderer {
                             + (r % n) as usize]
                     }
                 };
+                if node.links[1] == model_pixel_repair::HIDDEN {
+                    // Coverage nodes shade their source triangle directly; their
+                    // output is not an endpoint expression.
+                    expressions.push(node.color_depth);
+                    if node.links[0] != model_pixel_repair::HIDDEN {
+                        seed_depths[node.links[0] as usize] = Some(node.color_depth[3]);
+                    }
+                    continue;
+                }
                 let a = endpoint(node.links[1]);
                 let b = endpoint(node.links[2]);
                 let t = f32::from_bits(node.links[3]);
@@ -235,6 +245,12 @@ impl ButterflyMeshRenderer {
                         );
                     }
                     if original[3] >= 1. {
+                        if seed_depths[(y * n + x) as usize].is_some() {
+                            ensure!(
+                                pixel[3] < 1.,
+                                "GPU omitted conservative coverage: instance={index} pixel={x},{y}"
+                            );
+                        }
                         if let Some(expected) =
                             expected_repairs[(y * n + x) as usize].filter(|v| v[3] < 1.)
                         {
@@ -254,6 +270,7 @@ impl ButterflyMeshRenderer {
                         count += 1;
                         // All hits, not just one convenient pixel, exercise the production
                         // instance index, framing, ray direction and nearest-triangle depth.
+                        let coverage_seed = seed_depths[(y * n + x) as usize];
                         let uv = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) / n as f32;
                         let ndc = Vec2::new(rect.x, rect.y)
                             + Vec2::new(rect.z - rect.x, rect.w - rect.y) * uv;
@@ -287,6 +304,8 @@ impl ButterflyMeshRenderer {
                                 .ok_or_else(||anyhow::anyhow!("GPU center hit outside CPU precision envelope: instance={index} pixel={x},{y}"))?;
                             roundoff_boundary_hits += usize::from(boundary);
                             expected
+                        } else if let Some(depth) = coverage_seed {
+                            depth
                         } else {
                             let first = instance.repair[0] as usize;
                             let end = first + instance.repair[1] as usize;
@@ -307,10 +326,8 @@ impl ButterflyMeshRenderer {
             }
             let before = model_pixel_repair::label(&original_mask, n as usize).1;
             let after = model_pixel_repair::label(&final_mask, n as usize).1;
-            ensure!(
-                after <= before,
-                "repair created a detached island: instance={index} components={before}->{after}"
-            );
+            // Conservatively recovered features can be disconnected from the
+            // center-sampled mask; more visible components are not a failure.
             components_before += before;
             components_after += after;
             hits.push(count);

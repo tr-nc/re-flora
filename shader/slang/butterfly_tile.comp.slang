@@ -28,9 +28,15 @@ void main(uint3 id : SV_DispatchThreadID) {
         for (uint i=0;i<instance.repair.y;i++) {
             uint address=instance.repair.x+i;
             ParticleModelRepairNode node=particle_model_repair_output[address];
-            float4 a=endpoint(instance,node.links.y),b=endpoint(instance,node.links.z);
-            node.colorDepth.rgb=lerp(a.rgb,b.rgb,asfloat(node.links.w)); // game HDR is linear
-            if (a.w>=1.0 || b.w>=1.0) node.colorDepth.w=2.0; // never invent a missing endpoint
+            if (node.links.y==0xffffffffu) {
+                // A conservative geometry seed samples the real model shader at
+                // its projected surface, not a guessed color or a missing center.
+                node.colorDepth=sampleParticleModelSurface(instance,node.links.z,node.colorDepth.w);
+            } else {
+                float4 a=endpoint(instance,node.links.y),b=endpoint(instance,node.links.z);
+                node.colorDepth.rgb=lerp(a.rgb,b.rgb,asfloat(node.links.w)); // game HDR is linear
+                if (a.w>=1.0 || b.w>=1.0) node.colorDepth.w=2.0; // never invent a missing endpoint
+            }
             particle_model_repair_output[address]=node;
         }
         return;
