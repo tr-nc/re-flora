@@ -8,8 +8,9 @@ export const leafDefinition={
   defaults:leafDefaults,
   controls:[
     {key:'width',label:'叶片宽度',min:.55,max:1.45,step:.01},
+    {key:'widestPoint',label:'最宽处位置（叶柄 0 → 叶尖 1）',min:0,max:1,step:.01},
     {key:'fold',label:'主脉折起',min:0,max:.8,step:.01},
-    {key:'curl',label:'叶尖卷曲',min:-.8,max:1,step:.01},
+    {key:'curl',label:'叶尖卷曲',min:-1.8,max:1.8,step:.01},
     {key:'season',label:'叶色：青绿 → 秋黄',min:0,max:1,step:.01},
     {key:'veins',label:'叶脉强度',min:0,max:1,step:.01},
     {key:'light',label:'光源方位',min:-180,max:180,step:1},
@@ -74,7 +75,7 @@ export const leafDefinition={
       view:{span:3.4,target:[0,-.06,.05],offset:[2.3,1.1,6],axisDistance:6,near:.1,far:40},
       description:'共享正式叶片 · 32 面 · 造型滑杆仅临时预览，发布后才同步游戏',
       apply(values){
-        const rebuild=['width','fold','curl'].some(key=>settings[key]!==values[key]);
+        const rebuild=['width','widestPoint','fold','curl'].some(key=>settings[key]!==values[key]);
         Object.assign(settings,values);
         if(rebuild){mesh.geometry.dispose();mesh.geometry=makeGeometry(settings);}
         for(const key of ['season','veins','transmission'])uniforms[key].value=settings[key];

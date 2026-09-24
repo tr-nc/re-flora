@@ -1,14 +1,23 @@
 // Authoring recipe, not a second game mesh. Publish with scripts/publish-leaf-model.mjs.
-export const leafDefaults={width:1,fold:.28,curl:.35,season:.25,veins:.5,light:-35,transmission:.45,steps:6};
+export const leafDefaults={width:1,widestPoint:.5,fold:.28,curl:.35,season:.25,veins:.5,light:-35,transmission:.45,steps:6};
 export function leafGeometry(state=leafDefaults){
   const positions=[],uvs=[],indices=[];
   function add(x,t,u,stem=false){
     const z=state.fold*Math.abs(x)+state.curl*(t*t*t-.15)*.7+.055*Math.sin(t*3.6)*x;
     positions.push(x,(t-.5)*2.25,z);uvs.push(stem?2:u,t);return positions.length/3-1;
   }
+  // Tilt the existing smooth taper, then normalize so moving the widest point
+  // does not also change the width slider's effective maximum. The end vertices
+  // remain pointed; at the extremes the widest sampled row is near an end.
+  const profile=t=>Math.pow(Math.sin(Math.PI*t),.82)*(1.08-.24*t);
+  const tilt=12*((state.widestPoint??.5)-.5);
+  const tapered=t=>profile(t)*Math.exp(tilt*(t-.5));
+  const rowSpan=t=>1.+.05*Math.sin(t*12)+.95+.035*Math.cos(t*15);
+  const baselineMax=Math.max(...Array.from({length:7},(_,i)=>profile((i+1)/8)*rowSpan((i+1)/8)));
+  const tiltedMax=Math.max(...Array.from({length:7},(_,i)=>tapered((i+1)/8)*rowSpan((i+1)/8)));
   const root=add(0,0,.5),rows=[];
   for(let i=1;i<8;i++){
-    const t=i/8,halfWidth=.58*state.width*Math.pow(Math.sin(Math.PI*t),.82)*(1.08-.24*t);
+    const t=i/8,halfWidth=.58*state.width*tapered(t)*baselineMax/tiltedMax;
     const offset=.035*Math.sin(t*Math.PI*1.5);
     rows.push([add(offset-halfWidth*(1.+.05*Math.sin(t*12.)),t,0),add(offset,t,.5),add(offset+halfWidth*(.95+.035*Math.cos(t*15.)),t,1)]);
   }
