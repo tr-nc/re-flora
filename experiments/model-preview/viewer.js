@@ -90,7 +90,7 @@ function syncControls(){
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
   $('levels-value').textContent=state.levels?`${state.levels} 级 / 单位亮度`:'连续';
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
-  $('coverage-mode').textContent='八邻接补点 + 细结构保留';
+  $('coverage-mode').textContent='通用保守覆盖 + 八邻接补点';
   $('clip').replaceChildren();
   for(const [index,clip]of (asset?.clips??[]).entries())$('clip').add(new Option(clip.name,String(index)));
   if(!asset?.clips.length)$('clip').add(new Option('无动画','0'));
@@ -127,7 +127,7 @@ function render(){
   syncPixelCamera();
   const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
-  let repairMessage='八邻接最少补点';
+  let repairMessage='通用保守覆盖 + 八邻接补点';
   if(frame.repair){
     const {added,groups}=frame.repair;
     const separated=groups.some(group=>group.after>1);
@@ -136,7 +136,7 @@ function render(){
       :groups.some(group=>group.before>0)?'无需补点：当前各组已八邻接连通（斜向接触也算）'
       :'未补点：当前没有可见采样点';
     const preserved=groups.reduce((sum,group)=>sum+group.preserved,0);
-    repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个保留细结构）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
+    repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个几何覆盖像素）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
   }
   if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
   $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定游戏取景`;

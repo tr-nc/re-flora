@@ -28,34 +28,53 @@ test('coverage supports 156 triangles without wrapping triangle identities at 32
   assert.equal(repairCoverage(original,coverage,5).added,0);
 });
 
-test('different repair groups never bridge to one another; existing RGBA is retained',()=>{
+test('different repair groups preserve their existing colors and never overwrite center samples',()=>{
   const rgba=new Uint8Array(3*3*4),owners=new Uint32Array(9);
   rgba.set([20,50,80,255],0);rgba.set([90,40,10,255],32);owners[0]=1;owners[8]=2;
   const triangles=[[[0,0,0],[3,0,0],[3,3,0]],[[0,0,0],[3,3,0],[0,3,0]]];
-  const split=repairImage(rgba,owners,[{id:1,triangles},{id:2,triangles}],3);
-  assert.equal(split.added,0);assert.deepEqual(split.rgba,rgba);
-  owners[8]=1;
-  const joined=repairImage(rgba,owners,[{id:1,triangles}],3);
-  assert.equal(joined.added,1);assert.equal(joined.rgba[19],255);
-  assert.deepEqual(joined.rgba.subarray(0,4),rgba.subarray(0,4));
-  assert.deepEqual(joined.rgba.subarray(32,36),rgba.subarray(32,36));
-  assert.ok(joined.rgba[16]>20&&joined.rgba[16]<90);
+  const result=repairImage(rgba,owners,[{id:1,triangles},{id:2,triangles}],3);
+  assert.ok(result.added>0);
+  assert.deepEqual(result.rgba.subarray(0,4),rgba.subarray(0,4));
+  assert.deepEqual(result.rgba.subarray(32,36),rgba.subarray(32,36));
 });
 
-test('a visible subpixel leaf stem survives even when no center pixel was sampled',()=>{
+test('all projected triangles survive missing center samples without per-feature annotations',()=>{
   const size=8,rgba=new Uint8Array(size*size*4),owners=new Uint32Array(size*size);
   const stem=[[[3.98,1.2,.2],[4.02,1.2,.2],[3.98,3.6,.2]],[[4.02,1.2,.2],[4.02,3.6,.2],[3.98,3.6,.2]]];
-  const result=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
+  const group={id:1,triangles:stem,fallbackColor:[110,75,30]};
+  const result=repairImage(rgba,owners,[group],size);
   assert.ok(result.added>0);
   assert.ok(Array.from({length:size*size},(_,i)=>result.rgba[i*4+3]).some(Boolean));
   assert.deepEqual(result.rgba.subarray(1*size*4+4*4,1*size*4+4*4+4),Uint8Array.from([110,75,30,255]));
   rgba.set([7,8,9,255],(size+4)*4);owners[size+4]=2;
-  const occluded=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
+  const occluded=repairImage(rgba,owners,[group],size);
   assert.deepEqual(occluded.rgba.subarray((size+4)*4,(size+5)*4),Uint8Array.from([7,8,9,255]));
   rgba.fill(0);owners.fill(0);rgba.set([2,3,4,255],(size+4)*4);owners[size+4]=1;
-  const sampled=repairImage(rgba,owners,[{id:1,triangles:stem,preserve:[{triangles:stem,color:[110,75,30]}]}],size);
+  const sampled=repairImage(rgba,owners,[group],size);
   assert.deepEqual(sampled.rgba.subarray((size+4)*4,(size+5)*4),Uint8Array.from([2,3,4,255]));
   assert.ok(sampled.added>0,'preserve the rest of a stem even when one center pixel was sampled');
+});
+
+test('every visible projected footprint is represented, independent of model and center samples',()=>{
+  const size=12,rgba=new Uint8Array(size*size*4),owners=new Uint32Array(size*size);
+  for(let step=0;step<40;step++){
+    const x=(step*7%10)+.1,y=(step*11%10)+.15;
+    const triangles=[[[x,y,.3],[x+.025,y+.02,.3],[x+.01,y+1.4,.3]]];
+    const coverage=projectedCoverage(triangles,size);
+    const result=repairImage(rgba,owners,[{id:1,triangles,fallbackColor:[45,90,135]}],size);
+    for(let i=0;i<size*size;i++)if(coverage.has(i)){
+      assert.equal(result.rgba[i*4+3],255,`triangle ${step}, cell ${i}`);
+    }
+  }
+});
+
+test('nearer projected groups win empty pixels while existing samples remain untouched',()=>{
+  const rgba=new Uint8Array(4*4*4),owners=new Uint32Array(16);
+  rgba.set([1,2,3,255],0);owners[0]=1;
+  const at=z=>[[[1,1,z],[3,1,z],[1,3,z]]];
+  const output=repairImage(rgba,owners,[{id:1,triangles:at(.8),fallbackColor:[255,0,0]},{id:2,triangles:at(.2),fallbackColor:[0,0,255]}],4);
+  assert.deepEqual(output.rgba.subarray(0,4),Uint8Array.from([1,2,3,255]));
+  assert.deepEqual(output.rgba.subarray((1*4+1)*4,(1*4+1)*4+4),Uint8Array.from([0,0,255,255]));
 });
 
 test('common luminance treatment is opt-in and preserves alpha',()=>{

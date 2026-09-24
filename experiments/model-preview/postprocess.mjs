@@ -1,14 +1,14 @@
-import {projectedCoverage,repairCoverage} from './connectivity.mjs';
+import {projectedCoverage,repairCoverage,labelComponents} from './connectivity.mjs';
 
 const linear=v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4;
 const srgb=v=>v<=.0031308?v*12.92:1.055*v**(1/2.4)-.055;
 
 // Reconstruct only missing colors from same-group bridge endpoints. This is an
 // image repair, not a second material renderer or an estimate of new lighting.
-export function repairImage(rgba, owners, groups, size) {
-  const result=rgba.slice(), chosenDepth=new Float64Array(size*size).fill(Infinity);
+export function repairImage(rgba, owners, groups, size, sampleColor=()=>null) {
+  const result=rgba.slice(), chosenDepth=new Float64Array(size*size).fill(Infinity),chosenGroup=owners.slice();
   const stats=[];
-  for(const {id,triangles,preserve=[]} of groups) {
+  for(const {id,triangles,fallbackColor=[180,180,180]} of groups) {
     const original=Uint8Array.from({length:size*size},(_,i)=>rgba[i*4+3]>0&&owners[i]===id);
     const coverage=projectedCoverage(triangles,size);
     const support={shares(a,b){
@@ -28,22 +28,33 @@ export function repairImage(rgba, owners, groups, size) {
       });
     }
     for(let i=0;i<original.length;i++) if(repair.additions[i]&&!rgba[i*4+3]&&coverage.depth[i]<chosenDepth[i]) {
-      chosenDepth[i]=coverage.depth[i];result.set(colors.subarray(i*4,i*4+4),i*4);
+      chosenDepth[i]=coverage.depth[i];chosenGroup[i]=id;result.set(colors.subarray(i*4,i*4+4),i*4);
     }
-    // Connectivity repair cannot seed a feature that missed every pixel center.
-    // Conservatively cover only explicitly marked thin geometry, without painting
-    // over center-sampled pixels or another group's closer preserved feature.
+    // Connectivity alone cannot create a component that missed every pixel
+    // center. Give every projected surface a conservative pixel footprint;
+    // original samples and nearer groups retain priority.
+    const samples=Array.from({length:original.length},(_,i)=>i).filter(i=>original[i]);
     let preserved=0;
-    for(const feature of preserve){
-      const footprint=projectedCoverage(feature.triangles,size);
-      for(let i=0;i<original.length;i++) if(!rgba[i*4+3]&&footprint.has(i)&&footprint.depth[i]<chosenDepth[i]){
-        chosenDepth[i]=footprint.depth[i];result.set([...feature.color,255],i*4);preserved++;
+    for(let i=0;i<original.length;i++) if(!rgba[i*4+3]&&coverage.has(i)&&coverage.depth[i]<=chosenDepth[i]){
+      let color=sampleColor(id,i,size);
+      if(!color){
+        const nearest=samples.reduce((best,p)=>{
+          const d=(p%size-i%size)**2+(Math.floor(p/size)-Math.floor(i/size))**2;
+          return d<best.distance?{pixel:p,distance:d}:best;
+        },{pixel:-1,distance:Infinity}).pixel;
+        color=nearest<0?fallbackColor:Array.from(rgba.subarray(nearest*4,nearest*4+3));
       }
+      chosenDepth[i]=coverage.depth[i];chosenGroup[i]=id;result.set([...color,255],i*4);
+      if(!repair.additions[i])preserved++;
     }
     stats.push({id,before:repair.before,after:repair.after,added:repair.added,preserved});
   }
   let added=0;
   for(let i=0;i<owners.length;i++) if(!rgba[i*4+3]&&result[i*4+3]) added++;
+  for(const group of stats){
+    const visible=Uint8Array.from(chosenGroup,(id,i)=>id===group.id&&result[i*4+3]?1:0);
+    group.after=labelComponents(visible,size).count;
+  }
   return {rgba:result,added,groups:stats};
 }
 

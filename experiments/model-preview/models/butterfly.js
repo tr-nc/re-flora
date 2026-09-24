@@ -38,6 +38,7 @@ export const butterflyDefinition={
         description:'双翼模型 · 原始动画 / 材质 · 左右翼独立补点',
         apply(settings){
           shadows=settings.shadows;
+          for(const group of repairGroups)group.fallbackColor=[1,3,5].map(i=>parseInt(settings.color.slice(i,i+2),16));
           for(const material of materials){
             material.color.set(shadows?settings.color:'#000000');material.emissive.set(shadows?'#000000':settings.color);
             material.emissiveIntensity=1;material.metalness=0;material.roughness=1;

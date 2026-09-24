@@ -14,6 +14,7 @@ export class PreviewPipeline{
     }
     this.source.setPixelRatio(Math.min(devicePixelRatio||1,2));this.pixel.setPixelRatio(1);
     this.idTarget=new THREE.WebGLRenderTarget(1,1);this.idTarget.texture.colorSpace=THREE.SRGBColorSpace;
+    this.colorTarget=new THREE.WebGLRenderTarget(1,1);this.colorTarget.texture.colorSpace=THREE.SRGBColorSpace;
     this.idMaterials=new Map();
     this.screen=new THREE.Scene();this.screenCamera=new THREE.Camera();
     this.screenMaterial=new THREE.ShaderMaterial({
@@ -50,13 +51,37 @@ export class PreviewPipeline{
     gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
     const original=quantizeImage(this.bytes,levels),owners=this.readOwners(asset,pixelCamera);
     const projected=projectGroups(asset,pixelCamera,this.size);
-    const result=repairImage(original,owners,projected,this.size);
+    const sampleColor=this.captureSurfaceColors(asset,pixelCamera);
+    const result=repairImage(original,owners,projected,this.size,sampleColor);
     this.texture.image.data.set(result.rgba);this.texture.needsUpdate=true;
     this.pixel.render(this.screen,this.screenCamera);
     this.last={sourceTime:time,pixelTime:time,repair:{added:result.added,groups:result.groups},projectedGroups:projected,original,owners};
     return this.last;
   }
-  readOwners(asset,camera){
+  captureSurfaceColors(asset,camera){
+    const resolution=Math.max(256,Math.min(512,this.size*4));
+    this.colorTarget.setSize(resolution,resolution);
+    this.pixel.setRenderTarget(this.colorTarget);this.pixel.render(asset.scene,camera);
+    const colors=new Uint8Array(resolution*resolution*4);
+    this.pixel.readRenderTargetPixels(this.colorTarget,0,0,resolution,resolution,colors);
+    this.pixel.setRenderTarget(null);
+    const owners=this.readOwners(asset,camera,resolution);
+    return (id,pixel,size)=>{
+      const x=pixel%size,y=Math.floor(pixel/size),startX=Math.floor(x*resolution/size),endX=Math.ceil((x+1)*resolution/size);
+      const startY=Math.floor(y*resolution/size),endY=Math.ceil((y+1)*resolution/size);
+      let nearest=-1,distance=Infinity;
+      for(let sy=startY;sy<endY;sy++)for(let sx=startX;sx<endX;sx++){
+        const i=sy*resolution+sx;
+        if(owners[i]!==id||!colors[i*4+3])continue;
+        const d=(sx+.5-(x+.5)*resolution/size)**2+(sy+.5-(y+.5)*resolution/size)**2;
+        if(d<distance){distance=d;nearest=i;}
+      }
+      return nearest<0?null:Array.from(colors.subarray(nearest*4,nearest*4+3));
+    };
+  }
+  readOwners(asset,camera,size=this.size){
+    this.idTarget.setSize(size,size);
+    const bytes=size===this.size?this.idBytes:new Uint8Array(size*size*4);
     const saved=asset.meshes.map(mesh=>[mesh,mesh.material]);
     const groupFor=new Map(asset.repairGroups.flatMap(group=>group.meshes.map(mesh=>[mesh,group.id])));
     try{
@@ -69,20 +94,20 @@ export class PreviewPipeline{
       }
       this.pixel.shadowMap.enabled=false;this.pixel.setRenderTarget(this.idTarget);
       this.pixel.render(asset.scene,camera);
-      this.pixel.readRenderTargetPixels(this.idTarget,0,0,this.size,this.size,this.idBytes);
+      this.pixel.readRenderTargetPixels(this.idTarget,0,0,size,size,bytes);
     }finally{
       for(const [mesh,material]of saved)mesh.material=material;
       this.pixel.setRenderTarget(null);this.pixel.shadowMap.enabled=asset.shadows;
     }
-    return Uint32Array.from({length:this.size*this.size},(_,i)=>
-      (this.idBytes[i*4]<<16)|(this.idBytes[i*4+1]<<8)|this.idBytes[i*4+2]);
+    return Uint32Array.from({length:size*size},(_,i)=>
+      (bytes[i*4]<<16)|(bytes[i*4+1]<<8)|bytes[i*4+2]);
   }
   releaseAsset(){
     for(const material of this.idMaterials.values())material.dispose();this.idMaterials.clear();
     this.source.renderLists.dispose();this.pixel.renderLists.dispose();this.last=null;
   }
   dispose(){
-    this.releaseAsset();this.idTarget.dispose();this.texture?.dispose();
+    this.releaseAsset();this.idTarget.dispose();this.colorTarget.dispose();this.texture?.dispose();
     this.screen.children[0].geometry.dispose();this.screenMaterial.dispose();
     this.source.dispose();this.pixel.dispose();
   }

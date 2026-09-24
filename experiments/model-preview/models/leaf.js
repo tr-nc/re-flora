@@ -70,9 +70,9 @@ export const leafDefinition={
         }`,
     });
     const mesh=gltf.scene.getObjectByName('Leaf');mesh.material.dispose();mesh.material=material;scene.add(gltf.scene);
-    const stemFeature={mesh,startTriangle:28,endTriangle:32,color:[0,0,0]};
+    const repairGroup={id:1,label:'叶片与叶柄',meshes:[mesh],fallbackColor:[128,128,128]};
     return {
-      scene,meshes:[mesh],repairGroups:[{id:1,label:'叶片与叶柄',meshes:[mesh],preserve:[stemFeature]}],clips:[],
+      scene,meshes:[mesh],repairGroups:[repairGroup],clips:[],
       view:{span:3.4,target:[0,-.06,.05],offset:[2.3,1.1,6],axisDistance:6,near:.1,far:40},
       description:'共享正式叶片 · 32 面 · 造型滑杆仅临时预览，发布后才同步游戏',
       apply(values){
@@ -83,8 +83,7 @@ export const leafDefinition={
         uniforms.leafColor.value.set(settings.leafColor);
         uniforms.stemTint.value.set(settings.stemTint);
         uniforms.backTint.value.set(settings.backTint);
-        const base=uniforms.stemTint.value.clone().multiplyScalar(.8).convertLinearToSRGB();
-        stemFeature.color=[base.r,base.g,base.b].map(value=>Math.round(255*THREE.MathUtils.clamp(value,0,1)));
+        repairGroup.fallbackColor=[1,3,5].map(i=>parseInt(settings.leafColor.slice(i,i+2),16));
         const angle=THREE.MathUtils.degToRad(settings.light);
         uniforms.lightDirection.value.set(Math.sin(angle),.65,Math.cos(angle)).normalize();
       },
