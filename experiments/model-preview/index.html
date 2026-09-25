@@ -21,7 +21,7 @@
 </section>
 <aside>
 <section><small>01 / SHARED PIXEL PIPELINE</small><h2>像素处理</h2>
-<p id="repair-hint" class="hint">对所有不透明模型三角形保守覆盖像素格，再连接已有像素的断裂；细结构可以稍粗，但不会因中心漏采样而消失。补点不覆盖原有采样；下方色阶可改变显示颜色。</p><p id="repair-info" class="hint" role="status"></p>
+<p id="repair-hint" class="hint">勾选：通用保守覆盖 + 八邻接补点，细部可以稍粗但不会因中心漏采样消失。不勾选：仅使用旧八邻接连接，完全漏采样的细部可能消失。两种模式都不覆盖原有采样；下方色阶可改变显示颜色。</p><label class="check-row"><input type="checkbox" id="conservative-coverage" checked> 通用保守覆盖（关闭 = 旧八邻接补点）</label><p id="repair-info" class="hint" role="status"></p>
 <label class="slider-label" for="resolution">画布像素数 <output id="resolution-value"></output></label><input id="resolution" type="range" min="8" max="128" step="1" value="32"><p class="hint">真实 N × N 缓冲，最近邻放大。观察范围不随动画轮廓变化，像素尺度不会随拍翼伸缩。</p>
 <label class="slider-label" for="levels">动态色阶（最终颜色） <output id="levels-value">关闭</output></label><input id="levels" type="range" min="0" max="12" step="1" value="0"><p class="hint">光照先连续计算，再统一映射到所选颜色的明暗档。0 = 关闭；1 = 基色。只作用于右侧，包括新增像素。</p>
 </section>

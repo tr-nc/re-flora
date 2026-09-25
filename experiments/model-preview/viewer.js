@@ -10,7 +10,7 @@ const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
 let asset,definition,modelSettings,pipeline,camera,pixelCamera,controls,request=0,last=0;
 const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,playing:false,time:0,clip:0,fps:60,speed:1,
-  resolution:32,levels:0,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false};
+  resolution:32,levels:8,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true};
 
 function message(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function dirty(){state.dirty=true;}
@@ -102,11 +102,12 @@ function buildModelControls(){
 function syncControls(){
   for(const key of ['resolution','fps','speed','levels','projection'])$(key).value=state[key];
   for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
+  $('conservative-coverage').checked=state.conservativeCoverage;
   $('background').value=state.background;updateBackground();
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
   $('levels-value').textContent=state.levels?`${state.levels} 级 / 材质`:'关闭';
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
-  $('coverage-mode').textContent='通用保守覆盖 + 八邻接补点';
+  $('coverage-mode').textContent=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   $('clip').replaceChildren();
   for(const [index,clip]of (asset?.clips??[]).entries())$('clip').add(new Option(clip.name,String(index)));
   if(!asset?.clips.length)$('clip').add(new Option('无动画','0'));
@@ -126,7 +127,7 @@ async function loadModel(id){
     if(token!==request){next.dispose();return;}
     const values={...nextDefinition.defaults};next.apply(values);
     asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings=values;
-    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,levels:0,wireframe:false,rotate:false,checker:false,...definition.preview});
+    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,levels:8,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,...definition.preview});
     $('model').value=id;setProjection('orthographic');setView();
     buildModelControls();syncControls();setVariant(state.variant);
     $('model-info').textContent=definition.label;
@@ -141,9 +142,9 @@ async function loadModel(id){
 function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   syncPixelCamera();
-  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels});
+  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels,conservativeCoverage:state.conservativeCoverage});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
-  let repairMessage='通用保守覆盖 + 八邻接补点';
+  let repairMessage=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   if(frame.repair){
     const {added,groups}=frame.repair;
     const separated=groups.some(group=>group.after>1);
@@ -202,6 +203,7 @@ function init(){
   $('reset-view').addEventListener('click',()=>setView());$('projection').addEventListener('change',()=>setProjection($('projection').value));
   for(const key of ['resolution','levels','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
   for(const key of ['wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
+  $('conservative-coverage').addEventListener('change',()=>{state.conservativeCoverage=$('conservative-coverage').checked;syncControls();dirty();});
   $('background').addEventListener('input',()=>{state.background=$('background').value;updateBackground();});
   $('play').addEventListener('click',()=>setPlaying(!state.playing));
   $('previous-frame').addEventListener('click',()=>stepFrame(-1));$('next-frame').addEventListener('click',()=>stepFrame(1));
@@ -210,7 +212,8 @@ function init(){
   $('reset-all').addEventListener('click',()=>loadModel(state.model));
   $('download').addEventListener('click',()=>{
     render();const time=pipeline.last.pixelTime.toFixed(3);
-    pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-connectivity-${state.resolution}px-${time}s.png`);},'image/png');
+    const mode=state.conservativeCoverage?'coverage':'bridge-only';
+    pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-${mode}-${state.resolution}px-${time}s.png`);},'image/png');
   });
   $('previous').addEventListener('click',()=>cycleVariant(-1));$('next').addEventListener('click',()=>cycleVariant(1));
   document.addEventListener('keydown',event=>{if(event.target.closest('input,select,textarea,canvas,debug-color-picker,[contenteditable]'))return;if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();cycleVariant(event.key==='ArrowLeft'?-1:1);}});

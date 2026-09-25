@@ -38,6 +38,25 @@ test('different repair groups preserve their existing colors and never overwrite
   assert.deepEqual(result.rgba.subarray(32,36),rgba.subarray(32,36));
 });
 
+test('unchecked A/B mode keeps eight-neighbor bridges but omits unsampled geometry',()=>{
+  const size=8,rgba=new Uint8Array(size*size*4),owners=new Uint32Array(size*size);
+  const missed=[[[3.98,1.2,.2],[4.02,1.2,.2],[3.98,3.6,.2]]];
+  const group={id:1,triangles:missed,fallbackColor:[110,75,30]};
+  const oldMode=()=>repairImage(rgba,owners,[group],size,()=>null,{conservativeCoverage:false});
+  assert.equal(oldMode().added,0,'a feature with no center samples stays absent in old mode');
+  assert.ok(repairImage(rgba,owners,[group],size).added>0);
+
+  // Original center samples can still be connected along projected geometry.
+  const full=[[[1,1,.2],[6,1,.2],[6,6,.2]],[[1,1,.2],[6,6,.2],[1,6,.2]]];
+  rgba.set([20,30,40,255],(2*size+2)*4);owners[2*size+2]=1;
+  rgba.set([80,90,100,255],(2*size+5)*4);owners[2*size+5]=1;
+  const connected=repairImage(rgba,owners,[{...group,triangles:full}],size,()=>null,{conservativeCoverage:false});
+  assert.ok(connected.added>0,'old mode still repairs broken eight-neighbor connectivity');
+  assert.equal(connected.groups[0].after,1);
+  assert.equal(connected.groups[0].preserved,0);
+  assert.deepEqual(connected.rgba.subarray((2*size+2)*4,(2*size+2)*4+4),Uint8Array.from([20,30,40,255]));
+});
+
 test('all projected triangles survive missing center samples without per-feature annotations',()=>{
   const size=8,rgba=new Uint8Array(size*size*4),owners=new Uint32Array(size*size);
   const stem=[[[3.98,1.2,.2],[4.02,1.2,.2],[3.98,3.6,.2]],[[4.02,1.2,.2],[4.02,3.6,.2],[3.98,3.6,.2]]];

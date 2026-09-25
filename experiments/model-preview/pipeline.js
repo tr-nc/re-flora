@@ -36,7 +36,7 @@ export class PreviewPipeline{
     this.screenMaterial.uniforms.image.value=this.texture;
   }
   render(asset,sourceCamera,pixelCamera,settings){
-    const {time,clip,wireframe,levels}=settings;
+    const {time,clip,wireframe,levels,conservativeCoverage=true}=settings;
     asset.sample(time,clip);asset.scene.updateMatrixWorld(true);sourceCamera.updateMatrixWorld(true);pixelCamera.updateMatrixWorld(true);
     this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
     asset.preparePass('source');
@@ -52,7 +52,7 @@ export class PreviewPipeline{
     const original=this.bytes.slice(),owners=this.readOwners(asset,pixelCamera);
     const projected=projectGroups(asset,pixelCamera,this.size);
     const {sampleColor,sampleBase}=this.captureSurfaceColors(asset,pixelCamera,levels>0);
-    const result=repairImage(original,owners,projected,this.size,sampleColor);
+    const result=repairImage(original,owners,projected,this.size,sampleColor,{conservativeCoverage});
     const fallback=new Map(projected.map(group=>[group.id,group.fallbackColor]));
     const output=quantizeImage(result.rgba,levels,i=>sampleBase?.(result.owners[i],i,this.size)??fallback.get(result.owners[i]));
     this.texture.image.data.set(output);this.texture.needsUpdate=true;

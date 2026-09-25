@@ -5,7 +5,7 @@ const srgb=v=>v<=.0031308?v*12.92:1.055*v**(1/2.4)-.055;
 
 // Reconstruct only missing colors from same-group bridge endpoints. This is an
 // image repair, not a second material renderer or an estimate of new lighting.
-export function repairImage(rgba, owners, groups, size, sampleColor=()=>null) {
+export function repairImage(rgba, owners, groups, size, sampleColor=()=>null,{conservativeCoverage=true}={}) {
   const result=rgba.slice(), chosenDepth=new Float64Array(size*size).fill(Infinity),chosenGroup=owners.slice();
   const stats=[];
   for(const {id,triangles,fallbackColor=[180,180,180]} of groups) {
@@ -35,7 +35,7 @@ export function repairImage(rgba, owners, groups, size, sampleColor=()=>null) {
     // original samples and nearer groups retain priority.
     const samples=Array.from({length:original.length},(_,i)=>i).filter(i=>original[i]);
     let preserved=0;
-    for(let i=0;i<original.length;i++) if(!rgba[i*4+3]&&coverage.has(i)&&coverage.depth[i]<=chosenDepth[i]){
+    for(let i=0;i<original.length;i++) if(conservativeCoverage&&!rgba[i*4+3]&&coverage.has(i)&&coverage.depth[i]<=chosenDepth[i]){
       let color=sampleColor(id,i,size);
       if(!color){
         const nearest=samples.reduce((best,p)=>{
