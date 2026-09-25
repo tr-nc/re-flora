@@ -293,7 +293,7 @@ impl ButterflyMeshRenderer {
                         original_samples += 1;
                         ensure!(
                             original.map(f32::to_bits) == pixel.map(f32::to_bits),
-                            "repair changed existing RGBA/depth: instance={index} pixel={x},{y}"
+                            "repair changed existing RGBA/depth: instance={index} pixel={x},{y} original={original:?} final={pixel:?}"
                         );
                     }
                     if original[3] >= 1. {
@@ -389,7 +389,20 @@ impl ButterflyMeshRenderer {
                         };
                         let error = (pixel[3] - expected_depth).abs();
                         max_depth_error = max_depth_error.max(error);
-                        ensure!(error < 0.00002, "GPU/CPU depth mismatch {error}");
+                        if error >= 0.00002 {
+                            let at = index * 4096 + y as usize * 64 + x as usize;
+                            let capture = serde_json::json!({"pixel":[x,y],"resolution":n,"original":original,"final":pixel,
+                                "expected_depth":expected_depth,"bounds":rect.to_array(),"view_projection":vp.to_cols_array(),
+                                "position_size":instance.position_size,"orientation":instance.lighting,"leaf":leaf,
+                                "gpu_ray_origin":pixels[reference_base as usize*2*4096+at],
+                                "gpu_ray_direction":pixels[reference_base as usize*3*4096+at],
+                                "triangles":self.triangles[first..end].iter().map(|t|(t.a,t.e1,t.e2)).collect::<Vec<_>>()});
+                            std::fs::write(
+                                "target/model-depth-mismatch.json",
+                                serde_json::to_vec_pretty(&capture)?,
+                            )?;
+                        }
+                        ensure!(error < 0.00002, "GPU/CPU depth mismatch {error}: instance={index} pixel={x},{y} center={} gpu={} cpu={expected_depth}; capture=target/model-depth-mismatch.json",original[3]<1.,pixel[3]);
                         checked += 1;
                         checked_leaf += usize::from(leaf);
                         // Diagnostic only: unclipped HDR stays in GPU storage; the small

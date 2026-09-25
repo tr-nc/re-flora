@@ -4,7 +4,7 @@ module model_pixel_grid;
 import tracer_types;
 
 public float4 modelPixelBounds(float3 position, float radius, U_CameraInfo camera) {
-    float3 center=mul(camera.view_mat,float4(position,1.0)).xyz;
+    precise float3 center=mul(camera.view_mat,float4(position,1.0)).xyz;
     float4 nearH=mul(camera.proj_mat_inv,float4(0.0,0.0,0.0,1.0));
     float nearZ=nearH.z/nearH.w;
     float farZ=center.z-radius, frontZ=min(center.z+radius,nearZ);
@@ -12,7 +12,7 @@ public float4 modelPixelBounds(float3 position, float radius, U_CameraInfo camer
     float2 lo=float2(1e20),hi=float2(-1e20);
     [unroll] for(uint i=0;i<8;++i) {
         float2 xy=center.xy+(float2(i&1u,(i>>1u)&1u)*2.0-1.0)*radius;
-        float4 clip=mul(camera.proj_mat,float4(xy,(i&4u)!=0u?frontZ:farZ,1.0));
+        precise float4 clip=mul(camera.proj_mat,float4(xy,(i&4u)!=0u?frontZ:farZ,1.0));
         float2 ndc=clip.xy/clip.w;lo=min(lo,ndc);hi=max(hi,ndc);
     }
     return float4(lo,hi);

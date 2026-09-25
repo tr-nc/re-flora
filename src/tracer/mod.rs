@@ -35,6 +35,7 @@ mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
 mod model_pixel_tiles;
+mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
@@ -1401,6 +1402,7 @@ pub struct TerrainFrameInput {
     pub ddgi_aggregate_history: bool,
     pub apple_preview_model: bool,
     pub apple_pixel_resolution: u32,
+    pub model_pixel_options: u32,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1670,6 +1672,7 @@ pub struct Tracer {
     ddgi_aggregate_history: bool,
     apple_preview_model: bool,
     apple_pixel_resolution: u32,
+    model_pixel_options: u32,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -2021,6 +2024,7 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_preview_model: false,
             apple_pixel_resolution: 32,
+            model_pixel_options: 0,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3060,6 +3064,14 @@ impl Tracer {
         }
         self.apple_preview_model = terrain.apple_preview_model;
         self.apple_pixel_resolution = terrain.apple_pixel_resolution.clamp(8, 64);
+        if self.model_pixel_options != terrain.model_pixel_options {
+            log::info!(
+                "[MODEL_PIXEL_PREVIEW] single_light={} discrete_views={} views=128 live_tiles=true",
+                terrain.model_pixel_options & 1 != 0,
+                terrain.model_pixel_options & 2 != 0
+            );
+        }
+        self.model_pixel_options = terrain.model_pixel_options;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -4018,7 +4030,18 @@ impl Tracer {
                             self.vulkan_ctx.device().clone(),
                             self.allocator.clone(),
                         )?;
+                        let object_samples = self.model_pixel_tiles.get(
+                            gpu_profiler_frame_slot,
+                            (1u64 << 63) | (1u64 << 61) | batch_index as u64,
+                            count as usize * 4,
+                            self.vulkan_ctx.device().clone(),
+                            self.allocator.clone(),
+                        )?;
                         let descriptors = [
+                            (
+                                "model_object_samples",
+                                DescriptorResource::Buffer(&object_samples),
+                            ),
                             ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
                             (
                                 "particle_model_repairs",
@@ -4038,6 +4061,14 @@ impl Tracer {
                             )?;
                         }
                         if self.butterfly_mesh_renderer.compute_count > 0 {
+                            if self.model_pixel_options != 0 {
+                                pipeline.record_with_descriptors(
+                                    cmdbuf,
+                                    &descriptors,
+                                    Extent3D::new(1, 1, batch.count),
+                                    Some(bytemuck::bytes_of(&[4u32, count, batch.first])),
+                                )?;
+                            }
                             pipeline.record_with_descriptors(
                                 cmdbuf,
                                 &descriptors,
@@ -4800,7 +4831,21 @@ impl Tracer {
                                 self.allocator.clone(),
                             )
                             .expect("tree model tile allocation");
+                        let object_samples = self
+                            .model_pixel_tiles
+                            .get(
+                                gpu_profiler_frame_slot,
+                                (1u64 << 61) | (u64::from(batch.tree_id()) + 2),
+                                batch.instance_count() as usize * 4,
+                                self.vulkan_ctx.device().clone(),
+                                self.allocator.clone(),
+                            )
+                            .expect("tree model object allocation");
                         let mut compute_resources = resources.clone();
+                        compute_resources.push((
+                            "model_object_samples",
+                            DescriptorResource::Buffer(&object_samples),
+                        ));
                         compute_resources
                             .push(("model_pixel_tiles", DescriptorResource::Buffer(&tiles)));
                         let push = flora_push_constant(
@@ -4815,6 +4860,19 @@ impl Tracer {
                             cmdbuf,
                             "models.apple_tree.tiles",
                             || {
+                                if self.model_pixel_options != 0 {
+                                    let mut prepare = push;
+                                    prepare.model_object_prepare = 1;
+                                    self.pipeline_topology
+                                        .compute()
+                                        .apple_pixel_tree_ppl
+                                        .record_with_descriptors(
+                                            cmdbuf,
+                                            &compute_resources,
+                                            Extent3D::new(1, 1, batch.instance_count()),
+                                            Some(bytemuck::bytes_of(&prepare)),
+                                        )?;
+                                }
                                 self.pipeline_topology
                                     .compute()
                                     .apple_pixel_tree_ppl
@@ -4905,56 +4963,78 @@ impl Tracer {
             };
             pipeline.prepare_descriptor_resources(cmdbuf);
         }
-        let prepared_dynamic_pixel_descriptors = if self.apple_preview_model
-            && self.dynamic_fruit_resources.instance_count > 0
-        {
-            let n = self.apple_pixel_resolution;
-            let tiles = self
-                .model_pixel_tiles
-                .get(
+        let prepared_dynamic_pixel_descriptors =
+            if self.apple_preview_model && self.dynamic_fruit_resources.instance_count > 0 {
+                let n = self.apple_pixel_resolution;
+                let tiles = self
+                    .model_pixel_tiles
+                    .get(
+                        gpu_profiler_frame_slot,
+                        1,
+                        self.dynamic_fruit_resources.instance_count as usize * (n * n) as usize,
+                        self.vulkan_ctx.device().clone(),
+                        self.allocator.clone(),
+                    )
+                    .expect("dynamic model tile allocation");
+                let object_samples = self
+                    .model_pixel_tiles
+                    .get(
+                        gpu_profiler_frame_slot,
+                        (1u64 << 61) | 1,
+                        self.dynamic_fruit_resources.instance_count as usize * 4,
+                        self.vulkan_ctx.device().clone(),
+                        self.allocator.clone(),
+                    )
+                    .expect("dynamic model object allocation");
+                let compute = &self.pipeline_topology.compute().apple_pixel_dynamic_ppl;
+                compute.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
-                    1,
-                    self.dynamic_fruit_resources.instance_count as usize * (n * n) as usize,
-                    self.vulkan_ctx.device().clone(),
-                    self.allocator.clone(),
-                )
-                .expect("dynamic model tile allocation");
-            let compute = &self.pipeline_topology.compute().apple_pixel_dynamic_ppl;
-            compute.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "models.apple_dynamic.tiles",
-                || {
-                    compute.record_with_descriptors(
-                        cmdbuf,
-                        &[
+                    cmdbuf,
+                    "models.apple_dynamic.tiles",
+                    || {
+                        let descriptors = [
                             ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
+                            (
+                                "model_object_samples",
+                                DescriptorResource::Buffer(&object_samples),
+                            ),
                             (
                                 "dynamic_fruit_pixel_instances",
                                 DescriptorResource::Buffer(&self.dynamic_fruit_resources.instances),
                             ),
-                        ],
-                        Extent3D::new(n, n, self.dynamic_fruit_resources.instance_count),
-                        None,
-                    )
-                },
-            )
-            .expect("dynamic model tile generation");
-            let display = &self.pipeline_topology.graphics().apple_pixel_dynamic_ppl;
-            display.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
-            Some(
-                display
-                    .prepare_draw_descriptors(
-                        cmdbuf,
-                        &[("model_pixel_tiles", DescriptorResource::Buffer(&tiles))],
-                    )
-                    .expect("dynamic tile display descriptors"),
-            )
-        } else {
-            None
-        };
+                        ];
+                        if self.model_pixel_options != 0 {
+                            compute.record_with_descriptors(
+                                cmdbuf,
+                                &descriptors,
+                                Extent3D::new(1, 1, self.dynamic_fruit_resources.instance_count),
+                                Some(bytemuck::bytes_of(&1u32)),
+                            )?;
+                        }
+                        compute.record_with_descriptors(
+                            cmdbuf,
+                            &descriptors,
+                            Extent3D::new(n, n, self.dynamic_fruit_resources.instance_count),
+                            Some(bytemuck::bytes_of(&0u32)),
+                        )
+                    },
+                )
+                .expect("dynamic model tile generation");
+                let display = &self.pipeline_topology.graphics().apple_pixel_dynamic_ppl;
+                display.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+                Some(
+                    display
+                        .prepare_draw_descriptors(
+                            cmdbuf,
+                            &[("model_pixel_tiles", DescriptorResource::Buffer(&tiles))],
+                        )
+                        .expect("dynamic tile display descriptors"),
+                )
+            } else {
+                None
+            };
         let prepared_model_descriptors =
             if enable_particles && self.butterfly_mesh_renderer.count() > 0 {
                 // The transient set contains tiles. Persistent camera,

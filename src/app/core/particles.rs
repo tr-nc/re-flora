@@ -688,6 +688,14 @@ impl App {
         settings.apple_preview_model.value = enabled;
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
+        if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
+            let flags = (frame / 8) % 4;
+            settings.model_pixel_single_light.value = flags & 1 != 0;
+            settings.model_pixel_snap_views.value = flags & 2 != 0;
+            settings.butterfly_mesh_preview.value = true;
+            settings.falling_leaf_mesh.value = true;
+            settings.falling_leaf_size_scale.value = 1.;
+        }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {
             log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} enabled={enabled} resolution={n} diagnostic_only=true saved=false");
         }

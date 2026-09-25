@@ -83,7 +83,7 @@ float cloudShadowTransmittance(Sampler2D cloudShadowMap, U_GuiInput gui,
     return clamp(sampleAtBaseLevel(cloudShadowMap, uv).r, 0.0, 1.0);
 }
 
-float directionWeight(float3 shadingNormal, float3 sunDirection)
+public float directionWeight(float3 shadingNormal, float3 sunDirection)
 {
     float normalLengthSquared = dot(shadingNormal, shadingNormal);
     if (normalLengthSquared <= 1.0e-8) return 1.0;

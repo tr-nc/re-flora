@@ -7,6 +7,7 @@ public struct U_GuiInput
     public uint raster_flora_ddgi_lighting;
     public uint raster_tree_static;
     public uint apple_pixel_resolution;
+    public uint model_pixel_options; // bit 0: object lighting; bit 1: 128-view live preview
     public uint raster_tree_hybrid_lighting;
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;

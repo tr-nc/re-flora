@@ -50,6 +50,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "model_pixel_single_light",
+        kind: "bool",
+        label: "Pixel Models: One Lighting Sample per Object (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "model_pixel_snap_views",
+        kind: "bool",
+        label: "Pixel Models: 128 Discrete Views (Live Preview, No Cache)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "raster_tree_wind",
         kind: "bool",
         label: "Animate raster trees with wind",
@@ -1430,6 +1442,8 @@ pub struct GuiAdjustables {
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub apple_preview_model: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
+    pub model_pixel_single_light: crate::gui_adjustables::BoolParam,
+    pub model_pixel_snap_views: crate::gui_adjustables::BoolParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
@@ -1676,6 +1690,8 @@ impl GuiAdjustables {
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_preview_model_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut model_pixel_single_light_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut model_pixel_snap_views_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1929,6 +1945,16 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             apple_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_pixel_single_light" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            model_pixel_single_light_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "model_pixel_snap_views" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            model_pixel_snap_views_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "raster_tree_wind" => {
@@ -3470,6 +3496,8 @@ impl GuiAdjustables {
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             apple_preview_model: apple_preview_model_field.expect("Missing parameter: apple_preview_model"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
+            model_pixel_single_light: model_pixel_single_light_field.expect("Missing parameter: model_pixel_single_light"),
+            model_pixel_snap_views: model_pixel_snap_views_field.expect("Missing parameter: model_pixel_snap_views"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
@@ -3933,6 +3961,8 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
         "apple_preview_model" => Some(&adjustables.apple_preview_model),
+        "model_pixel_single_light" => Some(&adjustables.model_pixel_single_light),
+        "model_pixel_snap_views" => Some(&adjustables.model_pixel_snap_views),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
@@ -4211,6 +4241,8 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
         "apple_preview_model" => Some(&mut adjustables.apple_preview_model),
+        "model_pixel_single_light" => Some(&mut adjustables.model_pixel_single_light),
+        "model_pixel_snap_views" => Some(&mut adjustables.model_pixel_snap_views),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&mut adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),

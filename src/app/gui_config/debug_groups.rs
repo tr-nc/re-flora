@@ -36,6 +36,13 @@ const GROUPS: &[ControlGroup] = &[
         params: &["apple_preview_model", "apple_pixel_resolution"],
     },
     ControlGroup {
+        parent: None,
+        title: "Pixel Models: Stage 1 (A/B)",
+        description: "Butterflies, 3D falling leaves and new apples. Unchecked = original live tiles. One lighting lookup shares external shadows and omits per-pixel self-shadow queries; normals still shade each pixel. Discrete views jump without blending. Tiles are still generated every frame: this is not an atlas cache.",
+        initially_open: true,
+        params: &["model_pixel_single_light", "model_pixel_snap_views"],
+    },
+    ControlGroup {
         parent: Some("Wind"),
         title: "Vegetation Wind Response",
         description: "How plants react to wind. Pose rate is separate from the world tick.",

@@ -130,6 +130,24 @@ min = 8
 max = 64
 
 [[section.param]]
+id = "model_pixel_single_light"
+kind = "bool"
+label = "Pixel Models: One Lighting Sample per Object (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "model_pixel_snap_views"
+kind = "bool"
+label = "Pixel Models: 128 Discrete Views (Live Preview, No Cache)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "raster_tree_wind"
 kind = "bool"
 label = "Animate raster trees with wind"

@@ -135,6 +135,7 @@ struct Instance {
     metadata: [u32; 4],
     lighting: [f32; 4],
     repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
+    view_orientation: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -153,7 +154,9 @@ pub struct ButterflyMeshResources {
     pub butterfly_mesh_triangles: Resource<Buffer>,
     pub butterfly_pixel_tiles: Resource<Buffer>,
     pub model_pixel_tiles: Resource<Buffer>,
+    pub model_object_samples: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
+    pub model_view_directions: Resource<Buffer>,
     pub particle_model_repairs: Resource<Buffer>,
     pub particle_model_repair_output: Resource<Buffer>,
 }
@@ -180,7 +183,15 @@ impl ButterflyMeshResources {
         draw_indices
             .fill(&(0..MODEL_CAPACITY as u32).collect::<Vec<_>>())
             .unwrap();
+        let model_view_directions = buffer(
+            super::model_pixel_views::VIEW_COUNT * 16,
+            MemoryLocation::CpuToGpu,
+        );
+        model_view_directions
+            .fill(&super::model_pixel_views::directions())
+            .expect("model view directions");
         Self {
+            model_view_directions,
             draw_indices: Resource::new(draw_indices),
             butterfly_mesh_instances: buffer(
                 MODEL_CAPACITY * std::mem::size_of::<Instance>(),
@@ -199,6 +210,7 @@ impl ButterflyMeshResources {
                 MemoryLocation::CpuToGpu,
             ),
             model_pixel_tiles: buffer(16, MemoryLocation::GpuOnly),
+            model_object_samples: buffer(16, MemoryLocation::GpuOnly),
             butterfly_pixel_tiles: Resource::new(Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
@@ -412,6 +424,7 @@ impl ButterflyMeshRenderer {
                     snapshot.color.w,
                 ],
                 lighting: [settings.transmission.clamp(0., 1.), 0., 0., 0.],
+                view_orientation: facing.to_array(),
                 repair: [0; 4],
                 metadata: [
                     start,
@@ -486,6 +499,7 @@ impl ButterflyMeshRenderer {
                 ],
                 // No resampling, local animation, velocity-facing override or reset.
                 lighting: snapshot.leaf_orientation.unwrap().to_array(),
+                view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
                 repair: [0; 4],
             });
         }
@@ -806,6 +820,7 @@ mod tests {
                 color: [1.; 4],
                 metadata: [0, 32, 64, LEAF_MODEL_FLAG],
                 lighting: [0., 0., 0., 1.],
+                view_orientation: [0., 0., 0., 1.],
                 repair: [0, 0, 0, 1],
             })
             .collect();
@@ -1118,7 +1133,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 80);
+        assert_eq!(std::mem::size_of::<Instance>(), 96);
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
     }
     #[test]

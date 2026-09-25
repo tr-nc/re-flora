@@ -51,6 +51,7 @@ readonly GLSLShaderStorageBuffer<B_FloraVoxelInfos, Std430DataLayout>
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstantFlora> pc;
+public bool floraModelObjectPrepare() { return pc.model_object_prepare!=0u; }
 
 public PushConstantFlora floraPushConstants()
 {

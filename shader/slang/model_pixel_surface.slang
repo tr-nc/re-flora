@@ -19,7 +19,10 @@ public ModelPixelFrame identityModelPixelFrame() {
     return f;
 }
 public float3 modelPixelWorld(ModelPixelFrame f,float3 p) {
-    return f.center+f.scale*(f.axisX*p.x+f.axisY*p.y+f.axisZ*p.z);
+    // Coverage lives on exact cell boundaries. Keep projection arithmetic
+    // stable when unrelated material branches change compiler contraction.
+    precise float3 world=f.center+f.scale*(f.axisX*p.x+f.axisY*p.y+f.axisZ*p.z);
+    return world;
 }
 public float3 modelPixelLocalVector(ModelPixelFrame f,float3 v) {
     return float3(dot(v,f.axisX),dot(v,f.axisY),dot(v,f.axisZ));
@@ -78,7 +81,7 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
     for(uint i=0u;i<count;i++) {
         ButterflyMeshTriangle tri=triangles[first+i];
         float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
-        float4 polygon[12];uint length=3u;
+        precise float4 polygon[12];uint length=3u;
         polygon[0]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1));
         polygon[1]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p1),1));
         polygon[2]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p2),1));
@@ -101,9 +104,9 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
             float3 pa=polygon[0].xyz/polygon[0].w;
             float3 pb=polygon[j].xyz/polygon[j].w;
             float3 pc=polygon[j+1u].xyz/polygon[j+1u].w;
-            float2 a=(pa.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
-            float2 b=(pb.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
-            float2 c=(pc.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+            precise float2 a=(pa.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+            precise float2 b=(pb.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+            precise float2 c=(pc.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
             if(!pixelTriangleCovers(a,b,c,float2(pixel)))continue;
             float3 weights=pixelClosestBary(float2(pixel)+0.5,a,b,c);
             float depth=dot(weights,saturate(float3(pa.z,pb.z,pc.z)));
