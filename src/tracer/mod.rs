@@ -34,6 +34,7 @@ pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
+mod model_pixel_tiles;
 pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
@@ -1692,6 +1693,7 @@ pub struct Tracer {
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     butterfly_mesh_renderer: butterfly_mesh::ButterflyMeshRenderer,
+    model_pixel_tiles: model_pixel_tiles::ModelPixelTiles,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -2040,6 +2042,7 @@ impl Tracer {
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             butterfly_mesh_renderer: butterfly_mesh::ButterflyMeshRenderer::default(),
+            model_pixel_tiles: model_pixel_tiles::ModelPixelTiles::default(),
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
         })
@@ -3992,9 +3995,17 @@ impl Tracer {
             let repairs = self
                 .butterfly_mesh_renderer
                 .repair_buffer(gpu_profiler_frame_slot);
+            let tiles = self.model_pixel_tiles.get(
+                gpu_profiler_frame_slot,
+                0,
+                self.butterfly_mesh_renderer.pixel_texel_count(),
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+            )?;
             let pipeline = &self.pipeline_topology.compute().butterfly_tile_ppl;
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             let descriptors = [
+                ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
                 (
                     "particle_model_repairs",
                     DescriptorResource::Buffer(&repairs),
@@ -4028,7 +4039,11 @@ impl Tracer {
                                 self.butterfly_mesh_renderer.dispatch_resolution,
                                 self.butterfly_mesh_renderer.compute_count,
                             ),
-                            Some(bytemuck::bytes_of(&[1u32, count, 0])),
+                            Some(bytemuck::bytes_of(&[
+                                self.butterfly_mesh_renderer.tile_compute_mode(),
+                                count,
+                                0,
+                            ])),
                         )?;
                         if let Some(base) = self.butterfly_mesh_renderer.reference_tile_offset() {
                             pipeline.record_with_descriptors(
@@ -4832,10 +4847,17 @@ impl Tracer {
         }
         let prepared_model_descriptors =
             if enable_particles && self.butterfly_mesh_renderer.count() > 0 {
-                let repairs = self
-                    .butterfly_mesh_renderer
-                    .repair_buffer(gpu_profiler_frame_slot);
-                // The transient set contains only repairs. Persistent camera,
+                let tiles = self
+                    .model_pixel_tiles
+                    .get(
+                        gpu_profiler_frame_slot,
+                        0,
+                        self.butterfly_mesh_renderer.pixel_texel_count(),
+                        self.vulkan_ctx.device().clone(),
+                        self.allocator.clone(),
+                    )
+                    .expect("particle tile allocation must match compute");
+                // The transient set contains tiles. Persistent camera,
                 // environment and DDGI images still need their normal transitions.
                 self.pipeline_topology
                     .graphics()
@@ -4847,10 +4869,7 @@ impl Tracer {
                         .butterfly_tile_ppl
                         .prepare_draw_descriptors(
                             cmdbuf,
-                            &[(
-                                "particle_model_repairs",
-                                DescriptorResource::Buffer(&repairs),
-                            )],
+                            &[("model_pixel_tiles", DescriptorResource::Buffer(&tiles))],
                         )
                         .expect("model repair descriptors must match reflection"),
                 )

@@ -142,6 +142,7 @@ pub struct ButterflyMeshResources {
     pub butterfly_mesh_instances: Resource<Buffer>,
     pub butterfly_mesh_triangles: Resource<Buffer>,
     pub butterfly_pixel_tiles: Resource<Buffer>,
+    pub model_pixel_tiles: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
     pub particle_model_repairs: Resource<Buffer>,
     pub particle_model_repair_output: Resource<Buffer>,
@@ -185,6 +186,7 @@ impl ButterflyMeshResources {
                 std::mem::size_of::<RepairNode>(),
                 MemoryLocation::CpuToGpu,
             ),
+            model_pixel_tiles: buffer(16, MemoryLocation::GpuOnly),
             butterfly_pixel_tiles: Resource::new(Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
@@ -516,7 +518,7 @@ impl ButterflyMeshRenderer {
         }
         self.repair_key_scratch
             .extend_from_slice(bytemuck::cast_slice(&self.triangles));
-        if self.repair_key != self.repair_key_scratch {
+        if native_review() && self.repair_key != self.repair_key_scratch {
             std::mem::swap(&mut self.repair_key, &mut self.repair_key_scratch);
             self.repair_nodes.clear();
             self.repair_ranges.clear();
@@ -618,9 +620,33 @@ impl ButterflyMeshRenderer {
         for (instance, range) in self.instances.iter_mut().zip(&self.repair_ranges) {
             instance.repair = *range;
         }
+        // Pack only visible tiles, at their own resolution, instead of reserving
+        // PARTICLE_CAPACITY * 64². The fragment path never samples geometry.
+        let mut texels = 0u32;
+        for instance in &mut self.instances {
+            let bounds = model_pixel_repair::tile_bounds(
+                Vec3::from_slice(&instance.position_size),
+                instance.position_size[3],
+                view,
+                projection,
+            );
+            let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
+            instance.repair[2] = texels;
+            instance.repair[3] = u32::from(visible);
+            if visible {
+                texels += instance.metadata[2] * instance.metadata[2];
+            }
+        }
         if !self.instances.is_empty() {
             resources.butterfly_mesh_instances.fill(&self.instances)?;
         }
+        self.compute_count = self.count();
+        self.dispatch_resolution = self
+            .instances
+            .iter()
+            .map(|i| i.metadata[2])
+            .max()
+            .unwrap_or(8);
         while self.repair_frames.len() <= frame_slot {
             self.repair_frames.push(None);
         }
@@ -657,6 +683,19 @@ impl ButterflyMeshRenderer {
                 .fill(&self.repair_nodes)?;
         }
         Ok(())
+    }
+
+    pub fn pixel_texel_count(&self) -> usize {
+        self.instances.last().map_or(0, |i| {
+            (i.repair[2] + i.repair[3] * i.metadata[2] * i.metadata[2]) as usize
+        })
+    }
+    pub fn tile_compute_mode(&self) -> u32 {
+        if native_review() {
+            1
+        } else {
+            3
+        }
     }
 
     pub fn repair_buffer(&self, frame_slot: usize) -> Arc<Buffer> {
