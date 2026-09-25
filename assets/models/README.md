@@ -67,14 +67,18 @@ motion at butterfly FPS. `LeafFlight` and its angle-dependent falling/rotation e
 Non-falling leaf-colored particles without that physical pose remain on the existing sprite path.
 
 Game lighting/palette/transmission remain the game's leaf lighting, not the preview's studio shader.
-The mesh recipe, vertex normals and UVs are shared. **Conservative projected coverage plus eight-neighbor minimal bridging are always enabled**
-for both shared game models; the HTML preview offers a coverage checkbox for visual A/B against its old bridge-only mode. There is no game repair toggle. The existing leaf A/B
+The mesh recipe, vertex normals and UVs are shared. **Conservative projected coverage and the
+resulting eight-neighbor connectivity contract apply to all three game models**; the HTML preview offers a coverage checkbox for visual A/B against its old bridge-only mode. There is no game repair toggle. The existing leaf A/B
 still compares the original sprite against the shared model, not two repair algorithms.
 
-Both models use the existing shared particle-model draw pipeline (some internal binding/type names
-still carry the historical `butterfly` prefix). Butterflies cache their N×N tiles; leaves sample a
-virtual N×N grid in the fragment shader using the same ray/shading function. Leaves upload one shared 64-shape bank
-plus per-particle pose/shape index, not per-leaf meshes or a 64² allocation for every one of 16K particle slots. Pixel depths are
+Butterflies, falling leaves and new apples all call `sampleModelPixelGeometry` in
+`shader/slang/model_pixel_surface.slang` from compute, then use the same
+`model_pixel_display.slang` screen-fragment lookup. Adapters own only mesh ranges, poses and
+material shading; they do not own coverage or screen-fragment ray loops. Some particle binding/type
+names retain the historical `butterfly` prefix. Leaves upload one shared 64-shape bank plus per-particle
+pose/shape index. Visible particle tiles are packed at their own resolution into at-most-64-MiB batches,
+not preallocated at 64² for every one of 16K slots. Frame-slot-owned buffers are retired after unused
+batches/trees disappear; there is no permanent cache for every previously created tree. Pixel depths are
 actual mesh hit depths for original samples; additions use the nearest supporting projected
 geometry's depth for world occlusion. The pixel grid stays fixed for an animal's/leaf's world
 footprint, not fitted to each rotating silhouette. Large-population performance acceptance remains a
@@ -89,24 +93,23 @@ when its original mask was connected. Fully unsampled geometry is recovered when
 triangles cover the tile. Conservative coverage can thicken silhouettes; it does not guarantee a
 connection through occluders.
 
-The game projects the current published pose after the camera is final and classifies centers using
-the same local/world ray convention as its renderer. It builds sparse ordered bridge expressions
-and source-triangle coverage seeds, not full per-leaf image allocations. Frame-local storage grows within a checked portable 128 MiB
-storage-binding limit (overflow fails explicitly, never silently disables repair); exact geometry/camera
-keys reuse held plans, while lighting is evaluated afresh on the GPU. A compute pass evaluates
-original endpoint colors in linear HDR and shades coverage seeds using the source triangle's
-material, normal, UV and lighting. Existing center hits always win. Pruned intermediate expressions
-remain available to descendants.
+The production GPU generator projects the current pose and classifies centers after the camera is
+final. All models use the same nearest-hit, clipping, conservative cell-overlap and depth rules.
+Existing center hits always win. Unoccupied covered cells use their supporting triangle's material
+and projected depth. The final conservative-coverage pass supersedes every visible interpolated
+bridge expression in the legacy planner; the common GPU implementation computes that final result
+without evaluating the dead intermediate graph. Equivalence tests and native CPU/GPU checks retain
+the full planner as the oracle. Lighting is evaluated afresh on the GPU.
 There is **no production GPU image readback** and no flight/pose/timing modification.
 
-Only explicit native review runs allocate separate center-only reference tiles (never displayed).
-They compare original RGBA/depth bit-for-bit, evaluate bridge colors independently, verify geometry
-seeds are displayed with valid depth, and sample rotating poses periodically. Conservative coverage
-may create a visible component that had no center samples; this is expected, not a new island bug. The CPU depth diagnostic reports
-rare edge hits within a scale-aware 16-ULP spatial envelope: a captured 0.25x leaf case differed by
-about 3.7e-7 world units at a triangle boundary. This diagnostic tolerance does not expand rendered
-geometry or change original pixels. GPU/CPU floating-point boundaries and different camera/lighting
-adapters mean game images are not promised byte-identical to browser images.
+Only explicit native review runs allocate separate center-only reference tiles and exact GPU-ray
+captures (never displayed). They compare original RGBA/depth bit-for-bit, reconstruct the full CPU
+coverage/bridge oracle from independently validated center ownership, verify coverage depth, and
+sample rotating poses periodically. CPU intersection tests use the captured GPU rays, separately
+checking their transform against the camera/pose, rather than guessing unprojection cancellation.
+Conservative coverage may create a visible component that had no center samples; this is expected,
+not a new island bug. Diagnostic floating-point allowances never expand rendered geometry.
+Different camera/lighting adapters mean game images are not promised byte-identical to browser images.
 
 The checked-in user GUI values are currently model B, 4x size and 22 pixels; the initial control
 contracts above remain independent of these saved choices.
@@ -125,7 +128,15 @@ cargo test browser_repair_plan_parity -- --ignored --nocapture
 # Native Vulkan checks, hidden and muted; preserve saved GUI settings:
 node scripts/validate-leaf-model.mjs
 python3 scripts/validate_butterfly_mesh.py --seconds 12
+node scripts/validate-apple-model.mjs --seconds 12
+# Explicit Release performance matrix; temporarily edits/restores GUI config.
+# Close other game instances first. See --help for dimensions and acceptance.
+cargo build --release
+node scripts/benchmark-model-pixels.mjs --seconds 8
 ```
+
+Current convergence architecture, measured before/after results and scope limitations:
+[`docs/performance/model-pixel-tiles.md`](../../docs/performance/model-pixel-tiles.md).
 
 The repair oracle compares 140 WebGL/JS masks across both models, views, resolutions and animation
 phases against the native planner's final additions, including entirely missed features.

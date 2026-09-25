@@ -481,6 +481,7 @@ pub struct App {
     water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
     fallen_leaf_review: Option<fallen_leaf_review::FallenLeafReview>,
+    apple_pixel_review_frame: Option<u32>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
     particle_forces: ParticleForces,
@@ -1302,6 +1303,14 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
+        let apple_pixel_review =
+            std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("ab");
+        if apple_pixel_review {
+            // Initialize before the startup tree/physics publication; otherwise
+            // the saved mature cycle can drop fruit before the first review tick.
+            debug_settings.adjustables.fruit_cycle.value = 0.7;
+            debug_settings.adjustables.apple_preview_model.value = false;
+        }
         // The tree smoke owns its initial fixture. Configure it before the first
         // terrain/GI publication, not by redundantly rebuilding on frame one.
         if launch_owners.raster_tree_smoke.is_some() {
@@ -1530,6 +1539,7 @@ impl App {
             water,
             particle_snapshots,
             fallen_leaf_review: fallen_leaf_review::FallenLeafReview::from_env()?,
+            apple_pixel_review_frame: apple_pixel_review.then_some(0),
             terrain_harvest_particle_handles,
             particle_forces,
 
@@ -2434,6 +2444,7 @@ impl App {
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
                 let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
                 let fruit_cycle_before_gui = self.debug_settings.adjustables.fruit_cycle.value;
+                self.prepare_apple_pixel_review();
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
