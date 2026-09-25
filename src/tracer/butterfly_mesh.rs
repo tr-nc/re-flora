@@ -72,7 +72,7 @@ fn leaf_variant_triangles() -> &'static [Triangle] {
             .collect()
     })
 }
-fn native_review() -> bool {
+pub(super) fn native_review() -> bool {
     std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
         || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
 }
@@ -156,7 +156,7 @@ pub struct ButterflyMeshResources {
     pub model_pixel_tiles: Resource<Buffer>,
     pub model_object_samples: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
-    pub model_view_directions: Resource<Buffer>,
+    pub model_view_azimuths: Resource<Buffer>,
     pub particle_model_repairs: Resource<Buffer>,
     pub particle_model_repair_output: Resource<Buffer>,
 }
@@ -183,15 +183,15 @@ impl ButterflyMeshResources {
         draw_indices
             .fill(&(0..MODEL_CAPACITY as u32).collect::<Vec<_>>())
             .unwrap();
-        let model_view_directions = buffer(
-            super::model_pixel_views::VIEW_COUNT * 16,
+        let model_view_azimuths = buffer(
+            super::model_pixel_views::MAX_VIEWS as usize * 16,
             MemoryLocation::CpuToGpu,
         );
-        model_view_directions
-            .fill(&super::model_pixel_views::directions())
+        model_view_azimuths
+            .fill(&super::model_pixel_views::azimuths())
             .expect("model view directions");
         Self {
-            model_view_directions,
+            model_view_azimuths,
             draw_indices: Resource::new(draw_indices),
             butterfly_mesh_instances: buffer(
                 MODEL_CAPACITY * std::mem::size_of::<Instance>(),

@@ -38,9 +38,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Models: Stage 1 (A/B)",
-        description: "Butterflies, 3D falling leaves and apples. Unchecked = original live tiles. One lighting lookup shares external shadows and omits per-pixel self-shadow queries; normals still shade each pixel. Discrete views jump without blending. Tiles are still generated every frame: this is not an atlas cache.",
+        description: "Butterflies, 3D falling leaves and apples always use discrete views: fewer directions give larger angular steps. Changing the count redistributes the Fibonacci sphere; no blending. The lighting checkbox shares external shadows and omits per-pixel self-shadow queries; normals still shade each pixel. Tiles are still generated every frame, not cached.",
         initially_open: true,
-        params: &["model_pixel_single_light", "model_pixel_snap_views"],
+        params: &["model_pixel_single_light", "model_pixel_view_count"],
     },
     ControlGroup {
         parent: Some("Wind"),

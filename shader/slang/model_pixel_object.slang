@@ -13,21 +13,27 @@ import tracer_types;
 [[vk::binding(9,0)]] public Sampler2D leaf_shadow_opacity_blended_tex;
 [[vk::binding(10,0)]] public Sampler2D leaf_shadow_mask_tex;
 [[vk::binding(11,0)]] public Sampler2D cloud_shadow_tex;
-[[vk::binding(77,0)]] StructuredBuffer<float4> model_view_directions;
+[[vk::binding(77,0)]] StructuredBuffer<float4> model_view_azimuths;
 // Four float4s per object: ambient + sunlight visibility; three rotation columns.
 [[vk::binding(6,1)]] public RWStructuredBuffer<float4> model_object_samples;
 public bool modelSingleLight() { return (gui_input.model_pixel_options&1u)!=0u; }
-public bool modelDiscreteViews() { return (gui_input.model_pixel_options&2u)!=0u; }
+public bool modelDiscreteViews() { return gui_input.model_pixel_view_count!=0u; }
 float3 rotateBetween(float3 a,float3 b,float3 v) {
-    // Nearest of 128 distributed directions is never antipodal to the input.
+    // Nearest of the distributed directions is never antipodal to the input.
     float3 c=cross(a,b);
     return v+cross(c,v)+cross(c,cross(c,v))/max(1.0+dot(a,b),1e-6);
 }
 public float3 modelDiscreteDirection(float3 view) {
     float best=-2.;float3 selected=float3(0,0,1);
-    uint count,stride;model_view_directions.GetDimensions(count,stride);
+    uint capacity,stride;model_view_azimuths.GetDimensions(capacity,stride);
+    uint count=min(gui_input.model_pixel_view_count,capacity);
     for(uint i=0u;i<count;i++) {
-        float3 direction=model_view_directions[i].xyz;
+        // Recompute latitudes for N: taking N entries from a larger sphere
+        // would cluster directions into a cap instead of covering the sphere.
+        float y=1.0-2.0*(float(i)+0.5)/float(count);
+        float radius=sqrt(max(0.0,1.0-y*y));
+        float2 azimuth=model_view_azimuths[i].xy;
+        float3 direction=float3(azimuth.x*radius,y,azimuth.y*radius);
         float score=dot(view,direction);
         if(score>best){best=score;selected=direction;}
     }

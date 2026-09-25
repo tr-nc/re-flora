@@ -130,13 +130,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
-id = "model_pixel_snap_views"
-kind = "bool"
-label = "Pixel Models: 128 Discrete Views (Live Preview, No Cache)"
-type = "Bool"
+id = "model_pixel_view_count"
+kind = "uint"
+label = "Pixel Models: Discrete View Count (Fibonacci Sphere, No Cache)"
+type = "Uint"
 
 [section.param.data]
-value = false
+value = 128
+min = 8
+max = 512
 
 [[section.param]]
 id = "raster_tree_wind"

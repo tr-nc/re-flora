@@ -46,8 +46,8 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_continuous_sampling: gui.ddgi_continuous_sampling.value,
         ddgi_aggregate_history: gui.ddgi_aggregate_history.value,
         apple_pixel_resolution: gui.apple_pixel_resolution.value,
-        model_pixel_options: u32::from(gui.model_pixel_single_light.value)
-            | (u32::from(gui.model_pixel_snap_views.value) << 1),
+        model_pixel_options: u32::from(gui.model_pixel_single_light.value),
+        model_pixel_view_count: gui.model_pixel_view_count.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -327,7 +327,7 @@ mod tests {
         gui.ddgi_aggregate_history.value = true;
         gui.apple_pixel_resolution.value = 24;
         gui.model_pixel_single_light.value = true;
-        gui.model_pixel_snap_views.value = true;
+        gui.model_pixel_view_count.value = 37;
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
@@ -467,7 +467,8 @@ mod tests {
                 ddgi_continuous_sampling: true,
                 ddgi_aggregate_history: true,
                 apple_pixel_resolution: 24,
-                model_pixel_options: 3,
+                model_pixel_options: 1,
+                model_pixel_view_count: 37,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,

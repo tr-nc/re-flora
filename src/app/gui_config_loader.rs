@@ -71,6 +71,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
+        Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
@@ -87,6 +88,7 @@ impl GuiConfigLoader {
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
                         | "apple_preview_model"
+                        | "model_pixel_snap_views"
                 )
             });
         }
@@ -901,6 +903,7 @@ mod tests {
                 "raster_tree_axis_aligned",
                 "terrain_hybrid_lighting",
                 "apple_preview_model",
+                "model_pixel_snap_views",
             ]
             .map(|id| (enabled, id))
         }) {
@@ -943,6 +946,67 @@ mod tests {
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn discrete_view_checkbox_migrates_to_a_saved_count() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for enabled in [false, true] {
+            for existing_count in [None, Some(37)] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let debug = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                let mut old = debug
+                    .param
+                    .iter()
+                    .find(|p| p.id == "model_pixel_single_light")
+                    .unwrap()
+                    .clone();
+                old.id = "model_pixel_snap_views".into();
+                old.value = GuiParamValue::Bool { value: enabled };
+                debug.param.push(old);
+                if let Some(count) = existing_count {
+                    let value = &mut debug
+                        .param
+                        .iter_mut()
+                        .find(|p| p.id == "model_pixel_view_count")
+                        .unwrap()
+                        .value;
+                    if let GuiParamValue::Uint { value, .. } = value {
+                        *value = count;
+                    } else {
+                        panic!("view count must be a uint");
+                    }
+                } else {
+                    debug.param.retain(|p| p.id != "model_pixel_view_count");
+                }
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+                assert!(!params.iter().any(|p| p.id == "model_pixel_snap_views"));
+                let param = params
+                    .iter()
+                    .find(|p| p.id == "model_pixel_view_count")
+                    .unwrap();
+                assert!(
+                    matches!(param.value,GuiParamValue::Uint{value,..} if value==existing_count.unwrap_or(128))
+                );
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert!(!std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("model_pixel_snap_views"));
+                assert_eq!(
+                    toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                    toml::to_string(&loaded).unwrap()
+                );
+            }
         }
     }
 

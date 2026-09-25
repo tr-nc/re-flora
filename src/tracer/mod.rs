@@ -1400,6 +1400,7 @@ pub struct TerrainFrameInput {
     pub ddgi_aggregate_history: bool,
     pub apple_pixel_resolution: u32,
     pub model_pixel_options: u32,
+    pub model_pixel_view_count: u32,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1669,6 +1670,7 @@ pub struct Tracer {
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
     model_pixel_options: u32,
+    model_pixel_view_count: u32,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -2020,6 +2022,7 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             model_pixel_options: 0,
+            model_pixel_view_count: 0,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3051,14 +3054,18 @@ impl Tracer {
             );
         }
         self.apple_pixel_resolution = terrain.apple_pixel_resolution.clamp(8, 64);
-        if self.model_pixel_options != terrain.model_pixel_options {
-            log::info!(
-                "[MODEL_PIXEL_PREVIEW] single_light={} discrete_views={} views=128 live_tiles=true",
-                terrain.model_pixel_options & 1 != 0,
-                terrain.model_pixel_options & 2 != 0
-            );
+        let view_count = model_pixel_views::effective_count(
+            terrain.model_pixel_view_count,
+            butterfly_mesh::native_review(),
+        );
+        if self.model_pixel_options != terrain.model_pixel_options
+            || self.model_pixel_view_count != view_count
+        {
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={}",
+                terrain.model_pixel_options&1!=0,view_count==0);
         }
         self.model_pixel_options = terrain.model_pixel_options;
+        self.model_pixel_view_count = view_count;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -4032,7 +4039,7 @@ impl Tracer {
                             )?;
                         }
                         if self.butterfly_mesh_renderer.compute_count > 0 {
-                            if self.model_pixel_options != 0 {
+                            if self.model_pixel_options != 0 || self.model_pixel_view_count != 0 {
                                 pipeline.record_with_descriptors(
                                     cmdbuf,
                                     &descriptors,
@@ -4829,7 +4836,7 @@ impl Tracer {
                         cmdbuf,
                         "models.apple_tree.tiles",
                         || {
-                            if self.model_pixel_options != 0 {
+                            if self.model_pixel_options != 0 || self.model_pixel_view_count != 0 {
                                 let mut prepare = push;
                                 prepare.model_object_prepare = 1;
                                 self.pipeline_topology
@@ -4972,7 +4979,7 @@ impl Tracer {
                             DescriptorResource::Buffer(&self.dynamic_fruit_resources.instances),
                         ),
                     ];
-                    if self.model_pixel_options != 0 {
+                    if self.model_pixel_options != 0 || self.model_pixel_view_count != 0 {
                         compute.record_with_descriptors(
                             cmdbuf,
                             &descriptors,
