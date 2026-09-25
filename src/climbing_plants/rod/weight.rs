@@ -12,7 +12,7 @@ const PROPOSAL_MOTION: f32 = 1.8;
 
 pub(super) fn propose(
     plant: &Plant,
-    rod: &mut Rod,
+    rod: &Rod,
     old: &[Vec3],
     tangents: &[Vec3],
     distance: &[f32],
@@ -31,7 +31,9 @@ pub(super) fn propose(
     if joints == 0 {
         return Some(old.to_vec());
     }
-    let visits = joints.min(4);
+    // Every joint receives a small contribution each step. Rotating a four-joint
+    // window applies intermittent impulses to the entire distal shoot.
+    let visits = joints;
     let mut positions = old.to_vec();
     let pending = rod.pending.as_ref().and_then(|p| {
         plant
@@ -41,7 +43,7 @@ pub(super) fn propose(
             .map(|i| (i, p))
     });
     for offset in 0..visits {
-        let j = base + (rod.weight_cursor + offset) % joints;
+        let j = base + offset;
         let pivot = positions[j];
         let incoming = if j > 0 {
             (pivot - positions[j - 1]).normalize()
@@ -74,7 +76,10 @@ pub(super) fn propose(
             torque += (positions[k] - pivot).cross(p.position - positions[k])
                 * (1000.0 * p.time / CONTACT_TIME);
         }
-        let turn = (torque * (4.0 * dt / (stiffness + guide_weight)))
+        // Preserve the total per-step response of the former four-joint budget,
+        // distributed continuously across all joints instead of in bursts.
+        let turn = (torque
+            * (4.0 * dt * (4.0 / joints as f32).min(1.0) / (stiffness + guide_weight)))
             .clamp_length_max((PROPOSAL_MOTION / visits as f32) / lever.max(1.0));
         let contacts = collision::gather(plant, &positions, terrain)?;
         let turn = collision::project_turn(&contacts, &positions, j, turn);
@@ -118,6 +123,5 @@ pub(super) fn propose(
             }
         }
     }
-    rod.weight_cursor = (rod.weight_cursor + visits) % joints;
     Some(positions)
 }

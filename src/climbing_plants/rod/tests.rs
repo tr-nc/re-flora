@@ -58,6 +58,32 @@ fn safe(plant: &Plant, terrain: &impl Terrain) {
     }
 }
 #[test]
+fn self_weight_does_not_kick_the_free_shoot_backwards_on_consecutive_steps() {
+    let scene = Scene(Fixture::Inward);
+    let mut plant = seed(Fixture::Inward, 3500);
+    let mut previous = std::collections::BTreeMap::<u64, Vec3>::new();
+    for tick in 0..240 {
+        plant.grow(&scene, 10.0);
+        for _ in 0..2 {
+            let before = plant.nodes.clone();
+            plant.step_motion(&scene, 0.05, 2.0, 10.0, true).unwrap();
+            for (old, node) in before.iter().zip(&plant.nodes) {
+                let displacement = node.position - old.position;
+                if let Some(prior) = previous.insert(node.id, displacement) {
+                    assert!(
+                        !(prior.dot(displacement) < -0.01
+                            && prior.length() > 0.1
+                            && displacement.length() > 0.1),
+                        "self-weight kicked node {} backwards at tick {tick}: {prior:?} then {displacement:?}",
+                        node.id
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn a_young_shoot_still_establishes_its_first_slope_attachment_under_weight() {
     let scene = Scene(Fixture::Slope);
     let mut plant = seed(Fixture::Slope, 42);

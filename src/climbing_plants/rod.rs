@@ -38,7 +38,6 @@ struct Pending {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Rod {
-    weight_cursor: usize,
     phase: f32,
     period: f32,
     amplitude: f32,
@@ -54,7 +53,6 @@ pub(super) struct Rod {
 impl Rod {
     pub fn new(tip: &Tip) -> Self {
         Self {
-            weight_cursor: 0,
             phase: f32::from(tip.phase) * std::f32::consts::TAU / 24.0,
             period: 5.5 + tip.lateral * 2.0,
             amplitude: 0.0,
@@ -229,7 +227,7 @@ pub(super) fn step(
     let mut contacts = collision::gather(&next, &old, terrain)?;
     let mut solved = weight::propose(
         &next,
-        &mut rod,
+        &rod,
         &old,
         &tangents,
         &distance,
