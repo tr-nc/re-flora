@@ -1,5 +1,5 @@
 // Authoring recipe, not a second game mesh. Publish with scripts/publish-leaf-model.mjs.
-export const leafDefaults={width:1,length:1,widestPoint:.5,fold:.28,curl:.35,veinColor:'#b5ba55',leafColor:'#81852C',stemTint:'#807D3F',backTint:'#898F43',light:-35,transmission:.45,steps:8};
+export const leafDefaults={width:1,length:1,widestPoint:.5,fold:.28,curl:.35,veinColor:'#b5ba55',leafColor:'#81852C',stemTint:'#807D3F',backTint:'#898F43',light:-35,transmission:.45};
 export function leafGeometry(state=leafDefaults){
   const positions=[],uvs=[],indices=[];
   // Curl bends the midrib rather than displacing it only in Z: each infinitesimal

@@ -18,7 +18,6 @@ export const leafDefinition={
     {key:'backTint',label:'叶背基色',type:'color'},
     {key:'light',label:'光源方位',min:-180,max:180,step:1},
     {key:'transmission',label:'薄叶透光',min:0,max:1,step:.01},
-    {key:'steps',label:'叶片受光色阶（0 = 连续）',min:0,max:12,step:1},
   ],
   colorPresets:[
     {name:'秋日黄叶',colors:{leafColor:'#d5a334',veinColor:'#f3cc68',stemTint:'#9d713a',backTint:'#ae823d'}},
@@ -27,11 +26,11 @@ export const leafDefinition={
     {name:'深秋红叶',colors:{leafColor:'#ab4a38',veinColor:'#df8e58',stemTint:'#76503a',backTint:'#a75d49'}},
     {name:'枯叶',colors:{leafColor:'#8c7047',veinColor:'#b59a6b',stemTint:'#685943',backTint:'#907a59'}},
   ],
-  preview:{resolution:32,background:'#253426'},
+  preview:{resolution:32,levels:8,background:'#253426'},
   async create(){
     const gltf=await new GLTFLoader().loadAsync(new URL('../../../assets/models/leaf.glb',import.meta.url).href);
     const scene=new THREE.Scene(),settings={...this.defaults};
-    const uniforms={transmission:{value:.45},steps:{value:0},paletteMode:{value:0},leafColor:{value:new THREE.Color()},veinColor:{value:new THREE.Color()},stemTint:{value:new THREE.Color()},backTint:{value:new THREE.Color()},lightDirection:{value:new THREE.Vector3()}};
+    const uniforms={transmission:{value:.45},paletteMode:{value:0},leafColor:{value:new THREE.Color()},veinColor:{value:new THREE.Color()},stemTint:{value:new THREE.Color()},backTint:{value:new THREE.Color()},lightDirection:{value:new THREE.Vector3()}};
     const material=new THREE.ShaderMaterial({
       side:THREE.DoubleSide,uniforms,
       vertexShader:`
@@ -42,7 +41,7 @@ export const leafDefinition={
           gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
         }`,
       fragmentShader:`
-        uniform float transmission,steps,paletteMode; uniform vec3 lightDirection,leafColor,veinColor,stemTint,backTint;
+        uniform float transmission,paletteMode; uniform vec3 lightDirection,leafColor,veinColor,stemTint,backTint;
         varying vec2 leafUV; varying vec3 worldNormal; varying vec3 worldPosition;
         float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
         float noise(vec2 p){
@@ -76,7 +75,6 @@ export const leafDefinition={
           float diffuse=max(dot(n,l),0.);
           float through=max(dot(-n,l),0.)*transmission*(stem?.15:.75);
           float illumination=.38+.76*diffuse+through;
-          if(steps>.5)illumination=floor(illumination*steps+.5)/steps;
           vec3 color=base*illumination;
           vec3 viewDirection=normalize(cameraPosition-worldPosition);
           float sheen=pow(max(dot(n,normalize(l+viewDirection)),0.),24.)*.035*diffuse;
@@ -105,7 +103,7 @@ export const leafDefinition={
         uniforms.lightDirection.value.set(Math.sin(angle),.65,Math.cos(angle)).normalize();
       },
       sample(){},
-      preparePass(pass){uniforms.paletteMode.value=pass==='palette'?1:0;uniforms.steps.value=pass==='pixel'?settings.steps:0;},
+      preparePass(pass){uniforms.paletteMode.value=pass==='palette'?1:0;},
       get shadows(){return false;},
       dispose(){disposeScene(scene);},
     };
