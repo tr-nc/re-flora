@@ -5,9 +5,9 @@ checkbox, old render meshes and old fruit color pipeline have been removed;
 canonical collision/attachment metadata remains. The original-mode measurements
 below are historical and require the corresponding older checkout/config/script
 to reproduce. The current benchmark compares 8/32/64px, using 8px as its cadence
-reference (or both controls off for the stage-one suite).
+reference (or 128 views with per-texel lighting for the stage-one suite).
 
-For the subsequent per-object-lighting and 128-view GUI experiment, see
+For the subsequent per-object-lighting and adjustable discrete-view controls, see
 [Stage-one preview and measurements](model-pixel-stage-one.md). It retains live
 tile generation; no persistent atlas has been implemented.
 

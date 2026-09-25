@@ -1,16 +1,21 @@
 # Pixel models: stage-one lighting and discrete-view preview
 
-Implementation: `cb46ae90`. This is an in-game visual A/B, **not an atlas cache**.
+Initial implementation: `cb46ae90`; permanent quantization/count slider: `9fe259dc`.
+This remains live tile rendering, **not an atlas cache**.
 
 ## Try it
 
 In **Debug → Pixel Models: Stage 1 (A/B)**:
 
 - **Pixel Models: One Lighting Sample per Object (A/B)**
-- **Pixel Models: 128 Discrete Views (Live Preview, No Cache)**
+- **Pixel Models: Discrete View Count (Fibonacci Sphere, No Cache)** — integer
+  slider, **8–512**, default **128**.
 
-Both are independent declarative, saved booleans, defaulting to **off**. Both off
-keeps the continuous-view/per-texel-lighting path. They apply to butterflies,
+View quantization is always enabled. The count and lighting checkbox are saved;
+lighting defaults to off (per-texel lighting), not continuous views. Changes take
+effect immediately. Old saved view-checkbox values are retired regardless of
+whether they were checked; a missing count becomes 128, and an existing count is
+preserved. Both settings apply to butterflies,
 3D falling leaves, and attached/fallen apples. Apples now always use the pixel
 pipeline; the former **Flora → Apple Appearance (A/B)** model checkbox and voxel
 render path have been retired. **Flora → Apple Appearance** retains resolution.
@@ -40,12 +45,20 @@ spatially. The whole object shares the center's shadow visibility; crossing a
 boundary can change the whole object together. No large-object exception or
 multi-point fallback is introduced.
 
-### 128 discrete directions, without blending
+### Adjustable discrete directions, without blending
 
-`src/tracer/model_pixel_views.rs` defines 128 stable, distributed model-local
-view directions. A shared GPU buffer publishes this set, so the preview and a
-future atlas can use the same view keys. The nearest direction is selected once
-per object. No view interpolation, temporal blend, or hysteresis is applied.
+`src/tracer/model_pixel_views.rs` defines the Fibonacci golden-angle azimuths.
+For each requested count N, the GPU distributes N model-local directions over the
+whole sphere using `y = 1 - 2 * (i + 0.5) / N`. It does not take a prefix of a fixed
+512-direction sphere, which would incorrectly cluster smaller counts into a cap.
+An immutable 8 KiB azimuth table avoids per-frame trigonometry and GPU resource
+replacement when dragging the slider. Every integer count in 8–512 is supported,
+not just powers of two. A future atlas key must include the count as well as the
+view index: changing N redistributes directions.
+
+The nearest direction is selected once per object. No view interpolation,
+temporal blend, or hysteresis is applied. Angular jumps while moving the camera,
+rotating an object, or changing N are intentional.
 
 The sampler applies a rigid view correction around the object center. It changes
 the visible sampled geometry, not simulation pose, collision or tree wind.
@@ -77,34 +90,51 @@ python3 scripts/validate_butterfly_mesh.py --seconds 12
 cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
-- Rust: 1093 passed / 4 ignored in the main test target, plus the build tests.
+- Rust: 1096 passed / 4 ignored in the main test target, plus the build tests.
   Existing declarative-settings round trips cover both new saved controls.
-- View-set tests check unit lengths, uniqueness, sphere coverage and the rigid
-  correction's direction/handedness. Render-input tests check both option bits.
-- Stage-one live fixture cycles all four combinations while rendering 64 rotating
+- View-set tests check all slider counts for finite unit directions and balanced
+  latitudes; selected small, odd and maximum counts additionally check uniqueness,
+  sphere coverage and rigid handedness. Migration tests cover both retired checkbox
+  values, missing counts and preservation of an existing count. Render-input tests
+  check the independent lighting bit and count.
+- Stage-one live fixture cycles 8/37/128/512 views with both lighting modes, rendering 64 rotating
   leaves, 21 animated butterflies, attached/fallen pixel apples at 8/32/64px, actual
   fruit drops and native resize publication. No saved config changes or Vulkan
   errors. This is runtime correctness/inspection evidence, not a pixel-exact
   numerical oracle for the deliberately quantized view.
 - Continuous-view leaf/butterfly numerical oracles remain strict. They explicitly
-  disable experimental options in memory. Regression work found one-ULP color
+  disable shared lighting and use an internal zero-view sentinel for continuous
+  reference projection. Zero is not a GUI value: normal inputs clamp to 8–512. Regression work found one-ULP color
   differences between separately compiled shading paths; both now use one shader
   shading site. Intermittent boundary/depth disagreements also prompted explicit
   `precise` projection arithmetic, preventing unrelated material changes from
   altering contraction at coverage boundaries. No tolerance was increased.
   Six consecutive leaf fixture runs passed afterwards, followed by the butterfly
   fixture. Depth failures now retain a reproducible geometry capture when reached.
-- Scene images from the four combinations were inspected. Artistic acceptance of
+- Scene images were inspected, including the coarse 8-view and dense 512-view
+  endpoints. Artistic acceptance of
   angular jumps and the shared-light approximation is still the user's review.
 
 Artifacts: `target/model-stage-one-review/`, `target/model-stage-one/`.
 
 ## Release measurements
 
+The current `--suite stage-one` sweeps **8/128/512 views × both lighting modes ×
+attached/fallen apples**. Results for the slider implementation are in
+`target/model-view-count/summary.json`. All twelve cases passed the reference-scene
+GPU/cadence checks; measured cadence was about 58 FPS, with GPU p95 at most
+13.115 ms. Increasing from 8 to 512 views increased particle tile p50 from
+0.482 to 0.529 ms with shared lighting in the attached scene. This is still live
+sampling, not a cache-performance result. Whole-frame results varied, so they
+should not be read as a monotonic view-count cost curve.
+
+**Historical table below:** fixed-128 toggle experiment before quantization was
+made permanent. Its continuous-view/off rows require the older revision.
+
 ```sh
 cargo build --release
 node scripts/benchmark-model-pixels.mjs --seconds 8 --stress-leaves 256 \
-  --suite stage-one --output target/model-stage-one
+  --suite stage-one --output target/model-view-count
 ```
 
 Same reference conditions as [the tile report](model-pixel-tiles.md): RTX 3060 Ti,
