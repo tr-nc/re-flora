@@ -44,6 +44,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "model_pixel_screen_grid",
+        kind: "bool",
+        label: "B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "model_pixel_view_count",
         kind: "uint",
         label: "Discrete View Count",
@@ -1429,6 +1435,7 @@ pub struct GuiAdjustables {
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
+    pub model_pixel_screen_grid: crate::gui_adjustables::BoolParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
@@ -1675,6 +1682,7 @@ impl GuiAdjustables {
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut model_pixel_screen_grid_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1924,6 +1932,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             apple_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_pixel_screen_grid" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            model_pixel_screen_grid_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "model_pixel_view_count" => {
@@ -3471,6 +3484,7 @@ impl GuiAdjustables {
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
+            model_pixel_screen_grid: model_pixel_screen_grid_field.expect("Missing parameter: model_pixel_screen_grid"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
@@ -3935,6 +3949,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
+        "model_pixel_screen_grid" => Some(&adjustables.model_pixel_screen_grid),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
@@ -4213,6 +4228,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
+        "model_pixel_screen_grid" => Some(&mut adjustables.model_pixel_screen_grid),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&mut adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),

@@ -7,6 +7,7 @@ import model_pixel_surface;
 import tracer_types;
 
 import model_pixel_object;
+import model_pixel_projection;
 [[vk::binding(76,0)]] StructuredBuffer<ButterflyMeshTriangle> apple_pixel_triangles;
 
 public ModelPixelFrame appleModelFrame(ApplePixelVertex input) {
@@ -16,10 +17,13 @@ public ModelPixelFrame appleModelFrame(ApplePixelVertex input) {
     return frame;
 }
 public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
-    ModelPixelFrame frame=modelObjectFrame(input.tileIndex,appleModelFrame(input),input.center);
+    ModelPixelFrame frame=appleModelFrame(input);
     uint count,stride;apple_pixel_triangles.GetDimensions(count,stride);
     float4 bounds=applePixelBounds(input,camera_info);
-    ModelPixelHit hit=sampleModelPixelGeometry(apple_pixel_triangles,0u,count,frame,
+    ModelPixelHit hit;
+    if(modelDiscreteViews())hit=sampleOrthographicModelPixel(apple_pixel_triangles,0u,count,
+        frame,modelObjectView(input.tileIndex),input.center,1.55*input.scale,pixel,input.resolution);
+    else hit=sampleModelPixelGeometry(apple_pixel_triangles,0u,count,frame,
         bounds,pixel,input.resolution,camera_info);
     if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
     ButterflyMeshTriangle tri=apple_pixel_triangles[hit.triangle];

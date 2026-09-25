@@ -1,4 +1,6 @@
 import apple_pixel_frame;
+import model_pixel_projection;
+import model_pixel_view_data;
 import apple_pixel_dynamic_pose;
 import tracer_types;
 [[vk::binding(0,0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -17,6 +19,8 @@ struct VertexInput {
 ApplePixelVertex main(VertexInput input) {
     ApplePixelVertex output=appleDynamicPose(input.base_position,input.rotation,input.tint.a,
         clamp(gui_input.apple_pixel_resolution,8u,64u),input.instance_index);
-    setApplePixelQuad(output,input.position.xy,camera_info);
+    setApplePixelQuad(output,input.position.xy,camera_info,gui_input.model_pixel_view_count,
+        gui_input.model_pixel_screen_grid!=0u,
+        gui_input.model_pixel_view_count!=0u?readModelPixelView(output.tileIndex):(ModelPixelView)0);
     return output;
 }

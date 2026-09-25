@@ -6,7 +6,8 @@ canonical collision/attachment metadata remains. The original-mode measurements
 below are historical and require the corresponding older checkout/config/script
 to reproduce. The current benchmark compares 8/32/64px, using 8px as its cadence
 reference (or the default 16 views for the stage-one suite). Per-object lighting
-is now permanent; the global group contains only the shared view-count slider.
+is now permanent. The global group contains the shared view-count slider and the
+[orthographic pixel-display A/B](model-pixel-orthographic-preview.md).
 
 For the subsequent per-object-lighting and adjustable discrete-view controls, see
 [Stage-one preview and measurements](model-pixel-stage-one.md). It retains live

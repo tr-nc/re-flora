@@ -121,6 +121,15 @@ min = 8
 max = 64
 
 [[section.param]]
+id = "model_pixel_screen_grid"
+kind = "bool"
+label = "B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "model_pixel_view_count"
 kind = "uint"
 label = "Discrete View Count"

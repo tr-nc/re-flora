@@ -73,7 +73,11 @@ still compares the original sprite against the shared model, not two repair algo
 
 Butterflies, falling leaves and new apples all call `sampleModelPixelGeometry` in
 `shader/slang/model_pixel_surface.slang` from compute, then use the same
-`model_pixel_display.slang` screen-fragment lookup. Adapters own only mesh ranges, poses and
+`model_pixel_display.slang` screen-fragment lookup. The shared
+`model_pixel_projection.slang` now supplies fixed orthographic framing; the global
+A/B chooses rotating pixels or screen-aligned resampling of the same tile. See
+[`model-pixel-orthographic-preview.md`](../../docs/performance/model-pixel-orthographic-preview.md).
+Adapters own only mesh ranges, poses and
 material shading; they do not own coverage or screen-fragment ray loops. Some particle binding/type
 names retain the historical `butterfly` prefix. Leaves upload one shared 64-shape bank plus per-particle
 pose/shape index. Visible particle tiles are packed at their own resolution into at-most-64-MiB batches,

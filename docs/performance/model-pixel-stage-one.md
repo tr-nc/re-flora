@@ -1,13 +1,17 @@
 # Pixel models: stage-one lighting and discrete-view preview
 
 Initial implementation: `cb46ae90`; permanent quantization/count slider: `9fe259dc`.
-This remains live tile rendering, **not an atlas cache**.
+This remains live tile rendering, **not an atlas cache**. The subsequent
+[shared orthographic A/B preview](model-pixel-orthographic-preview.md) replaces
+camera-dependent tile projection and adds rotating/screen-aligned pixel display.
 
 ## Try it
 
-**Pixel Models — Global** contains one saved control:
+**Pixel Models — Global** contains:
 
 - **Discrete View Count** — integer slider, **8–512**, default **16**.
+- **B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)** — saved A/B,
+  default A; both modes use fixed orthographic tiles.
 
 View quantization and per-object lighting are always enabled. The lighting
 checkbox has been removed, including its app/render/GPU option field. Changes to
@@ -65,10 +69,10 @@ Butterflies carry their published flight orientation separately from their
 articulated wing geometry. Leaves use their published orientation; apples use
 attached-tree or fallen-body axes.
 
-Only the **view direction** is quantized. Screen-space roll, perspective distance,
-and geometry animation remain continuous/as previously sampled. This is a useful
-preview of angular stepping, not a bit-exact simulation of a future fixed-distance
-atlas or an animation-frame cache. Lighting uses the corresponding surface in
+Only the **view direction** is quantized. The current preview uses fixed
+orthographic tile projection; screen roll and scene-distance scaling happen at
+display time. Geometry animation remains continuous. See the orthographic report
+for the A/B resampling rules. An animation-frame cache is still future work. Lighting uses the corresponding surface in
 the real physical pose, rather than treating the view correction as a physical
 rotation of the object.
 
@@ -89,15 +93,16 @@ python3 scripts/validate_butterfly_mesh.py --seconds 12
 cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
-- Rust: 1097 passed / 4 ignored in the main test target, plus the build tests.
-  Declarative round trips cover the saved slider. A layout test ensures the global
-  group contains only that slider and resolutions remain object-specific.
+- Current Rust validation: 1104 passed / 4 ignored in the main test target, plus
+  the build tests. Declarative round trips cover the saved slider and display A/B.
+  A layout test keeps resolutions object-specific.
 - View-set tests check all slider counts for finite unit directions and balanced
   latitudes; selected small, odd and maximum counts additionally check uniqueness,
   sphere coverage and rigid handedness. Migration tests cover both retired checkbox
   values, missing counts and preservation of an existing count. Render-input tests
   check the shared view count.
-- Stage-one live fixture cycles 8/16/37/128/512 views with fixed per-object lighting, rendering 64 rotating
+- Stage-one live fixture cycles both orthographic display modes at 8/16/37/128/512
+  views with fixed per-object lighting, rendering 64 rotating
   leaves, 21 animated butterflies, attached/fallen pixel apples at 8/32/64px, actual
   fruit drops and native resize publication. No saved config changes or Vulkan
   errors. This is runtime correctness/inspection evidence, not a pixel-exact

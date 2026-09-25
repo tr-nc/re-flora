@@ -1,6 +1,7 @@
 // Stage-one live preview. No atlas, interpolation, or persistent image cache.
 module model_pixel_object;
 import model_pixel_surface;
+import model_pixel_projection;
 import flora_shadow;
 import environment_lighting;
 import tracer_types;
@@ -14,8 +15,11 @@ import tracer_types;
 [[vk::binding(10,0)]] public Sampler2D leaf_shadow_mask_tex;
 [[vk::binding(11,0)]] public Sampler2D cloud_shadow_tex;
 [[vk::binding(77,0)]] StructuredBuffer<float4> model_view_azimuths;
-// Four float4s per object: ambient + sunlight visibility; three rotation columns.
+// Compute uses one read/write binding; graphics uses a separate NonWritable declaration.
 [[vk::binding(6,1)]] public RWStructuredBuffer<float4> model_object_samples;
+public ModelPixelView modelObjectView(uint index) {
+    return modelPixelView(model_object_samples[index*4u+1u],model_object_samples[index*4u+2u],model_object_samples[index*4u+3u]);
+}
 // Production always uses object lighting. Zero is reserved for the continuous
 // numerical oracle, which keeps its original per-texel reference shading.
 public bool modelSingleLight() { return gui_input.model_pixel_view_count!=0u; }
@@ -54,28 +58,22 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
         light=float4(ambient,shadow.sun_transmittance);
     }
     model_object_samples[index*4u]=light;
-    float3 x=float3(1,0,0),y=float3(0,1,0),z=float3(0,0,1);
-    if(modelDiscreteViews()) {
-        float3 delta=camera_info.pos.xyz-pivot;
-        float3 view=length(delta)>1e-8?normalize(delta):orientation.axisZ;
-        float3 local=modelPixelLocalVector(orientation,view);
-        float3 chosen=modelDiscreteDirection(local);
-        float3 from=orientation.axisX*chosen.x+orientation.axisY*chosen.y+orientation.axisZ*chosen.z;
-        x=rotateBetween(from,view,x);y=rotateBetween(from,view,y);z=rotateBetween(from,view,z);
-    }
-    model_object_samples[index*4u+1u]=float4(x,0);
-    model_object_samples[index*4u+2u]=float4(y,0);
+    float3 delta=camera_info.pos.xyz-pivot;
+    float3 view=length(delta)>1e-8?normalize(delta):orientation.axisZ;
+    float3 chosen=modelDiscreteDirection(modelPixelLocalVector(orientation,view));
+    // Fixed up rule for each view key, not camera-dependent framing.
+    float3 up=abs(chosen.y)<0.99?float3(0,1,0):float3(1,0,0);
+    float3 localX=normalize(cross(up,chosen)),localY=cross(chosen,localX);
+    float3 x=orientation.axisX*localX.x+orientation.axisY*localX.y+orientation.axisZ*localX.z;
+    float3 y=orientation.axisX*localY.x+orientation.axisY*localY.y+orientation.axisZ*localY.z;
+    float3 z=orientation.axisX*chosen.x+orientation.axisY*chosen.y+orientation.axisZ*chosen.z;
+    // Same shortest-arc correction drives roll and view selection. Transport to
+    // the camera's forward plane before extracting roll (no off-axis skew).
+    float3 right=rotateBetween(z,view,x);
+    float3 cameraBack=normalize(mul(camera_info.view_mat_inv,float4(0,0,1,0)).xyz);
+    right=rotateBetween(view,cameraBack,right);
+    float2 roll=normalize(mul(camera_info.view_mat,float4(right,0)).xy);
+    model_object_samples[index*4u+1u]=float4(x,roll.x);
+    model_object_samples[index*4u+2u]=float4(y,roll.y);
     model_object_samples[index*4u+3u]=float4(z,0);
-}
-public ModelPixelFrame modelObjectFrame(uint index,ModelPixelFrame frame,float3 pivot) {
-    if(!modelDiscreteViews())return frame;
-    float3 x=model_object_samples[index*4u+1u].xyz;
-    float3 y=model_object_samples[index*4u+2u].xyz;
-    float3 z=model_object_samples[index*4u+3u].xyz;
-    float3 c=frame.center-pivot;
-    frame.center=pivot+x*c.x+y*c.y+z*c.z;
-    frame.axisX=x*frame.axisX.x+y*frame.axisX.y+z*frame.axisX.z;
-    frame.axisY=x*frame.axisY.x+y*frame.axisY.y+z*frame.axisY.z;
-    frame.axisZ=x*frame.axisZ.x+y*frame.axisZ.y+z*frame.axisZ.z;
-    return frame;
 }

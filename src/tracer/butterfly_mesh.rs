@@ -155,6 +155,7 @@ pub struct ButterflyMeshResources {
     pub butterfly_pixel_tiles: Resource<Buffer>,
     pub model_pixel_tiles: Resource<Buffer>,
     pub model_object_samples: Resource<Buffer>,
+    pub model_object_view_samples: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
     pub model_view_azimuths: Resource<Buffer>,
     pub particle_model_repairs: Resource<Buffer>,
@@ -211,6 +212,7 @@ impl ButterflyMeshResources {
             ),
             model_pixel_tiles: buffer(16, MemoryLocation::GpuOnly),
             model_object_samples: buffer(16, MemoryLocation::GpuOnly),
+            model_object_view_samples: buffer(16, MemoryLocation::GpuOnly),
             butterfly_pixel_tiles: Resource::new(Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),

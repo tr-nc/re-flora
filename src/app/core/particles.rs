@@ -687,11 +687,19 @@ impl App {
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
-            let stage = (frame / 8) % 5;
-            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize];
+            let stage = (frame / 8) % 10;
+            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize / 2];
+            settings.model_pixel_screen_grid.value = stage & 1 != 0;
             settings.butterfly_mesh_preview.value = true;
             settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;
+            let (leaf_pixels, butterfly_pixels) =
+                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3];
+            settings.falling_leaf_pixel_resolution.value = leaf_pixels;
+            settings.butterfly_pixel_resolution.value = butterfly_pixels;
+            if frame.is_multiple_of(30) {
+                log::info!("[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels={leaf_pixels} butterfly_pixels={butterfly_pixels} apple_pixels={n}");
+            }
         }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {
             log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} resolution={n} diagnostic_only=true saved=false");

@@ -9,6 +9,7 @@ import leaf_lighting;
 import tracer_types;
 
 import model_pixel_object;
+import model_pixel_projection;
 [[vk::binding(72,0)]] public StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 [[vk::binding(73,0)]] public StructuredBuffer<ButterflyMeshTriangle> butterfly_mesh_triangles;
 // Dedicated transient set: frame-local repair storage must not replace the
@@ -119,7 +120,10 @@ public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pi
 }
 
 public ModelPixelHit particleModelHit(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex) {
-    ModelPixelFrame frame=modelObjectFrame(objectIndex,particleModelFrame(instance),instance.position_size.xyz);
+    ModelPixelFrame frame=particleModelFrame(instance);
+    if(modelDiscreteViews())return sampleOrthographicModelPixel(butterfly_mesh_triangles,
+        instance.metadata.x,instance.metadata.y,frame,modelObjectView(objectIndex),instance.position_size.xyz,
+        instance.position_size.w*(1.53125*0.5),pixel,instance.metadata.z);
     return sampleModelPixelGeometry(butterfly_mesh_triangles,instance.metadata.x,
         instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,instance.metadata.z,camera_info);
 }

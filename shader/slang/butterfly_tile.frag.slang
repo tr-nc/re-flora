@@ -11,5 +11,6 @@ ModelPixelOutput main(FragmentInput input) {
     if(instance.repair.w==0u || instance.color.a<=0.0) {
         ModelPixelOutput output;output.color=float4(0.0);output.depth=1.0;return output;
     }
-    return displayModelPixel(input.uv,instance.metadata.z,instance.repair.z,instance.color.a);
+    return displayModelPixel(input.uv,instance.metadata.z,instance.repair.z,instance.color.a,
+        input.instanceIndex,instance.position_size.xyz,instance.position_size.w*(1.53125*0.5));
 }
