@@ -1303,13 +1303,6 @@ impl App {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
         let mut debug_settings = DebugSettings::load();
-        // Existing numerical geometry oracles validate the unchanged continuous
-        // view path. Stage-one live switches have a separate runtime fixture.
-        if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
-            || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
-        {
-            debug_settings.adjustables.model_pixel_single_light.value = false;
-        }
         let apple_pixel_review =
             std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("resolution");
         if apple_pixel_review {

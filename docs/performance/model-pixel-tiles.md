@@ -5,7 +5,8 @@ checkbox, old render meshes and old fruit color pipeline have been removed;
 canonical collision/attachment metadata remains. The original-mode measurements
 below are historical and require the corresponding older checkout/config/script
 to reproduce. The current benchmark compares 8/32/64px, using 8px as its cadence
-reference (or 128 views with per-texel lighting for the stage-one suite).
+reference (or the default 16 views for the stage-one suite). Per-object lighting
+is now permanent; the global group contains only the shared view-count slider.
 
 For the subsequent per-object-lighting and adjustable discrete-view controls, see
 [Stage-one preview and measurements](model-pixel-stage-one.md). It retains live

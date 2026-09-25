@@ -16,7 +16,9 @@ import tracer_types;
 [[vk::binding(77,0)]] StructuredBuffer<float4> model_view_azimuths;
 // Four float4s per object: ambient + sunlight visibility; three rotation columns.
 [[vk::binding(6,1)]] public RWStructuredBuffer<float4> model_object_samples;
-public bool modelSingleLight() { return (gui_input.model_pixel_options&1u)!=0u; }
+// Production always uses object lighting. Zero is reserved for the continuous
+// numerical oracle, which keeps its original per-texel reference shading.
+public bool modelSingleLight() { return gui_input.model_pixel_view_count!=0u; }
 public bool modelDiscreteViews() { return gui_input.model_pixel_view_count!=0u; }
 float3 rotateBetween(float3 a,float3 b,float3 v) {
     // Nearest of the distributed directions is never antipodal to the input.

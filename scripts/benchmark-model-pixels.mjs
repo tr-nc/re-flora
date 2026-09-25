@@ -10,7 +10,7 @@ const help=`Usage: node scripts/benchmark-model-pixels.mjs [--seconds 8] [--bina
 Measures pixel-rendered 8/32/64px apples, attached and fallen, in the same hidden
 windowed scene (Linux/X11: fixed 2880x1620). Build first: cargo build --release.
 Requires Vulkan/display. Acceptance: GPU p95 under the 60 Hz budget, and frame
-interval within 5% of the 8px reference (stage-one: 128 views, per-pixel lighting) or 60 Hz, whichever is slower.
+interval within 5% of the 8px reference (stage-one: default 16 views) or 60 Hz, whichever is slower.
 Do not run another game instance while measuring: temporarily edits config/gui.toml
 and restores it on completion or handled signals. A recovery copy is saved in the
 output directory. Logs, screenshots, dimensions and summary.json are retained.
@@ -19,7 +19,7 @@ slow-frame-biased PERF/FRAME log. Warmup and screenshot capture are excluded.
 Optional --stress-leaves 1..16384 adds that many rotating renderer-only leaves
 (at 16px) plus 21 butterfly previews (16px), without GPU readback or CPU oracles.
 This is a rendering workload, not a flight-physics benchmark.
---suite stage-one compares 8/128/512 views with both lighting modes on the
+--suite stage-one compares 8/16/128/512 views with permanent per-object lighting on the
 same 32px apple meshes. Views remain live-rendered: NOT atlas performance.
 Example: node scripts/benchmark-model-pixels.mjs --seconds 10 --stress-leaves 256 --suite stage-one`;
 const options={seconds:8,binary:'target/release/re-flora',output:'target/model-pixel-bench','stress-leaves':0,suite:'apples'};
@@ -75,14 +75,14 @@ function metrics(text){
 }
 const results=[];
 try {
- const cases=options.suite==='stage-one'?[8,128,512].flatMap(views=>[0,1].map(flags=>({
-  n:32,flags,views,label:`views-${views}-${flags?'one-light':'per-pixel'}`
- }))):[8,32,64].map(n=>({n,flags:0,views:128,label:n}));
- for(const scene of ['attached','fallen'])for(const {n,flags,views,label} of cases){
+ const cases=options.suite==='stage-one'?[8,16,128,512].map(views=>({
+  n:32,views,label:`views-${views}`
+ })):[8,32,64].map(n=>({n,views:16,label:n}));
+ for(const scene of ['attached','fallen'])for(const {n,views,label} of cases){
   if(interrupted)throw new Error('Interrupted');
   assert.equal(await readFile(configPath,'utf8'),owned,'Concurrent config edit; refusing to overwrite it');
   owned=setting(setting(original,'apple_pixel_resolution',n),'fruit_cycle',scene==='attached'?0.7:1);
-  owned=setting(setting(owned,'model_pixel_single_light',Boolean(flags&1)),'model_pixel_view_count',views);
+  owned=setting(owned,'model_pixel_view_count',views);
   if(options['stress-leaves'])for(const [id,value] of Object.entries({butterfly_mesh_preview:true,butterfly_pixel_resolution:16,
    falling_leaf_mesh:true,falling_leaf_pixel_resolution:16,falling_leaf_size_scale:1}))owned=setting(owned,id,value);
   await writeFile(configPath,owned);
@@ -95,8 +95,8 @@ try {
   assert.match(text,/Application exited successfully/);
   if(options['stress-leaves'])assert.ok(text.includes(`[MODEL_PIXEL_STRESS] leaves=${options['stress-leaves']} butterflies=21`),'Requested stress workload was not activated');
   const png=await readFile(image),width=png.readUInt32BE(16),height=png.readUInt32BE(20);
-  assert.ok(text.includes(`[MODEL_PIXEL_PREVIEW] single_light=${Boolean(flags&1)} views=${views} live_tiles=true continuous_oracle=false`),'View count/lighting did not reach renderer');
-  const row={scene,resolution:n,flags,views,width,height,stress_leaves:options['stress-leaves'],...metrics(text)};
+  assert.ok(text.includes(`[MODEL_PIXEL_PREVIEW] single_light=true views=${views} live_tiles=true continuous_oracle=false`),'View count/lighting did not reach renderer');
+  const row={scene,resolution:n,views,width,height,stress_leaves:options['stress-leaves'],...metrics(text)};
   if(results.length)assert.deepEqual([width,height],[results[0].width,results[0].height],'Viewport changed between runs');
   results.push(row);console.log(JSON.stringify(row));
   await writeFile(path.join(options.output,'summary.json'),JSON.stringify({binary:path.resolve(options.binary),seconds:options.seconds,results},null,2)+'\n');
@@ -106,7 +106,7 @@ try {
  else console.error(`Config changed concurrently; left it untouched. Recovery copy: ${options.output}/gui.before.toml`);
 }
 assert.ok(results.filter(r=>r.resolution===32).every(r=>{
- const baseline=results.find(b=>b.scene===r.scene&&(options.suite==='stage-one'?(b.flags===0&&b.views===128):b.resolution===8));
+ const baseline=results.find(b=>b.scene===r.scene&&(options.suite==='stage-one'?b.views===16:b.resolution===8));
  return r.gpu_ms_p95<1000/60 && r.frame_interval_ms_p50<=1.05*Math.max(1000/60,baseline.frame_interval_ms_p50);
 }), 'Default 32px failed the 60 Hz GPU budget or baseline-normalized frame interval; see summary.json. Do not claim performance acceptance.');
 console.log(`PASS: runtime checks, default-32px 60 Hz GPU budget and baseline-normalized frame interval. Artifacts: ${options.output}`);

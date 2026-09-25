@@ -37,10 +37,10 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Pixel Models: Stage 1 (A/B)",
-        description: "Butterflies, 3D falling leaves and apples always use discrete views: fewer directions give larger angular steps. Changing the count redistributes the Fibonacci sphere; no blending. The lighting checkbox shares external shadows and omits per-pixel self-shadow queries; normals still shade each pixel. Tiles are still generated every frame, not cached.",
+        title: "Pixel Models — Global",
+        description: "Shared by butterflies, 3D falling leaves and attached/fallen apples. Pixel resolution stays in each object's settings. Discrete views use a Fibonacci sphere without blending; fewer views give larger angular steps. Per-object lighting is always enabled: environment light and external shadows are shared, while pixel normals still shade each surface. Tiles are generated live, not cached.",
         initially_open: true,
-        params: &["model_pixel_single_light", "model_pixel_view_count"],
+        params: &["model_pixel_view_count"],
     },
     ControlGroup {
         parent: Some("Wind"),
@@ -182,6 +182,35 @@ mod tests {
                 .collect::<BTreeSet<_>>()
         );
         assert!(!is_grouped("future_debug_control"));
+    }
+
+    #[test]
+    fn pixel_model_global_controls_exclude_object_resolutions() {
+        let global = GROUPS
+            .iter()
+            .find(|g| g.title == "Pixel Models — Global")
+            .unwrap();
+        assert_eq!(global.parent, None);
+        assert_eq!(global.params, &["model_pixel_view_count"]);
+        let apples = GROUPS
+            .iter()
+            .find(|g| g.title == "Apple Appearance")
+            .unwrap();
+        assert_eq!(apples.parent, Some("Flora"));
+        assert_eq!(apples.params, &["apple_pixel_resolution"]);
+        let config: crate::app::gui_config_model::GuiConfigFile =
+            toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
+        for (id, section) in [
+            ("falling_leaf_pixel_resolution", "Falling Leaves"),
+            ("butterfly_pixel_resolution", "Butterflies"),
+        ] {
+            let owner = config
+                .section
+                .iter()
+                .find(|s| s.param.iter().any(|p| p.id == id))
+                .unwrap();
+            assert_eq!(owner.name, section);
+        }
     }
 
     #[test]

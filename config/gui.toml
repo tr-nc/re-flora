@@ -121,18 +121,9 @@ min = 8
 max = 64
 
 [[section.param]]
-id = "model_pixel_single_light"
-kind = "bool"
-label = "Pixel Models: One Lighting Sample per Object (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "model_pixel_view_count"
 kind = "uint"
-label = "Pixel Models: Discrete View Count (Fibonacci Sphere, No Cache)"
+label = "Discrete View Count"
 type = "Uint"
 
 [section.param.data]

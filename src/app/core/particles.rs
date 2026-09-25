@@ -687,9 +687,8 @@ impl App {
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
-            let stage = (frame / 8) % 8;
-            settings.model_pixel_single_light.value = stage & 1 != 0;
-            settings.model_pixel_view_count.value = [8, 37, 128, 512][stage as usize / 2];
+            let stage = (frame / 8) % 5;
+            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize];
             settings.butterfly_mesh_preview.value = true;
             settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;

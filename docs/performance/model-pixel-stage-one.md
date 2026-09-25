@@ -5,25 +5,24 @@ This remains live tile rendering, **not an atlas cache**.
 
 ## Try it
 
-In **Debug → Pixel Models: Stage 1 (A/B)**:
+**Pixel Models — Global** contains one saved control:
 
-- **Pixel Models: One Lighting Sample per Object (A/B)**
-- **Pixel Models: Discrete View Count (Fibonacci Sphere, No Cache)** — integer
-  slider, **8–512**, default **16**.
+- **Discrete View Count** — integer slider, **8–512**, default **16**.
 
-View quantization is always enabled. The count and lighting checkbox are saved;
-lighting defaults to off (per-texel lighting), not continuous views. Changes take
-effect immediately. Old saved view-checkbox values are retired regardless of
-whether they were checked; a missing count becomes 16, and an existing count is
-preserved. Both settings apply to butterflies,
+View quantization and per-object lighting are always enabled. The lighting
+checkbox has been removed, including its app/render/GPU option field. Changes to
+the global count take effect immediately. Old saved view and lighting checkboxes
+are retired regardless of their values; a missing count becomes 16, and an
+existing count is preserved. This single global policy applies to butterflies,
 3D falling leaves, and attached/fallen apples. Apples now always use the pixel
 pipeline; the former **Flora → Apple Appearance (A/B)** model checkbox and voxel
 render path have been retired. **Flora → Apple Appearance** retains resolution.
-The original leaf sprite comparison is unchanged.
+Butterfly resolution remains under **Butterflies**, and falling-leaf resolution
+under **Falling Leaves**. The original leaf sprite comparison is unchanged.
 
 Normal visible try-out command, when requested: `cargo run --release`.
 
-## What the options do
+## Shared rendering policy
 
 ### One spatial lighting query per object
 
@@ -90,14 +89,15 @@ python3 scripts/validate_butterfly_mesh.py --seconds 12
 cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
-- Rust: 1096 passed / 4 ignored in the main test target, plus the build tests.
-  Existing declarative-settings round trips cover both new saved controls.
+- Rust: 1097 passed / 4 ignored in the main test target, plus the build tests.
+  Declarative round trips cover the saved slider. A layout test ensures the global
+  group contains only that slider and resolutions remain object-specific.
 - View-set tests check all slider counts for finite unit directions and balanced
   latitudes; selected small, odd and maximum counts additionally check uniqueness,
   sphere coverage and rigid handedness. Migration tests cover both retired checkbox
   values, missing counts and preservation of an existing count. Render-input tests
-  check the independent lighting bit and count.
-- Stage-one live fixture cycles 8/37/128/512 views with both lighting modes, rendering 64 rotating
+  check the shared view count.
+- Stage-one live fixture cycles 8/16/37/128/512 views with fixed per-object lighting, rendering 64 rotating
   leaves, 21 animated butterflies, attached/fallen pixel apples at 8/32/64px, actual
   fruit drops and native resize publication. No saved config changes or Vulkan
   errors. This is runtime correctness/inspection evidence, not a pixel-exact
@@ -113,14 +113,22 @@ cargo run --release -- --hidden --mute --auto-exit 0.5
   fixture. Depth failures now retain a reproducible geometry capture when reached.
 - Scene images were inspected, including the coarse 8-view and dense 512-view
   endpoints. Artistic acceptance of
-  angular jumps and the shared-light approximation is still the user's review.
+  angular jumps and the shared-light approximation was followed by the user's
+  decision to make both policies permanent.
 
 Artifacts: `target/model-stage-one-review/`, `target/model-stage-one/`.
 
 ## Release measurements
 
-The current `--suite stage-one` sweeps **8/128/512 views × both lighting modes ×
-attached/fallen apples**. Results for the slider implementation are in
+The current `--suite stage-one` sweeps **8/16/128/512 views × attached/fallen apples**,
+with per-object lighting fixed on and default 16 views as the cadence reference.
+All eight cases passed the GPU/cadence checks (`target/model-global/summary.json`).
+The final hidden Release smoke confirmed `single_light=true views=16`.
+A first validation attempt encountered a Wayland settings-portal timeout; the
+full native suite passed under X11 (`env -u WAYLAND_DISPLAY`).
+
+Historical slider experiment: **8/128/512 views × both lighting modes ×
+attached/fallen apples**. Results for that implementation are in
 `target/model-view-count/summary.json`. All twelve cases passed the reference-scene
 GPU/cadence checks; measured cadence was about 58 FPS, with GPU p95 at most
 13.115 ms. Increasing from 8 to 512 views increased particle tile p50 from
@@ -134,7 +142,7 @@ made permanent. Its continuous-view/off rows require the older revision.
 ```sh
 cargo build --release
 node scripts/benchmark-model-pixels.mjs --seconds 8 --stress-leaves 256 \
-  --suite stage-one --output target/model-view-count
+  --suite stage-one --output target/model-global
 ```
 
 Same reference conditions as [the tile report](model-pixel-tiles.md): RTX 3060 Ti,

@@ -89,6 +89,7 @@ impl GuiConfigLoader {
                         | "butterfly_mesh_enabled"
                         | "apple_preview_model"
                         | "model_pixel_snap_views"
+                        | "model_pixel_single_light"
                 )
             });
         }
@@ -904,6 +905,7 @@ mod tests {
                 "terrain_hybrid_lighting",
                 "apple_preview_model",
                 "model_pixel_snap_views",
+                "model_pixel_single_light",
             ]
             .map(|id| (enabled, id))
         }) {
@@ -964,7 +966,7 @@ mod tests {
                 let mut old = debug
                     .param
                     .iter()
-                    .find(|p| p.id == "model_pixel_single_light")
+                    .find(|p| p.id == "raster_tree_static")
                     .unwrap()
                     .clone();
                 old.id = "model_pixel_snap_views".into();
