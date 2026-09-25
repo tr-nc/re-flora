@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {projectGroups} from './geometry.js';
-import {repairImage,quantizeImage} from './postprocess.mjs';
+import {repairImage} from './postprocess.mjs';
 
 // One rendering/processing pipeline for every adapter. Models own appearance,
 // not renderers, clocks, image repair, canvas controls or download behavior.
@@ -36,7 +36,7 @@ export class PreviewPipeline{
     this.screenMaterial.uniforms.image.value=this.texture;
   }
   render(asset,sourceCamera,pixelCamera,settings){
-    const {time,clip,wireframe,levels,conservativeCoverage=true}=settings;
+    const {time,clip,wireframe,conservativeCoverage=true}=settings;
     asset.sample(time,clip);asset.scene.updateMatrixWorld(true);sourceCamera.updateMatrixWorld(true);pixelCamera.updateMatrixWorld(true);
     this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
     asset.preparePass('source');
@@ -51,16 +51,14 @@ export class PreviewPipeline{
     gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
     const original=this.bytes.slice(),owners=this.readOwners(asset,pixelCamera);
     const projected=projectGroups(asset,pixelCamera,this.size);
-    const {sampleColor,sampleBase}=this.captureSurfaceColors(asset,pixelCamera,levels>0);
+    const sampleColor=this.captureSurfaceColors(asset,pixelCamera);
     const result=repairImage(original,owners,projected,this.size,sampleColor,{conservativeCoverage});
-    const fallback=new Map(projected.map(group=>[group.id,group.fallbackColor]));
-    const output=quantizeImage(result.rgba,levels,i=>sampleBase?.(result.owners[i],i,this.size)??fallback.get(result.owners[i]));
-    this.texture.image.data.set(output);this.texture.needsUpdate=true;
+    this.texture.image.data.set(result.rgba);this.texture.needsUpdate=true;
     this.pixel.render(this.screen,this.screenCamera);
     this.last={sourceTime:time,pixelTime:time,repair:{added:result.added,groups:result.groups},projectedGroups:projected,original,owners};
     return this.last;
   }
-  captureSurfaceColors(asset,camera,withPalette=false){
+  captureSurfaceColors(asset,camera){
     const resolution=Math.max(256,Math.min(512,this.size*4));
     this.colorTarget.setSize(resolution,resolution);
     this.pixel.setRenderTarget(this.colorTarget);this.pixel.render(asset.scene,camera);
@@ -68,16 +66,7 @@ export class PreviewPipeline{
     this.pixel.readRenderTargetPixels(this.colorTarget,0,0,resolution,resolution,colors);
     this.pixel.setRenderTarget(null);
     const owners=this.readOwners(asset,camera,resolution);
-    let bases;
-    if(withPalette&&asset.palettePass){
-      asset.preparePass('palette');
-      try{
-        this.pixel.setRenderTarget(this.colorTarget);this.pixel.render(asset.scene,camera);
-        bases=new Uint8Array(colors.length);
-        this.pixel.readRenderTargetPixels(this.colorTarget,0,0,resolution,resolution,bases);
-      }finally{this.pixel.setRenderTarget(null);asset.preparePass('pixel');}
-    }
-    const nearestSample=(id,pixel,size)=>{
+    return (id,pixel,size)=>{
       const x=pixel%size,y=Math.floor(pixel/size),startX=Math.floor(x*resolution/size),endX=Math.ceil((x+1)*resolution/size);
       const startY=Math.floor(y*resolution/size),endY=Math.ceil((y+1)*resolution/size);
       let nearest=-1,distance=Infinity;
@@ -87,17 +76,7 @@ export class PreviewPipeline{
         const d=(sx+.5-(x+.5)*resolution/size)**2+(sy+.5-(y+.5)*resolution/size)**2;
         if(d<distance){distance=d;nearest=i;}
       }
-      return nearest;
-    };
-    return {
-      sampleColor:(id,pixel,size)=>{
-        const nearest=nearestSample(id,pixel,size);
-        return nearest<0?null:Array.from(colors.subarray(nearest*4,nearest*4+3));
-      },
-      sampleBase:bases?(id,pixel,size)=>{
-        const nearest=nearestSample(id,pixel,size);
-        return nearest<0?null:Array.from(bases.subarray(nearest*4,nearest*4+3));
-      }:null,
+      return nearest<0?null:Array.from(colors.subarray(nearest*4,nearest*4+3));
     };
   }
   readOwners(asset,camera,size=this.size){

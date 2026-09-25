@@ -10,7 +10,7 @@ const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
 let asset,definition,modelSettings,pipeline,camera,pixelCamera,controls,request=0,last=0;
 const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,playing:false,time:0,clip:0,fps:60,speed:1,
-  resolution:32,levels:8,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true};
+  resolution:32,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true};
 
 function message(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function dirty(){state.dirty=true;}
@@ -100,12 +100,11 @@ function buildModelControls(){
   }
 }
 function syncControls(){
-  for(const key of ['resolution','fps','speed','levels','projection'])$(key).value=state[key];
+  for(const key of ['resolution','fps','speed','projection'])$(key).value=state[key];
   for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
   $('conservative-coverage').checked=state.conservativeCoverage;
   $('background').value=state.background;updateBackground();
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
-  $('levels-value').textContent=state.levels?`${state.levels} 级 / 材质`:'关闭';
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
   $('coverage-mode').textContent=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   $('clip').replaceChildren();
@@ -127,7 +126,7 @@ async function loadModel(id){
     if(token!==request){next.dispose();return;}
     const values={...nextDefinition.defaults};next.apply(values);
     asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings=values;
-    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,levels:8,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,...definition.preview});
+    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,...definition.preview});
     $('model').value=id;setProjection('orthographic');setView();
     buildModelControls();syncControls();setVariant(state.variant);
     $('model-info').textContent=definition.label;
@@ -142,7 +141,7 @@ async function loadModel(id){
 function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   syncPixelCamera();
-  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,levels:state.levels,conservativeCoverage:state.conservativeCoverage});
+  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
   let repairMessage=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   if(frame.repair){
@@ -201,7 +200,7 @@ function init(){
   $('model').addEventListener('change',()=>loadModel($('model').value));
   for(const id of ['front','back','edge'])$(id).addEventListener('click',()=>setView(id));
   $('reset-view').addEventListener('click',()=>setView());$('projection').addEventListener('change',()=>setProjection($('projection').value));
-  for(const key of ['resolution','levels','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
+  for(const key of ['resolution','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
   for(const key of ['wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
   $('conservative-coverage').addEventListener('change',()=>{state.conservativeCoverage=$('conservative-coverage').checked;syncControls();dirty();});
   $('background').addEventListener('input',()=>{state.background=$('background').value;updateBackground();});

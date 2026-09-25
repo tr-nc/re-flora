@@ -31,20 +31,17 @@ let server;
   async function repairCheck(){
     await stable();
     const original=await page.evaluate(()=>{const s=readModelPreview(true),n=s.resolution;return Array.from({length:n*n*4},(_,i)=>s.originalRgba[(n-1-Math.floor(i/(n*4)))*n*4+i%(n*4)]);});
-    const result=await rgba(),levels=(await state()).levels;let added=0;
+    const result=await rgba();let added=0;
     for(let i=0;i<original.length;i+=4){
-      if(original[i+3]){
-        assert.equal(result[i+3],original[i+3],'color quantization must not erase an original sample');
-        if(!levels)assert.deepEqual(result.slice(i,i+4),original.slice(i,i+4));
-      }else if(result[i+3])added++;
+      if(original[i+3])assert.deepEqual(result.slice(i,i+4),original.slice(i,i+4));
+      else if(result[i+3])added++;
     }
     assert.equal(added,(await state()).repair.added);
     return added;
   }
   await page.goto(base+'/model-preview/');await stable();
   assert.equal((await state()).triangles,32);assert.equal(await page.locator('#play').isDisabled(),true);
-  assert.equal((await state()).levels,8,'leaf retains its eight-shade default in the single control');
-  assert.equal(await page.locator('#model-steps').count(),0,'no second leaf-only light-quantization slider');
+  assert.equal(await page.locator('#levels,#model-steps').count(),0,'no color-quantization controls');
   assert.ok((await repairCheck())>=1);
   await page.locator('#front').click();await stable();
   const stemMissing=await page.evaluate(async()=>{
@@ -107,16 +104,6 @@ let server;
   await page.locator('[data-preset="盛夏绿叶"]').click();await stable();
   assert.notEqual(await png(),yellowImage,'color preset should recolor the visible leaf');
   await page.locator('#resolution').fill('32');await stable();
-  await page.locator('#levels').fill('1');await stable();const summerShade=await rgba();
-  await page.locator('[data-preset="秋日黄叶"]').click();await stable();
-  assert.notDeepEqual(await rgba(),summerShade,'one-shade palette must follow newly selected leaf colors');
-  for(const levels of ['1','2','3']){
-    await page.locator('#levels').fill(levels);await stable();const image=await rgba();
-    for(let i=0;i<image.length;i+=4)if(image[i+3])assert.ok(image[i]+image[i+1]+image[i+2]>0,`level ${levels} made a colored surface black`);
-  }
-  await page.locator('#levels').fill('2');await stable();
-  await page.screenshot({path:path.join(artifacts,'leaf-dynamic-2.png'),fullPage:true});
-  await page.locator('#levels').fill('0');await stable();
   for(const key of ['leafColor','veinColor','stemTint','backTint']){
     await page.locator('#model-'+key).evaluate(picker=>{picker.value='#FFFFFF';picker.dispatchEvent(new Event('input',{bubbles:true}));});
     await stable();assert.equal((await state()).modelSettings[key].toLowerCase(),'#ffffff');
@@ -127,9 +114,9 @@ let server;
   assert.ok(colored.every(i=>Math.abs(whiteLeaf[i*4]-whiteLeaf[i*4+1])<=2&&Math.abs(whiteLeaf[i*4+1]-whiteLeaf[i*4+2])<=2),'white base color must not retain the green palette');
   await page.locator('#model-veinColor').evaluate(picker=>{picker.value='#ff00ff';picker.dispatchEvent(new Event('input',{bubbles:true}));});
   await stable();assert.notDeepEqual(await rgba(),whiteLeaf,'vein picker should change rendered vein pixels without changing leaf base');
-  await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,true);assert.equal((await state()).levels,8);assert.equal(await page.locator('#repair').count(),0);
+  await page.locator('#reset-all').click();await stable();assert.equal((await state()).repairEnabled,true);assert.equal(await page.locator('#repair,#levels').count(),0);
   await page.screenshot({path:path.join(artifacts,'leaf.png'),fullPage:true});
-  await select('butterfly');assert.equal((await state()).triangles,156);assert.equal((await state()).levels,8);assert.equal((await state()).clips[0].duration,1);
+  await select('butterfly');assert.equal((await state()).triangles,156);assert.equal(await page.locator('#levels').count(),0);assert.equal((await state()).clips[0].duration,1);
   assert.doesNotMatch(await page.locator('body').innerText(),/\bv\d+\b|\bVersion\s*\d+/i);
   const butterflyCovered=await repairCheck();assert.ok(butterflyCovered>0,'both wings have conservative coverage');
   await page.locator('#conservative-coverage').uncheck();await stable();
@@ -148,12 +135,6 @@ let server;
   await page.locator('#previous-frame').click();await stable();assert.equal((await state()).pixelTime,14/60);
   await page.locator('#model-color .color-trigger').click();await page.locator('#model-color .hex-input').fill('#f80');await stable();assert.equal((await state()).modelSettings.color,'#ff8800');
   await page.locator('#model-color .hex-input').fill('#zzzzzz');assert.equal((await state()).modelSettings.color,'#ff8800');await page.keyboard.press('Escape');
-  await page.locator('#levels').fill('1');await stable();
-  for(let i=0,shade=await rgba();i<shade.length;i+=4)if(shade[i+3])assert.deepEqual(shade.slice(i,i+3),[255,136,0]);
-  await page.locator('#model-color').evaluate(picker=>{picker.value='#0000ff';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();
-  for(let i=0,shade=await rgba();i<shade.length;i+=4)if(shade[i+3])assert.deepEqual(shade.slice(i,i+3),[0,0,255]);
-  await page.locator('#model-color').evaluate(picker=>{picker.value='#ff8800';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();
-  await page.locator('#levels').fill('0');await stable();
   await page.locator('#model-shadows').uncheck();await stable();const pixels=await rgba();
   for(let i=0;i<pixels.length;i+=4)if(pixels[i+3])assert.deepEqual(pixels.slice(i,i+4),[255,136,0,255]);
   await page.locator('#model-shadows').check();await stable();
@@ -163,10 +144,8 @@ let server;
   await page.locator('#resolution').fill('128');await stable();await repairCheck();
   await page.locator('#projection').selectOption('perspective');await stable();await repairCheck();
   await page.locator('#resolution').fill('32');await page.locator('#phase').fill('237');await stable();
-  const savedImage=await png();
   assert.equal(await page.locator('#export-preset,#import-preset,#preset-file').count(),0);
   const beforeWire=await png();await page.locator('#wireframe').check();await stable();assert.equal(await png(),beforeWire);await page.locator('#wireframe').uncheck();
-  await page.locator('#levels').fill('4');await stable();assert.notEqual(await png(),savedImage);await page.locator('#levels').fill('0');await stable();assert.equal(await png(),savedImage);
   const downloadPromise=page.waitForEvent('download');await page.locator('#download').click();const downloaded=await downloadPromise;assert.match(downloaded.suggestedFilename(),/butterfly-coverage-32px/);const file=path.join(artifacts,'pixel.png');await downloaded.saveAs(file);const data=await fs.readFile(file);assert.equal(data.readUInt32BE(16),32);assert.equal(data.readUInt32BE(20),32);
   await page.locator('#play').click();const time=(await state()).pixelTime;await page.waitForTimeout(200);assert.notEqual((await state()).pixelTime,time);await page.locator('#play').click();await page.locator('#phase').fill('237');await stable();
   await page.screenshot({path:path.join(artifacts,'butterfly.png'),fullPage:true});
