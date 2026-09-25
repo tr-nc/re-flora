@@ -89,23 +89,24 @@ public float4 sampleParticleModelSurface(ButterflyMeshInstance instance,uint sou
     return float4(color,depth);
 }
 
-public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel) {
-    const float4 miss=float4(0.0,0.0,0.0,1.0);
-    bool leaf=(instance.metadata.w&2u)!=0u;
+ModelPixelFrame particleModelFrame(ButterflyMeshInstance instance) {
     ModelPixelFrame frame=identityModelPixelFrame();
-    if(leaf) {
+    if((instance.metadata.w&2u)!=0u) {
         frame.center=instance.position_size.xyz;
         frame.scale=instance.position_size.w*(1.53125/3.4);
         frame.axisX=rotatePose(instance.lighting,float3(1,0,0));
         frame.axisY=rotatePose(instance.lighting,float3(0,1,0));
         frame.axisZ=rotatePose(instance.lighting,float3(0,0,1));
     }
+    return frame;
+}
+public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel) {
     ModelPixelHit hit=modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
-        instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,
+        instance.metadata.y,particleModelFrame(instance),butterflyTileBounds(instance,camera_info),pixel,
         instance.metadata.z,camera_info);
-    if(hit.triangle==0xffffffffu)return miss;
+    if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
     return float4(shadeParticleModelSurface(instance,hit.triangle,hit.bary,
-        hit.position,hit.direction,leaf),hit.depth);
+        hit.position,hit.direction,(instance.metadata.w&2u)!=0u),hit.depth);
 }
 
 public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pixel) {
@@ -113,12 +114,13 @@ public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pi
 }
 
 public float4 sampleParticleModel(ButterflyMeshInstance instance, uint2 pixel) {
-    float4 original=sampleParticleModelCenter(instance,pixel);
-    if (original.w<1.0) return original; // Never shade over an existing sample.
-    uint destination=pixel.y*instance.metadata.z+pixel.x;
-    for (uint i=0;i<instance.repair.y;i++) {
-        ParticleModelRepairNode node=particle_model_repairs[instance.repair.x+i];
-        if (node.links.x==destination && node.colorDepth.w<1.0) return node.colorDepth;
-    }
-    return original;
+    ModelPixelFrame frame=particleModelFrame(instance);
+    float4 bounds=butterflyTileBounds(instance,camera_info);
+    ModelPixelHit hit=modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
+        instance.metadata.y,frame,bounds,float2(pixel)+0.5,instance.metadata.z,camera_info);
+    hit=modelPixelCoverageHit(butterfly_mesh_triangles,instance.metadata.x,
+        instance.metadata.y,frame,bounds,pixel,instance.metadata.z,camera_info,hit);
+    if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
+    return float4(shadeParticleModelSurface(instance,hit.triangle,hit.bary,
+        hit.position,hit.direction,(instance.metadata.w&2u)!=0u),hit.depth);
 }

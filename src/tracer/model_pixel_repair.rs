@@ -481,6 +481,41 @@ mod tests {
         assert!(split.nodes.iter().all(|node| node.links[0] != 12));
     }
     #[test]
+    fn conservative_coverage_supersedes_every_visible_bridge_expression() {
+        // The legacy bridge graph is retained as a reference, but its visible
+        // nodes must all be superseded by coverage seeds. This is what permits
+        // the GPU implementation to produce final cells without evaluating a
+        // serial, model-specific bridge graph.
+        for n in [8, 16, 32, 64] {
+            let triangle = Group {
+                id: 1,
+                triangles: vec![[
+                    [0., 0., 0.4],
+                    [n as f64, n as f64, 0.6],
+                    [n as f64 - 0.2, n as f64, 0.6],
+                ]],
+                sources: vec![0],
+            };
+            for spacing in [2, 3, 5] {
+                let mut owners = vec![0; n * n];
+                for i in (0..n).step_by(spacing) {
+                    owners[i * n + i] = 1;
+                }
+                let result = plan(&owners, std::slice::from_ref(&triangle), n);
+                assert!(result.added > 0);
+                for node in result.nodes.iter().filter(|node| node.links[0] != HIDDEN) {
+                    assert_eq!(
+                        node.links[1], HIDDEN,
+                        "visible interpolated bridge survived coverage"
+                    );
+                    assert_eq!(owners[node.links[0] as usize], 0, "original was replaced");
+                }
+                assert_eq!(result.after, 1);
+            }
+        }
+    }
+
+    #[test]
     fn near_clipping_preserves_sampler_ownership_and_valid_depths() {
         let triangles = [(
             3,

@@ -31,6 +31,89 @@ public struct ModelPixelHit {
     public float3 direction;
     public float depth;
 };
+// Conservative cells use the nearest projected triangle depth and its real
+// material surface. Original center hits always win. This is the final output
+// of the CPU eight-neighbour + coverage planner: coverage supersedes its bridge
+// expressions, including their color interpolation (see equivalence tests).
+struct PixelClipPoint { float4 clip; };
+float pixelClipDistance(float4 p,uint plane) {
+    return plane==0u?p.w-1e-7:plane==1u?p.z:p.w-p.z;
+}
+float3 pixelClosestBary(float2 p,float2 a,float2 b,float2 c) {
+    float2 ab=b-a,ac=c-a,ap=p-a;
+    float area=ab.x*ac.y-ab.y*ac.x;
+    if(abs(area)>1e-10) {
+        float u=(ap.x*ac.y-ap.y*ac.x)/area;
+        float v=(ab.x*ap.y-ab.y*ap.x)/area;
+        if(u>=0.0&&v>=0.0&&u+v<=1.0)return float3(1.0-u-v,u,v);
+    }
+    float best=1e30;float3 result=float3(1,0,0);
+    [unroll] for(uint edge=0u;edge<3u;edge++) {
+        float2 v0=edge==0u?a:edge==1u?b:c,v1=edge==0u?b:edge==1u?c:a;
+        float t=saturate(dot(p-v0,v1-v0)/max(dot(v1-v0,v1-v0),1e-20));
+        float2 delta=lerp(v0,v1,t)-p;float d=dot(delta,delta);
+        if(d<best){best=d;result=edge==0u?float3(1-t,t,0):edge==1u?float3(0,1-t,t):float3(t,0,1-t);}
+    }
+    return result;
+}
+bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
+    const float epsilon=0.0001;
+    if(any(max(max(a,b),c)<pixel-epsilon)||any(min(min(a,b),c)>pixel+1.0+epsilon))return false;
+    float winding=((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))>=0.0?1.0:-1.0;
+    float2 center=pixel+0.5;
+    [unroll] for(uint edge=0u;edge<3u;edge++) {
+        float2 p=edge==0u?a:edge==1u?b:c,q=edge==0u?b:edge==1u?c:a;
+        float2 d=q-p;
+        if(winding*(d.x*(center.y-p.y)-d.y*(center.x-p.x))<
+            -0.5*(abs(d.x)+abs(d.y))-epsilon)return false;
+    }
+    return true;
+}
+public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
+    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
+    U_CameraInfo camera,ModelPixelHit hit) {
+    if(hit.triangle!=0xffffffffu || any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return hit;
+    for(uint i=0u;i<count;i++) {
+        ButterflyMeshTriangle tri=triangles[first+i];
+        float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
+        float4 polygon[12];uint length=3u;
+        polygon[0]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1));
+        polygon[1]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p1),1));
+        polygon[2]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p2),1));
+        for(uint plane=0u;plane<3u;plane++) {
+            bool inside=true;
+            for(uint j=0u;j<length;j++)inside=inside&&pixelClipDistance(polygon[j],plane)>=0.0;
+            if(inside)continue;
+            float4 next[12];uint nextLength=0u;
+            for(uint edge=0u;edge<length;edge++) {
+                float4 a=polygon[edge],b=polygon[(edge+1u)%length];
+                float da=pixelClipDistance(a,plane),db=pixelClipDistance(b,plane);
+                if(da>=0.0)next[nextLength++]=a;
+                if((da>=0.0)!=(db>=0.0))next[nextLength++]=lerp(a,b,da/(da-db));
+            }
+            length=nextLength;
+            for(uint j=0u;j<length;j++)polygon[j]=next[j];
+            if(length<3u)break;
+        }
+        for(uint j=1u;j+1u<length;j++) {
+            float3 pa=polygon[0].xyz/polygon[0].w;
+            float3 pb=polygon[j].xyz/polygon[j].w;
+            float3 pc=polygon[j+1u].xyz/polygon[j+1u].w;
+            float2 a=(pa.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+            float2 b=(pb.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+            float2 c=(pc.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+            if(!pixelTriangleCovers(a,b,c,float2(pixel)))continue;
+            float3 weights=pixelClosestBary(float2(pixel)+0.5,a,b,c);
+            float depth=dot(weights,saturate(float3(pa.z,pb.z,pc.z)));
+            if(depth>=hit.depth)continue;
+            hit.triangle=first+i;hit.bary=float2(1.0/3.0);
+            hit.position=modelPixelWorld(frame,(p0+p1+p2)/3.0);
+            hit.depth=depth;
+        }
+    }
+    return hit;
+}
+
 public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
     uint first,uint count,ModelPixelFrame frame,float4 bounds,float2 pixel,uint resolution,
     U_CameraInfo camera) {
