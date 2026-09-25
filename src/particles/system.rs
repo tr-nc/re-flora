@@ -193,6 +193,8 @@ pub struct ParticleSnapshot {
     /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
     /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
+    /// Per-life visual seed for derived mesh shape; never feeds flight physics.
+    pub leaf_shape_seed: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -250,6 +252,7 @@ pub struct ParticleSystem {
     last_tick_step: ParticleTickStep,
     speed_noise: FastNoiseLite,
     leaf_flight: Vec<LeafFlight>,
+    leaf_shape_seeds: Vec<u32>,
     leaf_display: Vec<LeafDisplayPose>,
     butterfly_display: Vec<ButterflyPresentation>,
     butterfly_wingbeats: Vec<Option<super::ButterflyWingbeatPose>>,
@@ -311,6 +314,7 @@ impl ParticleSystem {
             },
             speed_noise,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
+            leaf_shape_seeds: vec![0; max_particles],
             butterfly_display: vec![ButterflyPresentation::default(); max_particles],
             butterfly_wingbeats: vec![None; max_particles],
             leaf_display: vec![
@@ -380,11 +384,11 @@ impl ParticleSystem {
 
         let new_generation = self.generations[slot].wrapping_add(1).max(1);
         self.generations[slot] = new_generation;
-        self.leaf_flight[slot] = LeafFlight::new(
-            (slot as u32).wrapping_mul(0x9e37_79b9)
-                ^ new_generation.wrapping_mul(0x85eb_ca6b)
-                ^ spawn.speed_noise_offset.to_bits(),
-        );
+        let life_seed = (slot as u32).wrapping_mul(0x9e37_79b9)
+            ^ new_generation.wrapping_mul(0x85eb_ca6b)
+            ^ spawn.speed_noise_offset.to_bits();
+        self.leaf_flight[slot] = LeafFlight::new(life_seed);
+        self.leaf_shape_seeds[slot] = life_seed;
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
         self.butterfly_display[slot] = ButterflyPresentation::default();
@@ -775,6 +779,9 @@ impl ParticleSystem {
                 leaf_orientation: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_display[*slot].orientation),
+                leaf_shape_seed: self
+                    .is_falling_leaf(*slot)
+                    .then_some(self.leaf_shape_seeds[*slot]),
             });
         }
     }
@@ -1222,6 +1229,8 @@ mod tests {
         system.write_snapshots(&mut snapshots);
         assert_eq!(snapshots[0].position_ws, initial.position_ws);
         assert_eq!(snapshots[0].leaf_orientation, initial.leaf_orientation);
+        assert_eq!(snapshots[0].leaf_shape_seed, initial.leaf_shape_seed);
+        assert!(initial.leaf_shape_seed.is_some());
         assert_eq!(
             physical,
             (system.positions[0], system.leaf_flight[0].orientation)
@@ -1242,6 +1251,7 @@ mod tests {
             Some(system.leaf_flight[0].orientation)
         );
         assert_ne!(snapshots[0].leaf_orientation, initial.leaf_orientation);
+        assert_ne!(snapshots[0].leaf_shape_seed, initial.leaf_shape_seed);
     }
 
     #[test]

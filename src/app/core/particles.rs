@@ -654,6 +654,7 @@ impl App {
                 animation_sample_time: None,
                 butterfly_wingbeat: None,
                 leaf_orientation: None,
+                leaf_shape_seed: None,
             });
         }
     }
@@ -694,6 +695,7 @@ impl App {
                     animation_sample_time: Some(time),
                     butterfly_wingbeat: None,
                     leaf_orientation: None,
+                    leaf_shape_seed: None,
                 });
             }
         }

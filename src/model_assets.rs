@@ -6,6 +6,8 @@ use std::sync::OnceLock;
 
 pub const BUTTERFLY_BYTES: &[u8] = include_bytes!("../assets/models/butterfly.glb");
 pub const LEAF_BYTES: &[u8] = include_bytes!("../assets/models/leaf.glb");
+pub const LEAF_VARIANT_COUNT: usize = 64;
+pub const LEAF_VARIANTS_BYTES: &[u8] = include_bytes!("../assets/models/leaf-variants.glb");
 
 #[derive(Clone, Debug)]
 pub struct Triangle {
@@ -50,6 +52,11 @@ pub fn butterfly() -> &'static Model {
 pub fn leaf() -> &'static Model {
     static MODEL: OnceLock<Model> = OnceLock::new();
     MODEL.get_or_init(|| Model::load(LEAF_BYTES).expect("validated shared leaf GLB"))
+}
+
+pub fn leaf_variants() -> &'static Model {
+    static MODEL: OnceLock<Model> = OnceLock::new();
+    MODEL.get_or_init(|| Model::load(LEAF_VARIANTS_BYTES).expect("validated derived leaf variants"))
 }
 
 impl Model {
@@ -376,6 +383,30 @@ mod tests {
             .iter()
             .flat_map(|t| t.uvs)
             .any(|uv| uv.x == 2.));
+    }
+
+    #[test]
+    fn derived_leaf_variants_are_stable_and_reuse_the_approved_first_shape() {
+        let variants = leaf_variants();
+        let count = leaf().triangles.len();
+        assert_eq!(variants.nodes.len(), LEAF_VARIANT_COUNT);
+        assert_eq!(variants.triangles.len(), LEAF_VARIANT_COUNT * count);
+        for (index, shape) in variants.triangles.chunks_exact(count).enumerate() {
+            assert!(shape.iter().all(|triangle| triangle.node == index));
+            assert!(shape.iter().flat_map(|t| t.positions).all(Vec3::is_finite));
+            assert!(shape.iter().flat_map(|t| t.normals).all(Vec3::is_finite));
+        }
+        for (a, b) in variants.triangles[..count].iter().zip(&leaf().triangles) {
+            assert_eq!(a.positions, b.positions);
+            assert_eq!(a.normals, b.normals);
+            assert_eq!(a.uvs, b.uvs);
+        }
+        assert!(variants.triangles.chunks_exact(count).skip(1).all(|shape| {
+            shape
+                .iter()
+                .zip(&leaf().triangles)
+                .any(|(a, b)| a.positions != b.positions)
+        }));
     }
 
     #[test]

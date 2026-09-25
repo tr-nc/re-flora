@@ -4,6 +4,15 @@ use super::*;
 use glam::{Mat4, Vec2, Vec4};
 use re_flora_vkn::{execute_one_time_command, BufferUse, VulkanContext};
 
+fn leaf_review_can_be_empty(
+    leaf_review: bool,
+    checked: usize,
+    original: usize,
+    planned: usize,
+) -> bool {
+    leaf_review && checked == 0 && original == 0 && planned == 0
+}
+
 fn bounds(instance: &Instance, view: Mat4, projection: Mat4) -> Vec4 {
     let center = view.transform_point3(Vec3::from_slice(&instance.position_size));
     let r = instance.position_size[3] * (1.53125 * 0.5);
@@ -345,6 +354,14 @@ impl ButterflyMeshRenderer {
         if checked == 0 && !mode_changed {
             return Ok(());
         }
+        // The falling fixture moves through the camera. A mode can switch after
+        // all leaves have exited view: no original hits and no planned coverage
+        // means there is nothing to validate this frame, not a renderer failure.
+        if leaf_review_can_be_empty(leaf_review, checked, original_samples, self.repair_added) {
+            self.validated_mode = self.previous_mode;
+            self.validated_leaf_mode = self.previous_leaf_mode;
+            return Ok(());
+        }
         ensure!(
             checked > 0,
             "fixture dispatched but generated no visible mesh samples"
@@ -367,6 +384,19 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn leaf_review_only_accepts_empty_visibility_without_original_or_planned_samples() {
+        assert!(leaf_review_can_be_empty(true, 0, 0, 0));
+        for (leaf, checked, original, planned) in [
+            (false, 0, 0, 0),
+            (true, 1, 0, 0),
+            (true, 0, 1, 0),
+            (true, 0, 0, 1),
+        ] {
+            assert!(!leaf_review_can_be_empty(leaf, checked, original, planned));
+        }
+    }
+
     #[test]
     fn tiny_leaf_ray_boundary_uses_a_spatial_not_fixed_uv_tolerance() {
         // Captured 0.25x GPU center hit: strict CPU plane point lies ~3.7e-7

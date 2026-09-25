@@ -8,7 +8,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use super::ButterflyPalettePreset;
 mod validation;
@@ -24,6 +24,44 @@ const MAX_TRIANGLES: usize = 256;
 pub const MAX_RESOLUTION: u32 = 64;
 const MODEL_CAPACITY: usize = crate::particles::PARTICLE_CAPACITY + CAPACITY;
 const LEAF_MODEL_FLAG: u32 = 2;
+
+fn leaf_variant_index(seed: u32) -> usize {
+    seed as usize % crate::model_assets::LEAF_VARIANT_COUNT
+}
+
+// Upload one small authored shape bank, never a unique mesh or tile per leaf.
+// All variants are generated from the same leafGeometry recipe as leaf.glb.
+fn leaf_variant_triangles() -> &'static [Triangle] {
+    static TRIANGLES: OnceLock<Vec<Triangle>> = OnceLock::new();
+    TRIANGLES.get_or_init(|| {
+        let model = crate::model_assets::leaf_variants();
+        let transforms = model.transforms(0., 0);
+        model
+            .triangles
+            .iter()
+            .map(|triangle| {
+                let transform = transforms[triangle.node];
+                let normal_transform = transform.inverse().transpose();
+                let p = triangle.positions.map(|p| transform.transform_point3(p));
+                let uv = triangle.uvs;
+                Triangle {
+                    a: p[0].extend(0.).to_array(),
+                    e1: (p[1] - p[0]).extend(0.).to_array(),
+                    e2: (p[2] - p[0]).extend(0.).to_array(),
+                    normals: triangle.normals.map(|n| {
+                        normal_transform
+                            .transform_vector3(n)
+                            .normalize()
+                            .extend(0.)
+                            .to_array()
+                    }),
+                    uv01: [uv[0].x, uv[0].y, uv[1].x, uv[1].y],
+                    uv2: [uv[2].x, uv[2].y, 0., 0.],
+                }
+            })
+            .collect()
+    })
+}
 fn native_review() -> bool {
     std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
         || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
@@ -395,40 +433,27 @@ impl ButterflyMeshRenderer {
         ensure!(
             candidates.iter().all(|s| s
                 .leaf_orientation
-                .is_some_and(|q| q.is_finite() && q.is_normalized())),
-            "invalid published leaf orientation"
+                .is_some_and(|q| q.is_finite() && q.is_normalized())
+                && s.leaf_shape_seed.is_some()),
+            "invalid published leaf orientation or shape seed"
         );
-        let model = crate::model_assets::leaf();
+        let triangles_per_leaf = crate::model_assets::leaf().triangles.len();
         ensure!(
-            model.triangles.len() <= MAX_TRIANGLES,
+            triangles_per_leaf <= MAX_TRIANGLES,
             "shared leaf exceeds triangle budget"
         );
         let first = self.triangles.len() as u32;
         if !candidates.is_empty() {
-            let transforms = model.transforms(0., 0);
-            for triangle in &model.triangles {
-                let transform = transforms[triangle.node];
-                let normal_transform = transform.inverse().transpose();
-                let p = triangle.positions.map(|p| transform.transform_point3(p));
-                let uv = triangle.uvs;
-                self.triangles.push(Triangle {
-                    a: p[0].extend(0.).to_array(),
-                    e1: (p[1] - p[0]).extend(0.).to_array(),
-                    e2: (p[2] - p[0]).extend(0.).to_array(),
-                    normals: triangle.normals.map(|n| {
-                        normal_transform
-                            .transform_vector3(n)
-                            .normalize()
-                            .extend(0.)
-                            .to_array()
-                    }),
-                    uv01: [uv[0].x, uv[0].y, uv[1].x, uv[1].y],
-                    uv2: [uv[2].x, uv[2].y, 0., 0.],
-                });
-            }
+            let shapes = leaf_variant_triangles();
+            ensure!(
+                shapes.len() == triangles_per_leaf * crate::model_assets::LEAF_VARIANT_COUNT,
+                "leaf shape bank does not match the approved topology"
+            );
+            self.triangles.extend_from_slice(shapes);
         }
         let resolution = leaves.resolution.clamp(8, MAX_RESOLUTION);
         for snapshot in candidates {
+            let shape = leaf_variant_index(snapshot.leaf_shape_seed.unwrap());
             self.instances.push(Instance {
                 position_size: snapshot
                     .position_ws
@@ -436,8 +461,8 @@ impl ButterflyMeshRenderer {
                     .to_array(),
                 color: snapshot.color.to_array(),
                 metadata: [
-                    first,
-                    model.triangles.len() as u32,
+                    first + (shape * triangles_per_leaf) as u32,
+                    triangles_per_leaf as u32,
                     resolution,
                     LEAF_MODEL_FLAG,
                 ],
@@ -670,7 +695,27 @@ impl ButterflyMeshRenderer {
             leaves.display_scale().to_bits(),
         );
         if self.previous_leaf_mode != Some(leaf_mode) {
-            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source=assets/models/leaf.glb source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count, crc32fast::hash(crate::model_assets::LEAF_BYTES), leaves.display_scale());
+            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source={} source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count,
+                if leaves.enabled { "assets/models/leaf-variants.glb" } else { "assets/models/leaf.glb" },
+                crc32fast::hash(if leaves.enabled { crate::model_assets::LEAF_VARIANTS_BYTES } else { crate::model_assets::LEAF_BYTES }), leaves.display_scale());
+            if leaves.enabled && native_review() {
+                let first = self.tile_count as usize * self.mesh.triangles.len();
+                let ids: Vec<_> = self.instances[self.tile_count as usize..]
+                    .iter()
+                    .map(|instance| {
+                        (instance.metadata[0] as usize - first)
+                            / crate::model_assets::leaf().triangles.len()
+                    })
+                    .collect();
+                let mut unique = ids.clone();
+                unique.sort_unstable();
+                unique.dedup();
+                log::info!(
+                    "[LEAF-SHAPE-REVIEW] active={} unique={} ids={ids:?}",
+                    ids.len(),
+                    unique.len()
+                );
+            }
             self.previous_leaf_mode = Some(leaf_mode);
         }
         let mode = (
@@ -757,7 +802,7 @@ mod tests {
                     .unwrap();
                 assert_eq!(renderer.count(), 1);
                 assert_eq!(renderer.tile_count, 0);
-                assert_eq!(renderer.triangles.len(), 32);
+                assert_eq!(renderer.triangles.len(), 64 * 32);
                 let gpu = renderer.instances[0];
                 assert_eq!(gpu.lighting, snapshot.leaf_orientation.unwrap().to_array());
                 assert_eq!(
@@ -765,7 +810,15 @@ mod tests {
                     snapshot.position_ws.extend(snapshot.size).to_array()
                 );
                 assert_eq!(gpu.color, snapshot.color.to_array());
-                assert_eq!(gpu.metadata, [0, 32, resolution, LEAF_MODEL_FLAG]);
+                assert_eq!(
+                    gpu.metadata,
+                    [
+                        (leaf_variant_index(snapshot.leaf_shape_seed.unwrap()) * 32) as u32,
+                        32,
+                        resolution,
+                        LEAF_MODEL_FLAG
+                    ]
+                );
                 butterfly.fps = 60;
                 renderer
                     .prepare_models(&snapshots, butterfly, enabled, Vec3::Z)
@@ -824,7 +877,15 @@ mod tests {
                 original.leaf_orientation.unwrap().to_array()
             );
             assert_eq!(instance.color, original.color.to_array());
-            assert_eq!(instance.metadata, [0, 32, 16, LEAF_MODEL_FLAG]);
+            assert_eq!(
+                instance.metadata,
+                [
+                    (leaf_variant_index(original.leaf_shape_seed.unwrap()) * 32) as u32,
+                    32,
+                    16,
+                    LEAF_MODEL_FLAG
+                ]
+            );
             assert_eq!(
                 renderer.triangles[0].a,
                 crate::model_assets::leaf().triangles[0].positions[0]
@@ -862,7 +923,55 @@ mod tests {
     }
 
     #[test]
-    fn shared_leaf_geometry_is_uploaded_once_even_at_full_particle_capacity() {
+    fn falling_leaves_choose_independent_authored_shapes_without_per_leaf_meshes() {
+        let mut system = crate::particles::ParticleSystem::new(1);
+        system
+            .spawn(crate::particles::ParticleSpawn::default())
+            .unwrap();
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        let original = snapshots[0];
+        let mut other = original;
+        other.leaf_shape_seed = Some(original.leaf_shape_seed.unwrap().wrapping_add(1));
+        let mut renderer = ButterflyMeshRenderer::default();
+        let butterfly = ButterflyMeshSettings {
+            resolution: 16,
+            fps: 8,
+            self_shadows: true,
+            transmission: 0.,
+        };
+        let leaves = LeafModelSettings {
+            enabled: true,
+            ..LeafModelSettings::default()
+        };
+        renderer
+            .prepare_models(&[original, other], butterfly, leaves, Vec3::Z)
+            .unwrap();
+        let first = renderer.instances[0].metadata[0] as usize;
+        let second = renderer.instances[1].metadata[0] as usize;
+        assert_ne!(first, second);
+        assert_eq!(
+            renderer.triangles.len(),
+            crate::model_assets::LEAF_VARIANT_COUNT * 32
+        );
+        assert!(renderer.triangles[first..first + 32]
+            .iter()
+            .zip(&renderer.triangles[second..second + 32])
+            .any(|(a, b)| a.a != b.a));
+        let triangle_bytes = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
+        other.leaf_orientation = Some(glam::Quat::from_rotation_x(0.3));
+        renderer
+            .prepare_models(&[original, other], butterfly, leaves, Vec3::Z)
+            .unwrap();
+        assert_eq!(renderer.instances[1].metadata[0] as usize, second);
+        assert_eq!(
+            bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles),
+            triangle_bytes
+        );
+    }
+
+    #[test]
+    fn leaf_shape_bank_is_uploaded_once_even_at_full_particle_capacity() {
         let mut system = crate::particles::ParticleSystem::new(1);
         system
             .spawn(crate::particles::ParticleSpawn::default())
@@ -889,7 +998,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(renderer.count() as usize, snapshots.len());
-        assert_eq!(renderer.triangles.len(), 32);
+        assert_eq!(renderer.triangles.len(), 64 * 32);
         assert_eq!(
             renderer.compute_count, 0,
             "ordinary leaves must not allocate or dispatch per-particle tiles"
@@ -942,6 +1051,7 @@ mod tests {
             animation_sample_time: Some(0.),
             butterfly_wingbeat: Some(pose),
             leaf_orientation: None,
+            leaf_shape_seed: None,
         };
         let settings = ButterflyMeshSettings {
             resolution: 16,
@@ -989,6 +1099,7 @@ mod tests {
             animation_sample_time: Some(0.),
             butterfly_wingbeat: None,
             leaf_orientation: None,
+            leaf_shape_seed: None,
         };
         let snapshots = [
             snapshot(0.1, ParticleRenderKind::Butterfly),
@@ -1056,6 +1167,7 @@ mod tests {
                     crate::particles::ButterflyFrame::at(time, 8).time_seconds(),
                 ),
                 leaf_orientation: None,
+                leaf_shape_seed: None,
             };
             renderer
                 .prepare(

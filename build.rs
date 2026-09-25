@@ -1473,14 +1473,20 @@ fn validate_shared_leaf_asset() {
         println!("cargo:rerun-if-changed={source}");
         hash.update(&fs::read(source).expect("shared leaf authoring source"));
     }
-    println!("cargo:rerun-if-changed=assets/models/leaf.glb");
-    let bytes =
-        fs::read("assets/models/leaf.glb").expect("run node scripts/publish-leaf-model.mjs");
-    let length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
-    let json: serde_json::Value =
-        serde_json::from_slice(&bytes[20..20 + length]).expect("published leaf GLB JSON");
-    assert_eq!(json["extras"]["source_crc32"].as_u64(), Some(u64::from(hash.finalize())),
-        "Stale shared leaf GLB. Run node scripts/publish-leaf-model.mjs, review, and commit the generated asset.");
+    let expected = u64::from(hash.finalize());
+    for asset in ["leaf.glb", "leaf-variants.glb"] {
+        let path = format!("assets/models/{asset}");
+        println!("cargo:rerun-if-changed={path}");
+        let bytes = fs::read(&path).expect("run node scripts/publish-leaf-model.mjs");
+        let length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+        let json: serde_json::Value =
+            serde_json::from_slice(&bytes[20..20 + length]).expect("published leaf GLB JSON");
+        assert_eq!(json["extras"]["source_crc32"].as_u64(), Some(expected),
+            "Stale {path}. Run node scripts/publish-leaf-model.mjs, review, and commit both generated assets.");
+        if asset == "leaf-variants.glb" {
+            assert_eq!(json["extras"]["variant_count"].as_u64(), Some(64));
+        }
+    }
 }
 
 fn main() {

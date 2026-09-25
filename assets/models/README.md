@@ -6,6 +6,7 @@ This directory is the **one published model/animation source** for the game and 
 The old `assets/butterfly/wing-mesh.json` pipeline has been removed.
 `leaf.glb` is consumed through the same loader in both runtimes; its single authoring recipe is
 `leaf-source.mjs`. The recipe retains the original 32-triangle leaf/short stem, fold and curl.
+`leaf-variants.glb` is a deterministic **derived game-only shape bank**, not another authoring source: 64 meshes from the same recipe, variant 0 identical to `leaf.glb`. Every falling model leaf chooses one variant at spawn and keeps it for life.
 
 Authoring projects may live elsewhere. The approved butterfly authoring project and provenance
 remain under `experiments/butterfly-method-comparison/blender-v5/`; publish its GLB here after an
@@ -32,14 +33,17 @@ Edit `leaf-source.mjs` (including `leafDefaults` for approved width/length/fold/
 node scripts/publish-leaf-model.mjs
 ```
 
-Commit the recipe and regenerated `leaf.glb` together. `cargo check` fails if the published asset's
-source fingerprint no longer matches the recipe/publisher. Node tests also compare the entire GLB
-to a deterministic regeneration. Never hand-edit generated GLB bytes. Games embed these bytes at
+Commit the recipe and both regenerated GLBs together. `cargo check` fails if either published asset's
+source fingerprint no longer matches the recipe/publisher. Node tests compare both complete GLBs
+to deterministic regeneration. Never hand-edit generated GLB bytes. Games embed these bytes at
 build time; no Node/browser/runtime file loading is required in a packaged game.
 
 The browser's shape sliders remain **temporary art experiments**, not automatic edits to committed
-assets. The initial approved shape loads from the shared GLB; publishing a changed recipe updates
-both consumers. Browser color presets change only the four preview color pickers; they do not publish a game palette or modify geometry. Curl rotates the midrib's tangent, shortening its Y projection while preserving its arc length; the length slider scales that arc separately.
+assets. The initial approved shape loads from `leaf.glb`; publishing a changed recipe updates
+it and the game shape bank. The bank spans width 0.78–1.22, length 0.82–1.16, widest-point position
+0.32–0.70, fold 0.12–0.52, and curl -0.45–0.90 (ranges are sampled, not endpoints).
+A deterministic per-life seed from the particle slot, generation and spawn seed chooses the bank
+index; recycling a slot does not force its next leaf to retain the old shape. Browser color presets change only the four preview color pickers; they do not publish a game palette or modify geometry. Curl rotates the midrib's tangent, shortening its Y projection while preserving its arc length; the length slider scales that arc separately.
 
 ## In-game falling leaf A/B
 
@@ -54,21 +58,21 @@ Debug → **Falling Leaves**:
   butterfly control's range/default, without sharing its live value.
 
 The source leaf lies in local XY with +Z as its leaf normal. The renderer uses the existing published
-`leaf_orientation` quaternion directly, with the existing position, physical size, color, lifetime
+`leaf_orientation` quaternion and the stable per-life shape seed, with the existing position, physical size, color, lifetime
 and alpha. The display-size multiplier is applied only when encoding render instances.
 It does not add an Euler offset, face the model toward the camera, reset flight, or resample leaf
 motion at butterfly FPS. `LeafFlight` and its angle-dependent falling/rotation equations are unchanged.
 Non-falling leaf-colored particles without that physical pose remain on the existing sprite path.
 
 Game lighting/palette/transmission remain the game's leaf lighting, not the preview's studio shader.
-The mesh, vertex normals and UVs are shared. **Conservative projected coverage plus eight-neighbor minimal bridging are always enabled**
-for both shared game models and the HTML preview. There is no repair toggle. The existing leaf A/B
+The mesh recipe, vertex normals and UVs are shared. **Conservative projected coverage plus eight-neighbor minimal bridging are always enabled**
+for both shared game models; the HTML preview offers a coverage checkbox for visual A/B against its old bridge-only mode. There is no game repair toggle. The existing leaf A/B
 still compares the original sprite against the shared model, not two repair algorithms.
 
 Both models use the existing shared particle-model draw pipeline (some internal binding/type names
 still carry the historical `butterfly` prefix). Butterflies cache their N×N tiles; leaves sample a
-virtual N×N grid in the fragment shader using the same ray/shading function. Leaves upload one shared
-mesh plus per-particle pose, not a 64² allocation for every one of 16K particle slots. Pixel depths are
+virtual N×N grid in the fragment shader using the same ray/shading function. Leaves upload one shared 64-shape bank
+plus per-particle pose/shape index, not per-leaf meshes or a 64² allocation for every one of 16K particle slots. Pixel depths are
 actual mesh hit depths for original samples; additions use the nearest supporting projected
 geometry's depth for world occlusion. The pixel grid stays fixed for an animal's/leaf's world
 footprint, not fitted to each rotating silhouette. Large-population performance acceptance remains a
@@ -128,8 +132,9 @@ times including wrap for both models, with tolerance 2e-6 model units. It is an 
 of ordinary fast Cargo tests. Also run the viewer browser suite and the game's hidden Release smoke
 when changing a shared asset or loader.
 
-Validated in this worktree: full Cargo tests, 11 Node tests, browser interaction checks, both-model
-pose parity, normal hidden Release startup, live leaf A→B(8/16/64)→A→B switching and display-size
+Validated in this worktree: full Cargo tests, 16 Node tests, browser interaction checks, both-model
+pose parity, normal hidden Release startup, live leaf A→B(8/16/64)→A→B switching with 8 distinct
+stable shape variants, and display-size
 sweeps at 0.25×/1×/2×/4×, and the existing
 butterfly 8/22/64px/shadow/transmission sweep. The leaf GPU check used 8 production flight particles;
 maximum checked depth difference was below 0.0000005, with no Vulkan validation errors or saved-config

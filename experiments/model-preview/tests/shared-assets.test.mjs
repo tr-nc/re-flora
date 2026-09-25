@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {publishedLeaf} from '../../../scripts/publish-leaf-model.mjs';
+import {publishedLeaf,publishedLeafVariants,leafVariantParameters,LEAF_VARIANT_COUNT} from '../../../scripts/publish-leaf-model.mjs';
 import {leafGeometry,leafDefaults} from '../../../assets/models/leaf-source.mjs';
 import {createPreviewServer} from '../../../scripts/serve-model-preview.mjs';
 
@@ -10,6 +10,17 @@ test('published leaf is exactly regenerated from the one authoring recipe',async
   const data=leafGeometry();assert.equal(data.positions.length/3,29);assert.equal(data.indices.length/3,32);
   const curled=leafGeometry({...leafDefaults,curl:.8});assert.notDeepEqual(data.positions,curled.positions);assert.deepEqual(data.indices,curled.indices);
 });
+test('falling-leaf variants are deterministic, diverse and derived from the same recipe',async()=>{
+  assert.equal(LEAF_VARIANT_COUNT,64);
+  assert.deepEqual(await readFile(new URL('../../../assets/models/leaf-variants.glb',import.meta.url)),await publishedLeafVariants());
+  assert.deepEqual(leafVariantParameters(0),{});
+  const samples=Array.from({length:LEAF_VARIANT_COUNT},(_,i)=>leafVariantParameters(i));
+  for(const key of ['width','length','widestPoint','fold','curl']){
+    assert.ok(new Set(samples.slice(1).map(s=>s[key])).size>=12,`${key} does not vary independently`);
+  }
+  assert.equal(new Set(samples.map(s=>JSON.stringify(s))).size,LEAF_VARIANT_COUNT);
+});
+
 test('widest-point control moves the broadest row while preserving maximum width and tapered ends',()=>{
   const rows=position=>{
     const vertices=leafGeometry({...leafDefaults,widestPoint:position}).positions;
