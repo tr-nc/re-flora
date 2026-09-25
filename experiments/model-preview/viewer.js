@@ -104,7 +104,7 @@ function syncControls(){
   for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
   $('background').value=state.background;updateBackground();
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
-  $('levels-value').textContent=state.levels?`${state.levels} 级 / 单位亮度`:'连续';
+  $('levels-value').textContent=state.levels?`${state.levels} 级 / 材质`:'关闭';
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
   $('coverage-mode').textContent='通用保守覆盖 + 八邻接补点';
   $('clip').replaceChildren();

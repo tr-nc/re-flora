@@ -49,16 +49,18 @@ export class PreviewPipeline{
     asset.preparePass('pixel');this.pixel.render(asset.scene,pixelCamera);
     const gl=this.pixel.getContext();
     gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
-    const original=quantizeImage(this.bytes,levels),owners=this.readOwners(asset,pixelCamera);
+    const original=this.bytes.slice(),owners=this.readOwners(asset,pixelCamera);
     const projected=projectGroups(asset,pixelCamera,this.size);
-    const sampleColor=this.captureSurfaceColors(asset,pixelCamera);
+    const {sampleColor,sampleBase}=this.captureSurfaceColors(asset,pixelCamera,levels>0);
     const result=repairImage(original,owners,projected,this.size,sampleColor);
-    this.texture.image.data.set(result.rgba);this.texture.needsUpdate=true;
+    const fallback=new Map(projected.map(group=>[group.id,group.fallbackColor]));
+    const output=quantizeImage(result.rgba,levels,i=>sampleBase?.(result.owners[i],i,this.size)??fallback.get(result.owners[i]));
+    this.texture.image.data.set(output);this.texture.needsUpdate=true;
     this.pixel.render(this.screen,this.screenCamera);
     this.last={sourceTime:time,pixelTime:time,repair:{added:result.added,groups:result.groups},projectedGroups:projected,original,owners};
     return this.last;
   }
-  captureSurfaceColors(asset,camera){
+  captureSurfaceColors(asset,camera,withPalette=false){
     const resolution=Math.max(256,Math.min(512,this.size*4));
     this.colorTarget.setSize(resolution,resolution);
     this.pixel.setRenderTarget(this.colorTarget);this.pixel.render(asset.scene,camera);
@@ -66,7 +68,16 @@ export class PreviewPipeline{
     this.pixel.readRenderTargetPixels(this.colorTarget,0,0,resolution,resolution,colors);
     this.pixel.setRenderTarget(null);
     const owners=this.readOwners(asset,camera,resolution);
-    return (id,pixel,size)=>{
+    let bases;
+    if(withPalette&&asset.palettePass){
+      asset.preparePass('palette');
+      try{
+        this.pixel.setRenderTarget(this.colorTarget);this.pixel.render(asset.scene,camera);
+        bases=new Uint8Array(colors.length);
+        this.pixel.readRenderTargetPixels(this.colorTarget,0,0,resolution,resolution,bases);
+      }finally{this.pixel.setRenderTarget(null);asset.preparePass('pixel');}
+    }
+    const nearestSample=(id,pixel,size)=>{
       const x=pixel%size,y=Math.floor(pixel/size),startX=Math.floor(x*resolution/size),endX=Math.ceil((x+1)*resolution/size);
       const startY=Math.floor(y*resolution/size),endY=Math.ceil((y+1)*resolution/size);
       let nearest=-1,distance=Infinity;
@@ -76,7 +87,17 @@ export class PreviewPipeline{
         const d=(sx+.5-(x+.5)*resolution/size)**2+(sy+.5-(y+.5)*resolution/size)**2;
         if(d<distance){distance=d;nearest=i;}
       }
-      return nearest<0?null:Array.from(colors.subarray(nearest*4,nearest*4+3));
+      return nearest;
+    };
+    return {
+      sampleColor:(id,pixel,size)=>{
+        const nearest=nearestSample(id,pixel,size);
+        return nearest<0?null:Array.from(colors.subarray(nearest*4,nearest*4+3));
+      },
+      sampleBase:bases?(id,pixel,size)=>{
+        const nearest=nearestSample(id,pixel,size);
+        return nearest<0?null:Array.from(bases.subarray(nearest*4,nearest*4+3));
+      }:null,
     };
   }
   readOwners(asset,camera,size=this.size){

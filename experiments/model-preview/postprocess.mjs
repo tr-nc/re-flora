@@ -55,17 +55,25 @@ export function repairImage(rgba, owners, groups, size, sampleColor=()=>null) {
     const visible=Uint8Array.from(chosenGroup,(id,i)=>id===group.id&&result[i*4+3]?1:0);
     group.after=labelComponents(visible,size).count;
   }
-  return {rgba:result,added,groups:stats};
+  return {rgba:result,owners:chosenGroup,added,groups:stats};
 }
 
-export function quantizeImage(rgba,steps) {
+// Each surface derives its own finite shade ramp from its selected base color.
+// The ramp always contains the base itself; zero is never an implicit palette entry.
+export function quantizeImage(rgba,steps,baseForPixel=()=>null) {
   if(!steps) return rgba;
-  const result=rgba.slice();
+  const result=rgba.slice(), shadows=Math.ceil((steps-1)/2),highlights=steps-1-shadows;
+  const factors=Array.from({length:steps},(_,i)=>i<=shadows
+    ?1-.28*(shadows-i)/Math.max(1,shadows)
+    :1+.28*(i-shadows)/Math.max(1,highlights));
   for(let i=0;i<rgba.length;i+=4) if(rgba[i+3]) {
-    const rgb=[0,1,2].map(c=>linear(rgba[i+c]/255));
-    const luminance=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
-    const scale=luminance>0?Math.round(luminance*steps)/steps/luminance:0;
-    for(let c=0;c<3;c++) result[i+c]=Math.round(255*srgb(Math.min(1,rgb[c]*scale)));
+    const base=baseForPixel(i/4)??Array.from(rgba.subarray(i,i+3));
+    const luminance=rgb=>rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+    const linearBase=base.map(c=>linear(c/255));
+    const desired=luminance([0,1,2].map(c=>linear(rgba[i+c]/255)));
+    const baseLuminance=luminance(linearBase);
+    const factor=factors.reduce((best,candidate)=>Math.abs(baseLuminance*candidate-desired)<Math.abs(baseLuminance*best-desired)?candidate:best,factors[0]);
+    for(let c=0;c<3;c++)result[i+c]=Math.round(255*srgb(Math.min(1,linearBase[c]*factor)));
   }
   return result;
 }

@@ -21,9 +21,9 @@
 </section>
 <aside>
 <section><small>01 / SHARED PIXEL PIPELINE</small><h2>像素处理</h2>
-<p id="repair-hint" class="hint">对所有不透明模型三角形保守覆盖像素格，再连接已有像素的断裂；细结构可以稍粗，但不会因中心漏采样而消失。原有像素不改。</p><p id="repair-info" class="hint" role="status"></p>
+<p id="repair-hint" class="hint">对所有不透明模型三角形保守覆盖像素格，再连接已有像素的断裂；细结构可以稍粗，但不会因中心漏采样而消失。补点不覆盖原有采样；下方色阶可改变显示颜色。</p><p id="repair-info" class="hint" role="status"></p>
 <label class="slider-label" for="resolution">画布像素数 <output id="resolution-value"></output></label><input id="resolution" type="range" min="8" max="128" step="1" value="32"><p class="hint">真实 N × N 缓冲，最近邻放大。观察范围不随动画轮廓变化，像素尺度不会随拍翼伸缩。</p>
-<label class="slider-label" for="levels">后处理亮度色阶 <output id="levels-value">连续</output></label><input id="levels" type="range" min="0" max="12" step="1" value="0"><p class="hint">0 = 关闭，仅影响右侧。模型本身的材质参数在下方。</p>
+<label class="slider-label" for="levels">后处理动态色阶 <output id="levels-value">关闭</output></label><input id="levels" type="range" min="0" max="12" step="1" value="0"><p class="hint">0 = 关闭；1 = 所选基色。色阶随叶面／叶脉／叶柄／叶背或蝴蝶的颜色变化，仅作用于右侧（包括新增像素）。</p>
 </section>
 <section><small>02 / MODEL APPEARANCE</small><h2>模型参数</h2><div id="model-controls"></div></section>
 <section><small>03 / REVIEW</small><h2>观察</h2><div class="select-label"><span>预览底色</span><debug-color-picker id="background" label="背景颜色" value="#253426"></debug-color-picker></div><label class="check-row"><input id="checker" type="checkbox"> 透明棋盘</label>

@@ -31,7 +31,7 @@ export const leafDefinition={
   async create(){
     const gltf=await new GLTFLoader().loadAsync(new URL('../../../assets/models/leaf.glb',import.meta.url).href);
     const scene=new THREE.Scene(),settings={...this.defaults};
-    const uniforms={transmission:{value:.45},steps:{value:0},leafColor:{value:new THREE.Color()},veinColor:{value:new THREE.Color()},stemTint:{value:new THREE.Color()},backTint:{value:new THREE.Color()},lightDirection:{value:new THREE.Vector3()}};
+    const uniforms={transmission:{value:.45},steps:{value:0},paletteMode:{value:0},leafColor:{value:new THREE.Color()},veinColor:{value:new THREE.Color()},stemTint:{value:new THREE.Color()},backTint:{value:new THREE.Color()},lightDirection:{value:new THREE.Vector3()}};
     const material=new THREE.ShaderMaterial({
       side:THREE.DoubleSide,uniforms,
       vertexShader:`
@@ -42,7 +42,7 @@ export const leafDefinition={
           gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
         }`,
       fragmentShader:`
-        uniform float transmission,steps; uniform vec3 lightDirection,leafColor,veinColor,stemTint,backTint;
+        uniform float transmission,steps,paletteMode; uniform vec3 lightDirection,leafColor,veinColor,stemTint,backTint;
         varying vec2 leafUV; varying vec3 worldNormal; varying vec3 worldPosition;
         float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
         float noise(vec2 p){
@@ -63,6 +63,14 @@ export const leafDefinition={
           base=mix(base,veinColor,max(midrib,branches*.6));
           base*=1.-.16*smoothstep(.83,1.,lateral);
           if(stem)base=stemTint;
+          if(paletteMode>.5){
+            vec3 paletteBase=gl_FrontFacing?leafColor:backTint;
+            paletteBase=mix(paletteBase,veinColor,max(midrib,branches*.6));
+            if(stem)paletteBase=stemTint;
+            gl_FragColor=vec4(paletteBase,1.);
+            #include <colorspace_fragment>
+            return;
+          }
           vec3 n=normalize(worldNormal)*(gl_FrontFacing?1.:-1.);
           vec3 l=normalize(lightDirection);
           float diffuse=max(dot(n,l),0.);
@@ -80,7 +88,7 @@ export const leafDefinition={
     const mesh=gltf.scene.getObjectByName('Leaf');mesh.material.dispose();mesh.material=material;scene.add(gltf.scene);
     const repairGroup={id:1,label:'叶片与叶柄',meshes:[mesh],fallbackColor:[128,128,128]};
     return {
-      scene,meshes:[mesh],repairGroups:[repairGroup],clips:[],
+      scene,meshes:[mesh],repairGroups:[repairGroup],clips:[],palettePass:true,
       view:{span:3.4,target:[0,-.06,.05],offset:[2.3,1.1,6],axisDistance:6,near:.1,far:40},
       description:'共享正式叶片 · 32 面 · 造型滑杆仅临时预览，发布后才同步游戏',
       apply(values){
@@ -97,7 +105,7 @@ export const leafDefinition={
         uniforms.lightDirection.value.set(Math.sin(angle),.65,Math.cos(angle)).normalize();
       },
       sample(){},
-      preparePass(pass){uniforms.steps.value=pass==='source'?0:settings.steps;},
+      preparePass(pass){uniforms.paletteMode.value=pass==='palette'?1:0;uniforms.steps.value=pass==='pixel'?settings.steps:0;},
       get shadows(){return false;},
       dispose(){disposeScene(scene);},
     };

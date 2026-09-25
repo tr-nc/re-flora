@@ -77,11 +77,18 @@ test('nearer projected groups win empty pixels while existing samples remain unt
   assert.deepEqual(output.rgba.subarray((1*4+1)*4,(1*4+1)*4+4),Uint8Array.from([0,0,255,255]));
 });
 
-test('common luminance treatment is opt-in and preserves alpha',()=>{
-  const rgba=Uint8Array.from([15,80,99,255,0,0,0,0]);
+test('material-driven shade palettes follow selected colors without introducing black',()=>{
+  const rgba=Uint8Array.from([70,80,25,255,95,100,30,255,0,0,0,0]);
   assert.equal(quantizeImage(rgba,0),rgba);
-  const result=quantizeImage(rgba,4);
-  assert.equal(result[3],255);assert.equal(result[7],0);assert.notDeepEqual(result,rgba);
+  const green=[129,133,44],yellow=[210,163,52];
+  for(const levels of [1,2,3,6]){
+    const result=quantizeImage(rgba,levels,()=>green);
+    assert.equal(result[3],255);assert.equal(result[7],255);assert.equal(result[11],0);
+    assert.ok(result[0]>0&&result[1]>0&&result[4]>0&&result[5]>0,`level ${levels} turned leaf black`);
+    if(levels===1)assert.deepEqual(Array.from(result.subarray(0,3)),green);
+  }
+  const changed=quantizeImage(rgba,1,()=>yellow);
+  assert.deepEqual(Array.from(changed.subarray(0,3)),yellow);
 });
 
 test('all sample rates share one sampled time; static clips and wrap are defined',()=>{

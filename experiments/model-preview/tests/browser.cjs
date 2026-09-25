@@ -15,8 +15,12 @@ let server;
  const browser=await chromium.launch({executablePath:process.env.CHROME_EXECUTABLE||'/usr/bin/google-chrome',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  try{
   const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[],failed=[],urls=[];
+  let racingLoads=false;
   page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.type()==='error')errors.push(message.text())});
-  page.on('request',request=>urls.push(request.url()));page.on('requestfailed',request=>failed.push(`${request.url()}: ${request.failure()?.errorText}`));page.on('response',response=>{if(response.status()>=400)failed.push(response.url())});
+  page.on('request',request=>urls.push(request.url()));page.on('requestfailed',request=>{
+    if(racingLoads&&request.url().endsWith('/assets/models/butterfly.glb')&&request.failure()?.errorText==='net::ERR_ABORTED')return;
+    failed.push(`${request.url()}: ${request.failure()?.errorText}`);
+  });page.on('response',response=>{if(response.status()>=400)failed.push(response.url())});
   const stable=()=>page.waitForFunction(()=>readModelPreview().ready&&!readModelPreview().loading&&!readModelPreview().dirty&&!readModelPreview().failed);
   const state=()=>page.evaluate(()=>readModelPreview());
   const png=()=>page.locator('#pixel').evaluate(c=>c.toDataURL());
@@ -80,6 +84,17 @@ let server;
   const yellowImage=await png();
   await page.locator('[data-preset="盛夏绿叶"]').click();await stable();
   assert.notEqual(await png(),yellowImage,'color preset should recolor the visible leaf');
+  await page.locator('#resolution').fill('32');await stable();
+  await page.locator('#levels').fill('1');await stable();const summerShade=await rgba();
+  await page.locator('[data-preset="秋日黄叶"]').click();await stable();
+  assert.notDeepEqual(await rgba(),summerShade,'one-shade palette must follow newly selected leaf colors');
+  for(const levels of ['1','2','3']){
+    await page.locator('#levels').fill(levels);await stable();const image=await rgba();
+    for(let i=0;i<image.length;i+=4)if(image[i+3])assert.ok(image[i]+image[i+1]+image[i+2]>0,`level ${levels} made a colored surface black`);
+  }
+  await page.locator('#levels').fill('2');await stable();
+  await page.screenshot({path:path.join(artifacts,'leaf-dynamic-2.png'),fullPage:true});
+  await page.locator('#levels').fill('0');await stable();
   for(const key of ['leafColor','veinColor','stemTint','backTint']){
     await page.locator('#model-'+key).evaluate(picker=>{picker.value='#FFFFFF';picker.dispatchEvent(new Event('input',{bubbles:true}));});
     await stable();assert.equal((await state()).modelSettings[key].toLowerCase(),'#ffffff');
@@ -107,6 +122,12 @@ let server;
   await page.locator('#previous-frame').click();await stable();assert.equal((await state()).pixelTime,14/60);
   await page.locator('#model-color .color-trigger').click();await page.locator('#model-color .hex-input').fill('#f80');await stable();assert.equal((await state()).modelSettings.color,'#ff8800');
   await page.locator('#model-color .hex-input').fill('#zzzzzz');assert.equal((await state()).modelSettings.color,'#ff8800');await page.keyboard.press('Escape');
+  await page.locator('#levels').fill('1');await stable();
+  for(let i=0,shade=await rgba();i<shade.length;i+=4)if(shade[i+3])assert.deepEqual(shade.slice(i,i+3),[255,136,0]);
+  await page.locator('#model-color').evaluate(picker=>{picker.value='#0000ff';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();
+  for(let i=0,shade=await rgba();i<shade.length;i+=4)if(shade[i+3])assert.deepEqual(shade.slice(i,i+3),[0,0,255]);
+  await page.locator('#model-color').evaluate(picker=>{picker.value='#ff8800';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();
+  await page.locator('#levels').fill('0');await stable();
   await page.locator('#model-shadows').uncheck();await stable();const pixels=await rgba();
   for(let i=0;i<pixels.length;i+=4)if(pixels[i+3])assert.deepEqual(pixels.slice(i,i+4),[255,136,0,255]);
   await page.locator('#model-shadows').check();await stable();
@@ -125,7 +146,7 @@ let server;
   await page.screenshot({path:path.join(artifacts,'butterfly.png'),fullPage:true});
   // Stale asynchronous GLB loads must not replace the user's newer selection.
   await page.route('**/assets/models/butterfly.glb',async route=>{await new Promise(resolve=>setTimeout(resolve,150));await route.continue();});
-  await select('leaf');await page.locator('#model').selectOption('butterfly');await page.locator('#model').selectOption('leaf');await stable();await page.waitForTimeout(250);assert.equal((await state()).model,'leaf');await page.unroute('**/assets/models/butterfly.glb');
+  await select('leaf');racingLoads=true;await page.locator('#model').selectOption('butterfly');await page.locator('#model').selectOption('leaf');await stable();await page.waitForTimeout(250);assert.equal((await state()).model,'leaf');await page.unroute('**/assets/models/butterfly.glb');racingLoads=false;
   for(let i=0;i<4;i++){await select('butterfly');await select('leaf');}
   for(const variant of ['model','pixel','compare']){await page.locator('#next').click();await stable();assert.equal((await state()).variant,variant);}
   for(const viewport of [{width:1280,height:720},{width:390,height:844}]){
