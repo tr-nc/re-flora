@@ -11,6 +11,7 @@ public struct ApplePixelVertex {
     public [[vk::location(4)]] nointerpolation float3 axisZ:TEXCOORD4;
     public [[vk::location(5)]] nointerpolation float scale:TEXCOORD5;
     public [[vk::location(6)]] nointerpolation uint resolution:TEXCOORD6;
+    public [[vk::location(7)]] nointerpolation uint tileIndex:TEXCOORD7;
 };
 public float3 applePixelWorld(ApplePixelVertex input,float3 local) {
     return input.center+input.scale*(input.axisX*local.x+input.axisY*local.y+input.axisZ*local.z);

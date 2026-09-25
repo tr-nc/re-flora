@@ -519,6 +519,18 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let apple_pixel_tree_comp_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel_tree.comp",
+            "main",
+        )
+        .unwrap();
+        let apple_pixel_dynamic_comp_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel_dynamic.comp",
+            "main",
+        )
+        .unwrap();
         let apple_pixel_tree_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/props/apple_pixel_tree.vert",
@@ -653,6 +665,8 @@ impl PipelineBuilder {
             tree_skin_sm,
             tree_refit_sm,
             dynamic_fruit_vert_sm,
+            apple_pixel_tree_comp_sm,
+            apple_pixel_dynamic_comp_sm,
             apple_pixel_tree_vert_sm,
             apple_pixel_dynamic_vert_sm,
             apple_pixel_frag_sm,
@@ -767,6 +781,31 @@ impl PipelineBuilder {
             pool,
             &[ddgi_voxel_visibility],
         );
+        let apple_pixel_tree_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.apple_pixel_tree_comp_sm,
+            pool,
+        );
+        let apple_pixel_dynamic_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.apple_pixel_dynamic_comp_sm,
+            pool,
+        );
+        for pipeline in [&apple_pixel_tree_ppl, &apple_pixel_dynamic_ppl] {
+            pipeline
+                .initialize_descriptors(DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &[
+                        resources,
+                        contree_builder_resources,
+                        scene_accel_resources,
+                        plain_builder_resources,
+                        ddgi_volume,
+                        ddgi_voxel_visibility,
+                    ],
+                })
+                .expect("model tile static descriptors must resolve");
+        }
         let butterfly_tile_ppl = ComputePipeline::new(
             device,
             &shader_modules.butterfly_tile_comp_sm,
@@ -998,6 +1037,8 @@ impl PipelineBuilder {
             tree_skin_ppl,
             tree_refit_ppl,
             butterfly_tile_ppl,
+            apple_pixel_tree_ppl,
+            apple_pixel_dynamic_ppl,
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
@@ -1650,6 +1691,8 @@ macro_rules! declare_ddgi_consumer_registry {
 declare_ddgi_consumer_registry! {
     Tracer => Compute(compute.tracer_ppl),
     ButterflyTiles => Compute(compute.butterfly_tile_ppl),
+    AppleTreeTiles => Compute(compute.apple_pixel_tree_ppl),
+    AppleDynamicTiles => Compute(compute.apple_pixel_dynamic_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
     Flora => Graphics(graphics.flora_ppl),
@@ -1916,6 +1959,19 @@ impl PipelineTopology {
             );
         }
 
+        for pipeline in [
+            &self.compute.apple_pixel_tree_ppl,
+            &self.compute.apple_pixel_dynamic_ppl,
+        ] {
+            retire_compute(
+                pipeline,
+                DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &all_resources,
+                },
+                "model tile extent descriptor update failed",
+            );
+        }
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -2492,6 +2548,8 @@ pub struct ShaderModules {
     pub raster_tree_frag_sm: ShaderModule,
     pub raster_tree_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_vert_sm: ShaderModule,
+    pub apple_pixel_tree_comp_sm: ShaderModule,
+    pub apple_pixel_dynamic_comp_sm: ShaderModule,
     pub apple_pixel_tree_vert_sm: ShaderModule,
     pub apple_pixel_dynamic_vert_sm: ShaderModule,
     pub apple_pixel_frag_sm: ShaderModule,
@@ -2508,6 +2566,8 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
+    pub apple_pixel_tree_ppl: ComputePipeline,
+    pub apple_pixel_dynamic_ppl: ComputePipeline,
     pub butterfly_tile_ppl: ComputePipeline,
     pub ddgi_global_sky_filter_ppl: ComputePipeline,
     pub ddgi_octahedral_gutter_ppl: ComputePipeline,

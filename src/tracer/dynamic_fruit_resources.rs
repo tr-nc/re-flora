@@ -150,7 +150,9 @@ impl DynamicFruitRendererResources {
         let instances = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
+            ),
             MemoryLocation::CpuToGpu,
             std::mem::size_of::<DynamicFruitInstanceGpu>() as u64,
         );
@@ -256,7 +258,9 @@ impl DynamicFruitRendererResources {
         let new_buffer = Buffer::new_sized(
             self.device.clone(),
             self.allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
+            ),
             MemoryLocation::CpuToGpu,
             (std::mem::size_of::<DynamicFruitInstanceGpu>() * new_capacity) as u64,
         );

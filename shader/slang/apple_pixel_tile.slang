@@ -17,10 +17,6 @@ import tracer_types;
 [[vk::binding(11,0)]] Sampler2D cloud_shadow_tex;
 [[vk::binding(76,0)]] StructuredBuffer<ButterflyMeshTriangle> apple_pixel_triangles;
 
-public struct ApplePixelOutput {
-    float4 color:SV_Target0;
-    float depth:SV_Depth;
-};
 public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
     ModelPixelFrame frame;
     frame.center=input.center;frame.scale=input.scale;
@@ -47,10 +43,4 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
     float3 color=applyStylizedVoxelLighting(gui_input,sun_info,shading_info,
         srgbToLinear(srgb),shadow.weight,hit.position,normal);
     return float4(color,hit.depth);
-}
-public ApplePixelOutput sampleApplePixel(ApplePixelVertex input) {
-    uint2 pixel=min(uint2(saturate(input.uv)*float(input.resolution)),uint2(input.resolution-1u));
-    float4 value=sampleAppleModel(input,pixel);
-    ApplePixelOutput output;output.color=float4(value.rgb,value.w<1.0?1.0:0.0);
-    output.depth=value.w;return output;
 }

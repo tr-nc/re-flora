@@ -1669,6 +1669,7 @@ pub struct Tracer {
     ddgi_continuous_sampling: bool,
     ddgi_aggregate_history: bool,
     apple_preview_model: bool,
+    apple_pixel_resolution: u32,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -2019,6 +2020,7 @@ impl Tracer {
             ddgi_continuous_sampling: false,
             ddgi_aggregate_history: false,
             apple_preview_model: false,
+            apple_pixel_resolution: 32,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3057,6 +3059,7 @@ impl Tracer {
                 self.resources.apple_pixel.triangle_count,terrain.apple_pixel_resolution);
         }
         self.apple_preview_model = terrain.apple_preview_model;
+        self.apple_pixel_resolution = terrain.apple_pixel_resolution.clamp(8, 64);
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -4747,6 +4750,10 @@ impl Tracer {
             })
             .collect::<Vec<_>>();
 
+        self.pipeline_topology
+            .compute()
+            .apple_pixel_tree_ppl
+            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
         let prepared_tree_foliage_batches = tree_foliage_frame_plan
             .batches()
             .iter()
@@ -4774,6 +4781,53 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
+                let pixel_tiles =
+                    if batch.kind() == TreeFoliageKind::Apples && self.apple_preview_model {
+                        let n = self.apple_pixel_resolution;
+                        let tiles = self
+                            .model_pixel_tiles
+                            .get(
+                                gpu_profiler_frame_slot,
+                                u64::from(batch.tree_id()) + 2,
+                                batch.instance_count() as usize * (n * n) as usize,
+                                self.vulkan_ctx.device().clone(),
+                                self.allocator.clone(),
+                            )
+                            .expect("tree model tile allocation");
+                        let mut compute_resources = resources.clone();
+                        compute_resources
+                            .push(("model_pixel_tiles", DescriptorResource::Buffer(&tiles)));
+                        let push = flora_push_constant(
+                            time,
+                            APPLE_INSTANCE_TYPE,
+                            instance.chunk_world_offset,
+                            solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
+                        );
+                        Self::with_gpu_scope(
+                            gpu_profiler.as_deref_mut(),
+                            gpu_profiler_frame_slot,
+                            cmdbuf,
+                            "models.apple_tree.tiles",
+                            || {
+                                self.pipeline_topology
+                                    .compute()
+                                    .apple_pixel_tree_ppl
+                                    .record_with_descriptors(
+                                        cmdbuf,
+                                        &compute_resources,
+                                        Extent3D::new(n, n, batch.instance_count()),
+                                        Some(bytemuck::bytes_of(&push)),
+                                    )
+                            },
+                        )
+                        .expect("tree model tile generation");
+                        Some(tiles)
+                    } else {
+                        None
+                    };
+                if let Some(tiles) = pixel_tiles.as_ref() {
+                    resources.push(("model_pixel_tiles", DescriptorResource::Buffer(tiles)));
+                }
                 if batch.kind() != TreeFoliageKind::Apples || !self.apple_preview_model {
                     resources.push((
                         "flora_lighting_cache",
@@ -4845,6 +4899,56 @@ impl Tracer {
             };
             pipeline.prepare_descriptor_resources(cmdbuf);
         }
+        let prepared_dynamic_pixel_descriptors = if self.apple_preview_model
+            && self.dynamic_fruit_resources.instance_count > 0
+        {
+            let n = self.apple_pixel_resolution;
+            let tiles = self
+                .model_pixel_tiles
+                .get(
+                    gpu_profiler_frame_slot,
+                    1,
+                    self.dynamic_fruit_resources.instance_count as usize * (n * n) as usize,
+                    self.vulkan_ctx.device().clone(),
+                    self.allocator.clone(),
+                )
+                .expect("dynamic model tile allocation");
+            let compute = &self.pipeline_topology.compute().apple_pixel_dynamic_ppl;
+            compute.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "models.apple_dynamic.tiles",
+                || {
+                    compute.record_with_descriptors(
+                        cmdbuf,
+                        &[
+                            ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
+                            (
+                                "dynamic_fruit_pixel_instances",
+                                DescriptorResource::Buffer(&self.dynamic_fruit_resources.instances),
+                            ),
+                        ],
+                        Extent3D::new(n, n, self.dynamic_fruit_resources.instance_count),
+                        None,
+                    )
+                },
+            )
+            .expect("dynamic model tile generation");
+            let display = &self.pipeline_topology.graphics().apple_pixel_dynamic_ppl;
+            display.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+            Some(
+                display
+                    .prepare_draw_descriptors(
+                        cmdbuf,
+                        &[("model_pixel_tiles", DescriptorResource::Buffer(&tiles))],
+                    )
+                    .expect("dynamic tile display descriptors"),
+            )
+        } else {
+            None
+        };
         let prepared_model_descriptors =
             if enable_particles && self.butterfly_mesh_renderer.count() > 0 {
                 let tiles = self
@@ -5389,7 +5493,28 @@ impl Tracer {
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
             cmdbuf.bind_index_buffer_u32(indices);
             cmdbuf.bind_vertex_buffers(0, &[vertices, &resources.instances]);
-            pipeline.record_indexed(cmdbuf, indices_len, resources.instance_count, 0, 0, 0, None);
+            if let Some(descriptors) = prepared_dynamic_pixel_descriptors.as_ref() {
+                pipeline.record_indexed_with_prepared_descriptors(
+                    cmdbuf,
+                    descriptors,
+                    indices_len,
+                    resources.instance_count,
+                    0,
+                    0,
+                    0,
+                    None,
+                );
+            } else {
+                pipeline.record_indexed(
+                    cmdbuf,
+                    indices_len,
+                    resources.instance_count,
+                    0,
+                    0,
+                    0,
+                    None,
+                );
+            }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), fruit_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
