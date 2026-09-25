@@ -110,6 +110,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "apple_preview_model"
+kind = "bool"
+label = "New Apple Model (A/B: unchecked = original)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "raster_tree_wind"
 kind = "bool"
 label = "Animate raster trees with wind"

@@ -1,4 +1,5 @@
 import tree_scene;
+import apple_preview_vertex;
 import flora_motion;
 import flora_types;
 import hash;
@@ -164,6 +165,13 @@ VertexOutput main(VertexInput input)
     uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
         leafInstance.packed_local_pos, pc.chunk_world_offset);
     bool isTreeLeaf = pc.instance_ty == FLORA_SPECIES_TREE_LEAF;
+    bool previewApple=pc.instance_ty==FLORA_SPECIES_APPLE && isApplePreviewVertex(input.packed_data);
+    float3 previewLocalPosition=float3(0.0);
+    if(previewApple){
+        previewLocalPosition=applePreviewPosition(input.packed_data)*
+            (float(unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))/2.0);
+        voxelLocalPosition=int3(floor(previewLocalPosition));
+    }
     int3 leafVoxelLocalPosition = isTreeLeaf
         ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
         : voxelLocalPosition;
@@ -180,9 +188,10 @@ VertexOutput main(VertexInput input)
         float3(instancePositionVoxels) * SCALING_FACTOR;
     uint seed = instanceSeed(instancePositionVoxels);
     bool isApple = pc.instance_ty == FLORA_SPECIES_APPLE;
-    if (isApple && !treeFruitVoxelVisible(
-            leafVoxelLocalPosition,
-            unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)))
+    if (isApple && (previewApple ?
+            unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)==0u :
+            !treeFruitVoxelVisible(leafVoxelLocalPosition,
+                unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))))
     {
         VertexOutput output;
         output.position = float4(2.0, 2.0, 2.0, 1.0);
@@ -238,8 +247,10 @@ VertexOutput main(VertexInput input)
     float billboardSizeVoxels = isTreeLeaf
         ? max(leafInstance.billboard_size_voxels, 0.0)
         : 1.225;
-    float3 vertexPosition = billboardVertexPosition(
-        voxelPosition, vertexOffset, billboardSizeVoxels);
+    float3 vertexPosition = previewApple ? anchorPosition +
+        treeAttachmentVector(instancePositionVoxels,
+            (previewLocalPosition-float3(leafVoxelLocalPosition))*SCALING_FACTOR) :
+        billboardVertexPosition(voxelPosition,vertexOffset,billboardSizeVoxels);
     VertexOutput output;
     output.position = mul(
         shadow_camera_info.view_proj_mat, float4(vertexPosition, 1.0));

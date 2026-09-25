@@ -403,6 +403,7 @@ mod tests {
             text,
             [
                 "Growth & Fruiting",
+                "Apple Appearance (A/B)",
                 "Planting",
                 "Ground Plants",
                 "Tree",

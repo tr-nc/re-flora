@@ -31,6 +31,7 @@ pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
 pub use tree_scene::TreeAttachment;
+mod apple_preview;
 mod dynamic_fruit_resources;
 pub use dynamic_fruit_resources::*;
 
@@ -1396,6 +1397,7 @@ pub struct TerrainFrameInput {
     pub ddgi_history_retention: f32,
     pub ddgi_continuous_sampling: bool,
     pub ddgi_aggregate_history: bool,
+    pub apple_preview_model: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1663,6 +1665,7 @@ pub struct Tracer {
     ddgi_history_retention: f32,
     ddgi_continuous_sampling: bool,
     ddgi_aggregate_history: bool,
+    apple_preview_model: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -2011,6 +2014,7 @@ impl Tracer {
             ddgi_history_retention: 0.99,
             ddgi_continuous_sampling: false,
             ddgi_aggregate_history: false,
+            apple_preview_model: false,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3033,6 +3037,20 @@ impl Tracer {
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
         self.ddgi_continuous_sampling = terrain.ddgi_continuous_sampling;
         self.ddgi_aggregate_history = terrain.ddgi_aggregate_history;
+        if self.apple_preview_model != terrain.apple_preview_model {
+            self.dynamic_fruit_resources.mark_shadow_changed();
+            let tree = if terrain.apple_preview_model {
+                &self.resources.meshes.apple_preview_resources
+            } else {
+                &self.resources.meshes.apple_resources
+            };
+            let (_, _, dropped) = self
+                .dynamic_fruit_resources
+                .render_mesh(terrain.apple_preview_model);
+            log::info!("[APPLE_MODEL_AB] mode={} attached_triangles={} dropped_triangles={} collider=original_voxels",
+                if terrain.apple_preview_model {"new"} else {"original"},tree.indices_len/3,dropped/3);
+        }
+        self.apple_preview_model = terrain.apple_preview_model;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3736,6 +3754,12 @@ impl Tracer {
             &self.resources.meshes.apple_resources_lod.vertices,
             self.resources.meshes.apple_resources_lod.indices_len,
         );
+        for mesh in [
+            &self.resources.meshes.apple_preview_resources,
+            &self.resources.meshes.apple_preview_resources_lod,
+        ] {
+            record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
+        }
         record_mesh(
             &self.sprinkler_resources.indices,
             &self.sprinkler_resources.vertices,
@@ -3769,6 +3793,11 @@ impl Tracer {
             &self.dynamic_fruit_resources.indices,
             &self.dynamic_fruit_resources.vertices,
             self.dynamic_fruit_resources.indices_len,
+        );
+        record_mesh(
+            &self.dynamic_fruit_resources.preview_indices,
+            &self.dynamic_fruit_resources.preview_vertices,
+            self.dynamic_fruit_resources.preview_indices_len,
         );
         record_mesh(
             &self.particle_resources.indices,
@@ -5065,18 +5094,14 @@ impl Tracer {
                     LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
                     LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
                 };
-                let (indices_buf, vertices_buf, indices_len) = match lod_state {
-                    LodState::Lod0 => (
-                        &self.resources.meshes.apple_resources.indices,
-                        &self.resources.meshes.apple_resources.vertices,
-                        self.resources.meshes.apple_resources.indices_len,
-                    ),
-                    LodState::Lod1 => (
-                        &self.resources.meshes.apple_resources_lod.indices,
-                        &self.resources.meshes.apple_resources_lod.vertices,
-                        self.resources.meshes.apple_resources_lod.indices_len,
-                    ),
+                let mesh = match (self.apple_preview_model, lod_state) {
+                    (false, LodState::Lod0) => &self.resources.meshes.apple_resources,
+                    (false, LodState::Lod1) => &self.resources.meshes.apple_resources_lod,
+                    (true, LodState::Lod0) => &self.resources.meshes.apple_preview_resources,
+                    (true, LodState::Lod1) => &self.resources.meshes.apple_preview_resources_lod,
                 };
+                let (indices_buf, vertices_buf, indices_len) =
+                    (&mesh.indices, &mesh.vertices, mesh.indices_len);
                 pipeline.record_bind(cmdbuf);
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
                 cmdbuf.bind_index_buffer_u32(indices_buf);
@@ -5288,20 +5313,13 @@ impl Tracer {
                 )
             });
             let resources = &self.dynamic_fruit_resources;
+            let (indices, vertices, indices_len) = resources.render_mesh(self.apple_preview_model);
             let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-            cmdbuf.bind_index_buffer_u32(&resources.indices);
-            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
-            pipeline.record_indexed(
-                cmdbuf,
-                resources.indices_len,
-                resources.instance_count,
-                0,
-                0,
-                0,
-                None,
-            );
+            cmdbuf.bind_index_buffer_u32(indices);
+            cmdbuf.bind_vertex_buffers(0, &[vertices, &resources.instances]);
+            pipeline.record_indexed(cmdbuf, indices_len, resources.instance_count, 0, 0, 0, None);
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), fruit_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -5605,13 +5623,20 @@ impl Tracer {
                     LEAF_INSTANCE_TYPE,
                     leaf_color_tables,
                 ),
-                TreeFoliageKind::Apples => (
-                    &self.resources.meshes.apple_resources_lod.indices,
-                    &self.resources.meshes.apple_resources_lod.vertices,
-                    self.resources.meshes.apple_resources_lod.indices_len,
-                    APPLE_INSTANCE_TYPE,
-                    solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
-                ),
+                TreeFoliageKind::Apples => {
+                    let mesh = if self.apple_preview_model {
+                        &self.resources.meshes.apple_preview_resources_lod
+                    } else {
+                        &self.resources.meshes.apple_resources_lod
+                    };
+                    (
+                        &mesh.indices,
+                        &mesh.vertices,
+                        mesh.indices_len,
+                        APPLE_INSTANCE_TYPE,
+                        solid_flora_height_color_tables(APPLE_BOTTOM_COLOR, APPLE_TIP_COLOR),
+                    )
+                }
             };
             cmdbuf.bind_index_buffer_u32(indices);
 
@@ -5668,6 +5693,7 @@ impl Tracer {
         if resources.instance_count == 0 {
             return;
         }
+        let (indices, vertices, indices_len) = resources.render_mesh(self.apple_preview_model);
 
         let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_shadow_ppl;
         pipeline.prepare_descriptor_resources(cmdbuf);
@@ -5695,17 +5721,9 @@ impl Tracer {
 
         pipeline.record_bind(cmdbuf);
         pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-        cmdbuf.bind_index_buffer_u32(&resources.indices);
-        cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
-        pipeline.record_indexed(
-            cmdbuf,
-            resources.indices_len,
-            resources.instance_count,
-            0,
-            0,
-            0,
-            None,
-        );
+        cmdbuf.bind_index_buffer_u32(indices);
+        cmdbuf.bind_vertex_buffers(0, &[vertices, &resources.instances]);
+        pipeline.record_indexed(cmdbuf, indices_len, resources.instance_count, 0, 0, 0, None);
 
         self.pipeline_topology
             .depth_only_target()

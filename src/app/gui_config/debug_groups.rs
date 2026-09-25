@@ -29,6 +29,13 @@ const GROUPS: &[ControlGroup] = &[
         ],
     },
     ControlGroup {
+        parent: Some("Flora"),
+        title: "Apple Appearance (A/B)",
+        description: "Off: original voxel apples. On: the new red apple model on trees and after falling. Physical collision is unchanged.",
+        initially_open: false,
+        params: &["apple_preview_model"],
+    },
+    ControlGroup {
         parent: Some("Wind"),
         title: "Vegetation Wind Response",
         description: "How plants react to wind. Pose rate is separate from the world tick.",

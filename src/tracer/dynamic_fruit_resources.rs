@@ -79,6 +79,9 @@ pub struct DynamicFruitRendererResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
+    pub preview_vertices: Resource<Buffer>,
+    pub preview_indices: Resource<Buffer>,
+    pub preview_indices_len: u32,
     pub instances: Resource<Buffer>,
     pub instance_count: u32,
     last_instances: Vec<DynamicFruitRenderInstance>,
@@ -109,6 +112,23 @@ impl DynamicFruitRendererResources {
             std::mem::size_of_val(indices_data.as_slice()) as u64,
         );
         indices.fill(&indices_data).unwrap();
+        let (preview_vertices_data, preview_indices_data) = build_preview_apple_mesh();
+        let preview_vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of_val(preview_vertices_data.as_slice()) as u64,
+        );
+        preview_vertices.fill(&preview_vertices_data).unwrap();
+        let preview_indices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of_val(preview_indices_data.as_slice()) as u64,
+        );
+        preview_indices.fill(&preview_indices_data).unwrap();
 
         let instances = Buffer::new_sized(
             device.clone(),
@@ -127,6 +147,9 @@ impl DynamicFruitRendererResources {
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len: indices_data.len() as u32,
+            preview_vertices: Resource::new(preview_vertices),
+            preview_indices: Resource::new(preview_indices),
+            preview_indices_len: preview_indices_data.len() as u32,
             instances: Resource::new(instances),
             instance_count: 0,
             last_instances: Vec::new(),
@@ -184,6 +207,22 @@ impl DynamicFruitRendererResources {
         self.last_instances.clear();
     }
 
+    pub fn render_mesh(&self, preview: bool) -> (&Resource<Buffer>, &Resource<Buffer>, u32) {
+        if preview {
+            (
+                &self.preview_indices,
+                &self.preview_vertices,
+                self.preview_indices_len,
+            )
+        } else {
+            (&self.indices, &self.vertices, self.indices_len)
+        }
+    }
+
+    pub fn mark_shadow_changed(&mut self) {
+        self.shadow_changed = true;
+    }
+
     pub fn take_shadow_changed(&mut self) -> bool {
         std::mem::take(&mut self.shadow_changed)
     }
@@ -234,6 +273,26 @@ fn instances_changed(
             || 1.0 - current.rotation.dot(last.rotation).abs() > ROTATION_DOT_EPSILON
             || (current.scale - last.scale).abs() > SCALE_EPSILON
     })
+}
+
+fn build_preview_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
+    let source = super::apple_preview::mesh();
+    let vertices = source
+        .positions
+        .iter()
+        .zip(&source.normals)
+        .zip(&source.materials)
+        .map(|((&position, &normal), &material)| {
+            let world = super::apple_preview::world_position(position);
+            DynamicFruitVertex::new(
+                world,
+                world,
+                normal,
+                super::apple_preview::COLORS_SRGB[material as usize],
+            )
+        })
+        .collect();
+    (vertices, source.indices.clone())
 }
 
 fn build_dynamic_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {

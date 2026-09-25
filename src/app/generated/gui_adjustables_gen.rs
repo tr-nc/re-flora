@@ -38,6 +38,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "apple_preview_model",
+        kind: "bool",
+        label: "New Apple Model (A/B: unchecked = original)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "raster_tree_wind",
         kind: "bool",
         label: "Animate raster trees with wind",
@@ -1416,6 +1422,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 pub struct GuiAdjustables {
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
+    pub apple_preview_model: crate::gui_adjustables::BoolParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
@@ -1660,6 +1667,7 @@ impl GuiAdjustables {
 
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_preview_model_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1901,6 +1909,11 @@ impl GuiAdjustables {
                     "ddgi_continuous_sampling" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             ddgi_continuous_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_preview_model" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_preview_model_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "raster_tree_wind" => {
@@ -3440,6 +3453,7 @@ impl GuiAdjustables {
         GuiAdjustables {
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
+            apple_preview_model: apple_preview_model_field.expect("Missing parameter: apple_preview_model"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
@@ -3901,6 +3915,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
+        "apple_preview_model" => Some(&adjustables.apple_preview_model),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
@@ -4177,6 +4192,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
+        "apple_preview_model" => Some(&mut adjustables.apple_preview_model),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&mut adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),

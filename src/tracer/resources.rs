@@ -1010,14 +1010,31 @@ pub struct TracerTextureResources {
     pub fast_weighted_cosine_bn: Resource<Texture>,
 }
 
+fn preview_apple_mesh_data() -> FloraMeshData<LeafVertex> {
+    let source = super::apple_preview::mesh();
+    let mut data = FloraMeshData::new(2);
+    data.vertices = source
+        .positions
+        .iter()
+        .zip(&source.materials)
+        .map(|(&position, &material)| LeafVertex {
+            packed_data: super::apple_preview::pack_vertex(position, material),
+        })
+        .collect();
+    data.indices = source.indices.clone();
+    data
+}
+
 pub struct TracerMeshResources {
     pub terrain_depth_prefill_vertices: Buffer,
     pub flora_meshes: Vec<FloraMeshResources>,
     pub leaves_resources: LeafMeshResources,
     pub apple_resources: LeafMeshResources,
+    pub apple_preview_resources: LeafMeshResources,
     pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeafMeshResources,
     pub apple_resources_lod: LeafMeshResources,
+    pub apple_preview_resources_lod: LeafMeshResources,
     pub glass: GlassMeshResources,
 }
 
@@ -1367,6 +1384,11 @@ impl TracerMeshResources {
             allocator.clone(),
             generate_indexed_voxel_apple(false).unwrap(),
         );
+        let apple_preview_resources = LeafMeshResources::from_mesh_data(
+            device.clone(),
+            allocator.clone(),
+            preview_apple_mesh_data(),
+        );
         let flora_meshes_lod = species::species()
             .iter()
             .map(|desc| {
@@ -1384,6 +1406,11 @@ impl TracerMeshResources {
             allocator.clone(),
             generate_indexed_voxel_apple(true).unwrap(),
         );
+        let apple_preview_resources_lod = LeafMeshResources::from_mesh_data(
+            device.clone(),
+            allocator.clone(),
+            preview_apple_mesh_data(),
+        );
         let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 
         Self {
@@ -1391,9 +1418,11 @@ impl TracerMeshResources {
             flora_meshes,
             leaves_resources,
             apple_resources,
+            apple_preview_resources,
             flora_meshes_lod,
             leaves_resources_lod,
             apple_resources_lod,
+            apple_preview_resources_lod,
             glass,
         }
     }
