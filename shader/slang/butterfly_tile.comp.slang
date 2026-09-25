@@ -2,6 +2,7 @@ import particle_model_shading;
 import butterfly_mesh_types;
 import model_pixel_surface;
 [[vk::binding(74,0)]] RWStructuredBuffer<float4> butterfly_pixel_tiles;
+[[vk::binding(75,0)]] StructuredBuffer<uint> draw_indices;
 [[vk::binding(3,1)]] RWStructuredBuffer<float4> model_pixel_tiles;
 // Compute-only write view of the same buffer. Fragment consumers remain read-only.
 [[vk::binding(1,1)]] RWStructuredBuffer<ParticleModelRepairNode> particle_model_repair_output;
@@ -43,7 +44,8 @@ void main(uint3 id : SV_DispatchThreadID) {
         }
         return;
     }
-    ButterflyMeshInstance instance=butterfly_mesh_instances[id.z+(model_pass.mode==3u?model_pass.tile_base:0u)];
+    uint instanceIndex=model_pass.mode==3u?draw_indices[model_pass.tile_base+id.z]:id.z;
+    ButterflyMeshInstance instance=butterfly_mesh_instances[instanceIndex];
     if (any(id.xy>=uint2(instance.metadata.z))) return;
     // mode 2 is a separate, bounded validation reference; never displayed.
     if(model_pass.mode==3u && instance.repair.w==0u)return;

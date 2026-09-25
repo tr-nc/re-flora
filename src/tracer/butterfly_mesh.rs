@@ -1,7 +1,7 @@
-//! Fixed per-animal pixel tiles, independent of world distance or flight mode.
-//! Butterflies cache one sample per tile texel. Falling leaves share this model
-//! draw path but evaluate snapped texels in the fragment shader: no per-leaf 64²
-//! allocation (16K particles would cost 1 GiB). Both consume canonical GLBs.
+//! Butterfly/leaf pose and material inputs for the shared model pixel generator.
+//! Both generate one sample per tile texel, then display through the same lookup
+//! shader as apples. Visible tiles are compact, resolution-sized and batched;
+//! no maximum-resolution allocation is reserved for inactive particle slots.
 use super::model_pixel_repair::{self, Node as RepairNode};
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
@@ -171,7 +171,9 @@ impl ButterflyMeshResources {
         let draw_indices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
+            ),
             MemoryLocation::CpuToGpu,
             (MODEL_CAPACITY * 4) as u64,
         );
@@ -254,6 +256,7 @@ impl Mesh {
 pub(super) struct ButterflyMeshRenderer {
     mesh: Mesh,
     instances: Vec<Instance>,
+    draw_order: Vec<u32>,
     pub repair_nodes: Vec<RepairNode>,
     reference_tiles: bool,
     validation_calls: u64,
@@ -280,6 +283,7 @@ impl Default for ButterflyMeshRenderer {
         Self {
             mesh: Mesh::load(),
             instances: Vec::new(),
+            draw_order: Vec::new(),
             repair_nodes: Vec::new(),
             reference_tiles: native_review(),
             validation_calls: 0,
@@ -643,17 +647,13 @@ impl ButterflyMeshRenderer {
             let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
             instance.repair[3] = u32::from(visible);
         }
-        let (offsets, batches) = super::model_pixel_tiles::pack_tiles(
-            self.instances
-                .iter()
-                .map(|i| (i.metadata[2], i.repair[3] != 0)),
-        );
-        self.tile_batches = batches;
-        for (instance, offset) in self.instances.iter_mut().zip(offsets) {
-            instance.repair[2] = offset;
-        }
+        self.assign_pixel_tiles();
         if !self.instances.is_empty() {
+            // Publish only the complete frame: never overwrite in-flight tile
+            // offsets/visibility with prepare_models' zero-initialized metadata.
             resources.butterfly_mesh_instances.fill(&self.instances)?;
+            resources.butterfly_mesh_triangles.fill(&self.triangles)?;
+            resources.draw_indices.fill(&self.draw_order)?;
         }
         self.compute_count = self.count();
         self.dispatch_resolution = self
@@ -700,6 +700,17 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
+    fn assign_pixel_tiles(&mut self) {
+        let (offsets, batches) =
+            super::model_pixel_tiles::pack_tiles(self.draw_order.iter().map(|&index| {
+                let i = &self.instances[index as usize];
+                (i.metadata[2], i.repair[3] != 0)
+            }));
+        self.tile_batches = batches;
+        for (&index, offset) in self.draw_order.iter().zip(offsets) {
+            self.instances[index as usize].repair[2] = offset;
+        }
+    }
     pub fn tile_compute_mode(&self) -> u32 {
         if native_review() {
             1
@@ -716,18 +727,16 @@ impl ButterflyMeshRenderer {
             .clone()
     }
 
-    pub fn upload(
+    pub fn prepare_frame_models(
         &mut self,
-        resources: &ButterflyMeshResources,
         snapshots: &[ParticleSnapshot],
         settings: ButterflyMeshSettings,
         leaves: LeafModelSettings,
         camera_position: Vec3,
     ) -> Result<()> {
         self.prepare_models(snapshots, settings, leaves, camera_position)?;
+        self.draw_order.clear();
         if !self.instances.is_empty() {
-            resources.butterfly_mesh_instances.fill(&self.instances)?;
-            resources.butterfly_mesh_triangles.fill(&self.triangles)?;
             let mut order: Vec<u32> = (0..self.count()).collect();
             order.sort_by(|a, b| {
                 let distance = |i: u32| {
@@ -736,7 +745,7 @@ impl ButterflyMeshRenderer {
                 };
                 distance(*b).total_cmp(&distance(*a))
             });
-            resources.draw_indices.fill(&order)?;
+            self.draw_order = order;
         }
         let leaf_mode = (
             leaves.enabled,
@@ -788,6 +797,36 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sorted_draw_batches_keep_tile_offsets_with_their_instances() {
+        let mut renderer = ButterflyMeshRenderer::default();
+        renderer.instances = (0..1100)
+            .map(|_| Instance {
+                position_size: [0.; 4],
+                color: [1.; 4],
+                metadata: [0, 32, 64, LEAF_MODEL_FLAG],
+                lighting: [0., 0., 0., 1.],
+                repair: [0, 0, 0, 1],
+            })
+            .collect();
+        renderer.draw_order = (0..1100u32).rev().collect();
+        renderer.assign_pixel_tiles();
+        assert_eq!(renderer.tile_batches.len(), 2);
+        for batch in &renderer.tile_batches {
+            for (tile, &instance) in renderer.draw_order
+                [batch.first as usize..(batch.first + batch.count) as usize]
+                .iter()
+                .enumerate()
+            {
+                assert_eq!(
+                    renderer.instances[instance as usize].repair[2],
+                    tile as u32 * 64 * 64
+                );
+            }
+        }
+        assert_eq!(renderer.instances[0].repair[2], 75 * 4096);
+        assert_eq!(renderer.instances[1099].repair[2], 0);
+    }
 
     #[test]
     fn declared_leaf_pixel_control_matches_butterfly_range_but_is_independent() {

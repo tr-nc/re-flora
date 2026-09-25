@@ -1,5 +1,5 @@
-// Shared model ray/sample implementation. Cached butterfly tiles and snapped
-// leaf fragments use the same camera, coverage, actual hit depth and sun inputs.
+// Particle material/pose adapter for the common model tile generator.
+// Both butterfly and leaf screen fragments only read generated tiles.
 import butterfly_mesh_types;
 import model_pixel_grid;
 import model_pixel_surface;
@@ -121,10 +121,8 @@ public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pi
 public float4 sampleParticleModel(ButterflyMeshInstance instance, uint2 pixel) {
     ModelPixelFrame frame=particleModelFrame(instance);
     float4 bounds=butterflyTileBounds(instance,camera_info);
-    ModelPixelHit hit=modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
-        instance.metadata.y,frame,bounds,float2(pixel)+0.5,instance.metadata.z,camera_info);
-    hit=modelPixelCoverageHit(butterfly_mesh_triangles,instance.metadata.x,
-        instance.metadata.y,frame,bounds,pixel,instance.metadata.z,camera_info,hit);
+    ModelPixelHit hit=sampleModelPixelGeometry(butterfly_mesh_triangles,instance.metadata.x,
+        instance.metadata.y,frame,bounds,pixel,instance.metadata.z,camera_info);
     if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
     return float4(shadeParticleModelSurface(instance,hit.triangle,hit.bary,
         hit.position,hit.direction,(instance.metadata.w&2u)!=0u),hit.depth);

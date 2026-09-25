@@ -345,6 +345,28 @@ fn build_dynamic_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pixel_adapter_reads_the_same_packed_rigid_body_stream() {
+        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 11 * 4);
+        assert_eq!(
+            std::mem::offset_of!(DynamicFruitInstanceGpu, base_position),
+            0
+        );
+        assert_eq!(std::mem::offset_of!(DynamicFruitInstanceGpu, tint), 3 * 4);
+        assert_eq!(
+            std::mem::offset_of!(DynamicFruitInstanceGpu, rotation),
+            7 * 4
+        );
+        let gpu = DynamicFruitInstanceGpu::new(DynamicFruitRenderInstance::new(
+            Vec3::new(1., 2., 3.),
+            Quat::from_rotation_y(0.7),
+            2.,
+        ));
+        let words: &[f32] = bytemuck::cast_slice(std::slice::from_ref(&gpu));
+        assert_eq!(&words[..3], &[1., 2., 3.]);
+        assert_eq!(words[6], 2.);
+        assert_eq!(&words[7..11], &Quat::from_rotation_y(0.7).to_array());
+    }
 
     #[test]
     fn dynamic_fruit_layout_matches_shader_locations() {

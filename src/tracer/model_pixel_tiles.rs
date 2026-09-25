@@ -3,7 +3,10 @@
 //! like the renderer's other transient descriptor and repair allocations.
 use anyhow::{ensure, Result};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub const BATCH_TEXELS: usize = 64 * 1024 * 1024 / 16;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,8 +89,21 @@ mod tests {
 #[derive(Default)]
 pub struct ModelPixelTiles {
     frames: Vec<HashMap<u64, (Arc<Buffer>, usize)>>,
+    used: Vec<HashSet<u64>>,
 }
 impl ModelPixelTiles {
+    pub fn begin_frame(&mut self, frame: usize) {
+        if self.frames.len() <= frame {
+            self.frames.resize_with(frame + 1, HashMap::new);
+        }
+        if self.used.len() <= frame {
+            self.used.resize_with(frame + 1, HashSet::new);
+        }
+        // This frame slot's fence has completed. Keep the last use for reuse,
+        // but retire buffers belonging to deleted trees or vanished batches.
+        self.frames[frame].retain(|key, _| self.used[frame].contains(key));
+        self.used[frame].clear();
+    }
     pub fn get(
         &mut self,
         frame: usize,
@@ -107,6 +123,10 @@ impl ModelPixelTiles {
         if self.frames.len() <= frame {
             self.frames.resize_with(frame + 1, HashMap::new);
         }
+        if self.used.len() <= frame {
+            self.used.resize_with(frame + 1, HashSet::new);
+        }
+        self.used[frame].insert(key);
         let slots = &mut self.frames[frame];
         if slots.get(&key).is_none_or(|(_, old)| *old < capacity) {
             let buffer = Buffer::new_sized(

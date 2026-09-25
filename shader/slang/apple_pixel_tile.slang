@@ -23,10 +23,8 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
     frame.axisX=input.axisX;frame.axisY=input.axisY;frame.axisZ=input.axisZ;
     uint count,stride;apple_pixel_triangles.GetDimensions(count,stride);
     float4 bounds=applePixelBounds(input,camera_info);
-    ModelPixelHit hit=modelPixelCenterHit(apple_pixel_triangles,0u,count,frame,
-        bounds,float2(pixel)+0.5,input.resolution,camera_info);
-    hit=modelPixelCoverageHit(apple_pixel_triangles,0u,count,frame,bounds,pixel,
-        input.resolution,camera_info,hit);
+    ModelPixelHit hit=sampleModelPixelGeometry(apple_pixel_triangles,0u,count,frame,
+        bounds,pixel,input.resolution,camera_info);
     if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
     ButterflyMeshTriangle tri=apple_pixel_triangles[hit.triangle];
     float3 bary=float3(1.0-hit.bary.x-hit.bary.y,hit.bary);

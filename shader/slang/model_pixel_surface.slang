@@ -116,6 +116,15 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
     return hit;
 }
 
+// Sole production geometry entry point for every model adapter.
+public ModelPixelHit sampleModelPixelGeometry(StructuredBuffer<ButterflyMeshTriangle> triangles,
+    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
+    U_CameraInfo camera) {
+    ModelPixelHit hit=modelPixelCenterHit(triangles,first,count,frame,bounds,
+        float2(pixel)+0.5,resolution,camera);
+    return modelPixelCoverageHit(triangles,first,count,frame,bounds,pixel,resolution,camera,hit);
+}
+
 public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
     uint first,uint count,ModelPixelFrame frame,float4 bounds,float2 pixel,uint resolution,
     U_CameraInfo camera) {

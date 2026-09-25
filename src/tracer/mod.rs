@@ -3424,6 +3424,7 @@ impl Tracer {
         }
 
         self.start_next_ddgi_scheduled_work()?;
+        self.model_pixel_tiles.begin_frame(gpu_profiler_frame_slot);
 
         self.pipeline_topology
             .graphics()
@@ -7003,8 +7004,7 @@ impl Tracer {
             self.translucent_particle_instance_scratch.len() as u32;
         // Publish ordinary particles even if the butterfly tile pool rejects
         // an oversized batch; never leave unrelated particles on a stale frame.
-        self.butterfly_mesh_renderer.upload(
-            &self.resources.butterfly_mesh,
+        self.butterfly_mesh_renderer.prepare_frame_models(
             snapshots,
             butterfly_mesh,
             leaf_model,
