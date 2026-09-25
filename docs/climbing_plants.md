@@ -14,7 +14,11 @@ Older saved checkbox values are discarded without changing other user settings.
 1. Run this worktree with `cargo run --release`, then **R → Climbing Plants**.
    The demo wall and vine initialize automatically on a new session; there is no
    enable checkbox. Loading a saved world still clears the session-only vine and
-   does not silently add a new test wall.
+   does not silently add a new test wall. Alternatively select **Grow → Climbing Vine**
+   beside the Grow item and click a clear solid terrain face (ground, wall, or pole).
+   The root starts at that face without authoring a test wall. Each click-stroke plants
+   once and replaces the single active session vine; history is not saved with the world.
+   **Create vine wall and focus** returns to the demo fixture.
 2. The vine uses distributed bending through attachments, independently timed exploration,
    gradual contact establishment, compliant established stem and short attachment roots.
 3. **Test terrain** restarts immediately. **Climbing pole** authors a 20×20-voxel

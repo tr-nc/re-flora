@@ -82,7 +82,7 @@ impl ClimbingPlants {
     pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui) {
         ui.small("3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
         ui.horizontal(|ui| {
-            if self.plant.is_none() {
+            if self.site.is_none() {
                 if ui.button("Create vine wall and focus").clicked() {
                     self.reset_requested = true;
                 }
@@ -90,13 +90,16 @@ impl ClimbingPlants {
                 self.reset_requested = true;
             }
             if ui
-                .add_enabled(self.created, egui::Button::new("Focus vine"))
+                .add_enabled(
+                    self.plant.is_some() || self.site.is_some(),
+                    egui::Button::new("Focus vine"),
+                )
                 .clicked()
             {
                 self.focus_requested = true;
             }
         });
-        ui.small("Test terrain restarts the vine; search width, rotation rate and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
+        ui.small("Grow → Climbing Vine plants one session vine at the clicked terrain face. Test terrain restarts the demo vine; search controls change live.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
             ui.small(format!(
@@ -112,8 +115,7 @@ impl ClimbingPlants {
             let attached = plant.anchors.iter().filter(|a| a.attached).count();
             let flexible = plant.nodes.iter().filter(|node| !node.fixed).count();
             ui.small(format!(
-                "Seed {} · {} recent nodes (lighter green); continuous bending through compliant attachments",
-                self.seed,
+                "{} recent nodes (lighter green); continuous bending through compliant attachments",
                 flexible
             ));
             ui.label(format!(
@@ -259,6 +261,42 @@ impl Terrain for Patch {
     }
 }
 
+/// Resolve the entrance face of the clicked solid voxel, including side faces of posts.
+/// The root sits just outside the face; no fixture terrain is authored for player planting.
+fn root_at_surface(
+    terrain: &impl Terrain,
+    hit: Vec3,
+    ray_direction: Vec3,
+) -> Option<(Vec3, Vec3, IVec3, u8)> {
+    let direction = ray_direction.normalize_or_zero();
+    if direction == Vec3::ZERO || !hit.is_finite() {
+        return None;
+    }
+    let point = hit * 256.0;
+    let cell = (point + direction * 0.1).floor().as_ivec3();
+    let material = terrain.voxel(cell)?;
+    if material == VOXEL_TYPE_EMPTY as u8 {
+        return None;
+    }
+    let axis = (0..3)
+        .filter(|&axis| direction[axis].abs() > 1e-5)
+        .min_by(|&a, &b| {
+            let entrance = |axis: usize| {
+                let face = cell[axis] as f32 + f32::from(direction[axis] < 0.0);
+                (point[axis] - face).abs() / direction[axis].abs()
+            };
+            entrance(a).total_cmp(&entrance(b))
+        })?;
+    let mut normal = Vec3::ZERO;
+    normal[axis] = -direction[axis].signum();
+    let face = cell[axis] as f32 + f32::from(normal[axis] > 0.0);
+    let mut position = point;
+    position[axis] = face;
+    position += normal * 0.83;
+    (crate::climbing_plants::clear_segment(terrain, position, position, 0.65) == Some(true))
+        .then_some((position, normal, cell, material))
+}
+
 fn stamp_boxes(boxes: &[(UVec3, UVec3)], material: u32) -> Result<VoxelEdit> {
     let cuboids: Vec<_> = boxes
         .iter()
@@ -300,6 +338,72 @@ fn fixture_edit(fixture: Fixture, site: Site) -> Result<WorldEditTransaction> {
 }
 
 impl App {
+    /// Grow-tool placement replaces the single session vine, without changing the clicked terrain.
+    pub(super) fn plant_climbing_at_surface(&mut self, hit: Vec3, direction: Vec3) -> Result<bool> {
+        let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+        let point = hit * 256.0;
+        if !point.is_finite()
+            || point.cmplt(Vec3::splat(4.0)).any()
+            || point.cmpge((world_dim - UVec3::splat(4)).as_vec3()).any()
+        {
+            return Ok(false);
+        }
+        let min = (point - Vec3::splat(4.0)).floor().as_uvec3();
+        let max = (point + Vec3::splat(5.0)).ceil().as_uvec3();
+        let source = self.contree_builder.cpu_voxel_source_snapshot();
+        let Some(block) = self
+            .climbing_plants
+            .collision_cache
+            .query(&source, min, max)?
+        else {
+            self.climbing_plants.waiting_for_terrain = true;
+            return Ok(false);
+        };
+        let latest = self.contree_builder.cpu_voxel_source_snapshot();
+        if !block
+            .source_dependencies
+            .iter()
+            .all(|d| latest.is_chunk_voxel_cache_ready(*d))
+        {
+            self.climbing_plants.waiting_for_terrain = true;
+            return Ok(false);
+        }
+        let patch = Patch {
+            block,
+            fresh: true,
+            queries: None,
+        };
+        let Some((position, normal, cell, material)) = root_at_surface(&patch, hit, direction)
+        else {
+            self.climbing_plants.last_action =
+                "Choose a clear, solid terrain face for the vine root.";
+            return Ok(false);
+        };
+        self.climbing_plants.plant = Some(
+            Plant::seed(position, normal, cell, material, PLAYABLE_VINE_SEED)
+                .with_search_direction(SearchDirection::Counterclockwise),
+        );
+        self.climbing_plants.created = true;
+        self.climbing_plants.awaiting_seed = false;
+        self.climbing_plants.reset_requested = false;
+        self.climbing_plants.site = None;
+        self.climbing_plants.seed = PLAYABLE_VINE_SEED;
+        self.climbing_plants.direction = SearchDirection::Counterclockwise;
+        self.climbing_plants.last_selection = Some((
+            Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value),
+            PLAYABLE_VINE_SEED,
+        ));
+        self.climbing_plants.growth_clock = QuantumClock::default();
+        self.climbing_plants.shoot_clock = QuantumClock::default();
+        self.climbing_plants.last_dependencies.clear();
+        self.climbing_plants.terrain_dirty = true;
+        self.climbing_plants.waiting_for_terrain = false;
+        self.climbing_plants.last_action =
+            "Planted vine at the selected surface (one session vine at a time).";
+        log::info!("[CLIMBING] Grow planted vine at {position:?} on {cell:?} material={material}");
+        Ok(true)
+    }
+
     pub(super) fn update_climbing_plants(&mut self, steps: u32, tick_seconds: f32) -> Result<()> {
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
         let review = review_mode.is_some();
@@ -384,22 +488,23 @@ impl App {
         if !self.climbing_plants.awaiting_seed && self.climbing_plants.plant.is_none() {
             return Ok(()); // loading a world must not silently seed a new vine
         }
-        let site = self
-            .climbing_plants
-            .site
-            .expect("created fixture has a grounded site");
+        let site = self.climbing_plants.site;
         if self.climbing_plants.focus_requested {
             self.climbing_plants.focus_requested = false;
-            let target = self.climbing_plants.plant.as_ref().map_or(
-                site.point(Vec3::new(
-                    256.,
-                    244.,
-                    if self.climbing_plants.fixture == Fixture::Slope {
-                        330.
-                    } else {
-                        308.
-                    },
-                )) / 256.,
+            let target = self.climbing_plants.plant.as_ref().map_or_else(
+                || {
+                    site.expect("fixture seed has a grounded site")
+                        .point(Vec3::new(
+                            256.,
+                            244.,
+                            if self.climbing_plants.fixture == Fixture::Slope {
+                                330.
+                            } else {
+                                308.
+                            },
+                        ))
+                        / 256.
+                },
                 |plant| {
                     let (min, max) = plant.nodes.iter().fold(
                         (plant.nodes[0].position, plant.nodes[0].position),
@@ -462,7 +567,9 @@ impl App {
                     .min(super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK),
             )
         } else {
-            let (position, _, _) = site.seed(self.climbing_plants.fixture);
+            let (position, _, _) = site
+                .expect("fixture seed has a grounded site")
+                .seed(self.climbing_plants.fixture);
             (
                 (position - Vec3::splat(8.0)).floor().as_uvec3(),
                 (position + Vec3::splat(9.0)).ceil().as_uvec3(),
@@ -494,7 +601,9 @@ impl App {
         self.climbing_plants.waiting_for_terrain = false;
         let export_us = elapsed_us();
         if self.climbing_plants.awaiting_seed {
-            let (position, normal, cell) = site.seed(self.climbing_plants.fixture);
+            let (position, normal, cell) = site
+                .expect("fixture seed has a grounded site")
+                .seed(self.climbing_plants.fixture);
             if patch.voxel(cell) == Some(VOXEL_TYPE_LIMESTONE as u8)
                 && crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
                     == Some(true)
@@ -792,6 +901,64 @@ mod tests {
             true
         }
     }
+    #[test]
+    fn grow_root_uses_clicked_ground_and_pole_faces_without_modifying_terrain() {
+        struct Scene(Fixture);
+        impl Terrain for Scene {
+            fn voxel(&self, cell: IVec3) -> Option<u8> {
+                Some(if self.0.solid(cell) {
+                    VOXEL_TYPE_LIMESTONE as u8
+                } else {
+                    0
+                })
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        for (fixture, hit, direction, expected_normal, expected_cell) in [
+            (
+                Fixture::Ground,
+                Vec3::new(255.5, 192.0, 314.5),
+                -Vec3::Y,
+                Vec3::Y,
+                IVec3::new(255, 191, 314),
+            ),
+            (
+                Fixture::Pole,
+                Vec3::new(255.5, 210.5, 316.0),
+                -Vec3::Z,
+                Vec3::Z,
+                IVec3::new(255, 210, 315),
+            ),
+            (
+                Fixture::Pole,
+                Vec3::new(266.0, 210.5, 306.5),
+                -Vec3::X,
+                Vec3::X,
+                IVec3::new(265, 210, 306),
+            ),
+        ] {
+            let terrain = Scene(fixture);
+            let (position, normal, cell, material) =
+                root_at_surface(&terrain, hit / 256.0, direction).unwrap();
+            assert_eq!(
+                (normal, cell, material),
+                (expected_normal, expected_cell, VOXEL_TYPE_LIMESTONE as u8)
+            );
+            let mut plant = Plant::seed(position, normal, cell, material, PLAYABLE_VINE_SEED);
+            assert_eq!(plant.revalidate(&terrain).unwrap().removed, 0);
+            assert!(plant.root_connected());
+        }
+        // A hit point that does not resolve to a solid support must not replace the vine.
+        assert!(root_at_surface(
+            &Scene(Fixture::Pole),
+            Vec3::new(280.0, 210.5, 316.0) / 256.0,
+            -Vec3::Z,
+        )
+        .is_none());
+    }
+
     fn test_plant() -> Plant {
         Plant::seed(
             Vec3::new(20.5, 4.5, 1.8),
@@ -926,6 +1093,7 @@ mod tests {
         let mut runtime = ClimbingPlants {
             created: true,
             plant: Some(test_plant()),
+            site: Some(Site::default()),
             ..Default::default()
         };
         for _ in 0..40 {
