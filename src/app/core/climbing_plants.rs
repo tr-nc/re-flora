@@ -11,7 +11,6 @@ use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::DynamicFruitRenderInstance;
 use anyhow::Result;
 use glam::{IVec3, Mat3, Quat, UVec3, Vec3};
-use rand::RngExt;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Instant;
@@ -19,6 +18,8 @@ use std::time::Instant;
 mod review;
 mod site;
 use site::Site;
+
+const PLAYABLE_VINE_SEED: u64 = 3500;
 
 #[derive(Default)]
 pub(super) struct ClimbingPlants {
@@ -30,7 +31,6 @@ pub(super) struct ClimbingPlants {
     site: Option<Site>,
     seed: u64,
     direction: SearchDirection,
-    randomize_requested: bool,
     pub reset_requested: bool,
     pub focus_requested: bool,
     pub disconnect_root_requested: bool,
@@ -96,10 +96,7 @@ impl ClimbingPlants {
                 self.focus_requested = true;
             }
         });
-        if ui.button("New random seed").on_hover_text("Choose another saved seed and restart this same grounded test patch. Restart alone repeats the current seed.").clicked() {
-            self.randomize_requested = true;
-        }
-        ui.small("Terrain and seed restart the vine; search width, rotation rate and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
+        ui.small("Test terrain restarts the vine; search width, rotation rate and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
             ui.small(format!(
@@ -317,25 +314,10 @@ impl App {
         } else {
             Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value)
         };
-        if std::mem::take(&mut self.climbing_plants.randomize_requested) {
-            let seed = &mut self.debug_settings.adjustables.climbing_seed;
-            let old = seed.value;
-            seed.value = rand::rng().random_range(seed.range.clone());
-            if seed.value == old {
-                seed.value = if old == *seed.range.end() {
-                    *seed.range.start()
-                } else {
-                    old + 1
-                };
-            }
-            self.climbing_plants.reset_requested = true;
-        }
-        let selected_seed = if overhang_review {
-            3500
-        } else if review {
+        let selected_seed = if review && !overhang_review {
             42
         } else {
-            u64::from(self.debug_settings.adjustables.climbing_seed.value)
+            PLAYABLE_VINE_SEED
         };
         // The player-facing phenotype always searches counterclockwise. Native
         // fixture review still exercises the opposite code-configured direction.
@@ -960,8 +942,6 @@ mod tests {
             "restart still requires a confirmation click"
         );
         runtime.reset_requested = false;
-        click(&mut runtime, &context, "New random seed");
-        assert!(runtime.randomize_requested);
         runtime.waiting_for_terrain = true;
         click(&mut runtime, &context, "Prune highest attachment");
         assert!(!runtime.peel_highest_requested);

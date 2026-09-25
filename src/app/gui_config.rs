@@ -1308,7 +1308,6 @@ wind_drift = 1.0
     fn climbing_exploration_controls_use_standard_save_and_older_defaults() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.climbing_fixture.value = 4;
-        settings.adjustables.climbing_seed.value = 65001;
         settings.adjustables.climbing_flexibility.value = 1.7;
         settings.adjustables.climbing_search_turn.value = 4.5;
         settings.adjustables.climbing_search_rate.value = 2.0;
@@ -1318,7 +1317,6 @@ wind_drift = 1.0
         settings.save_to_path(&path).unwrap();
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(reloaded.adjustables.climbing_fixture.value, 4);
-        assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
         assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
         assert_eq!(reloaded.adjustables.climbing_search_turn.value, 4.5);
         assert_eq!(reloaded.adjustables.climbing_search_rate.value, 2.0);
@@ -1344,6 +1342,8 @@ wind_drift = 1.0
         section.param.push(retired.clone());
         retired.id = "climbing_clockwise".into();
         retired.value = GuiParamValue::Bool { value: true };
+        section.param.push(retired.clone());
+        retired.id = "climbing_seed".into();
         section.param.push(retired);
         let speed = section
             .param
@@ -1377,8 +1377,8 @@ wind_drift = 1.0
                     | "climbing_paused"
                     | "climbing_enabled"
                     | "climbing_clockwise"
+                    | "climbing_seed"
             )));
-        assert_eq!(migrated.adjustables.climbing_seed.value, 65001);
         assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
         assert_eq!(*migrated.adjustables.climbing_speed.range.start(), 1.0);
         assert_eq!(*migrated.adjustables.climbing_search_turn.range.end(), 6.0);
@@ -1395,11 +1395,13 @@ wind_drift = 1.0
         assert!(!std::fs::read_to_string(&path)
             .unwrap()
             .contains("climbing_clockwise"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_seed"));
         for section in &mut settings.config.section {
             section.param.retain(|p| {
                 ![
                     "climbing_fixture",
-                    "climbing_seed",
                     "climbing_flexibility",
                     "climbing_search_turn",
                     "climbing_search_rate",
@@ -1410,18 +1412,13 @@ wind_drift = 1.0
         }
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
         let older = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        // Migration uses compiled declarations, including user-saved defaults;
-        // it must not depend on historical seed values from a prior build.
+        // Migration uses compiled declarations, including user-saved defaults.
         let defaults = DebugSettings::from_config(
             toml::from_str(include_str!("../../config/gui.toml")).unwrap(),
         );
         assert_eq!(
             older.adjustables.climbing_fixture.value,
             defaults.adjustables.climbing_fixture.value
-        );
-        assert_eq!(
-            older.adjustables.climbing_seed.value,
-            defaults.adjustables.climbing_seed.value
         );
         assert_eq!(
             older.adjustables.climbing_flexibility.value,

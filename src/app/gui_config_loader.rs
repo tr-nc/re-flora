@@ -105,6 +105,7 @@ impl GuiConfigLoader {
                         | "climbing_paused"
                         | "climbing_enabled"
                         | "climbing_clockwise"
+                        | "climbing_seed"
                 )
             });
         }

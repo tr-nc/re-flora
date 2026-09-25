@@ -2619,17 +2619,6 @@ options = [
 ]
 
 [[section.param]]
-id = "climbing_seed"
-kind = "uint"
-label = "Vine seed (restarts vine)"
-type = "Uint"
-
-[section.param.data]
-value = 3500
-min = 0
-max = 65535
-
-[[section.param]]
 id = "climbing_flexibility"
 kind = "float"
 label = "Shoot exploration / flexibility"
