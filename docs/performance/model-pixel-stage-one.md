@@ -9,12 +9,12 @@ In **Debug → Pixel Models: Stage 1 (A/B)**:
 
 - **Pixel Models: One Lighting Sample per Object (A/B)**
 - **Pixel Models: Discrete View Count (Fibonacci Sphere, No Cache)** — integer
-  slider, **8–512**, default **128**.
+  slider, **8–512**, default **16**.
 
 View quantization is always enabled. The count and lighting checkbox are saved;
 lighting defaults to off (per-texel lighting), not continuous views. Changes take
 effect immediately. Old saved view-checkbox values are retired regardless of
-whether they were checked; a missing count becomes 128, and an existing count is
+whether they were checked; a missing count becomes 16, and an existing count is
 preserved. Both settings apply to butterflies,
 3D falling leaves, and attached/fallen apples. Apples now always use the pixel
 pipeline; the former **Flora → Apple Appearance (A/B)** model checkbox and voxel

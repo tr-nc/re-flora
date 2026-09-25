@@ -996,7 +996,7 @@ mod tests {
                     .find(|p| p.id == "model_pixel_view_count")
                     .unwrap();
                 assert!(
-                    matches!(param.value,GuiParamValue::Uint{value,..} if value==existing_count.unwrap_or(128))
+                    matches!(param.value,GuiParamValue::Uint{value,..} if value==existing_count.unwrap_or(16))
                 );
                 GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
                 assert!(!std::fs::read_to_string(&path)

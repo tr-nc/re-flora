@@ -136,7 +136,7 @@ label = "Pixel Models: Discrete View Count (Fibonacci Sphere, No Cache)"
 type = "Uint"
 
 [section.param.data]
-value = 128
+value = 16
 min = 8
 max = 512
 
