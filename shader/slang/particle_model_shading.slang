@@ -1,6 +1,7 @@
 // Shared model ray/sample implementation. Cached butterfly tiles and snapped
 // leaf fragments use the same camera, coverage, actual hit depth and sun inputs.
 import butterfly_mesh_types;
+import model_pixel_grid;
 import flora_shadow;
 import environment_lighting;
 import leaf_lighting;
@@ -22,13 +23,7 @@ import tracer_types;
 [[vk::binding(0,1)]] public StructuredBuffer<ParticleModelRepairNode> particle_model_repairs;
 
 bool intersectTriangleBary(float3 origin, float3 direction, ButterflyMeshTriangle tri, out float t, out float2 bary) {
-    float3 p=cross(direction,tri.e2.xyz);
-    float det=dot(tri.e1.xyz,p);t=0.0;bary=0.0;
-    if (abs(det)<1e-12) return false;
-    float inv=1.0/det;float3 s=origin-tri.a.xyz;
-    float u=dot(s,p)*inv;float3 q=cross(s,tri.e1.xyz);float v=dot(direction,q)*inv;
-    t=dot(tri.e2.xyz,q)*inv;bary=float2(u,v);
-    return u>=-1e-6 && v>=-1e-6 && u+v<=1.000001 && t>0.0;
+    return modelPixelTriangleHit(origin,direction,tri.a.xyz,tri.e1.xyz,tri.e2.xyz,t,bary);
 }
 bool intersectTriangle(float3 origin, float3 direction, ButterflyMeshTriangle tri, out float t) {
     float2 bary;return intersectTriangleBary(origin,direction,tri,t,bary);
@@ -97,11 +92,8 @@ public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel
     const float4 miss=float4(0.0,0.0,0.0,1.0);
     float4 bounds=butterflyTileBounds(instance,camera_info);
     if (any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0))) return miss;
-    float2 ndc=lerp(bounds.xy,bounds.zw,pixel/float(instance.metadata.z));
-    float4 nearH=mul(camera_info.view_proj_mat_inv,float4(ndc,0.0,1.0));
-    float4 farH=mul(camera_info.view_proj_mat_inv,float4(ndc,1.0,1.0));
-    float3 worldOrigin=nearH.xyz/nearH.w;
-    float3 worldDirection=normalize(farH.xyz/farH.w-worldOrigin);
+    float3 worldOrigin,worldDirection;
+    modelPixelRay(bounds,pixel,instance.metadata.z,camera_info,worldOrigin,worldDirection);
     float3 origin=worldOrigin,direction=worldDirection;
     bool leaf=(instance.metadata.w&2u)!=0u;
     float scale=instance.position_size.w*(1.53125/3.4);
