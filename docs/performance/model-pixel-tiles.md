@@ -1,5 +1,9 @@
 # Shared model pixel tiles
 
+For the subsequent per-object-lighting and 128-view GUI experiment, see
+[Stage-one preview and measurements](model-pixel-stage-one.md). It retains live
+tile generation; no persistent atlas has been implemented.
+
 ## One production algorithm
 
 Butterflies, falling leaves, and both attached/fallen new apples now use:
