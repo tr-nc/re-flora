@@ -2619,15 +2619,6 @@ options = [
 ]
 
 [[section.param]]
-id = "climbing_clockwise"
-kind = "bool"
-label = "Clockwise tip search (restarts vine)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "climbing_seed"
 kind = "uint"
 label = "Vine seed (restarts vine)"

@@ -1,5 +1,5 @@
 use super::*;
-use crate::climbing_plants::fixtures::Fixture;
+use crate::climbing_plants::{fixtures::Fixture, SearchDirection};
 use glam::IVec3;
 
 struct Scene(Fixture);
@@ -13,7 +13,7 @@ impl Terrain for Scene {
 }
 fn seed(f: Fixture, s: u64) -> Plant {
     let (p, n, c) = f.seed();
-    Plant::seed(p, n, c, 1, s).with_clockwise(false)
+    Plant::seed(p, n, c, 1, s).with_search_direction(SearchDirection::Counterclockwise)
 }
 fn tick(plant: &mut Plant, terrain: &impl Terrain, spacing: f32) {
     plant.grow(terrain, spacing);
@@ -273,7 +273,8 @@ fn hole_contacts_do_not_freeze_the_free_shoot_after_climbing() {
         }
     }
     let (p, n, c) = Fixture::Hole.seed();
-    let mut plant = Plant::seed(p + OFFSET.as_vec3(), n, c + OFFSET, 1, 42).with_clockwise(true);
+    let mut plant = Plant::seed(p + OFFSET.as_vec3(), n, c + OFFSET, 1, 42)
+        .with_search_direction(SearchDirection::Clockwise);
     let mut late_motion = 0;
     for frame in 0..180 {
         let min = plant
@@ -323,7 +324,7 @@ fn stem_above_wall_bends_under_its_own_weight_instead_of_staying_upright() {
         1,
         3500,
     )
-    .with_clockwise(false);
+    .with_search_direction(SearchDirection::Counterclockwise);
     let mut peak = plant.nodes[0].position.y;
     let mut downward = false;
     for _ in 0..360 {
@@ -459,7 +460,7 @@ fn a_drooping_shoot_can_attach_to_a_roof_and_its_far_side() {
         1,
         3500,
     )
-    .with_clockwise(false);
+    .with_search_direction(SearchDirection::Counterclockwise);
     for _ in 0..480 {
         tick(&mut plant, &BroadWall, 10.0);
         safe(&plant, &BroadWall);

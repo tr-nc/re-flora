@@ -104,6 +104,7 @@ impl GuiConfigLoader {
                         | "climbing_continuous_stem"
                         | "climbing_paused"
                         | "climbing_enabled"
+                        | "climbing_clockwise"
                 )
             });
         }

@@ -172,7 +172,7 @@ pub(super) fn step(
     rod.side = (Quat::from_rotation_arc(rod.heading, heading) * rod.side).normalize();
     rod.heading = heading;
     if exploring {
-        let winding = if tip.clockwise { 1.0 } else { -1.0 };
+        let winding = next.search_direction.phase_sign();
         rod.phase = (rod.phase
             + winding * std::f32::consts::TAU * dt * next.search_rate / rod.period)
             .rem_euclid(std::f32::consts::TAU);

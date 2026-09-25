@@ -6,7 +6,7 @@ use crate::builder::{
     ContreeCpuVoxelSourceSnapshot,
 };
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_LIMESTONE};
-use crate::climbing_plants::{fixtures::Fixture, Plant, Terrain};
+use crate::climbing_plants::{fixtures::Fixture, Plant, SearchDirection, Terrain};
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::tracer::DynamicFruitRenderInstance;
 use anyhow::Result;
@@ -26,10 +26,10 @@ pub(super) struct ClimbingPlants {
     created: bool,
     awaiting_seed: bool,
     fixture: Fixture,
-    last_selection: Option<(Fixture, u64, bool)>,
+    last_selection: Option<(Fixture, u64)>,
     site: Option<Site>,
     seed: u64,
-    clockwise: bool,
+    direction: SearchDirection,
     randomize_requested: bool,
     pub reset_requested: bool,
     pub focus_requested: bool,
@@ -68,8 +68,8 @@ impl QuantumClock {
 }
 
 impl ClimbingPlants {
-    fn observe_selection(&mut self, fixture: Fixture, seed: u64, clockwise: bool) {
-        let selection = (fixture, seed, clockwise);
+    fn observe_selection(&mut self, fixture: Fixture, seed: u64) {
+        let selection = (fixture, seed);
         if self
             .last_selection
             .replace(selection)
@@ -99,7 +99,7 @@ impl ClimbingPlants {
         if ui.button("New random seed").on_hover_text("Choose another saved seed and restart this same grounded test patch. Restart alone repeats the current seed.").clicked() {
             self.randomize_requested = true;
         }
-        ui.small("Terrain, seed and winding restart the vine; search width, rotation rate and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
+        ui.small("Terrain and seed restart the vine; search width, rotation rate and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
             ui.small(format!(
@@ -337,10 +337,15 @@ impl App {
         } else {
             u64::from(self.debug_settings.adjustables.climbing_seed.value)
         };
-        let selected_clockwise = !overhang_review
-            && (review || self.debug_settings.adjustables.climbing_clockwise.value);
+        // The player-facing phenotype always searches counterclockwise. Native
+        // fixture review still exercises the opposite code-configured direction.
+        let selected_direction = if review && !overhang_review {
+            SearchDirection::Clockwise
+        } else {
+            SearchDirection::Counterclockwise
+        };
         self.climbing_plants
-            .observe_selection(selected_fixture, selected_seed, selected_clockwise);
+            .observe_selection(selected_fixture, selected_seed);
         if !self.terrain_persistence.allows_world_updates() {
             return Ok(());
         }
@@ -378,10 +383,10 @@ impl App {
                 created: true,
                 awaiting_seed: true,
                 fixture,
-                last_selection: Some((fixture, selected_seed, selected_clockwise)),
+                last_selection: Some((fixture, selected_seed)),
                 site: Some(site),
                 seed: selected_seed,
-                clockwise: selected_clockwise,
+                direction: selected_direction,
                 focus_requested: true,
                 review: review::Review::for_fixture(review_fixture, site)
                     .with_overhang(overhang_review),
@@ -520,14 +525,14 @@ impl App {
                         VOXEL_TYPE_LIMESTONE as u8,
                         self.climbing_plants.seed,
                     )
-                    .with_clockwise(self.climbing_plants.clockwise),
+                    .with_search_direction(self.climbing_plants.direction),
                 );
                 self.climbing_plants.awaiting_seed = false;
                 self.climbing_plants.terrain_dirty = true;
                 log::info!(
-                    "[CLIMBING] seed={} clockwise={} position={position:?} fixture={} dependencies={}",
+                    "[CLIMBING] seed={} direction={:?} position={position:?} fixture={} dependencies={}",
                     self.climbing_plants.seed,
-                    self.climbing_plants.clockwise,
+                    self.climbing_plants.direction,
                     self.climbing_plants.fixture.name(),
                     patch.block.source_dependencies.len()
                 );
@@ -974,24 +979,21 @@ mod tests {
     #[test]
     fn terrain_choice_immediately_requests_one_rebuild_without_reset_or_confirm() {
         let mut runtime = ClimbingPlants::default();
-        runtime.observe_selection(Fixture::Flat, 42, true);
+        runtime.observe_selection(Fixture::Flat, 42);
         assert!(!runtime.reset_requested);
-        runtime.observe_selection(Fixture::Hole, 42, true);
+        runtime.observe_selection(Fixture::Hole, 42);
         assert!(
             runtime.reset_requested,
             "changing Test terrain did not apply it"
         );
         runtime.reset_requested = false;
-        runtime.observe_selection(Fixture::Hole, 42, true);
+        runtime.observe_selection(Fixture::Hole, 42);
         assert!(
             !runtime.reset_requested,
             "unchanged settings rebuilt the scene again"
         );
-        runtime.observe_selection(Fixture::Hole, 43, true);
+        runtime.observe_selection(Fixture::Hole, 43);
         assert!(runtime.reset_requested, "changing the seed did not restart");
-        runtime.reset_requested = false;
-        runtime.observe_selection(Fixture::Hole, 43, false);
-        assert!(runtime.reset_requested, "changing winding did not restart");
     }
 
     #[test]

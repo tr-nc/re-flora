@@ -8,6 +8,23 @@ const MAX_NODES: usize = 512;
 const MAX_LIVE_ARC: f32 = 512.0;
 const MAX_TIPS: usize = 4;
 
+/// Phase direction in the shoot's transported local search frame, not a
+/// camera-space spiral or the handedness of a stem twining around a pole.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchDirection {
+    Clockwise,
+    #[default]
+    Counterclockwise,
+}
+impl SearchDirection {
+    fn phase_sign(self) -> f32 {
+        match self {
+            Self::Clockwise => 1.0,
+            Self::Counterclockwise => -1.0,
+        }
+    }
+}
+
 pub mod fixtures;
 mod growth;
 mod rod;
@@ -87,7 +104,6 @@ pub struct Tip {
     rng: u64,
     regrowing: bool,
     phase: u8,
-    clockwise: bool,
     exterior: Vec3,
 }
 impl Tip {
@@ -103,7 +119,6 @@ impl Tip {
             rng,
             regrowing: false,
             phase,
-            clockwise: seed & 1 == 0,
             exterior: Vec3::Z,
         }
     }
@@ -118,6 +133,7 @@ pub struct Plant {
     seed: u64,
     next_node_id: u64,
     rod: rod::Rod,
+    search_direction: SearchDirection,
     search_turn: f32,
     search_rate: f32,
     search_reach: f32,
@@ -160,6 +176,7 @@ impl Plant {
                 normal,
             }],
             rod: rod::Rod::new(&tip),
+            search_direction: SearchDirection::default(),
             search_turn: 1.0,
             search_rate: 1.0,
             search_reach: rod::AIR_BUDGET,
@@ -211,10 +228,8 @@ impl Plant {
         }
     }
 
-    pub fn with_clockwise(mut self, clockwise: bool) -> Self {
-        for tip in &mut self.tips {
-            tip.clockwise = clockwise;
-        }
+    pub fn with_search_direction(mut self, direction: SearchDirection) -> Self {
+        self.search_direction = direction;
         self
     }
 
@@ -722,6 +737,47 @@ mod tests {
     }
 
     #[test]
+    fn search_direction_has_a_fixed_default_and_explicit_code_override() {
+        let mut default = seed();
+        let mut other_seed = Plant::seed(
+            default.nodes[0].position,
+            Vec3::Z,
+            default.anchors[0].cell,
+            1,
+            43,
+        );
+        let mut clockwise = default
+            .clone()
+            .with_search_direction(SearchDirection::Clockwise);
+        assert_eq!(default.search_direction, SearchDirection::Counterclockwise);
+        assert_eq!(
+            other_seed.search_direction,
+            SearchDirection::Counterclockwise
+        );
+        let start_default = default.rod.clone();
+        let start_clockwise = clockwise.rod.clone();
+        default
+            .step_motion(&Wall::default(), 0.05, 1.0, 16.0, true)
+            .unwrap();
+        other_seed
+            .step_motion(&Wall::default(), 0.05, 1.0, 16.0, true)
+            .unwrap();
+        clockwise
+            .step_motion(&Wall::default(), 0.05, 1.0, 16.0, true)
+            .unwrap();
+        assert_ne!(default.rod, start_default);
+        assert_ne!(clockwise.rod, start_clockwise);
+        assert_ne!(default.rod, clockwise.rod);
+        for _ in 0..10 {
+            clockwise.grow(&Wall::default(), 16.0);
+        }
+        clockwise.prune_to_root();
+        assert_eq!(clockwise.search_direction, SearchDirection::Clockwise);
+        assert!(clockwise.grow(&Wall::default(), 16.0));
+        assert_eq!(clockwise.search_direction, SearchDirection::Clockwise);
+    }
+
+    #[test]
     fn normal_growth_stays_a_single_unbranched_vine() {
         let plant = grown();
         assert_eq!(plant.tips.len(), 1, "normal growth still creates branches");
@@ -1154,12 +1210,15 @@ mod tests {
             }
         }
         for fixture in fixtures::Fixture::ALL {
-            for clockwise in [true, false] {
+            for direction in [
+                SearchDirection::Clockwise,
+                SearchDirection::Counterclockwise,
+            ] {
                 let seed = 42;
                 let terrain = Scene(fixture);
                 let (position, normal, cell) = fixture.seed();
                 let mut plant =
-                    Plant::seed(position, normal, cell, 1, seed).with_clockwise(clockwise);
+                    Plant::seed(position, normal, cell, 1, seed).with_search_direction(direction);
                 for _ in 0..180 {
                     let root = plant.nodes[0].clone();
                     plant.grow(&terrain, 16.0);
@@ -1173,7 +1232,7 @@ mod tests {
                     .iter()
                     .map(|a| a.position.y)
                     .fold(0.0, f32::max);
-                assert!(height >= 262.0, "{fixture:?} seed={seed} clockwise={clockwise} failed to attach above obstacle: height={height} nodes={} anchors={} tips={:?}", plant.nodes.len(), plant.anchors.len(), plant.tips.iter().map(|t| (plant.nodes[t.node].position, t.arc)).collect::<Vec<_>>());
+                assert!(height >= 262.0, "{fixture:?} seed={seed} direction={direction:?} failed to attach above obstacle: height={height} nodes={} anchors={} tips={:?}", plant.nodes.len(), plant.anchors.len(), plant.tips.iter().map(|t| (plant.nodes[t.node].position, t.arc)).collect::<Vec<_>>());
                 let before = plant.clone();
                 assert_eq!(
                     plant.revalidate(&terrain),

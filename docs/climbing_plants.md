@@ -17,7 +17,9 @@ Older saved checkbox values are discarded without changing other user settings.
    does not silently add a new test wall.
 2. The vine uses distributed bending through attachments, independently timed exploration,
    gradual contact establishment, compliant established stem and short attachment roots.
-3. **Test terrain**, **Vine seed**, and **Clockwise tip search** also restart immediately.
+3. **Test terrain** and **Vine seed** restart immediately. The playable vine searches
+   counterclockwise in its local frame; direction is a typed code-level phenotype
+   (`SearchDirection`), not a saved Debug checkbox. Reviews may explicitly choose clockwise.
    **Restart wall and vine** repeats the current seed; **New random seed** changes the saved
    seed. **Create vine wall and focus** starts an uncreated patch. **Focus vine** recenters it.
 4. **Shoot exploration / flexibility** controls the existing bend/gravity response.
