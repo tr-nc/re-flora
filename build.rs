@@ -1489,8 +1489,28 @@ fn validate_shared_leaf_asset() {
     }
 }
 
+fn validate_shared_apple_asset() {
+    let sources = [
+        "assets/models/apple-source.mjs",
+        "scripts/publish-apple-model.mjs",
+    ];
+    let mut hash = crc32fast::Hasher::new();
+    for source in sources {
+        println!("cargo:rerun-if-changed={source}");
+        hash.update(&fs::read(source).expect("shared apple authoring source"));
+    }
+    let path = "assets/models/apple-preview.json";
+    println!("cargo:rerun-if-changed={path}");
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(path).expect("run node scripts/publish-apple-model.mjs"))
+            .expect("published apple mesh JSON");
+    assert_eq!(json["source_crc32"].as_u64(), Some(u64::from(hash.finalize())),
+        "Stale {path}. Run node scripts/publish-apple-model.mjs, review, and commit the generated mesh.");
+}
+
 fn main() {
     validate_shared_leaf_asset();
+    validate_shared_apple_asset();
     // Tell Cargo to rerun this script if these files/directories change.
     // config/gui.toml drives GuiAdjustables codegen.
     println!("cargo:rerun-if-changed=config/gui.toml");

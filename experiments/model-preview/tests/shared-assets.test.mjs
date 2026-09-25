@@ -3,7 +3,16 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {publishedLeaf,publishedLeafVariants,leafVariantParameters,LEAF_VARIANT_COUNT} from '../../../scripts/publish-leaf-model.mjs';
 import {leafGeometry,leafDefaults} from '../../../assets/models/leaf-source.mjs';
+import {appleGeometry} from '../../../assets/models/apple-source.mjs';
+import {publishedApple} from '../../../scripts/publish-apple-model.mjs';
 import {createPreviewServer} from '../../../scripts/serve-model-preview.mjs';
+
+test('published apple geometry matches the browser recipe byte-for-byte',async()=>{
+  assert.equal(await readFile(new URL('../../../assets/models/apple-preview.json',import.meta.url),'utf8'),await publishedApple());
+  const parts=appleGeometry();
+  assert.deepEqual(parts.map(part=>part.material),[0,1,2]);
+  assert.ok(parts[0].indices.length/3>700);
+});
 
 test('published leaf is exactly regenerated from the one authoring recipe',async()=>{
   assert.deepEqual(await readFile(new URL('../../../assets/models/leaf.glb',import.meta.url)),await publishedLeaf());
