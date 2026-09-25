@@ -2,6 +2,7 @@
 // leaf fragments use the same camera, coverage, actual hit depth and sun inputs.
 import butterfly_mesh_types;
 import model_pixel_grid;
+import model_pixel_surface;
 import flora_shadow;
 import environment_lighting;
 import leaf_lighting;
@@ -90,31 +91,21 @@ public float4 sampleParticleModelSurface(ButterflyMeshInstance instance,uint sou
 
 public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel) {
     const float4 miss=float4(0.0,0.0,0.0,1.0);
-    float4 bounds=butterflyTileBounds(instance,camera_info);
-    if (any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0))) return miss;
-    float3 worldOrigin,worldDirection;
-    modelPixelRay(bounds,pixel,instance.metadata.z,camera_info,worldOrigin,worldDirection);
-    float3 origin=worldOrigin,direction=worldDirection;
     bool leaf=(instance.metadata.w&2u)!=0u;
-    float scale=instance.position_size.w*(1.53125/3.4);
-    if (leaf) {
-        float4 inversePose=float4(-instance.lighting.xyz,instance.lighting.w);
-        origin=rotatePose(inversePose,worldOrigin-instance.position_size.xyz)/scale;
-        direction=rotatePose(inversePose,worldDirection);
+    ModelPixelFrame frame=identityModelPixelFrame();
+    if(leaf) {
+        frame.center=instance.position_size.xyz;
+        frame.scale=instance.position_size.w*(1.53125/3.4);
+        frame.axisX=rotatePose(instance.lighting,float3(1,0,0));
+        frame.axisY=rotatePose(instance.lighting,float3(0,1,0));
+        frame.axisZ=rotatePose(instance.lighting,float3(0,0,1));
     }
-    float closest=1e20;uint hit=0xffffffffu;float2 hitBary=0.0;
-    for (uint i=0; i<instance.metadata.y; ++i) {
-        float distance;float2 bary;
-        if (intersectTriangleBary(origin,direction,butterfly_mesh_triangles[instance.metadata.x+i],distance,bary) && distance<closest) {
-            closest=distance;hit=instance.metadata.x+i;hitBary=bary;
-        }
-    }
-    if (hit==0xffffffffu) return miss;
-    float3 position=worldOrigin+worldDirection*closest*(leaf?scale:1.0);
-    float4 clip=mul(camera_info.view_proj_mat,float4(position,1.0));
-    float depth=clip.z/clip.w;
-    if (depth<0.0 || depth>=1.0) return miss;
-    return float4(shadeParticleModelSurface(instance,hit,hitBary,position,worldDirection,leaf),depth);
+    ModelPixelHit hit=modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
+        instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,
+        instance.metadata.z,camera_info);
+    if(hit.triangle==0xffffffffu)return miss;
+    return float4(shadeParticleModelSurface(instance,hit.triangle,hit.bary,
+        hit.position,hit.direction,leaf),hit.depth);
 }
 
 public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pixel) {

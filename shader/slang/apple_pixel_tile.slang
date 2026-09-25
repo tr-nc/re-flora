@@ -4,6 +4,7 @@ import butterfly_mesh_types;
 import color;
 import flora_shadow;
 import model_pixel_grid;
+import model_pixel_surface;
 import tracer_types;
 
 [[vk::binding(0,0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -74,24 +75,17 @@ public ApplePixelOutput sampleApplePixel(ApplePixelVertex input) {
     float4 bounds=applePixelBounds(input,camera_info);
     if(any(bounds.xy>float2(1.0))||any(bounds.zw<float2(-1.0)))return output;
     uint2 pixel=min(uint2(saturate(input.uv)*float(input.resolution)),uint2(input.resolution-1u));
-    float3 worldOrigin,worldDirection;
-    modelPixelRay(bounds,float2(pixel)+0.5,input.resolution,camera_info,worldOrigin,worldDirection);
-    float3 delta=worldOrigin-input.center;
-    float3 origin=float3(dot(delta,input.axisX),dot(delta,input.axisY),dot(delta,input.axisZ))/input.scale;
-    float3 direction=float3(dot(worldDirection,input.axisX),dot(worldDirection,input.axisY),dot(worldDirection,input.axisZ));
-    float closest=1e30;uint hit=0xffffffffu;float3 bary=float3(1.0,0.0,0.0);
+    ModelPixelFrame frame;
+    frame.center=input.center;frame.scale=input.scale;
+    frame.axisX=input.axisX;frame.axisY=input.axisY;frame.axisZ=input.axisZ;
     uint count,stride;apple_pixel_triangles.GetDimensions(count,stride);
-    for(uint i=0u;i<count;i++){
-        ButterflyMeshTriangle tri=apple_pixel_triangles[i];float t;float2 hitBary;
-        if(modelPixelTriangleHit(origin,direction,tri.a.xyz,tri.e1.xyz,tri.e2.xyz,t,hitBary)&&t<closest){
-            float3 point=origin+direction*t;
-            float4 projected=mul(camera_info.view_proj_mat,float4(applePixelWorld(input,point),1.0));
-            float depth=projected.z/projected.w;
-            if(depth>=0.0&&depth<1.0){closest=t;hit=i;bary=float3(1.0-hitBary.x-hitBary.y,hitBary);}
-        }
-    }
+    ModelPixelHit centerHit=modelPixelCenterHit(apple_pixel_triangles,0u,count,frame,
+        bounds,float2(pixel)+0.5,input.resolution,camera_info);
+    float3 worldDirection=centerHit.direction;
+    uint hit=centerHit.triangle;
+    float3 bary=float3(1.0-centerHit.bary.x-centerHit.bary.y,centerHit.bary);
     float3 local;
-    if(hit!=0xffffffffu){local=origin+direction*closest;}
+    if(hit!=0xffffffffu){local=modelPixelLocalVector(frame,centerHit.position-input.center)/input.scale;}
     else {
         // Conservative N×N projected coverage, shared in intent with the
         // CPU planner used by butterfly/leaf. Never replace a center hit.
