@@ -12,6 +12,9 @@ Older saved checkbox values are discarded without changing other user settings.
 ## Try it
 
 1. Run this worktree with `cargo run --release`, then **R → Climbing Plants**.
+   The demo wall and vine initialize automatically on a new session; there is no
+   enable checkbox. Loading a saved world still clears the session-only vine and
+   does not silently add a new test wall.
 2. The vine uses distributed bending through attachments, independently timed exploration,
    gradual contact establishment, compliant established stem and short attachment roots.
 3. **Test terrain**, **Vine seed**, and **Clockwise tip search** also restart immediately.
@@ -28,7 +31,7 @@ Older saved checkbox values are discarded without changing other user settings.
    **Growth attempts/sec** changes elongation independently of the oscillator.
    **Adhesion spacing** targets distance along the stem, not wall distance or search amplitude.
    Lip transitions may attach closer; the apex retains bending room.
-5. While enabled, the vine keeps attempting growth at the selected rate (at least 1/sec).
+5. The vine keeps attempting growth at the selected rate (at least 1/sec).
    Older saved zero rates are migrated to 1/sec. A surviving
    cut holds its base but can extend a new shoot; a root without support stays latent
    until its own support is repaired.

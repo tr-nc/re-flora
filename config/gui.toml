@@ -2602,15 +2602,6 @@ max = 6
 name = "Climbing Plants"
 
 [[section.param]]
-id = "climbing_enabled"
-kind = "bool"
-label = "Enable climbing vine wall (creates terrain and focuses camera)"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "climbing_fixture"
 kind = "choice"
 label = "Test terrain (applies immediately)"

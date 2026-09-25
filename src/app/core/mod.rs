@@ -2709,14 +2709,13 @@ impl App {
 
                                     debug_panel::scroll_area()
                                         .show(ui, |ui| {
-                                            let climbing_enabled = self.debug_settings.adjustables.climbing_enabled.value;
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
                                                 if section == "Climbing Plants" {
                                                     ui.not_saved("Vine actions and live status: plant history is session-only; the settings above use Save", |ui| {
-                                                        self.climbing_plants.draw_actions(ui, climbing_enabled);
+                                                        self.climbing_plants.draw_actions(ui);
                                                     });
                                                 }
                                             });

@@ -103,6 +103,7 @@ impl GuiConfigLoader {
                         | "butterfly_mesh_enabled"
                         | "climbing_continuous_stem"
                         | "climbing_paused"
+                        | "climbing_enabled"
                 )
             });
         }

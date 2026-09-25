@@ -1341,6 +1341,8 @@ wind_drift = 1.0
         retired.id = "climbing_continuous_stem".into();
         section.param.push(retired.clone());
         retired.id = "climbing_paused".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_enabled".into();
         section.param.push(retired);
         let speed = section
             .param
@@ -1370,7 +1372,7 @@ wind_drift = 1.0
             .flat_map(|s| &s.param)
             .any(|p| matches!(
                 p.id.as_str(),
-                "climbing_continuous_stem" | "climbing_paused"
+                "climbing_continuous_stem" | "climbing_paused" | "climbing_enabled"
             )));
         assert_eq!(migrated.adjustables.climbing_seed.value, 65001);
         assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
@@ -1383,6 +1385,9 @@ wind_drift = 1.0
         assert!(!std::fs::read_to_string(&path)
             .unwrap()
             .contains("climbing_paused"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_enabled"));
         for section in &mut settings.config.section {
             section.param.retain(|p| {
                 ![

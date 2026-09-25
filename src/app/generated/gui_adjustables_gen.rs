@@ -1394,12 +1394,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
-        id: "climbing_enabled",
-        kind: "bool",
-        label: "Enable climbing vine wall (creates terrain and focuses camera)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
         id: "climbing_fixture",
         kind: "choice",
         label: "Test terrain (applies immediately)",
@@ -1690,7 +1684,6 @@ pub struct GuiAdjustables {
     pub grass_sway_frequency_start: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_full: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_knee: crate::gui_adjustables::FloatParam,
-    pub climbing_enabled: crate::gui_adjustables::BoolParam,
     pub climbing_fixture: crate::gui_adjustables::ChoiceParam,
     pub climbing_clockwise: crate::gui_adjustables::BoolParam,
     pub climbing_seed: crate::gui_adjustables::UintParam,
@@ -1942,7 +1935,6 @@ impl GuiAdjustables {
         let mut grass_sway_frequency_start_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_full_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_fixture_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut climbing_clockwise_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_seed_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -3477,11 +3469,6 @@ impl GuiAdjustables {
                             grass_sway_frequency_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "climbing_enabled" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            climbing_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "climbing_fixture" => {
                         if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
                             climbing_fixture_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
@@ -3780,7 +3767,6 @@ impl GuiAdjustables {
             grass_sway_frequency_start: grass_sway_frequency_start_field.expect("Missing parameter: grass_sway_frequency_start"),
             grass_sway_frequency_full: grass_sway_frequency_full_field.expect("Missing parameter: grass_sway_frequency_full"),
             grass_sway_frequency_knee: grass_sway_frequency_knee_field.expect("Missing parameter: grass_sway_frequency_knee"),
-            climbing_enabled: climbing_enabled_field.expect("Missing parameter: climbing_enabled"),
             climbing_fixture: climbing_fixture_field.expect("Missing parameter: climbing_fixture"),
             climbing_clockwise: climbing_clockwise_field.expect("Missing parameter: climbing_clockwise"),
             climbing_seed: climbing_seed_field.expect("Missing parameter: climbing_seed"),
@@ -4049,7 +4035,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
-        "climbing_enabled" => Some(&adjustables.climbing_enabled),
         "climbing_clockwise" => Some(&adjustables.climbing_clockwise),
         "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
@@ -4335,7 +4320,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
-        "climbing_enabled" => Some(&mut adjustables.climbing_enabled),
         "climbing_clockwise" => Some(&mut adjustables.climbing_clockwise),
         "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,

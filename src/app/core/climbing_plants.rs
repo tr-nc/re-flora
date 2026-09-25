@@ -79,7 +79,7 @@ impl ClimbingPlants {
         }
     }
 
-    pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui, enabled: bool) {
+    pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui) {
         ui.small("3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
         ui.horizontal(|ui| {
             if self.plant.is_none() {
@@ -90,7 +90,7 @@ impl ClimbingPlants {
                 self.reset_requested = true;
             }
             if ui
-                .add_enabled(enabled && self.created, egui::Button::new("Focus vine"))
+                .add_enabled(self.created, egui::Button::new("Focus vine"))
                 .clicked()
             {
                 self.focus_requested = true;
@@ -108,9 +108,7 @@ impl ClimbingPlants {
                 max.to_array()
             ));
         }
-        if !enabled {
-            ui.label("Hidden. Enable above to resume this session's vine.");
-        } else if self.waiting_for_terrain {
+        if self.waiting_for_terrain {
             ui.label("Waiting for current terrain collision data; simulation is held safely.");
         }
         if let Some(plant) = &self.plant {
@@ -138,7 +136,7 @@ impl ClimbingPlants {
             } else {
                 ui.label("Root connected. A cut leaves a new exploratory tip on the lower stem.");
             }
-            ui.add_enabled_ui(enabled && !self.waiting_for_terrain, |ui| {
+            ui.add_enabled_ui(!self.waiting_for_terrain, |ui| {
                 ui.horizontal(|ui| {
                     if ui.add_enabled(plant.anchors.iter().any(|a| a.attached && a.node != 0), egui::Button::new("Prune highest attachment"))
                         .on_hover_text("Remove this attachment's stem and all descendants. The wall is unchanged; the cut can regrow.").clicked() {
@@ -343,14 +341,6 @@ impl App {
             && (review || self.debug_settings.adjustables.climbing_clockwise.value);
         self.climbing_plants
             .observe_selection(selected_fixture, selected_seed, selected_clockwise);
-        if self.climbing_plants.reset_requested {
-            self.debug_settings.adjustables.climbing_enabled.value = true;
-        }
-        let enabled = self.debug_settings.adjustables.climbing_enabled.value || review;
-        if !enabled {
-            self.tracer.show_climbing_plant_geometry(&[])?;
-            return Ok(());
-        }
         if !self.terrain_persistence.allows_world_updates() {
             return Ok(());
         }
@@ -913,12 +903,7 @@ mod tests {
                 _ => None,
             }
         }
-        fn click(
-            runtime: &mut ClimbingPlants,
-            context: &egui::Context,
-            enabled: bool,
-            label: &str,
-        ) {
+        fn click(runtime: &mut ClimbingPlants, context: &egui::Context, label: &str) {
             let mut draw = |events| {
                 context.run_ui(
                     egui::RawInput {
@@ -929,7 +914,7 @@ mod tests {
                         events,
                         ..Default::default()
                     },
-                    |ui| runtime.draw_actions(ui, enabled),
+                    |ui| runtime.draw_actions(ui),
                 )
             };
             draw(Vec::new());
@@ -964,27 +949,25 @@ mod tests {
             }
         }
         let context = egui::Context::default();
-        click(&mut runtime, &context, true, "Restart wall and vine");
+        click(&mut runtime, &context, "Restart wall and vine");
         assert!(
             runtime.reset_requested,
             "restart still requires a confirmation click"
         );
         runtime.reset_requested = false;
-        click(&mut runtime, &context, true, "New random seed");
+        click(&mut runtime, &context, "New random seed");
         assert!(runtime.randomize_requested);
-        click(&mut runtime, &context, false, "Prune highest attachment");
-        assert!(!runtime.peel_highest_requested);
         runtime.waiting_for_terrain = true;
-        click(&mut runtime, &context, true, "Prune highest attachment");
+        click(&mut runtime, &context, "Prune highest attachment");
         assert!(!runtime.peel_highest_requested);
         runtime.waiting_for_terrain = false;
-        click(&mut runtime, &context, true, "Prune highest attachment");
+        click(&mut runtime, &context, "Prune highest attachment");
         assert!(runtime.peel_highest_requested);
-        click(&mut runtime, &context, true, "Prune back to root");
+        click(&mut runtime, &context, "Prune back to root");
         assert!(runtime.peel_all_requested);
-        click(&mut runtime, &context, true, "Disconnect root");
+        click(&mut runtime, &context, "Disconnect root");
         assert!(runtime.disconnect_root_requested);
-        click(&mut runtime, &context, true, "Restart wall and vine");
+        click(&mut runtime, &context, "Restart wall and vine");
         assert!(runtime.reset_requested);
     }
 
