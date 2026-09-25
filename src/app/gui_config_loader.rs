@@ -260,6 +260,17 @@ impl GuiConfigLoader {
                 if let Some(existing) = saved.param.iter_mut().find(|p| p.id == param.id) {
                     // Presentation follows the current schema; retain the user's authored value.
                     existing.label = param.label;
+                    if existing.id == "climbing_fixture" {
+                        if let (
+                            GuiParamValue::Choice { options, .. },
+                            GuiParamValue::Choice {
+                                options: defaults, ..
+                            },
+                        ) = (&mut existing.value, &param.value)
+                        {
+                            options.clone_from(defaults);
+                        }
+                    }
                 } else {
                     saved.param.push(param);
                 }

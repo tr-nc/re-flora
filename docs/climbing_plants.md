@@ -17,7 +17,9 @@ Older saved checkbox values are discarded without changing other user settings.
    does not silently add a new test wall.
 2. The vine uses distributed bending through attachments, independently timed exploration,
    gradual contact establishment, compliant established stem and short attachment roots.
-3. **Test terrain** restarts immediately. The playable demo uses a fixed code seed (3500)
+3. **Test terrain** restarts immediately. **Climbing pole** authors a 20×20-voxel
+   limestone post with a grounded footing; it tests contact/attachment rather than
+   a separate twining algorithm. The playable demo uses a fixed code seed (3500)
    and searches counterclockwise in its local frame; direction is a typed code-level
    phenotype (`SearchDirection`), not a saved Debug checkbox. Reviews may explicitly
    choose another seed and clockwise search. **Restart wall and vine** repeats the demo;
@@ -137,8 +139,8 @@ cargo check
 cargo test
 cargo run --release -- --hidden --mute --auto-exit 0.5
 
-# Six real fixtures and the separate pruning/root-recovery scenario.
-for scene in flat hole outward inward slope ground 1 overhang; do
+# Seven real fixtures and the separate pruning/root-recovery scenario.
+for scene in flat hole outward inward slope ground pole 1 overhang; do
   RE_FLORA_CLIMBING_REVIEW=$scene \
     cargo run --release -- --hidden --mute --perf --auto-exit 12
 done

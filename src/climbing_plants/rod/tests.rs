@@ -201,6 +201,26 @@ fn continuous_fixtures_are_safe_and_reach_supported_upper_wall() {
     }
 }
 #[test]
+fn playable_seed_climbs_the_pole_with_persistent_attachments() {
+    let terrain = Scene(Fixture::Pole);
+    let mut plant = seed(Fixture::Pole, 3500);
+    for _ in 0..180 {
+        tick(&mut plant, &terrain, 10.0);
+        safe(&plant, &terrain);
+    }
+    let height = plant
+        .anchors
+        .iter()
+        .map(|a| a.position.y)
+        .fold(0.0, f32::max);
+    assert!(
+        height >= 262.0,
+        "pole climb stalled at {height} with {} anchors",
+        plant.anchors.len()
+    );
+}
+
+#[test]
 fn seed_3500_reproduces_and_older_stem_moves_without_sharp_joints() {
     let scene = Scene(Fixture::Inward);
     let mut a = seed(Fixture::Inward, 3500);

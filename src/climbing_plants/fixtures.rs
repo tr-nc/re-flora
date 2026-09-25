@@ -10,15 +10,18 @@ pub enum Fixture {
     Inward,
     Slope,
     Ground,
+    Pole,
 }
+
 impl Fixture {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Flat,
         Self::Hole,
         Self::Outward,
         Self::Inward,
         Self::Slope,
         Self::Ground,
+        Self::Pole,
     ];
     pub fn from_index(index: u32) -> Self {
         Self::ALL.get(index as usize).copied().unwrap_or_default()
@@ -34,13 +37,20 @@ impl Fixture {
             Self::Inward => "inward",
             Self::Slope => "slope",
             Self::Ground => "ground",
+            Self::Pole => "pole",
         }
     }
     pub fn bounds() -> (UVec3, UVec3) {
         (UVec3::new(224, 190, 280), UVec3::new(288, 302, 366))
     }
     pub fn seed(self) -> (Vec3, Vec3, IVec3) {
-        if self == Self::Ground {
+        if self == Self::Pole {
+            (
+                Vec3::new(255.5, 198.5, 316.8),
+                Vec3::Z,
+                IVec3::new(255, 198, 315),
+            )
+        } else if self == Self::Ground {
             (
                 Vec3::new(255.5, 192.83, 310.5),
                 Vec3::Y,
@@ -70,6 +80,11 @@ impl Fixture {
     }
     #[cfg(test)]
     pub fn solid(self, cell: IVec3) -> bool {
+        if self == Self::Pole {
+            return self.boxes().iter().any(|(min, max)| {
+                cell.cmpge(min.as_ivec3()).all() && cell.cmplt(max.as_ivec3()).all()
+            });
+        }
         if (190..192).contains(&cell.y) {
             let (back, front) = self.footing_depth();
             return (224..288).contains(&cell.x) && (back..front).contains(&cell.z);
@@ -95,6 +110,12 @@ impl Fixture {
     /// Merge identical adjacent height layers into cuboids for a single terrain transaction.
     /// Every shape has a two-voxel footing embedded in the sampled natural ground.
     pub fn boxes(self) -> Vec<(UVec3, UVec3)> {
+        if self == Self::Pole {
+            return vec![
+                (UVec3::new(242, 190, 292), UVec3::new(270, 192, 320)),
+                (UVec3::new(246, 192, 296), UVec3::new(266, 300, 316)),
+            ];
+        }
         let (back, front) = self.footing_depth();
         let mut boxes = vec![(
             UVec3::new(224, 190, back as u32),

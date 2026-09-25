@@ -2616,6 +2616,7 @@ options = [
     "Recessed wall",
     "Sloping wall",
     "Ground to wall",
+    "Climbing pole",
 ]
 
 [[section.param]]

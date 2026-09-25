@@ -1345,6 +1345,14 @@ wind_drift = 1.0
         section.param.push(retired.clone());
         retired.id = "climbing_seed".into();
         section.param.push(retired);
+        let fixture = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_fixture")
+            .unwrap();
+        if let GuiParamValue::Choice { options, .. } = &mut fixture.value {
+            options.pop(); // old saved menu predates the pole
+        }
         let speed = section
             .param
             .iter_mut()
@@ -1382,6 +1390,20 @@ wind_drift = 1.0
         assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
         assert_eq!(*migrated.adjustables.climbing_speed.range.start(), 1.0);
         assert_eq!(*migrated.adjustables.climbing_search_turn.range.end(), 6.0);
+        let options = migrated
+            .config
+            .section
+            .iter()
+            .find(|s| s.name == "Climbing Plants")
+            .unwrap()
+            .param
+            .iter()
+            .find(|p| p.id == "climbing_fixture")
+            .unwrap();
+        assert!(
+            matches!(&options.value, GuiParamValue::Choice { options, .. }
+            if options.last().is_some_and(|option| option == "Climbing pole"))
+        );
         migrated.save_to_path(&path).unwrap();
         assert!(!std::fs::read_to_string(&path)
             .unwrap()
