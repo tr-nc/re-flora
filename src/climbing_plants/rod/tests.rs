@@ -565,7 +565,7 @@ fn segment_interior_obstacle_reaction_does_not_need_endpoint_contacts() {
 }
 
 #[test]
-fn cut_waits_exactly_then_repairs_with_fresh_ids_and_a_stable_base() {
+fn cut_regrows_with_fresh_ids_while_the_original_support_is_missing() {
     struct Cut(Option<IVec3>);
     impl Terrain for Cut {
         fn voxel(&self, c: IVec3) -> Option<u8> {
@@ -590,15 +590,12 @@ fn cut_waits_exactly_then_repairs_with_fresh_ids_and_a_stable_base() {
     let stump = plant.clone();
     for _ in 0..30 {
         tick(&mut plant, &cut, 10.0);
-    }
-    assert_eq!(plant, stump);
-    plant.revalidate(&Cut(None)).unwrap();
-    for _ in 0..20 {
-        tick(&mut plant, &Cut(None), 10.0);
+        safe(&plant, &cut);
     }
     assert!(plant.nodes.len() > stump.nodes.len());
     assert!(plant.nodes.starts_with(&stump.nodes));
     assert!(plant.nodes[stump.nodes.len()..]
         .iter()
         .all(|n| n.id > old_max));
+    assert!(plant.anchors.iter().all(|a| a.cell != cell));
 }

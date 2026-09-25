@@ -46,8 +46,8 @@ pub(super) struct Rod {
     outward: Vec3,
     material: BTreeMap<u64, Material>,
     pending: Option<Pending>,
-    // A repaired cut uses the original absolute restart step. Its surviving base
-    // is deliberately held even in this model; ordinary old stem is NOT locked.
+    // A pruned stump remains fixed while its new exploratory shoot bends.
+    // Ordinary established stem is NOT locked.
     pub locked_through: u64,
 }
 impl Rod {
@@ -63,6 +63,12 @@ impl Rod {
             pending: None,
             locked_through: 0,
         }
+    }
+
+    pub fn reorient_at(&mut self, nodes: &[super::Node], stump: usize) {
+        self.heading = nodes[stump].parent.map_or(Vec3::Y, |parent| {
+            (nodes[stump].position - nodes[parent].position).normalize()
+        });
     }
 }
 
@@ -93,7 +99,6 @@ pub(super) fn step(
         || spacing < 4.0
         || !plant.root_connected
         || plant.tips.len() != 1
-        || plant.tips[0].restart.is_some()
         || plant
             .nodes
             .iter()
@@ -382,7 +387,7 @@ pub(super) fn step(
     for i in 1..count {
         moved += usize::from(positions[i].distance_squared(old[i]) > 1e-10);
         next.nodes[i].position = positions[i];
-        // Preserve exact waiting/repair stumps, including their support records.
+        // Preserve the rooted cut stump and its support records while new tissue grows.
         if mobility[i] == 0.0 {
             continue;
         }

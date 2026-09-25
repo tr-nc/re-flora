@@ -1,8 +1,9 @@
 # Climbing vine: search, attach, prune, regrow
 
 The demo grows one persistent, unbranched vine. Missing support prunes the downstream
-subtree, even if higher attachments still have wall behind them. A retained cut waits
-for repair and regrows with fresh IDs; there are no falling detached remnants.
+subtree, even if higher attachments still have wall behind them. A rooted surviving
+stump can explore and regrow with fresh IDs without repairing the missing wall;
+there are no falling detached remnants.
 
 The continuous-stem model permits older stem to deform. Following visual approval,
 it is now the only model: the old solver and experiment checkbox have been removed.
@@ -23,14 +24,15 @@ Older saved checkbox values are discarded without changing other user settings.
    wall distance nor exploration radius. Lip transitions may attach closer; the apex retains
    bending room. Unsupported growth has an independent bounded air budget.
 5. **Pause vine growth** holds extension and exploration phase, but allows settling and
-   terrain-triggered pruning. A waiting cut is completely held. A repaired cut deliberately
-   retains a fixed surviving base so its stored absolute restart step stays valid.
+   terrain-triggered pruning. A surviving cut holds its base but can extend a new shoot;
+   a root without support stays latent until its own support is repaired.
 6. **3 / Dig**, LMB removes wall; **Shift + wheel** changes brush size. Repair the missing
-   support to regrow. **Prune highest attachment** / **Prune back to root** trim without
+   support if desired; a rooted stump can also search for a new route. **Prune highest
+   attachment** / **Prune back to root** trim without
    editing terrain. **Disconnect root** stops growth until reset.
 7. Optional markers: yellow attachment, blue next extension probe, orange retained bud,
    red unsupported root seed. **Blocked-tip test → Refill terrain through tip** inserts real
-   limestone; removing it permits repair-gated regrowth.
+   limestone; removing it permits exploration to resume.
 
 **Resets modify real terrain.** The patch is beside the startup tree around X=383/Z=300,
 with a two-voxel footing embedded in current natural ground. Site discovery ignores
@@ -94,16 +96,21 @@ they do not describe an available runtime mode.
 
 ## Shared history and safety
 
-- At most 512 live nodes. Pruning compacts storage without reusing IDs; indices are remapped
-  together. Explicit-tree pruning guardrails remain, although normal growth never branches.
+- A gameplay cap of 512 voxels of **current surviving main-stem rest arc** limits total
+  growth; pruning frees that length budget. This is not a botanical measurement or the
+  separate 64-voxel unsupported search budget. At most 512 live nodes remain as an
+  independent storage bound. Pruning compacts storage without reusing IDs; indices are
+  remapped together. Explicit-tree pruning guardrails remain, although normal growth
+  never branches.
 - Root-to-tip revalidation checks actual recorded contacts/backing, established anchor
   material, clear stem geometry, and attachment rootlet centerlines.
   Pre-existing gaps do not invent backing dependencies. Missing/changed material or a buried
   stem removes the first invalid step and all descendants.
-- Buds retry the exact first severed step, including the severed established attachment's
-  original cell and rootlet footprint even if provisional contact had moved to a neighbour. A waiting cut commits neither geometry nor RNG
-  progression; the surviving base stays fixed after repair. Whole-wall loss leaves a latent
-  root seed. Repair creates new nodes, not resurrected identities.
+- A cut preserves the root-connected upstream stem and its recorded dependencies, locks
+  the surviving stump, and starts a new exploratory tip from there. It does not restore a
+  removed anchor or pass through missing terrain. The free-search budget is recomputed
+  from the latest surviving anchor to the stump. Whole-root-support loss leaves a latent
+  root seed; repairing that root permits regrowth. New nodes receive fresh IDs.
 - Terrain snapshots are transactional: unavailable or stale queries do not commit pose,
   material memory, phase, contacts, RNG, pruning, or growth. Collision cache reuse checks
   bounds, dependencies and readiness. Loading a world clears history/cache.
@@ -129,8 +136,8 @@ Reviews fix seed 42, clockwise, spacing 16, flexibility 1, one growth attempt an
 above ground after 180 attempts, finite geometry, clear stems and authoritative support.
 The additional `overhang` review uses seed 3500, counterclockwise, spacing 10, flexibility 2,
 360 samples and a side-facing camera; it checks that the above-wall shoot actually drops.
-Reviews verify bounded stretch/attachment displacement and actual established-stem motion. Pruning tests require 30 unchanged
-waiting frames, removal of upper attached descendants, repair with fresh IDs, and root recovery.
+Reviews verify bounded stretch/attachment displacement and actual established-stem motion. Pruning review requires regrowth during 30 frames with the wall gap still open,
+removal of upper attached descendants, fresh IDs, and separate root-support recovery.
 Require completion markers and inspect logs for errors—not just a zero process exit.
 
 Latest implementation evidence, quantitative A/B results and unresolved visual/performance

@@ -221,10 +221,17 @@ impl Review {
             }
             Phase::Cut if plant.nodes.len() < self.before.as_ref().unwrap().nodes.len() => {
                 let before = self.before.as_ref().unwrap();
-                check_survivors(before, plant)?;
+                // A new shoot may already be born in the same update as pruning.
+                // Reconstruct the cut-only state to verify the retained prefix.
+                let mut stump = before.clone();
                 ensure!(
-                    plant.tips.len() == 1 && plant.regrowth_nodes().count() == 1,
-                    "cut must leave one frontier bud"
+                    stump.revalidate(terrain).is_some(),
+                    "cut terrain unavailable"
+                );
+                check_survivors(before, &stump)?;
+                ensure!(
+                    plant.tips.len() == 1 && plant.nodes.starts_with(&stump.nodes),
+                    "cut must retain one rooted frontier"
                 );
                 ensure!(
                     before.anchors.iter().skip(2).all(|anchor| {
@@ -236,20 +243,32 @@ impl Review {
                     "upper attached branches were retained"
                 );
                 log::info!("[CLIMBING][REVIEW] pruned=true upper_attached_removed=true stable_survivors=true before={} after={}", before.nodes.len(), plant.nodes.len());
-                self.stump = Some(plant.clone());
+                self.stump = Some(stump);
                 self.ticks = 0;
                 self.phase = Phase::Wait;
             }
             Phase::Wait | Phase::RootWait => {
-                ensure!(
-                    Some(plant) == self.stump.as_ref(),
-                    "vine grew across the missing wall or lost its waiting state"
-                );
+                let root = matches!(self.phase, Phase::RootWait);
+                if root {
+                    ensure!(Some(plant) == self.stump.as_ref(), "unrooted vine grew");
+                } else {
+                    let stump = self.stump.as_ref().unwrap();
+                    ensure!(
+                        plant.nodes.starts_with(&stump.nodes),
+                        "cut changed retained stem"
+                    );
+                }
                 self.ticks += 1;
                 if self.ticks >= 30 {
-                    let root = matches!(self.phase, Phase::RootWait);
+                    if !root {
+                        ensure!(
+                            plant.nodes.len() > self.stump.as_ref().unwrap().nodes.len(),
+                            "cut stem did not regrow while the wall was missing"
+                        );
+                    }
                     log::info!(
-                        "[CLIMBING][REVIEW] waiting=true root={root} frames={} nodes={}",
+                        "[CLIMBING][REVIEW] root_wait={root} cut_regrowing={} frames={} nodes={}",
+                        !root,
                         self.ticks,
                         plant.nodes.len()
                     );

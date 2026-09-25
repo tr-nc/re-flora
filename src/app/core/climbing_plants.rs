@@ -127,24 +127,21 @@ impl ClimbingPlants {
                 flexible
             ));
             ui.label(format!(
-                "{} stem nodes · {} tips · {} attachments · {} regrowth buds",
+                "{} stem nodes · {} tips · {} attachments · live length {:.0}/{:.0} voxels",
                 plant.nodes.len(),
                 plant.tips.len(),
                 attached,
-                plant.regrowth_nodes().count()
+                plant.live_arc(),
+                plant.max_live_arc()
             ));
             if !plant.root_connected() {
                 ui.label("Root disconnected: regrowth stopped. Reset to restore the root.");
-            } else if plant.nodes.len() >= 512 {
-                ui.label(
-                    "Growth limit reached (512 live nodes). Pruning frees room to grow again.",
-                );
+            } else if plant.nodes.len() >= 512 || plant.live_arc() + 2.0 > plant.max_live_arc() {
+                ui.label("Live stem limit reached. Pruning frees room to grow again.");
             } else if self.growth_blocked {
-                ui.label(
-                    "Searching for reachable support, or waiting at a cut. Large unsupported gaps stop extension.",
-                );
+                ui.label("Searching for reachable support; large unsupported gaps stop extension.");
             } else {
-                ui.label("Root connected. Pruning keeps the lower stem and leaves a regrowth bud.");
+                ui.label("Root connected. A cut leaves a new exploratory tip on the lower stem.");
             }
             ui.add_enabled_ui(enabled && !self.waiting_for_terrain, |ui| {
                 ui.horizontal(|ui| {
@@ -161,7 +158,7 @@ impl ClimbingPlants {
                     self.disconnect_root_requested = true;
                 }
                 ui.collapsing("Blocked-tip test", |ui| {
-                    ui.small("Inserts real limestone through a tip. The blocked stem is pruned; dig the inserted block away to regrow.");
+                    ui.small("Inserts real limestone through a tip. Blocked stem is pruned; the surviving shoot searches for a safe route.");
                     if ui.button("Refill terrain through tip").clicked() {
                         self.refill_tip_requested = true;
                     }
@@ -597,7 +594,7 @@ impl App {
                 .clone_from(&patch.block.source_dependencies);
             if pruned.removed > 0 {
                 self.climbing_plants.last_action =
-                    "Missing or blocked wall: upper branches pruned. Repair the gap to regrow from the cut.";
+                    "Missing or blocked wall: upper branches pruned. The rooted stump can explore again.";
                 log::info!(
                     "[CLIMBING] support lost: pruned_nodes={} buds={} remaining_nodes={}",
                     pruned.removed,

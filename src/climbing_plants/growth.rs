@@ -28,17 +28,6 @@ pub(super) fn advance(
     terrain: &impl Terrain,
 ) -> Option<Option<Step>> {
     let start = &plant.nodes[tip.node];
-    if let Some(restart) = &tip.restart {
-        if !restart_valid(plant, start.position, restart, terrain)? {
-            return Some(None);
-        }
-        return Some(Some(Step {
-            position: restart.position,
-            normal: restart.normal,
-            contact: restart.contact.clone(),
-            backing: restart.backing,
-        }));
-    }
     let end = probe(plant, tip);
     if let Some((position, contact)) = touch_surface(plant, start, end, terrain)? {
         let backing = backing_for(plant, start, position, Some(&contact), terrain)?;
@@ -68,13 +57,6 @@ pub(super) fn restart_valid(
     restart: &Restart,
     terrain: &impl Terrain,
 ) -> Option<bool> {
-    let attachment_ok = match restart.attachment {
-        Some((cell, footprint)) => {
-            terrain.voxel(cell)? == plant.anchors[0].material
-                && clear_segment(terrain, restart.position, footprint, 0.0)?
-        }
-        None => true,
-    };
     let contact_ok = match &restart.contact {
         Some(contact) => terrain.voxel(contact.cell)? == plant.anchors[0].material,
         None => true,
@@ -84,7 +66,7 @@ pub(super) fn restart_valid(
         None => true,
     };
     let clear = clear_segment(terrain, start, restart.position, plant.radius)?;
-    Some(attachment_ok && contact_ok && backing_ok && clear)
+    Some(contact_ok && backing_ok && clear)
 }
 
 pub(super) fn backing_for(

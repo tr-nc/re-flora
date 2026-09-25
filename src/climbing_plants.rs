@@ -3,6 +3,9 @@
 use glam::{IVec3, Vec3};
 
 const MAX_NODES: usize = 512;
+// Gameplay cap on the *surviving* rooted stem, in voxel arc length. Pruning
+// removes rest length and makes room for new growth; IDs and age do not spend it.
+const MAX_LIVE_ARC: f32 = 512.0;
 const MAX_TIPS: usize = 4;
 
 pub mod fixtures;
@@ -38,9 +41,6 @@ struct Contact {
 }
 #[derive(Clone, Debug, PartialEq)]
 struct Restart {
-    // A compliant node's provisional contact may have moved to a neighbouring
-    // cell. Retain the actual severed attachment dependency as well.
-    attachment: Option<(IVec3, Vec3)>,
     position: Vec3,
     normal: Vec3,
     contact: Option<Contact>,
@@ -49,7 +49,6 @@ struct Restart {
 impl From<&Node> for Restart {
     fn from(node: &Node) -> Self {
         Self {
-            attachment: None,
             position: node.position,
             normal: node.normal,
             contact: node.contact.clone(),
@@ -86,9 +85,6 @@ pub struct Tip {
     arc: f32,
     spacing: f32,
     rng: u64,
-    // The first severed step is retried exactly, rather than picking a new direction
-    // every frame and eventually jumping past the missing wall.
-    restart: Option<Restart>,
     phase: u8,
     clockwise: bool,
     exterior: Vec3,
@@ -104,7 +100,6 @@ impl Tip {
             arc: 0.0,
             spacing: 16.0,
             rng,
-            restart: None,
             phase,
             clockwise: seed & 1 == 0,
             exterior: Vec3::Z,
@@ -214,19 +209,21 @@ impl Plant {
     pub fn root_connected(&self) -> bool {
         self.root_connected
     }
+    pub fn live_arc(&self) -> f32 {
+        self.nodes.iter().map(|node| node.rest_length).sum()
+    }
+    pub fn max_live_arc(&self) -> f32 {
+        MAX_LIVE_ARC
+    }
     pub fn regrowth_nodes(&self) -> impl Iterator<Item = &Node> {
         self.tips
             .iter()
-            .filter(|tip| tip.restart.is_some())
+            .filter(|tip| self.nodes[tip.node].id == self.rod.locked_through && tip.node != 0)
             .map(|tip| &self.nodes[tip.node])
     }
 
     pub fn search_probes(&self) -> impl Iterator<Item = Vec3> + '_ {
-        self.tips.iter().map(|tip| {
-            tip.restart
-                .as_ref()
-                .map_or_else(|| growth::probe(self, tip), |restart| restart.position)
-        })
+        self.tips.iter().map(|tip| growth::probe(self, tip))
     }
 
     fn root_supported(&self, terrain: &impl Terrain) -> Option<bool> {
@@ -326,6 +323,7 @@ impl Plant {
             .filter(|tip| !cut[tip.node])
             .cloned()
             .collect();
+        let existing_tips = tips.len();
         let mut buds = 0;
         for (id, node) in self.nodes.iter().enumerate().skip(1) {
             let parent = node.parent.unwrap();
@@ -339,14 +337,8 @@ impl Plant {
                 .cloned()
                 .unwrap_or_else(|| Tip::seed(parent, self.seed.wrapping_add(node.id)));
             bud.node = parent;
-            bud.arc = 0.0;
-            let mut restart = Restart::from(node);
-            restart.attachment = self
-                .anchors
-                .iter()
-                .find(|a| a.node == id)
-                .map(|a| (a.cell, a.surface_position()));
-            bud.restart = Some(restart);
+            // The severed step may depend on the wall that was just removed.
+            // Resume searching from the surviving stump, not that old footprint.
             tips.push(bud);
             buds += 1;
         }
@@ -374,15 +366,27 @@ impl Plant {
         self.tips = tips;
         // A retained cut is a stable stump. Repair starts a new flexible shoot;
         // it must not reanimate the geometry that survived the cut.
-        let stumps: Vec<_> = self
-            .tips
-            .iter()
-            .filter(|tip| tip.restart.is_some())
-            .map(|tip| tip.node)
-            .collect();
-        for stump in stumps {
+        for tip_index in existing_tips..self.tips.len() {
+            let stump = self.tips[tip_index].node;
             self.freeze_path(stump);
             self.rod.locked_through = self.rod.locked_through.max(self.nodes[stump].id);
+            let last_anchor = self
+                .anchors
+                .iter()
+                .rev()
+                .find(|anchor| self.is_descendant(stump, anchor.node))
+                .unwrap()
+                .node;
+            let mut arc = 0.0;
+            let mut node = stump;
+            while node != last_anchor {
+                arc += self.nodes[node].rest_length;
+                node = self.nodes[node].parent.unwrap();
+            }
+            self.tips[tip_index].arc = arc;
+            if self.tips.len() == 1 {
+                self.rod.reorient_at(&self.nodes, stump);
+            }
         }
         Pruned { removed, buds }
     }
@@ -400,6 +404,7 @@ impl Plant {
         }
         let mut next = self.clone();
         let mut changed = false;
+        let mut live_arc = next.live_arc();
         for index in 0..self.tips.len() {
             if next.nodes.len() >= MAX_NODES {
                 break;
@@ -414,21 +419,25 @@ impl Plant {
                 continue;
             };
             let end = step.position;
+            let length = start.distance(end);
+            if live_arc + length > MAX_LIVE_ARC + 1e-4 {
+                continue;
+            }
+            live_arc += length;
             if step.normal.y.abs() < 0.7 {
                 tip.exterior = step.normal;
             }
-            if tip.node == 0 || tip.restart.is_some() {
+            if tip.node == 0 {
                 tip.spacing = spacing;
             }
             let parent = tip.node;
             tip.node = next.nodes.len();
-            tip.arc += start.distance(end);
-            tip.restart = None;
+            tip.arc += length;
             next.nodes.push(Node {
                 id: next.next_node_id,
                 position: end,
                 parent: Some(parent),
-                rest_length: start.distance(end),
+                rest_length: length,
                 normal: step.normal,
                 fixed: false,
                 contact: step.contact.clone(),
@@ -647,6 +656,32 @@ mod tests {
     }
 
     #[test]
+    fn live_length_cap_is_reclaimed_by_pruning() {
+        let wall = Wall::default();
+        let mut plant = seed();
+        for i in 1..=256 {
+            let mut node = plant.nodes[0].clone();
+            node.id = i as u64;
+            node.parent = Some(i - 1);
+            node.position.y += 2.0 * i as f32;
+            node.rest_length = 2.0;
+            node.contact = None;
+            node.backing = None;
+            plant.nodes.push(node);
+        }
+        plant.next_node_id = 257;
+        plant.tips[0].node = 256;
+        plant.tips[0].arc = 0.0;
+        assert!(!plant.grow(&wall, 16.0), "live stem exceeded its arc cap");
+        plant.prune_to_root();
+        assert!(
+            plant.grow(&wall, 16.0),
+            "pruning must reclaim length budget"
+        );
+        assert_eq!(plant.nodes[1].id, 257);
+    }
+
+    #[test]
     fn normal_growth_stays_a_single_unbranched_vine() {
         let plant = grown();
         assert_eq!(plant.tips.len(), 1, "normal growth still creates branches");
@@ -725,15 +760,20 @@ mod tests {
         terrain.missing.insert(anchor.cell);
         assert_eq!(plant.revalidate(&terrain).unwrap().removed, 1);
         let stump = plant.clone();
-        assert!(
-            !plant.grow(&terrain, 16.0),
-            "bud bypassed its missing attachment via the neighbouring contact"
-        );
-        assert_eq!(plant, stump);
-        terrain.missing.clear();
         assert!(plant.grow(&terrain, 16.0));
         assert_eq!(plant.nodes[1].id, 2);
         assert_eq!(plant.nodes[0], stump.nodes[0]);
+        assert_eq!(terrain.voxel(anchor.cell), Some(0));
+        assert!(plant.anchors.iter().all(|a| a.cell != anchor.cell));
+        assert_eq!(
+            clear_segment(
+                &terrain,
+                plant.nodes[0].position,
+                plant.nodes[1].position,
+                plant.radius
+            ),
+            Some(true)
+        );
     }
 
     #[test]
@@ -762,16 +802,22 @@ mod tests {
             "upper valid attachments must not retain severed stems"
         );
         let stump = plant.clone();
-        for _ in 0..20 {
-            assert!(!plant.grow(&wall, 16.0));
+        let mut regrown = false;
+        for _ in 0..40 {
+            regrown |= plant.grow(&wall, 16.0);
+            plant.step_motion(&wall, 0.05, 1.0, 16.0, true).unwrap();
         }
-        assert_eq!(plant, stump, "waiting must preserve the bud and RNG");
-        wall.missing.clear();
-        assert!(plant.grow(&wall, 16.0));
-        assert_eq!(plant.nodes.last().unwrap().parent, Some(stump.tips[0].node));
-        assert!(plant.nodes.last().unwrap().id >= original.next_node_id);
+        assert!(
+            regrown,
+            "surviving rooted stem must explore without wall repair"
+        );
+        assert_eq!(
+            plant.nodes[stump.nodes.len()].parent,
+            Some(stump.tips[0].node)
+        );
+        assert!(plant.nodes[stump.nodes.len()].id >= original.next_node_id);
         for old in &stump.nodes {
-            assert!(plant.nodes.iter().any(|n| n == old));
+            assert!(plant.nodes.iter().any(|n| n.id == old.id));
         }
         check_structure(&plant);
     }
@@ -835,17 +881,11 @@ mod tests {
             expected.node = kept.node; // compaction changes only the storage index
             assert_eq!(kept, &expected);
         }
-        let waiting = plant
-            .tips
-            .iter()
-            .find(|t| t.restart.is_some())
-            .unwrap()
-            .clone();
+        let stump = plant.nodes.last().unwrap().id;
         plant.grow(&wall, 16.0);
-        assert_eq!(
-            plant.tips.iter().find(|t| t.restart.is_some()).unwrap(),
-            &waiting,
-            "another growing tip consumed the waiting bud RNG"
+        assert!(
+            plant.nodes.iter().any(|n| n.id == stump),
+            "regrowth must not disturb the surviving branch"
         );
     }
 
@@ -876,7 +916,9 @@ mod tests {
         assert!(plant.revalidate(&wall).unwrap().removed > 0);
         assert!(!plant.nodes.iter().any(|n| n.id == node.id));
         assert_survivors_unchanged(&original, &plant);
-        assert!(!plant.grow(&wall, 16.0));
+        let old_id = node.id;
+        plant.grow(&wall, 16.0);
+        assert!(plant.nodes.iter().all(|n| n.id != old_id));
     }
 
     #[test]
@@ -969,7 +1011,11 @@ mod tests {
             };
             assert!(plant.revalidate(&terrain).unwrap().removed > 0);
             assert_survivors_unchanged(&original, &plant);
-            assert!(!plant.grow(&terrain, 16.0));
+            plant.grow(&terrain, 16.0);
+            assert!(plant
+                .nodes
+                .iter()
+                .all(|n| n.id != original.nodes[original.anchors[1].node].id));
         }
     }
 
