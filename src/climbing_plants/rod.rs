@@ -46,8 +46,8 @@ pub(super) struct Rod {
     outward: Vec3,
     material: BTreeMap<u64, Material>,
     pending: Option<Pending>,
-    // A pruned stump remains fixed while its new exploratory shoot bends.
-    // Ordinary established stem is NOT locked.
+    // Keep the base through the last surviving attachment stable after a cut;
+    // the free span to the stump remains flexible.
     pub locked_through: u64,
 }
 impl Rod {

@@ -230,7 +230,7 @@ impl Review {
                 );
                 check_survivors(before, &stump)?;
                 ensure!(
-                    plant.tips.len() == 1 && plant.nodes.starts_with(&stump.nodes),
+                    plant.tips.len() == 1 && retained_stem(&stump, plant),
                     "cut must retain one rooted frontier"
                 );
                 ensure!(
@@ -253,10 +253,7 @@ impl Review {
                     ensure!(Some(plant) == self.stump.as_ref(), "unrooted vine grew");
                 } else {
                     let stump = self.stump.as_ref().unwrap();
-                    ensure!(
-                        plant.nodes.starts_with(&stump.nodes),
-                        "cut changed retained stem"
-                    );
+                    ensure!(retained_stem(stump, plant), "cut changed retained stem");
                 }
                 self.ticks += 1;
                 if self.ticks >= 30 {
@@ -289,7 +286,7 @@ impl Review {
             Phase::Repair if plant.nodes.len() >= self.stump.as_ref().unwrap().nodes.len() + 20 => {
                 let stump = self.stump.as_ref().unwrap();
                 ensure!(
-                    plant.nodes.starts_with(&stump.nodes),
+                    retained_stem(stump, plant),
                     "repair changed the retained stem"
                 );
                 let old_max = self
@@ -348,6 +345,18 @@ impl Review {
         Ok(None)
     }
 }
+fn retained_stem(stump: &Plant, plant: &Plant) -> bool {
+    plant.nodes.len() >= stump.nodes.len()
+        && plant.nodes[..stump.nodes.len()]
+            .iter()
+            .zip(&stump.nodes)
+            .all(|(current, old)| {
+                current.id == old.id
+                    && current.rest_length == old.rest_length
+                    && current.parent == old.parent
+            })
+}
+
 fn check_survivors(before: &Plant, after: &Plant) -> Result<()> {
     for node in &after.nodes {
         let original = before

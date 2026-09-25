@@ -110,10 +110,12 @@ they do not describe an available runtime mode.
   material, clear stem geometry, and attachment rootlet centerlines.
   Pre-existing gaps do not invent backing dependencies. Missing/changed material or a buried
   stem removes the first invalid step and all descendants.
-- A cut preserves the root-connected upstream stem and its recorded dependencies, locks
-  the surviving stump, and starts a new exploratory tip from there. It does not restore a
-  removed anchor or pass through missing terrain. The free-search budget is recomputed
-  from the latest surviving anchor to the stump. Whole-root-support loss leaves a latent
+- A cut preserves the root-connected upstream stem and its recorded dependencies, and
+  starts a new exploratory tip at the stump. Only the surviving attachment history
+  remains dark; the free span above the last anchor stays flexible and light green.
+  The rod's retained base is held through that anchor, not through the stump. It does
+  not restore a removed anchor or pass through missing terrain. The free-search budget
+  is recomputed from the latest surviving anchor to the stump. Whole-root-support loss leaves a latent
   root seed; repairing that root permits regrowth. New nodes receive fresh IDs.
 - Terrain snapshots are transactional: unavailable or stale queries do not commit pose,
   material memory, phase, contacts, RNG, pruning, or growth. Collision cache reuse checks

@@ -85,6 +85,7 @@ pub struct Tip {
     arc: f32,
     spacing: f32,
     rng: u64,
+    regrowing: bool,
     phase: u8,
     clockwise: bool,
     exterior: Vec3,
@@ -100,6 +101,7 @@ impl Tip {
             arc: 0.0,
             spacing: 16.0,
             rng,
+            regrowing: false,
             phase,
             clockwise: seed & 1 == 0,
             exterior: Vec3::Z,
@@ -232,7 +234,7 @@ impl Plant {
     pub fn regrowth_nodes(&self) -> impl Iterator<Item = &Node> {
         self.tips
             .iter()
-            .filter(|tip| self.nodes[tip.node].id == self.rod.locked_through && tip.node != 0)
+            .filter(|tip| tip.regrowing)
             .map(|tip| &self.nodes[tip.node])
     }
 
@@ -351,6 +353,7 @@ impl Plant {
                 .cloned()
                 .unwrap_or_else(|| Tip::seed(parent, self.seed.wrapping_add(node.id)));
             bud.node = parent;
+            bud.regrowing = true;
             // The severed step may depend on the wall that was just removed.
             // Resume searching from the surviving stump, not that old footprint.
             tips.push(bud);
@@ -378,12 +381,25 @@ impl Plant {
         }
         self.nodes = nodes;
         self.tips = tips;
-        // A retained cut is a stable stump. Repair starts a new flexible shoot;
-        // it must not reanimate the geometry that survived the cut.
+        // Only a surviving established attachment marks old, dark tissue. A
+        // severed attachment must not turn the free stem above the last anchor
+        // into fixed history (or immobilize that part of the searching shoot).
+        for node in &mut self.nodes {
+            node.fixed = false;
+        }
+        let attached_nodes: Vec<_> = self
+            .anchors
+            .iter()
+            .filter(|anchor| anchor.attached)
+            .map(|anchor| anchor.node)
+            .collect();
+        for node in attached_nodes {
+            self.freeze_path(node);
+        }
+        let last_anchor = self.anchors.last().unwrap().node;
+        self.rod.locked_through = self.nodes[last_anchor].id;
         for tip_index in existing_tips..self.tips.len() {
             let stump = self.tips[tip_index].node;
-            self.freeze_path(stump);
-            self.rod.locked_through = self.rod.locked_through.max(self.nodes[stump].id);
             let last_anchor = self
                 .anchors
                 .iter()
@@ -446,6 +462,7 @@ impl Plant {
             }
             let parent = tip.node;
             tip.node = next.nodes.len();
+            tip.regrowing = false;
             tip.arc += length;
             next.nodes.push(Node {
                 id: next.next_node_id,
@@ -803,6 +820,24 @@ mod tests {
             "unsupported upper stem is still suspended"
         );
         assert_survivors_unchanged(&original, &plant);
+        let last_anchor = plant.anchors.last().unwrap().node;
+        assert!(
+            plant.nodes.len() > last_anchor + 1,
+            "cut must leave a free stump"
+        );
+        assert!(
+            plant.nodes[last_anchor + 1..].iter().all(|n| !n.fixed),
+            "unattached stem above the surviving anchor became dark established tissue"
+        );
+        let free_arc: f32 = plant.nodes[last_anchor + 1..]
+            .iter()
+            .map(|n| n.rest_length)
+            .sum();
+        assert!(
+            (plant.tips[0].arc - free_arc).abs() < 0.001,
+            "search reach must be measured from the last surviving attachment"
+        );
+        assert_eq!(plant.rod.locked_through, plant.nodes[last_anchor].id);
         assert!(original
             .anchors
             .iter()

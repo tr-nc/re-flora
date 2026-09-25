@@ -623,7 +623,13 @@ fn cut_regrows_with_fresh_ids_while_the_original_support_is_missing() {
         safe(&plant, &cut);
     }
     assert!(plant.nodes.len() > stump.nodes.len());
-    assert!(plant.nodes.starts_with(&stump.nodes));
+    assert_eq!(plant.nodes[0], stump.nodes[0]);
+    assert!(plant.nodes[..stump.nodes.len()]
+        .iter()
+        .zip(&stump.nodes)
+        .all(|(new, old)| new.id == old.id
+            && new.parent == old.parent
+            && new.rest_length == old.rest_length));
     assert!(plant.nodes[stump.nodes.len()..]
         .iter()
         .all(|n| n.id > old_max));
