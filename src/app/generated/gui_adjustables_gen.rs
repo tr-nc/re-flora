@@ -38,15 +38,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "apple_preview_model",
-        kind: "bool",
-        label: "New Apple Model (A/B: unchecked = original)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "apple_pixel_resolution",
         kind: "uint",
-        label: "Pixels per New Apple (N x N, Trees and Fallen Fruit)",
+        label: "Pixels per Apple (N x N, Trees and Fallen Fruit)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1440,7 +1434,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 pub struct GuiAdjustables {
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
-    pub apple_preview_model: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_single_light: crate::gui_adjustables::BoolParam,
     pub model_pixel_snap_views: crate::gui_adjustables::BoolParam,
@@ -1688,7 +1681,6 @@ impl GuiAdjustables {
 
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut apple_preview_model_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_single_light_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_pixel_snap_views_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1933,11 +1925,6 @@ impl GuiAdjustables {
                     "ddgi_continuous_sampling" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             ddgi_continuous_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "apple_preview_model" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            apple_preview_model_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "apple_pixel_resolution" => {
@@ -3494,7 +3481,6 @@ impl GuiAdjustables {
         GuiAdjustables {
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
-            apple_preview_model: apple_preview_model_field.expect("Missing parameter: apple_preview_model"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_single_light: model_pixel_single_light_field.expect("Missing parameter: model_pixel_single_light"),
             model_pixel_snap_views: model_pixel_snap_views_field.expect("Missing parameter: model_pixel_snap_views"),
@@ -3960,7 +3946,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
-        "apple_preview_model" => Some(&adjustables.apple_preview_model),
         "model_pixel_single_light" => Some(&adjustables.model_pixel_single_light),
         "model_pixel_snap_views" => Some(&adjustables.model_pixel_snap_views),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
@@ -4240,7 +4225,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
-        "apple_preview_model" => Some(&mut adjustables.apple_preview_model),
         "model_pixel_single_light" => Some(&mut adjustables.model_pixel_single_light),
         "model_pixel_snap_views" => Some(&mut adjustables.model_pixel_snap_views),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),

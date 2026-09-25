@@ -45,7 +45,6 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_history_retention: gui.ddgi_history_retention.value,
         ddgi_continuous_sampling: gui.ddgi_continuous_sampling.value,
         ddgi_aggregate_history: gui.ddgi_aggregate_history.value,
-        apple_preview_model: gui.apple_preview_model.value,
         apple_pixel_resolution: gui.apple_pixel_resolution.value,
         model_pixel_options: u32::from(gui.model_pixel_single_light.value)
             | (u32::from(gui.model_pixel_snap_views.value) << 1),
@@ -326,7 +325,6 @@ mod tests {
         gui.raster_tree_hybrid_lighting.value = true;
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
-        gui.apple_preview_model.value = true;
         gui.apple_pixel_resolution.value = 24;
         gui.model_pixel_single_light.value = true;
         gui.model_pixel_snap_views.value = true;
@@ -468,7 +466,6 @@ mod tests {
                 ddgi_history_retention,
                 ddgi_continuous_sampling: true,
                 ddgi_aggregate_history: true,
-                apple_preview_model: true,
                 apple_pixel_resolution: 24,
                 model_pixel_options: 3,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,

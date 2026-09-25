@@ -678,14 +678,12 @@ impl App {
         let phase = (frame / 30).min(11);
         let dropped = phase >= 6;
         let stage = phase % 6;
-        let enabled = stage != 0 && stage != 4;
         let n = match stage {
             1 => 8,
             3 => 64,
             _ => 32,
         };
         let settings = &mut self.debug_settings.adjustables;
-        settings.apple_preview_model.value = enabled;
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
@@ -697,7 +695,7 @@ impl App {
             settings.falling_leaf_size_scale.value = 1.;
         }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {
-            log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} enabled={enabled} resolution={n} diagnostic_only=true saved=false");
+            log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} resolution={n} diagnostic_only=true saved=false");
         }
     }
 

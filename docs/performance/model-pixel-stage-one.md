@@ -11,9 +11,10 @@ In **Debug → Pixel Models: Stage 1 (A/B)**:
 
 Both are independent declarative, saved booleans, defaulting to **off**. Both off
 keeps the continuous-view/per-texel-lighting path. They apply to butterflies,
-3D falling leaves, and new attached/fallen apples. To see them on apples, also
-turn on the existing **Flora → Apple Appearance (A/B)** new-model switch. The
-original voxel apples and original leaf sprites are not changed.
+3D falling leaves, and attached/fallen apples. Apples now always use the pixel
+pipeline; the former **Flora → Apple Appearance (A/B)** model checkbox and voxel
+render path have been retired. **Flora → Apple Appearance** retains resolution.
+The original leaf sprite comparison is unchanged.
 
 Normal visible try-out command, when requested: `cargo run --release`.
 
@@ -81,7 +82,7 @@ cargo run --release -- --hidden --mute --auto-exit 0.5
 - View-set tests check unit lengths, uniqueness, sphere coverage and the rigid
   correction's direction/handedness. Render-input tests check both option bits.
 - Stage-one live fixture cycles all four combinations while rendering 64 rotating
-  leaves, 21 animated butterflies, attached/fallen apple A/B at 8/32/64px, actual
+  leaves, 21 animated butterflies, attached/fallen pixel apples at 8/32/64px, actual
   fruit drops and native resize publication. No saved config changes or Vulkan
   errors. This is runtime correctness/inspection evidence, not a pixel-exact
   numerical oracle for the deliberately quantized view.

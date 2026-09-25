@@ -1312,12 +1312,11 @@ impl App {
             debug_settings.adjustables.model_pixel_snap_views.value = false;
         }
         let apple_pixel_review =
-            std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("ab");
+            std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("resolution");
         if apple_pixel_review {
             // Initialize before the startup tree/physics publication; otherwise
             // the saved mature cycle can drop fruit before the first review tick.
             debug_settings.adjustables.fruit_cycle.value = 0.7;
-            debug_settings.adjustables.apple_preview_model.value = false;
         }
         // The tree smoke owns its initial fixture. Configure it before the first
         // terrain/GI publication, not by redundantly rebuilding on frame one.

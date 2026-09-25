@@ -507,12 +507,6 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
-        let dynamic_fruit_vert_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/props/dynamic_fruit.vert",
-            "main",
-        )
-        .unwrap();
         let dynamic_fruit_shadow_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/props/dynamic_fruit_shadow.vert",
@@ -664,7 +658,6 @@ impl PipelineBuilder {
             raster_tree_lighting_sm,
             tree_skin_sm,
             tree_refit_sm,
-            dynamic_fruit_vert_sm,
             apple_pixel_tree_comp_sm,
             apple_pixel_dynamic_comp_sm,
             apple_pixel_tree_vert_sm,
@@ -1350,22 +1343,6 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
-        let dynamic_fruit_ppl = Self::create_gfx_pipeline_with_desc(
-            vulkan_ctx,
-            &shader_modules.dynamic_fruit_vert_sm,
-            &shader_modules.flora_frag_sm,
-            &render_passes.render_pass_color_and_depth,
-            Some(4),
-            pool,
-            &environment_lighting_resources,
-            GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-        );
-
         let apple_pixel_dynamic_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.apple_pixel_dynamic_vert_sm,
@@ -1476,7 +1453,6 @@ impl PipelineBuilder {
             environment_probe_visualization_overlay_ppl,
             raster_tree_ppl,
             raster_tree_shadow_ppl,
-            dynamic_fruit_ppl,
             apple_pixel_tree_ppl,
             apple_pixel_dynamic_ppl,
             dynamic_fruit_shadow_ppl,
@@ -1702,7 +1678,6 @@ declare_ddgi_consumer_registry! {
     Sprinkler => Graphics(graphics.sprinkler_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
-    DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),
     EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
@@ -2058,7 +2033,6 @@ impl PipelineTopology {
             &self.graphics.sprinkler_ppl,
             &self.graphics.environment_probe_visualization_depth_ppl,
             &self.graphics.environment_probe_visualization_overlay_ppl,
-            &self.graphics.dynamic_fruit_ppl,
             &self.graphics.apple_pixel_dynamic_ppl,
             &self.graphics.butterfly_tile_ppl,
             &self.graphics.particle_ppl,
@@ -2547,7 +2521,6 @@ pub struct ShaderModules {
     pub raster_tree_vert_sm: ShaderModule,
     pub raster_tree_frag_sm: ShaderModule,
     pub raster_tree_shadow_vert_sm: ShaderModule,
-    pub dynamic_fruit_vert_sm: ShaderModule,
     pub apple_pixel_tree_comp_sm: ShaderModule,
     pub apple_pixel_dynamic_comp_sm: ShaderModule,
     pub apple_pixel_tree_vert_sm: ShaderModule,
@@ -2632,7 +2605,6 @@ pub struct GraphicsPipelines {
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
     pub raster_tree_ppl: GraphicsPipeline,
     pub raster_tree_shadow_ppl: GraphicsPipeline,
-    pub dynamic_fruit_ppl: GraphicsPipeline,
     pub apple_pixel_tree_ppl: GraphicsPipeline,
     pub apple_pixel_dynamic_ppl: GraphicsPipeline,
     pub dynamic_fruit_shadow_ppl: GraphicsPipeline,

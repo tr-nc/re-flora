@@ -1,5 +1,12 @@
 # Shared model pixel tiles
 
+**Apple promotion:** apples now always use this pipeline. The voxel-appearance
+checkbox, old render meshes and old fruit color pipeline have been removed;
+canonical collision/attachment metadata remains. The original-mode measurements
+below are historical and require the corresponding older checkout/config/script
+to reproduce. The current benchmark compares 8/32/64px, using 8px as its cadence
+reference (or both controls off for the stage-one suite).
+
 For the subsequent per-object-lighting and 128-view GUI experiment, see
 [Stage-one preview and measurements](model-pixel-stage-one.md). It retains live
 tile generation; no persistent atlas has been implemented.
@@ -20,8 +27,8 @@ Butterflies, falling leaves, and both attached/fallen new apples now use:
 The particle and apple compute entry points are pose/material/resource adapters,
 not different sampling algorithms. Attached apples still use the existing GPU
 wind and tree-attachment pose. Fallen apples still use the rigid-body stream.
-Original voxel apples, leaf sprite A/B, collision, growth and flight physics are
-unchanged. Resolution settings remain independent; apple resolution covers both
+Leaf sprite A/B, collision, growth and flight physics are unchanged. The original
+voxel apple render path was retained for these measurements and subsequently retired. Resolution settings remain independent; apple resolution covers both
 attached and fallen fruit. No color quantization was introduced.
 
 The legacy CPU planner first creates/prunes eight-neighbor bridge expressions,
@@ -74,7 +81,7 @@ CPU/GPU unprojection cancellation on tiny leaves for a missing triangle. The
 cell-overlap epsilon is expressed in pixel units on both CPU and GPU.
 
 The apple review initializes attached fruit before startup physics, exercises
-live original/new transitions and 8/32/64px in both life states, triggers actual
+live 8/32/64px transitions in both life states, triggers actual
 fruit drops through the normal GUI lifecycle path, and exercises native resize
 publication. It does not save the temporary settings. Logs and scene captures
 are under `target/apple-model-review/`. Apple shape/wind/occlusion screenshots

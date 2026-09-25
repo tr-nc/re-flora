@@ -926,7 +926,7 @@ mod tests {
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
-            include_str!("../shader/slang/dynamic_fruit.vert.slang"),
+            include_str!("../shader/slang/apple_pixel_tile.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
             include_str!("../shader/slang/particle_billboard.vert.slang"),
         ] {
@@ -957,11 +957,14 @@ mod tests {
         assert!(raster.contains("sampleDiffuseEnvironment(\n        gui, shading"));
         for consumer in [
             include_str!("../shader/slang/flora_vertex.slang"),
-            include_str!("../shader/slang/dynamic_fruit.vert.slang"),
+            include_str!("../shader/slang/apple_pixel_tile.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
             include_str!("../shader/slang/particle_billboard.vert.slang"),
         ] {
-            assert!(consumer.contains("gui_input, sun_info, shading_info"));
+            assert!(consumer
+                .split_whitespace()
+                .collect::<String>()
+                .contains("gui_input,sun_info,shading_info"));
         }
     }
 

@@ -2,7 +2,6 @@ import tree_scene;
 import flora_types;
 import flora_lighting_cache;
 import flora_vertex;
-import apple_preview_vertex;
 
 struct B_TreeLeafInstances
 {
@@ -49,21 +48,9 @@ VertexOutput main(VertexInput input)
     uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
         leafInstance.packed_local_pos, chunkWorldOffset);
     bool isTreeLeaf = instanceType == FLORA_SPECIES_TREE_LEAF;
-    bool isApple = instanceType == FLORA_SPECIES_APPLE;
-    bool previewApple = isApple && isApplePreviewVertex(input.packed_data);
-    float3 previewLocalPosition=float3(0.0);
-    if (previewApple) {
-        previewLocalPosition=applePreviewPosition(input.packed_data) *
-            (float(unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))/2.0);
-        voxelLocalPosition=int3(floor(previewLocalPosition));
-    }
     int3 leafVoxelLocalPosition = isTreeLeaf
         ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
         : voxelLocalPosition;
-    bool fruitVoxelHidden = isApple && (!previewApple ? !treeFruitVoxelVisible(
-        leafVoxelLocalPosition,
-        unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)) :
-        unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)==0u);
     uint3 instancePosition = isTreeLeaf
         ? uint3(int3(leafVoxelWorldPosition) - leafVoxelLocalPosition)
         : leafVoxelWorldPosition;
@@ -76,19 +63,16 @@ VertexOutput main(VertexInput input)
         INSTANCE_SPAWN_INACTIVE, input.instance_index);
 
     VertexOutput output;
-    if (prepared.should_trim || fruitVoxelHidden)
+    if (prepared.should_trim)
     {
         output.position = float4(2.0, 2.0, 2.0, 1.0);
         output.color = float3(0.0);
         return output;
     }
 
-    float3 vertexPosition = previewApple ? prepared.anchor_position +
-        treeAttachmentVector(instancePosition,
-            (previewLocalPosition-float3(leafVoxelLocalPosition))*FLORA_SCALING_FACTOR) :
-        floraBillboardVertexPosition(prepared.voxel_position,vertexOffset);
+    float3 vertexPosition = floraBillboardVertexPosition(prepared.voxel_position,vertexOffset);
     output.position = projectFloraPosition(vertexPosition);
-    float3 baseColor = previewApple ? applePreviewBaseColor(input.packed_data) : sampleFloraBaseColor(
+    float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,
         instancePosition, prepared.color_gradient, voxelInfo);
     if (isTreeLeaf)

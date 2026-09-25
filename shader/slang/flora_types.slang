@@ -125,13 +125,6 @@ public uint unpackTreeFruitRadiusVoxels(uint packedLeafLocalPosition)
     return uint(max(encodedRadius, 1));
 }
 
-public bool treeFruitVoxelVisible(int3 voxelLocalPosition, uint radiusVoxels)
-{
-    float3 voxelCenter = float3(voxelLocalPosition) + 0.5;
-    float radius = max(float(radiusVoxels), 1.0);
-    return dot(voxelCenter, voxelCenter) <= radius * radius;
-}
-
 public uint3 treeLeafWorldPosition(uint packedLocalPosition,
                                    uint3 chunkWorldOffset)
 {

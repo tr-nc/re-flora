@@ -1,8 +1,5 @@
 use crate::tracer::{
-    voxel_encoding::{
-        append_indexed_leaf_cube_data, append_indexed_leaf_cube_data_with_info, FloraMeshData,
-        FloraVoxelInfo,
-    },
+    voxel_encoding::{append_indexed_leaf_cube_data, FloraMeshData},
     LeafVertex,
 };
 use anyhow::Result;
@@ -163,35 +160,8 @@ pub fn generate_indexed_single_voxel_leaf(
     Ok(mesh)
 }
 
-/// Generates the mature apple mesh centered on the instance anchor.
-///
-/// The apple is intentionally render-only: tree placement creates instances for
-/// this mesh instead of stamping fruit into the terrain voxel field.
-pub fn generate_indexed_voxel_apple(is_lod_used: bool) -> Result<FloraMeshData<LeafVertex>> {
-    const MAX_LENGTH: u32 = TREE_FRUIT_MAX_RADIUS_VOXELS;
-
-    let mut mesh = FloraMeshData::<LeafVertex>::new(MAX_LENGTH);
-
-    for pos in voxel_apple_offsets() {
-        let vertex_offset = mesh.vertices.len() as u32;
-        let color_gradient = ((pos.y + MAX_LENGTH as i32) as f32
-            / (MAX_LENGTH as f32 * 2.0).max(1.0))
-        .clamp(0.0, 1.0);
-        append_indexed_leaf_cube_data_with_info(
-            &mut mesh.vertices,
-            &mut mesh.indices,
-            &mut mesh.voxel_infos,
-            pos,
-            vertex_offset,
-            FloraVoxelInfo::new(color_gradient, 1.0, color_gradient, 0),
-            is_lod_used,
-        )?;
-    }
-
-    Ok(mesh)
-}
-
-/// The shared raster description used by attached apple rendering and the dynamic convex collider.
+/// Canonical fruit volume retained for collision and attachment metadata.
+/// Visible apples use the shared model asset, not a voxel render mesh.
 pub fn voxel_apple_offsets() -> Vec<IVec3> {
     voxel_apple_offsets_for_radius(TREE_FRUIT_MAX_RADIUS_VOXELS)
 }

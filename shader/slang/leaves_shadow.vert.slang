@@ -165,12 +165,12 @@ VertexOutput main(VertexInput input)
     uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
         leafInstance.packed_local_pos, pc.chunk_world_offset);
     bool isTreeLeaf = pc.instance_ty == FLORA_SPECIES_TREE_LEAF;
-    bool previewApple=pc.instance_ty==FLORA_SPECIES_APPLE && isApplePreviewVertex(input.packed_data);
-    float3 previewLocalPosition=float3(0.0);
-    if(previewApple){
-        previewLocalPosition=applePreviewPosition(input.packed_data)*
+    bool isApple=pc.instance_ty==FLORA_SPECIES_APPLE;
+    float3 appleLocalPosition=float3(0.0);
+    if(isApple){
+        appleLocalPosition=applePreviewPosition(input.packed_data)*
             (float(unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))/2.0);
-        voxelLocalPosition=int3(floor(previewLocalPosition));
+        voxelLocalPosition=int3(floor(appleLocalPosition));
     }
     int3 leafVoxelLocalPosition = isTreeLeaf
         ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
@@ -187,11 +187,7 @@ VertexOutput main(VertexInput input)
     float3 instancePosition =
         float3(instancePositionVoxels) * SCALING_FACTOR;
     uint seed = instanceSeed(instancePositionVoxels);
-    bool isApple = pc.instance_ty == FLORA_SPECIES_APPLE;
-    if (isApple && (previewApple ?
-            unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)==0u :
-            !treeFruitVoxelVisible(leafVoxelLocalPosition,
-                unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))))
+    if (isApple && unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)==0u)
     {
         VertexOutput output;
         output.position = float4(2.0, 2.0, 2.0, 1.0);
@@ -247,9 +243,9 @@ VertexOutput main(VertexInput input)
     float billboardSizeVoxels = isTreeLeaf
         ? max(leafInstance.billboard_size_voxels, 0.0)
         : 1.225;
-    float3 vertexPosition = previewApple ? anchorPosition +
+    float3 vertexPosition = isApple ? anchorPosition +
         treeAttachmentVector(instancePositionVoxels,
-            (previewLocalPosition-float3(leafVoxelLocalPosition))*SCALING_FACTOR) :
+            (appleLocalPosition-float3(leafVoxelLocalPosition))*SCALING_FACTOR) :
         billboardVertexPosition(voxelPosition,vertexOffset,billboardSizeVoxels);
     VertexOutput output;
     output.position = mul(

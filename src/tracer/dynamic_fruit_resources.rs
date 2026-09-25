@@ -6,34 +6,7 @@ use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, FrameRetirement, FrameRetirementSink, MemoryLocation,
 };
 
-use crate::{
-    resource::Resource,
-    tracer::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES},
-};
-
-const VOXEL_SCALE: f32 = 1.0 / 256.0;
-const APPLE_BOTTOM_COLOR_SRGB: Vec3 = Vec3::new(0.48, 0.025, 0.018);
-const APPLE_TOP_COLOR_SRGB: Vec3 = Vec3::new(0.95, 0.06, 0.035);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub struct DynamicFruitVertex {
-    position: [f32; 3],
-    voxel_center: [f32; 3],
-    shading_normal: [f32; 3],
-    color_srgb: [f32; 3],
-}
-
-impl DynamicFruitVertex {
-    fn new(position: Vec3, voxel_center: Vec3, shading_normal: Vec3, color_srgb: Vec3) -> Self {
-        Self {
-            position: position.to_array(),
-            voxel_center: voxel_center.to_array(),
-            shading_normal: shading_normal.to_array(),
-            color_srgb: color_srgb.to_array(),
-        }
-    }
-}
+use crate::resource::Resource;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -79,9 +52,6 @@ pub struct DynamicFruitRendererResources {
     pub vertices: Resource<Buffer>,
     pub indices: Resource<Buffer>,
     pub indices_len: u32,
-    pub preview_vertices: Resource<Buffer>,
-    pub preview_indices: Resource<Buffer>,
-    pub preview_indices_len: u32,
     pub pixel_quad_vertices: Resource<Buffer>,
     pub instances: Resource<Buffer>,
     pub instance_count: u32,
@@ -95,7 +65,7 @@ impl DynamicFruitRendererResources {
         allocator: Allocator,
         frame_retirement_sink: FrameRetirementSink,
     ) -> Self {
-        let (vertices_data, indices_data) = build_dynamic_apple_mesh();
+        let (vertices_data, indices_data) = build_apple_shadow_mesh();
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -113,25 +83,7 @@ impl DynamicFruitRendererResources {
             std::mem::size_of_val(indices_data.as_slice()) as u64,
         );
         indices.fill(&indices_data).unwrap();
-        let (preview_vertices_data, preview_indices_data) = build_preview_apple_mesh();
-        let preview_vertices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
-            MemoryLocation::CpuToGpu,
-            std::mem::size_of_val(preview_vertices_data.as_slice()) as u64,
-        );
-        preview_vertices.fill(&preview_vertices_data).unwrap();
-        let preview_indices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            MemoryLocation::CpuToGpu,
-            std::mem::size_of_val(preview_indices_data.as_slice()) as u64,
-        );
-        preview_indices.fill(&preview_indices_data).unwrap();
-        // The pixel vertex shader reflects only location 0, so Vulkan gives
-        // binding 0 a 12-byte stride (not DynamicFruitVertex's 48 bytes).
+        // Both pixel and shadow vertex shaders use packed float3 positions.
         let quad = [
             [0.0f32, 0.0, 0.0],
             [1.0, 0.0, 0.0],
@@ -166,9 +118,6 @@ impl DynamicFruitRendererResources {
             vertices: Resource::new(vertices),
             indices: Resource::new(indices),
             indices_len: indices_data.len() as u32,
-            preview_vertices: Resource::new(preview_vertices),
-            preview_indices: Resource::new(preview_indices),
-            preview_indices_len: preview_indices_data.len() as u32,
             pixel_quad_vertices: Resource::new(pixel_quad_vertices),
             instances: Resource::new(instances),
             instance_count: 0,
@@ -227,22 +176,6 @@ impl DynamicFruitRendererResources {
         self.last_instances.clear();
     }
 
-    pub fn render_mesh(&self, preview: bool) -> (&Resource<Buffer>, &Resource<Buffer>, u32) {
-        if preview {
-            (
-                &self.preview_indices,
-                &self.preview_vertices,
-                self.preview_indices_len,
-            )
-        } else {
-            (&self.indices, &self.vertices, self.indices_len)
-        }
-    }
-
-    pub fn mark_shadow_changed(&mut self) {
-        self.shadow_changed = true;
-    }
-
     pub fn take_shadow_changed(&mut self) -> bool {
         std::mem::take(&mut self.shadow_changed)
     }
@@ -297,49 +230,14 @@ fn instances_changed(
     })
 }
 
-fn build_preview_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
+fn build_apple_shadow_mesh() -> (Vec<[f32; 3]>, Vec<u32>) {
     let source = super::apple_preview::mesh();
     let vertices = source
         .positions
         .iter()
-        .zip(&source.normals)
-        .zip(&source.materials)
-        .map(|((&position, &normal), &material)| {
-            let world = super::apple_preview::world_position(position);
-            DynamicFruitVertex::new(
-                world,
-                world,
-                normal,
-                super::apple_preview::COLORS_SRGB[material as usize],
-            )
-        })
+        .map(|&p| super::apple_preview::world_position(p).to_array())
         .collect();
     (vertices, source.indices.clone())
-}
-
-fn build_dynamic_apple_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
-    let offsets = super::voxel_apple_offsets();
-    let mut vertices = Vec::with_capacity(offsets.len() * VOXEL_VERTICES.len());
-    let mut indices = Vec::with_capacity(offsets.len() * CUBE_INDICES.len());
-    for voxel in offsets {
-        let voxel_min = voxel.as_vec3();
-        let voxel_center_voxels = voxel_min + Vec3::splat(0.5);
-        let voxel_center = voxel_center_voxels * VOXEL_SCALE;
-        let shading_normal = voxel_center_voxels.normalize_or_zero();
-        let color_t = ((voxel.y + 4) as f32 / 7.0).clamp(0.0, 1.0);
-        let color = APPLE_BOTTOM_COLOR_SRGB.lerp(APPLE_TOP_COLOR_SRGB, color_t);
-        let base = vertices.len() as u32;
-        vertices.extend(VOXEL_VERTICES.map(|offset| {
-            DynamicFruitVertex::new(
-                (voxel_min + offset.as_vec3()) * VOXEL_SCALE,
-                voxel_center,
-                shading_normal,
-                color,
-            )
-        }));
-        indices.extend(CUBE_INDICES.map(|index| base + index));
-    }
-    (vertices, indices)
 }
 
 #[cfg(test)]
@@ -370,30 +268,23 @@ mod tests {
 
     #[test]
     fn dynamic_fruit_layout_matches_shader_locations() {
-        assert_eq!(std::mem::size_of::<DynamicFruitVertex>(), 12 * 4);
+        assert_eq!(std::mem::size_of::<[f32; 3]>(), 3 * 4);
         assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 11 * 4);
     }
 
     #[test]
-    fn dynamic_mesh_uses_the_regular_attached_apple_description() {
-        let expected_voxels = super::super::voxel_apple_offsets().len();
-        let (vertices, indices) = build_dynamic_apple_mesh();
-        assert_eq!(vertices.len(), expected_voxels * VOXEL_VERTICES.len());
-        assert_eq!(indices.len(), expected_voxels * CUBE_INDICES.len());
-
-        let min = vertices
-            .iter()
-            .map(|vertex| Vec3::from_array(vertex.position))
-            .reduce(Vec3::min)
-            .unwrap();
-        let max = vertices
-            .iter()
-            .map(|vertex| Vec3::from_array(vertex.position))
-            .reduce(Vec3::max)
-            .unwrap();
-        let radius = super::super::TREE_FRUIT_MAX_RADIUS_VOXELS as f32 * VOXEL_SCALE;
-        assert_eq!(min, Vec3::splat(-radius));
-        assert_eq!(max, Vec3::splat(radius));
+    fn shadow_mesh_uses_the_shared_apple_geometry() {
+        let source = super::super::apple_preview::mesh();
+        let (vertices, indices) = build_apple_shadow_mesh();
+        assert_eq!(indices, source.indices);
+        assert_eq!(vertices.len(), source.positions.len());
+        for (vertex, &position) in vertices.iter().zip(&source.positions) {
+            assert_eq!(
+                *vertex,
+                super::super::apple_preview::world_position(position).to_array()
+            );
+            assert!(vertex.iter().all(|v| v.is_finite()));
+        }
     }
 
     #[test]
@@ -430,14 +321,11 @@ mod tests {
 
     #[test]
     fn rust_buffers_match_both_dynamic_fruit_shader_inputs() {
-        let color_shader = include_str!("../../shader/slang/dynamic_fruit.vert.slang");
+        let color_shader = include_str!("../../shader/slang/apple_pixel_dynamic.vert.slang");
         let shadow_shader = include_str!("../../shader/slang/dynamic_fruit_shadow.vert.slang");
         for shader in [color_shader, shadow_shader] {
             for declaration in [
                 "[[vk::location(0)]] float3 position",
-                "[[vk::location(1)]] float3 voxel_center",
-                "[[vk::location(2)]] float3 shading_normal",
-                "[[vk::location(3)]] float3 color_srgb",
                 "[[vk::location(4)]] float3 base_position",
                 "[[vk::location(5)]] float4 tint",
                 "[[vk::location(6)]] float4 rotation",
@@ -445,10 +333,6 @@ mod tests {
                 assert!(shader.contains(declaration), "missing `{declaration}`");
             }
         }
-        assert!(color_shader.contains("rotateByQuaternion(input.position"));
-        assert!(color_shader.contains("input.position * input.tint.a"));
-        assert!(color_shader.contains("rotateByQuaternion(input.voxel_center"));
-        assert!(color_shader.contains("input.shading_normal, input.rotation"));
         assert!(shadow_shader.contains("rotateByQuaternion(input.position"));
         assert!(shadow_shader.contains("input.position * input.tint.a"));
     }

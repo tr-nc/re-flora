@@ -98,12 +98,6 @@ pub fn pack_vertex(position: Vec3, material: u32) -> u32 {
 pub fn world_position(position: Vec3) -> Vec3 {
     position * VOXEL_SCALE
 }
-pub const COLORS_SRGB: [Vec3; 3] = [
-    Vec3::new(203.0 / 255.0, 48.0 / 255.0, 47.0 / 255.0),
-    Vec3::new(116.0 / 255.0, 80.0 / 255.0, 46.0 / 255.0),
-    Vec3::new(77.0 / 255.0, 145.0 / 255.0, 62.0 / 255.0),
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;

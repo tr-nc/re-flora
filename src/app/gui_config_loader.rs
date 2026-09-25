@@ -86,6 +86,7 @@ impl GuiConfigLoader {
                         | "terrain_material_enabled"
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
+                        | "apple_preview_model"
                 )
             });
         }
@@ -896,7 +897,12 @@ mod tests {
     fn retired_render_switches_are_removed_without_changing_other_settings() {
         use crate::app::gui_config_model::GuiParamValue;
         for (enabled, retired_id) in [false, true].into_iter().flat_map(|enabled| {
-            ["raster_tree_axis_aligned", "terrain_hybrid_lighting"].map(|id| (enabled, id))
+            [
+                "raster_tree_axis_aligned",
+                "terrain_hybrid_lighting",
+                "apple_preview_model",
+            ]
+            .map(|id| (enabled, id))
         }) {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();

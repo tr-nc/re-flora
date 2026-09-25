@@ -7,10 +7,10 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 const help=`Usage: node scripts/benchmark-model-pixels.mjs [--seconds 8] [--binary target/release/re-flora] [--output target/model-pixel-bench] [--stress-leaves 0] [--suite apples|stage-one]
-Measures original and 8/32/64px apples, attached and fallen, in the same hidden
+Measures pixel-rendered 8/32/64px apples, attached and fallen, in the same hidden
 windowed scene (Linux/X11: fixed 2880x1620). Build first: cargo build --release.
 Requires Vulkan/display. Acceptance: GPU p95 under the 60 Hz budget, and frame
-interval within 5% of the original mode's interval or 60 Hz, whichever is slower.
+interval within 5% of the 8px reference (stage-one: both-off) or 60 Hz, whichever is slower.
 Do not run another game instance while measuring: temporarily edits config/gui.toml
 and restores it on completion or handled signals. A recovery copy is saved in the
 output directory. Logs, screenshots, dimensions and summary.json are retained.
@@ -20,7 +20,7 @@ Optional --stress-leaves 1..16384 adds that many rotating renderer-only leaves
 (at 16px) plus 21 butterfly previews (16px), without GPU readback or CPU oracles.
 This is a rendering workload, not a flight-physics benchmark.
 --suite stage-one compares baseline / one-light / discrete-views / both on the
-same new 32px apple meshes. Views remain live-rendered: NOT atlas performance.
+same 32px apple meshes. Views remain live-rendered: NOT atlas performance.
 Example: node scripts/benchmark-model-pixels.mjs --seconds 10 --stress-leaves 256 --suite stage-one`;
 const options={seconds:8,binary:'target/release/re-flora',output:'target/model-pixel-bench','stress-leaves':0,suite:'apples'};
 const args=process.argv.slice(2);
@@ -78,11 +78,11 @@ try {
  const cases=options.suite==='stage-one'?[
   {n:32,flags:0,label:'baseline'},{n:32,flags:1,label:'one-light'},
   {n:32,flags:2,label:'discrete-views'},{n:32,flags:3,label:'both'}
- ]:[0,8,32,64].map(n=>({n,flags:0,label:n||'original'}));
+ ]:[8,32,64].map(n=>({n,flags:0,label:n}));
  for(const scene of ['attached','fallen'])for(const {n,flags,label} of cases){
   if(interrupted)throw new Error('Interrupted');
   assert.equal(await readFile(configPath,'utf8'),owned,'Concurrent config edit; refusing to overwrite it');
-  owned=setting(setting(setting(original,'apple_preview_model',n!==0),'apple_pixel_resolution',n||32),'fruit_cycle',scene==='attached'?0.7:1);
+  owned=setting(setting(original,'apple_pixel_resolution',n),'fruit_cycle',scene==='attached'?0.7:1);
   owned=setting(setting(owned,'model_pixel_single_light',Boolean(flags&1)),'model_pixel_snap_views',Boolean(flags&2));
   if(options['stress-leaves'])for(const [id,value] of Object.entries({butterfly_mesh_preview:true,butterfly_pixel_resolution:16,
    falling_leaf_mesh:true,falling_leaf_pixel_resolution:16,falling_leaf_size_scale:1}))owned=setting(owned,id,value);
@@ -107,7 +107,7 @@ try {
  else console.error(`Config changed concurrently; left it untouched. Recovery copy: ${options.output}/gui.before.toml`);
 }
 assert.ok(results.filter(r=>r.resolution===32).every(r=>{
- const baseline=results.find(b=>b.scene===r.scene&&(options.suite==='stage-one'?b.flags===0:b.resolution===0));
+ const baseline=results.find(b=>b.scene===r.scene&&(options.suite==='stage-one'?b.flags===0:b.resolution===8));
  return r.gpu_ms_p95<1000/60 && r.frame_interval_ms_p50<=1.05*Math.max(1000/60,baseline.frame_interval_ms_p50);
 }), 'Default 32px failed the 60 Hz GPU budget or baseline-normalized frame interval; see summary.json. Do not claim performance acceptance.');
 console.log(`PASS: runtime checks, default-32px 60 Hz GPU budget and baseline-normalized frame interval. Artifacts: ${options.output}`);
