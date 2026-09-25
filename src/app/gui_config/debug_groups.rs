@@ -33,7 +33,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Apple Appearance (A/B)",
         description: "Off: original voxel apples. On: the new red apple model on trees and after falling. Physical collision is unchanged.",
         initially_open: false,
-        params: &["apple_preview_model"],
+        params: &["apple_preview_model", "apple_pixel_resolution"],
     },
     ControlGroup {
         parent: Some("Wind"),

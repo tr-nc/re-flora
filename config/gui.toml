@@ -119,6 +119,17 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "apple_pixel_resolution"
+kind = "uint"
+label = "Pixels per New Apple (N x N, Trees and Fallen Fruit)"
+type = "Uint"
+
+[section.param.data]
+value = 32
+min = 8
+max = 64
+
+[[section.param]]
 id = "raster_tree_wind"
 kind = "bool"
 label = "Animate raster trees with wind"

@@ -46,6 +46,7 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_continuous_sampling: gui.ddgi_continuous_sampling.value,
         ddgi_aggregate_history: gui.ddgi_aggregate_history.value,
         apple_preview_model: gui.apple_preview_model.value,
+        apple_pixel_resolution: gui.apple_pixel_resolution.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -324,6 +325,7 @@ mod tests {
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
         gui.apple_preview_model.value = true;
+        gui.apple_pixel_resolution.value = 24;
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
@@ -463,6 +465,7 @@ mod tests {
                 ddgi_continuous_sampling: true,
                 ddgi_aggregate_history: true,
                 apple_preview_model: true,
+                apple_pixel_resolution: 24,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,

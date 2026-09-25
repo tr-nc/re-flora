@@ -31,6 +31,7 @@ pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
 pub use tree_scene::TreeAttachment;
+mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
 pub use dynamic_fruit_resources::*;
@@ -1398,6 +1399,7 @@ pub struct TerrainFrameInput {
     pub ddgi_continuous_sampling: bool,
     pub ddgi_aggregate_history: bool,
     pub apple_preview_model: bool,
+    pub apple_pixel_resolution: u32,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -3047,8 +3049,9 @@ impl Tracer {
             let (_, _, dropped) = self
                 .dynamic_fruit_resources
                 .render_mesh(terrain.apple_preview_model);
-            log::info!("[APPLE_MODEL_AB] mode={} attached_triangles={} dropped_triangles={} collider=original_voxels",
-                if terrain.apple_preview_model {"new"} else {"original"},tree.indices_len/3,dropped/3);
+            log::info!("[APPLE_MODEL_AB] mode={} attached_triangles={} dropped_triangles={} pixel_triangles={} resolution={} collider=original_voxels",
+                if terrain.apple_preview_model {"new"} else {"original"},tree.indices_len/3,dropped/3,
+                self.resources.apple_pixel.triangle_count,terrain.apple_pixel_resolution);
         }
         self.apple_preview_model = terrain.apple_preview_model;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
@@ -3754,6 +3757,18 @@ impl Tracer {
             &self.resources.meshes.apple_resources_lod.vertices,
             self.resources.meshes.apple_resources_lod.indices_len,
         );
+        cmdbuf.use_buffer(
+            &self.resources.apple_pixel.apple_pixel_triangles,
+            BufferUse::ShaderRead,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.apple_pixel.apple_pixel_quad_indices,
+            BufferUse::IndexRead,
+        );
+        cmdbuf.use_buffer(
+            &self.resources.apple_pixel.apple_pixel_quad_vertices,
+            BufferUse::VertexRead,
+        );
         for mesh in [
             &self.resources.meshes.apple_preview_resources,
             &self.resources.meshes.apple_preview_resources_lod,
@@ -3794,6 +3809,7 @@ impl Tracer {
             &self.dynamic_fruit_resources.vertices,
             self.dynamic_fruit_resources.indices_len,
         );
+        record_vertex(&self.dynamic_fruit_resources.pixel_quad_vertices);
         record_mesh(
             &self.dynamic_fruit_resources.preview_indices,
             &self.dynamic_fruit_resources.preview_vertices,
@@ -4726,29 +4742,34 @@ impl Tracer {
                     batch,
                     TreeFoliageInstanceStream::Visible,
                 );
-                let pipeline = match batch.lod_state() {
-                    LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
-                    LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
-                };
+                let pipeline =
+                    if batch.kind() == TreeFoliageKind::Apples && self.apple_preview_model {
+                        &self.pipeline_topology.graphics().apple_pixel_tree_ppl
+                    } else {
+                        match batch.lod_state() {
+                            LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
+                            LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
+                        }
+                    };
+                let mut resources = vec![
+                    (
+                        "tree_leaf_instances",
+                        DescriptorResource::Buffer(&instance.resources.instances_buf),
+                    ),
+                    self.vegetation_response.descriptors()[0],
+                    self.vegetation_response.descriptors()[1],
+                ];
+                if batch.kind() != TreeFoliageKind::Apples || !self.apple_preview_model {
+                    resources.push((
+                        "flora_lighting_cache",
+                        DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
+                            Some(buffer) => buffer.as_ref(),
+                            None => &instance.resources.instances_buf,
+                        }),
+                    ));
+                }
                 let descriptors = pipeline
-                    .prepare_draw_descriptors(
-                        cmdbuf,
-                        &[
-                            (
-                                "tree_leaf_instances",
-                                DescriptorResource::Buffer(&instance.resources.instances_buf),
-                            ),
-                            self.vegetation_response.descriptors()[0],
-                            self.vegetation_response.descriptors()[1],
-                            (
-                                "flora_lighting_cache",
-                                DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
-                                    Some(buffer) => buffer.as_ref(),
-                                    None => &instance.resources.instances_buf,
-                                }),
-                            ),
-                        ],
-                    )
+                    .prepare_draw_descriptors(cmdbuf, &resources)
                     .unwrap_or_else(|error| {
                         panic!(
                             "{:?} draw descriptors must match reflection: {error}",
@@ -4778,6 +4799,7 @@ impl Tracer {
                 &self.pipeline_topology.graphics().flora_lod_ppl,
                 &self.pipeline_topology.graphics().leaves_ppl,
                 &self.pipeline_topology.graphics().leaves_lod_ppl,
+                &self.pipeline_topology.graphics().apple_pixel_tree_ppl,
             ] {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }
@@ -4801,10 +4823,12 @@ impl Tracer {
                 .prepare_descriptor_resources(cmdbuf);
         }
         if self.dynamic_fruit_resources.instance_count > 0 {
-            self.pipeline_topology
-                .graphics()
-                .dynamic_fruit_ppl
-                .prepare_descriptor_resources(cmdbuf);
+            let pipeline = if self.apple_preview_model {
+                &self.pipeline_topology.graphics().apple_pixel_dynamic_ppl
+            } else {
+                &self.pipeline_topology.graphics().dynamic_fruit_ppl
+            };
+            pipeline.prepare_descriptor_resources(cmdbuf);
         }
         let prepared_model_descriptors =
             if enable_particles && self.butterfly_mesh_renderer.count() > 0 {
@@ -5090,18 +5114,28 @@ impl Tracer {
                 .filter(|group| group.kind() == TreeFoliageKind::Apples)
             {
                 let lod_state = group.lod_state();
-                let pipeline = match lod_state {
-                    LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
-                    LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
+                let pipeline = if self.apple_preview_model {
+                    &self.pipeline_topology.graphics().apple_pixel_tree_ppl
+                } else {
+                    match lod_state {
+                        LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
+                        LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
+                    }
                 };
-                let mesh = match (self.apple_preview_model, lod_state) {
-                    (false, LodState::Lod0) => &self.resources.meshes.apple_resources,
-                    (false, LodState::Lod1) => &self.resources.meshes.apple_resources_lod,
-                    (true, LodState::Lod0) => &self.resources.meshes.apple_preview_resources,
-                    (true, LodState::Lod1) => &self.resources.meshes.apple_preview_resources_lod,
-                };
-                let (indices_buf, vertices_buf, indices_len) =
-                    (&mesh.indices, &mesh.vertices, mesh.indices_len);
+                let (indices_buf, vertices_buf, indices_len): (&Buffer, &Buffer, u32) =
+                    if self.apple_preview_model {
+                        (
+                            &self.resources.apple_pixel.apple_pixel_quad_indices,
+                            &self.resources.apple_pixel.apple_pixel_quad_vertices,
+                            6,
+                        )
+                    } else {
+                        let mesh = match lod_state {
+                            LodState::Lod0 => &self.resources.meshes.apple_resources,
+                            LodState::Lod1 => &self.resources.meshes.apple_resources_lod,
+                        };
+                        (&mesh.indices, &mesh.vertices, mesh.indices_len)
+                    };
                 pipeline.record_bind(cmdbuf);
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
                 cmdbuf.bind_index_buffer_u32(indices_buf);
@@ -5313,8 +5347,25 @@ impl Tracer {
                 )
             });
             let resources = &self.dynamic_fruit_resources;
-            let (indices, vertices, indices_len) = resources.render_mesh(self.apple_preview_model);
-            let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_ppl;
+            let (indices, vertices, indices_len): (&Buffer, &Buffer, u32) =
+                if self.apple_preview_model {
+                    (
+                        &self.resources.apple_pixel.apple_pixel_quad_indices,
+                        &resources.pixel_quad_vertices,
+                        6,
+                    )
+                } else {
+                    (
+                        &resources.indices,
+                        &resources.vertices,
+                        resources.indices_len,
+                    )
+                };
+            let pipeline = if self.apple_preview_model {
+                &self.pipeline_topology.graphics().apple_pixel_dynamic_ppl
+            } else {
+                &self.pipeline_topology.graphics().dynamic_fruit_ppl
+            };
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
             cmdbuf.bind_index_buffer_u32(indices);

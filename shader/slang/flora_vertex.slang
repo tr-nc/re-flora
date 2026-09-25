@@ -16,10 +16,10 @@ import terrain_edit_preview;
 import tracer_types;
 import vegetation_response_sample;
 
-[[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
+public [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
 public [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
-[[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
+public [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 [[vk::binding(5, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
 [[vk::binding(6, 0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;

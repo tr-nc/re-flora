@@ -21,7 +21,7 @@ node scripts/serve-model-preview.mjs
 
 需要支持 WebGL 2 的浏览器及 Node 24；不要使用 `file://`。运行无需 npm 安装或构建步骤。服务只监听本机，既提供预览目录，也提供 `assets/models/` 中的正式游戏资源；不再只服务 `experiments/`。Three.js 0.183.0 与许可证继续使用本地 vendor。
 
-苹果从 `assets/models/apple-source.mjs` 共用造型配方；`node scripts/publish-apple-model.mjs` 发布游戏渲染数据 `apple-preview.json`。游戏 Debug → Flora → Apple Appearance (A/B) 未勾选时仍用原始体素苹果，勾选时树上和掉落的苹果都使用新造型／红色配色。青苹果及网页颜色拾取器仍仅用于网页预览，碰撞和落地物理继续使用原始体素形状。蝴蝶的游戏与网页直接读取同一份 `assets/models/butterfly.glb`；叶片预览读取 `assets/models/leaf.glb`，游戏落叶另从同一 `leaf-source.mjs` 配方生成的 `leaf-variants.glb` 中按每片落叶的稳定种子选择形态（64 个变体，不改物理飞行）。叶片造型滑杆只是临时预览，正式造型从唯一制作配方发布；`cargo check` 会拒绝过期产物。共享接口、发布步骤、游戏 A/B 和跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
+苹果从 `assets/models/apple-source.mjs` 共用造型配方；`node scripts/publish-apple-model.mjs` 发布游戏渲染数据 `apple-preview.json`。游戏 Debug → Flora → Apple Appearance (A/B) 未勾选时仍用原始体素苹果，勾选时树上和掉落的苹果都使用固定 N×N 像素绘制的新造型／红色配色，`Pixels per New Apple` 可独立调整 8–64（默认 32），不改变蝴蝶或落叶分辨率。青苹果及网页颜色拾取器仍仅用于网页预览，碰撞和落地物理继续使用原始体素形状。蝴蝶的游戏与网页直接读取同一份 `assets/models/butterfly.glb`；叶片预览读取 `assets/models/leaf.glb`，游戏落叶另从同一 `leaf-source.mjs` 配方生成的 `leaf-variants.glb` 中按每片落叶的稳定种子选择形态（64 个变体，不改物理飞行）。叶片造型滑杆只是临时预览，正式造型从唯一制作配方发布；`cargo check` 会拒绝过期产物。共享接口、发布步骤、游戏 A/B 和跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
 
 ## 使用
 

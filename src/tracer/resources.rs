@@ -1432,6 +1432,8 @@ impl TracerMeshResources {
 pub struct TracerResources {
     #[resource(nested)]
     pub butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources,
+    #[resource(nested)]
+    pub apple_pixel: super::apple_pixel::ApplePixelResources,
     pub tree_scene_info: Resource<Buffer>,
     pub tree_skin_rest: Resource<Buffer>,
     pub tree_skin_bindings: Resource<Buffer>,
@@ -1514,6 +1516,10 @@ impl TracerResources {
 
         Self {
             butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources::new(
+                device.clone(),
+                allocator.clone(),
+            ),
+            apple_pixel: super::apple_pixel::ApplePixelResources::new(
                 device.clone(),
                 allocator.clone(),
             ),

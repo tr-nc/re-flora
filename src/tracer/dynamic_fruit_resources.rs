@@ -82,6 +82,7 @@ pub struct DynamicFruitRendererResources {
     pub preview_vertices: Resource<Buffer>,
     pub preview_indices: Resource<Buffer>,
     pub preview_indices_len: u32,
+    pub pixel_quad_vertices: Resource<Buffer>,
     pub instances: Resource<Buffer>,
     pub instance_count: u32,
     last_instances: Vec<DynamicFruitRenderInstance>,
@@ -129,6 +130,22 @@ impl DynamicFruitRendererResources {
             std::mem::size_of_val(preview_indices_data.as_slice()) as u64,
         );
         preview_indices.fill(&preview_indices_data).unwrap();
+        // The pixel vertex shader reflects only location 0, so Vulkan gives
+        // binding 0 a 12-byte stride (not DynamicFruitVertex's 48 bytes).
+        let quad = [
+            [0.0f32, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ];
+        let pixel_quad_vertices = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+            MemoryLocation::CpuToGpu,
+            std::mem::size_of_val(&quad) as u64,
+        );
+        pixel_quad_vertices.fill(&quad).unwrap();
 
         let instances = Buffer::new_sized(
             device.clone(),
@@ -150,6 +167,7 @@ impl DynamicFruitRendererResources {
             preview_vertices: Resource::new(preview_vertices),
             preview_indices: Resource::new(preview_indices),
             preview_indices_len: preview_indices_data.len() as u32,
+            pixel_quad_vertices: Resource::new(pixel_quad_vertices),
             instances: Resource::new(instances),
             instance_count: 0,
             last_instances: Vec::new(),

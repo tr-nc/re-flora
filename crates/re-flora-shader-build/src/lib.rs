@@ -364,6 +364,24 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/props/apple_pixel_tree.vert",
+        source_path: "shader/slang/apple_pixel_tree.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/apple_pixel_dynamic.vert",
+        source_path: "shader/slang/apple_pixel_dynamic.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/apple_pixel.frag",
+        source_path: "shader/slang/apple_pixel.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/props/dynamic_fruit.vert",
         source_path: "shader/slang/dynamic_fruit.vert.slang",
         module_path: "shader/slang",
