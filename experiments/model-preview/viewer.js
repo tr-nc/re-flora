@@ -84,7 +84,7 @@ function buildModelControls(){
   }
   if(definition.colorPresets){
     const section=document.createElement('div');section.className='color-presets';
-    const title=document.createElement('strong');title.textContent='叶片配色 · 仅覆盖颜色';section.append(title);
+    const title=document.createElement('strong');title.textContent='配色预设 · 仅覆盖颜色';section.append(title);
     const buttons=document.createElement('div');buttons.className='preset-buttons';section.append(buttons);
     for(const preset of definition.colorPresets){
       const button=document.createElement('button');button.type='button';button.textContent=preset.name;

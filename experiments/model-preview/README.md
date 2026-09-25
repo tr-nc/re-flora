@@ -14,13 +14,14 @@ node scripts/serve-model-preview.mjs
 
 - 落叶：`?model=leaf`
 - 蝴蝶：`?model=butterfly`
+- 苹果（仅网页预览，红苹果／青苹果配色）：`?model=apple`
 - 布局：`&variant=compare` / `model` / `pixel`
 
 统一工具不使用界面版本编号，也不保留带编号的旧比较页面。`/leaf-prototype/` 与 `/butterfly-method-comparison/` 这两个不带编号的书签入口仍会跳转到对应模型。旧查看器、历史边框实验和旧验证脚本均从当前树移除；历史源在提交 `86b4b81c`。已批准模型资源的内部路径不改动。
 
 需要支持 WebGL 2 的浏览器及 Node 24；不要使用 `file://`。运行无需 npm 安装或构建步骤。服务只监听本机，既提供预览目录，也提供 `assets/models/` 中的正式游戏资源；不再只服务 `experiments/`。Three.js 0.183.0 与许可证继续使用本地 vendor。
 
-蝴蝶的游戏与网页直接读取同一份 `assets/models/butterfly.glb`；叶片预览读取 `assets/models/leaf.glb`，游戏落叶另从同一 `leaf-source.mjs` 配方生成的 `leaf-variants.glb` 中按每片落叶的稳定种子选择形态（64 个变体，不改物理飞行）。叶片造型滑杆只是临时预览，正式造型从唯一制作配方发布；`cargo check` 会拒绝过期产物。共享接口、发布步骤、游戏 A/B 和跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
+苹果是网页预览中程序生成的独立模型，不读取游戏资源，也不修改游戏渲染。蝴蝶的游戏与网页直接读取同一份 `assets/models/butterfly.glb`；叶片预览读取 `assets/models/leaf.glb`，游戏落叶另从同一 `leaf-source.mjs` 配方生成的 `leaf-variants.glb` 中按每片落叶的稳定种子选择形态（64 个变体，不改物理飞行）。叶片造型滑杆只是临时预览，正式造型从唯一制作配方发布；`cargo check` 会拒绝过期产物。共享接口、发布步骤、游戏 A/B 和跨运行时顶点对照见 [正式模型资源](../../assets/models/README.md)。
 
 ## 使用
 
