@@ -1312,6 +1312,8 @@ wind_drift = 1.0
         settings.adjustables.climbing_paused.value = true;
         settings.adjustables.climbing_seed.value = 65001;
         settings.adjustables.climbing_flexibility.value = 1.7;
+        settings.adjustables.climbing_search_turn.value = 2.3;
+        settings.adjustables.climbing_search_reach.value = 36.0;
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
@@ -1321,6 +1323,8 @@ wind_drift = 1.0
         assert!(reloaded.adjustables.climbing_paused.value);
         assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
         assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
+        assert_eq!(reloaded.adjustables.climbing_search_turn.value, 2.3);
+        assert_eq!(reloaded.adjustables.climbing_search_reach.value, 36.0);
         // An older saved checkbox must disappear, regardless of its old value.
         let section = settings
             .config
@@ -1356,6 +1360,8 @@ wind_drift = 1.0
                     "climbing_clockwise",
                     "climbing_seed",
                     "climbing_flexibility",
+                    "climbing_search_turn",
+                    "climbing_search_reach",
                 ]
                 .contains(&p.id.as_str())
             });
@@ -1384,6 +1390,8 @@ wind_drift = 1.0
             older.adjustables.climbing_flexibility.value,
             defaults.adjustables.climbing_flexibility.value
         );
+        assert_eq!(older.adjustables.climbing_search_turn.value, 1.0);
+        assert_eq!(older.adjustables.climbing_search_reach.value, 64.0);
     }
 
     #[test]

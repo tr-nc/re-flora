@@ -1424,6 +1424,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
+        id: "climbing_search_turn",
+        kind: "float",
+        label: "Search turn (0–3x flexibility; live)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_search_reach",
+        kind: "float",
+        label: "Unsupported search reach (voxels; live)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
         id: "climbing_paused",
         kind: "bool",
         label: "Pause vine growth (wall removal still prunes)",
@@ -1683,6 +1695,8 @@ pub struct GuiAdjustables {
     pub climbing_clockwise: crate::gui_adjustables::BoolParam,
     pub climbing_seed: crate::gui_adjustables::UintParam,
     pub climbing_flexibility: crate::gui_adjustables::FloatParam,
+    pub climbing_search_turn: crate::gui_adjustables::FloatParam,
+    pub climbing_search_reach: crate::gui_adjustables::FloatParam,
     pub climbing_paused: crate::gui_adjustables::BoolParam,
     pub climbing_speed: crate::gui_adjustables::FloatParam,
     pub climbing_spacing: crate::gui_adjustables::FloatParam,
@@ -1933,6 +1947,8 @@ impl GuiAdjustables {
         let mut climbing_clockwise_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_seed_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut climbing_flexibility_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_search_turn_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_search_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_paused_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_spacing_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3490,6 +3506,20 @@ impl GuiAdjustables {
                             climbing_flexibility_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "climbing_search_turn" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_search_turn_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_search_reach" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_search_reach_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "climbing_paused" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             climbing_paused_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3753,6 +3783,8 @@ impl GuiAdjustables {
             climbing_clockwise: climbing_clockwise_field.expect("Missing parameter: climbing_clockwise"),
             climbing_seed: climbing_seed_field.expect("Missing parameter: climbing_seed"),
             climbing_flexibility: climbing_flexibility_field.expect("Missing parameter: climbing_flexibility"),
+            climbing_search_turn: climbing_search_turn_field.expect("Missing parameter: climbing_search_turn"),
+            climbing_search_reach: climbing_search_reach_field.expect("Missing parameter: climbing_search_reach"),
             climbing_paused: climbing_paused_field.expect("Missing parameter: climbing_paused"),
             climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
             climbing_spacing: climbing_spacing_field.expect("Missing parameter: climbing_spacing"),
@@ -3939,6 +3971,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_sway_frequency_full" => Some(&adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&adjustables.grass_sway_frequency_knee),
         "climbing_flexibility" => Some(&adjustables.climbing_flexibility),
+        "climbing_search_turn" => Some(&adjustables.climbing_search_turn),
+        "climbing_search_reach" => Some(&adjustables.climbing_search_reach),
         "climbing_speed" => Some(&adjustables.climbing_speed),
         "climbing_spacing" => Some(&adjustables.climbing_spacing),
         _ => None,
@@ -4223,6 +4257,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_sway_frequency_full" => Some(&mut adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&mut adjustables.grass_sway_frequency_knee),
         "climbing_flexibility" => Some(&mut adjustables.climbing_flexibility),
+        "climbing_search_turn" => Some(&mut adjustables.climbing_search_turn),
+        "climbing_search_reach" => Some(&mut adjustables.climbing_search_reach),
         "climbing_speed" => Some(&mut adjustables.climbing_speed),
         "climbing_spacing" => Some(&mut adjustables.climbing_spacing),
         _ => None,

@@ -213,7 +213,7 @@ pub(super) fn step(
         Vec3::Y
     };
     let radial = rod.side.cross(heading).normalize();
-    let envelope = if overhead { 0.12 } else { 0.28 } * flexibility.min(2.0);
+    let envelope = if overhead { 0.12 } else { 0.28 } * flexibility.min(2.0) * next.search_turn;
     rod.amplitude += (envelope - rod.amplitude) * (1.0 - (-2.0 * dt).exp());
     // Smooth periodic modulation must agree at the phase wrap, unlike fractional
     // harmonics of a wrapped angle. Contact changes fade amplitude, never reset it.
@@ -467,7 +467,9 @@ fn establish_contact(plant: &mut Plant, rod: &mut Rod, dt: f32, spacing: f32) {
         let interval = if turning_over_lip {
             plant.tips[0].spacing.min(2.0)
         } else {
-            plant.tips[0].spacing.min(AIR_BUDGET - FREE_APEX_LENGTH)
+            plant.tips[0]
+                .spacing
+                .min(plant.search_reach - FREE_APEX_LENGTH)
         };
         arc >= interval
     });

@@ -38,7 +38,7 @@ pub(super) fn advance(
             backing,
         }));
     }
-    if tip.arc + STEP_LENGTH > super::rod::AIR_BUDGET
+    if tip.arc + STEP_LENGTH > plant.search_reach
         || !clear_segment(terrain, start.position, end, plant.radius)?
     {
         return Some(None);

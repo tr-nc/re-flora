@@ -116,6 +116,8 @@ pub struct Plant {
     seed: u64,
     next_node_id: u64,
     rod: rod::Rod,
+    search_turn: f32,
+    search_reach: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -155,6 +157,8 @@ impl Plant {
                 normal,
             }],
             rod: rod::Rod::new(&tip),
+            search_turn: 1.0,
+            search_reach: rod::AIR_BUDGET,
             tips: vec![tip],
             radius: 0.65,
             root_connected: true,
@@ -184,6 +188,16 @@ impl Plant {
         exploring: bool,
     ) -> Option<usize> {
         rod::step(self, terrain, dt, flexibility, spacing, exploring)
+    }
+
+    /// Live artistic controls. They do not reset material, phase or existing geometry.
+    pub fn set_search_tuning(&mut self, turn: f32, reach: f32) {
+        if turn.is_finite() && (0.0..=3.0).contains(&turn) {
+            self.search_turn = turn;
+        }
+        if reach.is_finite() && (16.0..=96.0).contains(&reach) {
+            self.search_reach = reach;
+        }
     }
 
     pub fn with_clockwise(mut self, clockwise: bool) -> Self {
@@ -1126,6 +1140,40 @@ mod tests {
                 check_structure(&plant);
             }
         }
+    }
+
+    #[test]
+    fn changing_search_reach_live_holds_and_resumes_the_same_tip() {
+        struct TinySupport;
+        impl Terrain for TinySupport {
+            fn voxel(&self, c: IVec3) -> Option<u8> {
+                Some(u8::from(c == IVec3::new(20, 4, 0)))
+            }
+            fn current(&self) -> bool {
+                true
+            }
+        }
+        let mut plant = seed();
+        plant.set_search_tuning(1.0, 16.0);
+        for _ in 0..100 {
+            plant.grow(&TinySupport, 16.0);
+        }
+        let short = plant.clone();
+        assert!(short.tips[0].arc <= 16.0);
+        plant.set_search_tuning(1.0, 64.0);
+        for _ in 0..100 {
+            plant.grow(&TinySupport, 16.0);
+        }
+        assert!(plant.nodes.len() > short.nodes.len());
+        let long = plant.clone();
+        plant.set_search_tuning(1.0, 16.0);
+        for _ in 0..10 {
+            assert!(!plant.grow(&TinySupport, 16.0));
+        }
+        assert_eq!(
+            plant.nodes, long.nodes,
+            "lowering reach must not delete existing stem"
+        );
     }
 
     #[test]

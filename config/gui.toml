@@ -2659,6 +2659,28 @@ min = 0
 max = 2
 
 [[section.param]]
+id = "climbing_search_turn"
+kind = "float"
+label = "Search turn (0–3x flexibility; live)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 3
+
+[[section.param]]
+id = "climbing_search_reach"
+kind = "float"
+label = "Unsupported search reach (voxels; live)"
+type = "Float"
+
+[section.param.data]
+value = 64
+min = 16
+max = 96
+
+[[section.param]]
 id = "climbing_paused"
 kind = "bool"
 label = "Pause vine growth (wall removal still prunes)"

@@ -17,12 +17,14 @@ Older saved checkbox values are discarded without changing other user settings.
 3. **Test terrain**, **Vine seed**, and **Clockwise tip search** also restart immediately.
    **Restart wall and vine** repeats the current seed; **New random seed** changes the saved
    seed. **Create vine wall and focus** starts an uncreated patch. **Focus vine** recenters it.
-4. **Shoot exploration / flexibility** changes the response live;
-   reducing it suppresses the exploration amplitude and gravity load, not the elasticity
-   or collision constraints. **Growth attempts/sec** changes elongation, not the continuous
-   oscillator's period. **Adhesion spacing** targets distance along the stem; it is neither
-   wall distance nor exploration radius. Lip transitions may attach closer; the apex retains
-   bending room. Unsupported growth has an independent bounded air budget.
+4. **Shoot exploration / flexibility** controls the existing bend/gravity response.
+   **Search turn amplitude** independently scales the rotating search sweep (0–3×);
+   **Unsupported search reach** controls how much unanchored stem may grow (16–96 voxels).
+   Both new saved sliders change live without resetting geometry. Lowering reach below
+   the existing free length holds new extension, but does not delete existing stem.
+   **Growth attempts/sec** changes elongation, not the continuous oscillator's period.
+   **Adhesion spacing** targets distance along the stem, not wall distance or search amplitude.
+   Lip transitions may attach closer; the apex retains bending room.
 5. **Pause vine growth** holds extension and exploration phase, but allows settling and
    terrain-triggered pruning. A surviving cut holds its base but can extend a new shoot;
    a root without support stays latent until its own support is repaired.
@@ -85,9 +87,10 @@ self-weight and long-span rotational relaxation; `rod/collision.rs` owns contact
   may point down. Ordinary terrain contact supports, blocks or permits sliding without
   becoming adhesion or triggering pruning. A reachable lip/far-side surface can subsequently
   establish rootlets; reattachment is not guaranteed.
-- Unsupported extension is capped at 64 voxels of rest arc. Deformation
-  cannot replenish it. This is an artistic bounded search, not global terrain pathfinding or
-  a guarantee that every seed reaches the top.
+- Unsupported extension defaults to 64 voxels of rest arc and is adjustable live from
+  16 to 96. Deformation cannot replenish it; a new attachment resets the free arc.
+  This is an artistic bounded search, not global terrain pathfinding or a guarantee
+  that every seed reaches the top.
 
 The former young-span solver and phase-per-growth strategy have been deleted. Shared
 whole-segment sweep safety now belongs to `sweep.rs`. Historical descriptions and
@@ -98,7 +101,7 @@ they do not describe an available runtime mode.
 
 - A gameplay cap of 512 voxels of **current surviving main-stem rest arc** limits total
   growth; pruning frees that length budget. This is not a botanical measurement or the
-  separate 64-voxel unsupported search budget. At most 512 live nodes remain as an
+  separate adjustable unsupported search budget. At most 512 live nodes remain as an
   independent storage bound. Pruning compacts storage without reusing IDs; indices are
   remapped together. Explicit-tree pruning guardrails remain, although normal growth
   never branches.

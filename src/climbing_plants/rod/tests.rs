@@ -84,6 +84,36 @@ fn self_weight_does_not_kick_the_free_shoot_backwards_on_consecutive_steps() {
 }
 
 #[test]
+fn search_turn_changes_the_live_oscillation_without_restarting() {
+    let terrain = Scene(Fixture::Flat);
+    let mut ordinary = seed(Fixture::Flat, 42);
+    for _ in 0..12 {
+        tick(&mut ordinary, &terrain, 16.0);
+    }
+    let mut stronger = ordinary.clone();
+    stronger.set_search_tuning(2.0, AIR_BUDGET);
+    for _ in 0..12 {
+        ordinary
+            .step_motion(&terrain, 0.05, 1.0, 16.0, true)
+            .unwrap();
+        stronger
+            .step_motion(&terrain, 0.05, 1.0, 16.0, true)
+            .unwrap();
+    }
+    assert!(stronger.rod.amplitude > ordinary.rod.amplitude * 1.4);
+    assert_ne!(
+        stronger.nodes.last().unwrap().position,
+        ordinary.nodes.last().unwrap().position
+    );
+    safe(&stronger, &terrain);
+    stronger.set_search_tuning(3.0, 96.0);
+    for _ in 0..30 {
+        tick(&mut stronger, &terrain, 16.0);
+        safe(&stronger, &terrain);
+    }
+}
+
+#[test]
 fn a_young_shoot_still_establishes_its_first_slope_attachment_under_weight() {
     let scene = Scene(Fixture::Slope);
     let mut plant = seed(Fixture::Slope, 42);
