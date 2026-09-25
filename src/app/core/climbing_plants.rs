@@ -53,12 +53,7 @@ struct QuantumClock {
     accumulator: f64,
 }
 impl QuantumClock {
-    fn quanta(&mut self, dt: f32, speed: f32, paused: bool) -> u32 {
-        if paused {
-            // No queued growth burst on resume; terrain-triggered pruning is independent.
-            self.accumulator = 0.0;
-            return 0;
-        }
+    fn quanta(&mut self, dt: f32, speed: f32) -> u32 {
         if !dt.is_finite() || !speed.is_finite() || dt <= 0.0 || speed <= 0.0 {
             return 0;
         }
@@ -114,7 +109,7 @@ impl ClimbingPlants {
             ));
         }
         if !enabled {
-            ui.label("Hidden / paused. Enable above to resume this session's vine.");
+            ui.label("Hidden. Enable above to resume this session's vine.");
         } else if self.waiting_for_terrain {
             ui.label("Waiting for current terrain collision data; simulation is held safely.");
         }
@@ -626,19 +621,14 @@ impl App {
         let before_nodes = plant.nodes.len();
         let revalidate_end_us = elapsed_us();
         let dt = steps as f32 * tick_seconds;
-        let paused = self.debug_settings.adjustables.climbing_paused.value;
         let speed = self.debug_settings.adjustables.climbing_speed.value;
-        let exploring = if review {
-            self.climbing_plants.review.growing()
-        } else {
-            !paused
-        };
+        let exploring = !review || self.climbing_plants.review.growing();
         let mut quanta = 0;
         let mut growth_us = 0;
         let pose_steps = if review {
             2
         } else {
-            self.climbing_plants.shoot_clock.quanta(dt, 20.0, false)
+            self.climbing_plants.shoot_clock.quanta(dt, 20.0)
         };
         for i in 0..pose_steps {
             // New growth and motion share an ordered fixed tick. Changing render
@@ -646,9 +636,7 @@ impl App {
             let births = if review {
                 u32::from(i == 0 && exploring)
             } else {
-                self.climbing_plants
-                    .growth_clock
-                    .quanta(0.05, speed, paused)
+                self.climbing_plants.growth_clock.quanta(0.05, speed)
             };
             let begin = elapsed_us();
             for _ in 0..births {
@@ -843,7 +831,7 @@ mod tests {
             let mut clock = QuantumClock::default();
             let mut total = 0;
             for _ in 0..frames {
-                let steps = clock.quanta(dt, 12.0, false);
+                let steps = clock.quanta(dt, 12.0);
                 total += steps;
                 for _ in 0..steps {
                     plant.grow(&Wall, 16.0);
@@ -864,8 +852,8 @@ mod tests {
             let mut motion = QuantumClock::default();
             let mut growth = QuantumClock::default();
             for _ in 0..frames {
-                for _ in 0..motion.quanta(dt, 20.0, false) {
-                    for _ in 0..growth.quanta(0.05, 10.0, false) {
+                for _ in 0..motion.quanta(dt, 20.0) {
+                    for _ in 0..growth.quanta(0.05, 10.0) {
                         plant.grow(&Wall, 16.0);
                     }
                     plant.step_motion(&Wall, 0.05, 1.0, 16.0, true).unwrap();
@@ -878,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn young_shoot_keeps_settling_when_growth_is_paused_independent_of_tick_cadence() {
+    fn young_shoot_settles_without_births_independent_of_tick_cadence() {
         let mut outcomes = Vec::new();
         for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
             let mut plant = test_plant();
@@ -886,11 +874,9 @@ mod tests {
                 plant.grow(&Wall, 64.0);
             }
             let before = plant.clone();
-            let mut growth = QuantumClock::default();
             let mut shoot = QuantumClock::default();
             for _ in 0..frames {
-                assert_eq!(growth.quanta(dt, 12.0, true), 0);
-                for _ in 0..shoot.quanta(dt, 20.0, false) {
+                for _ in 0..shoot.quanta(dt, 20.0) {
                     plant.relax_shoot(&Wall, 0.05, 1.0, 64.0).unwrap();
                 }
             }
@@ -903,25 +889,16 @@ mod tests {
     }
 
     #[test]
-    fn quantum_clocks_bound_catch_up_and_hold_while_world_time_is_paused() {
+    fn quantum_clocks_bound_catch_up_and_hold_without_world_time() {
         let mut clock = QuantumClock::default();
-        assert_eq!(clock.quanta(100.0, 40.0, false), 8);
-        assert_eq!(clock.quanta(0.0, 40.0, false), 0);
-        assert_eq!(clock.quanta(0.01, 40.0, false), 0);
-        assert_eq!(clock.quanta(0.01, 40.0, false), 0);
-        assert_eq!(clock.quanta(0.01, 40.0, false), 1);
+        assert_eq!(clock.quanta(100.0, 40.0), 8);
+        assert_eq!(clock.quanta(0.0, 40.0), 0);
+        assert_eq!(clock.quanta(0.01, 40.0), 0);
+        assert_eq!(clock.quanta(0.01, 40.0), 0);
+        assert_eq!(clock.quanta(0.01, 40.0), 1);
         for dt in [f32::NAN, f32::INFINITY, -1.0] {
-            assert_eq!(clock.quanta(dt, 40.0, false), 0);
+            assert_eq!(clock.quanta(dt, 40.0), 0);
         }
-    }
-
-    #[test]
-    fn pausing_growth_preserves_the_speed_without_a_resume_burst() {
-        let mut clock = QuantumClock::default();
-        assert_eq!(clock.quanta(0.05, 12.0, false), 0);
-        assert_eq!(clock.quanta(2.0, 12.0, true), 0);
-        assert_eq!(clock.quanta(0.05, 12.0, false), 0);
-        assert_eq!(clock.quanta(0.05, 12.0, false), 1);
     }
 
     #[test]

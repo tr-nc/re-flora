@@ -2681,15 +2681,6 @@ min = 16
 max = 96
 
 [[section.param]]
-id = "climbing_paused"
-kind = "bool"
-label = "Pause vine growth (wall removal still prunes)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "climbing_speed"
 kind = "float"
 label = "Growth attempts/sec (up to 2.5 voxels per tip)"
@@ -2697,7 +2688,7 @@ type = "Float"
 
 [section.param.data]
 value = 10
-min = 0
+min = 1
 max = 40
 
 [[section.param]]

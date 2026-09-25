@@ -25,9 +25,10 @@ Older saved checkbox values are discarded without changing other user settings.
    **Growth attempts/sec** changes elongation, not the continuous oscillator's period.
    **Adhesion spacing** targets distance along the stem, not wall distance or search amplitude.
    Lip transitions may attach closer; the apex retains bending room.
-5. **Pause vine growth** holds extension and exploration phase, but allows settling and
-   terrain-triggered pruning. A surviving cut holds its base but can extend a new shoot;
-   a root without support stays latent until its own support is repaired.
+5. While enabled, the vine keeps attempting growth at the selected rate (at least 1/sec).
+   Older saved zero rates are migrated to 1/sec. A surviving
+   cut holds its base but can extend a new shoot; a root without support stays latent
+   until its own support is repaired.
 6. **3 / Dig**, LMB removes wall; **Shift + wheel** changes brush size. Repair the missing
    support if desired; a rooted stump can also search for a new route. **Prune highest
    attachment** / **Prune back to root** trim without

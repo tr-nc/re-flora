@@ -73,6 +73,16 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
+        // The vine no longer has a pause mode. Old zero-speed saves must also
+        // become a positive rate, not silently preserve a second way to pause.
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if param.id == "climbing_speed" {
+                if let GuiParamValue::Float { value, min, .. } = &mut param.value {
+                    *min = Some(1.0);
+                    *value = (*value).max(1.0);
+                }
+            }
+        }
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -88,6 +98,7 @@ impl GuiConfigLoader {
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
                         | "climbing_continuous_stem"
+                        | "climbing_paused"
                 )
             });
         }

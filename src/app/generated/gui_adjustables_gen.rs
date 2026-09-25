@@ -1436,12 +1436,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Climbing Plants",
-        id: "climbing_paused",
-        kind: "bool",
-        label: "Pause vine growth (wall removal still prunes)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
         id: "climbing_speed",
         kind: "float",
         label: "Growth attempts/sec (up to 2.5 voxels per tip)",
@@ -1697,7 +1691,6 @@ pub struct GuiAdjustables {
     pub climbing_flexibility: crate::gui_adjustables::FloatParam,
     pub climbing_search_turn: crate::gui_adjustables::FloatParam,
     pub climbing_search_reach: crate::gui_adjustables::FloatParam,
-    pub climbing_paused: crate::gui_adjustables::BoolParam,
     pub climbing_speed: crate::gui_adjustables::FloatParam,
     pub climbing_spacing: crate::gui_adjustables::FloatParam,
     pub climbing_show_anchors: crate::gui_adjustables::BoolParam,
@@ -1949,7 +1942,6 @@ impl GuiAdjustables {
         let mut climbing_flexibility_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_search_turn_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_search_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_paused_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_spacing_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut climbing_show_anchors_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3520,11 +3512,6 @@ impl GuiAdjustables {
                             climbing_search_reach_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "climbing_paused" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            climbing_paused_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "climbing_speed" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3785,7 +3772,6 @@ impl GuiAdjustables {
             climbing_flexibility: climbing_flexibility_field.expect("Missing parameter: climbing_flexibility"),
             climbing_search_turn: climbing_search_turn_field.expect("Missing parameter: climbing_search_turn"),
             climbing_search_reach: climbing_search_reach_field.expect("Missing parameter: climbing_search_reach"),
-            climbing_paused: climbing_paused_field.expect("Missing parameter: climbing_paused"),
             climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
             climbing_spacing: climbing_spacing_field.expect("Missing parameter: climbing_spacing"),
             climbing_show_anchors: climbing_show_anchors_field.expect("Missing parameter: climbing_show_anchors"),
@@ -4048,7 +4034,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "climbing_enabled" => Some(&adjustables.climbing_enabled),
         "climbing_clockwise" => Some(&adjustables.climbing_clockwise),
-        "climbing_paused" => Some(&adjustables.climbing_paused),
         "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
     }
@@ -4334,7 +4319,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "climbing_enabled" => Some(&mut adjustables.climbing_enabled),
         "climbing_clockwise" => Some(&mut adjustables.climbing_clockwise),
-        "climbing_paused" => Some(&mut adjustables.climbing_paused),
         "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,
     }

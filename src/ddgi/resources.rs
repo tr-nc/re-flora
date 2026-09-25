@@ -659,6 +659,7 @@ impl DdgiSamplingProgress {
         ))
     }
 
+    #[cfg(test)]
     pub fn index(&self, batch: DdgiRayBatch) -> u64 {
         self.position(batch).1
     }

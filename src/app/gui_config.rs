@@ -1309,7 +1309,6 @@ wind_drift = 1.0
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.climbing_fixture.value = 4;
         settings.adjustables.climbing_clockwise.value = false;
-        settings.adjustables.climbing_paused.value = true;
         settings.adjustables.climbing_seed.value = 65001;
         settings.adjustables.climbing_flexibility.value = 1.7;
         settings.adjustables.climbing_search_turn.value = 2.3;
@@ -1320,7 +1319,6 @@ wind_drift = 1.0
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(reloaded.adjustables.climbing_fixture.value, 4);
         assert!(!reloaded.adjustables.climbing_clockwise.value);
-        assert!(reloaded.adjustables.climbing_paused.value);
         assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
         assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
         assert_eq!(reloaded.adjustables.climbing_search_turn.value, 2.3);
@@ -1339,7 +1337,19 @@ wind_drift = 1.0
             .unwrap()
             .clone();
         retired.id = "climbing_continuous_stem".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_paused".into();
         section.param.push(retired);
+        let speed = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_speed")
+            .unwrap();
+        speed.value = GuiParamValue::Float {
+            value: 0.0,
+            min: Some(0.0),
+            max: Some(40.0),
+        };
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
         let mut migrated = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert!(!migrated
@@ -1347,12 +1357,20 @@ wind_drift = 1.0
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .any(|p| p.id == "climbing_continuous_stem"));
+            .any(|p| matches!(
+                p.id.as_str(),
+                "climbing_continuous_stem" | "climbing_paused"
+            )));
         assert_eq!(migrated.adjustables.climbing_seed.value, 65001);
+        assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
+        assert_eq!(*migrated.adjustables.climbing_speed.range.start(), 1.0);
         migrated.save_to_path(&path).unwrap();
         assert!(!std::fs::read_to_string(&path)
             .unwrap()
             .contains("climbing_continuous_stem"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_paused"));
         for section in &mut settings.config.section {
             section.param.retain(|p| {
                 ![
@@ -1381,7 +1399,6 @@ wind_drift = 1.0
             older.adjustables.climbing_clockwise.value,
             defaults.adjustables.climbing_clockwise.value
         );
-        assert!(older.adjustables.climbing_paused.value);
         assert_eq!(
             older.adjustables.climbing_seed.value,
             defaults.adjustables.climbing_seed.value

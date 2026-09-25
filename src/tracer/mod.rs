@@ -356,7 +356,6 @@ struct DdgiVisibilityFilterPushConstants {
 struct DdgiPendingTraceStatsReadback {
     batch: DdgiRayBatch,
     filter_configuration: DdgiFilterConfigurationIdentity,
-    continuous_sampling: bool,
 }
 
 struct DdgiFrameEncoding {
@@ -479,7 +478,6 @@ impl DdgiFrameEncoder<'_> {
                 .record_trace_readback(cmdbuf, plan.iteration_will_complete);
             DdgiPendingTraceStatsReadback {
                 batch,
-                continuous_sampling: self.sampling_progress.is_some(),
                 filter_configuration: DdgiFilterConfigurationIdentity::from_grid(
                     self.frame.grid(),
                     self.history_retention,
@@ -3303,9 +3301,6 @@ impl Tracer {
                 )?
             };
             if !matches!(&completion, DdgiBatchCompletion::Stale(_)) {
-                if batch.first_probe_index == 0 {
-                    log::info!("[DDGI][SAMPLING] accepted first={} count={} sequence={} continuous={} geometry={} epoch={}", batch.first_probe_index, batch.probe_count, self.ddgi_sampling_progress.index(batch), pending.continuous_sampling, batch.geometry_revision(), batch.update_epoch());
-                }
                 self.ddgi_sampling_progress.accept(batch);
             }
             match completion {
