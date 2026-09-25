@@ -1,5 +1,6 @@
 import particle_model_shading;
 import butterfly_mesh_types;
+import model_pixel_surface;
 [[vk::binding(74,0)]] RWStructuredBuffer<float4> butterfly_pixel_tiles;
 [[vk::binding(3,1)]] RWStructuredBuffer<float4> model_pixel_tiles;
 // Compute-only write view of the same buffer. Fragment consumers remain read-only.
@@ -42,12 +43,19 @@ void main(uint3 id : SV_DispatchThreadID) {
         }
         return;
     }
-    ButterflyMeshInstance instance=butterfly_mesh_instances[id.z];
+    ButterflyMeshInstance instance=butterfly_mesh_instances[id.z+(model_pass.mode==3u?model_pass.tile_base:0u)];
     if (any(id.xy>=uint2(instance.metadata.z))) return;
     // mode 2 is a separate, bounded validation reference; never displayed.
     if(model_pass.mode==3u && instance.repair.w==0u)return;
-    float4 value=model_pass.mode==2u
-        ? sampleParticleModelCenter(instance,id.xy) : sampleParticleModel(instance,id.xy);
+    float4 value;
+    if(model_pass.mode==2u) {
+        ModelPixelHit hit=particleModelHitAt(instance,float2(id.xy)+0.5);
+        value=shadeParticleModelHit(instance,hit);
+        // Diagnostic-only exact GPU rays let the CPU verify intersection rather
+        // than guessing how much cancellation occurred during unprojection.
+        butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*2u+id.z,id.xy)]=float4(hit.localOrigin,asfloat(hit.triangle));
+        butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*3u+id.z,id.xy)]=float4(hit.localDirection,0);
+    } else value=sampleParticleModel(instance,id.xy);
     if(model_pass.mode!=2u && instance.repair.w!=0u)
         model_pixel_tiles[instance.repair.z+id.y*instance.metadata.z+id.x]=value;
     if(model_pass.mode!=3u)

@@ -131,7 +131,7 @@ impl ButterflyMeshRenderer {
         let reference_base = self
             .reference_tile_offset()
             .expect("native review reference tiles");
-        let byte_count = u64::from(reference_base + self.compute_count) * 4096 * 16;
+        let byte_count = u64::from(reference_base * 3 + self.compute_count) * 4096 * 16;
         let readback = Buffer::new_sized(
             context.device().clone(),
             allocator,
@@ -188,13 +188,56 @@ impl ButterflyMeshRenderer {
             let leaf = instance.metadata[3] & LEAF_MODEL_FLAG != 0;
             let rect = bounds(instance, view, projection);
             let mut image = image::RgbaImage::new(n, n);
+            // Build the independent CPU coverage plan from the exact GPU center
+            // ownership. Its rays are validated below; reclassifying centers with
+            // differently rounded CPU unprojection spuriously changes ownership
+            // on tiny leaf silhouettes.
+            let mesh_first = instance.metadata[0] as usize;
+            let mesh_end = mesh_first + instance.metadata[1] as usize;
+            let axes = model_pose_axes(instance.lighting);
+            let scale = instance.position_size[3] * (1.53125 / 3.4);
+            let triangles: Vec<_> = self.triangles[mesh_first..mesh_end]
+                .iter()
+                .map(|t| {
+                    let a = Vec3::from_slice(&t.a);
+                    let points = [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)];
+                    (
+                        if leaf || t.e1[3] < 0. { 1 } else { 2 },
+                        if leaf {
+                            points.map(|p| {
+                                Vec3::from_slice(&instance.position_size)
+                                    + scale * (axes[0] * p.x + axes[1] * p.y + axes[2] * p.z)
+                            })
+                        } else {
+                            points
+                        },
+                    )
+                })
+                .collect();
+            let (_, groups) =
+                model_pixel_repair::project(&triangles, vp, rect, n as usize, |_, _, _| None);
+            let mut owners = vec![0; n as usize * n as usize];
+            for y in 0..n {
+                for x in 0..n {
+                    let at = index * 4096 + y as usize * 64 + x as usize;
+                    if pixels[reference_base as usize * 4096 + at][3] < 1. {
+                        let tri =
+                            pixels[reference_base as usize * 2 * 4096 + at][3].to_bits() as usize;
+                        ensure!(
+                            (mesh_first..mesh_end).contains(&tri),
+                            "GPU reference triangle outside model range"
+                        );
+                        owners[(y * n + x) as usize] = triangles[tri - mesh_first].0;
+                    }
+                }
+            }
+            let oracle = model_pixel_repair::plan(&owners, &groups, n as usize);
             // Reconstruct the sparse color expressions independently from this
             // frame's GPU center-only references, including hidden parent nodes.
             let mut expressions: Vec<[f32; 4]> = Vec::new();
             let mut expected_repairs = vec![None; (n * n) as usize];
             let mut seed_depths = vec![None; (n * n) as usize];
-            let first = instance.repair[0] as usize;
-            for node in &self.repair_nodes[first..first + instance.repair[1] as usize] {
+            for node in &oracle.nodes {
                 let endpoint = |r: u32| {
                     if r & model_pixel_repair::EXPRESSION != 0 {
                         let mut value = expressions[(r & !model_pixel_repair::EXPRESSION) as usize];
@@ -290,35 +333,58 @@ impl ButterflyMeshRenderer {
                         let first = instance.metadata[0] as usize;
                         let end = first + instance.metadata[1] as usize;
                         let (ray_origin, ray_direction, scale) = if leaf {
-                            // Match the shader's quaternion expression, not glam's
-                            // algebraically equivalent (but differently rounded) form.
-                            let q = -Vec3::from_slice(&instance.lighting);
-                            let rotate =
-                                |v: Vec3| v + 2. * q.cross(q.cross(v) + instance.lighting[3] * v);
+                            let axes = model_pose_axes(instance.lighting);
                             let scale = instance.position_size[3] * (1.53125 / 3.4);
                             (
-                                rotate(origin - Vec3::from_slice(&instance.position_size)) / scale,
-                                rotate(direction),
+                                model_local_vector(
+                                    axes,
+                                    origin - Vec3::from_slice(&instance.position_size),
+                                ) / scale,
+                                model_local_vector(axes, direction),
                                 scale,
                             )
                         } else {
                             (origin, direction, 1.)
                         };
                         let expected_depth = if original[3] < 1. {
+                            let at = index * 4096 + y as usize * 64 + x as usize;
+                            let gpu_origin =
+                                Vec3::from_slice(&pixels[reference_base as usize * 2 * 4096 + at]);
+                            let gpu_direction =
+                                Vec3::from_slice(&pixels[reference_base as usize * 3 * 4096 + at]);
+                            let origin_error = 128.
+                                * f32::EPSILON
+                                * (origin.length()
+                                    + Vec3::from_slice(&instance.position_size).length())
+                                .max(1.)
+                                / scale;
+                            ensure!(
+                                gpu_origin.distance(ray_origin) <= origin_error,
+                                "GPU reference ray origin/frame mismatch"
+                            );
+                            ensure!(
+                                gpu_direction.distance(ray_direction) <= 128. * f32::EPSILON,
+                                "GPU reference ray direction/frame mismatch"
+                            );
                             let depth = |distance: f32| {
-                                let clip = vp * (origin + direction * distance * scale).extend(1.);
+                                let p = gpu_origin + gpu_direction * distance;
+                                let p = if leaf {
+                                    Vec3::from_slice(&instance.position_size)
+                                        + scale * (axes[0] * p.x + axes[1] * p.y + axes[2] * p.z)
+                                } else {
+                                    p
+                                };
+                                let clip = vp * p.extend(1.);
                                 clip.z / clip.w
                             };
-                            let (expected,boundary)=reference_depth(ray_origin,ray_direction,&self.triangles[first..end],depth,pixel[3])
+                            let (expected,boundary)=reference_depth(gpu_origin,gpu_direction,&self.triangles[first..end],depth,pixel[3])
                                 .ok_or_else(||anyhow::anyhow!("GPU center hit outside CPU precision envelope: instance={index} pixel={x},{y}"))?;
                             roundoff_boundary_hits += usize::from(boundary);
                             expected
                         } else if let Some(depth) = coverage_seed {
                             depth
                         } else {
-                            let first = instance.repair[0] as usize;
-                            let end = first + instance.repair[1] as usize;
-                            self.repair_nodes[first..end].iter().find(|node|node.links[0]==y*n+x)
+                            oracle.nodes.iter().find(|node|node.links[0]==y*n+x)
                                 .ok_or_else(||anyhow::anyhow!("GPU addition absent in geometry plan: instance={index} pixel={x},{y}"))?.color_depth[3]
                         };
                         let error = (pixel[3] - expected_depth).abs();

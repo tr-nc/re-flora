@@ -100,13 +100,18 @@ ModelPixelFrame particleModelFrame(ButterflyMeshInstance instance) {
     }
     return frame;
 }
-public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel) {
-    ModelPixelHit hit=modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
+public ModelPixelHit particleModelHitAt(ButterflyMeshInstance instance,float2 pixel) {
+    return modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
         instance.metadata.y,particleModelFrame(instance),butterflyTileBounds(instance,camera_info),pixel,
         instance.metadata.z,camera_info);
+}
+public float4 shadeParticleModelHit(ButterflyMeshInstance instance,ModelPixelHit hit) {
     if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
     return float4(shadeParticleModelSurface(instance,hit.triangle,hit.bary,
         hit.position,hit.direction,(instance.metadata.w&2u)!=0u),hit.depth);
+}
+public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel) {
+    return shadeParticleModelHit(instance,particleModelHitAt(instance,pixel));
 }
 
 public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pixel) {

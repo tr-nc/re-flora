@@ -30,6 +30,8 @@ public struct ModelPixelHit {
     public float3 position;
     public float3 direction;
     public float depth;
+    public float3 localOrigin;
+    public float3 localDirection;
 };
 // Conservative cells use the nearest projected triangle depth and its real
 // material surface. Original center hits always win. This is the final output
@@ -65,7 +67,7 @@ bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
         float2 p=edge==0u?a:edge==1u?b:c,q=edge==0u?b:edge==1u?c:a;
         float2 d=q-p;
         if(winding*(d.x*(center.y-p.y)-d.y*(center.x-p.x))<
-            -0.5*(abs(d.x)+abs(d.y))-epsilon)return false;
+            -(0.5+epsilon)*(abs(d.x)+abs(d.y)))return false;
     }
     return true;
 }
@@ -120,12 +122,14 @@ public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle>
     ModelPixelHit hit;
     hit.triangle=0xffffffffu; hit.bary=float2(0.0); hit.position=float3(0.0);
     hit.direction=float3(0.0); hit.depth=1.0;
+    hit.localOrigin=float3(0.0);hit.localDirection=float3(0.0);
     if(any(bounds.xy>float2(1.0))||any(bounds.zw<float2(-1.0)))return hit;
     float3 worldOrigin,worldDirection;
     modelPixelRay(bounds,pixel,resolution,camera,worldOrigin,worldDirection);
     hit.direction=worldDirection;
     float3 origin=modelPixelLocalVector(frame,worldOrigin-frame.center)/frame.scale;
     float3 direction=modelPixelLocalVector(frame,worldDirection);
+    hit.localOrigin=origin;hit.localDirection=direction;
     float closest=1e30;
     for(uint i=0u;i<count;i++) {
         ButterflyMeshTriangle tri=triangles[first+i];float distance;float2 bary;

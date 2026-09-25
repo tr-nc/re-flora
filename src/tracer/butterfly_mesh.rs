@@ -25,6 +25,16 @@ pub const MAX_RESOLUTION: u32 = 64;
 const MODEL_CAPACITY: usize = crate::particles::PARTICLE_CAPACITY + CAPACITY;
 const LEAF_MODEL_FLAG: u32 = 2;
 
+// Match the GPU frame construction and operation order. Quaternion-vector
+// multiplication is algebraically equivalent but not numerically identical for
+// subpixel geometry far from the origin.
+fn model_pose_axes(rotation: [f32; 4]) -> [Vec3; 3] {
+    let q = Vec3::from_slice(&rotation);
+    [Vec3::X, Vec3::Y, Vec3::Z].map(|v| v + 2. * q.cross(q.cross(v) + rotation[3] * v))
+}
+fn model_local_vector(axes: [Vec3; 3], v: Vec3) -> Vec3 {
+    Vec3::new(v.dot(axes[0]), v.dot(axes[1]), v.dot(axes[2]))
+}
 fn leaf_variant_index(seed: u32) -> usize {
     seed as usize % crate::model_assets::LEAF_VARIANT_COUNT
 }
@@ -195,7 +205,7 @@ impl ButterflyMeshResources {
                 ),
                 MemoryLocation::GpuOnly,
                 (CAPACITY
-                    * if native_review() { 2 } else { 1 }
+                    * if native_review() { 4 } else { 1 }
                     * MAX_RESOLUTION as usize
                     * MAX_RESOLUTION as usize
                     * 16) as u64,
@@ -258,6 +268,7 @@ pub(super) struct ButterflyMeshRenderer {
     pub resolution: u32,
     tile_count: u32,
     pub compute_count: u32,
+    pub tile_batches: Vec<super::model_pixel_tiles::TileBatch>,
     pub dispatch_resolution: u32,
     previous_leaf_mode: Option<(bool, u32, u32)>,
     validated_leaf_mode: Option<(bool, u32, u32)>,
@@ -283,6 +294,7 @@ impl Default for ButterflyMeshRenderer {
             resolution: 22,
             tile_count: 0,
             compute_count: 0,
+            tile_batches: Vec::new(),
             dispatch_resolution: 22,
             previous_leaf_mode: None,
             validated_leaf_mode: None,
@@ -539,11 +551,7 @@ impl ButterflyMeshRenderer {
                     self.repair_ranges.push([0; 4]);
                     continue;
                 }
-                let pose = if leaf {
-                    Quat::from_array(instance.lighting)
-                } else {
-                    Quat::IDENTITY
-                };
+                let axes = model_pose_axes(instance.lighting);
                 let start = instance.metadata[0] as usize;
                 let end = start + instance.metadata[1] as usize;
                 let triangles: Vec<_> = self.triangles[start..end]
@@ -554,7 +562,9 @@ impl ButterflyMeshRenderer {
                         (
                             if leaf || t.e1[3] < 0. { 1 } else { 2 },
                             if leaf {
-                                p.map(|p| center + pose * p * scale)
+                                p.map(|p| {
+                                    center + scale * (axes[0] * p.x + axes[1] * p.y + axes[2] * p.z)
+                                })
                             } else {
                                 p
                             },
@@ -572,10 +582,11 @@ impl ButterflyMeshRenderer {
                     let far = inverse * glam::Vec4::new(ndc.x, ndc.y, 1., 1.);
                     let origin = near.truncate() / near.w;
                     let direction = (far.truncate() / far.w - origin).normalize();
-                    let q = -Vec3::from_slice(&instance.lighting);
-                    let rotate = |v: Vec3| v + 2. * q.cross(q.cross(v) + instance.lighting[3] * v);
                     let (local_origin, local_direction) = if leaf {
-                        (rotate(origin - center) / scale, rotate(direction))
+                        (
+                            model_local_vector(axes, origin - center) / scale,
+                            model_local_vector(axes, direction),
+                        )
                     } else {
                         (origin, direction)
                     };
@@ -622,7 +633,6 @@ impl ButterflyMeshRenderer {
         }
         // Pack only visible tiles, at their own resolution, instead of reserving
         // PARTICLE_CAPACITY * 64². The fragment path never samples geometry.
-        let mut texels = 0u32;
         for instance in &mut self.instances {
             let bounds = model_pixel_repair::tile_bounds(
                 Vec3::from_slice(&instance.position_size),
@@ -631,11 +641,16 @@ impl ButterflyMeshRenderer {
                 projection,
             );
             let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
-            instance.repair[2] = texels;
             instance.repair[3] = u32::from(visible);
-            if visible {
-                texels += instance.metadata[2] * instance.metadata[2];
-            }
+        }
+        let (offsets, batches) = super::model_pixel_tiles::pack_tiles(
+            self.instances
+                .iter()
+                .map(|i| (i.metadata[2], i.repair[3] != 0)),
+        );
+        self.tile_batches = batches;
+        for (instance, offset) in self.instances.iter_mut().zip(offsets) {
+            instance.repair[2] = offset;
         }
         if !self.instances.is_empty() {
             resources.butterfly_mesh_instances.fill(&self.instances)?;
@@ -685,11 +700,6 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
-    pub fn pixel_texel_count(&self) -> usize {
-        self.instances.last().map_or(0, |i| {
-            (i.repair[2] + i.repair[3] * i.metadata[2] * i.metadata[2]) as usize
-        })
-    }
     pub fn tile_compute_mode(&self) -> u32 {
         if native_review() {
             1

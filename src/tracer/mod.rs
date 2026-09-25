@@ -3998,26 +3998,8 @@ impl Tracer {
             let repairs = self
                 .butterfly_mesh_renderer
                 .repair_buffer(gpu_profiler_frame_slot);
-            let tiles = self.model_pixel_tiles.get(
-                gpu_profiler_frame_slot,
-                0,
-                self.butterfly_mesh_renderer.pixel_texel_count(),
-                self.vulkan_ctx.device().clone(),
-                self.allocator.clone(),
-            )?;
             let pipeline = &self.pipeline_topology.compute().butterfly_tile_ppl;
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
-            let descriptors = [
-                ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
-                (
-                    "particle_model_repairs",
-                    DescriptorResource::Buffer(&repairs),
-                ),
-                (
-                    "particle_model_repair_output",
-                    DescriptorResource::Buffer(&repairs),
-                ),
-            ];
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4025,40 +4007,63 @@ impl Tracer {
                 "butterfly.tiles",
                 || -> Result<()> {
                     let count = self.butterfly_mesh_renderer.count();
-                    if !self.butterfly_mesh_renderer.repair_nodes.is_empty() {
-                        pipeline.record_with_descriptors(
-                            cmdbuf,
-                            &descriptors,
-                            Extent3D::new(8, 8, count.div_ceil(64)),
-                            Some(bytemuck::bytes_of(&[0u32, count, 0])),
+                    for (batch_index, batch) in
+                        self.butterfly_mesh_renderer.tile_batches.iter().enumerate()
+                    {
+                        let tiles = self.model_pixel_tiles.get(
+                            gpu_profiler_frame_slot,
+                            (1u64 << 63) | batch_index as u64,
+                            batch.texels,
+                            self.vulkan_ctx.device().clone(),
+                            self.allocator.clone(),
                         )?;
-                    }
-                    if self.butterfly_mesh_renderer.compute_count > 0 {
-                        pipeline.record_with_descriptors(
-                            cmdbuf,
-                            &descriptors,
-                            Extent3D::new(
-                                self.butterfly_mesh_renderer.dispatch_resolution,
-                                self.butterfly_mesh_renderer.dispatch_resolution,
-                                self.butterfly_mesh_renderer.compute_count,
+                        let descriptors = [
+                            ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
+                            (
+                                "particle_model_repairs",
+                                DescriptorResource::Buffer(&repairs),
                             ),
-                            Some(bytemuck::bytes_of(&[
-                                self.butterfly_mesh_renderer.tile_compute_mode(),
-                                count,
-                                0,
-                            ])),
-                        )?;
-                        if let Some(base) = self.butterfly_mesh_renderer.reference_tile_offset() {
+                            (
+                                "particle_model_repair_output",
+                                DescriptorResource::Buffer(&repairs),
+                            ),
+                        ];
+                        if !self.butterfly_mesh_renderer.repair_nodes.is_empty() {
+                            pipeline.record_with_descriptors(
+                                cmdbuf,
+                                &descriptors,
+                                Extent3D::new(8, 8, count.div_ceil(64)),
+                                Some(bytemuck::bytes_of(&[0u32, count, 0])),
+                            )?;
+                        }
+                        if self.butterfly_mesh_renderer.compute_count > 0 {
                             pipeline.record_with_descriptors(
                                 cmdbuf,
                                 &descriptors,
                                 Extent3D::new(
                                     self.butterfly_mesh_renderer.dispatch_resolution,
                                     self.butterfly_mesh_renderer.dispatch_resolution,
-                                    self.butterfly_mesh_renderer.compute_count,
+                                    batch.count,
                                 ),
-                                Some(bytemuck::bytes_of(&[2u32, count, base])),
+                                Some(bytemuck::bytes_of(&[
+                                    self.butterfly_mesh_renderer.tile_compute_mode(),
+                                    count,
+                                    batch.first,
+                                ])),
                             )?;
+                            if let Some(base) = self.butterfly_mesh_renderer.reference_tile_offset()
+                            {
+                                pipeline.record_with_descriptors(
+                                    cmdbuf,
+                                    &descriptors,
+                                    Extent3D::new(
+                                        self.butterfly_mesh_renderer.dispatch_resolution,
+                                        self.butterfly_mesh_renderer.dispatch_resolution,
+                                        self.butterfly_mesh_renderer.compute_count,
+                                    ),
+                                    Some(bytemuck::bytes_of(&[2u32, count, base])),
+                                )?;
+                            }
                         }
                     }
                     Ok(())
@@ -4951,34 +4956,42 @@ impl Tracer {
         };
         let prepared_model_descriptors =
             if enable_particles && self.butterfly_mesh_renderer.count() > 0 {
-                let tiles = self
-                    .model_pixel_tiles
-                    .get(
-                        gpu_profiler_frame_slot,
-                        0,
-                        self.butterfly_mesh_renderer.pixel_texel_count(),
-                        self.vulkan_ctx.device().clone(),
-                        self.allocator.clone(),
-                    )
-                    .expect("particle tile allocation must match compute");
                 // The transient set contains tiles. Persistent camera,
                 // environment and DDGI images still need their normal transitions.
                 self.pipeline_topology
                     .graphics()
                     .butterfly_tile_ppl
                     .prepare_descriptor_resources(cmdbuf);
-                Some(
-                    self.pipeline_topology
-                        .graphics()
-                        .butterfly_tile_ppl
-                        .prepare_draw_descriptors(
-                            cmdbuf,
-                            &[("model_pixel_tiles", DescriptorResource::Buffer(&tiles))],
+                self.butterfly_mesh_renderer
+                    .tile_batches
+                    .iter()
+                    .enumerate()
+                    .map(|(index, batch)| {
+                        let tiles = self
+                            .model_pixel_tiles
+                            .get(
+                                gpu_profiler_frame_slot,
+                                (1u64 << 63) | index as u64,
+                                batch.texels,
+                                self.vulkan_ctx.device().clone(),
+                                self.allocator.clone(),
+                            )
+                            .expect("particle tile allocation must match compute");
+                        (
+                            *batch,
+                            self.pipeline_topology
+                                .graphics()
+                                .butterfly_tile_ppl
+                                .prepare_draw_descriptors(
+                                    cmdbuf,
+                                    &[("model_pixel_tiles", DescriptorResource::Buffer(&tiles))],
+                                )
+                                .expect("model tile descriptors must match reflection"),
                         )
-                        .expect("model repair descriptors must match reflection"),
-                )
+                    })
+                    .collect::<Vec<_>>()
             } else {
-                None
+                Vec::new()
             };
         if enable_particles {
             self.pipeline_topology
@@ -5571,18 +5584,18 @@ impl Tracer {
                         &self.resources.butterfly_mesh.draw_indices,
                     ],
                 );
-                pipeline.record_indexed_with_prepared_descriptors(
-                    cmdbuf,
-                    prepared_model_descriptors
-                        .as_ref()
-                        .expect("prepared model descriptors"),
-                    particle_resources.indices_len,
-                    self.butterfly_mesh_renderer.count(),
-                    0,
-                    0,
-                    0,
-                    None,
-                );
+                for (batch, descriptors) in &prepared_model_descriptors {
+                    pipeline.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        descriptors,
+                        particle_resources.indices_len,
+                        batch.count,
+                        0,
+                        0,
+                        batch.first,
+                        None,
+                    );
+                }
             }
             // Translucent droplets are sorted back-to-front and rendered after ordinary
             // particles. Their nearest depth lets the hybrid compositor place them over the
