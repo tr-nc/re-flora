@@ -173,7 +173,8 @@ pub(super) fn step(
     rod.heading = heading;
     if exploring {
         let winding = if tip.clockwise { 1.0 } else { -1.0 };
-        rod.phase = (rod.phase + winding * std::f32::consts::TAU * dt / rod.period)
+        rod.phase = (rod.phase
+            + winding * std::f32::consts::TAU * dt * next.search_rate / rod.period)
             .rem_euclid(std::f32::consts::TAU);
     }
     let count = next.nodes.len();

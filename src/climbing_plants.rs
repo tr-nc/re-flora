@@ -119,6 +119,7 @@ pub struct Plant {
     next_node_id: u64,
     rod: rod::Rod,
     search_turn: f32,
+    search_rate: f32,
     search_reach: f32,
 }
 
@@ -160,6 +161,7 @@ impl Plant {
             }],
             rod: rod::Rod::new(&tip),
             search_turn: 1.0,
+            search_rate: 1.0,
             search_reach: rod::AIR_BUDGET,
             tips: vec![tip],
             radius: 0.65,
@@ -194,11 +196,18 @@ impl Plant {
 
     /// Live artistic controls. They do not reset material, phase or existing geometry.
     pub fn set_search_tuning(&mut self, turn: f32, reach: f32) {
-        if turn.is_finite() && (0.0..=3.0).contains(&turn) {
+        if turn.is_finite() && (0.0..=6.0).contains(&turn) {
             self.search_turn = turn;
         }
         if reach.is_finite() && (16.0..=96.0).contains(&reach) {
             self.search_reach = reach;
+        }
+    }
+
+    /// Oscillation speed is independent of both elongation speed and sweep amplitude.
+    pub fn set_search_rate(&mut self, rate: f32) {
+        if rate.is_finite() && (0.5..=3.0).contains(&rate) {
+            self.search_rate = rate;
         }
     }
 

@@ -2661,12 +2661,23 @@ max = 2
 [[section.param]]
 id = "climbing_search_turn"
 kind = "float"
-label = "Search turn (0–3x flexibility; live)"
+label = "Search turn width (0–6x flexibility; live)"
 type = "Float"
 
 [section.param.data]
 value = 1
 min = 0
+max = 6
+
+[[section.param]]
+id = "climbing_search_rate"
+kind = "float"
+label = "Search rotation rate (0.5–3x; live)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
 max = 3
 
 [[section.param]]

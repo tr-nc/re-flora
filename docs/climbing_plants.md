@@ -18,11 +18,14 @@ Older saved checkbox values are discarded without changing other user settings.
    **Restart wall and vine** repeats the current seed; **New random seed** changes the saved
    seed. **Create vine wall and focus** starts an uncreated patch. **Focus vine** recenters it.
 4. **Shoot exploration / flexibility** controls the existing bend/gravity response.
-   **Search turn amplitude** independently scales the rotating search sweep (0–3×);
+   **Search turn width** scales the rotating sweep (0–6× flexibility); **Search rotation
+   rate** scales its phase speed (0.5–3×). At the default 10 growth attempts/sec a
+   64-voxel free shoot lasts about 3.2 seconds, shorter than the old ~5.5-second turn;
+   setting rate to 2× lets it complete a turn before exhausting that reach.
    **Unsupported search reach** controls how much unanchored stem may grow (16–96 voxels).
-   Both new saved sliders change live without resetting geometry. Lowering reach below
+   These saved sliders change live without resetting geometry. Lowering reach below
    the existing free length holds new extension, but does not delete existing stem.
-   **Growth attempts/sec** changes elongation, not the continuous oscillator's period.
+   **Growth attempts/sec** changes elongation independently of the oscillator.
    **Adhesion spacing** targets distance along the stem, not wall distance or search amplitude.
    Lip transitions may attach closer; the apex retains bending room.
 5. While enabled, the vine keeps attempting growth at the selected rate (at least 1/sec).

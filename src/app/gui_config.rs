@@ -1311,7 +1311,8 @@ wind_drift = 1.0
         settings.adjustables.climbing_clockwise.value = false;
         settings.adjustables.climbing_seed.value = 65001;
         settings.adjustables.climbing_flexibility.value = 1.7;
-        settings.adjustables.climbing_search_turn.value = 2.3;
+        settings.adjustables.climbing_search_turn.value = 4.5;
+        settings.adjustables.climbing_search_rate.value = 2.0;
         settings.adjustables.climbing_search_reach.value = 36.0;
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
@@ -1321,7 +1322,8 @@ wind_drift = 1.0
         assert!(!reloaded.adjustables.climbing_clockwise.value);
         assert_eq!(reloaded.adjustables.climbing_seed.value, 65001);
         assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
-        assert_eq!(reloaded.adjustables.climbing_search_turn.value, 2.3);
+        assert_eq!(reloaded.adjustables.climbing_search_turn.value, 4.5);
+        assert_eq!(reloaded.adjustables.climbing_search_rate.value, 2.0);
         assert_eq!(reloaded.adjustables.climbing_search_reach.value, 36.0);
         // An older saved checkbox must disappear, regardless of its old value.
         let section = settings
@@ -1350,6 +1352,15 @@ wind_drift = 1.0
             min: Some(0.0),
             max: Some(40.0),
         };
+        let turn = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_search_turn")
+            .unwrap();
+        if let GuiParamValue::Float { value, max, .. } = &mut turn.value {
+            *value = 2.3;
+            *max = Some(3.0);
+        }
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
         let mut migrated = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert!(!migrated
@@ -1364,6 +1375,7 @@ wind_drift = 1.0
         assert_eq!(migrated.adjustables.climbing_seed.value, 65001);
         assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
         assert_eq!(*migrated.adjustables.climbing_speed.range.start(), 1.0);
+        assert_eq!(*migrated.adjustables.climbing_search_turn.range.end(), 6.0);
         migrated.save_to_path(&path).unwrap();
         assert!(!std::fs::read_to_string(&path)
             .unwrap()
@@ -1379,6 +1391,7 @@ wind_drift = 1.0
                     "climbing_seed",
                     "climbing_flexibility",
                     "climbing_search_turn",
+                    "climbing_search_rate",
                     "climbing_search_reach",
                 ]
                 .contains(&p.id.as_str())
@@ -1408,6 +1421,7 @@ wind_drift = 1.0
             defaults.adjustables.climbing_flexibility.value
         );
         assert_eq!(older.adjustables.climbing_search_turn.value, 1.0);
+        assert_eq!(older.adjustables.climbing_search_rate.value, 1.0);
         assert_eq!(older.adjustables.climbing_search_reach.value, 64.0);
     }
 

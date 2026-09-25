@@ -81,6 +81,10 @@ impl GuiConfigLoader {
                     *min = Some(1.0);
                     *value = (*value).max(1.0);
                 }
+            } else if param.id == "climbing_search_turn" {
+                if let GuiParamValue::Float { max, .. } = &mut param.value {
+                    *max = Some(6.0);
+                }
             }
         }
         // Retired controls must not survive in the live config or on the next save.

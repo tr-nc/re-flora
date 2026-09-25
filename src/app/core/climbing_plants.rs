@@ -99,7 +99,7 @@ impl ClimbingPlants {
         if ui.button("New random seed").on_hover_text("Choose another saved seed and restart this same grounded test patch. Restart alone repeats the current seed.").clicked() {
             self.randomize_requested = true;
         }
-        ui.small("Terrain, seed and winding restart the vine; search turn and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
+        ui.small("Terrain, seed and winding restart the vine; search width, rotation rate and unsupported reach change live without restarting. One unbranched vine beside the startup tree.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
             ui.small(format!(
@@ -551,6 +551,7 @@ impl App {
                 self.debug_settings.adjustables.climbing_search_turn.value,
                 self.debug_settings.adjustables.climbing_search_reach.value,
             );
+            plant.set_search_rate(self.debug_settings.adjustables.climbing_search_rate.value);
         }
         if std::mem::take(&mut self.climbing_plants.peel_highest_requested) {
             if let Some(pruned) = plant.prune_highest_attachment() {

@@ -84,6 +84,45 @@ fn self_weight_does_not_kick_the_free_shoot_backwards_on_consecutive_steps() {
 }
 
 #[test]
+fn faster_search_can_complete_a_turn_before_default_reach_is_spent() {
+    struct TinySupport;
+    impl Terrain for TinySupport {
+        fn voxel(&self, c: IVec3) -> Option<u8> {
+            Some(u8::from(c == IVec3::new(20, 4, 0)))
+        }
+        fn current(&self) -> bool {
+            true
+        }
+    }
+    let mut plant = Plant::seed(
+        Vec3::new(20.5, 4.5, 1.8),
+        Vec3::Z,
+        IVec3::new(20, 4, 0),
+        1,
+        42,
+    );
+    plant.set_search_rate(2.0);
+    let mut total_turn = 0.0;
+    for _ in 0..100 {
+        let grew = plant.grow(&TinySupport, 16.0);
+        for _ in 0..2 {
+            let before = plant.rod.phase;
+            plant
+                .step_motion(&TinySupport, 0.05, 2.0, 16.0, true)
+                .unwrap();
+            total_turn += (plant.rod.phase - before).rem_euclid(std::f32::consts::TAU);
+        }
+        if !grew {
+            break;
+        }
+    }
+    assert!(
+        total_turn >= std::f32::consts::TAU,
+        "the free shoot spent its reach before making one search turn: {total_turn}"
+    );
+}
+
+#[test]
 fn search_turn_changes_the_live_oscillation_without_restarting() {
     let terrain = Scene(Fixture::Flat);
     let mut ordinary = seed(Fixture::Flat, 42);
@@ -106,7 +145,8 @@ fn search_turn_changes_the_live_oscillation_without_restarting() {
         ordinary.nodes.last().unwrap().position
     );
     safe(&stronger, &terrain);
-    stronger.set_search_tuning(3.0, 96.0);
+    stronger.set_search_tuning(6.0, 96.0);
+    stronger.set_search_rate(3.0);
     for _ in 0..30 {
         tick(&mut stronger, &terrain, 16.0);
         safe(&stronger, &terrain);
