@@ -174,7 +174,7 @@ Active/Staging promotion occur only for one complete field.
 
 The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` capture analysis:
 
-- capture v10 records lifecycle state, epoch, source identity, revisions, publication, batch order,
+- capture v11 records lifecycle state, epoch, source identity, revisions, publication, batch order,
   full-atlas deltas, source-separated terrain/leaf/combined direct-shadow transmittance with point/integrated sampling identity, authoritative
   probe-grid dimensions, configured history-retention Q16 identity, and exact owner-generated
   filter evidence. History evidence retains action partitions plus Q16 retention sum/max witnesses;
