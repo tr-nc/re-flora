@@ -1976,7 +1976,7 @@ def _run_cli(
         if filter_evidence is None:
             failures.append("owner-generated filter evidence is missing")
         elif first.configured_history_retention_q16 is None:
-            failures.append(f"v{capture.version} configured history retention identity is missing")
+            failures.append(f"v{first.version} configured history retention identity is missing")
         else:
             expected_q16 = local_recovery_retention_q16(
                 first.configured_history_retention_q16,
@@ -2141,7 +2141,7 @@ def _run_cli(
         if not capture_summary["direct_sun_shadow_valid"]:
             failures.append(
                 "direct-sun shadow plane contains a noncanonical receiver, a "
-                "transmittance outside [0, 1], or an invalid combined product"
+                "diagnostic outside [0, 1], or invalid point-product/integrated bounds"
             )
     if capture_summary["transport_stage"] == "converged":
         for field, threshold in (

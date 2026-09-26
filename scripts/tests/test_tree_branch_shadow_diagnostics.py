@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import check_tree_branch_lighting as branch
-from analyze_environment_irradiance_capture import Capture, PIXEL
+from analyze_environment_irradiance_capture import PIXEL, Capture
 
 
 class TreeBranchShadowDiagnosticsTests(unittest.TestCase):

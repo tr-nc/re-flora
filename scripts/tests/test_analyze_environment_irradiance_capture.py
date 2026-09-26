@@ -133,6 +133,18 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             path.write_bytes(fixture[:-16] + analyzer.PIXEL.pack(0.5, 0.5, 0.25, 0.25))
             self.assertEqual(self.run_analyzer(path, "--expect-version", "10").returncode, 1)
 
+    def test_historical_filter_recovery_reports_missing_configuration_without_crashing(self) -> None:
+        fixture = bytes.fromhex((Path(__file__).with_name("fixtures") /
+                                 "ddgi_filter_evidence_v9.hex").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "historical-v9.rfirr"
+            path.write_bytes(fixture)
+            result = self.run_analyzer(path, "--expect-version", "9",
+                                       "--require-filter-local-recovery-policy")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("v9 configured history retention identity is missing",
+                          json.loads(result.stdout)["validation_failures"])
+
     def write_capture(
         self, path: Path, pixels: list[tuple[float, float, float, float]]
     ) -> None:
