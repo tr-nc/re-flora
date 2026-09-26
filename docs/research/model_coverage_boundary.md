@@ -223,3 +223,14 @@ check`, `cargo test model_pixel` (24 passed, 1 existing ignored), `cargo test
 butterfly_mesh` (17 passed), and the explicit Slang projection executable all
 pass; logs are in `correction/`. The original strict leaf/butterfly/apple runners
 remain unchanged. New final native gates follow this focused correction.
+
+### Corrected strict leaf gate
+
+After the uninstrumented correction, three consecutive independent invocations
+of the **unchanged** strict leaf runner (`--seconds 20`) pass at 5120×2880:
+`correction/strict-leaf-{1,2,3}/`, processes 834491 / 834584 / 834674. Each has
+22 nonzero numerical checks, all 8/16/64px stages and the complete A/B/size sweep,
+24 correctly sized tile images, and no ERROR/VUID/panic. Initial B64 checked-hit
+counts are 1593 / 1575 / 1581. Commands, all logs and artifacts are retained;
+there were no failed attempts in this final sequence. Every invocation held
+`/tmp/re-flora-summer-gpu.lock` without nesting. No thresholds or runners changed.
