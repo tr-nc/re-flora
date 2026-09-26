@@ -213,13 +213,12 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     float cosine = max(0.0, dot(sunDirection, normal));
     shadow.terrain = 1.0;
     shadow.leaf = 1.0;
-    shadow.cloud = 1.0;
     shadow.combined = 1.0;
     float3 sunIrradiance = float3(0.0);
     if (cosine > 0.0)
     {
-        DirectSunShadowReceiver receiver = voxelSurfaceSunShadowReceiver(
-            voxelCenter, surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
+        DirectSunShadowReceiver receiver = voxelSunShadowReceiver(
+            voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
         sunIrradiance = shadowRayColor(receiver, shadow) * cosine;
     }
     float3 localIrradiance = tracerVisibleLocalLightIrradiance(
@@ -231,7 +230,7 @@ struct TerrainSurfaceLighting
 {
     float3 environment;
     float3 direct;
-    float4 shadows;
+    float3 shadows;
 };
 
 // Same surface-area measure as raster trees, with exact axis-aligned face
@@ -246,7 +245,7 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
     SurfaceIrradianceIntegral environment = beginSurfaceIrradiance();
     SurfaceIrradianceIntegral direct = beginSurfaceIrradiance();
     float3 sunDirection = normalize(sun_info.sun_dir);
-    float4 shadows = float4(0);
+    float3 shadows = float3(0);
     float sunSupport = 0.0;
     for (uint face = 0u; face < 6u; ++face)
     {
@@ -265,7 +264,7 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
             DirectSunShadowTransmittances shadow;
             shadowRayColor(receiver, shadow);
             visibility = shadow.combined;
-            shadows += cosine * float4(shadow.terrain, shadow.leaf, shadow.cloud, shadow.combined);
+            shadows += cosine * float3(shadow.terrain, shadow.leaf, shadow.combined);
             sunSupport += cosine;
         }
         accumulateSurfaceIrradiance(1.0, 0.0, 0.0, diffuse, environment);
@@ -275,7 +274,7 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
     result.environment = finishSurfaceIrradiance(environment, float3(0));
     result.direct = finishSurfaceIrradiance(direct, terrainSunIrradiance());
     // Visibility-only diagnostics use projected weighting, never shading energy.
-    result.shadows = sunSupport > 0.0 ? shadows / sunSupport : float4(1);
+    result.shadows = sunSupport > 0.0 ? shadows / sunSupport : float3(1);
     return result;
 }
 
@@ -560,7 +559,7 @@ void getPixelColor(out float3 color, out float depth,
     directLight = float3(0.0);
     environmentCaptureWorld = float4(0.0);
     environmentCaptureReceiver = float4(0.0, 0.0, 0.0, 1.0);
-    environmentCaptureDirectSunShadows = float4(1.0);
+    environmentCaptureDirectSunShadows = float4(1.0, 1.0, 0.0, 1.0);
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
     {
         environmentIrradiance = sampleDdgiIrradianceAtlasDebug(screenUv);
@@ -632,7 +631,7 @@ void getPixelColor(out float3 color, out float depth,
                                      shadow);
         environmentCaptureReceiver.w = shadow.terrain;
         environmentCaptureDirectSunShadows = float4(
-            shadow.terrain, shadow.leaf, shadow.cloud, shadow.combined);
+            shadow.terrain, shadow.leaf, 0.0, shadow.combined);
     }
     // The moment-visibility receiver remains fixed for every pixel of the voxel.
     // Only the nominal-grid position basis follows the exact surface hit so a
@@ -668,7 +667,9 @@ void getPixelColor(out float3 color, out float depth,
         environmentIrradiance = lerp(surface.environment, environmentIrradiance, normalConfidence);
         environmentCaptureIrradiance = environmentIrradiance;
         directLight = lerp(surface.direct * albedo, directLight, normalConfidence);
-        environmentCaptureDirectSunShadows = lerp(surface.shadows,
+        // RFIRR v11: (terrain, leaf, integrated weight, combined). Products
+        // are averaged independently; an integral is not a point product.
+        environmentCaptureDirectSunShadows = lerp(float4(surface.shadows.xy, 1.0, surface.shadows.z),
             environmentCaptureDirectSunShadows, normalConfidence);
         environmentCaptureReceiver.w = environmentCaptureDirectSunShadows.x;
     }

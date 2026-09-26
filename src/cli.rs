@@ -584,7 +584,9 @@ fn parse_query_command(args: &[String]) -> Result<Option<LaunchCommand>, String>
     Ok(Some(LaunchCommand::InspectLogs(inspection)))
 }
 
-fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
+fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
+    // Explicit compatibility boundary, not accidental unknown-argument acceptance.
+    args.retain(|argument| argument != "--no-clouds");
     if let Some(acceptance) = parse_lighting_mode_acceptance(&args)? {
         let program = args
             .first()
@@ -1063,7 +1065,6 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                     enable_flora: !no_flora,
                     enable_leaves: !no_flora,
                     enable_particles: !args.iter().any(|a| a == "--no-particles"),
-                    enable_clouds: false,
                 },
                 perf_logging: args.iter().any(|a| a == "--perf"),
             },
@@ -1504,7 +1505,7 @@ Options:
   --no-tracer                 Disable main tracer pass
   --no-particles              Disable particle simulation and rendering
   --no-flora                  Disable flora and leaves rendering
-  --no-clouds                 Disable procedural cloud rendering
+  --no-clouds                 deprecated; clouds removed; omit this flag.
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
   --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: highest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
@@ -1658,7 +1659,6 @@ pub struct RenderFlags {
     pub enable_flora: bool,
     pub enable_leaves: bool,
     pub enable_particles: bool,
-    pub enable_clouds: bool,
 }
 
 #[cfg(test)]
@@ -1688,6 +1688,21 @@ mod tests {
             Scenario::GlassVoxel(options) => *options,
             scenario => panic!("expected Glass voxel scenario, got {scenario:?}"),
         }
+    }
+
+    #[test]
+    fn retired_no_clouds_flag_is_an_explicit_compatible_noop() {
+        let canonical = parse(&["re-flora", "--hidden", "--mute", "--no-shadows"]);
+        let legacy = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--no-shadows",
+            "--no-clouds",
+        ]);
+        assert_eq!(format!("{legacy:?}"), format!("{canonical:?}"));
+        assert!(help_text()
+            .contains("--no-clouds                 deprecated; clouds removed; omit this flag."));
     }
 
     #[test]

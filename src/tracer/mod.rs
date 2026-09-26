@@ -54,9 +54,6 @@ use flora_frame_plan::{
 mod leaf_shadow_proxy;
 use leaf_shadow_proxy::build_leaf_shadow_proxies;
 
-mod clouds;
-use clouds::CloudRuntime;
-
 mod direct_sun_shadow_runtime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
 use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
@@ -945,30 +942,6 @@ pub struct GlassGuiParams {
     pub glint_strength: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CloudGuiParams {
-    pub enabled: bool,
-    pub coverage: f32,
-    pub density: f32,
-    pub bottom_height: f32,
-    pub top_height: f32,
-    pub shape_scale: f32,
-    pub detail_scale: f32,
-    pub detail_strength: f32,
-    pub wind_speed: f32,
-    pub primary_steps: u32,
-    pub light_steps: u32,
-    pub temporal_alpha: f32,
-    pub absorption: f32,
-    pub phase_eccentricity: f32,
-    pub silver_intensity: f32,
-    pub max_distance: f32,
-    pub shadows_enabled: bool,
-    pub shadow_strength: f32,
-    pub shadow_min_transmittance: f32,
-    pub shadow_steps: u32,
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct VsmFilterPushConstants {
@@ -1536,7 +1509,6 @@ pub struct EnvironmentFrameInput {
     pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
-    pub clouds: CloudGuiParams,
     pub sun: SunFrameInput,
     pub god_rays: GodRayFrameInput,
     pub starlight: StarlightFrameInput,
@@ -1571,7 +1543,6 @@ pub enum LodState {
 pub struct DirectSunShadowResources<'a> {
     uniforms: &'a TracerUniformResources,
     shadow: &'a ShadowResources,
-    clouds: &'a clouds::CloudShadowResources,
 }
 
 impl re_flora_vkn::ResourceContainer for DirectSunShadowResources<'_> {
@@ -1579,7 +1550,6 @@ impl re_flora_vkn::ResourceContainer for DirectSunShadowResources<'_> {
         self.uniforms
             .resolve_resource(name)
             .merge(self.shadow.resolve_resource(name))
-            .merge(self.clouds.resolve_resource(name))
     }
 }
 
@@ -1651,7 +1621,6 @@ pub struct Tracer {
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
     direct_sun_shadows: DirectSunShadowRuntime,
-    clouds: CloudRuntime,
     god_ray_temporal_blend_enabled: bool,
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
@@ -1819,17 +1788,11 @@ impl Tracer {
         DirectSunShadowResources {
             uniforms: &self.resources.uniforms,
             shadow: &self.resources.shadow,
-            clouds: &self.resources.cloud_shadows,
         }
     }
 
     pub fn direct_sun_shadow_available_mask(&self) -> u32 {
         self.direct_sun_shadows.available_mask()
-            | if self.clouds.shadow_ready() {
-                direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_CLOUD
-            } else {
-                0
-            }
     }
 
     pub fn invalidate_local_direct_sun_shadow_histories(&mut self) {
@@ -2009,7 +1972,6 @@ impl Tracer {
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
             direct_sun_shadows: DirectSunShadowRuntime::default(),
-            clouds: CloudRuntime::default(),
             god_ray_temporal_blend_enabled: true,
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
@@ -2724,7 +2686,6 @@ impl Tracer {
             &self.ddgi_voxel_visibility,
         );
 
-        self.clouds.invalidate();
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
     }
@@ -2969,9 +2930,6 @@ impl Tracer {
         // Shadow camera info. Shadow maps are rendered every frame while shadows
         // are enabled, so PCSS and VSM both use the latest light-space matrix.
         let shadow_light_space_change = self.direct_sun_shadows.observe_sun_direction(sun_dir);
-        if shadow_light_space_change == DirectSunShadowLightSpaceChange::Changed {
-            self.clouds.invalidate_shadow();
-        }
         if shadow_light_space_change != DirectSunShadowLightSpaceChange::Unchanged {
             log::debug!(
                 "[SHADOW][LIGHT_SPACE] change={:?} revision={} sun_direction={:?} history_policy=reset_all_no_cross_space_blend",
@@ -3707,23 +3665,6 @@ impl Tracer {
                 },
             );
             self.direct_sun_shadows.mark_terrain_history_recorded();
-            if render_flags.enable_clouds {
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "cloud_shadow.pass",
-                    || {
-                        self.clouds.record_shadow(
-                            cmdbuf,
-                            &self.pipeline_topology.compute().clouds,
-                            &self.resources.cloud_shadows,
-                        )
-                    },
-                );
-            } else {
-                self.clouds.invalidate_shadow();
-            }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
 
@@ -4176,24 +4117,6 @@ impl Tracer {
             self.god_ray_history_valid = false;
         }
 
-        Self::with_gpu_scope(
-            gpu_profiler.as_deref_mut(),
-            gpu_profiler_frame_slot,
-            cmdbuf,
-            if render_flags.enable_clouds {
-                "cloud.pass"
-            } else {
-                "cloud_clear.pass"
-            },
-            || {
-                self.clouds.record_screen(
-                    cmdbuf,
-                    &self.pipeline_topology.compute().clouds,
-                    &self.resources.extent_dependent_resources.clouds,
-                    render_flags.enable_clouds,
-                )
-            },
-        );
         if render_flags.enable_lens_flare {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -4359,8 +4282,6 @@ impl Tracer {
                     0,
                     ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
                 );
-
-            self.resources.cloud_shadows.clear(cmdbuf);
 
             self.resources
                 .shadow
@@ -6479,7 +6400,6 @@ impl Tracer {
         self.camera_proj_mat_prev_frame = proj_mat;
         self.current_view_proj_mat = proj_mat * view_mat;
         self.direct_sun_shadows.invalidate_local_histories();
-        self.clouds.invalidate_screen();
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
     }

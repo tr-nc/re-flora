@@ -7,7 +7,7 @@ import tracer_types;
 
 public float3 combineSceneColors(float rasterDepth, float computeDepth,
                                  float4 rasterColor, float3 terrainColor,
-                                 float2 screenUv, U_GuiInput gui,
+                                 float2 screenUv,
                                  U_SunInfo sun, U_CameraInfo camera,
                                  U_StarlightInfo starlight,
                                  Sampler2D sunSprite)
@@ -24,7 +24,7 @@ public float3 combineSceneColors(float rasterDepth, float computeDepth,
     }
     if (hasRaster && alpha >= 0.999) return rasterColor.rgb;
 
-    float3 skyColor = sampleScreenSky(screenUv, gui, sun, camera, starlight, sunSprite);
+    float3 skyColor = sampleScreenSky(screenUv, sun, camera, starlight, sunSprite);
     if (!hasRaster) return skyColor;
     return rasterColor.rgb + skyColor * (1.0 - alpha);
 }

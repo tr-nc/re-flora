@@ -97,7 +97,7 @@ def main():
                     name = f'{mode}-' + ('canopy' if foliage else 'wood')
                     (out / f'{name}.png').unlink(missing_ok=True)
                     cmd = [str(ROOT / 'target/release/re-flora'), '--hidden', '--mute',
-                           '--no-particles', '--no-clouds', '--no-god-rays', '--no-lens-flare',
+                           '--no-particles', '--no-god-rays', '--no-lens-flare',
                            '--screenshot', 'raster-tree-review', str(out / f'{name}.png'),
                            '--screenshot-delay', str(args.delay), '--auto-exit', str(args.delay + 2.0)]
                     if not foliage:

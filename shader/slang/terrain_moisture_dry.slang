@@ -1,4 +1,5 @@
 import terrain_soil;
+import terrain_moisture_sun;
 import terrain_ray_origin;
 import tracer_shadowing;
 import tracer_types;
@@ -157,21 +158,13 @@ float surfaceSunExposure(float3 sampleWorldPosition,
                          uint sourceMask,
                          uint availableMask)
 {
-    if (sunDirection.y <= 0.0 || dot(normal, sunDirection) <= 0.05)
-    {
-        return 0.0;
-    }
+    SoilSunExposurePlan plan = planSoilSunExposure(normal, sunDirection,
+        sourceMask, availableMask, shadowCameraContains(sampleWorldPosition));
+    if (!plan.lit) return 0.0;
 
-    uint directSourceMask = sourceMask;
     float terrainVisibility = 1.0;
-    bool wantsTerrain =
-        (sourceMask & DIRECT_SUN_SHADOW_SOURCE_TERRAIN) != 0u;
-    bool terrainVsmAvailable = wantsTerrain &&
-        (availableMask & DIRECT_SUN_SHADOW_SOURCE_TERRAIN) != 0u &&
-        shadowCameraContains(sampleWorldPosition);
-    if (wantsTerrain && !terrainVsmAvailable)
+    if (plan.trace_terrain)
     {
-        directSourceMask &= ~DIRECT_SUN_SHADOW_SOURCE_TERRAIN;
         terrainVisibility = !sunRayIsOccluded(
             sampleWorldPosition * voxelsPerWorldUnit, sunDirection)
             ? 1.0
@@ -179,7 +172,7 @@ float surfaceSunExposure(float3 sampleWorldPosition,
     }
 
     return terrainVisibility * directShadowExposure(
-        sampleWorldPosition, directSourceMask, availableMask);
+        sampleWorldPosition, plan.direct_source_mask, availableMask);
 }
 
 [shader("compute")]

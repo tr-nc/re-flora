@@ -9,6 +9,30 @@ const CONFIG_FILE_NAME: &str = "gui.toml";
 // noisy tail emitted when an f32 is serialized through TOML.
 const GUI_FLOAT_DECIMALS: usize = 8;
 
+// Schema-v1 compatibility only. These IDs must never reach generated adjustables.
+const RETIRED_CLOUD_PARAMS: &[&str] = &[
+    "clouds_enabled",
+    "cloud_coverage",
+    "cloud_density",
+    "cloud_bottom_height",
+    "cloud_top_height",
+    "cloud_shape_scale",
+    "cloud_detail_scale",
+    "cloud_detail_strength",
+    "cloud_wind_speed",
+    "cloud_primary_steps",
+    "cloud_light_steps",
+    "cloud_temporal_alpha",
+    "cloud_absorption",
+    "cloud_phase_eccentricity",
+    "cloud_silver_intensity",
+    "cloud_max_distance",
+    "cloud_shadows_enabled",
+    "cloud_shadow_strength",
+    "cloud_shadow_min_transmittance",
+    "cloud_shadow_steps",
+];
+
 pub struct GuiConfigLoader;
 
 impl GuiConfigLoader {
@@ -42,6 +66,7 @@ impl GuiConfigLoader {
             );
         });
 
+        Self::retire_cloud_settings(&mut config);
         Self::validate(&config, config_path);
         Self::migrate_flutter_frequency(&mut config);
         Self::migrate_frequency_ceiling(&mut config);
@@ -124,6 +149,37 @@ impl GuiConfigLoader {
         );
 
         config
+    }
+
+    fn retire_cloud_settings(config: &mut GuiConfigFile) {
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|param| !RETIRED_CLOUD_PARAMS.contains(&param.id.as_str()));
+        }
+        // Preserve unrelated authored settings even if a user moved them into
+        // the old group, while removing that group's obsolete presentation.
+        let mut retained = Vec::new();
+        config.section.retain_mut(|section| {
+            if section.name == "Clouds" {
+                retained.append(&mut section.param);
+                false
+            } else {
+                true
+            }
+        });
+        if !retained.is_empty() {
+            if let Some(sky) = config.section.iter_mut().find(|s| s.name == "Sky") {
+                sky.param.extend(retained);
+            } else {
+                config
+                    .section
+                    .push(crate::app::gui_config_model::GuiSection {
+                        name: "Sky".into(),
+                        param: retained,
+                    });
+            }
+        }
     }
 
     fn migrate_flutter_amplitude(config: &mut GuiConfigFile) {

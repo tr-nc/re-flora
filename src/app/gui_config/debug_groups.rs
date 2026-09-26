@@ -292,7 +292,6 @@ mod tests {
             "Tree",
             "GodRay",
             "Starlight",
-            "Clouds",
             "Planting",
             "Distribution",
             "Spawn Animation",

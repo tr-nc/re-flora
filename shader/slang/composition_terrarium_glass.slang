@@ -1,6 +1,5 @@
 module composition_terrarium_glass;
 
-import composition_cloud_reflection;
 import composition_scene;
 import composition_sky;
 import composition_types;
@@ -62,7 +61,7 @@ float3 sampleSceneColor(
     float4 rasterColor = rasterOutput.Load(int3(coordinate, 0));
     float3 terrainColor = terrainOutput[coordinate].rgb;
     return combineSceneColors(rasterDepth, computeDepth, rasterColor,
-                              terrainColor, clampedUv, inputs.gui,
+                              terrainColor, clampedUv,
                               inputs.sun, inputs.camera, inputs.starlight,
                               sunSprite);
 }

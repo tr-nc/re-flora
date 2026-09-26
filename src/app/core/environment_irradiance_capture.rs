@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 10;
+const CAPTURE_VERSION: u32 = 11;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
 const CAPTURE_HEADER_BYTE_COUNT: usize = 284;
@@ -64,7 +64,7 @@ impl CaptureMetadata {
         let source = checkpoint.field.source();
         let filter_proof = checkpoint
             .filter_proof
-            .context("RFIRR v10 requires completed owner-generated DDGI filter evidence")?;
+            .context("RFIRR v11 requires completed owner-generated DDGI filter evidence")?;
         let filter_evidence = filter_proof.evidence;
         ensure!(
             filter_proof.configuration.probe_count()? == filter_evidence.probe_count
@@ -775,7 +775,7 @@ impl EnvironmentIrradianceCaptureRuntime {
             evidence.write(&readback.path)?;
         }
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit+float4-receiver-center-xyz-terrain-shadow-transmittance+float4-terrain-leaf-cloud-combined-shadow-transmittance",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit+float4-receiver-center-xyz-terrain-shadow-transmittance+float4-terrain-leaf-integrated-weight-combined-shadow-diagnostics",
             readback.path,
             readback.extent.width,
             readback.extent.height,
@@ -1193,7 +1193,7 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 10);
+        assert_eq!(CAPTURE_VERSION, 11);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
         assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 284);
@@ -1317,14 +1317,14 @@ mod tests {
             [1.0_f32, 2.0, 3.0, 0.0],
             [0.0_f32, 0.0, 0.0, 1.0],
             [1.0_f32 / 512.0, 1.0 / 512.0, 1.0 / 512.0, 1.0],
-            [1.0_f32, 1.0, 1.0, 1.0],
+            [1.0_f32, 1.0, 0.0, 1.0],
         ] {
             for value in pixel {
                 golden_capture.extend_from_slice(&value.to_le_bytes());
             }
         }
         let fixture_hex =
-            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v10.hex");
+            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v11.hex");
         let compact: String = fixture_hex.chars().filter(|c| !c.is_whitespace()).collect();
         let fixture: Vec<u8> = compact
             .as_bytes()

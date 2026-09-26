@@ -175,7 +175,7 @@ class Capture:
         ]
         if not self.flora_enabled:
             arguments.append("--no-flora")
-        arguments.extend(("--no-particles", "--no-god-rays", "--no-lens-flare", "--no-clouds"))
+        arguments.extend(("--no-particles", "--no-god-rays", "--no-lens-flare"))
         arguments.extend(
             (
                 "--environment-lighting-test-scene",

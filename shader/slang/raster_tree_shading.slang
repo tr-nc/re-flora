@@ -12,10 +12,10 @@ public [[vk::binding(2,0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 // Shared visibility policy, not a constant ambient fill. The fallback supplies a
 // point on an actual exposed triangle and its geometric normal; the original
 // path retains its historical smooth-normal receiver when the checkbox is off.
-public float rasterTreeSunShadow(float3 voxelCenter, float3 surfacePosition, float3 normal)
+public float rasterTreeSunShadow(float3 voxelCenter, float3 normal)
 {
     return sampleDirectSunShadow(
-        voxelSurfaceSunShadowReceiver(voxelCenter, surfacePosition, normal,
+        voxelSunShadowReceiver(voxelCenter, normal,
             gui_input.terrain_ray_origin_offset_world),
         gui_input, shadow_camera_info).combined;
 }

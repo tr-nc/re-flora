@@ -16,7 +16,7 @@ from pathlib import Path
 import statistics
 import subprocess
 
-from analyze_environment_irradiance_capture import PIXEL, load_capture
+from analyze_environment_irradiance_capture import PIXEL, load_capture, shadow_source_channels
 
 ROOT = Path(__file__).resolve().parents[1]
 CAMERA = """
@@ -115,7 +115,7 @@ def measure(path: Path) -> dict:
                    (environment, world, direct, receiver, shadow) for v in plane):
             nonfinite += 1
             continue
-        if world[3] < .999 or min(shadow) < .999:
+        if world[3] < .999 or min(shadow[channel] for _, channel in shadow_source_channels(capture.version)) < .999:
             continue
         unoccluded += 1
         if max(environment[:3]) + max(direct[:3]) <= 1e-6:
@@ -142,7 +142,7 @@ def run(output: Path, screenshot: bool, binary: Path | None = None,
     command = [
         "flock", "/tmp/re-flora-summer-gpu.lock", str(binary or ROOT / "target/release/re-flora"),
         "--hidden", "--mute", "--windowed", "--no-particles",
-        "--no-clouds", "--no-god-rays", "--no-lens-flare", "--auto-exit", "12",
+        "--no-god-rays", "--no-lens-flare", "--auto-exit", "12",
     ]
     if scene == "startup":
         command.append("--no-flora")

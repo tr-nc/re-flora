@@ -893,7 +893,6 @@ mod tests {
             "shader/tracer/tracer.comp",
             "shader/tracer/god_ray_temporal.comp",
             "shader/tracer/lens_flare_temporal.comp",
-            "shader/tracer/cloud_temporal.comp",
         ] {
             let artifact = find_precompiled_shader(shader_path).unwrap();
             let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
@@ -968,15 +967,28 @@ mod tests {
                         1,
                         DescriptorAccess::ReadOnly,
                     ),
-                    (
-                        "cloud_shadow_tex",
-                        ReflectDescriptorType::CombinedImageSampler,
-                        1,
-                        DescriptorAccess::ReadOnly,
-                    ),
                 ],
-                &[],
+                &["cloud_shadow_tex"],
             );
+        }
+    }
+
+    #[test]
+    fn retired_cloud_artifacts_and_sky_bindings_are_absent() {
+        for path in [
+            "shader/tracer/cloud.comp",
+            "shader/tracer/cloud_temporal.comp",
+            "shader/tracer/cloud_shadow.comp",
+            "shader/tracer/cloud_shadow_temporal.comp",
+        ] {
+            assert!(find_precompiled_shader(path).is_none(), "retired artifact {path}");
+        }
+        for path in [
+            "shader/tracer/composition.comp",
+            "shader/tracer/composition_glass.comp",
+            "shader/tracer/glass_resolve.comp",
+        ] {
+            assert_descriptor_abi(path, &[], &["cloud_output_tex", "cloud_shadow_tex"]);
         }
     }
 

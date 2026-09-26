@@ -560,7 +560,6 @@ fn render_gui_param_control(
 const SECTION_PARENTS: &[(&str, &str)] = &[
     ("GodRay", "Sky"),
     ("Starlight", "Sky"),
-    ("Clouds", "Sky"),
     ("Purple Allium", "Flora"),
     ("Flora Spawn Animation", "Flora"),
     ("FloraVariation", "Flora"),
@@ -670,7 +669,7 @@ fn render_section_controls(
         }
         ui.small("Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
         ui.label("Sky appearance & time");
-        ui.small("The sky gradient and its mirror image keep their appearance. Clouds use scene lighting. Sun disk brightness does not set surface lighting.");
+        ui.small("The sky gradient and its mirror image keep their appearance. Sun disk brightness does not set surface lighting.");
         for param in &section.param {
             if !matches!(param.id.as_str(), "sun_luminance" | "sky_light_strength") {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
@@ -1186,6 +1185,57 @@ mod tests {
         assert!(!adjustables.matches_condition(&condition));
         adjustables.path_tracing_reference.value = true;
         assert!(adjustables.matches_condition(&condition));
+    }
+
+    #[test]
+    fn retired_cloud_settings_load_draw_save_and_reload_without_generated_fields() {
+        for enabled in [false, true] {
+            let mut config = GuiConfigLoader::load();
+            config.custom.butterfly_flight.tuning.speed = 0.75;
+            let mut expected = DebugSettings::from_config(config);
+            expected.adjustables.sun_luminance.value = 3.25;
+            expected.adjustables.sky_light_strength.value = 0.75;
+            expected.sync_config();
+            let expected_text = toml::to_string(&expected.config).unwrap();
+            let mut legacy: GuiConfigFile =
+                toml::from_str(include_str!("fixtures/cloud_settings_v1.toml")).unwrap();
+            for param in &mut legacy.section[0].param {
+                if let GuiParamValue::Bool { value } = &mut param.value {
+                    *value = enabled;
+                }
+            }
+            // An unrelated setting moved into Clouds must survive the migration.
+            let sky = expected
+                .config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Sky")
+                .unwrap();
+            legacy.section[0].param.push(sky.param.pop().unwrap());
+            // IDs are retired regardless of which section contains them.
+            let moved = legacy.section[0].param.remove(0);
+            expected.config.section[0].param.push(moved);
+            expected.config.section.extend(legacy.section);
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&expected.config, &path).unwrap();
+            let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            let context = egui::Context::default();
+            context.memory_mut(|m| m.set_everything_is_visible(true));
+            let _ = context.run_ui(egui::RawInput::default(), |ui| {
+                loaded.draw(ui, |section, _| assert_ne!(section, "Clouds"));
+            });
+            loaded.sync_config();
+            assert_eq!(toml::to_string(&loaded.config).unwrap(), expected_text);
+            loaded.save_to_path(&path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(toml::to_string(&reloaded).unwrap(), expected_text);
+            GuiConfigLoader::save_to_path(&reloaded, &path).unwrap();
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                expected_text
+            );
+        }
     }
 
     #[test]

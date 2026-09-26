@@ -99,7 +99,6 @@ def command(args: argparse.Namespace, capture_path: Path) -> list[str]:
         "--no-particles",
         "--no-god-rays",
         "--no-lens-flare",
-        "--no-clouds",
         "--perf",
         "--environment-lighting-test-scene",
         args.scene,

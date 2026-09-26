@@ -63,26 +63,6 @@ public struct U_GuiInput
     public float leaf_shadow_min_transmittance;
     public float leaf_shadow_filter_radius_texels;
     public float leaf_transmission_strength;
-    public uint clouds_enabled;
-    public float cloud_coverage;
-    public float cloud_density;
-    public float cloud_bottom_height;
-    public float cloud_top_height;
-    public float cloud_shape_scale;
-    public float cloud_detail_scale;
-    public float cloud_detail_strength;
-    public float cloud_wind_speed;
-    public uint cloud_primary_steps;
-    public uint cloud_light_steps;
-    public float cloud_temporal_alpha;
-    public float cloud_absorption;
-    public float cloud_phase_eccentricity;
-    public float cloud_silver_intensity;
-    public float cloud_max_distance;
-    public uint cloud_shadows_enabled;
-    public float cloud_shadow_strength;
-    public float cloud_shadow_min_transmittance;
-    public uint cloud_shadow_steps;
 };
 
 public struct U_SunInfo

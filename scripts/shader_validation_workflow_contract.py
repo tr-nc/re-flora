@@ -37,7 +37,7 @@ REQUIRED_OWNER_PATHS = REQUIRED_DDGI_OWNER_PATHS + REQUIRED_LIGHTING_OWNER_PATHS
 REQUIRED_DDGI_COMMANDS = (
     "cargo test --locked capture_metadata_uses_authoritative_published_terminal_identity",
     "cargo test --locked ddgi::resources::tests::filter_",
-    "python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness",
+    "python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v11_golden_decodes_with_exact_filter_witness",
 )
 REQUIRED_LIGHTING_COMMANDS = (
     "python3 -m unittest scripts.tests.test_analyze_lighting_mode_acceptance",

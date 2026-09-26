@@ -64,6 +64,75 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             56_174,
         )
 
+    def test_rust_producer_v11_golden_decodes_with_exact_filter_witness(self) -> None:
+        fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v11.hex"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "rust-producer-v11.rfirr"
+            capture_path.write_bytes(bytes.fromhex(fixture_hex))
+            capture = analyzer.load_capture(capture_path)
+
+        self.assertEqual(capture.version, 11)
+        self.assertEqual(capture.update_epoch, 6)
+        self.assertEqual(capture.grid_dimensions, (1, 2, 2))
+        self.assertEqual(capture.configured_history_retention_q16, 64_881)
+        evidence = capture.filter_evidence
+        self.assertIsNotNone(evidence)
+        assert evidence is not None
+        self.assertEqual(evidence["irradiance_history"]["owner_version_mask"], 2)
+        self.assertEqual(
+            evidence["irradiance_history"]["blend_retention_q16_sum"],
+            112_348,
+        )
+        self.assertEqual(
+            evidence["irradiance_history"]["blend_retention_q16_max"],
+            56_174,
+        )
+
+    def test_v11_distinguishes_point_products_from_mixed_source_integrals(self) -> None:
+        # Two equally weighted points (T,L)=(1,0),(0,1) have means (.5,.5)
+        # and E[T*L]=0, not .25. Correlated points (1,1),(0,0) yield .5.
+        cases = (
+            ((0.5, 0.5, 0.0, 0.25), True, "point"),
+            ((0.5, 0.5, 0.0, 0.0), False, "point"),
+            ((0.5, 0.5, 1.0, 0.0), True, "integrated"),
+            ((0.5, 0.5, 1.0, 0.5), True, "integrated"),
+            ((0.5, 0.5, 0.5, 0.125), True, "integrated"),
+            ((0.5, 0.5, 1.0, 0.6), False, "integrated"),
+            ((0.8, 0.8, 1.0, 0.5), False, "integrated"),
+            ((0.5, 0.5, -0.1, 0.25), False, "integrated"),
+            ((0.5, 0.5, float("nan"), 0.25), False, "integrated"),
+        )
+        fixture = bytes.fromhex((Path(__file__).with_name("fixtures") /
+                                 "ddgi_filter_evidence_v11.hex").read_text())
+        for pixel, valid, domain in cases:
+            with self.subTest(pixel=pixel), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "sampling.rfirr"
+                path.write_bytes(fixture[:-16] + analyzer.PIXEL.pack(*pixel))
+                result = self.run_current_analyzer(path)
+                summary = json.loads(result.stdout)["capture"]
+                self.assertEqual(result.returncode, 0 if valid else 1, result.stdout)
+                self.assertEqual(summary["direct_sun_shadow_valid"], valid)
+                self.assertNotIn("cloud_shadow_receiver_voxel_transmittance_range_max", summary)
+                if valid:
+                    self.assertEqual(summary["direct_sun_shadow_sampling_counts"][domain], 1)
+
+    def test_v10_cloud_channel_and_metrics_keep_their_historical_meaning(self) -> None:
+        fixture = bytes.fromhex((Path(__file__).with_name("fixtures") /
+                                 "ddgi_filter_evidence_v10.hex").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "historical.rfirr"
+            path.write_bytes(fixture[:-16] + analyzer.PIXEL.pack(0.5, 0.5, 0.25, 0.0625))
+            result = self.run_analyzer(path, "--expect-version", "10")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            summary = json.loads(result.stdout)["capture"]
+            self.assertEqual(summary["direct_sun_shadow_layout"], "terrain-leaf-cloud-combined")
+            self.assertIn("cloud_shadow_receiver_voxel_transmittance_range_max", summary)
+            self.assertEqual(self.run_current_analyzer(path).returncode, 1)
+            path.write_bytes(fixture[:-16] + analyzer.PIXEL.pack(0.5, 0.5, 0.25, 0.25))
+            self.assertEqual(self.run_analyzer(path, "--expect-version", "10").returncode, 1)
+
     def write_capture(
         self, path: Path, pixels: list[tuple[float, float, float, float]]
     ) -> None:
@@ -416,7 +485,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         path.write_bytes(header + payload)
 
-    def write_capture_v10(
+    def write_capture_v11(
         self,
         path: Path,
         *,
@@ -433,9 +502,9 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         update_epoch: int = 1,
     ) -> None:
         voxel = 1.0 / 256.0
-        header = HEADER_V10.pack(
+        header = analyzer.HEADER_V11.pack(
             analyzer.MAGIC,
-            10,
+            11,
             1,
             1,
             4,
@@ -492,15 +561,15 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 (1.0, 2.0, 3.0, 0.0),
                 (0.0, 0.0, 0.0, 1.0),
                 (0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0),
-                (1.0, 1.0, 1.0, 1.0),
+                (1.0, 1.0, 0.0, 1.0),
             )
         )
         path.write_bytes(header + payload)
 
-    def test_v10_filter_evidence_is_typed_and_debug_view_independent(self) -> None:
+    def test_v11_filter_evidence_is_typed_and_debug_view_independent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "filter-evidence.rfirr"
-            self.write_capture_v10(capture_path, debug_view=22)
+            self.write_capture_v11(capture_path, debug_view=22)
             result = self.run_analyzer(
                 capture_path,
                 "--expect-debug-view",
@@ -530,10 +599,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             capture["filter_evidence"]["visibility_samples"]["reject"], 48
         )
 
-    def test_v10_filter_evidence_rejects_an_invalid_sample_partition(self) -> None:
+    def test_v11_filter_evidence_rejects_an_invalid_sample_partition(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "invalid-filter-evidence.rfirr"
-            self.write_capture_v10(
+            self.write_capture_v11(
                 capture_path,
                 visibility_samples=128,
                 visibility_accept=80,
@@ -542,14 +611,14 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "visibility sample partition"):
                 analyzer.load_capture(capture_path)
 
-    def test_v10_filter_evidence_requires_the_authoritative_grid_product(self) -> None:
+    def test_v11_filter_evidence_requires_the_authoritative_grid_product(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "grid-mismatch.rfirr"
-            self.write_capture_v10(capture_path, grid_dimensions=(1, 1, 3))
+            self.write_capture_v11(capture_path, grid_dimensions=(1, 1, 3))
             with self.assertRaisesRegex(ValueError, "grid product"):
                 analyzer.load_capture(capture_path)
 
-    def test_v10_visibility_samples_reject_under_over_and_partial_probe_counts(self) -> None:
+    def test_v11_visibility_samples_reject_under_over_and_partial_probe_counts(self) -> None:
         mutations = (
             (64, 40, 24, "undercounts Blend probes"),
             (192, 120, 72, "exceeds fresh history probes"),
@@ -558,7 +627,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         for samples, accept, reject, message in mutations:
             with self.subTest(samples=samples), tempfile.TemporaryDirectory() as directory:
                 capture_path = Path(directory) / "sample-completeness.rfirr"
-                self.write_capture_v10(
+                self.write_capture_v11(
                     capture_path,
                     visibility_samples=samples,
                     visibility_accept=accept,
@@ -567,10 +636,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     analyzer.load_capture(capture_path)
 
-    def test_v10_filter_evidence_rejects_an_average_only_retention_witness(self) -> None:
+    def test_v11_filter_evidence_rejects_an_average_only_retention_witness(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "mixed-retention-filter-evidence.rfirr"
-            self.write_capture_v10(
+            self.write_capture_v11(
                 capture_path,
                 irradiance_retention_sum_q16=65_536,
                 irradiance_retention_max_q16=65_536,
@@ -578,10 +647,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exact Blend retention"):
                 analyzer.load_capture(capture_path)
 
-    def test_v10_local_recovery_retention_is_derived_from_the_capture_epoch(self) -> None:
+    def test_v11_local_recovery_retention_is_derived_from_the_capture_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "local-recovery-e8.rfirr"
-            self.write_capture_v10(
+            self.write_capture_v11(
                 capture_path,
                 update_epoch=8,
                 irradiance_retention_sum_q16=116_508,
@@ -596,10 +665,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
 
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
-    def test_v10_local_recovery_retention_is_capped_by_configured_identity(self) -> None:
+    def test_v11_local_recovery_retention_is_capped_by_configured_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "local-recovery-low-h.rfirr"
-            self.write_capture_v10(
+            self.write_capture_v11(
                 capture_path,
                 update_epoch=8,
                 configured_retention_q16=16_384,
@@ -859,7 +928,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertEqual(rejected.returncode, 1, rejected.stderr)
         report = json.loads(rejected.stdout)
         self.assertIn(
-            "reference comparison requires RFIRR v8-v10 five-plane identity evidence",
+            "reference comparison requires RFIRR v8-v11 five-plane identity evidence",
             report["validation_failures"],
         )
         self.assertFalse(
@@ -1606,15 +1675,15 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         self.assertIn("spacing_voxels: expected 32, got 16", failures)
 
     def test_cli_defaults_to_current_and_requires_explicit_compatibility(self) -> None:
-        v10_fixture_hex = (
-            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v10.hex"
+        v11_fixture_hex = (
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v11.hex"
         ).read_text()
         v9_fixture_hex = (
             Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v9.hex"
         ).read_text()
         with tempfile.TemporaryDirectory() as directory:
-            capture_path = Path(directory) / "current-v10.rfirr"
-            capture_path.write_bytes(bytes.fromhex(v10_fixture_hex))
+            capture_path = Path(directory) / "current-v11.rfirr"
+            capture_path.write_bytes(bytes.fromhex(v11_fixture_hex))
             stale_path = Path(directory) / "published-v9.rfirr"
             stale_path.write_bytes(bytes.fromhex(v9_fixture_hex))
 
@@ -1634,7 +1703,7 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
         )
         self.assertEqual(stale_default.returncode, 1, stale_default.stderr)
         self.assertIn(
-            "version: expected 10, got 9",
+            "version: expected 11, got 9",
             json.loads(stale_default.stdout)["validation_failures"],
         )
         self.assertEqual(
@@ -1645,10 +1714,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
     def test_production_cli_accepts_only_current_without_a_version_surface(self) -> None:
         fixtures = Path(__file__).with_name("fixtures")
         with tempfile.TemporaryDirectory() as directory:
-            current_path = Path(directory) / "current-v10.rfirr"
+            current_path = Path(directory) / "current-v11.rfirr"
             current_path.write_bytes(
                 bytes.fromhex(
-                    (fixtures / "ddgi_filter_evidence_v10.hex").read_text()
+                    (fixtures / "ddgi_filter_evidence_v11.hex").read_text()
                 )
             )
             historical_path = Path(directory) / "historical-v9.rfirr"
@@ -1670,10 +1739,10 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             )
 
         self.assertEqual(current.returncode, 0, current.stderr)
-        self.assertEqual(json.loads(current.stdout)["capture"]["version"], 10)
+        self.assertEqual(json.loads(current.stdout)["capture"]["version"], 11)
         self.assertEqual(historical.returncode, 1, historical.stderr)
         self.assertIn(
-            "version: expected 10, got 9",
+            "version: expected 11, got 9",
             json.loads(historical.stdout)["validation_failures"],
         )
         for result in version_overrides:

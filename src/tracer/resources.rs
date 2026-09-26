@@ -1413,8 +1413,6 @@ pub struct TracerResources {
     #[resource(nested)]
     pub shadow: ShadowResources,
     #[resource(nested)]
-    pub cloud_shadows: super::clouds::CloudShadowResources,
-    #[resource(nested)]
     pub wind: WindResources,
     #[resource(nested)]
     pub flora_voxel_lookup: FloraVoxelLookupResources,
@@ -1529,10 +1527,6 @@ impl TracerResources {
                 god_ray_sm,
                 post_processing_sm,
                 flora_vert_sm,
-            ),
-            cloud_shadows: super::clouds::CloudShadowResources::new(
-                device.clone(),
-                allocator.clone(),
             ),
             shadow: ShadowResources::new(
                 device.clone(),

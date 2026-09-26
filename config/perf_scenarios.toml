@@ -335,7 +335,7 @@ budget_percent = 3.0
 # cost, not a runtime on/off mode. They do not introduce a release-acceptance gate.
 [scenario.terrain-hybrid-player]
 description = "Ordinary fixed player camera; effects disabled to isolate terrain consumer cost"
-args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--camera-snapshot", "player-default", "--auto-exit", "30"]
+args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--camera-snapshot", "player-default", "--auto-exit", "30"]
 warmup_frame = 600
 required_markers = ["[PERF][GPU_FRAME_SCOPE]", "Application exited successfully"]
 match_surface_workload = true
@@ -360,7 +360,7 @@ min_samples = 90
 
 [scenario.terrain-hybrid-thin]
 description = "Ordinary rock terrain: isolated voxels, rods, thin sheet and thick control"
-args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--environment-lighting-test-scene", "thin-voxels", "--auto-exit", "30"]
+args = ["--hidden", "--mute", "--perf", "--no-flora", "--no-particles", "--no-god-rays", "--no-lens-flare", "--ddgi-debug-view", "final", "--environment-lighting-test-scene", "thin-voxels", "--auto-exit", "30"]
 warmup_frame = 600
 required_markers = ["[PERF][GPU_FRAME_SCOPE]", "Application exited successfully"]
 match_surface_workload = true

@@ -66,8 +66,6 @@ pub struct ExtentDependentResources {
     pub lens_flare_raw_tex: Resource<Texture>,
     pub lens_flare_history_tex: Resource<Texture>,
     pub lens_flare_output_tex: Resource<Texture>,
-    #[resource(nested)]
-    pub clouds: super::clouds::CloudScreenResources,
     pub screen_output_tex: Resource<Texture>,
     pub screenshot_output_tex: Resource<Texture>,
     pub unified_opaque_hdr_tex: Resource<Texture>,
@@ -175,8 +173,7 @@ impl ExtentDependentResources {
             GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
             true,
         );
-        let composited_tex =
-            Self::create_hdr_tex(device.clone(), allocator.clone(), rendering_extent);
+        let composited_tex = Self::create_hdr_tex(device, allocator, rendering_extent);
 
         let glass_image_bytes = u64::from(glass_extent.width)
             * u64::from(glass_extent.height)
@@ -217,7 +214,6 @@ impl ExtentDependentResources {
             lens_flare_raw_tex: Resource::new(lens_flare_raw_tex),
             lens_flare_history_tex: Resource::new(lens_flare_history_tex),
             lens_flare_output_tex: Resource::new(lens_flare_output_tex),
-            clouds: super::clouds::CloudScreenResources::new(device, allocator, rendering_extent),
             screen_output_tex: Resource::new(screen_output_tex),
             screenshot_output_tex: Resource::new(screenshot_output_tex),
             unified_opaque_hdr_tex: Resource::new(unified_opaque_hdr_tex),

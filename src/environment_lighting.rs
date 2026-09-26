@@ -1502,15 +1502,12 @@ mod tests {
         assert!(shadowing.contains(
             "pointSunShadowReceiver(terrainRayOriginAlongNormal(voxelCenter,normal,offsetWorld))"
         ));
-        assert!(shadowing.contains(
-            "receiver.surface_world_position=float4(terrainRayOriginFromPosition(surfacePosition,normal,offsetWorld),1.0)"
-        ));
         assert!(tracer.contains(
             "directLight = directLighting(albedo, result.normal,\n                                     result.center_position, result.position,"
         ));
         let compact = tracer.split_whitespace().collect::<String>();
         assert!(compact.contains(
-            "voxelSurfaceSunShadowReceiver(voxelCenter,surfacePosition,normal,gui_input.terrain_ray_origin_offset_world)"
+            "voxelSunShadowReceiver(voxelCenter,normal,gui_input.terrain_ray_origin_offset_world)"
         ));
         assert!(compact.contains("sampleDirectSunShadow(receiver,gui_input,shadow_camera_info)"));
         // The exposed-face integral has an actual surface point, not a center.
@@ -1569,8 +1566,8 @@ mod tests {
         let shadowing = include_str!("../shader/slang/tracer_shadowing.slang")
             .split_whitespace()
             .collect::<String>();
-        assert!(shadowing.contains("if(depthGate&&sampleOpacity>1.0e-4)"));
-        assert!(shadowing.contains("if(receiverDepth<=casterDepth+0.0015)sampleOpacity=0.0;"));
+        assert!(shadowing.contains("if(depthGate&&opacity>1.0e-4)"));
+        assert!(shadowing.contains("if(receiverDepth<=casterDepth+0.0015)opacity=0.0;"));
         assert!(shadowing.contains("opacity=max(opacity,sampleOpacity);"));
     }
 }

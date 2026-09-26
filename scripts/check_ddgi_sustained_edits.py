@@ -27,7 +27,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cargo", "build", "--release"], check=True)
     command = ["target/release/re-flora", "--hidden", "--mute", "--windowed",
-               "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays",
+               "--no-flora", "--no-particles", "--no-god-rays",
                "--no-lens-flare", "--perf", "--environment-lighting-test-scene",
                "terrain-edits-sustained", "--auto-exit", "18",
                "--environment-probe-spacing-voxels", str(args.spacing),

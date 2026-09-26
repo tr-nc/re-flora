@@ -2,10 +2,8 @@ use glam::Vec3;
 
 pub(super) const DIRECT_SUN_SHADOW_SOURCE_TERRAIN: u32 = 1 << 0;
 pub(super) const DIRECT_SUN_SHADOW_SOURCE_LEAF: u32 = 1 << 1;
-pub(super) const DIRECT_SUN_SHADOW_SOURCE_CLOUD: u32 = 1 << 2;
-pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 = DIRECT_SUN_SHADOW_SOURCE_TERRAIN
-    | DIRECT_SUN_SHADOW_SOURCE_LEAF
-    | DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 =
+    DIRECT_SUN_SHADOW_SOURCE_TERRAIN | DIRECT_SUN_SHADOW_SOURCE_LEAF;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DirectSunShadowLightSpaceChange {

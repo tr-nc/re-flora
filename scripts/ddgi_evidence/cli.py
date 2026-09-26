@@ -150,7 +150,7 @@ def _announce(suite: Suite) -> None:
         )
         print(
             "[DDGI_TRANSPORT] filter-history-action=REQUIRED "
-            "seam=owner-generated-filter-epoch-v10"
+            "seam=owner-generated-filter-epoch-v11"
         )
 
 

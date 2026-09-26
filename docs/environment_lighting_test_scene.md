@@ -100,6 +100,6 @@ it had no position-dependent visibility. The current local-probe path should ins
 - consistent environment hue between terrain and the retained raster tree;
 - stable results across repeated hidden runs at the same configuration.
 
-Direct sun and its VSM/leaf/cloud visibility remain separate from probe irradiance. Compare probe
+Direct sun and its VSM/leaf visibility remain separate from probe irradiance. Compare probe
 implementations at the same time of day and shadow configuration so a direct-shadow change is not
 misidentified as an irradiance-probe improvement.

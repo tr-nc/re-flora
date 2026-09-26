@@ -25,11 +25,12 @@ HEADER_V7 = HEADER_V4
 HEADER_V8 = HEADER_V4
 HEADER_V9 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ4I11Q")
 HEADER_V10 = struct.Struct("<8s10I3Q4IQ3I2f2I4IQ8I13Q")
+HEADER_V11 = HEADER_V10
 PIXEL = struct.Struct("<4f")
 UNKNOWN_U32 = 0xFFFFFFFF
 UNKNOWN_U64 = 0xFFFFFFFFFFFFFFFF
 UNKNOWN_DELTA = -1.0
-CURRENT_RFIRR_VERSION = 10
+CURRENT_RFIRR_VERSION = 11
 
 
 def parse_expected_rfirr_version(value: str) -> int:
@@ -156,6 +157,30 @@ class Capture:
         return self.build_token_serial
 
 
+def shadow_source_channels(version: int) -> tuple[tuple[str, int], ...]:
+    # v1-v10 retain their historical cloud channel/metrics. The v11 lane is
+    # sampling-domain evidence, not an attenuation source.
+    if version >= 11:
+        return (("terrain", 0), ("leaf", 1), ("combined", 3))
+    return (("terrain", 0), ("leaf", 1), ("cloud", 2), ("combined", 3))
+
+
+def valid_shadow_diagnostics(version: int, pixel: tuple[float, ...]) -> bool:
+    if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in pixel):
+        return False
+    terrain, leaf, third, combined = pixel
+    epsilon = 1.0e-5
+    if version < 11:
+        return abs(combined - terrain * leaf * third) <= epsilon
+    if third == 0.0:
+        return abs(combined - terrain * leaf) <= epsilon
+    # The third lane is the integrated contribution (1 - normal confidence).
+    # Source means and the mean of their products use the same positive weights.
+    # E[T*L] is bounded by max(0, E[T]+E[L]-1) and min(E[T],E[L]); it need
+    # not equal E[T]*E[L]. This also holds when blended with a point sample.
+    return max(0.0, terrain + leaf - 1.0) - epsilon <= combined <= min(terrain, leaf) + epsilon
+
+
 def load_capture(path: Path) -> Capture:
     data = path.read_bytes()
     if len(data) < HEADER_PREFIX.size:
@@ -223,7 +248,7 @@ def load_capture(path: Path) -> Capture:
             "nonfinite_count": None if nonfinite_count == UNKNOWN_U32 else nonfinite_count,
             "valid_count": None if valid_count == UNKNOWN_U32 else valid_count,
         }
-    elif version in (4, 5, 6, 7, 8, 9, 10):
+    elif version in (4, 5, 6, 7, 8, 9, 10, 11):
         header = {
             4: HEADER_V4,
             5: HEADER_V5,
@@ -232,6 +257,7 @@ def load_capture(path: Path) -> Capture:
             8: HEADER_V8,
             9: HEADER_V9,
             10: HEADER_V10,
+            11: HEADER_V11,
         }[version]
         if len(data) < header.size:
             raise ValueError(f"{path}: truncated v{version} header")
@@ -391,7 +417,7 @@ def load_capture(path: Path) -> Capture:
                     "reject": visibility_reject,
                 },
             }
-        elif version == 10:
+        elif version in (10, 11):
             (
                 evidence_present,
                 irradiance_owner_version_mask,
@@ -421,9 +447,9 @@ def load_capture(path: Path) -> Capture:
                 visibility_reject,
             ) = values[26:]
             if evidence_present != 1:
-                raise ValueError(f"{path}: v10 filter evidence is missing")
+                raise ValueError(f"{path}: v{version} filter evidence is missing")
             if evidence_reserved != 0:
-                raise ValueError(f"{path}: v10 filter evidence reserved lane is nonzero")
+                raise ValueError(f"{path}: v{version} filter evidence reserved lane is nonzero")
             if evidence_field_serial != field_serial or evidence_update_epoch != epoch_or_iteration:
                 raise ValueError(f"{path}: filter evidence field/epoch identity mismatch")
             if evidence_probe_count == 0:
@@ -431,13 +457,13 @@ def load_capture(path: Path) -> Capture:
             grid_dimensions = (grid_x, grid_y, grid_z)
             grid_product = grid_x * grid_y * grid_z
             if any(dimension == 0 for dimension in grid_dimensions):
-                raise ValueError(f"{path}: v10 probe grid has a zero dimension")
+                raise ValueError(f"{path}: v{version} probe grid has a zero dimension")
             if grid_product > 0xFFFFFFFF:
-                raise ValueError(f"{path}: v10 probe grid product exceeds u32")
+                raise ValueError(f"{path}: v{version} probe grid product exceeds u32")
             if grid_product != evidence_probe_count:
-                raise ValueError(f"{path}: v10 probe grid product does not match filter evidence")
+                raise ValueError(f"{path}: v{version} probe grid product does not match filter evidence")
             if configured_history_retention_q16 > 65_536:
-                raise ValueError(f"{path}: v10 configured history retention is out of range")
+                raise ValueError(f"{path}: v{version} configured history retention is out of range")
             if irradiance_owner_version_mask != 2:
                 raise ValueError(f"{path}: irradiance history owner mask mismatch")
             if irradiance_replace + irradiance_retain + irradiance_blend != evidence_probe_count:
@@ -527,13 +553,13 @@ def load_capture(path: Path) -> Capture:
         raise ValueError(f"{path}: expected four float channels, got {channels}")
     expected_plane_counts = (
         (5,)
-        if version in (8, 9, 10)
+        if version in (8, 9, 10, 11)
         else ((4,) if version == 7 else ((3,) if version in (5, 6) else (1, 2)))
     )
     if plane_count not in expected_plane_counts:
         expected_label = (
             "five"
-            if version in (8, 9, 10)
+            if version in (8, 9, 10, 11)
             else (
                 "four"
                 if version == 7
@@ -779,7 +805,8 @@ def summarize(
     direct_sun_shadow_valid = True
     direct_sun_shadow_voxel_samples: dict[
         str, dict[tuple[int, int, int], list[float]]
-    ] = {source: {} for source in ("terrain", "leaf", "cloud", "combined")}
+    ] = {source: {} for source, _ in shadow_source_channels(capture.version)}
+    shadow_sampling_counts = {"point": 0, "integrated": 0}
     direct_light_roi_luminances = {
         "sunlit": [],
         "shadowed": [],
@@ -857,25 +884,17 @@ def summarize(
                 direct_sun_shadow_finite = (
                     direct_sun_shadow_finite and finite_shadows
                 )
-                terrain_shadow, leaf_shadow, cloud_shadow, combined_shadow = (
-                    direct_sun_shadow_pixel
-                )
                 valid_shadows = (
-                    finite_shadows
-                    and captured_voxel_key is not None
-                    and all(0.0 <= value <= 1.0 for value in direct_sun_shadow_pixel)
-                    and abs(
-                        combined_shadow
-                        - terrain_shadow * leaf_shadow * cloud_shadow
-                    )
-                    <= 1.0e-5
+                    captured_voxel_key is not None
+                    and valid_shadow_diagnostics(capture.version, direct_sun_shadow_pixel)
                 )
                 direct_sun_shadow_valid = direct_sun_shadow_valid and valid_shadows
                 if valid_shadows:
-                    for source, value in zip(
-                        ("terrain", "leaf", "cloud", "combined"),
-                        direct_sun_shadow_pixel,
-                    ):
+                    if capture.version >= 11:
+                        domain = "point" if direct_sun_shadow_pixel[2] == 0.0 else "integrated"
+                        shadow_sampling_counts[domain] += 1
+                    for source, channel in shadow_source_channels(capture.version):
+                        value = direct_sun_shadow_pixel[channel]
                         direct_sun_shadow_voxel_samples[source].setdefault(
                             captured_voxel_key, []
                         ).append(value)
@@ -1113,6 +1132,13 @@ def summarize(
             else None
         ),
         "direct_sun_shadow_available": direct_sun_shadow_available,
+        "direct_sun_shadow_layout": (
+            "terrain-leaf-integrated-weight-combined" if capture.version >= 11
+            else "terrain-leaf-cloud-combined"
+        ) if direct_sun_shadow_available else None,
+        "direct_sun_shadow_sampling_counts": (
+            shadow_sampling_counts if capture.version >= 11 and direct_sun_shadow_available else None
+        ),
         "direct_sun_shadow_finite": (
             direct_sun_shadow_finite if direct_sun_shadow_available else None
         ),
@@ -1410,7 +1436,7 @@ def required_capture_planes_finite(capture: Capture) -> bool:
 def has_reference_identity_planes(capture: Capture) -> bool:
     expected_plane_size = capture.sample_count * PIXEL.size
     return (
-        capture.version in (8, 9, 10)
+        capture.version in (8, 9, 10, 11)
         and capture.plane_count == 5
         and all(
             len(payload) == expected_plane_size
@@ -1950,7 +1976,7 @@ def _run_cli(
         if filter_evidence is None:
             failures.append("owner-generated filter evidence is missing")
         elif first.configured_history_retention_q16 is None:
-            failures.append("v10 configured history retention identity is missing")
+            failures.append(f"v{capture.version} configured history retention identity is missing")
         else:
             expected_q16 = local_recovery_retention_q16(
                 first.configured_history_retention_q16,
@@ -2216,7 +2242,7 @@ def _run_cli(
             exit_code = 1
         if not reference.get("identity_planes_available", False):
             failures.append(
-                "reference comparison requires RFIRR v8-v10 five-plane identity evidence"
+                "reference comparison requires RFIRR v8-v11 five-plane identity evidence"
             )
             exit_code = 1
         if not reference.get("approximate_finite", False):

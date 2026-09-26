@@ -73,7 +73,6 @@ def capture(binary: Path, out: Path, irradiance: bool):
             "--windowed",
             "--no-flora",
             "--no-particles",
-            "--no-clouds",
             "--no-god-rays",
             "--no-lens-flare",
             "--ddgi-debug-view",

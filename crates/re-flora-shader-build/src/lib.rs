@@ -646,30 +646,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
-        logical_path: "shader/tracer/cloud.comp",
-        source_path: "shader/slang/cloud.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/cloud_shadow.comp",
-        source_path: "shader/slang/cloud_shadow.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/cloud_shadow_temporal.comp",
-        source_path: "shader/slang/cloud_shadow_temporal.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/cloud_temporal.comp",
-        source_path: "shader/slang/cloud_temporal.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/tracer/god_ray.comp",
         source_path: "shader/slang/god_ray.slang",
         module_path: "shader/slang",

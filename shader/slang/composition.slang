@@ -1,7 +1,5 @@
-import clouds;
 import color;
 import composition_camera_effects;
-import composition_cloud_reflection;
 import composition_scene;
 import composition_terrarium_glass;
 import composition_terrarium_panels;
@@ -68,7 +66,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 terrainColor = unpackRgbe(compute_output_tex[coordinate]);
     float3 finalColor = combineSceneColors(
         rasterDepth, computeDepth, rasterColor, terrainColor, screenUv,
-        gui_input, sun_info, camera_info, starlight_info,
+        sun_info, camera_info, starlight_info,
         sun_sprite_tex);
 
 #if RE_FLORA_GLASS_TRANSPORT

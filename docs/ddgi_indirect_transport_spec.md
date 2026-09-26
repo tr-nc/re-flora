@@ -153,7 +153,7 @@ future refinements, not implied by the current `Threshold` reason.
   [procedural terrain material](terrain_materials.md), evaluated from its immutable authored
   palette snapshot), current exact terrain direct sun, and the previous field's visibility-aware
   diffuse irradiance when a source exists.
-- Moisture, edit-preview tint, VSM, leaf shadows, and cloud shadows are excluded from
+- Moisture, edit-preview tint, VSM and leaf shadows are excluded from
   probe-hit transport.
 - A back-face hit does not contribute radiance; misses use the latched authored sky.
 - DDGI storage is non-negative, unclamped linear HDR. Non-finite output cannot publish.
@@ -175,7 +175,7 @@ Active/Staging promotion occur only for one complete field.
 The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` capture analysis:
 
 - capture v10 records lifecycle state, epoch, source identity, revisions, publication, batch order,
-  full-atlas deltas, source-separated terrain/leaf/cloud direct-shadow transmittance, authoritative
+  full-atlas deltas, source-separated terrain/leaf/combined direct-shadow transmittance with point/integrated sampling identity, authoritative
   probe-grid dimensions, configured history-retention Q16 identity, and exact owner-generated
   filter evidence. History evidence retains action partitions plus Q16 retention sum/max witnesses;
   owner masks must contain only the expected owner-version bit. The configured identity comes from
@@ -192,7 +192,7 @@ The authoritative end-to-end seam is the hidden release renderer plus `.rfirr` c
   muted release run with log inspection.
 
 Source-shape audits only guard production wiring into the owner terminal store/accumulate seam.
-They do not constitute runtime action proof; that claim requires a complete RFIRR v10 GPU epoch.
+They do not constitute runtime action proof; that claim requires a complete RFIRR v11 GPU epoch.
 The analyzer keeps the fixed RFIRR v8 five-plane layout and the published 252-byte/11Q v9 layout
 readable, but production acceptance never infers a same-version layout from file length.
 Production runners use the current-schema analyzer entry, whose interface has no numeric version
