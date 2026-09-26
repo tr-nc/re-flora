@@ -221,7 +221,7 @@ impl ButterflyMeshResources {
                 ),
                 MemoryLocation::GpuOnly,
                 (CAPACITY
-                    * if native_review() { 4 } else { 1 }
+                    * if native_review() { 5 } else { 1 }
                     * MAX_RESOLUTION as usize
                     * MAX_RESOLUTION as usize
                     * 16) as u64,
@@ -505,6 +505,7 @@ impl ButterflyMeshRenderer {
                 repair: [0; 4],
             });
         }
+        validation::apply_coverage_fixture(&mut self.instances, first, triangles_per_leaf)?;
         if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some() {
             // Diagnostic-only readback of the same shader function used by the
             // production fragment path, bounded by the existing tile allocation.

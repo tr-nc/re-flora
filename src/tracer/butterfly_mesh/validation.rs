@@ -4,6 +4,43 @@ use super::*;
 use glam::{Mat4, Vec2, Vec4};
 use re_flora_vkn::{execute_one_time_command, BufferUse, VulkanContext};
 
+/// Explicit native regression: the published variant/pose that exposed the
+/// 64px conservative boundary disagreement. No simulation or camera overrides.
+/// Kept here with the oracle, never enabled by normal play or the live A/B runner.
+pub(super) fn apply_coverage_fixture(
+    instances: &mut Vec<Instance>,
+    leaf_first: u32,
+    triangles_per_leaf: usize,
+) -> Result<()> {
+    let Ok(fixture) = std::env::var("RE_FLORA_MODEL_COVERAGE_FIXTURE") else {
+        return Ok(());
+    };
+    ensure!(
+        fixture == "leaf-boundary"
+            && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
+        "model coverage fixture requires leaf-boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
+    );
+    let Some(mut instance) = instances
+        .iter()
+        .find(|i| i.metadata[3] & LEAF_MODEL_FLAG != 0)
+        .copied()
+    else {
+        anyhow::bail!("model coverage fixture requires a published leaf");
+    };
+    instance.position_size = [0.8934032, 1.5581794, 1.4821042, 0.00390625];
+    instance.lighting = [0.64829177, 0.3265856, 0.45352986, -0.51707864];
+    instance.view_orientation = instance.lighting;
+    instance.metadata = [
+        leaf_first + 18 * triangles_per_leaf as u32,
+        triangles_per_leaf as u32,
+        64,
+        LEAF_MODEL_FLAG,
+    ];
+    instances.clear();
+    instances.push(instance);
+    Ok(())
+}
+
 fn leaf_review_can_be_empty(
     leaf_review: bool,
     checked: usize,
@@ -107,6 +144,128 @@ fn reference_depth(
         .map(|d| (d, true))
 }
 
+/// Forward error for verifying projection *identity*, not cell membership. The
+/// existing spatial roundoff envelope (16 machine epsilons) is propagated through
+/// the camera dot products and perspective divide. It never enters `plan`'s
+/// conservative edge tests or the independent depth tolerance.
+fn projection_roundoff(ndc: Vec3, vp: Mat4) -> Vec3 {
+    let world_h = vp.inverse() * ndc.extend(1.);
+    let world = world_h.truncate() / world_h.w;
+    let magnitude =
+        Mat4::from_cols_array(&vp.to_cols_array().map(f32::abs)) * world.abs().extend(1.);
+    let error = magnitude * (16. * f32::EPSILON);
+    let w = world_h.w.recip().abs();
+    (error.truncate() + ndc.abs() * error.w) / (w - error.w).max(f32::MIN_POSITIVE)
+}
+
+/// Decode the same clipped vertices used by the real producer, never its hit
+/// mask. Independently check their model/camera identity against CPU projection,
+/// retain CPU vertex depths, and let the unmodified CPU planner decide coverage.
+#[allow(clippy::too_many_arguments)]
+fn checked_projected_groups(
+    expected: &[model_pixel_repair::Group],
+    evidence: &[[f32; 4]],
+    first: usize,
+    count: usize,
+    bounds: Vec4,
+    vp: Mat4,
+    center_depth: f32,
+    n: u32,
+) -> Result<Vec<model_pixel_repair::Group>> {
+    const _: () = assert!(1 + MAX_TRIANGLES * 13 <= 4096);
+    ensure!(
+        count <= MAX_TRIANGLES && evidence.len() >= 1 + count * 13,
+        "invalid GPU projection evidence length"
+    );
+    let observed_bounds = Vec4::from_array(evidence[0]);
+    ensure!(
+        observed_bounds.is_finite(),
+        "nonfinite GPU projection bounds"
+    );
+    for (a, b) in [
+        (
+            Vec2::new(bounds.x, bounds.y),
+            Vec2::new(observed_bounds.x, observed_bounds.y),
+        ),
+        (
+            Vec2::new(bounds.z, bounds.w),
+            Vec2::new(observed_bounds.z, observed_bounds.w),
+        ),
+    ] {
+        let depth = if center_depth.is_finite() {
+            center_depth.clamp(0., 1.)
+        } else {
+            0.
+        };
+        let error = projection_roundoff(a.extend(depth), vp).truncate();
+        ensure!(
+            (a - b).abs().cmple(error).all(),
+            "GPU projection bounds/frame mismatch"
+        );
+    }
+    let mut groups = expected.to_vec();
+    for source in 0..count {
+        let at = 1 + source * 13;
+        let header = evidence[at];
+        ensure!(
+            header[0].is_finite()
+                && (0.0..=12.0).contains(&header[0])
+                && header[0].fract() == 0.
+                && header[1].to_bits() as usize == first + source
+                && header[2] == n as f32,
+            "GPU projected triangle identity mismatch"
+        );
+        let vertices = header[0] as usize;
+        let expected_count = groups
+            .iter()
+            .flat_map(|g| &g.sources)
+            .filter(|s| **s as usize == source)
+            .count();
+        ensure!(
+            vertices.saturating_sub(2) == expected_count,
+            "GPU projected clipping topology mismatch"
+        );
+        let mut fan = 0;
+        for group in &mut groups {
+            for (triangle, &s) in group.triangles.iter_mut().zip(&group.sources) {
+                if s as usize != source {
+                    continue;
+                }
+                for (point, vertex) in triangle.iter_mut().zip([0, fan + 1, fan + 2]) {
+                    let observed = Vec3::from_slice(&evidence[at + 1 + vertex]);
+                    ensure!(observed.is_finite(), "nonfinite GPU projected vertex");
+                    let cpu_ndc = Vec3::new(
+                        bounds.x + point[0] as f32 / n as f32 * (bounds.z - bounds.x),
+                        bounds.y + point[1] as f32 / n as f32 * (bounds.w - bounds.y),
+                        point[2] as f32,
+                    );
+                    let gpu_ndc = Vec2::new(observed_bounds.x, observed_bounds.y)
+                        + observed.truncate() / n as f32
+                            * Vec2::new(
+                                observed_bounds.z - observed_bounds.x,
+                                observed_bounds.w - observed_bounds.y,
+                            );
+                    let error = projection_roundoff(cpu_ndc, vp).truncate();
+                    ensure!(
+                        (cpu_ndc.truncate() - gpu_ndc).abs().cmple(error).all(),
+                        "GPU projected vertex/frame mismatch"
+                    );
+                    ensure!(
+                        (observed.z - point[2] as f32).abs() < 0.00002,
+                        "GPU projected depth mismatch"
+                    );
+                    // Only the producer's tile-space coordinates replace the CPU
+                    // reprojection. Surface depths remain independently derived.
+                    point[0] = f64::from(observed.x);
+                    point[1] = f64::from(observed.y);
+                }
+                fan += 1;
+            }
+        }
+    }
+    Ok(groups)
+}
+
 impl ButterflyMeshRenderer {
     pub fn validate_completed_tiles(
         &mut self,
@@ -131,7 +290,7 @@ impl ButterflyMeshRenderer {
         let reference_base = self
             .reference_tile_offset()
             .expect("native review reference tiles");
-        let byte_count = u64::from(reference_base * 3 + self.compute_count) * 4096 * 16;
+        let byte_count = u64::from(reference_base * 4 + self.compute_count) * 4096 * 16;
         let readback = Buffer::new_sized(
             context.device().clone(),
             allocator,
@@ -162,6 +321,16 @@ impl ButterflyMeshRenderer {
         let projection = Mat4::from_cols_array_2d(&camera.proj_mat);
         let vp = projection * view;
         let inverse = vp.inverse();
+        if mode_changed && std::env::var_os("RE_FLORA_MODEL_COVERAGE_FIXTURE").is_some() {
+            let directory = std::path::Path::new("target/improve-delivery/v3/coverage-boundary");
+            std::fs::create_dir_all(directory)?;
+            for (name, tile) in [("final", 0), ("center", reference_base as usize)] {
+                std::fs::write(
+                    directory.join(format!("{name}.bin")),
+                    bytemuck::cast_slice(&pixels[tile * 4096..(tile + 1) * 4096]),
+                )?;
+            }
+        }
         let n = self.resolution;
         let directory = std::path::Path::new(if leaf_review {
             "target/leaf-model-review/tiles"
@@ -214,8 +383,20 @@ impl ButterflyMeshRenderer {
                     )
                 })
                 .collect();
-            let (_, groups) =
+            let (_, cpu_groups) =
                 model_pixel_repair::project(&triangles, vp, rect, n as usize, |_, _, _| None);
+            let projection_at = (reference_base as usize * 4 + index) * 4096;
+            let center_clip = vp * Vec3::from_slice(&instance.position_size).extend(1.);
+            let groups = checked_projected_groups(
+                &cpu_groups,
+                &pixels[projection_at..projection_at + 4096],
+                mesh_first,
+                mesh_end - mesh_first,
+                rect,
+                vp,
+                center_clip.z / center_clip.w,
+                n,
+            )?;
             let mut owners = vec![0; n as usize * n as usize];
             for y in 0..n {
                 for x in 0..n {
@@ -452,7 +633,15 @@ impl ButterflyMeshRenderer {
                 checked_leaf > 0,
                 "leaf fixture produced no checked leaf samples"
             );
-            log::info!("[LEAF-MODEL-CHECK] mode=B resolution={} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.previous_leaf_mode.unwrap().1, self.count() - self.tile_count);
+            // The frozen regression overrides the published instance, not the
+            // saved setting. Report the resolution actually sent to the GPU.
+            let resolution = self
+                .instances
+                .iter()
+                .find(|instance| instance.metadata[3] & LEAF_MODEL_FLAG != 0)
+                .expect("checked leaf instance")
+                .metadata[2];
+            log::info!("[LEAF-MODEL-CHECK] mode=B resolution={resolution} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.count() - self.tile_count);
         }
         self.validated_mode = self.previous_mode;
         self.validated_leaf_mode = self.previous_leaf_mode;
@@ -463,6 +652,91 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captured_leaf_boundary_uses_producer_projection_not_cpu_reprojection() {
+        // Exact triangle 29 from the native red capture. Both center samplers
+        // miss (11,26); only CPU/GPU perspective division rounding differs.
+        let expected = vec![model_pixel_repair::Group {
+            id: 1,
+            sources: vec![0],
+            triangles: vec![[
+                [11.248796022613837, 25.61142196069578, 0.9694041609764099],
+                [13.594012495069657, 26.658468305246924, 0.9694223403930664],
+                [13.542512940626507, 26.797484463989964, 0.9694259762763977],
+            ]],
+        }];
+        let bounds = Vec4::new(-0.33905077, -0.06143841, -0.31456983, -0.028007094);
+        let vp = Mat4::from_cols_array(&[
+            0.97427857,
+            0.,
+            0.,
+            0.,
+            0.,
+            -1.7320508,
+            0.,
+            0.,
+            0.,
+            0.,
+            -1.001001,
+            -1.,
+            -0.97427857,
+            2.6846786,
+            1.7917918,
+            1.8,
+        ]);
+        let mut evidence = [[0.; 4]; 14];
+        evidence[0] = [-0.3390508, -0.06143841, -0.31456983, -0.028007094];
+        evidence[1] = [3., f32::from_bits(605), 64., 0.];
+        evidence[2] = [11.248876, 25.611423, 0.9694041, 0.];
+        evidence[3] = [13.594081, 26.658474, 0.9694223, 0.];
+        evidence[4] = [13.54262, 26.797483, 0.9694259, 0.];
+        let decode = |data: &[[f32; 4]]| {
+            checked_projected_groups(&expected, data, 605, 1, bounds, vp, 0.969, 64)
+        };
+        let observed = decode(&evidence).unwrap();
+        let covered = |groups: &[model_pixel_repair::Group], x: u32, y: u32| {
+            model_pixel_repair::plan(&vec![0; 64 * 64], groups, 64)
+                .nodes
+                .iter()
+                .any(|node| node.links[0] == y * 64 + x)
+        };
+        assert!(
+            covered(&expected, 11, 26),
+            "the old oracle must reproduce the false omission"
+        );
+        assert!(!covered(&observed, 11, 26));
+        assert!(
+            covered(&observed, 12, 26),
+            "a real missing coverage cell must still fail"
+        );
+        for k in 0..3 {
+            assert_eq!(
+                observed[0].triangles[0][k][2], expected[0].triangles[0][k][2],
+                "depths must remain CPU-derived"
+            );
+        }
+        // Projection evidence is not trusted as a mask or arbitrary geometry.
+        let mut bad = evidence;
+        bad[1][1] = f32::from_bits(606);
+        assert!(decode(&bad).is_err());
+        bad = evidence;
+        bad[1][0] = 0.;
+        assert!(decode(&bad).is_err());
+        bad = evidence;
+        bad[2][0] += 1.;
+        assert!(decode(&bad).is_err());
+        bad = evidence;
+        bad[2][2] += 0.001;
+        assert!(decode(&bad).is_err());
+        bad = evidence;
+        bad[0][0] += 0.01;
+        assert!(decode(&bad).is_err());
+        bad = evidence;
+        bad[2][1] = f32::NAN;
+        assert!(decode(&bad).is_err());
+    }
+
     #[test]
     fn leaf_review_only_accepts_empty_visibility_without_original_or_planned_samples() {
         assert!(leaf_review_can_be_empty(true, 0, 0, 0));
