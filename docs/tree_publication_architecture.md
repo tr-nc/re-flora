@@ -70,3 +70,32 @@ When tree description and global age change in the same GUI frame, the tuned des
 one-shot staged input rather than a canonical mutation. The age rebuild consumes it and commits it
 with the successful prepared record. Failure leaves the old physical and canonical description in
 place, and a later rebuild cannot accidentally reuse the discarded unpublished description.
+
+## Derived raster surface validity and publication
+
+A terrain edit does not necessarily change the derived tree surface. The raster path separates
+three responsibilities rather than teaching individual editing tools how to skip tree work:
+
+- `RasterTreeMesh` derives `TreeSurfaceDependencies` alongside surface extraction. Dependencies
+  conservatively cover each authored world-space wood cone plus the surface sampler's shared
+  neighborhood radius, clipped to the sampled atlas region. They include potential wood even
+  where the atlas is currently empty. The bulk readback AABB is not the semantic dependency.
+- `TreeSurfaceCache` owns revision validity. A terrain publication outside those dependencies
+  advances validity without rebuilding. An intersecting edit stays dirty until a complete
+  rebuild succeeds; canonical-tree changes always require revalidation. Dependency intersection
+  accepts inclusive voxel bounds, including single-cell and boundary-touching edits.
+- `Tracer::publish_static_raster_trees` owns publication of the derived surface and attachments.
+  It retains resident resources and pose history only when the complete observable surface is
+  exactly equal: vertex bytes (including normals/confidence), indices, solid occupancy, skin
+  bindings, cell lookup, and attachments. It does not rely on counts or a hash. Publication is
+  marked invalid before any fallible resource change and valid only after every upload succeeds,
+  so a failed partial upload cannot be accepted as an unchanged result on retry.
+
+Terrain changes can affect tree shading without removing any wood. Neither dependency tracking
+nor publication equality may use a removed-wood count as a shortcut. Shared sampling radius,
+conservative potential-wood support, and exact output comparison keep these rules local and
+applicable to every edit path that publishes visible terrain. The current per-cone AABBs can be
+replaced by a more precise dependency index without changing editing tools or the cache interface.
+
+Validation and Release measurements are recorded in
+[`research/tree_surface_publication_optimization.md`](research/tree_surface_publication_optimization.md).

@@ -165,6 +165,9 @@ pub enum EnvironmentLightingTestCase {
     TerrainEditsInflightCapture,
     TerrainEditsClosed,
     TerrainEditsSustained,
+    TerrainEditsSustainedLights,
+    IndirectResponse,
+    IndirectResponseStatic,
     CaveEdits,
     CaveEditsOpen,
     CaveEditsPortal,
@@ -198,6 +201,9 @@ impl EnvironmentLightingTestCase {
             "cave-edits-portal-final" => Some(Self::CaveEditsPortalFinal),
             "cave-edits-history-toggles" => Some(Self::CaveEditsHistoryToggles),
             "terrain-edits-sustained" => Some(Self::TerrainEditsSustained),
+            "terrain-edits-sustained-lights" => Some(Self::TerrainEditsSustainedLights),
+            "indirect-response" => Some(Self::IndirectResponse),
+            "indirect-response-static" => Some(Self::IndirectResponseStatic),
             "terrain-edits-closed" => Some(Self::TerrainEditsClosed),
             _ => None,
         }
@@ -228,6 +234,9 @@ impl EnvironmentLightingTestCase {
             Self::CaveEditsPortalFinal => "cave-edits-portal-final",
             Self::CaveEditsHistoryToggles => "cave-edits-history-toggles",
             Self::TerrainEditsSustained => "terrain-edits-sustained",
+            Self::TerrainEditsSustainedLights => "terrain-edits-sustained-lights",
+            Self::IndirectResponse => "indirect-response",
+            Self::IndirectResponseStatic => "indirect-response-static",
             Self::TerrainEditsClosed => "terrain-edits-closed",
         }
     }
@@ -1286,7 +1295,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, terrain-edits-sustained-lights, indirect-response, indirect-response-static, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed."
                 )
             }),
     }
@@ -1562,7 +1571,12 @@ Options:
                               radiance-changes, point-light-changes, voxel-emissive-changes,
                               raster-emitter-changes, multi-source-stress, local-light-scaling,
                               density-changes, terrain-edits,
-                              terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, or
+                              terrain-edits-inflight, terrain-edits-inflight-capture,
+                              terrain-edits-sustained (40 edits), terrain-edits-sustained-lights
+                              (40 edits plus 10 point-light toggles, independent of DDGI readiness),
+                              indirect-response (raw DDGI on/off response during edits; exits on completion),
+                              indirect-response-static (same receiver/light timeline without terrain edits),
+                              cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, or
                               terrain-edits-closed
                               Screenshot preset 'environment-test-scene' retains the fixture camera.
   --environment-irradiance-capture <path>
@@ -2024,6 +2038,18 @@ mod tests {
                 EnvironmentLightingTestCase::TerrainEditsSustained,
             ),
             (
+                "terrain-edits-sustained-lights",
+                EnvironmentLightingTestCase::TerrainEditsSustainedLights,
+            ),
+            (
+                "indirect-response",
+                EnvironmentLightingTestCase::IndirectResponse,
+            ),
+            (
+                "indirect-response-static",
+                EnvironmentLightingTestCase::IndirectResponseStatic,
+            ),
+            (
                 "terrain-edits-inflight",
                 EnvironmentLightingTestCase::TerrainEditsInflight,
             ),
@@ -2051,7 +2077,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, terrain-edits-sustained-lights, indirect-response, indirect-response-static, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed"
         ));
     }
 

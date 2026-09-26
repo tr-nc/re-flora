@@ -1502,6 +1502,12 @@ impl DdgiRuntime {
     }
 
     fn claim_transport_work(&mut self) -> Option<DdgiRuntimeWork> {
+        // A completed Staging field still owns the builder until physical promotion (or
+        // obsolete-candidate retirement). Starting another epoch here can latch new lighting
+        // over the radiance tuple that the pending publication is required to retain.
+        if self.completed_staging_publication.is_some() {
+            return None;
+        }
         let scheduled = self
             .transport_scheduler
             .claim_next()
@@ -2537,6 +2543,40 @@ mod tests {
             .complete_transport_work(work, published, token)
             .unwrap();
         (runtime, token, published)
+    }
+
+    #[test]
+    fn completed_staging_waits_for_promotion_before_claiming_more_transport() {
+        for change_lighting in [false, true] {
+            let (mut runtime, _, _) = initialized_runtime();
+            runtime.observe_visible_terrain(8, edit_bound(200, 220));
+            let token = runtime.claim_volume_build().unwrap().token();
+            let work = runtime.claim_transport_work().unwrap().scheduled();
+            if change_lighting {
+                let changed = lighting_at(2, Duration::from_millis(250), lighting_snapshot(2.0));
+                assert!(
+                    runtime
+                        .observe_authored_lighting(changed)
+                        .transport_published
+                );
+            }
+            runtime
+                .complete_transport_work(work, work.destination(), token)
+                .unwrap();
+            let staged = runtime.completed_staging_publication.unwrap();
+            assert!(runtime.token_can_promote(token));
+
+            assert!(
+                runtime.claim_transport_work().is_none(),
+                "a complete staging publication must not start another epoch before promotion"
+            );
+            assert!(runtime.in_flight_authored_lighting.is_none());
+            assert_eq!(
+                runtime.completed_staging_publication.unwrap().field,
+                staged.field
+            );
+            assert_eq!(staged.authored_lighting.revision(), 1);
+        }
     }
 
     #[test]

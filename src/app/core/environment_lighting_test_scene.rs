@@ -22,6 +22,7 @@ use anyhow::{Context, Result};
 use egui::Color32;
 use glam::{UVec3, Vec3};
 
+mod indirect_response;
 mod local_light_scaling;
 mod thin_voxels;
 use local_light_scaling::{LocalLightScalingSample, LocalLightScalingState};
@@ -565,6 +566,9 @@ impl EnvironmentPhaseFamily {
             | EnvironmentLightingTestCase::CaveEditsPortal
             | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::TerrainEditsSustained
+            | EnvironmentLightingTestCase::TerrainEditsSustainedLights
+            | EnvironmentLightingTestCase::IndirectResponse
+            | EnvironmentLightingTestCase::IndirectResponseStatic
             | EnvironmentLightingTestCase::TerrainEditsClosed => Self::Terrain,
             EnvironmentLightingTestCase::RadianceChanges => Self::Radiance,
             EnvironmentLightingTestCase::PointLightChanges => Self::PointLight,
@@ -632,6 +636,8 @@ struct EnvironmentPhasePayload {
     scratch: EnvironmentFamilyScratch,
     recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic,
     sustained_edits: Option<(std::time::Instant, u32)>,
+    sustained_light: Option<LightId>,
+    indirect_response: Option<indirect_response::IndirectResponse>,
 }
 
 impl EnvironmentPhasePayload {
@@ -1061,6 +1067,8 @@ impl EnvironmentLightingTestScene {
                 phase: TestScenePhase::Pending,
                 initial_publication: None,
                 sustained_edits: None,
+                sustained_light: None,
+                indirect_response: None,
                 point_light_fixed_gpu_request_serial: 0,
                 point_light_fixed_gpu_visible_luma_q8: 0,
                 point_light_diagnostic_selected_decoy_id: None,
@@ -1169,8 +1177,7 @@ impl EnvironmentLightingTestScene {
 
     pub(super) fn is_screenshot_ready(&self) -> bool {
         self.is_ready()
-            || ((self.case() == EnvironmentLightingTestCase::TerrainEditsSustained
-                || is_cave_edit_case(self.case()))
+            || ((is_sustained_terrain_edit_case(self.case()) || is_cave_edit_case(self.case()))
                 && self
                     .ready_phase()
                     .sustained_edits
@@ -1621,6 +1628,9 @@ impl TestSceneGeometry {
             | EnvironmentLightingTestCase::TerrainEditsInflight
             | EnvironmentLightingTestCase::TerrainEditsInflightCapture
             | EnvironmentLightingTestCase::TerrainEditsSustained
+            | EnvironmentLightingTestCase::TerrainEditsSustainedLights
+            | EnvironmentLightingTestCase::IndirectResponse
+            | EnvironmentLightingTestCase::IndirectResponseStatic
             | EnvironmentLightingTestCase::TerrainEditsClosed => (
                 Vec::new(),
                 vec![Cuboid::from_min_max(SHELL_MIN, SHELL_MAX)],
@@ -1932,6 +1942,14 @@ fn raster_emitter_component(position: Vec3, color: Vec3, intensity: f32) -> Rast
     ))
 }
 
+fn is_sustained_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
+    matches!(
+        case,
+        EnvironmentLightingTestCase::TerrainEditsSustained
+            | EnvironmentLightingTestCase::TerrainEditsSustainedLights
+    )
+}
+
 fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
     match case {
         EnvironmentLightingTestCase::Sealed | EnvironmentLightingTestCase::PattSeam => {
@@ -1954,6 +1972,9 @@ fn camera_pose(case: EnvironmentLightingTestCase) -> (Vec3, Vec3) {
         | EnvironmentLightingTestCase::CaveEditsHistoryToggles
         | EnvironmentLightingTestCase::CaveEditsPortalFinal
         | EnvironmentLightingTestCase::TerrainEditsSustained
+        | EnvironmentLightingTestCase::TerrainEditsSustainedLights
+        | EnvironmentLightingTestCase::IndirectResponse
+        | EnvironmentLightingTestCase::IndirectResponseStatic
         | EnvironmentLightingTestCase::TerrainEditsClosed => {
             (Vec3::new(0.65, 0.52, 1.38), Vec3::new(0.65, 0.78, 1.10))
         }
@@ -2094,7 +2115,16 @@ impl App {
         let (camera_position, camera_target) = camera_pose(case);
         let palette = voxel_palette(case);
         let (time_of_day, latitude, season) = test_lighting(case);
-        let sun_luminance = RADIANCE_R1_SUN_LUMINANCE;
+        let sun_luminance = if matches!(
+            case,
+            EnvironmentLightingTestCase::IndirectResponse
+                | EnvironmentLightingTestCase::IndirectResponseStatic
+        ) {
+            self.debug_settings.adjustables.sky_light_strength.value = 0.0;
+            0.0
+        } else {
+            RADIANCE_R1_SUN_LUMINANCE
+        };
         self.set_manual_time_of_day(time_of_day);
         self.debug_settings.adjustables.latitude.value = latitude;
         self.debug_settings.adjustables.season.value = season;
@@ -3164,9 +3194,32 @@ impl App {
     fn advance_environment_phase_machine(&mut self, environment: &mut EnvironmentPhasePayload) {
         let case = environment.case;
         let phase = environment.phase;
+        if matches!(
+            case,
+            EnvironmentLightingTestCase::IndirectResponse
+                | EnvironmentLightingTestCase::IndirectResponseStatic
+        ) {
+            if !matches!(
+                phase,
+                TestScenePhase::Pending | TestScenePhase::Settling { .. }
+            ) {
+                let response = environment.indirect_response.get_or_insert_with(|| {
+                    indirect_response::IndirectResponse::new(
+                        case == EnvironmentLightingTestCase::IndirectResponse,
+                    )
+                });
+                if response
+                    .step(self)
+                    .expect("DDGI response fixture must remain valid")
+                {
+                    environment.phase = TestScenePhase::Ready;
+                }
+                return;
+            }
+        }
         // This fixture uses the real visible-terrain publication path, independent of DDGI
         // completion: a held editing gesture must not wait for lighting to converge.
-        if case == EnvironmentLightingTestCase::TerrainEditsSustained || is_cave_edit_case(case) {
+        if is_sustained_terrain_edit_case(case) || is_cave_edit_case(case) {
             let initial_converged = !is_cave_edit_case(case)
                 || self
                     .tracer
@@ -3192,6 +3245,33 @@ impl App {
             if let Some((last_edit, count)) = environment.sustained_edits {
                 if count < 40 {
                     if last_edit.elapsed().as_secs_f32() >= 0.1 {
+                        if case == EnvironmentLightingTestCase::TerrainEditsSustainedLights
+                            && count % 4 == 0
+                        {
+                            if let Some(light) = environment.sustained_light.take() {
+                                self.local_lights
+                                    .remove(light)
+                                    .expect("live sustained-edit light");
+                            } else {
+                                environment.sustained_light = Some(
+                                    self.local_lights.add(LocalLight::Point(
+                                        PointLight::new(
+                                            Vec3::new(0.65, 0.7, 1.2),
+                                            Vec3::new(1.0, 0.4, 0.15),
+                                            0.02,
+                                            0.01,
+                                            1.0,
+                                        )
+                                        .expect("valid sustained-edit point light"),
+                                    )),
+                                );
+                            }
+                            log::info!(
+                                "[DDGI_SUSTAINED_LIGHT] edit={} enabled={}",
+                                count + 1,
+                                environment.sustained_light.is_some(),
+                            );
+                        }
                         if case == EnvironmentLightingTestCase::CaveEditsHistoryToggles
                             && count % 8 == 0
                         {
@@ -6405,6 +6485,9 @@ fn is_terrain_edit_case(case: EnvironmentLightingTestCase) -> bool {
             | EnvironmentLightingTestCase::CaveEditsPortal
             | EnvironmentLightingTestCase::CaveEditsHistoryToggles
             | EnvironmentLightingTestCase::TerrainEditsSustained
+            | EnvironmentLightingTestCase::TerrainEditsSustainedLights
+            | EnvironmentLightingTestCase::IndirectResponse
+            | EnvironmentLightingTestCase::IndirectResponseStatic
             | EnvironmentLightingTestCase::TerrainEditsClosed
     )
 }
@@ -6751,15 +6834,19 @@ mod tests {
 
     #[test]
     fn sustained_edit_screenshot_observes_mid_gesture_without_claiming_ready() {
-        let mut scene =
-            EnvironmentLightingTestScene::new(EnvironmentLightingTestCase::TerrainEditsSustained);
-        let EnvironmentPhaseSlot::Ready(ref mut payload) = scene.state else {
-            unreachable!()
-        };
-        payload.sustained_edits = Some((std::time::Instant::now(), 20));
-        assert!(scene.is_screenshot_ready());
-        assert!(!scene.is_ready());
-        assert!(!scene.is_capture_ready());
+        for case in [
+            EnvironmentLightingTestCase::TerrainEditsSustained,
+            EnvironmentLightingTestCase::TerrainEditsSustainedLights,
+        ] {
+            let mut scene = EnvironmentLightingTestScene::new(case);
+            let EnvironmentPhaseSlot::Ready(ref mut payload) = scene.state else {
+                unreachable!()
+            };
+            payload.sustained_edits = Some((std::time::Instant::now(), 20));
+            assert!(scene.is_screenshot_ready());
+            assert!(!scene.is_ready());
+            assert!(!scene.is_capture_ready());
+        }
     }
 
     #[test]

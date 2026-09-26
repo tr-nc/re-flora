@@ -688,6 +688,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/ddgi/probe_relocate.comp",
     "shader/ddgi/probe_trace.comp",
     "shader/lighting/local_light_visibility_diagnostic.comp",
+    "shader/ddgi/response_sample.comp",
     "shader/ddgi/irradiance_filter.comp",
     "shader/ddgi/visibility_filter.comp",
     "shader/ddgi/irradiance_gutter.comp",

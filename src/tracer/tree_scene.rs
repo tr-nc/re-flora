@@ -341,6 +341,7 @@ mod tests {
 }
 
 pub const MAX_TREE_ATTACHMENTS: usize = 1 << 16;
+#[derive(PartialEq, Eq)]
 pub struct TreeAttachment {
     pub anchor: glam::UVec3,
     pub tree_id: u32,

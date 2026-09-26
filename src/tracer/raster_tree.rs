@@ -3,15 +3,18 @@ use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-use super::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
+use super::{
+    tree_surface_cache::{TreeSurfaceDependencies, TREE_SURFACE_SAMPLE_RADIUS},
+    voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES},
+};
 use crate::{
-    geom::RoundCone,
+    geom::{RoundCone, RoundConeClearanceIndex},
     resource::Resource,
     tree_gen::{
         pose::BranchPose,
-        skin::{intersect_surface_triangle, SkinBinding, SurfaceHit},
+        skin::{intersect_surface_triangle, RestSkinBinder, SkinBinding, SurfaceHit},
         Tree,
     },
 };
@@ -35,6 +38,16 @@ pub struct RasterTreeVertex {
     normal_confidence: f32,
 }
 
+/// Rest-space bindings depend on the immutable authored tree and its placement,
+/// not on terrain occupancy, exposed faces, normals, or the current wind pose.
+/// Keep only corners used by this mesh, so edits cannot accumulate an unbounded history.
+#[derive(Clone)]
+struct TreeBindingCache {
+    tree: Arc<Tree>,
+    origin: Vec3,
+    corners: BTreeMap<[u32; 3], SkinBinding>,
+}
+
 #[derive(Clone, Default)]
 pub struct RasterTreeMesh {
     pub vertices: Vec<RasterTreeVertex>,
@@ -42,10 +55,28 @@ pub struct RasterTreeMesh {
     cells: BTreeMap<[u32; 3], (Vec3, f32, [bool; 6])>,
     pub solid_cells: std::collections::BTreeSet<[u32; 3]>,
     bindings: Vec<Option<(u32, SkinBinding)>>,
+    binding_cache: BTreeMap<u32, TreeBindingCache>,
+    dependencies: TreeSurfaceDependencies,
     pub cell_vertex_indices: Vec<u32>,
 }
 
 impl RasterTreeMesh {
+    pub(crate) fn terrain_dependencies(&self) -> TreeSurfaceDependencies {
+        self.dependencies.clone()
+    }
+
+    /// Exact equality of the facts consumed by rendering, queries, and physics.
+    /// Binding memoization is not an observable fact. Never use a fingerprint or
+    /// just topology counts here: occupancy and normal-only changes also matter.
+    pub(super) fn same_surface(&self, other: &Self) -> bool {
+        bytemuck::cast_slice::<_, u8>(&self.vertices)
+            == bytemuck::cast_slice::<_, u8>(&other.vertices)
+            && self.indices == other.indices
+            && self.solid_cells == other.solid_cells
+            && self.bindings == other.bindings
+            && self.cell_vertex_indices == other.cell_vertex_indices
+    }
+
     /// `bytes` includes a two-voxel halo for the same radius-two normal estimator as terrain.
     pub fn append_region(
         &mut self,
@@ -58,6 +89,7 @@ impl RasterTreeMesh {
             bytes.len() == dim.as_u64vec3().element_product() as usize,
             "tree atlas region size mismatch"
         );
+        self.dependencies.include_region(origin, dim, cones);
         let sample = |world: IVec3| -> u8 {
             let p = world - origin.as_ivec3();
             if p.cmplt(IVec3::ZERO).any() || p.cmpge(dim.as_ivec3()).any() {
@@ -67,14 +99,13 @@ impl RasterTreeMesh {
         };
         // Same solid predicate as surface_extraction.slang.
         let solid = |p: IVec3| sample(p) != 0;
+        let wood = RoundConeClearanceIndex::new(cones);
         for z in 0..dim.z {
             for y in 0..dim.y {
                 for x in 0..dim.x {
                     let cell = origin + UVec3::new(x, y, z);
                     let center = cell.as_vec3() + Vec3::splat(0.5);
-                    if sample(cell.as_ivec3()) != 5
-                        || !cones.iter().any(|c| c.signed_distance(center) < 0.0)
-                    {
+                    if sample(cell.as_ivec3()) != 5 || wood.has_minimum_clearance(center, 0.0) {
                         continue;
                     }
                     self.solid_cells.insert(cell.to_array());
@@ -83,9 +114,9 @@ impl RasterTreeMesh {
                         continue;
                     }
                     let mut estimate = super::voxel_normal::OccupancyNormal::default();
-                    for dz in -2..=2 {
-                        for dy in -2..=2 {
-                            for dx in -2..=2 {
+                    for dz in -TREE_SURFACE_SAMPLE_RADIUS..=TREE_SURFACE_SAMPLE_RADIUS {
+                        for dy in -TREE_SURFACE_SAMPLE_RADIUS..=TREE_SURFACE_SAMPLE_RADIUS {
+                            for dx in -TREE_SURFACE_SAMPLE_RADIUS..=TREE_SURFACE_SAMPLE_RADIUS {
                                 let offset = IVec3::new(dx, dy, dz);
                                 if solid(cell.as_ivec3() + offset) {
                                     estimate.add(offset);
@@ -156,18 +187,41 @@ impl RasterTreeMesh {
         Ok(table)
     }
     /// Shared corners use identical bindings so neighboring cells remain connected.
-    pub fn bind_tree(&mut self, tree_id: u32, origin: Vec3, tree: &Tree) -> Result<()> {
+    /// Reuse only the previous mesh's bindings for the exact same immutable tree
+    /// and placement. Ownership is still checked against the current tree in caller
+    /// order, including overlapping trees; terrain faces/normals are always rebuilt.
+    pub fn bind_tree(
+        &mut self,
+        tree_id: u32,
+        origin: Vec3,
+        tree: &Arc<Tree>,
+        previous: Option<&Self>,
+    ) -> Result<()> {
         ensure!(
             self.bindings.len() == self.vertices.len(),
             "finish tree mesh before binding"
         );
+        let previous = previous
+            .and_then(|mesh| mesh.binding_cache.get(&tree_id))
+            .filter(|cache| Arc::ptr_eq(&cache.tree, tree) && cache.origin == origin);
+        let binder = RestSkinBinder::new(tree);
         let mut corners = BTreeMap::new();
+        let mut cell_owner = None;
         for (vertex, binding) in self.vertices.iter().zip(&mut self.bindings) {
             if binding.is_some() {
                 continue;
             }
-            let center = (Vec3::from_array(vertex.center) - origin) * 256.;
-            if !tree.trunks().iter().any(|c| c.signed_distance(center) < 0.) {
+            let center_key = vertex.center.map(f32::to_bits);
+            let owns_cell = match cell_owner {
+                Some((key, owns)) if key == center_key => owns,
+                _ => {
+                    let center = (Vec3::from_array(vertex.center) - origin) * 256.;
+                    let owns = binder.owns_cell(center);
+                    cell_owner = Some((center_key, owns));
+                    owns
+                }
+            };
+            if !owns_cell {
                 continue;
             }
             let rest = vertex.position;
@@ -176,12 +230,23 @@ impl RasterTreeMesh {
             let skin = if let Some(skin) = corners.get(&key) {
                 *skin
             } else {
-                let skin = SkinBinding::at_rest_position(tree, point)?;
+                let skin = match previous.and_then(|cache| cache.corners.get(&key)) {
+                    Some(skin) => *skin,
+                    None => binder.bind(point)?,
+                };
                 corners.insert(key, skin);
                 skin
             };
             *binding = Some((tree_id, skin));
         }
+        self.binding_cache.insert(
+            tree_id,
+            TreeBindingCache {
+                tree: Arc::clone(tree),
+                origin,
+                corners,
+            },
+        );
         Ok(())
     }
 
@@ -410,6 +475,8 @@ pub struct RasterTreeGeometry {
     pub skin: GpuTreeSkin,
     pub indices: Resource<Buffer>,
     pub index_count: u32,
+    // A failed publication must not make a later retry look like an unchanged surface.
+    pub(super) publication_valid: bool,
     pub(crate) source: super::tree_surface_cache::TreeSurfaceCache,
     pub enabled: bool,
     pub color_draws: u64,
@@ -434,6 +501,7 @@ impl RasterTreeGeometry {
                 4,
             )),
             index_count: 0,
+            publication_valid: false,
             source: super::tree_surface_cache::TreeSurfaceCache::default(),
             enabled: false,
             color_draws: 0,
@@ -582,6 +650,194 @@ impl RasterTreeGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn small_tree() -> Arc<Tree> {
+        let mut desc = crate::tree_gen::TreeDesc::default();
+        desc.branching.iterations = 3;
+        Arc::new(Tree::new(desc))
+    }
+
+    fn binding_fixture(tree: &Tree, cells: &[(usize, usize, usize)]) -> RasterTreeMesh {
+        let mut bytes = vec![0; 512];
+        for &(x, y, z) in cells {
+            bytes[x + 8 * (y + 8 * z)] = 5;
+        }
+        let mut mesh = RasterTreeMesh::default();
+        mesh.append_region(UVec3::ZERO, UVec3::splat(8), &bytes, tree.trunks())
+            .unwrap();
+        mesh.finish().unwrap();
+        assert!(!mesh.vertices.is_empty());
+        mesh
+    }
+
+    // Independent reference to the original per-vertex ownership and full cone scan.
+    fn reference_bind(mesh: &mut RasterTreeMesh, id: u32, origin: Vec3, tree: &Tree) {
+        for (vertex, binding) in mesh.vertices.iter().zip(&mut mesh.bindings) {
+            let center = (Vec3::from(vertex.center) - origin) * 256.;
+            if binding.is_none() && tree.trunks().iter().any(|c| c.signed_distance(center) < 0.) {
+                *binding = Some((
+                    id,
+                    SkinBinding::at_rest_position(
+                        tree,
+                        (Vec3::from(vertex.position) - origin) * 256.,
+                    )
+                    .unwrap(),
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn terrain_dependencies_cover_every_surface_changing_voxel_in_small_fixture() {
+        use crate::tracer::tree_surface_cache::TreeSurfaceCache;
+        let cones = [RoundCone::new(
+            1.5,
+            Vec3::splat(3.5),
+            0.5,
+            Vec3::new(3.5, 5., 3.5),
+        )];
+        let mut bytes = vec![0; 512];
+        bytes[3 + 8 * (3 + 8 * 3)] = 5;
+        let build = |bytes: &[u8]| {
+            let mut mesh = RasterTreeMesh::default();
+            mesh.append_region(UVec3::ZERO, UVec3::splat(8), bytes, &cones)
+                .unwrap();
+            mesh.finish().unwrap();
+            mesh
+        };
+        let before = build(&bytes);
+        let mut observed_changes = 0;
+        for z in 0..8 {
+            for y in 0..8 {
+                for x in 0..8 {
+                    let index = (x + 8 * (y + 8 * z)) as usize;
+                    let saved = bytes[index];
+                    for material in [0, 2, 5] {
+                        bytes[index] = material;
+                        let after = build(&bytes);
+                        let mut cache = TreeSurfaceCache::default();
+                        cache.compiled(1, 7, before.terrain_dependencies());
+                        let cell = UVec3::new(x, y, z);
+                        cache.observe_terrain(2, crate::geom::UAabb3::new(cell, cell));
+                        if !before.same_surface(&after) {
+                            observed_changes += 1;
+                            assert!(
+                                !cache.is_current(2, 7),
+                                "missed {cell:?} material={material}"
+                            );
+                        }
+                    }
+                    bytes[index] = saved;
+                }
+            }
+        }
+        assert!(observed_changes > 100);
+    }
+
+    #[test]
+    fn publication_equality_covers_geometry_normals_occupancy_and_skin() {
+        let tree = small_tree();
+        let mut mesh = binding_fixture(&tree, &[(3, 3, 3), (4, 3, 3)]);
+        mesh.bind_tree(7, Vec3::ZERO, &tree, None).unwrap();
+        assert!(mesh.same_surface(&mesh.clone()));
+        let mut memo_only = mesh.clone();
+        memo_only.binding_cache.clear();
+        assert!(mesh.same_surface(&memo_only));
+        for change in 0..7 {
+            let mut other = mesh.clone();
+            match change {
+                0 => other.vertices[0].normal = [1., 0., 0.],
+                1 => other.vertices[0].normal_confidence = 0.5,
+                2 => other.vertices[0].position[0] += 1. / 256.,
+                3 => other.indices.swap(0, 1),
+                4 => {
+                    other.solid_cells.insert([3, 2, 3]);
+                }
+                5 => other.bindings[0].as_mut().unwrap().1.branch += 1,
+                6 => other.cell_vertex_indices[0] = 0,
+                _ => unreachable!(),
+            }
+            assert!(!mesh.same_surface(&other), "change {change} must publish");
+        }
+    }
+
+    #[test]
+    fn edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals() {
+        let tree = small_tree();
+        let mut before = binding_fixture(&tree, &[(3, 3, 3), (4, 3, 3)]);
+        before.bind_tree(7, Vec3::ZERO, &tree, None).unwrap();
+        // Remove wood and expose another cell: shared corners, new corners, different faces.
+        let mut after = binding_fixture(&tree, &[(3, 3, 3), (3, 4, 3)]);
+        let mut expected = after.clone();
+        reference_bind(&mut expected, 7, Vec3::ZERO, &tree);
+        after
+            .bind_tree(7, Vec3::ZERO, &tree, Some(&before))
+            .unwrap();
+        assert_eq!(after.bindings, expected.bindings);
+        assert_eq!(
+            after.gpu_skin().unwrap().bindings,
+            expected.gpu_skin().unwrap().bindings
+        );
+        assert_ne!(after.rest_fingerprint(), before.rest_fingerprint());
+        assert_eq!(after.rest_fingerprint(), expected.rest_fingerprint());
+        let corners = &after.binding_cache[&7].corners;
+        assert!(corners
+            .keys()
+            .any(|key| !before.binding_cache[&7].corners.contains_key(key)));
+        // Only currently used corners survive, rather than all previously exposed wood.
+        assert_eq!(corners.len(), 12);
+    }
+
+    #[test]
+    fn rest_binding_reuse_requires_same_tree_identity_and_placement() {
+        let tree = small_tree();
+        let mut before = binding_fixture(&tree, &[(3, 3, 3), (4, 3, 3)]);
+        before.bind_tree(7, Vec3::ZERO, &tree, None).unwrap();
+        // Sentinel detects any accidental reuse across replacement/movement, even if
+        // a replacement happens to generate an identical authored shape.
+        for skin in before
+            .binding_cache
+            .get_mut(&7)
+            .unwrap()
+            .corners
+            .values_mut()
+        {
+            skin.branch = usize::MAX;
+        }
+        for (replacement, origin) in [
+            (small_tree(), Vec3::ZERO),
+            (Arc::clone(&tree), Vec3::X / 256.),
+        ] {
+            let mut after = binding_fixture(&replacement, &[(3, 3, 3), (4, 3, 3)]);
+            let mut expected = after.clone();
+            reference_bind(&mut expected, 7, origin, &replacement);
+            after
+                .bind_tree(7, origin, &replacement, Some(&before))
+                .unwrap();
+            assert_eq!(after.bindings, expected.bindings);
+        }
+    }
+
+    #[test]
+    fn cached_corners_do_not_override_overlapping_tree_ownership_order() {
+        let first = small_tree();
+        let second = small_tree();
+        let mut before = binding_fixture(&first, &[(3, 3, 3), (4, 3, 3)]);
+        before.bind_tree(7, Vec3::ZERO, &first, None).unwrap();
+        before.bind_tree(9, Vec3::ZERO, &second, None).unwrap();
+        let mut after = binding_fixture(&first, &[(3, 3, 3), (4, 3, 3)]);
+        let mut expected = after.clone();
+        reference_bind(&mut expected, 9, Vec3::ZERO, &second);
+        reference_bind(&mut expected, 7, Vec3::ZERO, &first);
+        after
+            .bind_tree(9, Vec3::ZERO, &second, Some(&before))
+            .unwrap();
+        after
+            .bind_tree(7, Vec3::ZERO, &first, Some(&before))
+            .unwrap();
+        assert_eq!(after.bindings, expected.bindings);
+        assert!(after.binding_cache[&7].corners.is_empty());
+    }
+
     #[test]
     fn gpu_skin_compiles_per_vertex_records_and_deduplicates_tree_bones() {
         let mut mesh = RasterTreeMesh::default();
@@ -687,7 +943,7 @@ mod tests {
             wind_field::WindFieldFrame,
         };
         use glam::Vec2;
-        let tree = Tree::new(TreeDesc::default());
+        let tree = Arc::new(Tree::new(TreeDesc::default()));
         let mut bytes = vec![0; 512];
         for x in [3, 4] {
             bytes[x + 8 * (3 + 8 * 3)] = 5;
@@ -697,7 +953,7 @@ mod tests {
             .unwrap();
         mesh.finish().unwrap();
         assert_eq!(mesh.cell_count(), 2);
-        mesh.bind_tree(17, Vec3::ZERO, &tree).unwrap();
+        mesh.bind_tree(17, Vec3::ZERO, &tree, None).unwrap();
         let mut pose = TreePose::new(tree.branches(), Vec3::ZERO).unwrap();
         for _ in 0..120 {
             pose.advance(&WindFieldFrame::uniform(Vec2::X * 8.), 1. / 60.)

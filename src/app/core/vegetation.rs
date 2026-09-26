@@ -4849,8 +4849,14 @@ impl App {
             .is_current(self.visible_terrain_revision, self.trees.canonical_revision)
         {
             self.tracer.invalidate_local_direct_sun_shadow_histories();
+            // Opt-in diagnostic timings only; retain the original synchronization and work.
+            let diagnostic = std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some();
+            let wait_started = Instant::now();
             self.vulkan_ctx.device().wait_idle();
+            let wait_ms = wait_started.elapsed().as_secs_f64() * 1000.0;
             let started = Instant::now();
+            let mut read_ms = 0.0;
+            let mut append_ms = 0.0;
             let mut mesh = crate::tracer::RasterTreeMesh::default();
             let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
             let mut read_bounds = Vec::with_capacity(self.trees.records.len());
@@ -4862,13 +4868,28 @@ impl App {
                 read_bounds.push(bound);
                 let origin = bound.min();
                 let dim = bound.max().saturating_sub(origin);
+                let stage = Instant::now();
                 let bytes = self.plain_builder.read_chunk_atlas_region(origin, dim)?;
+                read_ms += stage.elapsed().as_secs_f64() * 1000.0;
+                let stage = Instant::now();
                 mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
+                append_ms += stage.elapsed().as_secs_f64() * 1000.0;
             }
+            let stage = Instant::now();
             let cells = mesh.finish()?;
+            let finish_ms = stage.elapsed().as_secs_f64() * 1000.0;
+            let stage = Instant::now();
             let mut attachment_map = std::collections::BTreeMap::new();
+            let mut mesh_bind_ms = 0.0;
             for (&tree_id, record) in &self.trees.records {
-                mesh.bind_tree(tree_id, record.position, &record.rest_tree)?;
+                let bind_started = Instant::now();
+                mesh.bind_tree(
+                    tree_id,
+                    record.position,
+                    &record.rest_tree,
+                    Some(&self.tracer.raster_trees.rest_mesh),
+                )?;
+                mesh_bind_ms += bind_started.elapsed().as_secs_f64() * 1000.0;
                 for (leaf, &branch) in record
                     .rest_tree
                     .relative_leaf_placements()
@@ -4890,8 +4911,11 @@ impl App {
                         .or_insert((tree_id, binding.branch));
                 }
             }
-            self.tracer.upload_static_raster_trees(&mesh, &cells)?;
-            self.tracer.bind_tree_attachments(
+            let bind_ms = stage.elapsed().as_secs_f64() * 1000.0;
+            let stage = Instant::now();
+            let published = self.tracer.publish_static_raster_trees(
+                &mesh,
+                &cells,
                 attachment_map
                     .into_iter()
                     .map(
@@ -4903,10 +4927,15 @@ impl App {
                     )
                     .collect(),
             )?;
+            let upload_ms = stage.elapsed().as_secs_f64() * 1000.0;
+            if diagnostic {
+                log::info!("[TREE_EDIT_DIAG] published={published}");
+                log::info!("[TREE_EDIT_DIAG] compile wait_ms={wait_ms:.3} read_ms={read_ms:.3} append_ms={append_ms:.3} finish_ms={finish_ms:.3} bind_ms={bind_ms:.3} mesh_bind_ms={mesh_bind_ms:.3} upload_ms={upload_ms:.3} bounds={read_bounds:?}");
+            }
             self.tracer.raster_trees.source.compiled(
                 self.visible_terrain_revision,
                 self.trees.canonical_revision,
-                read_bounds,
+                mesh.terrain_dependencies(),
             );
             log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
                 self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());
