@@ -1893,7 +1893,12 @@ impl DdgiVolumes {
                 && staging.radiance_snapshot.is_some()
                 && staging.global_sky_revision(resident.resident.sky_slot)
                     == resident.owner_radiance_revision,
-            "DDGI staging publication lost its owner radiance tuple"
+            "DDGI staging publication lost its owner radiance tuple: builder={:?} resident={} sky={} snapshot={} scheduled={:?}",
+            staging.radiance_revision,
+            resident.owner_radiance_revision,
+            staging.global_sky_revision(resident.resident.sky_slot),
+            staging.radiance_snapshot.is_some(),
+            staging.scheduled_work,
         );
         Ok(DdgiVolumePromotionPermit {
             token: expected_token,
