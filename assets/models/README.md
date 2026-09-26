@@ -77,6 +77,10 @@ Butterflies, falling leaves and new apples all call `sampleModelPixelGeometry` i
 `model_pixel_projection.slang` supplies fixed orthographic framing and rotating
 pixels. Screen-aligned resampling and its A/B checkbox have been retired. See
 [`model-pixel-orthographic-preview.md`](../../docs/performance/model-pixel-orthographic-preview.md).
+The [startup cache](../../docs/performance/model-pixel-cache.md) now shares unlit surface tiles
+across instances: 64 leaf variants, one apple shape and 32 butterfly articulation frames.
+Published root motion, instance tint, lighting and physical pose remain dynamic. Live generation
+and cache lookup use the same canonical generator; neither display path traverses triangles.
 Adapters own only mesh ranges, poses and
 material shading; they do not own coverage or screen-fragment ray loops. Some particle binding/type
 names retain the historical `butterfly` prefix. Leaves upload one shared 64-shape bank plus per-particle

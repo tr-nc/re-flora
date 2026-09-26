@@ -5,15 +5,18 @@ It is now the only production display mode. B's screen-grid resampling, overlap
 gather, checkbox and app/render/GPU option field have been removed. Old saved
 `model_pixel_screen_grid` values are retired, whether true or false.
 
-This is still a cache-compatible live preview, **not startup baking or an atlas**.
+These are the accepted projection/display rules. The subsequent
+[startup-cache implementation](model-pixel-cache.md) now reuses them; this report's
+historical A/B measurements are not cache measurements.
 Butterflies, 3D falling leaves, attached apples and fallen apples all use the same
 geometry projection and display implementation. Physics, growth, tree wind,
 instance poses and mesh shadow casting remain unchanged.
 
 ## Controls
 
-**Pixel Models — Global** contains only **Discrete View Count**: shared, default
-**16**, range 8–512. Canonical square pixels rotate with the object's screen roll.
+**Pixel Models — Global** contains **Discrete View Count** (shared, default
+**16**, range 8–512) and the new **Shared Startup Cache** comparison checkbox.
+Canonical square pixels rotate with the object's screen roll.
 Per-object lighting is permanent. Resolution stays under Butterflies, Falling
 Leaves and Apple Appearance (one apple resolution covers attached/fallen states).
 This is not a whole-screen pixelation pass or a globally aligned pixel grid.
@@ -48,12 +51,9 @@ cosine, Y + roll sine, and Z. Compute binds it read/write; vertex consumers use 
 descriptors bind the same object allocation used by that batch's compute prepass.
 No vertex/fragment storage-write feature is required.
 
-This seam supports moving geometry generation to startup later. A future
-persistent result must contain material/coverage, normals and canonical depth,
-not today's instance-lit RGBA. Its key needs model/variant, view count/index,
-resolution, animation state and bake-rule version. Offline loading can later
-supply that result without changing placement/display semantics. No on-disk
-format or speculative loader framework has been introduced.
+The seam now feeds the shared startup cache: persistent material/coverage,
+model-local position/normal and canonical depth, never instance-lit RGBA. See the
+stage-two report for keys, frame ownership, limits and the future offline seam.
 
 ## Intentional approximations
 
@@ -64,8 +64,9 @@ format or speculative loader framework has been introduced.
 - Normals/light shading use the real pose. Depth uses the orthographic surface,
   not a flat quad. Both approximate a perspective mesh, especially close up or
   at coarse view counts. Geometry coverage remains conservative.
-- Butterfly articulation remains continuous/live. Animation-frame caching is
-  still future work.
+- Butterfly articulation now uses 32 cached canonical poses in both live/cache
+  modes. Published root translation and flight coupling remain continuous; see
+  the stage-two report for this additional rendering approximation.
 
 ## Validation
 
@@ -79,7 +80,7 @@ env -u WAYLAND_DISPLAY python3 scripts/validate_butterfly_mesh.py --seconds 12
 env -u WAYLAND_DISPLAY cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
-1102 Rust tests passed, four ignored. The two B-only overlap/resampling tests were
+At rotating-pixel consolidation, 1102 Rust tests passed, four ignored. The two B-only overlap/resampling tests were
 removed. Remaining projection tests cover pose/scale/translation invariance, full
 roll at one view key, parallel rays/depth reconstruction, authored framing and
 shared adapter integration. Saved-setting migration tests cover both values of
