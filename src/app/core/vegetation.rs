@@ -4883,7 +4883,12 @@ impl App {
             let mut mesh_bind_ms = 0.0;
             for (&tree_id, record) in &self.trees.records {
                 let bind_started = Instant::now();
-                mesh.bind_tree(tree_id, record.position, &record.rest_tree)?;
+                mesh.bind_tree(
+                    tree_id,
+                    record.position,
+                    &record.rest_tree,
+                    Some(&self.tracer.raster_trees.rest_mesh),
+                )?;
                 mesh_bind_ms += bind_started.elapsed().as_secs_f64() * 1000.0;
                 for (leaf, &branch) in record
                     .rest_tree
