@@ -129,7 +129,8 @@ fn all_three_adapters_use_the_shared_bake_and_rotating_display_is_geometry_free(
     assert!(!display.contains("modelResamplePixel("));
     let cache = include_str!("../../shader/slang/model_pixel_cache.slang");
     let generator = include_str!("../../shader/slang/model_pixel_bake.slang");
-    assert!(cache.contains("return bakeModelSurface("));
+    assert!(!cache.contains("return bakeModelSurface("));
+    assert!(cache.contains("gpuStorageLoad<ModelBakedSurface>"));
     assert!(generator.contains("sampleOrthographicModelPixel("));
     let bake = include_str!("../../shader/slang/model_pixel_projection.slang");
     let sampler = bake

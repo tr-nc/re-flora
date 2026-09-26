@@ -687,14 +687,18 @@ impl App {
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
-            let stage = (frame / 8) % 10;
-            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize / 2];
-            settings.model_pixel_cache.value = stage & 1 != 0;
+            let stage = (frame / 8) % 5;
+            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize];
             settings.butterfly_mesh_preview.value = true;
             settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;
-            let (leaf_pixels, butterfly_pixels) =
-                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3];
+            // Cover high view counts without making this correctness fixture
+            // request several GiB. The isolated sweep below crosses real pages.
+            let (leaf_pixels, butterfly_pixels) = if settings.model_pixel_view_count.value >= 128 {
+                (8, 8)
+            } else {
+                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3]
+            };
             settings.falling_leaf_pixel_resolution.value = leaf_pixels;
             settings.butterfly_pixel_resolution.value = butterfly_pixels;
             if frame.is_multiple_of(30) {
@@ -702,27 +706,25 @@ impl App {
             }
         }
         if std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some() && frame >= 400 {
-            // Isolate invalidation after the ordinary view/resolution/drop sweep.
-            // A checkbox-only change must generate nothing; each resolution
-            // change must rebuild only its own bank. Finish by recovering from
-            // an over-budget request without ever displaying stale surfaces.
+            // Hold one spec while motion continues, then change one input at
+            // a time. Step 5 must cache >128 MiB, spanning several storage blocks;
+            // step 6 replaces it while old GPU submissions are still in flight.
             let step = ((frame - 400) / 16).min(6) as usize;
-            let (views, leaf, apple, butterfly, cached) = [
-                (16, 16, 32, 16, false),
-                (16, 16, 32, 16, true),
-                (16, 32, 32, 16, true),
-                (16, 32, 8, 16, true),
-                (16, 32, 8, 8, true),
-                (512, 64, 64, 64, true),
-                (16, 16, 32, 16, true),
+            let (views, leaf, apple, butterfly) = [
+                (16, 16, 32, 16),
+                (16, 16, 32, 16),
+                (16, 32, 32, 16),
+                (16, 32, 8, 16),
+                (16, 32, 8, 8),
+                (32, 64, 64, 64),
+                (16, 16, 32, 16),
             ][step];
             settings.model_pixel_view_count.value = views;
             settings.falling_leaf_pixel_resolution.value = leaf;
             settings.apple_pixel_resolution.value = apple;
             settings.butterfly_pixel_resolution.value = butterfly;
-            settings.model_pixel_cache.value = cached;
             if (frame - 400).is_multiple_of(16) && frame <= 496 {
-                log::info!("[MODEL_CACHE_REVIEW] step={step} views={views} leaf={leaf} apple={apple} butterfly={butterfly} cached={cached}");
+                log::info!("[MODEL_CACHE_REVIEW] step={step} views={views} leaf={leaf} apple={apple} butterfly={butterfly}");
             }
         }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {

@@ -1403,7 +1403,6 @@ pub struct TerrainFrameInput {
     pub ddgi_aggregate_history: bool,
     pub apple_pixel_resolution: u32,
     pub model_pixel_view_count: u32,
-    pub model_pixel_cache: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1673,7 +1672,6 @@ pub struct Tracer {
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
     model_pixel_view_count: u32,
-    model_pixel_cache_enabled: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -1991,7 +1989,7 @@ impl Tracer {
             allocator.clone(),
         )?;
         let model_pixel_cache = model_pixel_cache::ModelPixelCache::new(
-            vulkan_ctx.device().clone(),
+            &vulkan_ctx,
             allocator.clone(),
             &pool,
             &resources,
@@ -2032,7 +2030,6 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             model_pixel_view_count: 0,
-            model_pixel_cache_enabled: false,
             model_pixel_cache,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
@@ -3069,14 +3066,11 @@ impl Tracer {
             terrain.model_pixel_view_count,
             butterfly_mesh::native_review(),
         );
-        if self.model_pixel_view_count != view_count
-            || self.model_pixel_cache_enabled != terrain.model_pixel_cache
-        {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} rotating_pixels=true cache_requested={}",
-                view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_cache && view_count!=0);
+        if self.model_pixel_view_count != view_count {
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} continuous_oracle={} orthographic={} rotating_pixels=true shared_surfaces={}",
+                view_count!=0,view_count==0,view_count!=0,view_count!=0);
         }
         self.model_pixel_view_count = view_count;
-        self.model_pixel_cache_enabled = terrain.model_pixel_cache;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;

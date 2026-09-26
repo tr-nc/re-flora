@@ -1,34 +1,28 @@
-//! Shared startup-baked, relightable model surfaces. The public seam owns keys,
-//! generation, memory bounds, publication and fence-scoped retirement. Callers
-//! only request a configuration and bind the returned frame's resources.
+//! Model pre-generation: sources, view/animation keys and rebuild policy live
+//! here. Opaque GPU storage, paging, addressing and residency do not.
 use crate::{model_assets, resource::Resource};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use re_flora_vkn::{
     vk, Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, ComputePipeline, DescriptorPool,
-    DescriptorResource, Device, Extent3D, MemoryLocation, ShaderModule,
+    DescriptorResource, Device, Extent3D, GpuPagedStorage, GpuStorageAllocation, GpuStorageHandle,
+    MemoryLocation, ShaderModule, VulkanContext,
 };
 use resource_container_derive::ResourceContainer;
-use std::sync::Arc;
+use std::{alloc::Layout, sync::Arc};
 
 pub const ANIMATION_FRAMES: u32 = 32;
 pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 const SHAPES: [u32; 3] = [64, 1, ANIMATION_FRAMES];
+const SURFACE_BYTES: u64 = 32;
 const FORMAT_VERSION: u32 = 1;
-const SURFACE_BYTES: usize = 32;
-// Per-kind bounded allocations, also below Vulkan's portable storage range.
-// Unsupported combinations explicitly retain the live generator, never a stale
-// cache or lower quality. Three kinds use at most 384 MiB per generation.
-const MAX_BANK_BYTES: usize = 128 * 1024 * 1024;
-
 pub fn animation_frame(phase: f32) -> u32 {
     ((phase.rem_euclid(1.) * ANIMATION_FRAMES as f32).round() as u32) % ANIMATION_FRAMES
 }
 pub fn animation_phase(frame: u32) -> f32 {
     frame as f32 / ANIMATION_FRAMES as f32
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Triangle {
@@ -49,8 +43,8 @@ fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [glam::Vec2; 3], material: u32
         uv2: [uv[2].x, uv[2].y, material as f32, 0.],
     }
 }
-// Immutable generation input. A later offline loader can supply the same baked
-// surface format; it need not change any instance, lighting or display caller.
+// One immutable generation input. Offline loading can later supply the same
+// surface records without changing storage, instance lighting or display.
 fn source() -> (Vec<Triangle>, Vec<[u32; 4]>) {
     let mut triangles = Vec::new();
     let mut ranges = Vec::new();
@@ -104,30 +98,21 @@ fn source() -> (Vec<Triangle>, Vec<[u32; 4]>) {
     }
     (triangles, ranges)
 }
-fn buffer(
-    device: &Device,
-    allocator: &Allocator,
-    bytes: usize,
-    location: MemoryLocation,
-) -> Arc<Buffer> {
-    Arc::new(Buffer::new_sized(
+fn buffer(device: &Device, allocator: &Allocator, bytes: usize) -> Result<Arc<Buffer>> {
+    Ok(Arc::new(Buffer::try_new_sized(
         device.clone(),
         allocator.clone(),
         BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-        location,
+        MemoryLocation::CpuToGpu,
         bytes as u64,
-    ))
+    )?))
 }
 #[derive(ResourceContainer)]
 pub struct CacheResources {
     pub model_bake_triangles: Resource<Buffer>,
     pub model_bake_ranges: Resource<Buffer>,
-    pub model_cache_leaves: Resource<Buffer>,
-    pub model_cache_apples: Resource<Buffer>,
-    pub model_cache_butterflies: Resource<Buffer>,
-    pub model_cache_output: Resource<Buffer>,
     pub model_cache_validation: Resource<Buffer>,
-    pub model_cache_specs: Resource<Buffer>,
+    pub model_cache_entries: Resource<Buffer>,
 }
 impl CacheResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -145,22 +130,15 @@ impl CacheResources {
         geometry.fill(&triangles).expect("canonical model source");
         let range_buffer = create(std::mem::size_of_val(ranges.as_slice()) as u64);
         range_buffer.fill(&ranges).expect("canonical model ranges");
-        let specs = create(48);
-        specs.fill(&[0u32; 12]).unwrap();
-        let dummy = || {
-            let b = create(32);
-            b.fill(&[0u32; 8]).unwrap();
-            Resource::new(b)
-        };
+        let entries = create((3 * std::mem::size_of::<Entry>()) as u64);
+        entries.fill(&[Entry::zeroed(); 3]).unwrap();
+        let validation = create(32);
+        validation.fill(&[0u32; 8]).unwrap();
         Self {
             model_bake_triangles: Resource::new(geometry),
             model_bake_ranges: Resource::new(range_buffer),
-            model_cache_leaves: dummy(),
-            model_cache_apples: dummy(),
-            model_cache_butterflies: dummy(),
-            model_cache_output: dummy(),
-            model_cache_validation: dummy(),
-            model_cache_specs: Resource::new(specs),
+            model_cache_validation: Resource::new(validation),
+            model_cache_entries: Resource::new(entries),
         }
     }
 }
@@ -171,43 +149,52 @@ struct Spec {
     views: u32,
 }
 impl Spec {
-    fn bytes(self) -> Option<usize> {
-        if !(8..=64).contains(&self.resolution) || !(8..=512).contains(&self.views) {
-            return None;
-        }
-        let cells = SHAPES[self.kind as usize] as usize
-            * self.views as usize
-            * (self.resolution * self.resolution) as usize;
-        let bytes = cells * SURFACE_BYTES;
-        (bytes <= MAX_BANK_BYTES).then_some(bytes)
+    fn records(self) -> Result<u64> {
+        ensure!(
+            (8..=64).contains(&self.resolution) && (8..=512).contains(&self.views),
+            "invalid model bake specification: {self:?}"
+        );
+        let shapes = *SHAPES
+            .get(self.kind as usize)
+            .context("invalid model kind")?;
+        Ok(u64::from(shapes) * u64::from(self.views) * u64::from(self.resolution).pow(2))
     }
+}
+// Scalars after the opaque handle match Slang's structured-buffer layout.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Entry {
+    storage: GpuStorageHandle,
+    resolution: u32,
+    views: u32,
+    shapes: u32,
+    version: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct BakePush {
+    kind: u32,
+    resolution: u32,
+    views: u32,
+    shapes: u32,
+    storage: GpuStorageHandle,
 }
 #[derive(Clone)]
 pub struct CacheFrame {
-    banks: [Arc<Buffer>; 3],
     validation: Arc<Buffer>,
-    specs: Arc<Buffer>,
+    entries: Arc<Buffer>,
 }
 impl CacheFrame {
-    pub fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 5] {
+    pub fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 2] {
         [
             (
-                "model_cache_leaves",
-                DescriptorResource::Buffer(&self.banks[0]),
-            ),
-            (
-                "model_cache_apples",
-                DescriptorResource::Buffer(&self.banks[1]),
-            ),
-            (
-                "model_cache_butterflies",
-                DescriptorResource::Buffer(&self.banks[2]),
+                "model_cache_entries",
+                DescriptorResource::Buffer(&self.entries),
             ),
             (
                 "model_cache_validation",
                 DescriptorResource::Buffer(&self.validation),
             ),
-            ("model_cache_specs", DescriptorResource::Buffer(&self.specs)),
         ]
     }
 }
@@ -215,44 +202,41 @@ pub struct ModelPixelCache {
     device: Device,
     allocator: Allocator,
     pipeline: ComputePipeline,
-    active: [Arc<Buffer>; 3],
-    keys: [Option<Spec>; 3],
-    empty: Arc<Buffer>,
-    // Each slot retains the generation consumed by its pending submission.
+    storage: GpuPagedStorage,
+    active: [Option<(Spec, GpuStorageAllocation)>; 3],
     frames: Vec<Option<CacheFrame>>,
     review: bool,
 }
 impl ModelPixelCache {
     pub fn new(
-        device: Device,
+        context: &VulkanContext,
         allocator: Allocator,
         pool: &DescriptorPool,
         resources: &super::TracerResources,
     ) -> Self {
+        let device = context.device();
         let shader =
-            ShaderModule::from_precompiled(&device, "shader/models/model_pixel_bake.comp", "main")
+            ShaderModule::from_precompiled(device, "shader/models/model_pixel_bake.comp", "main")
                 .unwrap();
         let pipeline = ComputePipeline::new(
-            &device,
+            device,
             &shader,
             pool,
             &[&resources.model_cache, &resources.butterfly_mesh],
         );
-        let empty = buffer(&device, &allocator, 32, MemoryLocation::CpuToGpu);
-        empty.fill(&[0u32; 8]).unwrap();
         Self {
-            device,
+            device: device.clone(),
+            storage: GpuPagedStorage::new(context, allocator.clone()),
             allocator,
             pipeline,
-            active: std::array::from_fn(|_| empty.clone()),
-            keys: [None; 3],
-            empty,
+            active: std::array::from_fn(|_| None),
             frames: Vec::new(),
             review: std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some(),
         }
     }
-    /// Called only after this frame slot's fence. Bake before any consumer, keep
-    /// other slots' old buffers alive, and rebuild only changed kind keys.
+    /// A completed frame slot is required. Allocate all replacements first;
+    /// failure is explicit and leaves the old generation unpublished/unchanged.
+    /// There is no memory-budget fallback or per-instance geometry generation.
     pub fn prepare(
         &mut self,
         slot: usize,
@@ -263,7 +247,7 @@ impl ModelPixelCache {
         while self.frames.len() <= slot {
             self.frames.push(None);
         }
-        let (validation, specs) = if let Some(frame) = self.frames[slot].take() {
+        if let Some(frame) = &self.frames[slot] {
             if self.review {
                 let bytes = frame.validation.read_back()?;
                 let counters: &[u32] = bytemuck::try_cast_slice(&bytes)
@@ -280,72 +264,89 @@ impl ModelPixelCache {
                     );
                     ensure!(
                         counters[1] == 0 && counters[3] == 0 && counters[5] == 0,
-                        "cached/live canonical surface mismatch"
+                        "stored/baked canonical surface mismatch"
                     );
                 }
             }
-            (frame.validation, frame.specs)
         } else {
-            (
-                buffer(&self.device, &self.allocator, 32, MemoryLocation::CpuToGpu),
-                buffer(&self.device, &self.allocator, 48, MemoryLocation::CpuToGpu),
-            )
-        };
-        validation.fill(&[0u32; 8])?;
-        self.pipeline.begin_transient_descriptor_frame(slot);
-        for kind in 0..3 {
-            let spec = Spec {
-                kind: kind as u32,
-                resolution: resolutions[kind].clamp(8, 64),
-                views,
-            };
-            if self.keys[kind] == Some(spec) {
-                continue;
-            }
-            if let Some(bytes) = spec.bytes() {
-                let output = buffer(
+            self.frames[slot] = Some(CacheFrame {
+                validation: buffer(&self.device, &self.allocator, 32)?,
+                entries: buffer(
                     &self.device,
                     &self.allocator,
-                    bytes,
-                    MemoryLocation::GpuOnly,
-                );
-                let start = std::time::Instant::now();
-                self.pipeline.record_with_descriptors(
-                    cmd,
-                    &[("model_cache_output", DescriptorResource::Buffer(&output))],
-                    Extent3D::new(spec.resolution, spec.resolution, views * SHAPES[kind]),
-                    Some(bytemuck::bytes_of(&[
-                        spec.kind,
-                        spec.resolution,
-                        views,
-                        SHAPES[kind],
-                    ])),
-                )?;
-                log::info!("[MODEL_CACHE_BUILD] kind={kind} views={views} resolution={} shapes={} bytes={bytes} version={FORMAT_VERSION} record_us={} (not GPU bake time)",
-                    spec.resolution,SHAPES[kind],start.elapsed().as_micros());
-                self.active[kind] = output;
-            } else {
-                self.active[kind] = self.empty.clone();
-                if views != 0 {
-                    log::warn!("[MODEL_CACHE_FALLBACK] kind={kind} views={views} resolution={} exceeds {} MiB bank budget; exact live generation retained",spec.resolution,MAX_BANK_BYTES/1024/1024);
-                }
-            }
-            self.keys[kind] = Some(spec);
+                    3 * std::mem::size_of::<Entry>(),
+                )?,
+            });
         }
-        let metadata: [[u32; 4]; 3] = std::array::from_fn(|kind| {
-            let spec = self.keys[kind].unwrap();
-            if spec.bytes().is_some() {
-                [spec.resolution, spec.views, SHAPES[kind], FORMAT_VERSION]
-            } else {
-                [0; 4]
+        self.storage.begin_frame(slot);
+        self.frames[slot]
+            .as_ref()
+            .unwrap()
+            .validation
+            .fill(&[0u32; 8])?;
+        // Zero exists only for the pre-existing continuous numerical diagnostics.
+        // It is never a runtime cache setting or a resource-pressure fallback.
+        if views == 0 {
+            self.active = std::array::from_fn(|_| None);
+            self.frames[slot]
+                .as_ref()
+                .unwrap()
+                .entries
+                .fill(&[Entry::zeroed(); 3])?;
+            return Ok(());
+        }
+        let requested: [Spec; 3] = std::array::from_fn(|kind| Spec {
+            kind: kind as u32,
+            resolution: resolutions[kind].clamp(8, 64),
+            views,
+        });
+        let mut replacements = Vec::new();
+        for spec in requested {
+            if self.active[spec.kind as usize]
+                .as_ref()
+                .is_some_and(|(old, _)| *old == spec)
+            {
+                continue;
             }
-        });
-        specs.fill(&metadata)?;
-        self.frames[slot] = Some(CacheFrame {
-            banks: self.active.clone(),
-            validation,
-            specs,
-        });
+            let allocation=self.storage.allocate(spec.records()?,Layout::from_size_align(SURFACE_BYTES as usize,16).unwrap())
+                .with_context(||format!("cannot create model surfaces for {spec:?}; free GPU memory or reduce requested resolutions/view count"))?;
+            replacements.push((spec, allocation));
+        }
+        for (spec, allocation) in &replacements {
+            self.storage
+                .use_in_frame(slot, cmd, allocation, BufferUse::ComputeWrite);
+            let push = BakePush {
+                kind: spec.kind,
+                resolution: spec.resolution,
+                views,
+                shapes: SHAPES[spec.kind as usize],
+                storage: allocation.handle(),
+            };
+            self.pipeline.record(
+                cmd,
+                Extent3D::new(spec.resolution, spec.resolution, views * push.shapes),
+                Some(bytemuck::bytes_of(&push)),
+            );
+            log::info!("[MODEL_CACHE_BUILD] kind={} views={views} resolution={} shapes={} bytes={} blocks={} resident_bytes={} version={FORMAT_VERSION}",
+                spec.kind,spec.resolution,push.shapes,spec.records()?*SURFACE_BYTES,allocation.block_count(),allocation.resident_bytes());
+        }
+        for (spec, allocation) in replacements {
+            self.active[spec.kind as usize] = Some((spec, allocation));
+        }
+        let mut entries = [Entry::zeroed(); 3];
+        for (kind, item) in self.active.iter().enumerate() {
+            let (spec, allocation) = item.as_ref().expect("all model specifications prepared");
+            self.storage
+                .use_in_frame(slot, cmd, allocation, BufferUse::ComputeRead);
+            entries[kind] = Entry {
+                storage: allocation.handle(),
+                resolution: spec.resolution,
+                views: spec.views,
+                shapes: SHAPES[kind],
+                version: FORMAT_VERSION,
+            };
+        }
+        self.frames[slot].as_ref().unwrap().entries.fill(&entries)?;
         Ok(())
     }
     pub fn frame(&self, slot: usize) -> CacheFrame {
@@ -398,57 +399,52 @@ mod tests {
             let p = i as f32 / 317.;
             let f = animation_frame(p);
             assert!(f < ANIMATION_FRAMES);
-            let delta = (animation_phase(f) - p + 0.5).rem_euclid(1.) - 0.5;
-            assert!(delta.abs() <= 0.5 / ANIMATION_FRAMES as f32 + 1e-6);
+            assert!(
+                ((animation_phase(f) - p + 0.5).rem_euclid(1.) - 0.5).abs()
+                    <= 0.5 / ANIMATION_FRAMES as f32 + 1e-6
+            );
         }
     }
     #[test]
-    fn configurations_are_checked_before_allocation_and_only_depend_on_bake_inputs() {
+    fn all_supported_specifications_describe_the_full_data_without_budget_truncation() {
         for kind in 0..3 {
             for views in 8..=512 {
-                for resolution in [8, 16, 32, 64] {
+                for resolution in 8..=64 {
                     let spec = Spec {
                         kind,
                         resolution,
                         views,
                     };
-                    if let Some(bytes) = spec.bytes() {
-                        assert!(bytes <= MAX_BANK_BYTES && bytes >= 32);
-                    }
+                    assert_eq!(
+                        spec.records().unwrap(),
+                        u64::from(SHAPES[kind as usize])
+                            * u64::from(views)
+                            * u64::from(resolution).pow(2)
+                    );
                 }
             }
         }
         assert_eq!(
             Spec {
                 kind: 0,
-                resolution: 16,
-                views: 16
-            }
-            .bytes(),
-            Some(8 * 1024 * 1024)
-        );
-        assert_eq!(
-            Spec {
-                kind: 0,
                 resolution: 64,
-                views: 16
+                views: 512
             }
-            .bytes(),
-            Some(MAX_BANK_BYTES)
+            .records()
+            .unwrap()
+                * SURFACE_BYTES,
+            4u64 << 30
         );
-        assert!(Spec {
-            kind: 0,
-            resolution: 64,
-            views: 512
-        }
-        .bytes()
-        .is_none());
         assert!(Spec {
             kind: 0,
             resolution: 16,
             views: 0
         }
-        .bytes()
-        .is_none());
+        .records()
+        .is_err());
+        assert_eq!(std::mem::size_of::<Entry>(), 40);
+        assert_eq!(std::mem::offset_of!(Entry, resolution), 24);
+        assert_eq!(std::mem::size_of::<BakePush>(), 40);
+        assert_eq!(std::mem::offset_of!(BakePush, storage), 16);
     }
 }

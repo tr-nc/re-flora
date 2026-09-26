@@ -72,7 +72,6 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
-        Self::add_missing_param(&mut config, "Debug", "model_pixel_cache");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
@@ -92,6 +91,7 @@ impl GuiConfigLoader {
                         | "model_pixel_snap_views"
                         | "model_pixel_single_light"
                         | "model_pixel_screen_grid"
+                        | "model_pixel_cache"
                 )
             });
         }
@@ -909,6 +909,7 @@ mod tests {
                 "model_pixel_snap_views",
                 "model_pixel_single_light",
                 "model_pixel_screen_grid",
+                "model_pixel_cache",
             ]
             .map(|id| (enabled, id))
         }) {
@@ -972,7 +973,6 @@ mod tests {
                     .find(|p| p.id == "raster_tree_static")
                     .unwrap()
                     .clone();
-                debug.param.retain(|p| p.id != "model_pixel_cache");
                 old.id = "model_pixel_snap_views".into();
                 old.value = GuiParamValue::Bool { value: enabled };
                 debug.param.push(old);
@@ -998,14 +998,7 @@ mod tests {
                 let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
                 assert!(!params.iter().any(|p| p.id == "model_pixel_snap_views"));
                 assert!(!params.iter().any(|p| p.id == "model_pixel_screen_grid"));
-                assert!(matches!(
-                    params
-                        .iter()
-                        .find(|p| p.id == "model_pixel_cache")
-                        .unwrap()
-                        .value,
-                    GuiParamValue::Bool { value: false }
-                ));
+                assert!(!params.iter().any(|p| p.id == "model_pixel_cache"));
                 let param = params
                     .iter()
                     .find(|p| p.id == "model_pixel_view_count")

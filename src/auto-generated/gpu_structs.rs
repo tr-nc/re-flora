@@ -800,7 +800,7 @@ pub struct GuiInput {
     pub raster_flora_ddgi_lighting: u32,
     pub raster_tree_static: u32,
     pub apple_pixel_resolution: u32,
-    pub model_pixel_cache: u32,
+    pub model_pixel_cache_verify: u32,
     pub model_pixel_view_count: u32,
     pub raster_tree_hybrid_lighting: u32,
     pub path_tracing_reference: u32,

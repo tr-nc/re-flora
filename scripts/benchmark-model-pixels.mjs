@@ -10,7 +10,7 @@ const help=`Usage: node scripts/benchmark-model-pixels.mjs [--seconds 8] [--bina
 Measures pixel-rendered 8/32/64px apples, attached and fallen, in the same hidden
 windowed scene (Linux/X11: fixed 2880x1620). Build first: cargo build --release.
 Requires Vulkan/display. Acceptance: GPU p95 under the 60 Hz budget, and frame
-interval within 5% of the 8px reference (stage-one: default 16 views; cache: matching live case) or 60 Hz, whichever is slower.
+interval within 5% of the 8px reference (stage-one: default 16 views) or 60 Hz, whichever is slower.
 Do not run another game instance while measuring: temporarily edits config/gui.toml
 and restores it on completion or handled signals. A recovery copy is saved in the
 output directory. Logs, screenshots, dimensions and summary.json are retained.
@@ -19,11 +19,11 @@ slow-frame-biased PERF/FRAME log. Warmup and screenshot capture are excluded.
 Optional --stress-leaves 1..16384 adds that many rotating renderer-only leaves
 (at 16px) plus 21 butterfly previews (16px), without GPU readback or CPU oracles.
 This is a rendering workload, not a flight-physics benchmark.
---suite stage-one compares 8/16/128/512 views with permanent per-object lighting on the
-same 32px apple meshes. Views remain live-rendered: NOT atlas performance.
---suite cache compares live and startup-cached surfaces at 32/64px apples and 16 views,
-including relighting/display costs. It verifies all three banks build once, with no
-fallback or oracle work. The other suites force live generation.
+All suites use permanent shared surfaces; no live-generation mode exists.
+--suite stage-one compares 8/16/128/512 views on the same 32px apple meshes.
+--suite cache is an alias of apples (8/32/64px at 16 views), including relighting/display.
+Every run verifies one startup generation per kind, with no fallback or oracle work.
+Historical cache/live A/B comparisons require the older checkout.
 Rotating pixels is the only display mode; the former --suite display A/B has been retired.
 Example: node scripts/benchmark-model-pixels.mjs --seconds 10 --stress-leaves 256 --suite stage-one`;
 const options={seconds:8,binary:'target/release/re-flora',output:'target/model-pixel-bench','stress-leaves':0,suite:'apples'};
@@ -80,15 +80,14 @@ function metrics(text){
 }
 const results=[];
 try {
- const cases=options.suite==='cache'?[32,64].flatMap(n=>[false,true].map(cached=>({n,views:16,cached,label:`${n}-${cached?'cached':'live'}`}))):
- options.suite==='stage-one'?[8,16,128,512].map(views=>({
-  n:32,views,cached:false,label:`views-${views}`
- })):[8,32,64].map(n=>({n,views:16,cached:false,label:n}));
- for(const scene of ['attached','fallen'])for(const {n,views,cached,label} of cases){
+ const cases=options.suite==='stage-one'?[8,16,128,512].map(views=>({
+  n:32,views,label:`views-${views}`
+ })):[8,32,64].map(n=>({n,views:16,label:n}));
+ for(const scene of ['attached','fallen'])for(const {n,views,label} of cases){
   if(interrupted)throw new Error('Interrupted');
   assert.equal(await readFile(configPath,'utf8'),owned,'Concurrent config edit; refusing to overwrite it');
   owned=setting(setting(original,'apple_pixel_resolution',n),'fruit_cycle',scene==='attached'?0.7:1);
-  owned=setting(setting(owned,'model_pixel_view_count',views),'model_pixel_cache',cached);
+  owned=setting(owned,'model_pixel_view_count',views);
   if(options['stress-leaves'])for(const [id,value] of Object.entries({butterfly_mesh_preview:true,butterfly_pixel_resolution:16,
    falling_leaf_mesh:true,falling_leaf_pixel_resolution:16,falling_leaf_size_scale:1}))owned=setting(owned,id,value);
   await writeFile(configPath,owned);
@@ -101,13 +100,11 @@ try {
   assert.match(text,/Application exited successfully/);
   if(options['stress-leaves'])assert.ok(text.includes(`[MODEL_PIXEL_STRESS] leaves=${options['stress-leaves']} butterflies=21`),'Requested stress workload was not activated');
   const png=await readFile(image),width=png.readUInt32BE(16),height=png.readUInt32BE(20);
-  assert.ok(text.includes(`[MODEL_PIXEL_PREVIEW] single_light=true views=${views} live_tiles=true continuous_oracle=false orthographic=true rotating_pixels=true cache_requested=${cached}`),'View count/lighting/display mode did not reach renderer');
+  assert.ok(text.includes(`[MODEL_PIXEL_PREVIEW] single_light=true views=${views} continuous_oracle=false orthographic=true rotating_pixels=true shared_surfaces=true`),'View count/lighting/display mode did not reach renderer');
   const builds=[...text.matchAll(/MODEL_CACHE_BUILD\] kind=(\d+) views=(\d+) resolution=(\d+) shapes=(\d+) bytes=(\d+)/g)];
-  if(options.suite==='cache'){
-   assert.deepEqual(builds.map(b=>+b[1]).sort(),[0,1,2],'Banks must build once at startup, not per instance/frame');
-   assert.doesNotMatch(text,/MODEL_CACHE_FALLBACK|MODEL_CACHE_ORACLE/,'Not a steady cached performance workload');
-  }
-  const row={scene,resolution:n,views,cached,width,height,stress_leaves:options['stress-leaves'],
+  assert.deepEqual(builds.map(b=>+b[1]).sort(),[0,1,2],'Surfaces must build once at startup, not per instance/frame');
+  assert.doesNotMatch(text,/MODEL_CACHE_FALLBACK|MODEL_CACHE_ORACLE|cache_requested=/,'Not a steady permanent-cache workload');
+  const row={scene,resolution:n,views,cached:true,width,height,stress_leaves:options['stress-leaves'],
    cache_bytes:builds.reduce((sum,b)=>sum+(+b[5]),0),...metrics(text)};
   if(results.length)assert.deepEqual([width,height],[results[0].width,results[0].height],'Viewport changed between runs');
   results.push(row);console.log(JSON.stringify(row));
@@ -118,7 +115,7 @@ try {
  else console.error(`Config changed concurrently; left it untouched. Recovery copy: ${options.output}/gui.before.toml`);
 }
 assert.ok(results.filter(r=>r.resolution===32).every(r=>{
- const baseline=results.find(b=>b.scene===r.scene&&(options.suite==='cache'?b.resolution===r.resolution&&!b.cached:options.suite==='stage-one'?b.views===16:b.resolution===8));
+ const baseline=results.find(b=>b.scene===r.scene&&(options.suite==='stage-one'?b.views===16:b.resolution===8));
  return r.gpu_ms_p95<1000/60 && r.frame_interval_ms_p50<=1.05*Math.max(1000/60,baseline.frame_interval_ms_p50);
 }), 'Default 32px failed the 60 Hz GPU budget or baseline-normalized frame interval; see summary.json. Do not claim performance acceptance.');
 console.log(`PASS: runtime checks, default-32px 60 Hz GPU budget and baseline-normalized frame interval. Artifacts: ${options.output}`);
