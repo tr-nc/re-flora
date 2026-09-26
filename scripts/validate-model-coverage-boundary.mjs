@@ -21,7 +21,7 @@ assert.equal(result.status, 0, `App/build failed; inspect ${output}/run.log`);
 assert.doesNotMatch(text, /\bERROR\b|VUID-|panicked at/, `inspect ${output}/run.log`);
 assert.deepEqual(await readFile('config/gui.toml'), before, 'Fixture changed saved settings');
 assert.match(text, /MODEL-REPAIR-CHECK\] original_samples=[1-9]\d* original_changed=0 added=[1-9]\d*/);
-assert.match(text, /LEAF-MODEL-CHECK\] mode=B .*active=1 checked_hits=[1-9]\d*/);
+assert.match(text, /LEAF-MODEL-CHECK\] mode=B resolution=64 active=1 checked_hits=[1-9]\d*/);
 const tile = await readFile(`${output}/final.bin`);
 assert.equal(tile.length, 4096 * 16);
 assert.equal(tile.readFloatLE((26 * 64 + 11) * 16 + 12), 1, 'Captured boundary is not the minimized case');

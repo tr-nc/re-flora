@@ -633,7 +633,15 @@ impl ButterflyMeshRenderer {
                 checked_leaf > 0,
                 "leaf fixture produced no checked leaf samples"
             );
-            log::info!("[LEAF-MODEL-CHECK] mode=B resolution={} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.previous_leaf_mode.unwrap().1, self.count() - self.tile_count);
+            // The frozen regression overrides the published instance, not the
+            // saved setting. Report the resolution actually sent to the GPU.
+            let resolution = self
+                .instances
+                .iter()
+                .find(|instance| instance.metadata[3] & LEAF_MODEL_FLAG != 0)
+                .expect("checked leaf instance")
+                .metadata[2];
+            log::info!("[LEAF-MODEL-CHECK] mode=B resolution={resolution} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.count() - self.tile_count);
         }
         self.validated_mode = self.previous_mode;
         self.validated_leaf_mode = self.previous_leaf_mode;

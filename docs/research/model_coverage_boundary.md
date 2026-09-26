@@ -69,8 +69,9 @@ Final acceptance belongs to the controller.
 
 ## Implemented correction and proofs
 
-`projectModelPixelTriangle` now owns the producer's clipping/projection arithmetic.
-The native reference dispatch exports its projected vertices, bounds, triangle
+The producer and `projectModelPixelTriangle` share clipping and tile-XY arithmetic
+(the depth-preserving seam is detailed below). The native reference dispatch
+exports its projected vertices, bounds, triangle
 identity and polygon length in a fifth diagnostic slab (normal play still
 allocates one slab). The CPU checks this evidence against independent projection,
 including source identity, clipping topology, finite coordinates, camera framing
@@ -180,4 +181,45 @@ a lighting-dependent color golden. Before the fix, the exact existing fixture
 command exits 1 with **both** equivalences false (`regression-red/` and
 `regression-red-console.log`), while the coverage/depth oracle still passes.
 `CARGO_BUILD_JOBS=4 cargo check` passes (`regression-check.log`). This regression
-is committed before changing producer arithmetic.
+is committed before changing producer arithmetic (`6ebd30d0`).
+
+### Depth-preserving correction
+
+The faulty refactor materialized normalized/saturated depths into the projected
+polygon, removing the original per-fan division and `precise` XY dataflow from
+the coverage loop. That is not numerically neutral for nearest-support selection.
+The corrected seam shares homogeneous clipping (`clipModelPixelTriangle`) and
+XY conversion (`modelPixelTileXY`), while keeping the producer's original per-fan
+float3 division, precise XY locals, barycentrics, depth dot/saturation and strict
+`depth >= hit.depth` ordering. Diagnostic vertices remain observations, not
+coverage decisions. No epsilon, depth threshold, ordering/tie policy or center
+shader changed.
+
+A second same-input native probe (`probe-green-comparison.log`) now has identical
+supporting triangles, barycentrics, positions, depths and RGBA for all four
+counterexamples. Both probes are archived in `correction/`; temporary source
+instrumentation and the legacy-function copy have been removed.
+
+After removing probes, the deterministic runner passes with **both** material
+equivalences true (`fixture-green/`). The actual final tile and center tile are
+also **entirely byte-identical** to `red-capture/pixels.bin` tiles 1 and 257:
+
+- final SHA256: `1ccae727d361c350cfa1fd26121b1e40ae7b5c561176f4f52c8848ee5dafcc1f`
+- center SHA256: `92aa081f646f813eb2c95a58fc33872284038c76569162805cfed389c2882462`
+
+`compare-restored.mjs` / `restored-output-comparison.log` check every float lane:
+zero changed RGB pixels, zero changed depths, not merely the four reported
+pixels or a coverage-mask comparison. This supersedes the earlier color
+preservation conclusion. All consumers use the restored shared coverage loop;
+the refactor's depth dataflow change was not inherently diagnostic-only.
+This is a proof for the captured input, not a universal cross-driver bit-exact
+rendering claim. A separate offline comparison found different optimized SPIR-V
+for the original/corrected apple shaders (`spirv/`); compilation alone is not
+claimed as output equivalence evidence.
+
+The fixture now logs and requires actual `resolution=64` from instance metadata,
+not the configured 16px setting. `cargo fmt --check`, `CARGO_BUILD_JOBS=4 cargo
+check`, `cargo test model_pixel` (24 passed, 1 existing ignored), `cargo test
+butterfly_mesh` (17 passed), and the explicit Slang projection executable all
+pass; logs are in `correction/`. The original strict leaf/butterfly/apple runners
+remain unchanged. New final native gates follow this focused correction.

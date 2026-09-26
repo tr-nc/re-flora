@@ -80,11 +80,13 @@ public struct ModelPixelPolygon {
     public float3 vertices[12];
     public uint count;
 };
-public ModelPixelPolygon projectModelPixelTriangle(ButterflyMeshTriangle tri,
-    ModelPixelFrame frame,float4 bounds,uint resolution,U_CameraInfo camera) {
-    ModelPixelPolygon result;
-    result.count=0u;
-    if(any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return result;
+struct ModelPixelClipPolygon {
+    float4 vertices[12];
+    uint count;
+};
+ModelPixelClipPolygon clipModelPixelTriangle(ButterflyMeshTriangle tri,
+    ModelPixelFrame frame,U_CameraInfo camera) {
+    ModelPixelClipPolygon result;
     float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
     precise float4 polygon[12];uint length=3u;
     polygon[0]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1));
@@ -106,10 +108,23 @@ public ModelPixelPolygon projectModelPixelTriangle(ButterflyMeshTriangle tri,
         if(length<3u)break;
     }
     result.count=length;
-    for(uint j=0u;j<length;j++) {
-        float3 p=polygon[j].xyz/polygon[j].w;
-        precise float2 pixel=(p.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
-        result.vertices[j]=float3(pixel,saturate(p.z));
+    for(uint j=0u;j<length;j++)result.vertices[j]=polygon[j];
+    return result;
+}
+float2 modelPixelTileXY(float3 ndc,float4 bounds,uint resolution) {
+    precise float2 pixel=(ndc.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+    return pixel;
+}
+public ModelPixelPolygon projectModelPixelTriangle(ButterflyMeshTriangle tri,
+    ModelPixelFrame frame,float4 bounds,uint resolution,U_CameraInfo camera) {
+    ModelPixelPolygon result;
+    result.count=0u;
+    if(any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return result;
+    ModelPixelClipPolygon polygon=clipModelPixelTriangle(tri,frame,camera);
+    result.count=polygon.count;
+    for(uint j=0u;j<polygon.count;j++) {
+        float3 p=polygon.vertices[j].xyz/polygon.vertices[j].w;
+        result.vertices[j]=float3(modelPixelTileXY(p,bounds,resolution),saturate(p.z));
     }
     return result;
 }
@@ -121,10 +136,17 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
     for(uint i=0u;i<count;i++) {
         ButterflyMeshTriangle tri=triangles[first+i];
         float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
-        ModelPixelPolygon polygon=projectModelPixelTriangle(tri,frame,bounds,resolution,camera);
+        ModelPixelClipPolygon polygon=clipModelPixelTriangle(tri,frame,camera);
         for(uint j=1u;j+1u<polygon.count;j++) {
-            float3 pa=polygon.vertices[0],pb=polygon.vertices[j],pc=polygon.vertices[j+1u];
-            float2 a=pa.xy,b=pb.xy,c=pc.xy;
+            // Keep the original per-fan division and precise XY dataflow.
+            // Materializing normalized/saturated depths in a projected polygon
+            // changes rounding, which can change the nearest supporting material.
+            float3 pa=polygon.vertices[0].xyz/polygon.vertices[0].w;
+            float3 pb=polygon.vertices[j].xyz/polygon.vertices[j].w;
+            float3 pc=polygon.vertices[j+1u].xyz/polygon.vertices[j+1u].w;
+            precise float2 a=modelPixelTileXY(pa,bounds,resolution);
+            precise float2 b=modelPixelTileXY(pb,bounds,resolution);
+            precise float2 c=modelPixelTileXY(pc,bounds,resolution);
             if(!pixelTriangleCovers(a,b,c,float2(pixel)))continue;
             float3 weights=pixelClosestBary(float2(pixel)+0.5,a,b,c);
             float depth=dot(weights,saturate(float3(pa.z,pb.z,pc.z)));
