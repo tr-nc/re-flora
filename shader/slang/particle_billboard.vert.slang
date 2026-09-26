@@ -9,10 +9,6 @@ import tracer_types;
 [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(5, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
-[[vk::binding(7, 0)]] Sampler2D cloud_shadow_tex;
-[[vk::binding(9, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
-[[vk::binding(10, 0)]] Sampler2D leaf_shadow_mask_tex;
 
 struct VertexInput
 {
@@ -95,10 +91,6 @@ VertexOutput main(VertexInput input)
         gui_input,
         sun_info,
         shadow_camera_info,
-        shadow_map_tex_for_vsm_ping,
-        leaf_shadow_opacity_blended_tex,
-        leaf_shadow_mask_tex,
-        cloud_shadow_tex,
         input.instance_position,
         float3(voxelLocalPosition));
     output.color.a = input.instance_color.a;

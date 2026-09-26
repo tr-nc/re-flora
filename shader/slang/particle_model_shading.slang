@@ -39,8 +39,7 @@ float3 wingLighting(ButterflyMeshInstance instance, uint hit, float3 position, f
             if (intersectTriangle(shadowOrigin,sunDirection,butterfly_mesh_triangles[index],distance)) { direct=0.0; break; }
         }
     }
-    StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,
-        shadow_map_tex_for_vsm_ping,leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,cloud_shadow_tex,position,normal);
+    StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info, position,normal);
     float3 ambient=gui_input.raster_flora_ddgi_lighting!=0u
         ? sampleDiffuseEnvironment(gui_input,shading_info,position,normal)
         : LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;
@@ -57,8 +56,7 @@ float3 shadeParticleModelSurface(ButterflyMeshInstance instance,uint hit,float2 
         if(modelSingleLight())return shadeLeafWithEnvironment(
             instance.color.rgb*(uv.x>1.5?0.72:1.0),objectLight.rgb,objectLight.w,
             position,normal,camera_info.pos.xyz,sun_info,gui_input.leaf_transmission_strength);
-        StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,
-            shadow_map_tex_for_vsm_ping,leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,cloud_shadow_tex,position,receiverNormal);
+        StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info, position,receiverNormal);
         float3 ambient=gui_input.raster_flora_ddgi_lighting!=0u
             ? sampleDiffuseEnvironment(gui_input,shading_info,position,normal)
             : LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;

@@ -1256,18 +1256,7 @@ impl App {
         {
             let shadow = tracer.direct_sun_shadow_resources();
             let contree_resources = contree_builder.get_resources();
-            plain_builder.initialize_terrain_moisture_dry_resources(
-                shadow.gui_input,
-                &plain_builder.get_resources().chunk_atlas,
-                shadow.shadow_camera_info,
-                shadow.shadow_map_tex_for_vsm_ping,
-                shadow.leaf_shadow_opacity_blended_tex,
-                shadow.leaf_shadow_mask_tex,
-                shadow.cloud_shadow_tex,
-                &contree_resources.contree_leaf_data,
-                &contree_resources.surface_leaf_coords,
-                &contree_resources.surface_leaf_chunk_info,
-            )?;
+            plain_builder.initialize_terrain_moisture_dry_resources(&shadow, contree_resources)?;
         }
 
         let camera_snapshots = match CameraSnapshotLibrary::load_default() {

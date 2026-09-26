@@ -881,9 +881,6 @@ pub struct ShadowResources {
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
     pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
-    pub cloud_shadow_raw_tex: Resource<Texture>,
-    pub cloud_shadow_history_tex: Resource<Texture>,
-    pub cloud_shadow_tex: Resource<Texture>,
     pub leaf_shadow_opacity_tex: Resource<Texture>,
     pub leaf_shadow_opacity_prev_tex: Resource<Texture>,
     pub leaf_shadow_opacity_blended_tex: Resource<Texture>,
@@ -896,10 +893,6 @@ impl ShadowResources {
             &self.shadow_map_tex_for_vsm_ping,
             &self.shadow_map_tex_for_vsm_prev,
         )
-    }
-
-    pub fn cloud_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
-        CurrentPrevious::new(&self.cloud_shadow_tex, &self.cloud_shadow_history_tex)
     }
 
     pub fn leaf_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
@@ -1055,7 +1048,6 @@ impl TracerUniformResources {
         allocator: Allocator,
         tracer_sm: &ShaderModule,
         composition_sm: &ShaderModule,
-        cloud_temporal_sm: &ShaderModule,
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         flora_vert_sm: &ShaderModule,
@@ -1075,10 +1067,8 @@ impl TracerUniformResources {
             sun_info: Resource::new(layout_buffer(tracer_sm, "U_SunInfo")),
             shading_info: Resource::new(layout_buffer(tracer_sm, "U_ShadingInfo")),
             camera_info: Resource::new(layout_buffer(tracer_sm, "U_CameraInfo")),
-            camera_info_prev_frame: Resource::new(layout_buffer(
-                cloud_temporal_sm,
-                "U_CameraInfoPrevFrame",
-            )),
+            // Frame snapshots share the canonical camera layout, independent of effects.
+            camera_info_prev_frame: Resource::new(layout_buffer(tracer_sm, "U_CameraInfo")),
             env_info: Resource::new(layout_buffer(composition_sm, "U_EnvInfo")),
             starlight_info: Resource::new(layout_buffer(composition_sm, "U_StarlightInfo")),
             voxel_colors: Resource::new(layout_buffer(tracer_sm, "U_VoxelColors")),
@@ -1152,7 +1142,6 @@ impl ShadowResources {
         allocator: Allocator,
         tracer_shadow_sm: &ShaderModule,
         shadow_map_extent: Extent2D,
-        cloud_shadow_extent: Extent2D,
         leaf_shadow_opacity_extent: Extent2D,
     ) -> Self {
         let shadow_camera_info = Buffer::from_buffer_layout(
@@ -1166,7 +1155,6 @@ impl ShadowResources {
             MemoryLocation::CpuToGpu,
         );
         let shadow_map_extent: Extent3D = shadow_map_extent.into();
-        let cloud_shadow_extent: Extent3D = cloud_shadow_extent.into();
         let leaf_shadow_opacity_extent: Extent3D = leaf_shadow_opacity_extent.into();
         let leaf_shadow_mask_extent = Extent3D::new(
             (leaf_shadow_opacity_extent.width / 8).max(1),
@@ -1177,11 +1165,6 @@ impl ShadowResources {
             "[SHADOW] using VSM shadow map {}x{}",
             shadow_map_extent.width,
             shadow_map_extent.height,
-        );
-        log::info!(
-            "[CLOUD_SHADOW] using Beer transmittance map {}x{} with temporal resolve",
-            cloud_shadow_extent.width,
-            cloud_shadow_extent.height,
         );
         log::info!(
             "[LEAF_SHADOW] using 2D opacity map {}x{}, temporal history, and influence mask {}x{}",
@@ -1224,21 +1207,6 @@ impl ShadowResources {
                     shadow_map_extent,
                 ),
             ),
-            cloud_shadow_raw_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
-                device.clone(),
-                allocator.clone(),
-                cloud_shadow_extent,
-            )),
-            cloud_shadow_history_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
-                device.clone(),
-                allocator.clone(),
-                cloud_shadow_extent,
-            )),
-            cloud_shadow_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
-                device.clone(),
-                allocator.clone(),
-                cloud_shadow_extent,
-            )),
             leaf_shadow_opacity_tex: Resource::new(
                 TracerResources::create_leaf_shadow_opacity_tex(
                     device.clone(),
@@ -1445,6 +1413,8 @@ pub struct TracerResources {
     #[resource(nested)]
     pub shadow: ShadowResources,
     #[resource(nested)]
+    pub cloud_shadows: super::clouds::CloudShadowResources,
+    #[resource(nested)]
     pub wind: WindResources,
     #[resource(nested)]
     pub flora_voxel_lookup: FloraVoxelLookupResources,
@@ -1467,7 +1437,6 @@ impl TracerResources {
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
         composition_sm: &ShaderModule,
-        cloud_temporal_sm: &ShaderModule,
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         player_collider_sm: &ShaderModule,
@@ -1479,7 +1448,6 @@ impl TracerResources {
         environment_irradiance_capture_enabled: bool,
         glass_experiment_enabled: bool,
         shadow_map_extent: Extent2D,
-        cloud_shadow_extent: Extent2D,
         leaf_shadow_opacity_extent: Extent2D,
         max_terrain_queries: u32,
     ) -> Self {
@@ -1558,17 +1526,19 @@ impl TracerResources {
                 allocator.clone(),
                 tracer_sm,
                 composition_sm,
-                cloud_temporal_sm,
                 god_ray_sm,
                 post_processing_sm,
                 flora_vert_sm,
+            ),
+            cloud_shadows: super::clouds::CloudShadowResources::new(
+                device.clone(),
+                allocator.clone(),
             ),
             shadow: ShadowResources::new(
                 device.clone(),
                 allocator.clone(),
                 tracer_shadow_sm,
                 shadow_map_extent,
-                cloud_shadow_extent,
                 leaf_shadow_opacity_extent,
             ),
             wind: WindResources::new(
@@ -1760,30 +1730,6 @@ impl TracerResources {
         // Filtered VSM moments should be interpolated at lookup time; using
         // the default nearest sampler makes grass shadows snap by whole texels
         // even after the compute blur has softened the moments.
-        let sam_desc = SamplerDesc {
-            mag_filter: vk::Filter::LINEAR,
-            min_filter: vk::Filter::LINEAR,
-            ..Default::default()
-        };
-        Texture::new(device, allocator, &tex_desc, &sam_desc)
-    }
-
-    fn create_cloud_shadow_tex(
-        device: Device,
-        allocator: Allocator,
-        cloud_shadow_extent: Extent3D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: cloud_shadow_extent,
-            format: vk::Format::R16_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE
-                | vk::ImageUsageFlags::SAMPLED
-                | vk::ImageUsageFlags::TRANSFER_SRC
-                | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: TextureLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
         let sam_desc = SamplerDesc {
             mag_filter: vk::Filter::LINEAR,
             min_filter: vk::Filter::LINEAR,

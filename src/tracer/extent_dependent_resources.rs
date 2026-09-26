@@ -66,9 +66,8 @@ pub struct ExtentDependentResources {
     pub lens_flare_raw_tex: Resource<Texture>,
     pub lens_flare_history_tex: Resource<Texture>,
     pub lens_flare_output_tex: Resource<Texture>,
-    pub cloud_raw_tex: Resource<Texture>,
-    pub cloud_history_tex: Resource<Texture>,
-    pub cloud_output_tex: Resource<Texture>,
+    #[resource(nested)]
+    pub clouds: super::clouds::CloudScreenResources,
     pub screen_output_tex: Resource<Texture>,
     pub screenshot_output_tex: Resource<Texture>,
     pub unified_opaque_hdr_tex: Resource<Texture>,
@@ -135,12 +134,6 @@ impl ExtentDependentResources {
             Self::create_lens_flare_tex(device.clone(), allocator.clone(), rendering_extent);
         let lens_flare_output_tex =
             Self::create_lens_flare_tex(device.clone(), allocator.clone(), rendering_extent);
-        let cloud_raw_tex =
-            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
-        let cloud_history_tex =
-            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
-        let cloud_output_tex =
-            Self::create_cloud_tex(device.clone(), allocator.clone(), rendering_extent);
         let screen_output_tex =
             Self::create_screen_output_tex(device.clone(), allocator.clone(), screen_extent);
         let screenshot_output_tex =
@@ -182,7 +175,8 @@ impl ExtentDependentResources {
             GLASS_VOXEL_CACHE_ACTIVE_COUNT_BYTES,
             true,
         );
-        let composited_tex = Self::create_hdr_tex(device, allocator, rendering_extent);
+        let composited_tex =
+            Self::create_hdr_tex(device.clone(), allocator.clone(), rendering_extent);
 
         let glass_image_bytes = u64::from(glass_extent.width)
             * u64::from(glass_extent.height)
@@ -223,9 +217,7 @@ impl ExtentDependentResources {
             lens_flare_raw_tex: Resource::new(lens_flare_raw_tex),
             lens_flare_history_tex: Resource::new(lens_flare_history_tex),
             lens_flare_output_tex: Resource::new(lens_flare_output_tex),
-            cloud_raw_tex: Resource::new(cloud_raw_tex),
-            cloud_history_tex: Resource::new(cloud_history_tex),
-            cloud_output_tex: Resource::new(cloud_output_tex),
+            clouds: super::clouds::CloudScreenResources::new(device, allocator, rendering_extent),
             screen_output_tex: Resource::new(screen_output_tex),
             screenshot_output_tex: Resource::new(screenshot_output_tex),
             unified_opaque_hdr_tex: Resource::new(unified_opaque_hdr_tex),
@@ -487,34 +479,6 @@ impl ExtentDependentResources {
         let lens_flare_extent = lens_flare_extent(rendering_extent);
         let tex_desc = ImageDesc {
             extent: lens_flare_extent.into(),
-            format: vk::Format::R16G16B16A16_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE
-                | vk::ImageUsageFlags::SAMPLED
-                | vk::ImageUsageFlags::TRANSFER_SRC
-                | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: TextureLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = SamplerDesc {
-            mag_filter: vk::Filter::LINEAR,
-            min_filter: vk::Filter::LINEAR,
-            ..Default::default()
-        };
-        Texture::new(device, allocator, &tex_desc, &sam_desc)
-    }
-
-    fn create_cloud_tex(
-        device: Device,
-        allocator: Allocator,
-        rendering_extent: Extent2D,
-    ) -> Texture {
-        // The whole tracer already renders at `TracerDesc::scaling_factor` (currently 0.5x
-        // screen resolution), so matching the main internal render extent keeps clouds cheap
-        // while avoiding a second half-resolution blur before the final upscaler.
-        let cloud_extent = rendering_extent;
-        let tex_desc = ImageDesc {
-            extent: cloud_extent.into(),
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED

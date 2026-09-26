@@ -54,6 +54,9 @@ use flora_frame_plan::{
 mod leaf_shadow_proxy;
 use leaf_shadow_proxy::build_leaf_shadow_proxies;
 
+mod clouds;
+use clouds::CloudRuntime;
+
 mod direct_sun_shadow_runtime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
 use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
@@ -280,7 +283,6 @@ impl DdgiLocalLightGpuEvidence {
 
 const MAX_TERRAIN_QUERIES: usize = 1_000;
 const SHADOW_MAP_RESOLUTION: u32 = 1024;
-const CLOUD_SHADOW_MAP_RESOLUTION: u32 = 256;
 const LEAF_SHADOW_OPACITY_RESOLUTION: u32 = 2048;
 const DDGI_ATLAS_REDUCTION_WORKGROUP_SIZE: u32 = 64;
 pub(super) const WIND_VOLUME_BUCKET_COUNT: u32 = 4;
@@ -978,18 +980,6 @@ struct VsmFilterPushConstants {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct CloudTemporalPushConstants {
-    reset_history: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct CloudShadowTemporalPushConstants {
-    reset_history: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct EffectTemporalPushConstants {
     reset_history: u32,
 }
@@ -1576,13 +1566,21 @@ pub enum LodState {
     Lod1,
 }
 
+// Opaque daylight provider: gameplay resolves the reflected query dependencies
+// without knowing which sources or maps currently implement that query.
 pub struct DirectSunShadowResources<'a> {
-    pub gui_input: &'a Buffer,
-    pub shadow_camera_info: &'a Buffer,
-    pub shadow_map_tex_for_vsm_ping: &'a Texture,
-    pub leaf_shadow_opacity_blended_tex: &'a Texture,
-    pub leaf_shadow_mask_tex: &'a Texture,
-    pub cloud_shadow_tex: &'a Texture,
+    uniforms: &'a TracerUniformResources,
+    shadow: &'a ShadowResources,
+    clouds: &'a clouds::CloudShadowResources,
+}
+
+impl re_flora_vkn::ResourceContainer for DirectSunShadowResources<'_> {
+    fn resolve_resource(&self, name: &str) -> re_flora_vkn::ResourceLookup<'_> {
+        self.uniforms
+            .resolve_resource(name)
+            .merge(self.shadow.resolve_resource(name))
+            .merge(self.clouds.resolve_resource(name))
+    }
 }
 
 struct PreparedTreeFoliageBatch<'a> {
@@ -1653,7 +1651,7 @@ pub struct Tracer {
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
     direct_sun_shadows: DirectSunShadowRuntime,
-    cloud_history_valid: bool,
+    clouds: CloudRuntime,
     god_ray_temporal_blend_enabled: bool,
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
@@ -1819,17 +1817,19 @@ impl Tracer {
 
     pub fn direct_sun_shadow_resources(&self) -> DirectSunShadowResources<'_> {
         DirectSunShadowResources {
-            gui_input: &self.resources.uniforms.gui_input,
-            shadow_camera_info: &self.resources.shadow.shadow_camera_info,
-            shadow_map_tex_for_vsm_ping: &self.resources.shadow.shadow_map_tex_for_vsm_ping,
-            leaf_shadow_opacity_blended_tex: &self.resources.shadow.leaf_shadow_opacity_blended_tex,
-            leaf_shadow_mask_tex: &self.resources.shadow.leaf_shadow_mask_tex,
-            cloud_shadow_tex: &self.resources.shadow.cloud_shadow_tex,
+            uniforms: &self.resources.uniforms,
+            shadow: &self.resources.shadow,
+            clouds: &self.resources.cloud_shadows,
         }
     }
 
     pub fn direct_sun_shadow_available_mask(&self) -> u32 {
         self.direct_sun_shadows.available_mask()
+            | if self.clouds.shadow_ready() {
+                direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_CLOUD
+            } else {
+                0
+            }
     }
 
     pub fn invalidate_local_direct_sun_shadow_histories(&mut self) {
@@ -1897,7 +1897,6 @@ impl Tracer {
             &shader_modules.tracer_sm,
             &shader_modules.tracer_shadow_sm,
             &shader_modules.composition_sm,
-            &shader_modules.cloud_temporal_sm,
             &shader_modules.god_ray_sm,
             &shader_modules.post_processing_sm,
             &shader_modules.player_collider_sm,
@@ -1909,7 +1908,6 @@ impl Tracer {
             desc.environment_irradiance_capture_enabled,
             desc.glass_experiment_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
-            Extent2D::new(CLOUD_SHADOW_MAP_RESOLUTION, CLOUD_SHADOW_MAP_RESOLUTION),
             Extent2D::new(
                 LEAF_SHADOW_OPACITY_RESOLUTION,
                 LEAF_SHADOW_OPACITY_RESOLUTION,
@@ -2011,7 +2009,7 @@ impl Tracer {
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
             direct_sun_shadows: DirectSunShadowRuntime::default(),
-            cloud_history_valid: false,
+            clouds: CloudRuntime::default(),
             god_ray_temporal_blend_enabled: true,
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
@@ -2726,10 +2724,9 @@ impl Tracer {
             &self.ddgi_voxel_visibility,
         );
 
-        self.cloud_history_valid = false;
+        self.clouds.invalidate();
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
-        self.direct_sun_shadows.invalidate_cloud_history();
     }
 
     fn next_descriptor_generation(&mut self) -> u64 {
@@ -2972,6 +2969,9 @@ impl Tracer {
         // Shadow camera info. Shadow maps are rendered every frame while shadows
         // are enabled, so PCSS and VSM both use the latest light-space matrix.
         let shadow_light_space_change = self.direct_sun_shadows.observe_sun_direction(sun_dir);
+        if shadow_light_space_change == DirectSunShadowLightSpaceChange::Changed {
+            self.clouds.invalidate_shadow();
+        }
         if shadow_light_space_change != DirectSunShadowLightSpaceChange::Unchanged {
             log::debug!(
                 "[SHADOW][LIGHT_SPACE] change={:?} revision={} sun_direction={:?} history_policy=reset_all_no_cross_space_blend",
@@ -3708,18 +3708,21 @@ impl Tracer {
             );
             self.direct_sun_shadows.mark_terrain_history_recorded();
             if render_flags.enable_clouds {
-                let reset_cloud_history = self.direct_sun_shadows.cloud_history_reset_required();
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "cloud_shadow.pass",
-                    || self.record_cloud_shadow_pass(cmdbuf, reset_cloud_history),
+                    || {
+                        self.clouds.record_shadow(
+                            cmdbuf,
+                            &self.pipeline_topology.compute().clouds,
+                            &self.resources.cloud_shadows,
+                        )
+                    },
                 );
-                self.record_store_cloud_shadow_history(cmdbuf);
-                self.direct_sun_shadows.mark_cloud_history_recorded();
             } else {
-                self.direct_sun_shadows.invalidate_cloud_history();
+                self.clouds.invalidate_shadow();
             }
             compute_to_graphics_barrier.record_insert(self.vulkan_ctx.device(), cmdbuf);
         }
@@ -4173,24 +4176,24 @@ impl Tracer {
             self.god_ray_history_valid = false;
         }
 
-        if render_flags.enable_clouds {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "cloud.pass",
-                || self.record_cloud_pass(cmdbuf),
-            );
-            self.record_store_cloud_history(cmdbuf);
-        } else {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "cloud_clear.pass",
-                || self.clear_cloud_output(cmdbuf),
-            );
-        }
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            if render_flags.enable_clouds {
+                "cloud.pass"
+            } else {
+                "cloud_clear.pass"
+            },
+            || {
+                self.clouds.record_screen(
+                    cmdbuf,
+                    &self.pipeline_topology.compute().clouds,
+                    &self.resources.extent_dependent_resources.clouds,
+                    render_flags.enable_clouds,
+                )
+            },
+        );
         if render_flags.enable_lens_flare {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -4266,22 +4269,6 @@ impl Tracer {
         );
     }
 
-    fn record_store_cloud_history(&self, cmdbuf: &CommandBuffer) {
-        self.resources
-            .extent_dependent_resources
-            .cloud_output_tex
-            .get_image()
-            .record_copy_to(
-                cmdbuf,
-                self.resources
-                    .extent_dependent_resources
-                    .cloud_history_tex
-                    .get_image(),
-                TextureLayout::GENERAL,
-                TextureLayout::GENERAL,
-            );
-    }
-
     fn record_store_god_ray_history(&self, cmdbuf: &CommandBuffer) {
         self.resources
             .extent_dependent_resources
@@ -4312,16 +4299,6 @@ impl Tracer {
                 TextureLayout::GENERAL,
                 TextureLayout::GENERAL,
             );
-    }
-
-    fn record_store_cloud_shadow_history(&self, cmdbuf: &CommandBuffer) {
-        let history = self.resources.shadow.cloud_shadow_history();
-        history.current().get_image().record_copy_to(
-            cmdbuf,
-            history.previous().get_image(),
-            TextureLayout::GENERAL,
-            TextureLayout::GENERAL,
-        );
     }
 
     fn record_clear_render_targets(
@@ -4383,17 +4360,7 @@ impl Tracer {
                     ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
                 );
 
-            for tex in [
-                &self.resources.shadow.cloud_shadow_raw_tex,
-                &self.resources.shadow.cloud_shadow_tex,
-            ] {
-                tex.get_image().record_clear(
-                    cmdbuf,
-                    Some(TextureLayout::GENERAL),
-                    0,
-                    ClearValue::Color(ColorClearValue::Float([1.0, 0.0, 0.0, 0.0])),
-                );
-            }
+            self.resources.cloud_shadows.clear(cmdbuf);
 
             self.resources
                 .shadow
@@ -6351,70 +6318,6 @@ impl Tracer {
             );
     }
 
-    fn record_cloud_shadow_pass(&self, cmdbuf: &CommandBuffer, reset_cloud_history: bool) {
-        let extent = self
-            .resources
-            .shadow
-            .cloud_shadow_raw_tex
-            .get_image()
-            .get_desc()
-            .extent;
-
-        self.pipeline_topology
-            .compute()
-            .cloud_shadow_ppl
-            .record(cmdbuf, extent, None);
-
-        let push_constants = CloudShadowTemporalPushConstants {
-            reset_history: u32::from(reset_cloud_history),
-        };
-        self.pipeline_topology
-            .compute()
-            .cloud_shadow_temporal_ppl
-            .record(cmdbuf, extent, Some(bytemuck::bytes_of(&push_constants)));
-    }
-
-    fn record_cloud_pass(&mut self, cmdbuf: &CommandBuffer) {
-        let extent = self
-            .resources
-            .extent_dependent_resources
-            .cloud_raw_tex
-            .get_image()
-            .get_desc()
-            .extent;
-
-        self.pipeline_topology
-            .compute()
-            .cloud_ppl
-            .record(cmdbuf, extent, None);
-
-        let push_constants = CloudTemporalPushConstants {
-            reset_history: u32::from(!self.cloud_history_valid),
-        };
-        self.pipeline_topology.compute().cloud_temporal_ppl.record(
-            cmdbuf,
-            extent,
-            Some(bytemuck::bytes_of(&push_constants)),
-        );
-        self.cloud_history_valid = true;
-    }
-
-    fn clear_cloud_output(&mut self, cmdbuf: &CommandBuffer) {
-        self.cloud_history_valid = false;
-        self.direct_sun_shadows.invalidate_cloud_history();
-        for tex in [
-            &self.resources.extent_dependent_resources.cloud_raw_tex,
-            &self.resources.extent_dependent_resources.cloud_output_tex,
-        ] {
-            tex.get_image().record_clear(
-                cmdbuf,
-                Some(TextureLayout::GENERAL),
-                0,
-                ClearValue::Color(ColorClearValue::Float([0.0, 0.0, 0.0, 0.0])),
-            );
-        }
-    }
-
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {
         self.pipeline_topology.compute().composition_ppl.record(
             cmdbuf,
@@ -6576,7 +6479,7 @@ impl Tracer {
         self.camera_proj_mat_prev_frame = proj_mat;
         self.current_view_proj_mat = proj_mat * view_mat;
         self.direct_sun_shadows.invalidate_local_histories();
-        self.cloud_history_valid = false;
+        self.clouds.invalidate_screen();
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
     }

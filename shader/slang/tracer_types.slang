@@ -118,18 +118,9 @@ public struct U_ShadingInfo
     public float3 ddgi_invalidation_world_max;
 };
 
+// Frame age is a resource role (camera_info / camera_info_prev_frame), not a
+// separate layout. All temporal effects consume this same camera snapshot type.
 public struct U_CameraInfo
-{
-    public float4 pos;
-    public float4x4 view_mat;
-    public float4x4 view_mat_inv;
-    public float4x4 proj_mat;
-    public float4x4 proj_mat_inv;
-    public float4x4 view_proj_mat;
-    public float4x4 view_proj_mat_inv;
-};
-
-public struct U_CameraInfoPrevFrame
 {
     public float4 pos;
     public float4x4 view_mat;

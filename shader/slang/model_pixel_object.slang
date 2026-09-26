@@ -10,10 +10,6 @@ import tracer_types;
 [[vk::binding(2,0)]] public ConstantBuffer<U_ShadingInfo> shading_info;
 [[vk::binding(3,0)]] public ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4,0)]] public ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(5,0)]] public Sampler2D shadow_map_tex_for_vsm_ping;
-[[vk::binding(9,0)]] public Sampler2D leaf_shadow_opacity_blended_tex;
-[[vk::binding(10,0)]] public Sampler2D leaf_shadow_mask_tex;
-[[vk::binding(11,0)]] public Sampler2D cloud_shadow_tex;
 [[vk::binding(77,0)]] StructuredBuffer<float4> model_view_azimuths;
 // Compute uses one read/write binding; graphics uses a separate NonWritable declaration.
 [[vk::binding(6,1)]] public RWStructuredBuffer<float4> model_object_samples;
@@ -50,8 +46,7 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
     if(modelSingleLight()) {
         // One spatial lookup per object; no per-texel external-shadow queries.
         StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,
-            shadow_camera_info,shadow_map_tex_for_vsm_ping,leaf_shadow_opacity_blended_tex,
-            leaf_shadow_mask_tex,cloud_shadow_tex,pivot,float3(0,1,0));
+            shadow_camera_info, pivot,float3(0,1,0));
         float3 ambient=(apple || gui_input.raster_flora_ddgi_lighting!=0u)
             ?sampleDiffuseEnvironment(gui_input,shading_info,pivot,float3(0,1,0))
             :LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;

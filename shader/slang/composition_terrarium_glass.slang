@@ -47,7 +47,7 @@ float3 sampleSceneColor(
     readonly RWTexture2D<float4> terrainOutput,
     readonly RWTexture2D<float> computeDepthTexture,
     RWTexture2D<float4> compositedTexture,
-    Sampler2D sunSprite, Sampler2D cloudOutput)
+    Sampler2D sunSprite)
 {
     uint width;
     uint height;
@@ -64,7 +64,7 @@ float3 sampleSceneColor(
     return combineSceneColors(rasterDepth, computeDepth, rasterColor,
                               terrainColor, clampedUv, inputs.gui,
                               inputs.sun, inputs.camera, inputs.starlight,
-                              sunSprite, cloudOutput);
+                              sunSprite);
 }
 
 float4 sampleRasterColorBilinear(Sampler2D rasterOutput,
@@ -349,7 +349,7 @@ float3 shadeTerrariumGlassHit(
     readonly RWTexture2D<float4> terrainOutput,
     readonly RWTexture2D<float> computeDepthTexture,
     RWTexture2D<float4> compositedTexture,
-    Sampler2D sunSprite, Sampler2D cloudOutput)
+    Sampler2D sunSprite)
 {
     float3 viewDirection = normalize(-ray.direction);
     float3 normal = hit.normal;
@@ -480,7 +480,7 @@ float3 shadeTerrariumGlassHit(
     float3 refractedColor = sampleSceneColor(
         refractedUv, inputs, rasterOutput, rasterDepthTexture,
         terrainOutput, computeDepthTexture, compositedTexture,
-        sunSprite, cloudOutput);
+        sunSprite);
 
     float2 chromaticDirection = refractionDirection;
     if (dot(chromaticDirection, chromaticDirection) < 1.0e-5 &&
@@ -495,12 +495,12 @@ float3 shadeTerrariumGlassHit(
     chromaticColor.r = sampleSceneColor(
         screenUv + refractionOffset + chromaticDirection * chromaticOffset,
         inputs, rasterOutput, rasterDepthTexture, terrainOutput,
-        computeDepthTexture, compositedTexture, sunSprite, cloudOutput).r;
+        computeDepthTexture, compositedTexture, sunSprite).r;
     chromaticColor.g = refractedColor.g;
     chromaticColor.b = sampleSceneColor(
         screenUv + refractionOffset - chromaticDirection * chromaticOffset,
         inputs, rasterOutput, rasterDepthTexture, terrainOutput,
-        computeDepthTexture, compositedTexture, sunSprite, cloudOutput).b;
+        computeDepthTexture, compositedTexture, sunSprite).b;
 
     float refractionMix = pane * clamp(0.095 + fresnelBand * 0.040 +
                                        voxelLens * 0.020, 0.0, 0.19) +
@@ -571,7 +571,7 @@ public float3 applyTerrariumGlass(
     readonly RWTexture2D<float4> terrainOutput,
     readonly RWTexture2D<float> computeDepthTexture,
     RWTexture2D<float4> compositedTexture,
-    Sampler2D sunSprite, Sampler2D cloudOutput)
+    Sampler2D sunSprite)
 {
     TerrariumGlassHit hits[TERRARIUM_GLASS_MAX_HITS];
     int hitCount = 0;
@@ -594,7 +594,7 @@ public float3 applyTerrariumGlass(
         result = shadeTerrariumGlassHit(
             result, screenUv, ray, hit, inputs, rasterOutput, rasterDepthTexture,
             terrainOutput, computeDepthTexture, compositedTexture,
-            sunSprite, cloudOutput);
+            sunSprite);
     }
     return result;
 }

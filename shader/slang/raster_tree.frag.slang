@@ -40,9 +40,7 @@ float4 main(FragmentInput input) : SV_Target0 {
     // band blends it with the once-per-voxel cached surface average.
     if (cached.w > 0.0) {
         float3 n = normalize(input.normal);
-        float3 leafReceiver = terrainRayOriginAlongNormal(receiverCenter,n,gui_input.terrain_ray_origin_offset_world);
-        float3 cloudReceiver = terrainRayOriginFromPosition(input.world_position,n,gui_input.terrain_ray_origin_offset_world);
-        float shadow = rasterTreeSunShadow(leafReceiver,cloudReceiver,n);
+        float shadow = rasterTreeSunShadow(receiverCenter, input.world_position, n);
         float3 direct = rasterTreeSunIrradiance()
             * max(0.0,dot(normalize(sun_info.sun_dir),n)) * shadow;
         float3 ddgiPosition = terrainVoxelSurfacePositionAlongNormal(receiverCenter,n);

@@ -47,9 +47,7 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
         return float4(color,hit.depth);
     }
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,
-        shadow_camera_info,shadow_map_tex_for_vsm_ping,
-        leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,
-        cloud_shadow_tex,hit.position,normal);
+        shadow_camera_info, hit.position,normal);
     float3 color=applyStylizedVoxelLighting(gui_input,sun_info,shading_info,
         srgbToLinear(srgb),shadow.weight,hit.position,normal);
     return float4(color,hit.depth);

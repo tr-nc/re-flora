@@ -1494,43 +1494,30 @@ mod tests {
     }
 
     #[test]
-    fn terrain_leaf_shadows_share_voxel_receiver_while_cloud_keeps_continuous_position() {
+    fn daylight_query_keeps_voxel_and_continuous_surface_sampling_distinct() {
         let tracer = include_str!("../shader/slang/tracer.slang");
-        let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
-        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang");
-
-        assert!(ray_origin.contains("public float3 terrainRayOriginAlongNormal("));
-        assert!(ray_origin.contains("public float3 terrainRayOriginFromPosition("));
-        assert!(tracer.contains(
-            "float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(\n        voxelCenter, normal);"
+        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(shadowing.contains(
+            "pointSunShadowReceiver(terrainRayOriginAlongNormal(voxelCenter,normal,offsetWorld))"
         ));
-        assert!(tracer.contains(
-            "float3 cloudReceiverPosition = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
+        assert!(shadowing.contains(
+            "receiver.surface_world_position=float4(terrainRayOriginFromPosition(surfacePosition,normal,offsetWorld),1.0)"
         ));
-        let receiver_factory = tracer
-            .split_once("DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(")
-            .expect("terrain direct-light path must construct a shadow receiver")
-            .1
-            .split_once("int3(0)")
-            .expect("terrain direct-light receiver must retain its deterministic seed")
-            .0;
-        assert_eq!(
-            receiver_factory
-                .matches("terrainLeafReceiverPosition")
-                .count(),
-            2
-        );
-        assert_eq!(receiver_factory.matches("cloudReceiverPosition").count(), 1);
         assert!(tracer.contains(
             "directLight = directLighting(albedo, result.normal,\n                                     result.center_position, result.position,"
         ));
-        for position in [
-            "receiver.terrain_world_position",
-            "receiver.leaf_world_position",
-            "receiver.cloud_world_position",
-        ] {
-            assert!(shadowing.contains(position));
-        }
+        let compact = tracer.split_whitespace().collect::<String>();
+        assert!(compact.contains(
+            "voxelSurfaceSunShadowReceiver(voxelCenter,surfacePosition,normal,gui_input.terrain_ray_origin_offset_world)"
+        ));
+        assert!(compact.contains("sampleDirectSunShadow(receiver,gui_input,shadow_camera_info)"));
+        // The exposed-face integral has an actual surface point, not a center.
+        // Reusing the voxel constructor here silently adds a second half voxel.
+        assert!(compact.contains(
+            "surfaceSunShadowReceiver(position,normal,gui_input.terrain_ray_origin_offset_world)"
+        ));
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
@@ -1538,5 +1525,52 @@ mod tests {
         assert!(compact.contains(
             "sampleDdgiTerrainSmoothEnvironment(shading_info,ddgiReceiverPosition,result.position,result.normal)"
         ));
+    }
+
+    #[test]
+    fn material_and_gameplay_consumers_do_not_wire_daylight_or_sky_sources() {
+        for source in [
+            include_str!("../shader/slang/flora_shadow.slang"),
+            include_str!("../shader/slang/flora_vertex.slang"),
+            include_str!("../shader/slang/model_pixel_object.slang"),
+            include_str!("../shader/slang/dynamic_fruit.vert.slang"),
+            include_str!("../shader/slang/sprinkler.vert.slang"),
+            include_str!("../shader/slang/particle_billboard.vert.slang"),
+            include_str!("../shader/slang/raster_tree_shading.slang"),
+            include_str!("../shader/slang/tracer.slang"),
+            include_str!("../shader/slang/terrain_moisture_dry.slang"),
+        ] {
+            for source_map in [
+                "cloud_shadow_tex",
+                "leaf_shadow_opacity_blended_tex",
+                "leaf_shadow_mask_tex",
+                "shadow_map_tex_for_vsm_ping",
+            ] {
+                assert!(!source.contains(source_map), "consumer wires {source_map}");
+            }
+        }
+        for source in [
+            include_str!("../shader/slang/composition_scene.slang"),
+            include_str!("../shader/slang/composition_terrarium_glass.slang"),
+        ] {
+            assert!(!source.contains("cloudOutput"));
+            assert!(!source.contains("cloud_output_tex"));
+        }
+    }
+
+    #[test]
+    fn flora_retains_independent_leaf_receiver_and_shared_depth_gate() {
+        let flora = include_str!("../shader/slang/flora_shadow.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(flora
+            .contains("withLeafReceiver(pointSunShadowReceiver(voxelCenter),leafReceiverCenter)"));
+        assert!(flora.contains("sampleDirectSunShadow(receiver,gui,shadowCamera).combined"));
+        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(shadowing.contains("if(depthGate&&sampleOpacity>1.0e-4)"));
+        assert!(shadowing.contains("if(receiverDepth<=casterDepth+0.0015)sampleOpacity=0.0;"));
+        assert!(shadowing.contains("opacity=max(opacity,sampleOpacity);"));
     }
 }

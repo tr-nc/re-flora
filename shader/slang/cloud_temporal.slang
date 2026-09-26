@@ -14,7 +14,7 @@ ConstantBuffer<CloudTemporalPushConstants> cloud_temporal_push;
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(4, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(5, 0)]]
-ConstantBuffer<U_CameraInfoPrevFrame> camera_info_prev_frame;
+ConstantBuffer<U_CameraInfo> camera_info_prev_frame;
 [[vk::binding(15, 0)]] Sampler2D cloud_raw_tex;
 [[vk::binding(16, 0)]] Sampler2D cloud_history_tex;
 

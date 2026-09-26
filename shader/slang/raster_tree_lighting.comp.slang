@@ -58,9 +58,7 @@ float3 fallbackIrradiance(uint slot, uint exposedFaces, uint localIndex)
         float visibility = 0.0;
         if (cosine > 0.0)
         {
-            float3 receiver = terrainRayOriginFromPosition(position, normal,
-                gui_input.terrain_ray_origin_offset_world);
-            visibility = rasterTreeSunShadow(receiver, receiver, normal);
+            visibility = rasterTreeSurfaceSunShadow(position, normal);
         }
         accumulateSurfaceIrradiance(area, cosine, visibility, diffuse, integral);
     }

@@ -24,14 +24,11 @@ use re_flora_vkn::ColorClearValue;
 use re_flora_vkn::CommandBuffer;
 use re_flora_vkn::ComputePipeline;
 use re_flora_vkn::DescriptorPool;
-use re_flora_vkn::DescriptorResource;
 use re_flora_vkn::DescriptorUpdate;
-use re_flora_vkn::DescriptorWrite;
 use re_flora_vkn::Extent3D;
 use re_flora_vkn::GpuJobToken;
 use re_flora_vkn::MemoryLocation;
 use re_flora_vkn::ShaderModule;
-use re_flora_vkn::Texture;
 use re_flora_vkn::TextureLayout;
 use re_flora_vkn::TextureRegion;
 use re_flora_vkn::VulkanContext;
@@ -1015,67 +1012,17 @@ impl PlainBuilder {
         Ok(Some(changed_bound))
     }
 
-    #[allow(clippy::too_many_arguments)]
     /// Initializes the terrain moisture/dry descriptor set during app construction.
     ///
     /// This is intentionally a creation-time operation; runtime frame code must not rewrite this
     /// pipeline's descriptor generation in place.
     pub fn initialize_terrain_moisture_dry_resources(
         &self,
-        gui_input: &Buffer,
-        chunk_atlas: &Texture,
-        shadow_camera_info: &Buffer,
-        shadow_map_tex_for_vsm_ping: &Texture,
-        leaf_shadow_opacity_blended_tex: &Texture,
-        leaf_shadow_mask_tex: &Texture,
-        cloud_shadow_tex: &Texture,
-        contree_leaf_data: &Buffer,
-        surface_leaf_coords: &Buffer,
-        surface_leaf_chunk_info: &Buffer,
+        daylight: &dyn re_flora_vkn::ResourceContainer,
+        surface: &crate::builder::ContreeBuilderResources,
     ) -> Result<()> {
         self.terrain_moisture_dry_ppl
-            .initialize_descriptors(DescriptorUpdate::Named(&[
-                DescriptorWrite {
-                    name: "gui_input",
-                    resource: DescriptorResource::Buffer(gui_input),
-                },
-                DescriptorWrite {
-                    name: "chunk_atlas",
-                    resource: DescriptorResource::Texture(chunk_atlas),
-                },
-                DescriptorWrite {
-                    name: "shadow_camera_info",
-                    resource: DescriptorResource::Buffer(shadow_camera_info),
-                },
-                DescriptorWrite {
-                    name: "shadow_map_tex_for_vsm_ping",
-                    resource: DescriptorResource::Texture(shadow_map_tex_for_vsm_ping),
-                },
-                DescriptorWrite {
-                    name: "contree_leaf_data",
-                    resource: DescriptorResource::Buffer(contree_leaf_data),
-                },
-                DescriptorWrite {
-                    name: "surface_leaf_coords",
-                    resource: DescriptorResource::Buffer(surface_leaf_coords),
-                },
-                DescriptorWrite {
-                    name: "surface_leaf_chunk_info",
-                    resource: DescriptorResource::Buffer(surface_leaf_chunk_info),
-                },
-                DescriptorWrite {
-                    name: "leaf_shadow_opacity_blended_tex",
-                    resource: DescriptorResource::Texture(leaf_shadow_opacity_blended_tex),
-                },
-                DescriptorWrite {
-                    name: "leaf_shadow_mask_tex",
-                    resource: DescriptorResource::Texture(leaf_shadow_mask_tex),
-                },
-                DescriptorWrite {
-                    name: "cloud_shadow_tex",
-                    resource: DescriptorResource::Texture(cloud_shadow_tex),
-                },
-            ]))
+            .initialize_descriptors(DescriptorUpdate::All(&[daylight, &self.resources, surface]))
     }
 
     #[allow(clippy::too_many_arguments)]

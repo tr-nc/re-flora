@@ -1,6 +1,7 @@
 module composition_sky;
 
 import composition_types;
+import ray;
 import skylight;
 import starlight;
 import sunlight;
@@ -80,4 +81,21 @@ public float3 computeSkyWithSunAndStars(float3 viewDirection,
     float3 starColor = getStarlightColor(rotatedViewDirection, info);
     float starVisibility = smoothstep(starCutoffAltitude, starFadeAltitude, sunAltitude);
     return lerp(skyWithSun, starColor, starVisibility);
+}
+
+// Scene and refracted-screen queries use this seam. Optional screen-space sky
+// layers are composed here, never threaded through material interfaces.
+[[vk::binding(87, 0)]] Sampler2D cloud_output_tex;
+
+public float3 sampleScreenSky(float2 screenUv, U_GuiInput gui, U_SunInfo sun,
+                              U_CameraInfo camera, U_StarlightInfo starlight,
+                              Sampler2D sunSprite)
+{
+    float3 viewDirection = normalize(generateCameraRay(
+        screenUv, camera.view_proj_mat_inv).direction);
+    float3 skyColor = computeSkyWithSunAndStars(
+        viewDirection, sun, camera, starlight, sunSprite);
+    if (gui.clouds_enabled == 0u) return skyColor;
+    float4 clouds = cloud_output_tex.SampleLevel(screenUv, 0.0);
+    return lerp(skyColor, clouds.rgb, clamp(clouds.a, 0.0, 1.0));
 }

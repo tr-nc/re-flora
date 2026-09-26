@@ -357,12 +357,13 @@ mod tests {
         assert!(flora_shader.contains("restLeafShadowReceiverPosition"));
         assert!(flora_shader.contains("sampleStylizedVoxelShadowAtLeafReceiver"));
 
-        let shadow_shader = include_str!("../../shader/slang/flora_shadow.slang");
-        assert!(shadow_shader.contains("float3 leafReceiverCenter"));
-        assert!(shadow_shader.contains("float4 worldPosition = float4(voxelCenter, 1.0)"));
-        assert!(
-            shadow_shader.contains("float4 leafReceiverPosition = float4(leafReceiverCenter, 1.0)")
-        );
+        let compact = flora_shader.split_whitespace().collect::<String>();
+        assert!(compact.contains(
+            "float3leafShadowReceiverPosition=result.is_grass?restLeafShadowReceiverPosition:result.voxel_position;"
+        ));
+        assert!(compact.contains(
+            "sampleStylizedVoxelShadowAtLeafReceiver(gui_input,sun_info,shadow_camera_info,result.voxel_position,leafShadowReceiverPosition,result.shading_normal)"
+        ));
     }
 
     #[test]

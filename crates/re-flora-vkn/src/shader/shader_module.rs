@@ -888,6 +888,99 @@ mod tests {
     }
 
     #[test]
+    fn temporal_effects_share_the_canonical_camera_snapshot_abi() {
+        for shader_path in [
+            "shader/tracer/tracer.comp",
+            "shader/tracer/god_ray_temporal.comp",
+            "shader/tracer/lens_flare_temporal.comp",
+            "shader/tracer/cloud_temporal.comp",
+        ] {
+            let artifact = find_precompiled_shader(shader_path).unwrap();
+            let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
+            let bindings = module.enumerate_descriptor_bindings(None).unwrap();
+            for name in ["camera_info", "camera_info_prev_frame"] {
+                if name == "camera_info_prev_frame" && shader_path.ends_with("/tracer.comp") {
+                    continue;
+                }
+                let binding = bindings.iter().find(|b| b.name == name).unwrap();
+                assert_eq!(
+                    binding.descriptor_type,
+                    ReflectDescriptorType::UniformBuffer
+                );
+                assert_eq!(
+                    normalize_buffer_type_name(
+                        &binding.type_description.as_ref().unwrap().type_name
+                    ),
+                    "U_CameraInfo"
+                );
+            }
+            let layouts = super::extract_buffer_layouts(&module).unwrap();
+            assert!(!layouts.contains_key("U_CameraInfoPrevFrame"));
+            let camera = &layouts["U_CameraInfo"];
+            assert_eq!(camera.get_size_bytes(), 400, "{shader_path}");
+            for (name, offset, ty) in [
+                ("pos", 0, PlainMemberType::Vec4),
+                ("view_mat", 16, PlainMemberType::Mat4),
+                ("view_mat_inv", 80, PlainMemberType::Mat4),
+                ("proj_mat", 144, PlainMemberType::Mat4),
+                ("proj_mat_inv", 208, PlainMemberType::Mat4),
+                ("view_proj_mat", 272, PlainMemberType::Mat4),
+                ("view_proj_mat_inv", 336, PlainMemberType::Mat4),
+            ] {
+                let super::MemberLayout::Plain(member) = camera.get_member(name).unwrap() else {
+                    panic!("{shader_path}: camera member {name} must be plain");
+                };
+                assert_eq!(
+                    (member.offset, &member.ty),
+                    (offset, &ty),
+                    "{shader_path}: {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn daylight_consumers_reflect_one_shared_source_set() {
+        for shader_path in [
+            "shader/tracer/tracer.comp",
+            "shader/foliage/flora.vert",
+            "shader/builder/chunk_writer/terrain_moisture_dry.comp",
+            "shader/trees/raster_tree.frag",
+        ] {
+            assert_descriptor_abi(
+                shader_path,
+                &[
+                    (
+                        "shadow_map_tex_for_vsm_ping",
+                        ReflectDescriptorType::CombinedImageSampler,
+                        1,
+                        DescriptorAccess::ReadOnly,
+                    ),
+                    (
+                        "leaf_shadow_opacity_blended_tex",
+                        ReflectDescriptorType::CombinedImageSampler,
+                        1,
+                        DescriptorAccess::ReadOnly,
+                    ),
+                    (
+                        "leaf_shadow_mask_tex",
+                        ReflectDescriptorType::CombinedImageSampler,
+                        1,
+                        DescriptorAccess::ReadOnly,
+                    ),
+                    (
+                        "cloud_shadow_tex",
+                        ReflectDescriptorType::CombinedImageSampler,
+                        1,
+                        DescriptorAccess::ReadOnly,
+                    ),
+                ],
+                &[],
+            );
+        }
+    }
+
+    #[test]
     fn leaf_vertex_shaders_reflect_only_the_compact_packed_input() {
         for shader_path in [
             "shader/foliage/leaves.vert",

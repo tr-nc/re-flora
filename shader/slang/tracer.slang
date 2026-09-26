@@ -37,13 +37,9 @@ import voxel_material;
 readonly RWTexture3D<uint2> scene_tex;
 [[vk::binding(10, 0)]] Sampler2D shadow_map_tex;
 [[vk::binding(11, 0)]] ConstantBuffer<U_VoxelColors> voxel_colors;
-[[vk::binding(12, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
-[[vk::binding(13, 0)]] Sampler2D leaf_shadow_mask_tex;
-[[vk::binding(14, 0)]] Sampler2D cloud_shadow_tex;
 [[vk::binding(15, 0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
-[[vk::binding(17, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
 [[vk::binding(42, 0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
 [[vk::binding(43, 0)]] StructuredBuffer<U_LightGpu> local_lights;
 
@@ -169,36 +165,15 @@ float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
         voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
-float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
-                                                float3 normal)
-{
-    return terrainRayOriginFromPosition(
-        surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
-}
-
 float3 terrainSunIrradiance()
 {
     return sun_info.sun_color * sun_info.sun_luminance * step(0.0, sun_info.sun_dir.y);
 }
 
-float3 shadowRayColor(float3 terrainLeafReceiverPosition,
-                      float3 cloudReceiverPosition,
-                      float3 receiverNormal,
+float3 shadowRayColor(DirectSunShadowReceiver receiver,
                       out DirectSunShadowTransmittances shadow)
 {
-    DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(terrainLeafReceiverPosition, 1.0),
-        float4(terrainLeafReceiverPosition, 1.0),
-        float4(cloudReceiverPosition, 1.0),
-        int3(0), DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_TERRAIN_SHADOW_VSM,
-        DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
-    receiver = withReceiverPlane(receiver, receiverNormal);
-    shadow = directSunShadowTransmittancesVsmLeafCloud(
-        receiver, gui_input, shadow_camera_info.view_proj_mat,
-        shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
-        leaf_shadow_mask_tex, cloud_shadow_tex);
+    shadow = sampleDirectSunShadow(receiver, gui_input, shadow_camera_info);
     return shadow.combined * terrainSunIrradiance();
 }
 
@@ -235,10 +210,6 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
                       out DirectSunShadowTransmittances shadow)
 {
     float3 sunDirection = normalize(sun_info.sun_dir);
-    float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(
-        voxelCenter, normal);
-    float3 cloudReceiverPosition = terrainShadowReceiverPositionFromSurface(
-        surfacePosition, normal);
     float cosine = max(0.0, dot(sunDirection, normal));
     shadow.terrain = 1.0;
     shadow.leaf = 1.0;
@@ -247,9 +218,9 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
     float3 sunIrradiance = float3(0.0);
     if (cosine > 0.0)
     {
-        sunIrradiance = shadowRayColor(
-            terrainLeafReceiverPosition, cloudReceiverPosition, normal,
-            shadow) * cosine;
+        DirectSunShadowReceiver receiver = voxelSurfaceSunShadowReceiver(
+            voxelCenter, surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
+        sunIrradiance = shadowRayColor(receiver, shadow) * cosine;
     }
     float3 localIrradiance = tracerVisibleLocalLightIrradiance(
         surfacePosition, normal, localInvocationIndex);
@@ -289,9 +260,10 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
         float visibility = 0.0;
         if (cosine > 0.0)
         {
-            float3 receiver = terrainShadowReceiverPositionFromSurface(position, normal);
+            DirectSunShadowReceiver receiver = surfaceSunShadowReceiver(
+                position, normal, gui_input.terrain_ray_origin_offset_world);
             DirectSunShadowTransmittances shadow;
-            shadowRayColor(receiver, receiver, normal, shadow);
+            shadowRayColor(receiver, shadow);
             visibility = shadow.combined;
             shadows += cosine * float4(shadow.terrain, shadow.leaf, shadow.cloud, shadow.combined);
             sunSupport += cosine;

@@ -1,3 +1,4 @@
+use super::clouds::{CloudPasses, CloudShaders};
 use crate::builder::{ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources};
 use crate::ddgi::{
     DdgiActiveResources, DdgiBuilderResources, DdgiConsumerResources, DdgiVoxelVisibility,
@@ -297,30 +298,7 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let cloud_sm =
-            ShaderModule::from_precompiled(vulkan_ctx.device(), "shader/tracer/cloud.comp", "main")
-                .unwrap();
-
-        let cloud_shadow_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/cloud_shadow.comp",
-            "main",
-        )
-        .unwrap();
-
-        let cloud_shadow_temporal_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/cloud_shadow_temporal.comp",
-            "main",
-        )
-        .unwrap();
-
-        let cloud_temporal_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/cloud_temporal.comp",
-            "main",
-        )
-        .unwrap();
+        let clouds = CloudShaders::new(vulkan_ctx.device());
 
         let lens_flare_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
@@ -633,10 +611,7 @@ impl PipelineBuilder {
             glass_resolve_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
-            cloud_sm,
-            cloud_shadow_sm,
-            cloud_shadow_temporal_sm,
-            cloud_temporal_sm,
+            clouds,
             lens_flare_sm,
             lens_flare_temporal_sm,
             lens_flare_sun_visible_sm,
@@ -984,21 +959,7 @@ impl PipelineBuilder {
                     ],
                 )
             });
-        let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
-        let cloud_shadow_ppl =
-            ComputePipeline::new(device, &shader_modules.cloud_shadow_sm, pool, &[resources]);
-        let cloud_shadow_temporal_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.cloud_shadow_temporal_sm,
-            pool,
-            &[resources],
-        );
-        let cloud_temporal_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.cloud_temporal_sm,
-            pool,
-            &[resources],
-        );
+        let clouds = CloudPasses::new(device, &shader_modules.clouds, pool, resources);
         let lens_flare_ppl =
             ComputePipeline::new(device, &shader_modules.lens_flare_sm, pool, &[resources]);
         let lens_flare_temporal_ppl = ComputePipeline::new(
@@ -1051,10 +1012,7 @@ impl PipelineBuilder {
             vsm_blur_v_ppl,
             god_ray_ppl,
             god_ray_temporal_ppl,
-            cloud_ppl,
-            cloud_shadow_ppl,
-            cloud_shadow_temporal_ppl,
-            cloud_temporal_ppl,
+            clouds,
             lens_flare_ppl,
             lens_flare_temporal_ppl,
             lens_flare_sun_visible_ppl,
@@ -1998,16 +1956,15 @@ impl PipelineTopology {
             &self.compute.vsm_blur_v_ppl,
             &self.compute.god_ray_ppl,
             &self.compute.god_ray_temporal_ppl,
-            &self.compute.cloud_ppl,
-            &self.compute.cloud_shadow_ppl,
-            &self.compute.cloud_shadow_temporal_ppl,
-            &self.compute.cloud_temporal_ppl,
             &self.compute.lens_flare_ppl,
             &self.compute.lens_flare_temporal_ppl,
             &self.compute.lens_flare_sun_visible_ppl,
             &self.compute.composition_ppl,
             &self.compute.post_processing_ppl,
-        ] {
+        ]
+        .into_iter()
+        .chain(self.compute.clouds.pipelines())
+        {
             retire_compute(
                 pipeline,
                 DescriptorUpdate::All(&tracer_resources),
@@ -2523,10 +2480,7 @@ pub struct ShaderModules {
     pub glass_resolve_sm: Option<ShaderModule>,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
-    pub cloud_sm: ShaderModule,
-    pub cloud_shadow_sm: ShaderModule,
-    pub cloud_shadow_temporal_sm: ShaderModule,
-    pub cloud_temporal_sm: ShaderModule,
+    pub clouds: CloudShaders,
     pub lens_flare_sm: ShaderModule,
     pub lens_flare_temporal_sm: ShaderModule,
     pub lens_flare_sun_visible_sm: ShaderModule,
@@ -2603,10 +2557,7 @@ pub struct ComputePipelines {
     pub vsm_blur_v_ppl: ComputePipeline,
     pub god_ray_ppl: ComputePipeline,
     pub god_ray_temporal_ppl: ComputePipeline,
-    pub cloud_ppl: ComputePipeline,
-    pub cloud_shadow_ppl: ComputePipeline,
-    pub cloud_shadow_temporal_ppl: ComputePipeline,
-    pub cloud_temporal_ppl: ComputePipeline,
+    pub clouds: CloudPasses,
     pub lens_flare_ppl: ComputePipeline,
     pub lens_flare_temporal_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
