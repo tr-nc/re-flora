@@ -113,3 +113,32 @@ Validated before committing the correction:
   1573, 1581, 1581, respectively; original samples and repairs are nonzero. Every
   attempt is retained. No runner, coverage epsilon, depth threshold, mode,
   camera or saved default was changed.
+
+## Consumer protection and final worker validation
+
+All native invocations below used the same non-nested GPU lock, own `target`,
+shared sccache, `CARGO_BUILD_JOBS=4`, X11, Release, hidden and muted mode:
+
+```sh
+flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY \
+  CARGO_BUILD_JOBS=4 python3 scripts/validate_butterfly_mesh.py --seconds 12
+flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY \
+  CARGO_BUILD_JOBS=4 node scripts/validate-apple-model.mjs --seconds 12 --stage-one
+flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY \
+  CARGO_BUILD_JOBS=4 cargo run --release -- --hidden --mute --auto-exit 0.5
+```
+
+All passed (`butterfly/`, `model-stage-one/`, `smoke/`). Butterfly retains strict
+8/22/64px GPU/CPU depth and coverage checks, 21 models, shadow/transmission toggles.
+The ordinary model fixture covers both orthographic display modes, five view
+counts, rotating leaves/butterflies with mixed resolutions, attached/fallen apples,
+actual drops and five native resizes. It does not enable the continuous native
+oracle; it protects the ordinary consumer paths, not an orthographic numerical
+oracle or a performance budget. Smoke logs show successful exit and failures=0.
+
+`cargo test captured_leaf_boundary -- --nocapture` also passes independently.
+Saved-config SHA256 checks match the initial files. No generated files changed.
+Temporary instrumentation and the negative-control mutation are absent from
+source; all failed experiments remain in `target/improve-delivery/v3/`. No
+unchanged full Cargo suite or DDGI native matrix was repeated. The controller
+still owns independent review, final aggregate acceptance and cleanup.
