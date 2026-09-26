@@ -14,15 +14,6 @@ fn basis(direction: Vec3) -> Mat3 {
 fn rotate(p: Vec2, roll: Vec2) -> Vec2 {
     Vec2::new(roll.x * p.x - roll.y * p.y, roll.y * p.x + roll.x * p.y)
 }
-fn overlap(source: Vec2, destination: Vec2, inverse_roll: Vec2) -> bool {
-    let d = source - destination;
-    let reach = 0.5 * (1. + inverse_roll.x.abs() + inverse_roll.y.abs()) - 1e-6;
-    d.abs().cmple(Vec2::splat(reach)).all()
-        && rotate(d, Vec2::new(inverse_roll.x, -inverse_roll.y))
-            .abs()
-            .cmple(Vec2::splat(reach))
-            .all()
-}
 
 #[test]
 fn fixed_bake_is_independent_of_instance_translation_scale_and_rigid_pose() {
@@ -98,39 +89,6 @@ fn bake_projection_has_parallel_rays_and_depth_maps_back_to_the_scene() {
     }
 }
 #[test]
-fn resampling_does_not_dilate_an_unrotated_grid() {
-    let center = Vec2::splat(4.5);
-    for y in -2..=2 {
-        for x in -2..=2 {
-            assert_eq!(
-                overlap(center + Vec2::new(x as f32, y as f32), center, Vec2::X),
-                x == 0 && y == 0
-            );
-        }
-    }
-}
-#[test]
-fn three_by_three_gather_covers_all_positive_area_cell_overlaps() {
-    for step in 0..=24 {
-        let a = step as f32 * std::f32::consts::TAU / 24.;
-        let inverse = Vec2::new(a.cos(), -a.sin());
-        for center in [
-            Vec2::new(3.01, 5.99),
-            Vec2::new(3.5, 5.5),
-            Vec2::new(3.99, 5.01),
-        ] {
-            for y in -3i32..=3 {
-                for x in -3i32..=3 {
-                    let source = center.floor() + Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
-                    if overlap(source, center, inverse) {
-                        assert!(x.abs() <= 1 && y.abs() <= 1);
-                    }
-                }
-            }
-        }
-    }
-}
-#[test]
 fn authored_shapes_fit_the_fixed_frame_at_every_roll() {
     for p in &super::apple_preview::mesh().positions {
         assert!(
@@ -157,7 +115,7 @@ fn authored_shapes_fit_the_fixed_frame_at_every_roll() {
 }
 
 #[test]
-fn all_three_adapters_use_the_shared_bake_and_both_displays_are_geometry_free() {
+fn all_three_adapters_use_the_shared_bake_and_rotating_display_is_geometry_free() {
     let particle = include_str!("../../shader/slang/particle_model_shading.slang");
     let apple = include_str!("../../shader/slang/apple_pixel_tile.slang");
     for adapter in [particle, apple] {
@@ -167,7 +125,8 @@ fn all_three_adapters_use_the_shared_bake_and_both_displays_are_geometry_free() 
     assert!(!display.contains("sampleModelPixelGeometry("));
     assert!(!display.contains("sampleOrthographicModelPixel("));
     assert!(display.contains("modelOrthographicDepth("));
-    assert!(display.contains("modelPixelCellOverlap("));
+    assert!(!display.contains("modelPixelCellOverlap("));
+    assert!(!display.contains("modelResamplePixel("));
     let bake = include_str!("../../shader/slang/model_pixel_projection.slang");
     let sampler = bake
         .split("public ModelPixelHit sampleOrthographicModelPixel")
@@ -176,6 +135,7 @@ fn all_three_adapters_use_the_shared_bake_and_both_displays_are_geometry_free() 
         .split("public float4 modelOrthographicQuad")
         .next()
         .unwrap();
-    assert!(!sampler.contains("screenAligned"));
+    assert!(!bake.contains("screenAligned"));
+    assert!(bake.contains("p=modelRotatePixel(p,view.roll);"));
     assert!(!sampler.contains("camera_info"));
 }

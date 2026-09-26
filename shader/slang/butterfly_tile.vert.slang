@@ -25,7 +25,7 @@ VertexOutput main(VertexInput input) {
     ButterflyMeshInstance instance=butterfly_mesh_instances[instanceIndex];
     output.position=gui_input.model_pixel_view_count!=0u
         ?modelOrthographicQuad(readModelPixelView(instanceIndex),instance.position_size.xyz,instance.position_size.w*(1.53125*0.5),
-            output.uv,gui_input.model_pixel_screen_grid!=0u,camera_info)
+            output.uv,camera_info)
         :float4(lerp(bounds.xy,bounds.zw,output.uv),0.0,1.0);
     output.instanceIndex=instanceIndex;
     return output;

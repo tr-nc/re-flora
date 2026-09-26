@@ -1402,7 +1402,6 @@ pub struct TerrainFrameInput {
     pub ddgi_aggregate_history: bool,
     pub apple_pixel_resolution: u32,
     pub model_pixel_view_count: u32,
-    pub model_pixel_screen_grid: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1672,7 +1671,6 @@ pub struct Tracer {
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
     model_pixel_view_count: u32,
-    model_pixel_screen_grid: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -2024,7 +2022,6 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             model_pixel_view_count: 0,
-            model_pixel_screen_grid: false,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3060,14 +3057,11 @@ impl Tracer {
             terrain.model_pixel_view_count,
             butterfly_mesh::native_review(),
         );
-        if self.model_pixel_view_count != view_count
-            || self.model_pixel_screen_grid != terrain.model_pixel_screen_grid
-        {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} screen_grid={}",
-                view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_screen_grid);
+        if self.model_pixel_view_count != view_count {
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} rotating_pixels=true",
+                view_count!=0,view_count==0,view_count!=0);
         }
         self.model_pixel_view_count = view_count;
-        self.model_pixel_screen_grid = terrain.model_pixel_screen_grid;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
