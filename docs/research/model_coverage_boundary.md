@@ -101,8 +101,11 @@ Validated before committing the correction:
 - The same deterministic native fixture is green (`fixture-green-2/`). Its final
   and center masks match the original red capture exactly; center depths are bit
   identical, and final depth differences are at most 1.1920928955078125e-7.
-  Separate-run lighting is not bit-identical (recorded in
-  `production-tile-comparison.txt`); this is not a pixel-exact color or perf claim.
+  The original `production-tile-comparison.txt` compared the unprobed capture,
+  whose lighting differed, and did **not** establish color preservation. Review
+  subsequently found four changed coverage colors against the retained
+  `red-capture/` with bit-identical center RGBA. See the correction below; those
+  four differences are a producer regression, not lighting drift.
 - Native negative control: actually replace the producer's center-empty, covered
   pixel (12,26) with transparent depth=1. The **unchanged coverage assertion**
   rejects it: `GPU omitted conservative coverage: instance=0 pixel=12,26`.
@@ -142,3 +145,39 @@ Temporary instrumentation and the negative-control mutation are absent from
 source; all failed experiments remain in `target/improve-delivery/v3/`. No
 unchanged full Cargo suite or DDGI native matrix was repeated. The controller
 still owns independent review, final aggregate acceptance and cleanup.
+
+## Bounded review correction: supporting materials
+
+Starting head: `830fd24a6e577cea176619898700e9a3aeff6ca0`. All earlier evidence
+remains intact; new evidence is under `v3/correction/`.
+
+The review's RGB counterexample reproduces without a build (`reviewed-red.log`):
+center RGBA/depth is byte-identical, but coverage colors at (24,30), (28,31),
+(41,32), (42,32) differ. Ranked hypotheses were depth-rounding changing the
+supporting triangle, changed shading inputs for the same triangle, and wrong
+readback identity. A temporary same-dispatch probe ran the original coverage
+function and the refactored function with identical mesh, pose, camera, center
+hit and lighting. `probe-red-comparison.log` proves the first hypothesis:
+
+| Pixel | Original triangle | Refactored triangle |
+|---|---:|---:|
+| 24,30 | 9 | 6 |
+| 28,31 | 13 | 10 |
+| 41,32 | 27 | 26 |
+| 42,32 | 26 | 27 |
+
+Depth candidates differ by one ULP; that changes the winning material centroid.
+Original shading in the same dispatch exactly matches all four original capture
+RGBs; refactored shading matches the actual new final tile. Thus lighting and
+readback identity cannot explain the differences. The probe is archived, not
+shipped.
+
+The fixed-pose native runner now checks two coverage-material equivalences from
+the original producer: (41,32)/(43,31) share triangle 27, and (42,32)/(41,30)
+share triangle 26. All witnesses must be center-empty, actually covered and
+nonblack. Comparing final RGB bytes between identical material centroids avoids
+a lighting-dependent color golden. Before the fix, the exact existing fixture
+command exits 1 with **both** equivalences false (`regression-red/` and
+`regression-red-console.log`), while the coverage/depth oracle still passes.
+`CARGO_BUILD_JOBS=4 cargo check` passes (`regression-check.log`). This regression
+is committed before changing producer arithmetic.

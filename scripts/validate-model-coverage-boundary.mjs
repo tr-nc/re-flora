@@ -26,4 +26,20 @@ const tile = await readFile(`${output}/final.bin`);
 assert.equal(tile.length, 4096 * 16);
 assert.equal(tile.readFloatLE((26 * 64 + 11) * 16 + 12), 1, 'Captured boundary is not the minimized case');
 assert.ok(tile.readFloatLE((26 * 64 + 12) * 16 + 12) < 1, 'Missing genuinely covered neighbor');
-console.log('PASS: fixed 64px leaf boundary, real producer/readback, independent coverage and depth, original RGBA/depth unchanged.');
+// The captured pose also exposes near-tied coverage depths. Projection refactors
+// must preserve the supporting material, not just the mask and approximate depth.
+// These center-empty pairs share triangle centroids (27 and 26 respectively) in
+// the original producer. Compare actual final RGB bytes: this avoids baking a
+// particular sun/environment intensity into a color golden.
+const center = await readFile(`${output}/center.bin`);
+const pairs = [[[41, 32], [43, 31]], [[42, 32], [41, 30]]];
+const rgb = ([x, y]) => tile.subarray((y * 64 + x) * 16, (y * 64 + x) * 16 + 12);
+for (const pixel of pairs.flat()) {
+  const at = (pixel[1] * 64 + pixel[0]) * 16;
+  assert.equal(center.readFloatLE(at + 12), 1, `Expected coverage-only pixel ${pixel}`);
+  assert.ok(tile.readFloatLE(at + 12) < 1, `Missing material witness ${pixel}`);
+  assert.ok(tile.readFloatLE(at) + tile.readFloatLE(at + 4) > 0, `Black material witness ${pixel}`);
+}
+assert.deepEqual(pairs.map(([a, b]) => rgb(a).equals(rgb(b))), [true, true],
+  'Coverage supporting triangles changed at (41,32)/(42,32), despite unchanged center samples');
+console.log('PASS: fixed 64px leaf boundary, real producer/readback, independent coverage and depth, original RGBA/depth and supporting materials unchanged.');
