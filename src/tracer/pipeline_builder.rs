@@ -142,6 +142,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let ddgi_response_sample_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/response_sample.comp",
+            "main",
+        )
+        .unwrap();
         let local_light_visibility_diagnostic_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             if glass_experiment_enabled {
@@ -613,6 +619,7 @@ impl PipelineBuilder {
             ddgi_probe_relocate_sm,
             ddgi_probe_trace_sm,
             local_light_visibility_diagnostic_sm,
+            ddgi_response_sample_sm,
             ddgi_irradiance_filter_sm,
             ddgi_visibility_filter_sm,
             ddgi_irradiance_gutter_sm,
@@ -727,6 +734,12 @@ impl PipelineBuilder {
                 ddgi_volume,
                 ddgi_voxel_visibility,
             ],
+        );
+        let ddgi_response_sample_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_response_sample_sm,
+            pool,
+            &[resources, ddgi_volume, ddgi_voxel_visibility],
         );
         let local_light_visibility_diagnostic_ppl = ComputePipeline::new(
             device,
@@ -1026,6 +1039,7 @@ impl PipelineBuilder {
             ddgi_probe_relocate_ppl,
             ddgi_probe_trace_ppl,
             local_light_visibility_diagnostic_ppl,
+            ddgi_response_sample_ppl,
             ddgi_irradiance_filter_ppl,
             ddgi_visibility_filter_ppl,
             ddgi_irradiance_gutter_ppl,
@@ -1710,6 +1724,7 @@ declare_ddgi_consumer_registry! {
     Sprinkler => Graphics(graphics.sprinkler_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
+    DdgiResponseSample => Compute(compute.ddgi_response_sample_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),
     EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
@@ -1951,6 +1966,7 @@ impl PipelineTopology {
         );
         for pipeline in [
             &self.compute.raster_tree_lighting_ppl,
+            &self.compute.ddgi_response_sample_ppl,
             &self.compute.tree_skin_ppl,
             &self.compute.tree_refit_ppl,
             &self.compute.butterfly_tile_ppl,
@@ -2503,6 +2519,7 @@ pub struct ShaderModules {
     pub ddgi_probe_relocate_sm: ShaderModule,
     pub ddgi_probe_trace_sm: ShaderModule,
     pub local_light_visibility_diagnostic_sm: ShaderModule,
+    pub ddgi_response_sample_sm: ShaderModule,
     pub ddgi_irradiance_filter_sm: ShaderModule,
     pub ddgi_visibility_filter_sm: ShaderModule,
     pub ddgi_irradiance_gutter_sm: ShaderModule,
@@ -2581,6 +2598,7 @@ pub struct ComputePipelines {
     pub ddgi_probe_relocate_ppl: ComputePipeline,
     pub ddgi_probe_trace_ppl: ComputePipeline,
     pub local_light_visibility_diagnostic_ppl: ComputePipeline,
+    pub ddgi_response_sample_ppl: ComputePipeline,
     pub ddgi_irradiance_filter_ppl: ComputePipeline,
     pub ddgi_visibility_filter_ppl: ComputePipeline,
     pub ddgi_irradiance_gutter_ppl: ComputePipeline,

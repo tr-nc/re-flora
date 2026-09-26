@@ -1453,6 +1453,8 @@ pub struct TracerResources {
     #[resource(nested)]
     pub local_lighting: LocalLightingResources,
     #[resource(nested)]
+    pub ddgi_response: super::ddgi_response_sample::DdgiResponseResources,
+    #[resource(nested)]
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
     #[resource(nested)]
@@ -1586,6 +1588,10 @@ impl TracerResources {
                 max_terrain_queries,
             ),
             local_lighting: LocalLightingResources::new(device.clone(), allocator.clone()),
+            ddgi_response: super::ddgi_response_sample::DdgiResponseResources::new(
+                device.clone(),
+                allocator.clone(),
+            ),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
             meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(

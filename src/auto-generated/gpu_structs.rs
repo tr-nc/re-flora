@@ -70,6 +70,17 @@ pub struct DdgiRelocationStats {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_DdgiResponseSample` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiResponseSample {
+    pub identity: [u32; 4],
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+    pub irradiance_and_weight: [f32; 4],
+    pub support: [u32; 4],
+}
+
 /// Auto-generated from `B_DdgiTraceStats` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -698,6 +709,15 @@ pub struct DdgiRadianceVoxelPalette {
     pub terrain_variation: [f32; 2],
     pub terrain_seed: u32,
     pub _pad5: [u8; 4],
+}
+
+/// Auto-generated from `U_DdgiResponseRequest` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiResponseRequest {
+    pub identity: [u32; 4],
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
 }
 
 /// Auto-generated from `U_DdgiTransportQueryInfo` (native Slang source of truth).

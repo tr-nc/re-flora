@@ -538,6 +538,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/response_sample.comp",
+        source_path: "shader/slang/ddgi_response_sample.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/ddgi/irradiance_filter.comp",
         source_path: "shader/slang/ddgi_irradiance_filter.slang",
         module_path: "shader/slang",

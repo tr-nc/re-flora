@@ -58,7 +58,9 @@ mod direct_sun_shadow_runtime;
 pub use direct_sun_shadow_runtime::DIRECT_SUN_SHADOW_SOURCE_ALL;
 use direct_sun_shadow_runtime::{DirectSunShadowLightSpaceChange, DirectSunShadowRuntime};
 
+mod ddgi_response_sample;
 mod local_light_visibility_diagnostic;
+pub(crate) use ddgi_response_sample::DdgiResponseEvidence;
 use local_light_visibility_diagnostic::{
     LocalLightVisibilityDiagnostic, LocalLightVisibilityDiagnosticEvidence,
 };
@@ -1681,6 +1683,7 @@ pub struct Tracer {
     ddgi_flora_consumer_logged_token_serial: Option<u64>,
     local_light_live_publication: LocalLightLivePublication,
     local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic,
+    ddgi_response_sampler: ddgi_response_sample::DdgiResponseSampler,
     environment_probe_visualization: EnvironmentProbeVisualizationSettings,
 
     pipeline_topology: PipelineTopology,
@@ -2039,6 +2042,7 @@ impl Tracer {
             ddgi_flora_consumer_logged_token_serial: None,
             local_light_live_publication: LocalLightLivePublication::default(),
             local_light_visibility_diagnostic: LocalLightVisibilityDiagnostic::default(),
+            ddgi_response_sampler: ddgi_response_sample::DdgiResponseSampler::default(),
             environment_probe_visualization: EnvironmentProbeVisualizationSettings {
                 enabled: desc.environment_probe_visualization_enabled,
                 ..Default::default()
@@ -2380,6 +2384,19 @@ impl Tracer {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(crate) fn request_ddgi_response_sample(
+        &mut self,
+        position: Vec3,
+        normal: Vec3,
+    ) -> Result<u32> {
+        self.ddgi_response_sampler
+            .request(&self.resources.ddgi_response, position, normal)
+    }
+
+    pub(crate) fn ddgi_response_evidence(&self) -> Option<DdgiResponseEvidence> {
+        self.ddgi_response_sampler.published()
+    }
+
     pub(crate) fn request_local_light_visibility_diagnostic(
         &mut self,
         geometry_revision: u32,
@@ -3290,6 +3307,8 @@ impl Tracer {
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
+        self.ddgi_response_sampler
+            .resolve(&self.resources.ddgi_response)?;
         if std::mem::take(&mut self.ddgi_relocation_stats_readback_pending) {
             let stats = self.ddgi_runtime.read_builder_relocation_stats()?;
             anyhow::ensure!(
@@ -3457,6 +3476,12 @@ impl Tracer {
             || self.record_clear_render_targets(cmdbuf, render_flags, update_shadow_map),
         );
 
+        self.ddgi_response_sampler.record(
+            &self.resources.ddgi_response,
+            &self.pipeline_topology.compute().ddgi_response_sample_ppl,
+            cmdbuf,
+            self.ddgi_runtime.status().active().published_field(),
+        );
         if self.local_light_visibility_diagnostic.has_queued() {
             let diagnostic = &mut self.local_light_visibility_diagnostic;
             let resources = &self.resources.local_lighting;
