@@ -153,6 +153,7 @@ impl Tracer {
             result.push((
                 event,
                 AttachedLeafRelease {
+                    id: event.id,
                     position,
                     velocity,
                     normal,

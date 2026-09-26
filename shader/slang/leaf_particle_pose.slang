@@ -2,6 +2,7 @@ module leaf_particle_pose;
 
 // Optical encoding tag, not an A/B mode. Bit 31 remains the existing sprite flip.
 public static const uint LEAF_FLIGHT_BIT = 0x40000000u;
+public static const uint LEAF_SOURCE_VOXEL_BIT = 0x20000000u;
 
 // Rotate the optical normal only. The simulation pose is not a geometric frame.
 public float3 leafParticleOpticalNormal(float4 optics, uint flags)

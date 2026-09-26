@@ -27,6 +27,8 @@ pub struct CanopyDistributedEmitterAdapter {
     spatial_sound_manager: SpatialSoundManager,
     telemetry: CanopyAudioTelemetry,
     voices: HashMap<CanopyAudioGenerationKey, CanopyAudioVoice>,
+    /// Live canopy area scales power, independently of structural generation fades.
+    leaf_coverage: HashMap<u32, f32>,
     #[cfg(test)]
     fail_spawn_key: Option<CanopyAudioGenerationKey>,
 }
@@ -37,6 +39,7 @@ impl CanopyDistributedEmitterAdapter {
             spatial_sound_manager,
             telemetry: CanopyAudioTelemetry::default(),
             voices: HashMap::new(),
+            leaf_coverage: HashMap::new(),
             #[cfg(test)]
             fail_spawn_key: None,
         }
@@ -56,6 +59,13 @@ impl CanopyDistributedEmitterAdapter {
             .iter()
             .map(ActiveCanopyAcousticGeneration::key)
             .collect::<HashSet<_>>();
+        if !self.leaf_coverage.is_empty() {
+            let trees = active_keys
+                .iter()
+                .map(|key| key.tree_id())
+                .collect::<HashSet<_>>();
+            self.leaf_coverage.retain(|tree, _| trees.contains(tree));
+        }
         let stale_keys = self
             .voices
             .keys()
@@ -89,9 +99,15 @@ impl CanopyDistributedEmitterAdapter {
                 created_keys.push(active.key());
             }
             if let Some(voice) = self.voices.get_mut(&active.key()) {
-                if let Err(error) =
-                    voice.set_lifecycle_power(active.lifecycle_power(), &self.spatial_sound_manager)
-                {
+                let coverage = self
+                    .leaf_coverage
+                    .get(&active.key().tree_id())
+                    .copied()
+                    .unwrap_or(1.0);
+                if let Err(error) = voice.set_lifecycle_power(
+                    covered_canopy_power(active.lifecycle_power(), coverage),
+                    &self.spatial_sound_manager,
+                ) {
                     self.rollback_created_voices(&created_keys);
                     return Err(error).with_context(|| {
                         format!(
@@ -155,6 +171,15 @@ impl CanopyDistributedEmitterAdapter {
         Ok(())
     }
 
+    pub fn set_leaf_coverage(&mut self, tree: u32, coverage: f32) {
+        let coverage = coverage.clamp(0.0, 1.0);
+        if coverage == 1.0 {
+            self.leaf_coverage.remove(&tree);
+        } else {
+            self.leaf_coverage.insert(tree, coverage);
+        }
+    }
+
     pub fn set_base_volume_db(&mut self, base_volume_db: f32) -> Result<()> {
         for voice in self.voices.values_mut() {
             voice.set_wind_volume_db(base_volume_db, &self.spatial_sound_manager)?;
@@ -180,6 +205,7 @@ impl CanopyDistributedEmitterAdapter {
     }
 
     pub fn remove_all(&mut self) {
+        self.leaf_coverage.clear();
         for voice in self.voices.values() {
             self.spatial_sound_manager.remove_source(voice.uuid);
         }
@@ -398,6 +424,10 @@ impl CanopyDistributedEmitterAdapter {
     }
 }
 
+fn covered_canopy_power(lifecycle_power: f32, leaf_coverage: f32) -> f32 {
+    lifecycle_power * leaf_coverage.clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,6 +485,14 @@ mod tests {
             }],
             &[],
         )
+    }
+
+    #[test]
+    fn leaf_loss_and_regrowth_scale_rustle_without_overriding_generation_fades() {
+        assert_eq!(covered_canopy_power(1.0, 0.0), 0.0);
+        assert_eq!(covered_canopy_power(0.4, 1.0), 0.4);
+        assert_eq!(covered_canopy_power(0.4, 0.25), 0.1);
+        assert_eq!(covered_canopy_power(0.0, 1.0), 0.0);
     }
 
     #[test]

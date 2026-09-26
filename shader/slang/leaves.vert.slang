@@ -72,9 +72,10 @@ VertexOutput main(VertexInput input)
         return output;
     }
 
-    float3 vertexPosition = prepared.voxel_position +
-        treeAttachmentVector(instancePosition,
-            (float3(vertexOffset) - 0.5) * (FLORA_SCALING_FACTOR * growth));
+    float3 offset = growth == 1.0 ? float3(vertexOffset)
+        : (float3(vertexOffset) - 0.5) * growth + 0.5;
+    float3 vertexPosition = prepared.anchor_position +
+        treeAttachmentVector(instancePosition, offset * FLORA_SCALING_FACTOR);
     output.position = applyFloraDepthOffset(vertexPosition, instancePosition);
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,

@@ -1,16 +1,23 @@
-//! Detached-leaf optical encoding. All particle geometry stays screen-facing.
+//! Detached-leaf optical encoding. Decorative sprites stay screen-facing;
+//! real tree leaves explicitly preserve their source voxel geometry.
 use crate::particles::{ParticleRenderKind, ParticleSnapshot};
 use glam::Vec3;
 
 // Mirrored by leaf_particle_pose.slang. Bit 31 remains the existing sprite flip.
 const LEAF_FLIGHT_BIT: u32 = 1 << 30;
+const LEAF_SOURCE_VOXEL_BIT: u32 = 1 << 29;
 
 pub(super) fn encode(snapshot: &ParticleSnapshot) -> ([f32; 4], u32) {
     if snapshot.kind != ParticleRenderKind::Leaf {
         return ([0.0; 4], 0);
     }
     if let Some(orientation) = snapshot.leaf_orientation {
-        return (orientation.to_array(), LEAF_FLIGHT_BIT);
+        let geometry = if snapshot.leaf_geometry.is_some() {
+            LEAF_SOURCE_VOXEL_BIT
+        } else {
+            0
+        };
+        return (orientation.to_array(), LEAF_FLIGHT_BIT | geometry);
     }
     // Non-falling leaf-colored particles retain their existing optical proxy.
     let velocity = snapshot.velocity;

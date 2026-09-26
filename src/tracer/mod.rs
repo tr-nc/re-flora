@@ -7082,7 +7082,8 @@ impl Tracer {
                 leaf_pose_flags,
                 leaf_geometry: snap
                     .leaf_geometry
-                    .map_or([0., 0., 0., 2.], |q| q.to_array()),
+                    .unwrap_or(glam::Quat::IDENTITY)
+                    .to_array(),
                 position: snap.position_ws.to_array(),
                 size: leaf_model.render_size(snap),
                 color: snap.color.to_array(),

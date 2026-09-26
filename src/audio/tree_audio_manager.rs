@@ -128,6 +128,12 @@ impl TreeAudioManager {
         self.lifecycle = CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS);
     }
 
+    /// A live leaf-state consumer, not a canopy geometry rebuild or a second
+    /// lifecycle. Full/legacy canopies use 1, fully stripped canopies use 0.
+    pub fn set_leaf_coverage(&mut self, tree: u32, coverage: f32) {
+        self.emitter_adapter.set_leaf_coverage(tree, coverage);
+    }
+
     pub fn set_canopy_telemetry_enabled(&mut self, enabled: bool) {
         self.emitter_adapter.set_telemetry_enabled(enabled);
     }

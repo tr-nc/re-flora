@@ -87,7 +87,7 @@ VertexOutput main(VertexInput input)
 
     float scale = max(input.instance_size, 0.001) * 1.25;
     float3 vertexPosition = input.instance_position + billboardVertexOffset(vertexOffset, scale);
-    if (input.leaf_geometry.w <= 1.0)
+    if ((input.leaf_pose_flags & LEAF_SOURCE_VOXEL_BIT) != 0u)
     {
         // Real tree leaves retain the source cube, without decorative size boosts.
         float3 offset = (float3(vertexOffset) - 0.5) * input.instance_size;

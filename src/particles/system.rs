@@ -137,6 +137,7 @@ impl Default for ParticleSpawn {
 /// One published tree leaf becomes one falling leaf with no invented release pose.
 #[derive(Clone, Copy, Debug)]
 pub struct AttachedLeafRelease {
+    pub id: crate::leaf_lifecycle::LeafId,
     pub position: Vec3,
     pub velocity: Vec3,
     pub normal: Vec3,
@@ -230,6 +231,12 @@ struct LeafDisplayPose {
     orientation: Quat,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LeafOrigin {
+    id: crate::leaf_lifecycle::LeafId,
+    geometry_offset: Quat,
+}
+
 /// Keeps particle data in a struct-of-arrays layout for cache-friendly updates.
 pub struct ParticleSystem {
     positions: Vec<Vec3>,
@@ -269,7 +276,7 @@ pub struct ParticleSystem {
     speed_noise: FastNoiseLite,
     leaf_flight: Vec<LeafFlight>,
     leaf_shape_seeds: Vec<u32>,
-    leaf_geometry_offsets: Vec<Option<Quat>>,
+    leaf_origins: Vec<Option<LeafOrigin>>,
     leaf_display: Vec<LeafDisplayPose>,
     butterfly_display: Vec<ButterflyPresentation>,
     butterfly_wingbeats: Vec<Option<super::ButterflyWingbeatPose>>,
@@ -332,7 +339,7 @@ impl ParticleSystem {
             speed_noise,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
             leaf_shape_seeds: vec![0; max_particles],
-            leaf_geometry_offsets: vec![None; max_particles],
+            leaf_origins: vec![None; max_particles],
             butterfly_display: vec![ButterflyPresentation::default(); max_particles],
             butterfly_wingbeats: vec![None; max_particles],
             leaf_display: vec![
@@ -435,7 +442,7 @@ impl ParticleSystem {
         self.pending_sim_dt.resize(capacity, 0.0);
         self.leaf_flight.resize(capacity, LeafFlight::new(0));
         self.leaf_shape_seeds.resize(capacity, 0);
-        self.leaf_geometry_offsets.resize(capacity, None);
+        self.leaf_origins.resize(capacity, None);
         self.leaf_display.resize(
             capacity,
             LeafDisplayPose {
@@ -486,9 +493,15 @@ impl ParticleSystem {
         self.leaf_flight[slot] = LeafFlight::released(orientation, release.angular_velocity);
         self.leaf_display[slot].orientation = orientation;
         self.leaf_shape_seeds[slot] = release.seed;
-        self.leaf_geometry_offsets[slot] =
-            Some(orientation.conjugate() * release.geometry_rotation);
+        self.leaf_origins[slot] = Some(LeafOrigin {
+            id: release.id,
+            geometry_offset: orientation.conjugate() * release.geometry_rotation,
+        });
         Some(handle)
+    }
+
+    pub fn leaf_origin(&self, handle: ParticleHandle) -> Option<crate::leaf_lifecycle::LeafId> {
+        self.leaf_origins[self.validate_handle(handle)?].map(|origin| origin.id)
     }
 
     /// Spawns a new particle using the provided description.
@@ -503,7 +516,7 @@ impl ParticleSystem {
             ^ spawn.speed_noise_offset.to_bits();
         self.leaf_flight[slot] = LeafFlight::new(life_seed);
         self.leaf_shape_seeds[slot] = life_seed;
-        self.leaf_geometry_offsets[slot] = None;
+        self.leaf_origins[slot] = None;
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
         self.butterfly_display[slot] = ButterflyPresentation::default();
@@ -897,8 +910,8 @@ impl ParticleSystem {
                 leaf_shape_seed: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_shape_seeds[*slot]),
-                leaf_geometry: self.leaf_geometry_offsets[*slot]
-                    .map(|offset| self.leaf_display[*slot].orientation * offset),
+                leaf_geometry: self.leaf_origins[*slot]
+                    .map(|origin| self.leaf_display[*slot].orientation * origin.geometry_offset),
             });
         }
     }
@@ -1167,6 +1180,12 @@ mod tests {
             })
             .unwrap();
         let release = AttachedLeafRelease {
+            id: crate::leaf_lifecycle::LeafId {
+                tree: 7,
+                topology: 1,
+                socket: 0,
+                generation: 0,
+            },
             position: Vec3::new(0.3, 1.0, 0.7),
             velocity: Vec3::new(0.1, 0.0, -0.1),
             normal: Vec3::new(1., 2., 3.).normalize(),
@@ -1178,8 +1197,22 @@ mod tests {
         };
         system.reserve_for_batch(40);
         let leaves = (0..40)
-            .map(|_| system.spawn_attached_leaf(release).unwrap())
+            .map(|socket| {
+                system
+                    .spawn_attached_leaf(AttachedLeafRelease {
+                        id: crate::leaf_lifecycle::LeafId {
+                            socket,
+                            ..release.id
+                        },
+                        ..release
+                    })
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
+        for (index, &handle) in leaves.iter().enumerate() {
+            assert_eq!(system.leaf_origin(handle).unwrap().socket, index as u32);
+        }
+        assert_eq!(system.leaf_origin(water), None);
         let mut snapshots = Vec::new();
         system.write_snapshots(&mut snapshots);
         assert_eq!(snapshots.len(), 41);
@@ -1208,6 +1241,10 @@ mod tests {
         system.write_snapshots(&mut snapshots);
         assert!(snapshots.iter().all(|s| s.leaf_geometry.is_none()));
         assert!(system.is_alive_handle(ordinary));
+        assert_eq!(system.leaf_origin(ordinary), None);
+        assert!(leaves
+            .iter()
+            .all(|&leaf| system.leaf_origin(leaf).is_none()));
     }
 
     fn long_lived_leaf() -> ParticleSpawn {

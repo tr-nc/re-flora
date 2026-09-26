@@ -72,8 +72,8 @@ VertexOutput main(VertexInput input)
         return output;
     }
 
-    float3 vertexPosition = lerp(prepared.voxel_position,
-        floraBillboardVertexPosition(prepared.voxel_position,vertexOffset), growth);
+    float3 vertexPosition = floraBillboardVertexPosition(prepared.voxel_position,vertexOffset);
+    if (growth < 1.0) vertexPosition = lerp(prepared.voxel_position, vertexPosition, growth);
     output.position = projectFloraPosition(vertexPosition);
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,

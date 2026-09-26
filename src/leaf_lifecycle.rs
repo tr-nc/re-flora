@@ -80,6 +80,7 @@ impl LeafCanopy {
         }
     }
 
+    #[cfg(test)]
     pub fn reset(&mut self, now: f64) {
         for socket in &mut self.sockets {
             socket.generation = 0;
@@ -96,6 +97,7 @@ impl LeafCanopy {
         self.sockets.len()
     }
 
+    #[cfg(test)]
     pub fn growth(&self, slot: usize, now: f64, settings: LeafLifecycleSettings) -> f32 {
         self.sockets
             .get(slot)
@@ -320,6 +322,45 @@ mod tests {
             fresh.iter().map(|e| e.id).collect::<Vec<_>>()
         );
         assert!((0..canopy.len()).all(|i| canopy.growth(i, 10.0, settings) == 1.0));
+    }
+
+    #[test]
+    fn manual_and_natural_transport_trigger_on_the_first_local_threshold_frame() {
+        use crate::wind_field::WindField;
+        for manual in [false, true] {
+            let root = UVec3::new(0, 128, 128);
+            let canopy = LeafCanopy::new(1, 1, &[root], 0.0);
+            let settings = LeafLifecycleSettings {
+                strength: 0.01,
+                ..Default::default()
+            };
+            let mut field = WindField::default();
+            field.background_enabled = !manual;
+            field.heading_degrees = 0.0;
+            field.natural_inflow.strength = 3.0;
+            field.advance(0.0);
+            if manual {
+                assert!(field.release(root.as_vec3() / 256.0, Vec2::X));
+            }
+            let mut reached = false;
+            for frame in 1..=120 {
+                let time = frame as f32 / 60.0;
+                field.advance(time);
+                let wind = field.frame();
+                let local = wind.sample_world(root.as_vec3() / 256.0).length_squared();
+                let above = local >= canopy.sockets[0].strength(time as f64, settings);
+                assert_eq!(!canopy.plan(time as f64, settings, &wind).is_empty(), above,
+                    "manual={manual} frame={frame}: no emission accumulator is allowed after arrival");
+                if above {
+                    reached = true;
+                    break;
+                }
+            }
+            assert!(
+                reached,
+                "fixture wind never reached the leaf: manual={manual}"
+            );
+        }
     }
 
     #[test]

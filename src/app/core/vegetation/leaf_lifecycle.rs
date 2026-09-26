@@ -28,6 +28,7 @@ pub(super) struct CanopyState {
     pub canopy: LeafCanopy,
     pub growth: Vec<f32>,
     pub live_slots: Vec<u32>,
+    pub area_fraction: f32,
 }
 
 impl CanopyState {
@@ -42,11 +43,14 @@ impl CanopyState {
             ),
             growth: vec![1.0; positions.len()],
             live_slots: (0..positions.len() as u32).collect(),
+            area_fraction: 1.0,
         }
     }
 
     fn publish(&mut self, now: f64, settings: LeafLifecycleSettings) {
         self.canopy.write_growth(now, settings, &mut self.growth);
+        self.area_fraction =
+            self.growth.iter().map(|g| g * g).sum::<f32>() / self.growth.len().max(1) as f32;
         self.live_slots.clear();
         self.live_slots.extend(
             self.growth
@@ -81,6 +85,7 @@ impl App {
             };
             for (&tree_id, record) in &mut self.trees.records {
                 record.leaf_lifecycle = enabled.then(|| CanopyState::new(tree_id, record, 0.0));
+                self.tree_audio_manager.set_leaf_coverage(tree_id, 1.0);
                 if let Some(tree) = self
                     .surface_builder
                     .resources
@@ -153,9 +158,11 @@ impl App {
         self.particle_system.reserve_for_batch(handoffs.len());
         let detached = handoffs.len();
         for (event, release) in handoffs {
-            self.particle_system
+            let handle = self
+                .particle_system
                 .spawn_attached_leaf(release)
                 .expect("complete handoff batch was reserved before publication");
+            debug_assert_eq!(self.particle_system.leaf_origin(handle), Some(event.id));
             let state = self
                 .trees
                 .records
@@ -175,7 +182,9 @@ impl App {
         for (&tree_id, record) in &mut self.trees.records {
             if let Some(state) = &mut record.leaf_lifecycle {
                 state.publish(now, settings);
-                leaves += state.growth.len();
+                self.tree_audio_manager
+                    .set_leaf_coverage(tree_id, state.area_fraction);
+                leaves += state.canopy.len();
                 empty += state.growth.iter().filter(|&&g| g == 0.0).count();
                 growing += state.growth.iter().filter(|&&g| g > 0.0 && g < 1.0).count();
                 if let Some(tree) = self

@@ -2184,6 +2184,7 @@ value = false
 [[section.param]]
 id = "leaf_connection_strength"
 kind = "float"
+enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "Connection Strength Multiplier (B)"
 type = "Float"
 
@@ -2195,6 +2196,7 @@ max = 4
 [[section.param]]
 id = "leaf_connection_half_life"
 kind = "float"
+enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "Connection Weakening Half-life (Seconds, B)"
 type = "Float"
 
@@ -2206,6 +2208,7 @@ max = 600
 [[section.param]]
 id = "leaf_regrowth_delay"
 kind = "float"
+enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "Empty Socket Recovery (Seconds, B)"
 type = "Float"
 
@@ -2217,6 +2220,7 @@ max = 60
 [[section.param]]
 id = "leaf_regrowth_duration"
 kind = "float"
+enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "New Leaf Growth (Seconds, B)"
 type = "Float"
 
@@ -2228,6 +2232,7 @@ max = 120
 [[section.param]]
 id = "falling_leaf_mesh"
 kind = "bool"
+enabled_if = { param = "real_leaf_lifecycle", equals = false }
 label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
 type = "Bool"
 
@@ -2237,6 +2242,7 @@ value = true
 [[section.param]]
 id = "falling_leaf_size_scale"
 kind = "float"
+enabled_if = { param = "real_leaf_lifecycle", equals = false }
 label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
 type = "Float"
 
@@ -2248,6 +2254,7 @@ max = 4
 [[section.param]]
 id = "falling_leaf_pixel_resolution"
 kind = "uint"
+enabled_if = { param = "real_leaf_lifecycle", equals = false }
 label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
 type = "Uint"
 

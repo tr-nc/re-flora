@@ -422,8 +422,8 @@ pub struct ParticleInstanceGpu {
     /// Other leaf particles: optical normal + enable. Geometry is always billboarded.
     /// Packing both optical inputs preserves the existing reflected 52-byte instance ABI.
     pub leaf_optics: [f32; 4],
-    /// Actual detached tree voxels retain a separate geometry frame. w=2 on
-    /// ordinary particles is the inactive sentinel, outside unit quaternions.
+    /// Actual detached tree voxels retain a separate geometry frame, selected
+    /// by LEAF_SOURCE_VOXEL_BIT. Ordinary particle geometry ignores this field.
     pub leaf_geometry: [f32; 4],
 }
 
