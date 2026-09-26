@@ -103,10 +103,16 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum ModelStorageKey {
+    Shared(u64),
+    Stream(&'static str, u32, u32),
+}
+
 #[derive(Default)]
 pub struct ModelPixelTiles {
-    frames: Vec<HashMap<(u64, bool), (Arc<Buffer>, usize)>>,
-    used: Vec<HashSet<(u64, bool)>>,
+    frames: Vec<HashMap<(ModelStorageKey, bool), (Arc<Buffer>, usize)>>,
+    used: Vec<HashSet<(ModelStorageKey, bool)>>,
 }
 impl ModelPixelTiles {
     pub fn begin_frame(&mut self, frame: usize) {
@@ -129,7 +135,13 @@ impl ModelPixelTiles {
         device: Device,
         allocator: Allocator,
     ) -> Result<Arc<Buffer>> {
-        self.buffer(frame, (key, false), texels, device, allocator)
+        self.buffer(
+            frame,
+            (ModelStorageKey::Shared(key), false),
+            texels,
+            device,
+            allocator,
+        )
     }
 
     /// Publish host-authored model inputs using the same fence-slot ownership
@@ -144,7 +156,45 @@ impl ModelPixelTiles {
     ) -> Result<Arc<Buffer>> {
         let buffer = self.buffer(
             frame,
-            (key, true),
+            (ModelStorageKey::Shared(key), true),
+            bytes.len().div_ceil(16),
+            device,
+            allocator,
+        )?;
+        if !bytes.is_empty() {
+            buffer.fill_range_with_raw_u8(0, bytes)?;
+        }
+        Ok(buffer)
+    }
+
+    pub fn get_stream(
+        &mut self,
+        frame: usize,
+        key: (&'static str, u32, u32),
+        texels: usize,
+        device: Device,
+        allocator: Allocator,
+    ) -> Result<Arc<Buffer>> {
+        self.buffer(
+            frame,
+            (ModelStorageKey::Stream(key.0, key.1, key.2), false),
+            texels,
+            device,
+            allocator,
+        )
+    }
+
+    pub fn upload_stream(
+        &mut self,
+        frame: usize,
+        key: (&'static str, u32, u32),
+        bytes: &[u8],
+        device: Device,
+        allocator: Allocator,
+    ) -> Result<Arc<Buffer>> {
+        let buffer = self.buffer(
+            frame,
+            (ModelStorageKey::Stream(key.0, key.1, key.2), true),
             bytes.len().div_ceil(16),
             device,
             allocator,
@@ -158,7 +208,7 @@ impl ModelPixelTiles {
     fn buffer(
         &mut self,
         frame: usize,
-        key: (u64, bool),
+        key: (ModelStorageKey, bool),
         texels: usize,
         device: Device,
         allocator: Allocator,

@@ -1,7 +1,7 @@
 import flora_shadow;
 import environment_lighting;
 import leaf_lighting;
-import leaf_particle_pose;
+
 import tracer_types;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
@@ -20,9 +20,7 @@ struct VertexInput
     [[vk::location(2)]] float3 instance_position : POSITION0;
     [[vk::location(3)]] float instance_size : TEXCOORD2;
     [[vk::location(4)]] float4 instance_color : COLOR0;
-    [[vk::location(5)]] uint leaf_pose_flags : TEXCOORD3;
     [[vk::location(6)]] float4 leaf_optics : TEXCOORD4;
-    [[vk::location(7)]] float4 leaf_geometry : TEXCOORD5;
 };
 
 struct VertexOutput
@@ -59,7 +57,7 @@ float3 billboardVertexOffset(uint3 vertexOffset, float scale)
         camera_info.view_mat[1][0],
         camera_info.view_mat[1][1],
         camera_info.view_mat[1][2]));
-    return screenFacingParticleOffset(mappedOffset, right, up);
+    return right * mappedOffset.x + up * mappedOffset.y;
 }
 
 uint instanceHash(float3 instancePosition)
@@ -87,15 +85,6 @@ VertexOutput main(VertexInput input)
 
     float scale = max(input.instance_size, 0.001) * 1.25;
     float3 vertexPosition = input.instance_position + billboardVertexOffset(vertexOffset, scale);
-    if ((input.leaf_pose_flags & LEAF_SOURCE_VOXEL_BIT) != 0u)
-    {
-        // Real tree leaves retain the source cube, without decorative size boosts.
-        float3 offset = (float3(vertexOffset) - 0.5) * input.instance_size;
-        float4 q = input.leaf_geometry;
-        offset += 2.0 * cross(q.xyz, cross(q.xyz, offset) + q.w * offset);
-        vertexPosition = input.instance_position + offset;
-    }
-    bool hasFlightPose = (input.leaf_pose_flags & LEAF_FLIGHT_BIT) != 0u;
 
     VertexOutput output;
     output.position = applyDepthOffset(vertexPosition, input.instance_position);
@@ -112,7 +101,7 @@ VertexOutput main(VertexInput input)
         float3(voxelLocalPosition));
     output.color.a = input.instance_color.a;
 
-    if (hasFlightPose || (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0))
+    if (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0)
     {
         float3 environmentLight = gui_input.raster_flora_ddgi_lighting != 0u
             ? sampleDiffuseEnvironment(gui_input, shading_info,
@@ -120,7 +109,7 @@ VertexOutput main(VertexInput input)
             : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
         output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
             environmentLight, shadow.sun_transmittance, input.instance_position,
-            leafParticleOpticalNormal(input.leaf_optics, input.leaf_pose_flags),
+            normalize(input.leaf_optics.xyz),
             camera_info.pos.xyz, sun_info,
             gui_input.leaf_transmission_strength);
     }

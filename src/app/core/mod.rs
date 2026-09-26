@@ -3530,7 +3530,9 @@ impl App {
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,
                     },
                 );
-                frame_inputs.wind.field = self.wind_prototype.field.frame();
+                frame_inputs.wind.field = self
+                    .leaf_validation_wind()
+                    .unwrap_or_else(|| self.wind_prototype.field.frame());
                 let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture

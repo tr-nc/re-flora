@@ -110,7 +110,7 @@ impl Tracer {
         for ((event, local), pose) in ready.into_iter().zip(poses) {
             let position = Vec3::from_slice(&pose.position_size);
             let mut velocity = Vec3::from_slice(&pose.velocity);
-            let mut angular_velocity = Vec3::from_slice(&pose.angular_velocity);
+            let angular_velocity = Vec3::from_slice(&pose.angular_velocity);
             let normal = Vec3::from_slice(&pose.normal);
             let rotation = Quat::from_array(pose.rotation);
             let anchor = (event.world_voxel.as_ivec3() - local).as_uvec3();
@@ -132,9 +132,9 @@ impl Tracer {
                             let rest =
                                 current.rotation.conjugate() * (position - current.translation);
                             velocity += (position - previous.transform_point(rest)) / dt;
-                            angular_velocity += (current.rotation * previous.rotation.conjugate())
-                                .to_scaled_axis()
-                                / dt;
+                            // Attached leaf attitudes are world-space: A remains fixed,
+                            // B adds only its own hinge rotation. Branch rotation moves
+                            // the center but is not an extra leaf angular velocity.
                         }
                     }
                 }
@@ -161,7 +161,7 @@ impl Tracer {
                     geometry_rotation: rotation,
                     color: Vec4::from_array(pose.color),
                     size: pose.position_size[3],
-                    seed: event.seed,
+                    seed: pose.normal[3].to_bits(),
                 },
             ));
         }

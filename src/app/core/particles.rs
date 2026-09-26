@@ -348,7 +348,7 @@ impl App {
                 sink_on_lifetime: false,
                 sink_speed: 0.0,
                 palette_index: 0,
-                render_kind: ParticleRenderKind::Leaf,
+                render_kind: ParticleRenderKind::LitDebris,
                 despawn_on_lifetime: false,
                 despawn_below_ground: false,
                 update: TERRAIN_HARVEST_PARTICLE_UPDATE,
@@ -584,7 +584,6 @@ impl App {
             transmission: settings.butterfly_wing_transmission.value,
         };
         let leaf_model = crate::tracer::LeafModelSettings {
-            enabled: settings.falling_leaf_mesh.value,
             resolution: settings.falling_leaf_pixel_resolution.value,
             size_scale: settings.falling_leaf_size_scale.value,
         };
@@ -655,7 +654,7 @@ impl App {
                 velocity: particle.velocity,
                 color: WATER_DEBUG_COLOR,
                 size: water_particle_size,
-                kind: ParticleRenderKind::Leaf,
+                kind: ParticleRenderKind::LitDebris,
                 palette_index: 0,
                 animation_phase_offset: 0.0,
                 animation_sample_time: None,
@@ -698,7 +697,6 @@ impl App {
             let stage = (frame / 8) % 5;
             settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize];
             settings.butterfly_mesh_preview.value = true;
-            settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;
             // Cover high view counts without making this correctness fixture
             // request several GiB. The isolated sweep below crosses real pages.

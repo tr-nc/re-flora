@@ -89,7 +89,7 @@ try {
   owned=setting(setting(original,'apple_pixel_resolution',n),'fruit_cycle',scene==='attached'?0.7:1);
   owned=setting(owned,'model_pixel_view_count',views);
   if(options['stress-leaves'])for(const [id,value] of Object.entries({butterfly_mesh_preview:true,butterfly_pixel_resolution:16,
-   falling_leaf_mesh:true,falling_leaf_pixel_resolution:16,falling_leaf_size_scale:1}))owned=setting(owned,id,value);
+   falling_leaf_pixel_resolution:16,falling_leaf_size_scale:1}))owned=setting(owned,id,value);
   await writeFile(configPath,owned);
   const name=`${scene}-${label}`,image=path.join(options.output,`${name}.png`);
   const {code,text}=await run(options.binary,['--hidden','--mute','--windowed','--perf',

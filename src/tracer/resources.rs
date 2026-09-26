@@ -416,14 +416,8 @@ pub struct ParticleInstanceGpu {
     pub position: [f32; 3],
     pub size: f32,
     pub color: [f32; 4],
-    pub leaf_pose_flags: u32,
-    /// Falling leaves (texture bit 30): held simulation quaternion for optics only.
-    /// Other leaf particles: optical normal + enable. Geometry is always billboarded.
-    /// Packing both optical inputs preserves the existing reflected 52-byte instance ABI.
+    /// Optical normal + enable for non-leaf harvest/debug points only.
     pub leaf_optics: [f32; 4],
-    /// Actual detached tree voxels retain a separate geometry frame, selected
-    /// by LEAF_SOURCE_VOXEL_BIT. Ordinary particle geometry ignores this field.
-    pub leaf_geometry: [f32; 4],
 }
 
 pub struct ParticleRendererResources {
@@ -434,12 +428,7 @@ pub struct ParticleRendererResources {
     pub instance_count: u32,
     pub translucent_instance_buffer: Resource<Buffer>,
     pub translucent_instance_count: u32,
-    pub tree_leaf_vertices: Resource<Buffer>,
-    pub tree_leaf_indices: Resource<Buffer>,
-    pub tree_leaf_indices_len: u32,
-    pub tree_leaf_instance_buffer: Resource<Buffer>,
-    pub tree_leaf_instance_count: u32,
-    instance_frames: Vec<Option<[Buffer; 3]>>,
+    instance_frames: Vec<Option<[Buffer; 2]>>,
 }
 
 #[repr(C)]
@@ -815,8 +804,6 @@ impl ParticleRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         let (vertices, indices, indices_len) =
             Self::create_particle_mesh(device.clone(), allocator.clone(), true);
-        let (tree_leaf_vertices, tree_leaf_indices, tree_leaf_indices_len) =
-            Self::create_particle_mesh(device.clone(), allocator.clone(), false);
 
         let create_instance_buffer = || {
             Buffer::new_sized(
@@ -838,11 +825,6 @@ impl ParticleRendererResources {
             instance_count: 0,
             translucent_instance_buffer: Resource::new(translucent_instance_buffer),
             translucent_instance_count: 0,
-            tree_leaf_vertices: Resource::new(tree_leaf_vertices),
-            tree_leaf_indices: Resource::new(tree_leaf_indices),
-            tree_leaf_indices_len,
-            tree_leaf_instance_buffer: Resource::new(create_instance_buffer()),
-            tree_leaf_instance_count: 0,
             instance_frames: Vec::new(),
         }
     }
@@ -854,7 +836,7 @@ impl ParticleRendererResources {
         slot: usize,
         device: Device,
         allocator: Allocator,
-        batches: [&[ParticleInstanceGpu]; 3],
+        batches: [&[ParticleInstanceGpu]; 2],
     ) -> anyhow::Result<()> {
         while self.instance_frames.len() <= slot {
             self.instance_frames.push(None);
@@ -888,10 +870,8 @@ impl ParticleRendererResources {
         }
         self.instance_buffer = Resource::new(buffers[0].clone());
         self.translucent_instance_buffer = Resource::new(buffers[1].clone());
-        self.tree_leaf_instance_buffer = Resource::new(buffers[2].clone());
         self.instance_count = batches[0].len() as u32;
         self.translucent_instance_count = batches[1].len() as u32;
-        self.tree_leaf_instance_count = batches[2].len() as u32;
         Ok(())
     }
 
@@ -2004,7 +1984,7 @@ mod tests {
             std::mem::size_of_val(vertices.as_slice()) / vertices.len(),
             std::mem::size_of::<LeafVertex>(),
         );
-        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 68);
-        assert_eq!(std::mem::offset_of!(ParticleInstanceGpu, leaf_optics), 36);
+        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 48);
+        assert_eq!(std::mem::offset_of!(ParticleInstanceGpu, leaf_optics), 32);
     }
 }

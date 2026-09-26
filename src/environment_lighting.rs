@@ -1013,15 +1013,15 @@ mod tests {
         );
         assert!(!tree_leaf_cache.contains("vertexOffset"));
         for shader in [leaves, leaves_lod] {
-            let lighting_branch = shader
-                .split_once("if (rasterFloraUsesDdgiLighting())")
-                .expect("tree-leaf shader must branch before cache access")
-                .1;
-            assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
-            assert!(lighting_branch.contains("shadeTreeLeafVertexWithEnvironment("));
-            assert!(lighting_branch.contains("shadeLegacyTreeLeafVertex("));
-            assert!(!shader.contains("sampleFloraEnvironment("));
+            assert!(shader.contains("displayAttachedLeaf("));
+            assert!(!shader.contains("flora_lighting_cache"));
         }
+        // Attached and fallen leaf models now share object lighting. Preserve
+        // both environment choices there rather than requiring retired cube shading.
+        let object = include_str!("../shader/slang/model_pixel_object.slang");
+        assert!(object.contains("gui_input.raster_flora_ddgi_lighting!=0u"));
+        assert!(object.contains("sampleDiffuseEnvironment("));
+        assert!(object.contains("LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength"));
         let tree_leaf_finish = shared
             .split_once("float3 finishTreeLeafShading(")
             .expect("tree-leaf view-dependent finishing helper must exist")

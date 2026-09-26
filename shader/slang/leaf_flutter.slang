@@ -1,15 +1,15 @@
 module leaf_flutter;
 import wind_response_curve;
 
-// A cube represents an unresolved thin leaf. This frame is optical/mechanical
-// state only: never apply it to cube vertices, face normals, or ray origins.
+// Shared thin-leaf mechanical frame. Model poses apply its hinge rotation to
+// real geometry; coarse voxel/proxy consumers may use only its optical normal.
 uint leafHash(uint x)
 {
     x = x * 747796405u + 2891336453u;
     uint word = ((x >> ((x >> 28u) + 4u)) ^ x) * 277803737u;
     return (word >> 22u) ^ word;
 }
-float leafUnit(uint seed) { return float(leafHash(seed) & 65535u) / 65535.0; }
+public float leafUnit(uint seed) { return float(leafHash(seed) & 65535u) / 65535.0; }
 
 public float3 leafRestNormal(uint seed)
 {

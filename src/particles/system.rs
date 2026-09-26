@@ -205,13 +205,13 @@ pub struct ParticleSnapshot {
     pub animation_sample_time: Option<f32>,
     /// Simulation-owned wing phase and attitude, held on the same publication tick.
     pub butterfly_wingbeat: Option<super::ButterflyWingbeatPose>,
-    /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
-    /// None for other kinds/motion modes, which retain their existing optical inputs.
+    /// Held simulation orientation for the leaf model and its lighting.
+    /// None for non-leaf effects.
     pub leaf_orientation: Option<Quat>,
     /// Per-life visual seed for derived mesh shape; never feeds flight physics.
     pub leaf_shape_seed: Option<u32>,
-    /// Real tree leaves retain the source voxel geometry and exact source size.
-    /// Decorative leaves continue using their existing sprite/model settings.
+    /// Exact released model frame, including its initial in-plane rotation.
+    /// Decorative leaves use leaf_orientation directly.
     pub leaf_geometry: Option<Quat>,
 }
 
@@ -221,6 +221,8 @@ pub enum ParticleRenderKind {
     Butterfly,
     WaterDroplet,
     TerrainVoxel,
+    /// Non-leaf debug/harvest points retaining their optical proxy lighting.
+    LitDebris,
 }
 
 /// Sample-and-hold presentation, never an input to particle mechanics.
@@ -503,6 +505,14 @@ impl ParticleSystem {
 
     pub fn leaf_origin(&self, handle: ParticleHandle) -> Option<crate::leaf_lifecycle::LeafId> {
         self.leaf_origins[self.validate_handle(handle)?].map(|origin| origin.id)
+    }
+
+    /// Count real transfers by provenance, independently of their render representation.
+    pub fn source_leaf_count(&self) -> usize {
+        self.alive_indices
+            .iter()
+            .filter(|&&slot| self.leaf_origins[slot].is_some())
+            .count()
     }
 
     /// Spawns a new particle using the provided description.

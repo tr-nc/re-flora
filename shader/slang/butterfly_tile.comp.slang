@@ -3,7 +3,7 @@ import butterfly_mesh_types;
 import model_pixel_surface;
 import model_pixel_object;
 [[vk::binding(74,0)]] RWStructuredBuffer<float4> butterfly_pixel_tiles;
-[[vk::binding(75,0)]] StructuredBuffer<uint> draw_indices;
+[[vk::binding(13,1)]] StructuredBuffer<uint> draw_indices;
 [[vk::binding(3,1)]] RWStructuredBuffer<float4> model_pixel_tiles;
 // Compute-only write view of the same buffer. Fragment consumers remain read-only.
 [[vk::binding(1,1)]] RWStructuredBuffer<ParticleModelRepairNode> particle_model_repair_output;
@@ -67,6 +67,22 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     ModelPixelHit hit;
     if(model_pass.mode==2u) {
+        // Diagnostic-only fifth bank: exact clipped pixel-space polygons, one
+        // length + up to twelve vertices per triangle (13 * 256 < 4096).
+        if(all(id.xy==uint2(0))) {
+            ModelPixelFrame frame=particleModelFrame(instance);
+            float4 bounds=butterflyTileBounds(instance,camera_info);
+            for(uint i=0u;i<instance.metadata.y;i++) {
+                float3 projected[12];
+                uint count=0u;
+                if(!any(bounds.xy>float2(1.0)) && !any(bounds.zw<float2(-1.0)))
+                    count=modelPixelProjectedTriangle(butterfly_mesh_triangles[instance.metadata.x+i],
+                        frame,bounds,instance.metadata.z,camera_info,projected);
+                uint base=(model_pass.tile_base*4u+id.z)*4096u+i*13u;
+                butterfly_pixel_tiles[base]=float4(float(count),0,0,0);
+                for(uint j=0u;j<count;j++)butterfly_pixel_tiles[base+1u+j]=float4(projected[j],0);
+            }
+        }
         hit=particleModelHitAt(instance,float2(id.xy)+0.5);
         // Diagnostic-only exact GPU rays let the CPU verify intersection rather
         // than guessing how much cancellation occurred during unprojection.

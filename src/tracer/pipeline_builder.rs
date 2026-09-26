@@ -377,6 +377,12 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let tree_leaf_model_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/tree_leaf_model.comp",
+            "main",
+        )
+        .unwrap();
         let leaf_handoff_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/leaf_handoff.comp",
@@ -647,6 +653,7 @@ impl PipelineBuilder {
             wind_volume_sm,
             vegetation_response_sm,
             leaf_handoff_sm,
+            tree_leaf_model_sm,
             flora_vert_sm,
             flora_frag_sm,
             flora_lod_vert_sm,
@@ -873,6 +880,21 @@ impl PipelineBuilder {
                 ],
             })
             .expect("tree-leaf lighting cache static descriptors must resolve");
+        let tree_leaf_model_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.tree_leaf_model_sm, pool);
+        tree_leaf_model_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            })
+            .expect("tree leaf model static descriptors");
         let leaf_handoff_ppl =
             ComputePipeline::new_uninitialized(device, &shader_modules.leaf_handoff_sm, pool);
         leaf_handoff_ppl
@@ -1081,6 +1103,7 @@ impl PipelineBuilder {
             wind_volume_ppl,
             vegetation_response_ppl,
             leaf_handoff_ppl,
+            tree_leaf_model_ppl,
             post_processing_ppl,
         }
     }
@@ -1189,7 +1212,7 @@ impl PipelineBuilder {
         let leaves_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_vert_sm,
-            &shader_modules.flora_frag_sm,
+            &shader_modules.butterfly_tile_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
@@ -1231,7 +1254,7 @@ impl PipelineBuilder {
         let leaves_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_lod_vert_sm,
-            &shader_modules.flora_frag_sm,
+            &shader_modules.butterfly_tile_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
@@ -1697,8 +1720,6 @@ declare_ddgi_consumer_registry! {
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
     Flora => Graphics(graphics.flora_ppl),
     FloraLod => Graphics(graphics.flora_lod_ppl),
-    Leaves => Graphics(graphics.leaves_ppl),
-    LeavesLod => Graphics(graphics.leaves_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
@@ -1962,6 +1983,7 @@ impl PipelineTopology {
             &self.compute.apple_pixel_tree_ppl,
             &self.compute.apple_pixel_dynamic_ppl,
             &self.compute.leaf_handoff_ppl,
+            &self.compute.tree_leaf_model_ppl,
         ] {
             retire_compute(
                 pipeline,
@@ -2528,6 +2550,7 @@ pub struct ShaderModules {
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
     pub leaf_handoff_sm: ShaderModule,
+    pub tree_leaf_model_sm: ShaderModule,
     pub flora_vert_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lod_vert_sm: ShaderModule,
@@ -2609,6 +2632,7 @@ pub struct ComputePipelines {
     pub wind_volume_ppl: ComputePipeline,
     pub vegetation_response_ppl: ComputePipeline,
     pub leaf_handoff_ppl: ComputePipeline,
+    pub tree_leaf_model_ppl: ComputePipeline,
     pub post_processing_ppl: ComputePipeline,
 }
 

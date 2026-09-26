@@ -83,6 +83,11 @@ pub(super) fn freeze_render_frame_inputs(
     let vegetation = VegetationFrameInput {
         tree_hybrid_lighting: gui.raster_tree_hybrid_lighting.value,
         appearance: FloraAppearanceFrameInput {
+            leaf_models: crate::tracer::LeafModelSettings {
+                resolution: gui.falling_leaf_pixel_resolution.value,
+                size_scale: gui.falling_leaf_size_scale.value,
+            },
+            attached_leaf_rotation: gui.attached_leaf_rotation.value,
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
             instance_hsv_offset_max: Vec3::new(
@@ -498,6 +503,11 @@ mod tests {
             vegetation: VegetationFrameInput {
                 tree_hybrid_lighting: true,
                 appearance: FloraAppearanceFrameInput {
+                    leaf_models: crate::tracer::LeafModelSettings {
+                        resolution: settings.adjustables.falling_leaf_pixel_resolution.value,
+                        size_scale: settings.adjustables.falling_leaf_size_scale.value,
+                    },
+                    attached_leaf_rotation: settings.adjustables.attached_leaf_rotation.value,
                     growth_override_enabled: true,
                     growth_override: flora_growth_override,
                     instance_hsv_offset_max: Vec3::new(

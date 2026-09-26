@@ -1,6 +1,6 @@
 import butterfly_mesh_types;
 import model_pixel_display;
-[[vk::binding(72,0)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
+[[vk::binding(11,1)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 struct FragmentInput {
     [[vk::location(0)]] float2 uv:TEXCOORD0;
     [[vk::location(1)]] nointerpolation uint instanceIndex:TEXCOORD1;

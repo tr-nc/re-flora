@@ -350,13 +350,6 @@ pub struct TreeLeafInstances {
     pub packed_leaf_local_pos: u32,
 }
 
-/// Auto-generated from `B_TreeLeafLightingCache` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TreeLeafLightingCache {
-    pub irradiance: [u32; 0],
-}
-
 /// Auto-generated from `B_TreeLeafShadowInstances` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -510,20 +503,6 @@ pub struct PushConstantLeafShadowTemporal {
     pub _pad0: [u8; 8],
 }
 
-/// Auto-generated from `PushConstantLeaves` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PushConstantLeaves {
-    pub time: f32,
-    pub instance_ty: u32,
-    pub response_offset: u32,
-    pub model_object_prepare: u32,
-    pub chunk_world_offset: [u32; 3],
-    pub lighting_cache_location: u32,
-    pub height_dark_color_rgb10: [u32; 12],
-    pub height_light_color_rgb10: [u32; 12],
-}
-
 /// Auto-generated from `PushConstantLeavesShadow` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -567,6 +546,20 @@ pub struct PushConstantProbeTrace {
     pub local_refresh_enabled: [u32; 4],
     pub local_refresh_world_min: [f32; 4],
     pub local_refresh_world_max: [f32; 4],
+}
+
+/// Auto-generated from `PushConstantTreeLeafModel` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantTreeLeafModel {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub response_offset: u32,
+    pub model_object_prepare: u32,
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
@@ -841,12 +834,15 @@ pub struct GuiInput {
     pub raster_flora_ddgi_lighting: u32,
     pub raster_tree_static: u32,
     pub apple_pixel_resolution: u32,
+    pub attached_leaf_rotation: u32,
+    pub falling_leaf_pixel_resolution: u32,
+    pub falling_leaf_size_scale: f32,
     pub model_pixel_cache_verify: u32,
     pub model_pixel_view_count: u32,
     pub raster_tree_hybrid_lighting: u32,
     pub path_tracing_reference: u32,
     pub path_tracing_max_bounces: u32,
-    pub _pad0: [u8; 8],
+    pub _pad0: [u8; 12],
     pub path_tracing_ambient_light: [f32; 3],
     pub terrain_ray_origin_offset_world: f32,
     pub terrain_self_shadow_tolerance_voxels: f32,

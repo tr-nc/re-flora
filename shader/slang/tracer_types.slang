@@ -7,6 +7,9 @@ public struct U_GuiInput
     public uint raster_flora_ddgi_lighting;
     public uint raster_tree_static;
     public uint apple_pixel_resolution;
+    public uint attached_leaf_rotation;
+    public uint falling_leaf_pixel_resolution;
+    public float falling_leaf_size_scale;
     public uint model_pixel_cache_verify; // internal stored-surface oracle only; no runtime mode
     public uint model_pixel_view_count; // 8..512; zero reserved for numerical oracle
     public uint raster_tree_hybrid_lighting;

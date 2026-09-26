@@ -73,6 +73,16 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
         Self::add_missing_section_params(&mut config, "Terrain Material");
+        Self::add_missing_section_params(&mut config, "Falling Leaves");
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if matches!(
+                param.id.as_str(),
+                "falling_leaf_size_scale" | "falling_leaf_pixel_resolution"
+            ) {
+                // Shared appearance no longer belongs to the decorative lifecycle mode.
+                param.enabled_if = None;
+            }
+        }
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -87,6 +97,7 @@ impl GuiConfigLoader {
                         | "terrain_material_enabled"
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
+                        | "falling_leaf_mesh"
                         | "apple_preview_model"
                         | "model_pixel_snap_views"
                         | "model_pixel_single_light"
@@ -899,6 +910,68 @@ mod tests {
     }
 
     #[test]
+    fn old_leaf_settings_gain_saved_rotation_and_shared_appearance_controls() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let leaves = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Falling Leaves")
+            .unwrap();
+        leaves.param.retain(|p| p.id != "attached_leaf_rotation");
+        let old_condition = leaves
+            .param
+            .iter()
+            .find(|p| p.id == "leaf_connection_strength")
+            .unwrap()
+            .enabled_if
+            .clone();
+        let size = leaves
+            .param
+            .iter_mut()
+            .find(|p| p.id == "falling_leaf_size_scale")
+            .unwrap();
+        size.label = "Old decorative size".into();
+        size.enabled_if = old_condition;
+        size.value = GuiParamValue::Float {
+            value: 2.5,
+            min: Some(0.25),
+            max: Some(4.),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        let rotation = loaded
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "attached_leaf_rotation")
+            .unwrap();
+        assert_eq!(rotation.value.get_bool(), Some(false));
+        rotation.value = GuiParamValue::Bool { value: true };
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(
+            toml::to_string(&loaded).unwrap(),
+            toml::to_string(&reloaded).unwrap()
+        );
+        let size = reloaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "falling_leaf_size_scale")
+            .unwrap();
+        assert_eq!(size.value.get_float().unwrap().0, 2.5);
+        assert!(size.enabled_if.is_none());
+        assert_eq!(
+            size.label,
+            "Leaf Display Size (Tree + Fallen; Physics Unchanged)"
+        );
+    }
+
+    #[test]
     fn retired_render_switches_are_removed_without_changing_other_settings() {
         use crate::app::gui_config_model::GuiParamValue;
         for (enabled, retired_id) in [false, true].into_iter().flat_map(|enabled| {
@@ -910,6 +983,7 @@ mod tests {
                 "model_pixel_single_light",
                 "model_pixel_screen_grid",
                 "model_pixel_cache",
+                "falling_leaf_mesh",
             ]
             .map(|id| (enabled, id))
         }) {

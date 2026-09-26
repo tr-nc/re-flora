@@ -1190,21 +1190,21 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Falling Leaves",
-        id: "falling_leaf_mesh",
+        id: "attached_leaf_rotation",
         kind: "bool",
-        label: "Shared 3D Leaf (B; Unchecked = Original Sprite)",
+        label: "Attached Leaves Rotate in Wind (B; Unchecked = Fixed Initial Angle)",
     },
     GeneratedGuiParamDescriptor {
         section: "Falling Leaves",
         id: "falling_leaf_size_scale",
         kind: "float",
-        label: "Falling Leaf Display Size (A/B; Physics Unchanged)",
+        label: "Leaf Display Size (Tree + Fallen; Physics Unchanged)",
     },
     GeneratedGuiParamDescriptor {
         section: "Falling Leaves",
         id: "falling_leaf_pixel_resolution",
         kind: "uint",
-        label: "Pixels per Falling Leaf (N x N, Independent of Butterflies)",
+        label: "Pixels per Leaf (Tree + Fallen, Independent of Butterflies)",
     },
     GeneratedGuiParamDescriptor {
         section: "Terrain Harvest Particles",
@@ -1650,7 +1650,7 @@ pub struct GuiAdjustables {
     pub leaf_connection_half_life: crate::gui_adjustables::FloatParam,
     pub leaf_regrowth_delay: crate::gui_adjustables::FloatParam,
     pub leaf_regrowth_duration: crate::gui_adjustables::FloatParam,
-    pub falling_leaf_mesh: crate::gui_adjustables::BoolParam,
+    pub attached_leaf_rotation: crate::gui_adjustables::BoolParam,
     pub falling_leaf_size_scale: crate::gui_adjustables::FloatParam,
     pub falling_leaf_pixel_resolution: crate::gui_adjustables::UintParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
@@ -1901,7 +1901,7 @@ impl GuiAdjustables {
         let mut leaf_connection_half_life_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_regrowth_delay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_regrowth_duration_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut falling_leaf_mesh_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut attached_leaf_rotation_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut falling_leaf_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut falling_leaf_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3247,9 +3247,9 @@ impl GuiAdjustables {
                             leaf_regrowth_duration_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "falling_leaf_mesh" => {
+                    "attached_leaf_rotation" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            falling_leaf_mesh_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                            attached_leaf_rotation_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "falling_leaf_size_scale" => {
@@ -3735,7 +3735,7 @@ impl GuiAdjustables {
             leaf_connection_half_life: leaf_connection_half_life_field.expect("Missing parameter: leaf_connection_half_life"),
             leaf_regrowth_delay: leaf_regrowth_delay_field.expect("Missing parameter: leaf_regrowth_delay"),
             leaf_regrowth_duration: leaf_regrowth_duration_field.expect("Missing parameter: leaf_regrowth_duration"),
-            falling_leaf_mesh: falling_leaf_mesh_field.expect("Missing parameter: falling_leaf_mesh"),
+            attached_leaf_rotation: attached_leaf_rotation_field.expect("Missing parameter: attached_leaf_rotation"),
             falling_leaf_size_scale: falling_leaf_size_scale_field.expect("Missing parameter: falling_leaf_size_scale"),
             falling_leaf_pixel_resolution: falling_leaf_pixel_resolution_field.expect("Missing parameter: falling_leaf_pixel_resolution"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
@@ -4032,7 +4032,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
         "real_leaf_lifecycle" => Some(&adjustables.real_leaf_lifecycle),
-        "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
+        "attached_leaf_rotation" => Some(&adjustables.attached_leaf_rotation),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
@@ -4315,7 +4315,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
         "real_leaf_lifecycle" => Some(&mut adjustables.real_leaf_lifecycle),
-        "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
+        "attached_leaf_rotation" => Some(&mut adjustables.attached_leaf_rotation),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),

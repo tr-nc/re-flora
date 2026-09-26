@@ -17,7 +17,7 @@ pub use butterfly_mesh::{ButterflyMeshSettings, LeafModelSettings};
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
-mod leaf_particle_pose;
+mod particle_optics;
 
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
@@ -44,6 +44,7 @@ pub use dynamic_fruit_resources::*;
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
 mod leaf_handoff;
+mod leaf_models;
 mod vegetation_response;
 use vegetation_response::VegetationResponse;
 
@@ -1426,6 +1427,8 @@ pub struct MaterialFrameInput {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
+    pub leaf_models: LeafModelSettings,
+    pub attached_leaf_rotation: bool,
     pub growth_override_enabled: bool,
     pub growth_override: f32,
     pub instance_hsv_offset_max: Vec3,
@@ -1594,6 +1597,13 @@ struct PreparedTreeFoliageBatch<'a> {
     descriptors: PreparedDrawDescriptors,
 }
 
+struct PreparedVisibleTreeFoliageBatch<'a> {
+    batch: TreeFoliageBatch,
+    instance: &'a TreeLeavesInstance,
+    descriptors: Option<PreparedDrawDescriptors>,
+    leaf_models: Vec<leaf_models::PreparedLeafModels>,
+}
+
 #[derive(Clone, Copy)]
 enum TreeFoliageInstanceStream {
     Visible,
@@ -1672,6 +1682,7 @@ pub struct Tracer {
     ddgi_continuous_sampling: bool,
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
+    leaf_models: LeafModelSettings,
     model_pixel_view_count: u32,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
@@ -1701,7 +1712,6 @@ pub struct Tracer {
     model_pixel_cache: model_pixel_cache::ModelPixelCache,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
-    tree_leaf_particle_scratch: Vec<ParticleInstanceGpu>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2030,6 +2040,7 @@ impl Tracer {
             ddgi_continuous_sampling: false,
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
+            leaf_models: LeafModelSettings::default(),
             model_pixel_view_count: 0,
             model_pixel_cache,
             ddgi_sampling_progress: Default::default(),
@@ -2058,7 +2069,6 @@ impl Tracer {
             model_pixel_tiles: model_pixel_tiles::ModelPixelTiles::default(),
             particle_instance_scratch: Vec::new(),
             translucent_particle_instance_scratch: Vec::new(),
-            tree_leaf_particle_scratch: Vec::new(),
         })
     }
 
@@ -3064,6 +3074,8 @@ impl Tracer {
             );
         }
         self.apple_pixel_resolution = terrain.apple_pixel_resolution.clamp(8, 64);
+        self.leaf_models = vegetation.appearance.leaf_models;
+        self.leaf_models.resolution = self.leaf_models.resolution.clamp(8, 64);
         let view_count = model_pixel_views::effective_count(
             terrain.model_pixel_view_count,
             butterfly_mesh::native_review(),
@@ -3438,8 +3450,7 @@ impl Tracer {
 
         self.start_next_ddgi_scheduled_work()?;
         self.model_pixel_tiles.begin_frame(gpu_profiler_frame_slot);
-        let [leaf_resolution, butterfly_resolution] =
-            self.butterfly_mesh_renderer.pixel_resolutions();
+        let [_, butterfly_resolution] = self.butterfly_mesh_renderer.pixel_resolutions();
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
@@ -3451,7 +3462,7 @@ impl Tracer {
                     cmdbuf,
                     self.model_pixel_view_count,
                     [
-                        leaf_resolution,
+                        self.leaf_models.resolution,
                         self.apple_pixel_resolution,
                         butterfly_resolution,
                     ],
@@ -3461,6 +3472,14 @@ impl Tracer {
 
         self.pipeline_topology
             .graphics()
+            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        self.pipeline_topology
+            .compute()
+            .tree_leaf_model_ppl
+            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        self.pipeline_topology
+            .compute()
+            .butterfly_tile_ppl
             .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
 
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
@@ -3844,14 +3863,6 @@ impl Tracer {
             &self.particle_resources.vertices,
             self.particle_resources.indices_len,
         );
-        record_mesh(
-            &self.particle_resources.tree_leaf_indices,
-            &self.particle_resources.tree_leaf_vertices,
-            self.particle_resources.tree_leaf_indices_len,
-        );
-        if self.particle_resources.tree_leaf_instance_count > 0 {
-            record_instance(&self.particle_resources.tree_leaf_instance_buffer);
-        }
         let glass = &self.resources.meshes.glass;
         record_mesh(&glass.indices, &glass.vertices, glass.indices_len);
 
@@ -4032,7 +4043,6 @@ impl Tracer {
                 .expect("published model inputs");
             cmdbuf.use_buffer(&inputs.indices, BufferUse::VertexRead);
             let pipeline = &self.pipeline_topology.compute().butterfly_tile_ppl;
-            pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4521,8 +4531,6 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) {
-        let render_target = self.pipeline_topology.color_and_depth_target();
-
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
@@ -4578,8 +4586,6 @@ impl Tracer {
                 draw_distance: flora_draw_distance,
                 render_leaves: enable_flora && enable_leaves,
                 render_apples: enable_flora,
-                lighting_cache_start: required_flora_cache_entries,
-                max_cache_entries: FLORA_LIGHTING_CACHE_OFFSET_MASK + 1,
             },
             surface_resources
                 .instances
@@ -4600,11 +4606,8 @@ impl Tracer {
                     instance_count: instance.resources.instances_len,
                 }),
         );
-        let required_tree_leaf_cache_entries =
-            tree_foliage_frame_plan.required_lighting_cache_entries();
-        let required_lighting_cache_entries = required_flora_cache_entries
-            .checked_add(required_tree_leaf_cache_entries)
-            .expect("visible raster flora lighting cache entry count overflow");
+        // Leaves now use the shared model object's lighting, not the voxel cache.
+        let required_lighting_cache_entries = required_flora_cache_entries;
 
         let flora_cache_buffer = if flora_lighting_cache_dispatch_enabled(
             self.raster_lighting_is_ddgi(),
@@ -4694,82 +4697,6 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 );
             }
-            if required_tree_leaf_cache_entries > 0 {
-                self.pipeline_topology
-                    .compute()
-                    .tree_leaf_lighting_cache_ppl
-                    .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
-                let leaf_cache_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
-                    profiler.begin_scope(
-                        gpu_profiler_frame_slot,
-                        cmdbuf,
-                        "graphics.leaf_lighting_cache",
-                        PipelineStage::ALL_COMMANDS,
-                    )
-                });
-                for &batch in tree_foliage_frame_plan
-                    .batches()
-                    .iter()
-                    .filter(|batch| batch.kind() == TreeFoliageKind::Leaves)
-                {
-                    let tree_instance = tree_foliage_instance(
-                        surface_resources,
-                        batch,
-                        TreeFoliageInstanceStream::Visible,
-                    );
-                    let instance_count = batch.instance_count();
-                    let mut push_constant = flora_push_constant(
-                        time,
-                        LEAF_INSTANCE_TYPE,
-                        tree_instance.chunk_world_offset,
-                        leaf_color_tables,
-                    );
-                    push_constant.lighting_cache_location = flora_lighting_cache_location(
-                        batch
-                            .lighting_cache_offset()
-                            .expect("every visible leaf batch must reserve cache entries"),
-                        1,
-                        false,
-                    );
-                    push_constant.instance_ty =
-                        flora_lighting_cache_instance_ty(LEAF_INSTANCE_TYPE, instance_count);
-                    push_constant.response_offset =
-                        self.vegetation_response.leaf_offset(batch.tree_id());
-                    self.pipeline_topology
-                        .compute()
-                        .tree_leaf_lighting_cache_ppl
-                        .record_with_descriptors(
-                            cmdbuf,
-                            &[
-                                (
-                                    "tree_leaf_instances",
-                                    DescriptorResource::Buffer(
-                                        &tree_instance.resources.instances_buf,
-                                    ),
-                                ),
-                                self.vegetation_response.descriptors()[0],
-                                self.vegetation_response.descriptors()[1],
-                                (
-                                    "flora_lighting_cache",
-                                    DescriptorResource::Buffer(&cache_buffer),
-                                ),
-                            ],
-                            Extent3D::new(instance_count, 1, 1),
-                            Some(bytemuck::bytes_of(&push_constant)),
-                        )
-                        .expect("tree-leaf lighting transient descriptors must match reflection");
-                }
-                if let (Some(profiler), Some(scope)) =
-                    (gpu_profiler.as_deref_mut(), leaf_cache_scope)
-                {
-                    profiler.end_scope(
-                        gpu_profiler_frame_slot,
-                        cmdbuf,
-                        scope,
-                        PipelineStage::ALL_COMMANDS,
-                    );
-                }
-            }
             PipelineBarrier::shader_access(
                 PipelineStage::COMPUTE_SHADER,
                 PipelineStage::VERTEX_SHADER,
@@ -4833,14 +4760,32 @@ impl Tracer {
                     batch,
                     TreeFoliageInstanceStream::Visible,
                 );
-                let pipeline = if batch.kind() == TreeFoliageKind::Apples {
-                    &self.pipeline_topology.graphics().apple_pixel_tree_ppl
-                } else {
-                    match batch.lod_state() {
-                        LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
-                        LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
-                    }
-                };
+                if batch.kind() == TreeFoliageKind::Leaves {
+                    let leaf_models = Self::with_gpu_scope(
+                        gpu_profiler.as_deref_mut(),
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        "models.leaf_tree.tiles",
+                        || {
+                            self.prepare_leaf_models(
+                                cmdbuf,
+                                gpu_profiler_frame_slot,
+                                batch,
+                                instance,
+                                time,
+                                leaf_color_tables,
+                            )
+                        },
+                    )
+                    .expect("attached leaf model publication");
+                    return PreparedVisibleTreeFoliageBatch {
+                        batch,
+                        instance,
+                        descriptors: None,
+                        leaf_models,
+                    };
+                }
+                let pipeline = &self.pipeline_topology.graphics().apple_pixel_tree_ppl;
                 let mut resources = vec![
                     (
                         "tree_leaf_instances",
@@ -4849,12 +4794,6 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
-                if batch.kind() == TreeFoliageKind::Leaves {
-                    resources.push((
-                        "tree_leaf_state",
-                        DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
-                    ));
-                }
                 let pixel_tiles = if batch.kind() == TreeFoliageKind::Apples {
                     let n = self.apple_pixel_resolution;
                     let tiles = self
@@ -4934,15 +4873,6 @@ impl Tracer {
                         DescriptorResource::Buffer(object_samples),
                     ));
                 }
-                if batch.kind() != TreeFoliageKind::Apples {
-                    resources.push((
-                        "flora_lighting_cache",
-                        DescriptorResource::Buffer(match flora_cache_buffer.as_ref() {
-                            Some(buffer) => buffer.as_ref(),
-                            None => &instance.resources.instances_buf,
-                        }),
-                    ));
-                }
                 let descriptors = pipeline
                     .prepare_draw_descriptors(cmdbuf, &resources)
                     .unwrap_or_else(|error| {
@@ -4951,10 +4881,11 @@ impl Tracer {
                             batch.kind(),
                         )
                     });
-                PreparedTreeFoliageBatch {
+                PreparedVisibleTreeFoliageBatch {
                     batch,
                     instance,
-                    descriptors,
+                    descriptors: Some(descriptors),
+                    leaf_models: Vec::new(),
                 }
             })
             .collect::<Vec<_>>();
@@ -5166,6 +5097,7 @@ impl Tracer {
                 .prepare_descriptor_resources(cmdbuf);
         }
 
+        let render_target = self.pipeline_topology.color_and_depth_target();
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
@@ -5313,18 +5245,11 @@ impl Tracer {
                         LodState::Lod0 => &self.pipeline_topology.graphics().leaves_ppl,
                         LodState::Lod1 => &self.pipeline_topology.graphics().leaves_lod_ppl,
                     };
-                    let (indices_buf, vertices_buf, indices_len) = match lod_state {
-                        LodState::Lod0 => (
-                            &self.resources.meshes.leaves_resources.indices,
-                            &self.resources.meshes.leaves_resources.vertices,
-                            self.resources.meshes.leaves_resources.indices_len,
-                        ),
-                        LodState::Lod1 => (
-                            &self.resources.meshes.leaves_resources_lod.indices,
-                            &self.resources.meshes.leaves_resources_lod.vertices,
-                            self.resources.meshes.leaves_resources_lod.indices_len,
-                        ),
-                    };
+                    let (indices_buf, vertices_buf, indices_len) = (
+                        &self.particle_resources.indices,
+                        &self.particle_resources.vertices,
+                        self.particle_resources.indices_len,
+                    );
                     pipeline.record_bind(cmdbuf);
                     pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
                     cmdbuf.bind_index_buffer_u32(indices_buf);
@@ -5343,40 +5268,24 @@ impl Tracer {
                             "leaf frame batch tree {} instance count changed before draw",
                             batch.tree_id(),
                         );
-                        let mut leaf_push = flora_push_constant(
-                            time,
-                            LEAF_INSTANCE_TYPE,
-                            prepared.instance.chunk_world_offset,
-                            leaf_color_tables,
-                        );
-                        leaf_push.response_offset =
-                            self.vegetation_response.leaf_offset(batch.tree_id());
                         self.vegetation_response.observe_tree_draw(
                             false,
                             lod_state == LodState::Lod1,
-                            batch.instance_count(),
-                        );
-                        leaf_push.lighting_cache_location = flora_lighting_cache_location(
-                            batch
-                                .lighting_cache_offset()
-                                .expect("every visible leaf batch must reserve cache entries"),
-                            1,
-                            false,
+                            prepared.leaf_models.iter().map(|model| model.count).sum(),
                         );
                         cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
-                        pipeline.record_indexed_with_prepared_descriptors(
-                            cmdbuf,
-                            &prepared.descriptors,
-                            indices_len,
-                            batch.instance_count(),
-                            0,
-                            0,
-                            0,
-                            Some(&PushConstantInfo {
-                                shader_stage: vk::ShaderStageFlags::VERTEX,
-                                push_constants: bytemuck::bytes_of(&leaf_push).to_vec(),
-                            }),
-                        );
+                        for model in &prepared.leaf_models {
+                            pipeline.record_indexed_with_prepared_descriptors(
+                                cmdbuf,
+                                &model.descriptors,
+                                indices_len,
+                                model.count,
+                                0,
+                                0,
+                                0,
+                                None,
+                            );
+                        }
                     }
                 }
                 if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), leaves_scope) {
@@ -5444,7 +5353,10 @@ impl Tracer {
                     cmdbuf.bind_vertex_buffers(0, &[vertices_buf]);
                     pipeline.record_indexed_with_prepared_descriptors(
                         cmdbuf,
-                        &prepared.descriptors,
+                        prepared
+                            .descriptors
+                            .as_ref()
+                            .expect("prepared apple descriptors"),
                         indices_len,
                         batch.instance_count(),
                         0,
@@ -5667,43 +5579,26 @@ impl Tracer {
                 )
             });
             let particle_resources = &self.particle_resources;
-            let draw_particles = |pipeline: &GraphicsPipeline,
-                                  instance_buffer: &Buffer,
-                                  instance_count: u32,
-                                  source_voxel: bool| {
-                if instance_count == 0 {
-                    return;
-                }
-                pipeline.record_bind(cmdbuf);
-                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-                let (indices, vertices, count) = if source_voxel {
-                    (
-                        &particle_resources.tree_leaf_indices,
-                        &particle_resources.tree_leaf_vertices,
-                        particle_resources.tree_leaf_indices_len,
-                    )
-                } else {
-                    (
+            let draw_particles =
+                |pipeline: &GraphicsPipeline, instance_buffer: &Buffer, instance_count: u32| {
+                    if instance_count == 0 {
+                        return;
+                    }
+                    pipeline.record_bind(cmdbuf);
+                    pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                    let (indices, vertices, count) = (
                         &particle_resources.indices,
                         &particle_resources.vertices,
                         particle_resources.indices_len,
-                    )
+                    );
+                    cmdbuf.bind_index_buffer_u32(indices);
+                    cmdbuf.bind_vertex_buffers(0, &[vertices, instance_buffer]);
+                    pipeline.record_indexed(cmdbuf, count, instance_count, 0, 0, 0, None);
                 };
-                cmdbuf.bind_index_buffer_u32(indices);
-                cmdbuf.bind_vertex_buffers(0, &[vertices, instance_buffer]);
-                pipeline.record_indexed(cmdbuf, count, instance_count, 0, 0, 0, None);
-            };
             draw_particles(
                 &self.pipeline_topology.graphics().particle_ppl,
                 &particle_resources.instance_buffer,
                 particle_resources.instance_count,
-                false,
-            );
-            draw_particles(
-                &self.pipeline_topology.graphics().particle_ppl,
-                &particle_resources.tree_leaf_instance_buffer,
-                particle_resources.tree_leaf_instance_count,
-                true,
             );
             if self.butterfly_mesh_renderer.count() > 0 {
                 let pipeline = &self.pipeline_topology.graphics().butterfly_tile_ppl;
@@ -5741,7 +5636,6 @@ impl Tracer {
                 &self.pipeline_topology.graphics().water_droplet_ppl,
                 &particle_resources.translucent_instance_buffer,
                 particle_resources.translucent_instance_count,
-                false,
             );
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), particles_scope) {
                 profiler.end_scope(
@@ -7095,7 +6989,6 @@ impl Tracer {
             &self.resources,
         )?;
         let count = snapshots.len();
-        self.tree_leaf_particle_scratch.clear();
         self.particle_instance_scratch.clear();
         self.particle_instance_scratch.reserve(count);
         self.translucent_particle_instance_scratch.clear();
@@ -7106,21 +6999,13 @@ impl Tracer {
             {
                 continue;
             }
-            let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);
             let instance = ParticleInstanceGpu {
-                leaf_optics,
-                leaf_pose_flags,
-                leaf_geometry: snap
-                    .leaf_geometry
-                    .unwrap_or(glam::Quat::IDENTITY)
-                    .to_array(),
+                leaf_optics: particle_optics::encode(snap),
                 position: snap.position_ws.to_array(),
                 size: leaf_model.render_size(snap),
                 color: snap.color.to_array(),
             };
-            if snap.leaf_geometry.is_some() {
-                self.tree_leaf_particle_scratch.push(instance);
-            } else if snap.kind == crate::particles::ParticleRenderKind::WaterDroplet {
+            if snap.kind == crate::particles::ParticleRenderKind::WaterDroplet {
                 self.translucent_particle_instance_scratch.push(instance);
             } else {
                 self.particle_instance_scratch.push(instance);
@@ -7172,7 +7057,6 @@ impl Tracer {
             [
                 &self.particle_instance_scratch,
                 &self.translucent_particle_instance_scratch,
-                &self.tree_leaf_particle_scratch,
             ],
         )
     }

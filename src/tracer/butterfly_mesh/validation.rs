@@ -107,6 +107,58 @@ fn reference_depth(
         .map(|d| (d, true))
 }
 
+// Decode geometry, not a GPU-generated coverage mask. The independent CPU
+// planner still decides which cells are covered and checks every resulting depth.
+fn projected_reference_groups(
+    ids: &[u32],
+    records: &[[f32; 4]],
+) -> Result<Vec<model_pixel_repair::Group>> {
+    const STRIDE: usize = 13; // length + twelve clipped vertices; matches mode 2
+    ensure!(
+        ids.len() <= MAX_TRIANGLES && records.len() >= ids.len() * STRIDE,
+        "projected reference capacity"
+    );
+    let mut groups: Vec<model_pixel_repair::Group> = Vec::new();
+    for (source, &id) in ids.iter().enumerate() {
+        let record = &records[source * STRIDE..(source + 1) * STRIDE];
+        let length = record[0][0];
+        ensure!(
+            length.is_finite()
+                && length.fract() == 0.
+                && (length == 0. || (3. ..=12.).contains(&length)),
+            "invalid clipped polygon length"
+        );
+        let length = length as usize;
+        if length == 0 {
+            continue;
+        }
+        ensure!(
+            record[1..=length]
+                .iter()
+                .all(|v| v.iter().all(|c| c.is_finite()) && (0. ..=1.).contains(&v[2])),
+            "invalid projected vertex"
+        );
+        let group = if let Some(index) = groups.iter().position(|g| g.id == id) {
+            &mut groups[index]
+        } else {
+            groups.push(model_pixel_repair::Group {
+                id,
+                triangles: Vec::new(),
+                sources: Vec::new(),
+            });
+            groups.last_mut().unwrap()
+        };
+        for j in 1..length - 1 {
+            group.triangles.push(
+                [record[1], record[j + 1], record[j + 2]]
+                    .map(|p| [p[0] as f64, p[1] as f64, p[2] as f64]),
+            );
+            group.sources.push(source as u32);
+        }
+    }
+    Ok(groups)
+}
+
 impl ButterflyMeshRenderer {
     pub fn validate_completed_tiles(
         &mut self,
@@ -116,7 +168,7 @@ impl ButterflyMeshRenderer {
     ) -> Result<()> {
         self.validation_calls = self.validation_calls.wrapping_add(1);
         let leaf_review = std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
-            && self.previous_leaf_mode.is_some_and(|(enabled, ..)| enabled);
+            && self.previous_leaf_mode.is_some();
         if (!leaf_review && std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_none())
             || self.compute_count == 0
             || (self.previous_mode == self.validated_mode
@@ -131,7 +183,7 @@ impl ButterflyMeshRenderer {
         let reference_base = self
             .reference_tile_offset()
             .expect("native review reference tiles");
-        let byte_count = u64::from(reference_base * 3 + self.compute_count) * 4096 * 16;
+        let byte_count = u64::from(reference_base * 4 + self.compute_count) * 4096 * 16;
         let readback = Buffer::new_sized(
             context.device().clone(),
             allocator,
@@ -195,27 +247,13 @@ impl ButterflyMeshRenderer {
             let mesh_first = instance.metadata[0] as usize;
             let mesh_end = mesh_first + instance.metadata[1] as usize;
             let axes = model_pose_axes(instance.lighting);
-            let scale = instance.position_size[3] * (1.53125 / 3.4);
-            let triangles: Vec<_> = self.triangles[mesh_first..mesh_end]
+            let ids: Vec<_> = self.triangles[mesh_first..mesh_end]
                 .iter()
-                .map(|t| {
-                    let a = Vec3::from_slice(&t.a);
-                    let points = [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)];
-                    (
-                        if leaf || t.e1[3] < 0. { 1 } else { 2 },
-                        if leaf {
-                            points.map(|p| {
-                                Vec3::from_slice(&instance.position_size)
-                                    + scale * (axes[0] * p.x + axes[1] * p.y + axes[2] * p.z)
-                            })
-                        } else {
-                            points
-                        },
-                    )
-                })
+                .map(|t| if leaf || t.e1[3] < 0. { 1 } else { 2 })
                 .collect();
-            let (_, groups) =
-                model_pixel_repair::project(&triangles, vp, rect, n as usize, |_, _, _| None);
+            let first_projected = (reference_base as usize * 4 + index) * 4096;
+            let groups =
+                projected_reference_groups(&ids, &pixels[first_projected..first_projected + 4096])?;
             let mut owners = vec![0; n as usize * n as usize];
             for y in 0..n {
                 for x in 0..n {
@@ -227,7 +265,7 @@ impl ButterflyMeshRenderer {
                             (mesh_first..mesh_end).contains(&tri),
                             "GPU reference triangle outside model range"
                         );
-                        owners[(y * n + x) as usize] = triangles[tri - mesh_first].0;
+                        owners[(y * n + x) as usize] = ids[tri - mesh_first];
                     }
                 }
             }
@@ -452,7 +490,7 @@ impl ButterflyMeshRenderer {
                 checked_leaf > 0,
                 "leaf fixture produced no checked leaf samples"
             );
-            log::info!("[LEAF-MODEL-CHECK] mode=B resolution={} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.previous_leaf_mode.unwrap().1, self.count() - self.tile_count);
+            log::info!("[LEAF-MODEL-CHECK] mode=shared resolution={} active={} checked_hits={checked_leaf} max_depth_error={max_depth_error:.9} pose=published_quaternion", self.previous_leaf_mode.unwrap().0, self.count() - self.tile_count);
         }
         self.validated_mode = self.previous_mode;
         self.validated_leaf_mode = self.previous_leaf_mode;
@@ -463,6 +501,27 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn projected_reference_preserves_clipped_fans_and_rejects_invalid_records() {
+        let mut records = vec![[0.; 4]; 26];
+        records[0][0] = 4.;
+        records[1] = [2., 3., 0.8, 0.];
+        records[2] = [3., 3., 0.8, 0.];
+        records[3] = [3., 4., 0.9, 0.];
+        records[4] = [2., 4., 0.9, 0.];
+        let groups = projected_reference_groups(&[1, 2], &records).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].sources, [0, 0]);
+        assert_eq!(groups[0].triangles.len(), 2);
+        assert_eq!(groups[0].triangles[0][0], [2., 3., f64::from(0.8f32)]);
+        records[0][0] = 13.;
+        assert!(projected_reference_groups(&[1, 2], &records).is_err());
+        records[0][0] = 3.;
+        records[1][0] = f32::NAN;
+        assert!(projected_reference_groups(&[1, 2], &records).is_err());
+        assert!(projected_reference_groups(&[1], &[]).is_err());
+    }
+
     #[test]
     fn leaf_review_only_accepts_empty_visibility_without_original_or_planned_samples() {
         assert!(leaf_review_can_be_empty(true, 0, 0, 0));

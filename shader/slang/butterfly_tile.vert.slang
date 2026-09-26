@@ -4,7 +4,7 @@ import model_pixel_projection;
 import model_pixel_view_data;
 [[vk::binding(0,0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(3,0)]] ConstantBuffer<U_CameraInfo> camera_info;
-[[vk::binding(72,0)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
+[[vk::binding(11,1)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 struct VertexOutput {
     float4 position : SV_Position;
     [[vk::location(0)]] float2 uv : TEXCOORD0;

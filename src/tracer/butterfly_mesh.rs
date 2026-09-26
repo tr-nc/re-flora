@@ -76,16 +76,14 @@ pub(super) fn native_review() -> bool {
         || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LeafModelSettings {
-    pub enabled: bool,
     pub resolution: u32,
     pub size_scale: f32,
 }
 impl Default for LeafModelSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
             resolution: 16,
             size_scale: 1.,
         }
@@ -100,13 +98,9 @@ impl LeafModelSettings {
         }
     }
 
-    /// Visual size only: never feed this back into LeafFlight's aerodynamic size.
-    /// Both A/B paths scale detached leaves, not butterflies or leaf-colored debris.
+    /// Visual size only, shared with attached leaves; never modifies aerodynamics.
     pub fn render_size(self, snapshot: &ParticleSnapshot) -> f32 {
-        if snapshot.kind == ParticleRenderKind::Leaf
-            && snapshot.leaf_orientation.is_some()
-            && snapshot.leaf_geometry.is_none()
-        {
+        if snapshot.kind == ParticleRenderKind::Leaf && snapshot.leaf_orientation.is_some() {
             snapshot.size * self.display_scale()
         } else {
             snapshot.size
@@ -114,10 +108,7 @@ impl LeafModelSettings {
     }
 
     pub fn uses_model(self, snapshot: &ParticleSnapshot) -> bool {
-        self.enabled
-            && snapshot.kind == ParticleRenderKind::Leaf
-            && snapshot.leaf_orientation.is_some()
-            && snapshot.leaf_geometry.is_none()
+        snapshot.kind == ParticleRenderKind::Leaf
     }
 }
 
@@ -223,7 +214,7 @@ impl ButterflyMeshResources {
                 ),
                 MemoryLocation::GpuOnly,
                 (CAPACITY
-                    * if native_review() { 4 } else { 1 }
+                    * if native_review() { 5 } else { 1 }
                     * MAX_RESOLUTION as usize
                     * MAX_RESOLUTION as usize
                     * 16) as u64,
@@ -297,8 +288,8 @@ pub(super) struct ButterflyMeshRenderer {
     pub compute_count: u32,
     pub tile_batches: Vec<super::model_pixel_tiles::TileBatch>,
     pub dispatch_resolution: u32,
-    previous_leaf_mode: Option<(bool, u32, u32)>,
-    validated_leaf_mode: Option<(bool, u32, u32)>,
+    previous_leaf_mode: Option<(u32, u32)>,
+    validated_leaf_mode: Option<(u32, u32)>,
     previous_mode: Option<(u32, u32, bool, u32)>,
     validated_mode: Option<(u32, u32, bool, u32)>,
 }
@@ -488,9 +479,6 @@ impl ButterflyMeshRenderer {
         self.tile_count = self.count();
         self.compute_count = self.tile_count;
         self.dispatch_resolution = self.resolution;
-        if !leaves.enabled {
-            return Ok(());
-        }
         let candidates: Vec<_> = snapshots
             .iter()
             .filter(|s| leaves.uses_model(s) && s.size > 0. && s.color.w > 0.)
@@ -532,8 +520,16 @@ impl ButterflyMeshRenderer {
                     LEAF_MODEL_FLAG,
                 ],
                 // No resampling, local animation, velocity-facing override or reset.
-                lighting: snapshot.leaf_orientation.unwrap().to_array(),
-                view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
+                lighting: snapshot
+                    .leaf_geometry
+                    .or(snapshot.leaf_orientation)
+                    .unwrap()
+                    .to_array(),
+                view_orientation: snapshot
+                    .leaf_geometry
+                    .or(snapshot.leaf_orientation)
+                    .unwrap()
+                    .to_array(),
                 cache: [shape as u32, 0, 0, 0],
                 repair: [0; 4],
             });
@@ -781,7 +777,7 @@ impl ButterflyMeshRenderer {
         }
     }
     pub fn pixel_resolutions(&self) -> [u32; 2] {
-        [self.previous_leaf_mode.map_or(16, |m| m.1), self.resolution]
+        [self.previous_leaf_mode.map_or(16, |m| m.0), self.resolution]
     }
 
     pub fn tile_compute_mode(&self) -> u32 {
@@ -822,15 +818,13 @@ impl ButterflyMeshRenderer {
             self.draw_order = order;
         }
         let leaf_mode = (
-            leaves.enabled,
             leaves.resolution.clamp(8, MAX_RESOLUTION),
             leaves.display_scale().to_bits(),
         );
         if self.previous_leaf_mode != Some(leaf_mode) {
-            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source={} source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count,
-                if leaves.enabled { "assets/models/leaf-variants.glb" } else { "assets/models/leaf.glb" },
-                crc32fast::hash(if leaves.enabled { crate::model_assets::LEAF_VARIANTS_BYTES } else { crate::model_assets::LEAF_BYTES }), leaves.display_scale());
-            if leaves.enabled && native_review() {
+            log::info!("[LEAF-MODEL] mode=shared pixels={}x{} active={} source=assets/models/leaf-variants.glb source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", leaf_mode.0, leaf_mode.0, self.count() - self.tile_count,
+                crc32fast::hash(crate::model_assets::LEAF_VARIANTS_BYTES), leaves.display_scale());
+            if native_review() {
                 let first = self.tile_count as usize * self.mesh.triangles.len();
                 let ids: Vec<_> = self.instances[self.tile_count as usize..]
                     .iter()
@@ -929,11 +923,10 @@ mod tests {
         // Saved live values may legitimately diverge after a user edits either
         // slider. Only the initial programmatic default is fixed at 16.
         assert_eq!(LeafModelSettings::default().resolution, 16);
-        assert!(!LeafModelSettings::default().enabled);
     }
 
     #[test]
-    fn leaf_ab_consumes_existing_pose_without_retiming_or_changing_the_particle() {
+    fn leaf_model_consumes_existing_pose_without_retiming_or_changing_the_particle() {
         use crate::particles::{ParticleForces, ParticleSpawn, ParticleSystem};
         let mut system = ParticleSystem::new(1);
         system
@@ -957,7 +950,6 @@ mod tests {
             let snapshot = snapshots[0];
             for resolution in [8, 16, 64] {
                 let enabled = LeafModelSettings {
-                    enabled: true,
                     resolution,
                     ..LeafModelSettings::default()
                 };
@@ -994,7 +986,7 @@ mod tests {
                 renderer
                     .prepare_models(&snapshots, butterfly, LeafModelSettings::default(), Vec3::Z)
                     .unwrap();
-                assert_eq!(renderer.count(), 0);
+                assert_eq!(renderer.count(), 1);
                 assert_eq!(snapshots[0].leaf_orientation, snapshot.leaf_orientation);
                 assert_eq!(snapshots[0].position_ws, snapshot.position_ws);
             }
@@ -1002,7 +994,7 @@ mod tests {
     }
 
     #[test]
-    fn display_scale_changes_only_detached_leaf_render_size_in_both_modes() {
+    fn display_scale_changes_leaf_render_size_without_touching_physics() {
         let mut system = crate::particles::ParticleSystem::new(1);
         system
             .spawn(crate::particles::ParticleSpawn::default())
@@ -1018,13 +1010,11 @@ mod tests {
         };
         let mut renderer = ButterflyMeshRenderer::default();
         for scale in [0.25, 1., 2., 4.] {
-            let mut settings = LeafModelSettings {
+            let settings = LeafModelSettings {
                 size_scale: scale,
                 ..LeafModelSettings::default()
             };
-            // The sprite path uses precisely this helper, without editing snapshots.
             assert_eq!(settings.render_size(&original), original.size * scale);
-            settings.enabled = true;
             renderer
                 .prepare_models(&snapshots, butterfly, settings, Vec3::Z)
                 .unwrap();
@@ -1104,10 +1094,7 @@ mod tests {
             self_shadows: true,
             transmission: 0.,
         };
-        let leaves = LeafModelSettings {
-            enabled: true,
-            ..LeafModelSettings::default()
-        };
+        let leaves = LeafModelSettings::default();
         renderer
             .prepare_models(&[original, other], butterfly, leaves, Vec3::Z)
             .unwrap();
@@ -1155,7 +1142,6 @@ mod tests {
                     transmission: 0.9,
                 },
                 LeafModelSettings {
-                    enabled: true,
                     resolution: 64,
                     ..LeafModelSettings::default()
                 },
@@ -1170,12 +1156,20 @@ mod tests {
         );
         let mut no_pose = source[0];
         no_pose.leaf_orientation = None;
-        assert!(!LeafModelSettings {
-            enabled: true,
-            resolution: 16,
-            ..LeafModelSettings::default()
-        }
-        .uses_model(&no_pose));
+        // An invalid leaf is an explicit publication error, never a sprite fallback.
+        assert!(renderer
+            .prepare_models(
+                &[no_pose],
+                ButterflyMeshSettings {
+                    resolution: 16,
+                    fps: 8,
+                    self_shadows: true,
+                    transmission: 0.9,
+                },
+                LeafModelSettings::default(),
+                Vec3::Z
+            )
+            .is_err());
     }
 
     #[test]

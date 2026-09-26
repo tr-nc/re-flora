@@ -2230,32 +2230,29 @@ min = 1
 max = 120
 
 [[section.param]]
-id = "falling_leaf_mesh"
+id = "attached_leaf_rotation"
 kind = "bool"
-enabled_if = { param = "real_leaf_lifecycle", equals = false }
-label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
+label = "Attached Leaves Rotate in Wind (B; Unchecked = Fixed Initial Angle)"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "falling_leaf_size_scale"
 kind = "float"
-enabled_if = { param = "real_leaf_lifecycle", equals = false }
-label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
+label = "Leaf Display Size (Tree + Fallen; Physics Unchanged)"
 type = "Float"
 
 [section.param.data]
-value = 4
+value = 1
 min = 0.25
 max = 4
 
 [[section.param]]
 id = "falling_leaf_pixel_resolution"
 kind = "uint"
-enabled_if = { param = "real_leaf_lifecycle", equals = false }
-label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
+label = "Pixels per Leaf (Tree + Fallen, Independent of Butterflies)"
 type = "Uint"
 
 [section.param.data]

@@ -265,6 +265,9 @@ impl BufferUpdater {
         let leaf_lighting = vegetation.leaf_lighting;
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
+            attached_leaf_rotation: appearance.attached_leaf_rotation as u32,
+            falling_leaf_pixel_resolution: appearance.leaf_models.resolution.clamp(8, 64),
+            falling_leaf_size_scale: appearance.leaf_models.size_scale.clamp(0.25, 4.),
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,

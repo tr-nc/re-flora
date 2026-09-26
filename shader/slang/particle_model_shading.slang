@@ -12,8 +12,8 @@ import model_pixel_object;
 import model_pixel_projection;
 import model_pixel_cache;
 import model_pixel_bake;
-[[vk::binding(72,0)]] public StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
-[[vk::binding(73,0)]] public StructuredBuffer<ButterflyMeshTriangle> butterfly_mesh_triangles;
+[[vk::binding(11,1)]] public StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
+[[vk::binding(12,1)]] public StructuredBuffer<ButterflyMeshTriangle> butterfly_mesh_triangles;
 // Dedicated transient set: frame-local repair storage must not replace the
 // persistent environment/camera descriptor set.
 [[vk::binding(0,1)]] public StructuredBuffer<ParticleModelRepairNode> particle_model_repairs;
@@ -92,7 +92,7 @@ public float4 sampleParticleModelSurface(ButterflyMeshInstance instance,uint sou
     return float4(color,depth);
 }
 
-ModelPixelFrame particleModelFrame(ButterflyMeshInstance instance) {
+public ModelPixelFrame particleModelFrame(ButterflyMeshInstance instance) {
     ModelPixelFrame frame=identityModelPixelFrame();
     if((instance.metadata.w&2u)!=0u) {
         frame.center=instance.position_size.xyz;

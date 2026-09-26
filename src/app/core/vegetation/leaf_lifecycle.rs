@@ -62,6 +62,18 @@ impl CanopyState {
 }
 
 impl App {
+    /// The hidden replay feeds one wind snapshot to both lifecycle and GPU pose
+    /// preparation. Production always consumes the actual transported field.
+    pub(in crate::app::core) fn leaf_validation_wind(
+        &self,
+    ) -> Option<crate::wind_field::WindFieldFrame> {
+        self.trees
+            .leaf_lifecycle
+            .validation
+            .as_ref()
+            .map(validation::Validation::wind)
+    }
+
     /// Mode changes run even when particle drawing is disabled. One setting owns
     /// both the old emitter and the experiment; no hidden second enabled flag.
     pub(in crate::app::core) fn sync_leaf_lifecycle_mode(&mut self) {
