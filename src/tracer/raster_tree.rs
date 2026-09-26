@@ -7,11 +7,11 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use super::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
 use crate::{
-    geom::RoundCone,
+    geom::{RoundCone, RoundConeClearanceIndex},
     resource::Resource,
     tree_gen::{
         pose::BranchPose,
-        skin::{intersect_surface_triangle, SkinBinding, SurfaceHit},
+        skin::{intersect_surface_triangle, RestSkinBinder, SkinBinding, SurfaceHit},
         Tree,
     },
 };
@@ -78,14 +78,13 @@ impl RasterTreeMesh {
         };
         // Same solid predicate as surface_extraction.slang.
         let solid = |p: IVec3| sample(p) != 0;
+        let wood = RoundConeClearanceIndex::new(cones);
         for z in 0..dim.z {
             for y in 0..dim.y {
                 for x in 0..dim.x {
                     let cell = origin + UVec3::new(x, y, z);
                     let center = cell.as_vec3() + Vec3::splat(0.5);
-                    if sample(cell.as_ivec3()) != 5
-                        || !cones.iter().any(|c| c.signed_distance(center) < 0.0)
-                    {
+                    if sample(cell.as_ivec3()) != 5 || wood.has_minimum_clearance(center, 0.0) {
                         continue;
                     }
                     self.solid_cells.insert(cell.to_array());
@@ -184,6 +183,7 @@ impl RasterTreeMesh {
         let previous = previous
             .and_then(|mesh| mesh.binding_cache.get(&tree_id))
             .filter(|cache| Arc::ptr_eq(&cache.tree, tree) && cache.origin == origin);
+        let binder = RestSkinBinder::new(tree);
         let mut corners = BTreeMap::new();
         let mut cell_owner = None;
         for (vertex, binding) in self.vertices.iter().zip(&mut self.bindings) {
@@ -195,7 +195,7 @@ impl RasterTreeMesh {
                 Some((key, owns)) if key == center_key => owns,
                 _ => {
                     let center = (Vec3::from_array(vertex.center) - origin) * 256.;
-                    let owns = tree.trunks().iter().any(|c| c.signed_distance(center) < 0.);
+                    let owns = binder.owns_cell(center);
                     cell_owner = Some((center_key, owns));
                     owns
                 }
@@ -211,7 +211,7 @@ impl RasterTreeMesh {
             } else {
                 let skin = match previous.and_then(|cache| cache.corners.get(&key)) {
                     Some(skin) => *skin,
-                    None => SkinBinding::at_rest_position(tree, point)?,
+                    None => binder.bind(point)?,
                 };
                 corners.insert(key, skin);
                 skin
