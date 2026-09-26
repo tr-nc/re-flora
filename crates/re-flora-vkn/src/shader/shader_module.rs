@@ -1063,7 +1063,7 @@ mod tests {
 
     #[test]
     fn particle_vertex_shader_reflects_one_compact_mesh_input_before_instances() {
-        let shader_path = "shader/particles/particle_lod_textured.vert";
+        let shader_path = "shader/particles/particle_billboard.vert";
         let artifact = find_precompiled_shader(shader_path)
             .unwrap_or_else(|| panic!("missing precompiled shader {shader_path}"));
         let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
