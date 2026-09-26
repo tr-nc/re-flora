@@ -2597,3 +2597,99 @@ type = "Float"
 value = 0
 min = -6
 max = 6
+
+[[section]]
+name = "Climbing Plants"
+
+[[section.param]]
+id = "climbing_fixture"
+kind = "choice"
+label = "Test terrain (applies immediately)"
+type = "Choice"
+
+[section.param.data]
+value = 3
+options = [
+    "Flat wall",
+    "Wall with a hole",
+    "Outward ledge",
+    "Recessed wall",
+    "Sloping wall",
+    "Ground to wall",
+    "Climbing pole",
+]
+
+[[section.param]]
+id = "climbing_flexibility"
+kind = "float"
+label = "Shoot exploration / flexibility"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 2
+
+[[section.param]]
+id = "climbing_search_turn"
+kind = "float"
+label = "Search turn width (0–6x flexibility; live)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 6
+
+[[section.param]]
+id = "climbing_search_rate"
+kind = "float"
+label = "Search rotation rate (0.5–3x; live)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
+max = 3
+
+[[section.param]]
+id = "climbing_search_reach"
+kind = "float"
+label = "Unsupported search reach (voxels; live)"
+type = "Float"
+
+[section.param.data]
+value = 64
+min = 16
+max = 96
+
+[[section.param]]
+id = "climbing_speed"
+kind = "float"
+label = "Growth attempts/sec (up to 2.5 voxels per tip)"
+type = "Float"
+
+[section.param.data]
+value = 10
+min = 1
+max = 40
+
+[[section.param]]
+id = "climbing_spacing"
+kind = "float"
+label = "Adhesion spacing (voxels; 256/world unit)"
+type = "Float"
+
+[section.param.data]
+value = 10
+min = 4
+max = 64
+
+[[section.param]]
+id = "climbing_show_anchors"
+kind = "bool"
+label = "Show markers: yellow attachment / blue search / orange regrowth / red missing root"
+type = "Bool"
+
+[section.param.data]
+value = true

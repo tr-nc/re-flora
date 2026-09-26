@@ -1305,6 +1305,153 @@ wind_drift = 1.0
     }
 
     #[test]
+    fn climbing_exploration_controls_use_standard_save_and_older_defaults() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.climbing_fixture.value = 4;
+        settings.adjustables.climbing_flexibility.value = 1.7;
+        settings.adjustables.climbing_search_turn.value = 4.5;
+        settings.adjustables.climbing_search_rate.value = 2.0;
+        settings.adjustables.climbing_search_reach.value = 36.0;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(reloaded.adjustables.climbing_fixture.value, 4);
+        assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
+        assert_eq!(reloaded.adjustables.climbing_search_turn.value, 4.5);
+        assert_eq!(reloaded.adjustables.climbing_search_rate.value, 2.0);
+        assert_eq!(reloaded.adjustables.climbing_search_reach.value, 36.0);
+        // An older saved checkbox must disappear, regardless of its old value.
+        let section = settings
+            .config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Climbing Plants")
+            .unwrap();
+        let mut retired = section
+            .param
+            .iter()
+            .find(|p| p.id == "climbing_show_anchors")
+            .unwrap()
+            .clone();
+        retired.id = "climbing_continuous_stem".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_paused".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_enabled".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_clockwise".into();
+        retired.value = GuiParamValue::Bool { value: true };
+        section.param.push(retired.clone());
+        retired.id = "climbing_seed".into();
+        section.param.push(retired);
+        let fixture = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_fixture")
+            .unwrap();
+        if let GuiParamValue::Choice { options, .. } = &mut fixture.value {
+            options.pop(); // old saved menu predates the pole
+        }
+        let speed = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_speed")
+            .unwrap();
+        speed.value = GuiParamValue::Float {
+            value: 0.0,
+            min: Some(0.0),
+            max: Some(40.0),
+        };
+        let turn = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_search_turn")
+            .unwrap();
+        if let GuiParamValue::Float { value, max, .. } = &mut turn.value {
+            *value = 2.3;
+            *max = Some(3.0);
+        }
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let mut migrated = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(!migrated
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| matches!(
+                p.id.as_str(),
+                "climbing_continuous_stem"
+                    | "climbing_paused"
+                    | "climbing_enabled"
+                    | "climbing_clockwise"
+                    | "climbing_seed"
+            )));
+        assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
+        assert_eq!(*migrated.adjustables.climbing_speed.range.start(), 1.0);
+        assert_eq!(*migrated.adjustables.climbing_search_turn.range.end(), 6.0);
+        let options = migrated
+            .config
+            .section
+            .iter()
+            .find(|s| s.name == "Climbing Plants")
+            .unwrap()
+            .param
+            .iter()
+            .find(|p| p.id == "climbing_fixture")
+            .unwrap();
+        assert!(
+            matches!(&options.value, GuiParamValue::Choice { options, .. }
+            if options.last().is_some_and(|option| option == "Climbing pole"))
+        );
+        migrated.save_to_path(&path).unwrap();
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_continuous_stem"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_paused"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_enabled"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_clockwise"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_seed"));
+        for section in &mut settings.config.section {
+            section.param.retain(|p| {
+                ![
+                    "climbing_fixture",
+                    "climbing_flexibility",
+                    "climbing_search_turn",
+                    "climbing_search_rate",
+                    "climbing_search_reach",
+                ]
+                .contains(&p.id.as_str())
+            });
+        }
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let older = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        // Migration uses compiled declarations, including user-saved defaults.
+        let defaults = DebugSettings::from_config(
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap(),
+        );
+        assert_eq!(
+            older.adjustables.climbing_fixture.value,
+            defaults.adjustables.climbing_fixture.value
+        );
+        assert_eq!(
+            older.adjustables.climbing_flexibility.value,
+            defaults.adjustables.climbing_flexibility.value
+        );
+        assert_eq!(older.adjustables.climbing_search_turn.value, 1.0);
+        assert_eq!(older.adjustables.climbing_search_rate.value, 1.0);
+        assert_eq!(older.adjustables.climbing_search_reach.value, 64.0);
+    }
+
+    #[test]
     fn current_debug_settings_write_complete_generic_and_tree_state() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.time_of_day.value = 0.987;

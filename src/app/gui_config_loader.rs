@@ -72,6 +72,21 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         Self::add_missing_section_params(&mut config, "Terrain Material");
+        Self::add_missing_section_params(&mut config, "Climbing Plants");
+        // The vine no longer has a pause mode. Old zero-speed saves must also
+        // become a positive rate, not silently preserve a second way to pause.
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if param.id == "climbing_speed" {
+                if let GuiParamValue::Float { value, min, .. } = &mut param.value {
+                    *min = Some(1.0);
+                    *value = (*value).max(1.0);
+                }
+            } else if param.id == "climbing_search_turn" {
+                if let GuiParamValue::Float { max, .. } = &mut param.value {
+                    *max = Some(6.0);
+                }
+            }
+        }
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -86,6 +101,11 @@ impl GuiConfigLoader {
                         | "terrain_material_enabled"
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
+                        | "climbing_continuous_stem"
+                        | "climbing_paused"
+                        | "climbing_enabled"
+                        | "climbing_clockwise"
+                        | "climbing_seed"
                 )
             });
         }
@@ -240,6 +260,17 @@ impl GuiConfigLoader {
                 if let Some(existing) = saved.param.iter_mut().find(|p| p.id == param.id) {
                     // Presentation follows the current schema; retain the user's authored value.
                     existing.label = param.label;
+                    if existing.id == "climbing_fixture" {
+                        if let (
+                            GuiParamValue::Choice { options, .. },
+                            GuiParamValue::Choice {
+                                options: defaults, ..
+                            },
+                        ) = (&mut existing.value, &param.value)
+                        {
+                            options.clone_from(defaults);
+                        }
+                    }
                 } else {
                     saved.param.push(param);
                 }

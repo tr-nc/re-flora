@@ -1392,6 +1392,54 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         kind: "float",
         label: "Frequency Curve Bias",
     },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_fixture",
+        kind: "choice",
+        label: "Test terrain (applies immediately)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_flexibility",
+        kind: "float",
+        label: "Shoot exploration / flexibility",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_search_turn",
+        kind: "float",
+        label: "Search turn width (0–6x flexibility; live)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_search_rate",
+        kind: "float",
+        label: "Search rotation rate (0.5–3x; live)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_search_reach",
+        kind: "float",
+        label: "Unsupported search reach (voxels; live)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_speed",
+        kind: "float",
+        label: "Growth attempts/sec (up to 2.5 voxels per tip)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_spacing",
+        kind: "float",
+        label: "Adhesion spacing (voxels; 256/world unit)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Climbing Plants",
+        id: "climbing_show_anchors",
+        kind: "bool",
+        label: "Show markers: yellow attachment / blue search / orange regrowth / red missing root",
+    },
 ];
 
 #[allow(dead_code)]
@@ -1624,6 +1672,14 @@ pub struct GuiAdjustables {
     pub grass_sway_frequency_start: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_full: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_knee: crate::gui_adjustables::FloatParam,
+    pub climbing_fixture: crate::gui_adjustables::ChoiceParam,
+    pub climbing_flexibility: crate::gui_adjustables::FloatParam,
+    pub climbing_search_turn: crate::gui_adjustables::FloatParam,
+    pub climbing_search_rate: crate::gui_adjustables::FloatParam,
+    pub climbing_search_reach: crate::gui_adjustables::FloatParam,
+    pub climbing_speed: crate::gui_adjustables::FloatParam,
+    pub climbing_spacing: crate::gui_adjustables::FloatParam,
+    pub climbing_show_anchors: crate::gui_adjustables::BoolParam,
 }
 
 impl Default for GuiAdjustables {
@@ -1865,6 +1921,14 @@ impl GuiAdjustables {
         let mut grass_sway_frequency_start_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_full_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_fixture_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut climbing_flexibility_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_search_turn_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_search_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_search_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_spacing_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut climbing_show_anchors_field: Option<crate::gui_adjustables::BoolParam> = None;
 
         for section in &config.section {
             for param in &section.param {
@@ -3389,6 +3453,58 @@ impl GuiAdjustables {
                             grass_sway_frequency_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "climbing_fixture" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            climbing_fixture_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "climbing_flexibility" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_flexibility_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_search_turn" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_search_turn_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_search_rate" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_search_rate_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_search_reach" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_search_reach_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_spacing" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            climbing_spacing_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "climbing_show_anchors" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            climbing_show_anchors_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -3623,6 +3739,14 @@ impl GuiAdjustables {
             grass_sway_frequency_start: grass_sway_frequency_start_field.expect("Missing parameter: grass_sway_frequency_start"),
             grass_sway_frequency_full: grass_sway_frequency_full_field.expect("Missing parameter: grass_sway_frequency_full"),
             grass_sway_frequency_knee: grass_sway_frequency_knee_field.expect("Missing parameter: grass_sway_frequency_knee"),
+            climbing_fixture: climbing_fixture_field.expect("Missing parameter: climbing_fixture"),
+            climbing_flexibility: climbing_flexibility_field.expect("Missing parameter: climbing_flexibility"),
+            climbing_search_turn: climbing_search_turn_field.expect("Missing parameter: climbing_search_turn"),
+            climbing_search_rate: climbing_search_rate_field.expect("Missing parameter: climbing_search_rate"),
+            climbing_search_reach: climbing_search_reach_field.expect("Missing parameter: climbing_search_reach"),
+            climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
+            climbing_spacing: climbing_spacing_field.expect("Missing parameter: climbing_spacing"),
+            climbing_show_anchors: climbing_show_anchors_field.expect("Missing parameter: climbing_show_anchors"),
         }
     }
 }
@@ -3804,6 +3928,12 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_sway_frequency_start" => Some(&adjustables.grass_sway_frequency_start),
         "grass_sway_frequency_full" => Some(&adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&adjustables.grass_sway_frequency_knee),
+        "climbing_flexibility" => Some(&adjustables.climbing_flexibility),
+        "climbing_search_turn" => Some(&adjustables.climbing_search_turn),
+        "climbing_search_rate" => Some(&adjustables.climbing_search_rate),
+        "climbing_search_reach" => Some(&adjustables.climbing_search_reach),
+        "climbing_speed" => Some(&adjustables.climbing_speed),
+        "climbing_spacing" => Some(&adjustables.climbing_spacing),
         _ => None,
     }
 }
@@ -3840,7 +3970,10 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
-    None
+    match id {
+        "climbing_fixture" => Some(&adjustables.climbing_fixture),
+        _ => None,
+    }
 }
 
 #[allow(dead_code, unused_variables)]
@@ -3871,6 +4004,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
+        "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
     }
 }
@@ -4077,6 +4211,12 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_sway_frequency_start" => Some(&mut adjustables.grass_sway_frequency_start),
         "grass_sway_frequency_full" => Some(&mut adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&mut adjustables.grass_sway_frequency_knee),
+        "climbing_flexibility" => Some(&mut adjustables.climbing_flexibility),
+        "climbing_search_turn" => Some(&mut adjustables.climbing_search_turn),
+        "climbing_search_rate" => Some(&mut adjustables.climbing_search_rate),
+        "climbing_search_reach" => Some(&mut adjustables.climbing_search_reach),
+        "climbing_speed" => Some(&mut adjustables.climbing_speed),
+        "climbing_spacing" => Some(&mut adjustables.climbing_spacing),
         _ => None,
     }
 }
@@ -4113,7 +4253,10 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
-    None
+    match id {
+        "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
+        _ => None,
+    }
 }
 
 #[allow(dead_code, unused_variables)]
@@ -4144,6 +4287,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
+        "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,
     }
 }

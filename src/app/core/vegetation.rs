@@ -3012,6 +3012,10 @@ impl App {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
             let spawn_time_ms = self.time_info.time_since_start_duration().as_millis() as u32;
             let paint_selection = self.current_flora_paint_selection();
+            anyhow::ensure!(
+                paint_selection != species::FloraPaintSelection::ClimbingVine,
+                "climbing vine roots must use the Grow terrain-ray placement path"
+            );
             let paint_brush = species::flora_paint_brush_settings(paint_selection);
             if let species::FloraPaintSelection::Species(species_index) = paint_selection {
                 if species::is_authored_plant_species_index(species_index) {
