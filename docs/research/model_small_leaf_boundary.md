@@ -27,9 +27,11 @@ exactly the controller's frame-180 position (1.161259,1.3918549,1.4950721).
 Scanning nearby variant-0 phases reproduced (5,10) at position
 (1.1692841,1.3915664,1.4927582), then minimization to one instance remained red.
 `red-capture/` contains raw camera, instances, geometry and all GPU slabs;
-`fixture-red-2/` is the checked, uninstrumented deterministic regression. The
-preceding `fixture-red/` accidentally ran the old 64px fixture after a script
-editing error; it is retained, not counted as small-case evidence.
+`fixture-red-3/` is the checked, uninstrumented deterministic regression.
+`fixture-red/`, `fixture-red-2/` and `observer-small/` accidentally ran the old
+64px fixture because the script did not forward its case argument; the latter
+two correctly rejected the unexpected resolution. Those attempts are retained,
+not counted as small-case evidence. The runner now forwards the case and output.
 
 ## Ranked hypotheses and discriminating evidence
 
