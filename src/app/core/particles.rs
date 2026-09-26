@@ -701,6 +701,30 @@ impl App {
                 log::info!("[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels={leaf_pixels} butterfly_pixels={butterfly_pixels} apple_pixels={n}");
             }
         }
+        if std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some() && frame >= 400 {
+            // Isolate invalidation after the ordinary view/resolution/drop sweep.
+            // A checkbox-only change must generate nothing; each resolution
+            // change must rebuild only its own bank. Finish by recovering from
+            // an over-budget request without ever displaying stale surfaces.
+            let step = ((frame - 400) / 16).min(6) as usize;
+            let (views, leaf, apple, butterfly, cached) = [
+                (16, 16, 32, 16, false),
+                (16, 16, 32, 16, true),
+                (16, 32, 32, 16, true),
+                (16, 32, 8, 16, true),
+                (16, 32, 8, 8, true),
+                (512, 64, 64, 64, true),
+                (16, 16, 32, 16, true),
+            ][step];
+            settings.model_pixel_view_count.value = views;
+            settings.falling_leaf_pixel_resolution.value = leaf;
+            settings.apple_pixel_resolution.value = apple;
+            settings.butterfly_pixel_resolution.value = butterfly;
+            settings.model_pixel_cache.value = cached;
+            if (frame - 400).is_multiple_of(16) && frame <= 496 {
+                log::info!("[MODEL_CACHE_REVIEW] step={step} views={views} leaf={leaf} apple={apple} butterfly={butterfly} cached={cached}");
+            }
+        }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {
             log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} resolution={n} diagnostic_only=true saved=false");
         }

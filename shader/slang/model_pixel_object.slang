@@ -45,10 +45,8 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
     float3 delta=camera_info.pos.xyz-pivot;
     float3 view=length(delta)>1e-8?normalize(delta):orientation.axisZ;
     uint viewIndex=nearestModelView(modelPixelLocalVector(orientation,view),gui_input.model_pixel_view_count);
-    float3 chosen=modelViewDirection(viewIndex,gui_input.model_pixel_view_count);
-    // Fixed up rule for each view key, not camera-dependent framing.
-    float3 up=abs(chosen.y)<0.99?float3(0,1,0):float3(1,0,0);
-    float3 localX=normalize(cross(up,chosen)),localY=cross(chosen,localX);
+    ModelPixelView canonical=canonicalModelView(viewIndex,gui_input.model_pixel_view_count);
+    float3 chosen=canonical.z,localX=canonical.x,localY=canonical.y;
     float3 x=orientation.axisX*localX.x+orientation.axisY*localX.y+orientation.axisZ*localX.z;
     float3 y=orientation.axisX*localY.x+orientation.axisY*localY.y+orientation.axisZ*localY.z;
     float3 z=orientation.axisX*chosen.x+orientation.axisY*chosen.y+orientation.axisZ*chosen.z;

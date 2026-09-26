@@ -3072,7 +3072,7 @@ impl Tracer {
         if self.model_pixel_view_count != view_count
             || self.model_pixel_cache_enabled != terrain.model_pixel_cache
         {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} rotating_pixels=true shared_surfaces={}",
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} rotating_pixels=true cache_requested={}",
                 view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_cache && view_count!=0);
         }
         self.model_pixel_view_count = view_count;

@@ -119,7 +119,7 @@ fn all_three_adapters_use_the_shared_bake_and_rotating_display_is_geometry_free(
     let particle = include_str!("../../shader/slang/particle_model_shading.slang");
     let apple = include_str!("../../shader/slang/apple_pixel_tile.slang");
     for adapter in [particle, apple] {
-        assert!(adapter.contains("sampleOrthographicModelPixel("));
+        assert!(adapter.contains("modelSurface("));
     }
     let display = include_str!("../../shader/slang/model_pixel_display.slang");
     assert!(!display.contains("sampleModelPixelGeometry("));
@@ -127,6 +127,10 @@ fn all_three_adapters_use_the_shared_bake_and_rotating_display_is_geometry_free(
     assert!(display.contains("modelOrthographicDepth("));
     assert!(!display.contains("modelPixelCellOverlap("));
     assert!(!display.contains("modelResamplePixel("));
+    let cache = include_str!("../../shader/slang/model_pixel_cache.slang");
+    let generator = include_str!("../../shader/slang/model_pixel_bake.slang");
+    assert!(cache.contains("return bakeModelSurface("));
+    assert!(generator.contains("sampleOrthographicModelPixel("));
     let bake = include_str!("../../shader/slang/model_pixel_projection.slang");
     let sampler = bake
         .split("public ModelPixelHit sampleOrthographicModelPixel")

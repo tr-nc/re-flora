@@ -22,9 +22,7 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
     ModelPixelFrame frame=appleModelFrame(input);
     if(modelDiscreteViews()) {
         uint view=uint(model_object_samples[input.tileIndex*4u+3u].w);
-        // Read kind from the immutable source table: the shared cache interface
-        // retains one reflected descriptor layout for all model adapters.
-        ModelBakedSurface surface=modelSurface(model_bake_ranges[64u].z,0u,view,input.resolution,pixel);
+        ModelBakedSurface surface=modelSurface(APPLE_MODEL_SOURCE,view,input.resolution,pixel);
         if(surface.positionDepth.w>=1.0)return float4(0,0,0,1);
         float3 n=surface.normalMaterial.xyz;
         float3 normal=normalize(input.axisX*n.x+input.axisY*n.y+input.axisZ*n.z);
@@ -40,19 +38,10 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
     }
     uint count,stride;apple_pixel_triangles.GetDimensions(count,stride);
     float4 bounds=applePixelBounds(input,camera_info);
-    ModelPixelHit hit;
-    if(modelDiscreteViews())hit=sampleOrthographicModelPixel(apple_pixel_triangles,0u,count,
-        frame,modelObjectView(input.tileIndex),input.center,1.55*input.scale,pixel,input.resolution);
-    else hit=sampleModelPixelGeometry(apple_pixel_triangles,0u,count,frame,
+    ModelPixelHit hit=sampleModelPixelGeometry(apple_pixel_triangles,0u,count,frame,
         bounds,pixel,input.resolution,camera_info);
     if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
     ButterflyMeshTriangle tri=apple_pixel_triangles[hit.triangle];
-    if(modelDiscreteViews()) {
-        // Keep lighting in the real physical pose; only silhouette/depth use the
-        // selected view. No extra per-pixel scene lookup in one-light mode.
-        hit.position=modelPixelWorld(appleModelFrame(input),tri.a.xyz+tri.e1.xyz*hit.bary.x+tri.e2.xyz*hit.bary.y);
-        hit.direction=normalize(hit.position-camera_info.pos.xyz);
-    }
     float3 bary=float3(1.0-hit.bary.x-hit.bary.y,hit.bary);
     float3 n=normalize(tri.normal0.xyz*bary.x+tri.normal1.xyz*bary.y+tri.normal2.xyz*bary.z);
     float3 normal=normalize(input.axisX*n.x+input.axisY*n.y+input.axisZ*n.z);
@@ -60,12 +49,6 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
     uint material=uint(tri.uv2.z+0.5);
     float3 srgb=material==0u?float3(203,48,47)/255.0:
         material==1u?float3(116,80,46)/255.0:float3(77,145,62)/255.0;
-    if(modelSingleLight()) {
-        float4 light=model_object_samples[input.tileIndex*4u];
-        float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,srgbToLinear(srgb),
-            light.w*directionWeight(normal,sun_info.sun_dir),light.rgb);
-        return float4(color,hit.depth);
-    }
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,
         shadow_camera_info,shadow_map_tex_for_vsm_ping,
         leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,

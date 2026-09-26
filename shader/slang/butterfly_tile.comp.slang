@@ -72,10 +72,10 @@ void main(uint3 id : SV_DispatchThreadID) {
         // than guessing how much cancellation occurred during unprojection.
         butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*2u+id.z,id.xy)]=float4(hit.localOrigin,asfloat(hit.triangle));
         butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*3u+id.z,id.xy)]=float4(hit.localDirection,0);
-    } else hit=particleModelHit(instance,id.xy,instanceIndex);
+    } else hit=particleModelReferenceHit(instance,id.xy);
     // One shading site preserves bit-identical center samples in the reference
     // and covered paths, including transmission and shared object lighting.
-    float4 value=shadeParticleModelHit(instance,hit,instanceIndex);
+    float4 value=shadeParticleModelHit(instance,hit);
     if(model_pass.mode!=2u && instance.repair.w!=0u)
         model_pixel_tiles[instance.repair.z+id.y*instance.metadata.z+id.x]=value;
     if(model_pass.mode!=3u)

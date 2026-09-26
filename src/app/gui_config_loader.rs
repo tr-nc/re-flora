@@ -972,6 +972,7 @@ mod tests {
                     .find(|p| p.id == "raster_tree_static")
                     .unwrap()
                     .clone();
+                debug.param.retain(|p| p.id != "model_pixel_cache");
                 old.id = "model_pixel_snap_views".into();
                 old.value = GuiParamValue::Bool { value: enabled };
                 debug.param.push(old);
@@ -997,6 +998,14 @@ mod tests {
                 let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
                 assert!(!params.iter().any(|p| p.id == "model_pixel_snap_views"));
                 assert!(!params.iter().any(|p| p.id == "model_pixel_screen_grid"));
+                assert!(matches!(
+                    params
+                        .iter()
+                        .find(|p| p.id == "model_pixel_cache")
+                        .unwrap()
+                        .value,
+                    GuiParamValue::Bool { value: false }
+                ));
                 let param = params
                     .iter()
                     .find(|p| p.id == "model_pixel_view_count")

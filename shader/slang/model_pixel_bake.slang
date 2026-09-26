@@ -13,9 +13,11 @@ public struct ModelBakedSurface {
     public float4 positionDepth;
     public float4 normalMaterial;
 };
-public ModelBakedSurface bakeModelSurface(uint kind,uint shape,uint views,uint view,uint n,uint2 pixel) {
-    uint rangeIndex=kind==0u?shape:kind==1u?64u:65u+shape;
-    uint4 range=model_bake_ranges[rangeIndex];
+public static const uint APPLE_MODEL_SOURCE=64u;
+public uint modelSourceIndex(uint kind,uint shape) { return kind==0u?shape:kind==1u?APPLE_MODEL_SOURCE:65u+shape; }
+public ModelBakedSurface bakeModelSurface(uint source,uint views,uint view,uint n,uint2 pixel) {
+    uint4 range=model_bake_ranges[source];
+    uint kind=range.z;
     ModelPixelHit hit=sampleOrthographicModelPixel(model_bake_triangles,range.x,range.y,
         identityModelPixelFrame(),canonicalModelView(view,views),float3(0),
         kind==1u?1.55:1.7,pixel,n);

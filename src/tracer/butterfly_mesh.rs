@@ -136,7 +136,7 @@ struct Instance {
     lighting: [f32; 4],
     repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
     view_orientation: [f32; 4],
-    cache: [u32; 4], // kind, canonical shape/animation frame; reserved
+    cache: [u32; 4], // immutable model source ID; reserved
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -378,11 +378,8 @@ impl ButterflyMeshRenderer {
                 }
             });
             let animation_frame = super::model_pixel_cache::animation_frame(phase);
-            let phase = if self.canonical_frames {
-                super::model_pixel_cache::animation_phase(animation_frame)
-            } else {
-                phase
-            };
+            // Keep published root translation continuous; only articulated shape
+            // selection is quantized. No extra bob or quantized flight attitude.
             let transforms = self.mesh.source.transforms(phase, 0);
             // Only authored root displacement is suppressed by flight coupling;
             // articulated geometry and rotations still come directly from the GLB.
@@ -443,7 +440,12 @@ impl ButterflyMeshRenderer {
                     })
                 .extend(snapshot.size)
                 .to_array(),
-                cache: [2, animation_frame, 0, 0],
+                cache: [
+                    super::model_pixel_cache::BUTTERFLY_SOURCE_BASE + animation_frame,
+                    0,
+                    0,
+                    0,
+                ],
                 color: [
                     rgb[0] as f32 / 255.,
                     rgb[1] as f32 / 255.,
@@ -501,7 +503,7 @@ impl ButterflyMeshRenderer {
             "shared leaf exceeds triangle budget"
         );
         let first = self.triangles.len() as u32;
-        if !candidates.is_empty() {
+        if !candidates.is_empty() && !self.canonical_frames {
             let shapes = leaf_variant_triangles();
             ensure!(
                 shapes.len() == triangles_per_leaf * crate::model_assets::LEAF_VARIANT_COUNT,
@@ -527,7 +529,7 @@ impl ButterflyMeshRenderer {
                 // No resampling, local animation, velocity-facing override or reset.
                 lighting: snapshot.leaf_orientation.unwrap().to_array(),
                 view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
-                cache: [0, shape as u32, 0, 0],
+                cache: [shape as u32, 0, 0, 0],
                 repair: [0; 4],
             });
         }
@@ -694,7 +696,9 @@ impl ButterflyMeshRenderer {
             // Publish only the complete frame: never overwrite in-flight tile
             // offsets/visibility with prepare_models' zero-initialized metadata.
             resources.butterfly_mesh_instances.fill(&self.instances)?;
-            resources.butterfly_mesh_triangles.fill(&self.triangles)?;
+            if !self.triangles.is_empty() {
+                resources.butterfly_mesh_triangles.fill(&self.triangles)?;
+            }
             resources.draw_indices.fill(&self.draw_order)?;
         }
         self.compute_count = self.count();
@@ -1221,6 +1225,68 @@ mod tests {
             geometry,
             bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles)
         );
+    }
+
+    #[test]
+    fn canonical_animation_keeps_published_root_motion_and_coupling_continuous() {
+        let mut renderer = ButterflyMeshRenderer {
+            canonical_frames: true,
+            ..Default::default()
+        };
+        let settings = ButterflyMeshSettings {
+            resolution: 16,
+            fps: 22,
+            self_shadows: true,
+            transmission: 0.8,
+        };
+        for blend in [0., 0.35, 1.] {
+            let pose = crate::particles::ButterflyWingbeatPose {
+                phase: 0.413,
+                blend,
+                orientation: Quat::from_rotation_y(0.7),
+            };
+            let snapshot = ParticleSnapshot {
+                position_ws: Vec3::ONE,
+                velocity: Vec3::NEG_Z,
+                color: glam::Vec4::ONE,
+                size: 0.03,
+                kind: ParticleRenderKind::Butterfly,
+                palette_index: 0,
+                animation_phase_offset: 0.,
+                animation_sample_time: Some(0.137),
+                butterfly_wingbeat: Some(pose),
+                leaf_orientation: None,
+                leaf_shape_seed: None,
+            };
+            renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
+            let instance = renderer.instances[0];
+            let phase = 0.137 + (pose.phase - 0.137) * blend;
+            let facing = Quat::IDENTITY.slerp(pose.orientation, blend);
+            let transforms = renderer.mesh.source.transforms(phase, 0);
+            let root = transforms[renderer.mesh.source.node("Flight pose")]
+                .w_axis
+                .truncate();
+            let expected = snapshot.position_ws
+                + facing * root * ((1. - blend) * snapshot.size * (1.53125 / 3.4));
+            assert!((Vec3::from_slice(&instance.position_size) - expected).length() < 1e-7);
+            assert!(
+                (Quat::from_array(instance.view_orientation)
+                    .dot(facing)
+                    .abs()
+                    - 1.)
+                    .abs()
+                    < 1e-6
+            );
+            assert_eq!(
+                instance.cache[0],
+                super::super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
+                    + super::super::model_pixel_cache::animation_frame(phase)
+            );
+            assert!(
+                renderer.triangles.is_empty(),
+                "production must not upload per-instance animated geometry"
+            );
+        }
     }
 
     #[test]

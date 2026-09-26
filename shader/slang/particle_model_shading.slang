@@ -119,7 +119,7 @@ public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel
 
 public float4 sampleCanonicalParticle(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex) {
     uint view=uint(model_object_samples[objectIndex*4u+3u].w);
-    ModelBakedSurface surface=modelSurface(instance.cache.x,instance.cache.y,view,instance.metadata.z,pixel);
+    ModelBakedSurface surface=modelSurface(instance.cache.x,view,instance.metadata.z,pixel);
     if(surface.positionDepth.w>=1.0)return float4(0,0,0,1);
     float3 normal=normalize(rotatePose(instance.view_orientation,surface.normalMaterial.xyz));
     float3 position=instance.position_size.xyz+rotatePose(instance.view_orientation,surface.positionDepth.xyz)
@@ -141,22 +141,10 @@ public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pi
     return sampleParticleModelAt(instance,float2(pixel)+0.5);
 }
 
-public ModelPixelHit particleModelHit(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex) {
-    ModelPixelFrame frame=particleModelFrame(instance);
-    if(modelDiscreteViews())return sampleOrthographicModelPixel(butterfly_mesh_triangles,
-        instance.metadata.x,instance.metadata.y,frame,modelObjectView(objectIndex),instance.position_size.xyz,
-        instance.position_size.w*(1.53125*0.5),pixel,instance.metadata.z);
+// Continuous numerical oracle only. Production uses modelSurface for both
+// live recomputation and cached lookup, never world-space triangle reprojection.
+public ModelPixelHit particleModelReferenceHit(ButterflyMeshInstance instance,uint2 pixel) {
     return sampleModelPixelGeometry(butterfly_mesh_triangles,instance.metadata.x,
-        instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,instance.metadata.z,camera_info);
-}
-public float4 shadeParticleModelHit(ButterflyMeshInstance instance,ModelPixelHit hit,uint objectIndex) {
-    if(hit.triangle==0xffffffffu)return float4(0,0,0,1);
-    if(modelDiscreteViews()) {
-        ButterflyMeshTriangle tri=butterfly_mesh_triangles[hit.triangle];
-        hit.position=modelPixelWorld(particleModelFrame(instance),tri.a.xyz+tri.e1.xyz*hit.bary.x+tri.e2.xyz*hit.bary.y);
-        hit.direction=normalize(hit.position-camera_info.pos.xyz);
-    }
-    float4 light=float4(0);if(modelSingleLight())light=model_object_samples[objectIndex*4u];
-    return float4(shadeParticleModelSurface(instance,hit.triangle,hit.bary,
-        hit.position,hit.direction,(instance.metadata.w&2u)!=0u,light),hit.depth);
+        instance.metadata.y,particleModelFrame(instance),butterflyTileBounds(instance,camera_info),
+        pixel,instance.metadata.z,camera_info);
 }

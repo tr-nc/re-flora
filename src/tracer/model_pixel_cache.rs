@@ -13,6 +13,7 @@ use resource_container_derive::ResourceContainer;
 use std::sync::Arc;
 
 pub const ANIMATION_FRAMES: u32 = 32;
+pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 const SHAPES: [u32; 3] = [64, 1, ANIMATION_FRAMES];
 const FORMAT_VERSION: u32 = 1;
 const SURFACE_BYTES: usize = 32;
@@ -126,6 +127,7 @@ pub struct CacheResources {
     pub model_cache_butterflies: Resource<Buffer>,
     pub model_cache_output: Resource<Buffer>,
     pub model_cache_validation: Resource<Buffer>,
+    pub model_cache_specs: Resource<Buffer>,
 }
 impl CacheResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -143,6 +145,8 @@ impl CacheResources {
         geometry.fill(&triangles).expect("canonical model source");
         let range_buffer = create(std::mem::size_of_val(ranges.as_slice()) as u64);
         range_buffer.fill(&ranges).expect("canonical model ranges");
+        let specs = create(48);
+        specs.fill(&[0u32; 12]).unwrap();
         let dummy = || {
             let b = create(32);
             b.fill(&[0u32; 8]).unwrap();
@@ -156,6 +160,7 @@ impl CacheResources {
             model_cache_butterflies: dummy(),
             model_cache_output: dummy(),
             model_cache_validation: dummy(),
+            model_cache_specs: Resource::new(specs),
         }
     }
 }
@@ -173,7 +178,7 @@ impl Spec {
         let cells = SHAPES[self.kind as usize] as usize
             * self.views as usize
             * (self.resolution * self.resolution) as usize;
-        let bytes = (cells + 1) * SURFACE_BYTES;
+        let bytes = cells * SURFACE_BYTES;
         (bytes <= MAX_BANK_BYTES).then_some(bytes)
     }
 }
@@ -181,9 +186,10 @@ impl Spec {
 pub struct CacheFrame {
     banks: [Arc<Buffer>; 3],
     validation: Arc<Buffer>,
+    specs: Arc<Buffer>,
 }
 impl CacheFrame {
-    pub fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 4] {
+    pub fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 5] {
         [
             (
                 "model_cache_leaves",
@@ -201,6 +207,7 @@ impl CacheFrame {
                 "model_cache_validation",
                 DescriptorResource::Buffer(&self.validation),
             ),
+            ("model_cache_specs", DescriptorResource::Buffer(&self.specs)),
         ]
     }
 }
@@ -256,7 +263,7 @@ impl ModelPixelCache {
         while self.frames.len() <= slot {
             self.frames.push(None);
         }
-        let validation = if let Some(frame) = self.frames[slot].take() {
+        let (validation, specs) = if let Some(frame) = self.frames[slot].take() {
             if self.review {
                 let bytes = frame.validation.read_back()?;
                 let counters: &[u32] = bytemuck::try_cast_slice(&bytes)
@@ -277,9 +284,12 @@ impl ModelPixelCache {
                     );
                 }
             }
-            frame.validation
+            (frame.validation, frame.specs)
         } else {
-            buffer(&self.device, &self.allocator, 32, MemoryLocation::CpuToGpu)
+            (
+                buffer(&self.device, &self.allocator, 32, MemoryLocation::CpuToGpu),
+                buffer(&self.device, &self.allocator, 48, MemoryLocation::CpuToGpu),
+            )
         };
         validation.fill(&[0u32; 8])?;
         self.pipeline.begin_transient_descriptor_frame(slot);
@@ -322,9 +332,19 @@ impl ModelPixelCache {
             }
             self.keys[kind] = Some(spec);
         }
+        let metadata: [[u32; 4]; 3] = std::array::from_fn(|kind| {
+            let spec = self.keys[kind].unwrap();
+            if spec.bytes().is_some() {
+                [spec.resolution, spec.views, SHAPES[kind], FORMAT_VERSION]
+            } else {
+                [0; 4]
+            }
+        });
+        specs.fill(&metadata)?;
         self.frames[slot] = Some(CacheFrame {
             banks: self.active.clone(),
             validation,
+            specs,
         });
         Ok(())
     }
@@ -350,6 +370,7 @@ mod tests {
     fn source_has_all_shapes_and_canonical_animation_frames() {
         let (triangles, ranges) = source();
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
+        assert_eq!(model_assets::LEAF_VARIANT_COUNT, SHAPES[0] as usize);
         assert_eq!(ranges.len(), 65 + ANIMATION_FRAMES as usize);
         for (index, r) in ranges.iter().enumerate() {
             assert_eq!(
@@ -404,7 +425,16 @@ mod tests {
                 views: 16
             }
             .bytes(),
-            Some(8 * 1024 * 1024 + 32)
+            Some(8 * 1024 * 1024)
+        );
+        assert_eq!(
+            Spec {
+                kind: 0,
+                resolution: 64,
+                views: 16
+            }
+            .bytes(),
+            Some(MAX_BANK_BYTES)
         );
         assert!(Spec {
             kind: 0,
