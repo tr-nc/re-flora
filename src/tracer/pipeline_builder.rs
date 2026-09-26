@@ -484,6 +484,24 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let tree_pixel_comp_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/tree_pixel.comp",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
+        let tree_pixel_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/tree_pixel.vert",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
+        let tree_pixel_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/trees/tree_pixel.frag",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
         let raster_tree_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/trees/raster_tree.vert",
@@ -667,6 +685,9 @@ impl PipelineBuilder {
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
             environment_probe_visualization_vert_sm,
+            tree_pixel_comp_sm,
+            tree_pixel_vert_sm,
+            tree_pixel_frag_sm,
             raster_tree_vert_sm,
             raster_tree_frag_sm,
             raster_tree_shadow_vert_sm,
@@ -827,6 +848,14 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
+        let tree_pixel_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.tree_pixel_comp_sm, pool);
+        tree_pixel_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "camera_info",
+                providers: &[resources],
+            })
+            .expect("live tree pixel static descriptors must resolve");
         let tree_skin_ppl =
             ComputePipeline::new(device, &shader_modules.tree_skin_sm, pool, &[resources]);
         let tree_refit_ppl =
@@ -1071,6 +1100,7 @@ impl PipelineBuilder {
             ddgi_atlas_reduce_ppl,
             ddgi_voxel_visibility_pack_ppl,
             ddgi_voxel_visibility_blocks_ppl,
+            tree_pixel_ppl,
             raster_tree_lighting_ppl,
             tree_skin_ppl,
             tree_refit_ppl,
@@ -1360,6 +1390,19 @@ impl PipelineBuilder {
             contree_builder_resources,
             scene_accel_resources,
         ];
+        let tree_pixel_ppl = GraphicsPipeline::new_uninitialized(
+            vulkan_ctx.device(),
+            &shader_modules.tree_pixel_vert_sm,
+            &shader_modules.tree_pixel_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            &GraphicsPipelineDesc {
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+            None,
+            pool,
+        );
         let raster_tree_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.raster_tree_vert_sm,
@@ -1498,6 +1541,7 @@ impl PipelineBuilder {
             geometry_preview_ppl,
             environment_probe_visualization_depth_ppl,
             environment_probe_visualization_overlay_ppl,
+            tree_pixel_ppl,
             raster_tree_ppl,
             raster_tree_shadow_ppl,
             apple_pixel_tree_ppl,
@@ -1956,6 +2000,14 @@ impl PipelineTopology {
             active_ddgi_volume,
             ddgi_voxel_visibility,
         ];
+        retire_compute(
+            &self.compute.tree_pixel_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "camera_info",
+                providers: &all_resources,
+            },
+            "tree pixel extent descriptor update failed",
+        );
         retire_graphics(
             &self.graphics.raster_tree_ppl,
             DescriptorUpdate::All(&all_resources),
@@ -2563,6 +2615,9 @@ pub struct ShaderModules {
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
     pub environment_probe_visualization_vert_sm: ShaderModule,
+    pub tree_pixel_comp_sm: ShaderModule,
+    pub tree_pixel_vert_sm: ShaderModule,
+    pub tree_pixel_frag_sm: ShaderModule,
     pub raster_tree_lighting_sm: ShaderModule,
     pub tree_skin_sm: ShaderModule,
     pub tree_refit_sm: ShaderModule,
@@ -2602,6 +2657,7 @@ pub struct ComputePipelines {
     pub ddgi_atlas_reduce_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
+    pub tree_pixel_ppl: ComputePipeline,
     pub raster_tree_lighting_ppl: ComputePipeline,
     pub tree_skin_ppl: ComputePipeline,
     pub tree_refit_ppl: ComputePipeline,
@@ -2653,6 +2709,7 @@ pub struct GraphicsPipelines {
     pub geometry_preview_ppl: GraphicsPipeline,
     pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
+    pub tree_pixel_ppl: GraphicsPipeline,
     pub raster_tree_ppl: GraphicsPipeline,
     pub raster_tree_shadow_ppl: GraphicsPipeline,
     pub apple_pixel_tree_ppl: GraphicsPipeline,

@@ -107,12 +107,10 @@ public uint modelPixelProjectedTriangle(ButterflyMeshTriangle tri,ModelPixelFram
     }
     return length;
 }
-public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
-    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
-    U_CameraInfo camera,ModelPixelHit hit) {
-    if(hit.triangle!=0xffffffffu || any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return hit;
-    for(uint i=0u;i<count;i++) {
-        ButterflyMeshTriangle tri=triangles[first+i];
+// Also consumed by live/deforming adapters after their own spatial broad phase.
+public ModelPixelHit modelPixelTriangleCoverageHit(ButterflyMeshTriangle tri,uint triangle,
+    ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,U_CameraInfo camera,
+    ModelPixelHit hit) {
         float3 projected[12];
         uint length=modelPixelProjectedTriangle(tri,frame,bounds,resolution,camera,projected);
         for(uint j=1u;j+1u<length;j++) {
@@ -121,16 +119,24 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
             float3 weights=pixelClosestBary(float2(pixel)+0.5,a.xy,b.xy,c.xy);
             float depth=dot(weights,float3(a.z,b.z,c.z));
             if(depth>=hit.depth)continue;
-            hit.triangle=first+i;hit.bary=float2(1.0/3.0);
+            hit.triangle=triangle;hit.bary=float2(1.0/3.0);
             float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
             hit.position=modelPixelWorld(frame,(p0+p1+p2)/3.0);
             hit.depth=depth;
         }
-    }
+    return hit;
+}
+public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
+    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
+    U_CameraInfo camera,ModelPixelHit hit) {
+    if(hit.triangle!=0xffffffffu || any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return hit;
+    for(uint i=0u;i<count;i++)
+        hit=modelPixelTriangleCoverageHit(triangles[first+i],first+i,frame,bounds,pixel,resolution,camera,hit);
     return hit;
 }
 
-// Sole production geometry entry point for every model adapter.
+// Rigid shared-model entry point. Live meshes reuse its ray and coverage rules
+// with an adapter-owned acceleration structure, not a cached view bank.
 public ModelPixelHit sampleModelPixelGeometry(StructuredBuffer<ButterflyMeshTriangle> triangles,
     uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
     U_CameraInfo camera) {

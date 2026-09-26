@@ -358,6 +358,24 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/trees/tree_pixel.comp",
+        source_path: "shader/slang/tree_pixel.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/tree_pixel.vert",
+        source_path: "shader/slang/tree_pixel.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/trees/tree_pixel.frag",
+        source_path: "shader/slang/tree_pixel.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/trees/raster_tree_shadow.vert",
         source_path: "shader/slang/raster_tree_shadow.vert.slang",
         module_path: "shader/slang",

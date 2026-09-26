@@ -9,6 +9,7 @@ pub(super) struct RasterTreeSmoke {
     fingerprint: u64,
     terrain_revision: u32,
     light: Option<LightId>,
+    camera: Option<crate::gameplay::CameraPose>,
 }
 impl RasterTreeSmoke {
     pub(super) fn new() -> Self {
@@ -17,6 +18,7 @@ impl RasterTreeSmoke {
             fingerprint: 0,
             terrain_revision: 0,
             light: None,
+            camera: None,
         }
     }
     pub(super) fn run_next(app: &mut App) -> bool {
@@ -36,6 +38,8 @@ impl RasterTreeSmoke {
         match self.frame {
             1 => {
                 app.debug_settings.adjustables.tree_wind.value = false;
+                app.debug_settings.adjustables.tree_pixelized.value = false;
+                self.camera = Some(app.tracer.camera_pose());
             }
             20 => {
                 self.fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
@@ -66,6 +70,10 @@ impl RasterTreeSmoke {
             25 => {
                 app.tracer.validate_gpu_tree_lighting()?;
             }
+            26 => {
+                app.debug_settings.adjustables.tree_pixelized.value = true;
+                app.debug_settings.adjustables.tree_pixel_size.value = 4;
+            }
             30 => {
                 app.debug_settings.adjustables.tree_wind.value = true;
             }
@@ -83,11 +91,29 @@ impl RasterTreeSmoke {
                     "wind changed rest geometry"
                 );
             }
+            45 => {
+                app.tracer.validate_tree_pixels()?;
+                app.debug_settings.adjustables.tree_pixelized.value = false;
+            }
             50 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.;
             }
+            65 => {
+                app.debug_settings.adjustables.tree_pixelized.value = true;
+                app.debug_settings.adjustables.tree_pixel_size.value = 1;
+            }
             70 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 1.;
+                let mut pose = app.tracer.camera_pose();
+                pose.yaw_deg += 13.7;
+                app.tracer.apply_camera_pose(pose);
+            }
+            75 => {
+                app.tracer.validate_tree_pixels()?;
+                app.debug_settings.adjustables.tree_pixel_size.value = 16;
+            }
+            88 => {
+                app.tracer.validate_tree_pixels()?;
             }
             90 => {
                 app.debug_settings.adjustables.tree_age.value = 0.5;
@@ -146,8 +172,18 @@ impl RasterTreeSmoke {
                 app.tracer.validate_gpu_tree_surface()?;
                 app.tracer.validate_gpu_tree_lighting()?;
             }
+            145 => {
+                app.tracer.validate_tree_pixels()?;
+                app.debug_settings.adjustables.tree_pixelized.value = false;
+                app.debug_settings.adjustables.tree_pixel_size.value = 4;
+                app.tracer.apply_camera_pose(self.camera.take().unwrap());
+            }
             160 => {
-                log::info!("[TREE][MESH_SMOKE] PASS welded_mesh=true gpu_pose=true gpu_surface=true queries=true wind_roundtrip=true age=true remove_replace=true terrain_unchanged=true color_draws={}",app.tracer.raster_trees.color_draws);
+                ensure!(
+                    app.tracer.tree_pixel_frames() > 50,
+                    "pixel display was not exercised"
+                );
+                log::info!("[TREE][MESH_SMOKE] PASS welded_mesh=true gpu_pose=true gpu_surface=true queries=true wind_roundtrip=true age=true remove_replace=true terrain_unchanged=true display_ab=true current_camera=true pixel_sizes=4,1,16 color_draws={} pixel_frames={}",app.tracer.raster_trees.color_draws,app.tracer.tree_pixel_frames());
                 return Ok(true);
             }
             _ => {}

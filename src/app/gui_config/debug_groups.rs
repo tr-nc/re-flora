@@ -14,7 +14,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None, title: "Tree Rendering",
         description: "A: voxel trees. B: rasterized voxel surfaces. Static lighting comparison; branch wind comes next. Static terrain remains the exact secondary-ray and collision representation.",
-        initially_open: true, params: &["tree_wind", "tree_stiffness"],
+        initially_open: true, params: &["tree_pixelized", "tree_pixel_size", "tree_wind", "tree_stiffness"],
     },
     ControlGroup {
         parent: Some("Flora"),

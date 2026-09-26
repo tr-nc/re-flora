@@ -8,6 +8,9 @@ import tree_scene_types;
 public bool treeSceneActive() { return tree_scene_info[0].x != 0u; }
 public bool treeWindActive() { return tree_scene_info[0].z != 0u; }
 public uint treeSceneVertexCount() { return tree_scene_info[0].w; }
+public uint treeSceneNodeCount() { return treeSceneActive() ? tree_scene_info[0].y : 0u; }
+public TreeSceneNode treeSceneNode(uint index) { return tree_scene_nodes[index]; }
+public uint4 treeScenePrimitive(uint index) { return tree_scene_primitives[index]; }
 public float3 treeScenePosition(uint i) { return tree_scene_vertices[i*2u].xyz; }
 public float3 treeSceneNormal(uint i) { return tree_scene_vertices[i*2u+1u].xyz; }
 bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, float limit) {
@@ -23,11 +26,16 @@ bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, flo
     }
     return lo <= hi;
 }
-public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
-    if (!treeSceneActive()) return hit;
-    uint count = tree_scene_info[0].y;
+public struct TreeTriangleHit {
+    public uint primitive;
+    public float distance;
+    public float2 bary;
+};
+public TreeTriangleHit closestTreeTriangle(float3 origin, float3 direction, float limit, bool cullBackFaces) {
+    TreeTriangleHit hit;
+    hit.primitive=0xffffffffu; hit.distance=limit; hit.bary=float2(0);
+    uint count = treeSceneNodeCount();
     uint index = 0u;
-    float limit = hit.is_hit ? hit.distance : 1e10;
     while (index < count) {
         TreeSceneNode node = tree_scene_nodes[index];
         if (!intersectsTreeNode(node,origin,direction,limit)) { index = node.escape; continue; }
@@ -38,21 +46,28 @@ public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingRe
         float3 e1 = b-a, e2 = c-a;
         float3 p = cross(direction,e2);
         float determinant = dot(e1,p);
-        if (abs(determinant) > 1e-12) {
+        if (cullBackFaces ? determinant > 1e-12 : abs(determinant) > 1e-12) {
             float3 s = origin-a, q = cross(s,e1);
             float u = dot(s,p)/determinant, v = dot(direction,q)/determinant;
             float distance = dot(e2,q)/determinant;
             if (u >= -1e-6 && v >= -1e-6 && u+v <= 1.000001 && distance >= 1e-6 && distance < limit) {
                 limit = distance;
-                hit.is_hit = true; hit.distance = distance;
-                hit.position = origin+direction*distance; hit.center_position = hit.position;
-                hit.normal = normalize(treeSceneNormal(ids.x)*(1.0-u-v)+treeSceneNormal(ids.y)*u+treeSceneNormal(ids.z)*v);
-                hit.voxel_type = 5u; hit.voxel_address = 0u;
-                hit.surface_data = 0u;
+                hit.primitive=node.primitive; hit.distance=distance; hit.bary=float2(u,v);
             }
         }
         index = node.escape;
     }
+    return hit;
+}
+public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
+    TreeTriangleHit triangle=closestTreeTriangle(origin,direction,hit.is_hit ? hit.distance : 1e10,false);
+    if (triangle.primitive==0xffffffffu) return hit;
+    uint3 ids=treeScenePrimitive(triangle.primitive).xyz;
+    float2 bary=triangle.bary;
+    hit.is_hit=true; hit.distance=triangle.distance;
+    hit.position=origin+direction*hit.distance; hit.center_position=hit.position;
+    hit.normal=normalize(treeSceneNormal(ids.x)*(1-bary.x-bary.y)+treeSceneNormal(ids.y)*bary.x+treeSceneNormal(ids.z)*bary.y);
+    hit.voxel_type=5u; hit.voxel_address=0u; hit.surface_data=0u;
     return hit;
 }
 

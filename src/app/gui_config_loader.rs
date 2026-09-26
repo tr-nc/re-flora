@@ -82,6 +82,8 @@ impl GuiConfigLoader {
                 }
             }
         }
+        Self::add_missing_param(&mut config, "Debug", "tree_pixelized");
+        Self::add_missing_param(&mut config, "Debug", "tree_pixel_size");
         Self::add_missing_param(&mut config, "Debug", "tree_wind");
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
@@ -1019,6 +1021,44 @@ mod tests {
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn tree_display_ab_migrates_to_normal_and_round_trips_authored_values() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| !matches!(p.id.as_str(), "tree_pixelized" | "tree_pixel_size"));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        for param in loaded.section.iter_mut().flat_map(|s| &mut s.param) {
+            match param.id.as_str() {
+                "tree_pixelized" => {
+                    assert!(matches!(param.value, GuiParamValue::Bool { value: false }));
+                    param.value = GuiParamValue::Bool { value: true };
+                }
+                "tree_pixel_size" => {
+                    let GuiParamValue::Uint { value, .. } = &mut param.value else {
+                        panic!("pixel size must be unsigned")
+                    };
+                    assert_eq!(*value, 4);
+                    *value = 7;
+                    assert_eq!(param.enabled_if.as_ref().unwrap().param, "tree_pixelized");
+                }
+                _ => {}
+            }
+        }
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        assert_eq!(
+            toml::to_string(&loaded).unwrap(),
+            toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
+        );
     }
 
     #[test]

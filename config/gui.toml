@@ -132,6 +132,27 @@ min = 8
 max = 512
 
 [[section.param]]
+id = "tree_pixelized"
+kind = "bool"
+label = "Pixelized Wood (B; Unchecked = Normal Mesh)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "tree_pixel_size"
+kind = "uint"
+label = "Wood Pixel Size (Scene Pixels; Current Camera)"
+type = "Uint"
+enabled_if = { param = "tree_pixelized", equals = true }
+
+[section.param.data]
+value = 4
+min = 1
+max = 16
+
+[[section.param]]
 id = "tree_wind"
 kind = "bool"
 label = "Animate Tree Mesh with Wind"

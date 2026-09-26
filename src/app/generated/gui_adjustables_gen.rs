@@ -50,6 +50,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "tree_pixelized",
+        kind: "bool",
+        label: "Pixelized Wood (B; Unchecked = Normal Mesh)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_pixel_size",
+        kind: "uint",
+        label: "Wood Pixel Size (Scene Pixels; Current Camera)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "tree_wind",
         kind: "bool",
         label: "Animate Tree Mesh with Wind",
@@ -1448,6 +1460,8 @@ pub struct GuiAdjustables {
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
+    pub tree_pixelized: crate::gui_adjustables::BoolParam,
+    pub tree_pixel_size: crate::gui_adjustables::UintParam,
     pub tree_wind: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
@@ -1697,6 +1711,8 @@ impl GuiAdjustables {
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut tree_pixelized_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut tree_pixel_size_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1955,6 +1971,18 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             model_pixel_view_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_pixelized" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            tree_pixelized_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "tree_pixel_size" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tree_pixel_size_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "tree_wind" => {
@@ -3519,6 +3547,8 @@ impl GuiAdjustables {
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
+            tree_pixelized: tree_pixelized_field.expect("Missing parameter: tree_pixelized"),
+            tree_pixel_size: tree_pixel_size_field.expect("Missing parameter: tree_pixel_size"),
             tree_wind: tree_wind_field.expect("Missing parameter: tree_wind"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
@@ -3955,6 +3985,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
+        "tree_pixel_size" => Some(&adjustables.tree_pixel_size),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&adjustables.path_tracing_max_bounces),
         "canopy_audio_sample_budget" => Some(&adjustables.canopy_audio_sample_budget),
@@ -3989,6 +4020,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
+        "tree_pixelized" => Some(&adjustables.tree_pixelized),
         "tree_wind" => Some(&adjustables.tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
@@ -4236,6 +4268,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
+        "tree_pixel_size" => Some(&mut adjustables.tree_pixel_size),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&mut adjustables.path_tracing_max_bounces),
         "canopy_audio_sample_budget" => Some(&mut adjustables.canopy_audio_sample_budget),
@@ -4270,6 +4303,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
+        "tree_pixelized" => Some(&mut adjustables.tree_pixelized),
         "tree_wind" => Some(&mut adjustables.tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),

@@ -235,6 +235,7 @@ impl ModelPixelTiles {
                 allocator,
                 BufferUsage::from_flags(
                     vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::TRANSFER_SRC // explicit validation/capture; no normal-frame readback
                         | if key.1 {
                             vk::BufferUsageFlags::VERTEX_BUFFER
                         } else {

@@ -82,6 +82,10 @@ pub(super) fn freeze_render_frame_inputs(
     };
     let vegetation = VegetationFrameInput {
         appearance: FloraAppearanceFrameInput {
+            tree_display: crate::tracer::TreeDisplaySettings {
+                pixelized: gui.tree_pixelized.value,
+                pixel_size: gui.tree_pixel_size.value,
+            },
             leaf_models: crate::tracer::LeafModelSettings {
                 resolution: gui.falling_leaf_pixel_resolution.value,
                 size_scale: gui.falling_leaf_size_scale.value,
@@ -500,6 +504,10 @@ mod tests {
             },
             vegetation: VegetationFrameInput {
                 appearance: FloraAppearanceFrameInput {
+                    tree_display: crate::tracer::TreeDisplaySettings {
+                        pixelized: settings.adjustables.tree_pixelized.value,
+                        pixel_size: settings.adjustables.tree_pixel_size.value,
+                    },
                     leaf_models: crate::tracer::LeafModelSettings {
                         resolution: settings.adjustables.falling_leaf_pixel_resolution.value,
                         size_scale: settings.adjustables.falling_leaf_size_scale.value,

@@ -26,9 +26,11 @@ mod geometry_preview_resources;
 pub use geometry_preview_resources::*;
 
 mod raster_tree;
+mod tree_pixels;
 mod tree_scene;
 use raster_tree::RasterTreeGeometry;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh};
+pub use tree_pixels::TreeDisplaySettings;
 pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
@@ -1427,6 +1429,7 @@ pub struct MaterialFrameInput {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
+    pub tree_display: TreeDisplaySettings,
     pub leaf_models: LeafModelSettings,
     pub attached_leaf_rotation: bool,
     pub growth_override_enabled: bool,
@@ -1656,6 +1659,7 @@ pub struct Tracer {
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
     pub(crate) raster_trees: RasterTreeGeometry,
+    tree_pixels: tree_pixels::TreePixels,
     pub(crate) tree_pose_solver: crate::tree_gen::gpu_pose::GpuTreePoseSolver,
     environment_probe_visualization_resources: EnvironmentProbeVisualizationResources,
 
@@ -2037,6 +2041,7 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             leaf_models: LeafModelSettings::default(),
+            tree_pixels: tree_pixels::TreePixels::default(),
             model_pixel_view_count: 0,
             model_pixel_cache,
             ddgi_sampling_progress: Default::default(),
@@ -3070,6 +3075,7 @@ impl Tracer {
             );
         }
         self.apple_pixel_resolution = terrain.apple_pixel_resolution.clamp(8, 64);
+        self.tree_pixels.settings = vegetation.appearance.tree_display;
         self.leaf_models = vegetation.appearance.leaf_models;
         self.leaf_models.resolution = self.leaf_models.resolution.clamp(8, 64);
         let view_count = model_pixel_views::effective_count(
@@ -4921,7 +4927,15 @@ impl Tracer {
                 .geometry_preview_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
-        if self.raster_trees.enabled {
+        let prepared_tree_pixels = Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "models.tree.pixels",
+            || self.prepare_tree_pixels(cmdbuf, gpu_profiler_frame_slot),
+        )
+        .expect("current-camera tree pixel preparation");
+        if self.raster_trees.enabled && prepared_tree_pixels.is_none() {
             self.pipeline_topology
                 .graphics()
                 .raster_tree_ppl
@@ -5517,12 +5531,21 @@ impl Tracer {
 
         if self.raster_trees.enabled && self.raster_trees.index_count > 0 {
             self.raster_trees.color_draws += 1;
-            let pipeline = &self.pipeline_topology.graphics().raster_tree_ppl;
-            pipeline.record_bind(cmdbuf);
-            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-            cmdbuf.bind_index_buffer_u32(&self.raster_trees.indices);
-            let (indices, instances) = self.raster_trees.draw_counts();
-            pipeline.record_indexed(cmdbuf, indices, instances, 0, 0, 0, None);
+            if let Some(pixels) = &prepared_tree_pixels {
+                cmdbuf.bind_index_buffer_u32(&self.resources.apple_pixel.apple_pixel_quad_indices);
+                pixels.draw(
+                    &self.pipeline_topology.graphics().tree_pixel_ppl,
+                    cmdbuf,
+                    viewport,
+                );
+            } else {
+                let pipeline = &self.pipeline_topology.graphics().raster_tree_ppl;
+                pipeline.record_bind(cmdbuf);
+                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                cmdbuf.bind_index_buffer_u32(&self.raster_trees.indices);
+                let (indices, instances) = self.raster_trees.draw_counts();
+                pipeline.record_indexed(cmdbuf, indices, instances, 0, 0, 0, None);
+            }
         }
         if self.dynamic_fruit_resources.instance_count > 0 {
             let fruit_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
