@@ -224,6 +224,14 @@ mod tests {
             RoundConeClearanceIndex::new(&tied).nearest_cone(Vec3::splat(100.)),
             Some(0)
         );
+        let disjoint = [
+            RoundCone::new(1., Vec3::X * 4., 1., Vec3::X * 4.),
+            RoundCone::new(1., Vec3::NEG_X * 4., 1., Vec3::NEG_X * 4.),
+        ];
+        assert_eq!(
+            RoundConeClearanceIndex::new(&disjoint).nearest_cone(Vec3::ZERO),
+            Some(0)
+        );
     }
 
     #[test]
