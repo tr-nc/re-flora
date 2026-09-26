@@ -184,6 +184,11 @@ def main():
         help="same light/receiver timeline without terrain edits",
     )
     parser.add_argument(
+        "--gpu-lock-held",
+        action="store_true",
+        help="skip nested locking ONLY when the caller holds /tmp/re-flora-summer-gpu.lock for this whole run (flock --close /tmp/re-flora-summer-gpu.lock python3 scripts/check_ddgi_indirect_response.py OUTPUT --gpu-lock-held)",
+    )
+    parser.add_argument(
         "--binary",
         type=Path,
         help="existing Release executable; skip build, use cwd assets/config",
@@ -220,7 +225,8 @@ def main():
     env = dict(os.environ)
     env.pop("WAYLAND_DISPLAY", None)
     with open("/tmp/re-flora-summer-gpu.lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not args.gpu_lock_held:
+            fcntl.flock(lock, fcntl.LOCK_EX)
         paths = [Path("config/gui.toml"), Path("config/camera_snapshots.toml")]
         original = {
             path: path.read_bytes() if path.exists() else None for path in paths

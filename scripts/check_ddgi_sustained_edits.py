@@ -127,6 +127,8 @@ def main():
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
     parser.add_argument("--vary-lights", action="store_true",
                         help="also toggle a point light ten times without waiting for DDGI; require lighting progress/catch-up")
+    parser.add_argument("--gpu-lock-held", action="store_true",
+                        help="skip nested locking ONLY when the caller holds /tmp/re-flora-summer-gpu.lock for this whole run (flock --close /tmp/re-flora-summer-gpu.lock python3 scripts/check_ddgi_sustained_edits.py OUTPUT --gpu-lock-held)")
     parser.add_argument("--binary", type=Path,
                         help="use an existing Release executable without rebuilding; assets/config come from cwd")
     args = parser.parse_args()
@@ -148,7 +150,8 @@ def main():
     environment = dict(os.environ)
     environment.pop("WAYLAND_DISPLAY", None)
     with open("/tmp/re-flora-summer-gpu.lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not args.gpu_lock_held:
+            fcntl.flock(lock, fcntl.LOCK_EX)
         paths = [Path("config/gui.toml"), Path("config/camera_snapshots.toml")]
         original = {p: p.read_bytes() if p.exists() else None for p in paths}
         try:

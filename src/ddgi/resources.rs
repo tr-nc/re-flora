@@ -895,6 +895,8 @@ impl DdgiFilterHistoryEvidence {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DdgiFilterVisibilitySampleEvidence {
+    /// Witnessed by every completed visibility result, including terminal results
+    /// with no fresh rays. Actual sample decisions OR their owner bits into it too.
     pub owner_version_mask: u32,
     pub samples: u64,
     pub accept: u64,
@@ -3758,6 +3760,116 @@ mod tests {
     }
 
     #[test]
+    fn filter_batch_evidence_rejects_the_native_terminal_batch_until_its_owner_is_witnessed() {
+        // Raw lanes 13..30 from the spacing-32 terrain-edits-inflight-capture failure:
+        // all 512 visibility results are Retain, so the ray loop never records samples.
+        let batch = filter_evidence_batch(3584, 512);
+        let mut raw = [0; 31];
+        raw[13..].copy_from_slice(&[
+            2, 512, 114, 0, 398, 0, 2, 512, 0, 512, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]);
+        let error = DdgiFilterBatchEvidence::decode(raw, batch, true).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "DDGI visibility sample evidence owner version is inconsistent"
+        );
+
+        // The producer must emit the owner witness, not invent a ray or relax decoding.
+        raw[25] = DDGI_FILTER_POLICY_OWNER_MASK;
+        let evidence = DdgiFilterBatchEvidence::decode(raw, batch, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evidence.visibility_history.actions.retain, 512);
+        assert_eq!(evidence.visibility_samples.owner_version_mask, 2);
+        assert_eq!(evidence.visibility_samples.samples, 0);
+        assert_eq!(evidence.visibility_samples.accept, 0);
+        assert_eq!(evidence.visibility_samples.reject, 0);
+    }
+
+    #[test]
+    fn filter_batch_evidence_requires_an_owner_for_every_terminal_partition() {
+        let batch = filter_evidence_batch(0, 2);
+        for (replace, retain) in [(0, 2), (2, 0), (1, 1)] {
+            let mut raw = filter_evidence_raw(2);
+            // Replace without fresh data writes zero moments and no ray samples.
+            raw[19..29].copy_from_slice(&[2, 2, replace, retain, 0, 0, 2, 0, 0, 0]);
+            raw[30] = 0;
+            let evidence = DdgiFilterBatchEvidence::decode(raw, batch, true)
+                .unwrap()
+                .unwrap();
+            let configuration = filter_configuration(2);
+            let mut epoch =
+                DdgiFilterEpochAccumulator::new(batch.logical(), configuration).unwrap();
+            epoch.observe(batch, configuration, evidence).unwrap();
+            let complete = epoch.finish().unwrap().evidence;
+            assert_eq!(complete.visibility_samples.owner_version_mask, 2);
+            assert_eq!(complete.visibility_samples.samples, 0);
+
+            for mask in [0, 1, 4, 6, 0x8000_0002] {
+                raw[25] = mask;
+                assert!(DdgiFilterBatchEvidence::decode(raw, batch, true).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn filter_batch_evidence_checks_fresh_samples_in_a_mixed_terminal_batch() {
+        let batch = filter_evidence_batch(0, 5);
+        let mut raw = filter_evidence_raw(5);
+        // Same mixed partition as the Slang producer test: two Retain, one invalid
+        // Replace, one fresh Replace and one fresh Blend (64 samples each).
+        raw[19..29].copy_from_slice(&[2, 5, 2, 2, 1, 32_768, 2, 128, 96, 32]);
+        let evidence = DdgiFilterBatchEvidence::decode(raw, batch, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(evidence.visibility_history.actions.retain, 2);
+        assert_eq!(evidence.visibility_history.actions.replace, 2);
+        assert_eq!(evidence.visibility_history.actions.blend, 1);
+        assert_eq!(evidence.visibility_samples.samples, 128);
+        assert_eq!(evidence.visibility_samples.accept, 96);
+        assert_eq!(evidence.visibility_samples.reject, 32);
+        for mask in [0, 4, 6, 0x8000_0002] {
+            let mut invalid = raw;
+            invalid[25] = mask;
+            assert!(DdgiFilterBatchEvidence::decode(invalid, batch, true).is_err());
+        }
+        // Blend requires fresh rays; counts must cover whole probes and cannot
+        // include the Retain partition, even when the owner witness is present.
+        for samples in [0, 63, 65, 256] {
+            let mut invalid = raw;
+            invalid[26..29].copy_from_slice(&[samples, samples, 0]);
+            assert!(DdgiFilterBatchEvidence::decode(invalid, batch, true).is_err());
+        }
+    }
+
+    #[test]
+    fn filter_batch_evidence_forbids_visibility_owner_writes_on_radiance_only_work() {
+        let mut batch = filter_evidence_batch(0, 2);
+        let source = batch.resident.destination;
+        let mut scheduler = super::super::DdgiTransportScheduler::new();
+        scheduler.install_published(source.logical).unwrap();
+        scheduler.observe_radiance(source.logical.field().radiance_revision() + 1);
+        batch.resident = resident_iteration_for_work(
+            scheduler.claim_next().unwrap().unwrap(),
+            Some(source),
+            None,
+            DdgiHistoryMode::Stable,
+        )
+        .unwrap();
+        assert!(!batch.writes_visibility());
+        let mut raw = filter_evidence_raw(2);
+        raw[19..29].fill(0);
+        raw[30] = 0;
+        let evidence = DdgiFilterBatchEvidence::decode(raw, batch, true)
+            .unwrap()
+            .unwrap();
+        assert!(!evidence.visibility_written);
+        assert_eq!(evidence.visibility_samples, Default::default());
+        raw[25] = DDGI_FILTER_POLICY_OWNER_MASK;
+        assert!(DdgiFilterBatchEvidence::decode(raw, batch, true).is_err());
+    }
+
+    #[test]
     fn filter_batch_evidence_enforces_checked_probe_sample_and_q16_bounds() {
         let maximum = filter_evidence_batch(0, DDGI_PROBE_BATCH_SIZE);
         DdgiFilterBatchEvidence::decode(filter_evidence_raw(maximum.probe_count), maximum, true)
@@ -3787,6 +3899,10 @@ mod tests {
             None
         );
         assert!(DdgiFilterBatchEvidence::decode([0; 31], batch, true).is_err());
+        let mut unexpected_owner = [0; 31];
+        unexpected_owner[25] = DDGI_FILTER_POLICY_OWNER_MASK;
+        assert!(DdgiFilterBatchEvidence::decode(unexpected_owner, batch, false).is_err());
+        assert!(DdgiFilterBatchEvidence::decode(filter_evidence_raw(2), batch, false).is_err());
     }
 
     #[test]
