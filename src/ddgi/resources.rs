@@ -1292,8 +1292,8 @@ impl DdgiRelocationReadbackStats {
 pub struct DdgiAtlasValidationStats {
     pub max_absolute_rgb_delta: f32,
     pub max_relative_rgb_delta: f32,
-    /// Maximum non-negative RGB component in the destination interior. A completed all-black
-    /// atlas is never publication-safe for the authored sky used by the game.
+    /// Maximum non-negative RGB component in the destination interior. Zero is valid when
+    /// no light reaches the field; response to an illuminated fixture is a separate contract.
     pub max_rgb_value: f32,
     pub non_finite_count: u32,
     pub negative_rgb_texel_count: u32,
@@ -1338,10 +1338,6 @@ fn validate_atlas_stats(stats: DdgiAtlasValidationStats) -> Result<()> {
     ensure!(
         stats.valid_texel_count > 0 && stats.scanned_stored_texel_count > 0,
         "DDGI full-atlas validation found no valid probe texels: {stats:?}"
-    );
-    ensure!(
-        stats.max_rgb_value > 0.0,
-        "DDGI full-atlas validation rejected an all-black irradiance atlas: {stats:?}"
     );
     ensure!(
         u64::from(stats.scanned_stored_texel_count) * 64
@@ -4353,15 +4349,25 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("negative RGB"));
+    }
 
-        let all_black = DdgiAtlasValidationStats {
-            max_rgb_value: 0.0,
-            ..finite
+    #[test]
+    fn complete_dark_field_is_valid_without_a_brightness_floor() {
+        let dark = DdgiAtlasValidationStats {
+            valid_texel_count: 64,
+            scanned_stored_texel_count: 100,
+            ..Default::default()
         };
-        assert!(validate_atlas_stats(all_black)
-            .unwrap_err()
-            .to_string()
-            .contains("all-black"));
+        validate_atlas_stats(dark).expect("zero incident light is a valid complete DDGI field");
+        assert!(validate_atlas_stats(DdgiAtlasValidationStats::default()).is_err());
+        assert!(
+            validate_atlas_stats(DdgiAtlasValidationStats {
+                scanned_stored_texel_count: 99,
+                ..dark
+            })
+            .is_err(),
+            "darkness must not bypass complete-tile coverage"
+        );
     }
 
     #[test]
