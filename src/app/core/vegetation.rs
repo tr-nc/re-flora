@@ -4880,8 +4880,11 @@ impl App {
             let finish_ms = stage.elapsed().as_secs_f64() * 1000.0;
             let stage = Instant::now();
             let mut attachment_map = std::collections::BTreeMap::new();
+            let mut mesh_bind_ms = 0.0;
             for (&tree_id, record) in &self.trees.records {
+                let bind_started = Instant::now();
                 mesh.bind_tree(tree_id, record.position, &record.rest_tree)?;
+                mesh_bind_ms += bind_started.elapsed().as_secs_f64() * 1000.0;
                 for (leaf, &branch) in record
                     .rest_tree
                     .relative_leaf_placements()
@@ -4920,7 +4923,7 @@ impl App {
                     .collect(),
             )?;
             if diagnostic {
-                log::info!("[TREE_EDIT_DIAG] compile wait_ms={wait_ms:.3} read_ms={read_ms:.3} append_ms={append_ms:.3} finish_ms={finish_ms:.3} bind_ms={bind_ms:.3} upload_ms={upload_ms:.3} bounds={read_bounds:?}");
+                log::info!("[TREE_EDIT_DIAG] compile wait_ms={wait_ms:.3} read_ms={read_ms:.3} append_ms={append_ms:.3} finish_ms={finish_ms:.3} bind_ms={bind_ms:.3} mesh_bind_ms={mesh_bind_ms:.3} upload_ms={upload_ms:.3} bounds={read_bounds:?}");
             }
             self.tracer.raster_trees.source.compiled(
                 self.visible_terrain_revision,

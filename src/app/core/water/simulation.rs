@@ -173,6 +173,12 @@ impl App {
                     None,
                 )?;
                 let removed: u32 = readback.stats.removed_counts.iter().sum();
+                if std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some() {
+                    log::info!(
+                        "[TREE_EDIT_DIAG] removed_by_material={:?}",
+                        readback.stats.removed_counts
+                    );
+                }
                 log::info!(
                     "[WATER][EDIT_SOAK] applied {} center=({:.3},{:.3},{:.3}) radius={:.3} removed_voxels={} sampled_positions={}",
                     step.label,
