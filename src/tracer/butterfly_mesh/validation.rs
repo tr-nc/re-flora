@@ -16,9 +16,9 @@ pub(super) fn apply_coverage_fixture(
         return Ok(());
     };
     ensure!(
-        fixture == "leaf-boundary"
+        matches!(fixture.as_str(), "leaf-boundary" | "leaf-small-boundary")
             && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
-        "model coverage fixture requires leaf-boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
+        "model coverage fixture requires a known leaf boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
     );
     let Some(mut instance) = instances
         .iter()
@@ -36,6 +36,14 @@ pub(super) fn apply_coverage_fixture(
         64,
         LEAF_MODEL_FLAG,
     ];
+    if fixture == "leaf-small-boundary" {
+        // Captured variant 0 at the live runner's 0.25 size, not a scaled
+        // substitute for the 64px case. Pixel (5,10) exposes a distinct context.
+        instance.position_size = [1.1692841, 1.3915664, 1.4927582, 0.0009765625];
+        instance.lighting = [-0.209657, -0.660767, 0.047330074, -0.7191597];
+        instance.view_orientation = instance.lighting;
+        instance.metadata = [leaf_first, triangles_per_leaf as u32, 16, LEAF_MODEL_FLAG];
+    }
     instances.clear();
     instances.push(instance);
     Ok(())
@@ -322,7 +330,9 @@ impl ButterflyMeshRenderer {
         let vp = projection * view;
         let inverse = vp.inverse();
         if mode_changed && std::env::var_os("RE_FLORA_MODEL_COVERAGE_FIXTURE").is_some() {
-            let directory = std::path::Path::new("target/improve-delivery/v3/coverage-boundary");
+            let output = std::env::var("RE_FLORA_MODEL_COVERAGE_OUTPUT")
+                .unwrap_or_else(|_| "target/improve-delivery/v3/coverage-boundary".into());
+            let directory = std::path::Path::new(&output);
             std::fs::create_dir_all(directory)?;
             for (name, tile) in [("final", 0), ("center", reference_base as usize)] {
                 std::fs::write(
