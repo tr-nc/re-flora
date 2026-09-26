@@ -6761,11 +6761,22 @@ impl Tracer {
         self.geometry_preview_resources.tree.clear();
     }
 
-    pub fn upload_static_raster_trees(
+    /// Publish a complete tree surface only when its observable facts changed.
+    /// Retaining an identical publication also retains GPU resources, query/refit
+    /// structures, and attachment pose history. Callers still validate terrain revision.
+    pub fn publish_static_raster_trees(
         &mut self,
         mesh: &RasterTreeMesh,
         cells: &[[u32; 4]],
-    ) -> Result<()> {
+        attachments: Vec<TreeAttachment>,
+    ) -> Result<bool> {
+        if self.raster_trees.publication_valid
+            && self.raster_trees.rest_mesh.same_surface(mesh)
+            && self.raster_trees.attachments == attachments
+        {
+            return Ok(false);
+        }
+        self.raster_trees.publication_valid = false;
         // App has waited for all submitted frames before readback/replacement.
         self.resources.raster_tree_cells.fill(cells)?;
         let mut rest_cells = vec![[0u32; 4]; TREE_CELL_CAPACITY];
@@ -6813,11 +6824,13 @@ impl Tracer {
                 .tree_scene_primitives
                 .fill(&self.raster_trees.scene.primitives)?;
         }
+        self.bind_tree_attachments(attachments)?;
         self.invalidate_local_direct_sun_shadow_histories();
-        Ok(())
+        self.raster_trees.publication_valid = true;
+        Ok(true)
     }
 
-    pub fn bind_tree_attachments(&mut self, attachments: Vec<TreeAttachment>) -> Result<()> {
+    fn bind_tree_attachments(&mut self, attachments: Vec<TreeAttachment>) -> Result<()> {
         use tree_scene::MAX_TREE_ATTACHMENTS;
         anyhow::ensure!(
             attachments.len() < MAX_TREE_ATTACHMENTS / 2,

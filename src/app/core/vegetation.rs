@@ -4913,9 +4913,9 @@ impl App {
             }
             let bind_ms = stage.elapsed().as_secs_f64() * 1000.0;
             let stage = Instant::now();
-            self.tracer.upload_static_raster_trees(&mesh, &cells)?;
-            let upload_ms = stage.elapsed().as_secs_f64() * 1000.0;
-            self.tracer.bind_tree_attachments(
+            let published = self.tracer.publish_static_raster_trees(
+                &mesh,
+                &cells,
                 attachment_map
                     .into_iter()
                     .map(
@@ -4927,7 +4927,9 @@ impl App {
                     )
                     .collect(),
             )?;
+            let upload_ms = stage.elapsed().as_secs_f64() * 1000.0;
             if diagnostic {
+                log::info!("[TREE_EDIT_DIAG] published={published}");
                 log::info!("[TREE_EDIT_DIAG] compile wait_ms={wait_ms:.3} read_ms={read_ms:.3} append_ms={append_ms:.3} finish_ms={finish_ms:.3} bind_ms={bind_ms:.3} mesh_bind_ms={mesh_bind_ms:.3} upload_ms={upload_ms:.3} bounds={read_bounds:?}");
             }
             self.tracer.raster_trees.source.compiled(

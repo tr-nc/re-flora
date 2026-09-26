@@ -57,6 +57,18 @@ pub struct RasterTreeMesh {
 }
 
 impl RasterTreeMesh {
+    /// Exact equality of the facts consumed by rendering, queries, and physics.
+    /// Binding memoization is not an observable fact. Never use a fingerprint or
+    /// just topology counts here: occupancy and normal-only changes also matter.
+    pub(super) fn same_surface(&self, other: &Self) -> bool {
+        bytemuck::cast_slice::<_, u8>(&self.vertices)
+            == bytemuck::cast_slice::<_, u8>(&other.vertices)
+            && self.indices == other.indices
+            && self.solid_cells == other.solid_cells
+            && self.bindings == other.bindings
+            && self.cell_vertex_indices == other.cell_vertex_indices
+    }
+
     /// `bytes` includes a two-voxel halo for the same radius-two normal estimator as terrain.
     pub fn append_region(
         &mut self,
@@ -454,6 +466,8 @@ pub struct RasterTreeGeometry {
     pub skin: GpuTreeSkin,
     pub indices: Resource<Buffer>,
     pub index_count: u32,
+    // A failed publication must not make a later retry look like an unchanged surface.
+    pub(super) publication_valid: bool,
     pub(crate) source: super::tree_surface_cache::TreeSurfaceCache,
     pub enabled: bool,
     pub color_draws: u64,
@@ -478,6 +492,7 @@ impl RasterTreeGeometry {
                 4,
             )),
             index_count: 0,
+            publication_valid: false,
             source: super::tree_surface_cache::TreeSurfaceCache::default(),
             enabled: false,
             color_draws: 0,
@@ -659,6 +674,33 @@ mod tests {
                     .unwrap(),
                 ));
             }
+        }
+    }
+
+    #[test]
+    fn publication_equality_covers_geometry_normals_occupancy_and_skin() {
+        let tree = small_tree();
+        let mut mesh = binding_fixture(&tree, &[(3, 3, 3), (4, 3, 3)]);
+        mesh.bind_tree(7, Vec3::ZERO, &tree, None).unwrap();
+        assert!(mesh.same_surface(&mesh.clone()));
+        let mut memo_only = mesh.clone();
+        memo_only.binding_cache.clear();
+        assert!(mesh.same_surface(&memo_only));
+        for change in 0..7 {
+            let mut other = mesh.clone();
+            match change {
+                0 => other.vertices[0].normal = [1., 0., 0.],
+                1 => other.vertices[0].normal_confidence = 0.5,
+                2 => other.vertices[0].position[0] += 1. / 256.,
+                3 => other.indices.swap(0, 1),
+                4 => {
+                    other.solid_cells.insert([3, 2, 3]);
+                }
+                5 => other.bindings[0].as_mut().unwrap().1.branch += 1,
+                6 => other.cell_vertex_indices[0] = 0,
+                _ => unreachable!(),
+            }
+            assert!(!mesh.same_surface(&other), "change {change} must publish");
         }
     }
 
