@@ -1,98 +1,77 @@
+import particle_model_shading;
 import butterfly_mesh_types;
-import flora_shadow;
-import environment_lighting;
-import tracer_types;
-
-[[vk::binding(0,0)]] ConstantBuffer<U_GuiInput> gui_input;
-[[vk::binding(1,0)]] ConstantBuffer<U_SunInfo> sun_info;
-[[vk::binding(2,0)]] ConstantBuffer<U_ShadingInfo> shading_info;
-[[vk::binding(3,0)]] ConstantBuffer<U_CameraInfo> camera_info;
-[[vk::binding(4,0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(5,0)]] Sampler2D shadow_map_tex_for_vsm_ping;
-[[vk::binding(7,0)]] Sampler2D cloud_shadow_tex;
-[[vk::binding(9,0)]] Sampler2D leaf_shadow_opacity_blended_tex;
-[[vk::binding(10,0)]] Sampler2D leaf_shadow_mask_tex;
-[[vk::binding(72,0)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
-[[vk::binding(73,0)]] StructuredBuffer<ButterflyMeshTriangle> butterfly_mesh_triangles;
-// RGB = linear HDR lighting; W = actual scene projected depth, 1 for a miss.
+import model_pixel_surface;
+import model_pixel_object;
 [[vk::binding(74,0)]] RWStructuredBuffer<float4> butterfly_pixel_tiles;
+[[vk::binding(75,0)]] StructuredBuffer<uint> draw_indices;
+[[vk::binding(3,1)]] RWStructuredBuffer<float4> model_pixel_tiles;
+// Compute-only write view of the same buffer. Fragment consumers remain read-only.
+[[vk::binding(1,1)]] RWStructuredBuffer<ParticleModelRepairNode> particle_model_repair_output;
+struct ModelPass { uint mode; uint count; uint tile_base; };
+[[vk::push_constant]] ConstantBuffer<ModelPass> model_pass;
 
-bool intersectTriangle(float3 origin, float3 direction, ButterflyMeshTriangle tri, out float t) {
-    float3 p = cross(direction,tri.e2.xyz);
-    float det = dot(tri.e1.xyz,p);
-    t=0.0;
-    if (abs(det)<1e-12) return false;
-    float inv = 1.0/det;
-    float3 s = origin-tri.a.xyz;
-    float u=dot(s,p)*inv;
-    float3 q=cross(s,tri.e1.xyz);
-    float v=dot(direction,q)*inv;
-    t=dot(tri.e2.xyz,q)*inv;
-    return u>=-1e-6 && v>=-1e-6 && u+v<=1.000001 && t>0.0;
-}
-
-// At zero transmission this is exactly the original opaque lighting path.
-float3 wingLighting(ButterflyMeshInstance instance, uint hit, float3 position, float3 normal, bool thinWing) {
-    float3 sunDirection=normalize(sun_info.sun_dir);
-    float direct=max(0.0,dot(normal,sunDirection));
-    if (instance.metadata.w!=0u && direct>0.0) {
-        float3 shadowOrigin=position+normal*max(instance.position_size.w*0.0001,1e-6);
-        for (uint i=0; i<instance.metadata.y; ++i) {
-            uint index=instance.metadata.x+i;
-            if (index==hit) continue;
-            // A thin wing must not occlude transmission through its own closed shell.
-            // The other wing still casts a shadow, as do the world and foliage.
-            if (thinWing && butterfly_mesh_triangles[index].e1.w==butterfly_mesh_triangles[hit].e1.w) continue;
-            float distance;
-            if (intersectTriangle(shadowOrigin,sunDirection,butterfly_mesh_triangles[index],distance)) { direct=0.0; break; }
-        }
+float4 endpoint(ButterflyMeshInstance instance,uint reference) {
+    if ((reference&0x80000000u)!=0u) {
+        float4 value=particle_model_repair_output[instance.repair.x+(reference&0x7fffffffu)].colorDepth;
+        // A pruned/far-plane expression still has a usable color. Only the
+        // explicit invalid-endpoint sentinel (2) invalidates descendants.
+        return float4(value.rgb,value.w>1.0?1.0:0.0);
     }
-    StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,
-        shadow_map_tex_for_vsm_ping,leaf_shadow_opacity_blended_tex,leaf_shadow_mask_tex,cloud_shadow_tex,position,normal);
-    float3 ambient=gui_input.raster_flora_ddgi_lighting!=0u
-        ? sampleDiffuseEnvironment(gui_input,shading_info,position,normal)
-        : LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;
-    return applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*shadow.sun_transmittance,ambient);
+    return sampleParticleModelCenter(instance,uint2(reference%instance.metadata.z,reference/instance.metadata.z));
 }
-
 [numthreads(8,8,1)]
 [shader("compute")]
 void main(uint3 id : SV_DispatchThreadID) {
-    ButterflyMeshInstance instance=butterfly_mesh_instances[id.z];
-    uint resolution=instance.metadata.z;
-    if (any(id.xy>=uint2(resolution))) return;
-    uint address=butterflyTileAddress(id.z,id.xy);
-    butterfly_pixel_tiles[address]=float4(0.0,0.0,0.0,1.0);
-    float4 bounds=butterflyTileBounds(instance,camera_info);
-    if (any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0))) return;
-    float2 ndc=lerp(bounds.xy,bounds.zw,(float2(id.xy)+0.5)/float(resolution));
-    float4 nearH=mul(camera_info.view_proj_mat_inv,float4(ndc,0.0,1.0));
-    float4 farH=mul(camera_info.view_proj_mat_inv,float4(ndc,1.0,1.0));
-    float3 origin=nearH.xyz/nearH.w;
-    float3 direction=normalize(farH.xyz/farH.w-origin);
-    float closest=1e20;
-    uint hit=0xffffffffu;
-    for (uint i=0; i<instance.metadata.y; ++i) {
-        float distance;
-        if (intersectTriangle(origin,direction,butterfly_mesh_triangles[instance.metadata.x+i],distance) && distance<closest) {
-            closest=distance; hit=instance.metadata.x+i;
+    if (model_pass.mode==0u) {
+        uint index=id.z*64u+id.y*8u+id.x;
+        if (index>=model_pass.count) return;
+        ButterflyMeshInstance instance=butterfly_mesh_instances[index];
+        // One invocation owns an instance's ordered expression graph. Endpoints
+        // are original material samples or earlier expressions, including nodes
+        // pruned out of the final silhouette. No GPU image readback or full leaf tile.
+        for (uint i=0;i<instance.repair.y;i++) {
+            uint address=instance.repair.x+i;
+            ParticleModelRepairNode node=particle_model_repair_output[address];
+            if (node.links.y==0xffffffffu) {
+                // A conservative geometry seed samples the real model shader at
+                // its projected surface, not a guessed color or a missing center.
+                node.colorDepth=sampleParticleModelSurface(instance,node.links.z,node.colorDepth.w);
+            } else {
+                float4 a=endpoint(instance,node.links.y),b=endpoint(instance,node.links.z);
+                node.colorDepth.rgb=lerp(a.rgb,b.rgb,asfloat(node.links.w)); // game HDR is linear
+                if (a.w>=1.0 || b.w>=1.0) node.colorDepth.w=2.0; // never invent a missing endpoint
+            }
+            particle_model_repair_output[address]=node;
         }
+        return;
     }
-    if (hit==0xffffffffu) return;
-    float3 position=origin+direction*closest;
-    ButterflyMeshTriangle triangle=butterfly_mesh_triangles[hit];
-    float3 normal=normalize(cross(triangle.e1.xyz,triangle.e2.xyz));
-    float4 clip=mul(camera_info.view_proj_mat,float4(position,1.0));
-    float depth=clip.z/clip.w;
-    if (depth<0.0 || depth>=1.0) return;
-    float transmission=saturate(instance.lighting.x);
-    float3 color=wingLighting(instance,hit,position,normal,false);
-    if (transmission>0.0) {
-        // The sun-facing normal is identical for the two sides of a thin sheet.
-        // Blend lighting, not alpha: coverage, depth and lifetime fading are unchanged.
-        float3 lightNormal=dot(normal,sun_info.sun_dir)>=0.0 ? normal : -normal;
-        float3 transmitted=wingLighting(instance,hit,position,lightNormal,true);
-        color=lerp(color,transmitted,transmission);
+    uint instanceIndex=model_pass.mode>=3u?draw_indices[model_pass.tile_base+id.z]:id.z;
+    ButterflyMeshInstance instance=butterfly_mesh_instances[instanceIndex];
+    if(model_pass.mode==4u) {
+        if(any(id.xy!=uint2(0)) || instance.repair.w==0u)return;
+        ModelPixelFrame orientation=identityModelPixelFrame();
+        orientation.axisX=rotatePose(instance.view_orientation,float3(1,0,0));
+        orientation.axisY=rotatePose(instance.view_orientation,float3(0,1,0));
+        orientation.axisZ=rotatePose(instance.view_orientation,float3(0,0,1));
+        prepareModelObject(instanceIndex,instance.position_size.xyz,orientation,false);
+        return;
     }
-    butterfly_pixel_tiles[address]=float4(color,depth);
+    if (any(id.xy>=uint2(instance.metadata.z))) return;
+    // mode 2 is a separate, bounded validation reference; never displayed.
+    if(model_pass.mode==3u && instance.repair.w==0u)return;
+    ModelPixelHit hit;
+    if(model_pass.mode==2u) {
+        hit=particleModelHitAt(instance,float2(id.xy)+0.5);
+        // Diagnostic-only exact GPU rays let the CPU verify intersection rather
+        // than guessing how much cancellation occurred during unprojection.
+        butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*2u+id.z,id.xy)]=float4(hit.localOrigin,asfloat(hit.triangle));
+        butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*3u+id.z,id.xy)]=float4(hit.localDirection,0);
+    } else hit=particleModelHit(instance,id.xy,instanceIndex);
+    // One shading site preserves bit-identical center samples in the reference
+    // and covered paths, including transmission and shared object lighting.
+    float4 value=shadeParticleModelHit(instance,hit,instanceIndex);
+    if(model_pass.mode!=2u && instance.repair.w!=0u)
+        model_pixel_tiles[instance.repair.z+id.y*instance.metadata.z+id.x]=value;
+    if(model_pass.mode!=3u)
+        butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base+id.z,id.xy)]=value;
 }

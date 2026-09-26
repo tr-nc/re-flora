@@ -34,6 +34,7 @@ public struct PushConstantFlora
     public float time;
     public uint instance_ty;
     public uint response_offset;
+    public uint model_object_prepare; // apple tile prepass; occupies existing alignment padding
     public uint3 chunk_world_offset;
     public uint lighting_cache_location;
     public uint height_dark_color_rgb10[FLORA_HEIGHT_COLOR_TABLE_LEN];
@@ -122,13 +123,6 @@ public uint unpackTreeFruitRadiusVoxels(uint packedLeafLocalPosition)
 {
     int encodedRadius = unpackTreeLeafVoxelLocalPosition(packedLeafLocalPosition).x;
     return uint(max(encodedRadius, 1));
-}
-
-public bool treeFruitVoxelVisible(int3 voxelLocalPosition, uint radiusVoxels)
-{
-    float3 voxelCenter = float3(voxelLocalPosition) + 0.5;
-    float radius = max(float(radiusVoxels), 1.0);
-    return dot(voxelCenter, voxelCenter) <= radius * radius;
 }
 
 public uint3 treeLeafWorldPosition(uint packedLocalPosition,

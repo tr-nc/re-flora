@@ -16,6 +16,7 @@ mod gameplay;
 mod generated;
 mod geom;
 mod lighting;
+mod model_assets;
 #[macro_use]
 mod gui_adjustables;
 mod particles;

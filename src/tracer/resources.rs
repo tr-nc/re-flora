@@ -10,9 +10,9 @@ use crate::{
     resource::Resource,
     tracer::{
         leaves_construct::{
-            generate_indexed_single_voxel_leaf, generate_indexed_voxel_apple,
-            generate_voxel_leaf_shape, LeafVoxelShape, DEFAULT_LEAF_INNER_DENSITY,
-            DEFAULT_LEAF_INNER_RADIUS, DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS,
+            generate_indexed_single_voxel_leaf, generate_voxel_leaf_shape, voxel_apple_offsets,
+            LeafVoxelShape, DEFAULT_LEAF_INNER_DENSITY, DEFAULT_LEAF_INNER_RADIUS,
+            DEFAULT_LEAF_OUTER_DENSITY, DEFAULT_LEAF_OUTER_RADIUS, TREE_FRUIT_MAX_RADIUS_VOXELS,
         },
         voxel_encoding::{
             encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
@@ -205,9 +205,22 @@ impl FloraVoxelLookupResources {
         data[species::TREE_LEAF_RENDER_SPECIES_INDEX as usize] =
             FloraVoxelLookupTypeData::from_leaf_shape(&leaf_shape);
 
-        let apple_mesh = generate_indexed_voxel_apple(false)?;
+        // Preserve canonical fruit metadata used by attachment/wind and the
+        // collision model, without constructing the retired voxel render mesh.
+        let radius = TREE_FRUIT_MAX_RADIUS_VOXELS;
+        let entries = voxel_apple_offsets()
+            .into_iter()
+            .map(|pos| {
+                let gradient =
+                    ((pos.y + radius as i32) as f32 / (radius as f32 * 2.)).clamp(0., 1.);
+                FloraVoxelInfoEntry {
+                    pos,
+                    info: FloraVoxelInfo::new(gradient, 1., gradient, 0),
+                }
+            })
+            .collect();
         data[species::APPLE_RENDER_SPECIES_INDEX as usize] =
-            FloraVoxelLookupTypeData::from_mesh_data(&apple_mesh);
+            FloraVoxelLookupTypeData::new(entries, radius);
 
         Ok(data)
     }
@@ -1010,14 +1023,28 @@ pub struct TracerTextureResources {
     pub fast_weighted_cosine_bn: Resource<Texture>,
 }
 
+fn apple_shadow_mesh_data() -> FloraMeshData<LeafVertex> {
+    let source = super::apple_preview::mesh();
+    let mut data = FloraMeshData::new(2);
+    data.vertices = source
+        .positions
+        .iter()
+        .zip(&source.materials)
+        .map(|(&position, &material)| LeafVertex {
+            packed_data: super::apple_preview::pack_vertex(position, material),
+        })
+        .collect();
+    data.indices = source.indices.clone();
+    data
+}
+
 pub struct TracerMeshResources {
     pub terrain_depth_prefill_vertices: Buffer,
     pub flora_meshes: Vec<FloraMeshResources>,
     pub leaves_resources: LeafMeshResources,
-    pub apple_resources: LeafMeshResources,
+    pub apple_shadow_resources: LeafMeshResources,
     pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeafMeshResources,
-    pub apple_resources_lod: LeafMeshResources,
     pub glass: GlassMeshResources,
 }
 
@@ -1362,10 +1389,10 @@ impl TracerMeshResources {
             })
             .collect::<Vec<_>>();
         let leaves_resources = LeafMeshResources::new(device.clone(), allocator.clone(), false);
-        let apple_resources = LeafMeshResources::from_mesh_data(
+        let apple_shadow_resources = LeafMeshResources::from_mesh_data(
             device.clone(),
             allocator.clone(),
-            generate_indexed_voxel_apple(false).unwrap(),
+            apple_shadow_mesh_data(),
         );
         let flora_meshes_lod = species::species()
             .iter()
@@ -1379,21 +1406,15 @@ impl TracerMeshResources {
             })
             .collect::<Vec<_>>();
         let leaves_resources_lod = LeafMeshResources::new(device.clone(), allocator.clone(), true);
-        let apple_resources_lod = LeafMeshResources::from_mesh_data(
-            device.clone(),
-            allocator.clone(),
-            generate_indexed_voxel_apple(true).unwrap(),
-        );
         let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 
         Self {
             terrain_depth_prefill_vertices,
             flora_meshes,
             leaves_resources,
-            apple_resources,
+            apple_shadow_resources,
             flora_meshes_lod,
             leaves_resources_lod,
-            apple_resources_lod,
             glass,
         }
     }
@@ -1403,6 +1424,8 @@ impl TracerMeshResources {
 pub struct TracerResources {
     #[resource(nested)]
     pub butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources,
+    #[resource(nested)]
+    pub apple_pixel: super::apple_pixel::ApplePixelResources,
     pub tree_scene_info: Resource<Buffer>,
     pub tree_skin_rest: Resource<Buffer>,
     pub tree_skin_bindings: Resource<Buffer>,
@@ -1485,6 +1508,10 @@ impl TracerResources {
 
         Self {
             butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources::new(
+                device.clone(),
+                allocator.clone(),
+            ),
+            apple_pixel: super::apple_pixel::ApplePixelResources::new(
                 device.clone(),
                 allocator.clone(),
             ),

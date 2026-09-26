@@ -38,6 +38,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "apple_pixel_resolution",
+        kind: "uint",
+        label: "Pixels per Apple (N x N, Trees and Fallen Fruit)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "model_pixel_screen_grid",
+        kind: "bool",
+        label: "B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "model_pixel_view_count",
+        kind: "uint",
+        label: "Discrete View Count",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "raster_tree_wind",
         kind: "bool",
         label: "Animate raster trees with wind",
@@ -1147,6 +1165,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Tip Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "falling_leaf_mesh",
+        kind: "bool",
+        label: "Shared 3D Leaf (B; Unchecked = Original Sprite)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "falling_leaf_size_scale",
+        kind: "float",
+        label: "Falling Leaf Display Size (A/B; Physics Unchanged)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "falling_leaf_pixel_resolution",
+        kind: "uint",
+        label: "Pixels per Falling Leaf (N x N, Independent of Butterflies)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Terrain Harvest Particles",
         id: "terrain_harvest_particles_enabled",
         kind: "bool",
@@ -1446,6 +1482,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 pub struct GuiAdjustables {
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
+    pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
+    pub model_pixel_screen_grid: crate::gui_adjustables::BoolParam,
+    pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
@@ -1631,6 +1670,9 @@ pub struct GuiAdjustables {
     pub leaf_transmission_strength: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
+    pub falling_leaf_mesh: crate::gui_adjustables::BoolParam,
+    pub falling_leaf_size_scale: crate::gui_adjustables::FloatParam,
+    pub falling_leaf_pixel_resolution: crate::gui_adjustables::UintParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
@@ -1695,6 +1737,9 @@ impl GuiAdjustables {
 
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut model_pixel_screen_grid_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1880,6 +1925,9 @@ impl GuiAdjustables {
         let mut leaf_transmission_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut falling_leaf_mesh_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut falling_leaf_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut falling_leaf_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1941,6 +1989,25 @@ impl GuiAdjustables {
                     "ddgi_continuous_sampling" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             ddgi_continuous_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_pixel_resolution" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            apple_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_pixel_screen_grid" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            model_pixel_screen_grid_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "model_pixel_view_count" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            model_pixel_view_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "raster_tree_wind" => {
@@ -3184,6 +3251,25 @@ impl GuiAdjustables {
                             leaves_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "falling_leaf_mesh" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            falling_leaf_mesh_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "falling_leaf_size_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            falling_leaf_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "falling_leaf_pixel_resolution" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            falling_leaf_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "terrain_harvest_particles_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             terrain_harvest_particles_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3513,6 +3599,9 @@ impl GuiAdjustables {
         GuiAdjustables {
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
+            apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
+            model_pixel_screen_grid: model_pixel_screen_grid_field.expect("Missing parameter: model_pixel_screen_grid"),
+            model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
@@ -3698,6 +3787,9 @@ impl GuiAdjustables {
             leaf_transmission_strength: leaf_transmission_strength_field.expect("Missing parameter: leaf_transmission_strength"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
+            falling_leaf_mesh: falling_leaf_mesh_field.expect("Missing parameter: falling_leaf_mesh"),
+            falling_leaf_size_scale: falling_leaf_size_scale_field.expect("Missing parameter: falling_leaf_size_scale"),
+            falling_leaf_pixel_resolution: falling_leaf_pixel_resolution_field.expect("Missing parameter: falling_leaf_pixel_resolution"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
@@ -3899,6 +3991,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_flutter_frequency_full" => Some(&adjustables.leaf_flutter_frequency_full),
         "leaf_flutter_frequency_knee" => Some(&adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
+        "falling_leaf_size_scale" => Some(&adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
@@ -3950,6 +4043,8 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 #[allow(dead_code)]
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
+        "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
+        "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&adjustables.path_tracing_max_bounces),
         "canopy_audio_sample_budget" => Some(&adjustables.canopy_audio_sample_budget),
@@ -3961,6 +4056,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "cloud_primary_steps" => Some(&adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&adjustables.cloud_shadow_steps),
+        "falling_leaf_pixel_resolution" => Some(&adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
@@ -3986,6 +4082,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
+        "model_pixel_screen_grid" => Some(&adjustables.model_pixel_screen_grid),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&adjustables.raster_tree_static),
@@ -4000,6 +4097,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
+        "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&adjustables.butterfly_self_shadows),
@@ -4182,6 +4280,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_flutter_frequency_full" => Some(&mut adjustables.leaf_flutter_frequency_full),
         "leaf_flutter_frequency_knee" => Some(&mut adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
+        "falling_leaf_size_scale" => Some(&mut adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&mut adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),
@@ -4233,6 +4332,8 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 #[allow(dead_code)]
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
+        "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
+        "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&mut adjustables.path_tracing_max_bounces),
         "canopy_audio_sample_budget" => Some(&mut adjustables.canopy_audio_sample_budget),
@@ -4244,6 +4345,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "cloud_primary_steps" => Some(&mut adjustables.cloud_primary_steps),
         "cloud_light_steps" => Some(&mut adjustables.cloud_light_steps),
         "cloud_shadow_steps" => Some(&mut adjustables.cloud_shadow_steps),
+        "falling_leaf_pixel_resolution" => Some(&mut adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
@@ -4269,6 +4371,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
+        "model_pixel_screen_grid" => Some(&mut adjustables.model_pixel_screen_grid),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "raster_tree_hybrid_lighting" => Some(&mut adjustables.raster_tree_hybrid_lighting),
         "raster_tree_static" => Some(&mut adjustables.raster_tree_static),
@@ -4283,6 +4386,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
+        "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_self_shadows" => Some(&mut adjustables.butterfly_self_shadows),

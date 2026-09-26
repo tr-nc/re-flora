@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Re:Flora · 模型像素化预览台</title><link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css"><link rel="stylesheet" href="controls.css">
+<script type="importmap">{"imports":{"three":"../butterfly-method-comparison/vendor/three-0.183.0/build/three.module.js","three/addons/":"../butterfly-method-comparison/vendor/three-0.183.0/examples/jsm/"}}</script>
+</head>
+<body data-variant="compare">
+<header><div><small>RE:FLORA / MODEL PREVIEW</small><h1>模型像素化预览台</h1><p>同一个模型、同一个动画时刻。先看形态，再看像素。</p></div><label class="model-select">选择模型 <select id="model"></select></label></header>
+<main>
+<section class="workspace" aria-label="模型预览">
+<div class="view-toolbar"><span>拖动任一画面同步旋转 · 仅左侧可滚轮 / 双指放大细节</span><div><button id="front">正面</button><button id="back">背面</button><button id="edge">侧面</button><button id="reset-view">重置视角</button><select id="projection" aria-label="投影"><option value="orthographic">正交</option><option value="perspective">透视</option></select></div></div>
+<div class="views">
+<article class="view source-view"><div class="view-heading"><h2>01 / 原始模型</h2><span id="model-info"></span></div><div class="stage"><canvas id="source" tabindex="0" aria-label="原始模型，拖动或方向键旋转"></canvas></div><footer><span id="geometry-info"></span><label><input type="checkbox" id="wireframe"> 线框</label></footer></article>
+<article class="view pixel-view"><div class="view-heading"><h2>02 / 像素结果 · <span id="coverage-mode">A</span></h2><span id="tile-label"></span></div><div class="stage"><canvas id="pixel" tabindex="0" aria-label="像素结果，拖动同步旋转"></canvas></div><footer><span id="pixel-info"></span><button id="download" disabled>导出透明 PNG</button></footer></article>
+</div>
+<div class="view-bottom"><label><input type="checkbox" id="rotate"> 相机自动转台</label><span id="camera-info"></span></div>
+<section class="timeline" aria-label="动画时间轴"><div class="animation-actions"><button id="play" disabled>播放</button><button id="previous-frame" disabled aria-label="上一帧">−1 帧</button><button id="next-frame" disabled aria-label="下一帧">+1 帧</button><select id="clip" aria-label="动画片段" disabled></select><output id="phase-value">静态模型</output></div><input id="phase" type="range" min="0" max="999" step="1" value="0" aria-label="动画相位" disabled><div class="animation-settings"><label>采样帧率 <input id="fps" type="range" min="2" max="60" step="1" value="60"><output id="fps-value">60 FPS</output></label><label>播放速度 <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1"><output id="speed-value">1×</output></label></div><p class="hint">两幅画面共享采样时刻；帧率改变姿态采样，不改变动画时长。无动画模型保持静止，转台独立控制。</p></section>
+<p id="status" role="status">正在加载预览台…</p><p class="hint">美术预览工具，不等同于游戏最终渲染。补点包含 CPU 判定和 GPU 回读，尚无游戏性能结论。</p>
+</section>
+<aside>
+<section><small>01 / SHARED PIXEL PIPELINE</small><h2>像素处理</h2>
+<p id="repair-hint" class="hint">勾选：通用保守覆盖 + 八邻接补点，细部可以稍粗但不会因中心漏采样消失。不勾选：仅使用旧八邻接连接，完全漏采样的细部可能消失。两种模式都不覆盖原有采样。</p><label class="check-row"><input type="checkbox" id="conservative-coverage" checked> 通用保守覆盖（关闭 = 旧八邻接补点）</label><p id="repair-info" class="hint" role="status"></p>
+<label class="slider-label" for="resolution">画布像素数 <output id="resolution-value"></output></label><input id="resolution" type="range" min="8" max="128" step="1" value="32"><p class="hint">真实 N × N 缓冲，最近邻放大。观察范围不随动画轮廓变化，像素尺度不会随拍翼伸缩。</p>
+</section>
+<section><small>02 / MODEL APPEARANCE</small><h2>模型参数</h2><div id="model-controls"></div></section>
+<section><small>03 / REVIEW</small><h2>观察</h2><div class="select-label"><span>预览底色</span><debug-color-picker id="background" label="背景颜色" value="#253426"></debug-color-picker></div><label class="check-row"><input id="checker" type="checkbox"> 透明棋盘</label>
+<button id="reset-all" class="wide">恢复当前模型默认值</button><p class="hint">当前设置仅在本次页面有效，不自动同步游戏。</p></section>
+</aside>
+</main>
+<nav class="switcher" aria-label="观察布局"><button id="previous" aria-label="上一个布局">←</button><span id="variant-label"></span><button id="next" aria-label="下一个布局">→</button></nav>
+<script type="module" src="viewer.js"></script>
+</body></html>

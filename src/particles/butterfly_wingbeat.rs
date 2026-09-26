@@ -2,24 +2,44 @@
 //! This is a phase-dependent perturbation of the existing mean flight controller,
 //! not a dimensional lift/drag solver. See docs/research/butterfly_wing_motion_coupling.md.
 use glam::{Quat, Vec3};
-use serde::Deserialize;
 use std::sync::OnceLock;
 
-#[derive(Deserialize)]
 struct Animation {
     source_fps: usize,
     keys: Vec<[f32; 3]>,
-    #[serde(skip)]
     stroke_integrals: Vec<(f32, f32)>,
 }
 
 fn animation() -> &'static Animation {
     static ANIMATION: OnceLock<Animation> = OnceLock::new();
     ANIMATION.get_or_init(|| {
-        let mut animation: Animation =
-            serde_json::from_str(include_str!("../../assets/butterfly/wing-mesh.json"))
-                .expect("embedded approved wing animation");
-        assert_eq!(animation.keys.len(), animation.source_fps + 1);
+        let model = crate::model_assets::butterfly();
+        let (times, rotations) = model.rotation_keys(model.node("Wing hinge R"));
+        let source_fps = times.len() - 1;
+        assert_eq!(model.duration(0), 1.);
+        assert!(times
+            .iter()
+            .enumerate()
+            .all(|(i, t)| (*t - i as f32 / source_fps as f32).abs() < 1e-6));
+        let flight = model.node("Flight pose");
+        let keys = times
+            .iter()
+            .zip(rotations)
+            .map(|(time, rotation)| {
+                let wing = 2. * rotation.z.atan2(rotation.w);
+                let pitch = model.local_rotation(flight, *time);
+                [
+                    wing,
+                    2. * pitch.x.atan2(pitch.w),
+                    model.local_translation(flight, *time).y,
+                ]
+            })
+            .collect();
+        let mut animation = Animation {
+            source_fps,
+            keys,
+            stroke_integrals: Vec::new(),
+        };
         let mut integral = (0., 0.);
         animation.stroke_integrals.push(integral);
         for keys in animation.keys.windows(2) {

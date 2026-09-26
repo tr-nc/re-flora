@@ -268,6 +268,14 @@ impl BufferUpdater {
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,
+            model_pixel_screen_grid: terrain.model_pixel_screen_grid as u32,
+            model_pixel_view_count: super::model_pixel_views::effective_count(
+                terrain.model_pixel_view_count,
+                super::butterfly_mesh::native_review(),
+            ),
+            apple_pixel_resolution: terrain
+                .apple_pixel_resolution
+                .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),
             raster_tree_hybrid_lighting: vegetation.tree_hybrid_lighting as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,

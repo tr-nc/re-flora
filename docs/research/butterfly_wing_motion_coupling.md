@@ -49,10 +49,10 @@ Henningsson & Johansson (2021), *Downstroke and upstroke conflict during banked 
 - `src/particles/butterfly_presentation.rs`：位置、速度与动画时间在同一展示 tick 发布。已有正确的统一展示时钟，不能再拆回独立更新。
 - `src/particles/system.rs`：snapshot 携带每只蝴蝶的 `animation_phase_offset`，目前注明为渲染专用。
 - `src/tracer/butterfly_mesh.rs`：`Mesh::pose` 从 `sampled_time + animation_phase_offset` 采样 `[wing, pitch, bob]`。整体 yaw 来自水平速度，额外 pitch 来自垂直速度；没有转弯 roll。
-- `assets/butterfly/wing-mesh.json`：25 Hz 源关键帧、26 个含闭环端点的 key。当前 runtime 按一秒循环播放；源 FPS 与展示 FPS 都不是每秒拍翼次数。不要手改生成 JSON。
+- `assets/models/butterfly.glb`：25 Hz 源关键帧、26 个含闭环端点的 key。网页和游戏直接共用此 GLB；翼运动耦合也从其旋转通道求出笔画积分，不再单独导出动画 JSON。当前 runtime 按一秒循环播放；源 FPS 与展示 FPS 都不是每秒拍翼次数。
 - 模型原点还叠加局部 `bob`，它属于动画修饰，不参与真实轨迹与碰撞。若再给物理轨迹加整套同类起伏，会重复计算。
 
-因此不能直接把现有默认 10 Hz 的随机垂直意图当成翅膀频率，也不能将展示 8 FPS 当成 8 Hz 拍翼。批准源与导出入口见 `experiments/butterfly-method-comparison/export-runtime-mesh.py` 和 `blender-v5/create_export_blender.py`。
+因此不能直接把现有默认 10 Hz 的随机垂直意图当成翅膀频率，也不能将展示 8 FPS 当成 8 Hz 拍翼。批准源与发布流程见[共享模型约定](../../assets/models/README.md)，Blender 制作配方保留在 `blender-v5/create_export_blender.py`。
 
 ## 建议的实现模型（设计建议，不是实测拟合）
 

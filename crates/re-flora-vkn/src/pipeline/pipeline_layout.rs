@@ -1,4 +1,4 @@
-use crate::{DescriptorSetLayout, Device, ShaderModule};
+use crate::{DescriptorSetLayout, DescriptorSetLayoutBuilder, Device, ShaderModule};
 use anyhow::Result;
 use ash::vk;
 use std::{collections::HashMap, ops::Deref, sync::Arc};
@@ -45,7 +45,12 @@ impl PipelineLayout {
     ) -> Self {
         let mut pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
 
-        let raw_layouts = make_dense_layouts(descriptor_set_layouts);
+        // A stage can use set 1 without set 0 (e.g. tile-only fragments).
+        // Vulkan requires valid empty layouts for holes, not null handles.
+        // Keep padding out of reflection so it does not create phantom resources.
+        let empty_layout = DescriptorSetLayoutBuilder::new().build(device)
+            .expect("Failed to create empty descriptor set layout");
+        let raw_layouts = make_dense_layouts(descriptor_set_layouts, empty_layout.as_raw());
         pipeline_layout_create_info = pipeline_layout_create_info.set_layouts(&raw_layouts);
 
         let mut raw_ranges = Vec::new();
@@ -75,16 +80,17 @@ impl PipelineLayout {
         /// Where the key is the set number and the value is the descriptor set layout.
         /// The Vec is dense, meaning that it has a value for every set number.
         /// The Vec is ordered by the set number.
-        /// If a set number is not present, the value is vk::DescriptorSetLayout::null().
+        /// Missing sets use a valid, empty descriptor layout.
         fn make_dense_layouts(
             map: &HashMap<u32, DescriptorSetLayout>,
+            empty: vk::DescriptorSetLayout,
         ) -> Vec<vk::DescriptorSetLayout> {
             if map.is_empty() {
                 return Vec::new();
             }
 
             let max_key = *map.keys().max().unwrap();
-            let mut vec = vec![vk::DescriptorSetLayout::null(); (max_key + 1) as usize];
+            let mut vec = vec![empty; (max_key + 1) as usize];
 
             for (&set_no, layout) in map {
                 vec[set_no as usize] = layout.as_raw();

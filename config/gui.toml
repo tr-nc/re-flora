@@ -110,6 +110,37 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "apple_pixel_resolution"
+kind = "uint"
+label = "Pixels per Apple (N x N, Trees and Fallen Fruit)"
+type = "Uint"
+
+[section.param.data]
+value = 32
+min = 8
+max = 64
+
+[[section.param]]
+id = "model_pixel_screen_grid"
+kind = "bool"
+label = "B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "model_pixel_view_count"
+kind = "uint"
+label = "Discrete View Count"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 8
+max = 512
+
+[[section.param]]
 id = "raster_tree_wind"
 kind = "bool"
 label = "Animate raster trees with wind"
@@ -2146,6 +2177,40 @@ type = "Color"
 
 [section.param.data]
 value = "#98CE00"
+
+[[section]]
+name = "Falling Leaves"
+
+[[section.param]]
+id = "falling_leaf_mesh"
+kind = "bool"
+label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "falling_leaf_size_scale"
+kind = "float"
+label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
+type = "Float"
+
+[section.param.data]
+value = 4
+min = 0.25
+max = 4
+
+[[section.param]]
+id = "falling_leaf_pixel_resolution"
+kind = "uint"
+label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
+type = "Uint"
+
+[section.param.data]
+value = 22
+min = 8
+max = 64
 
 [[section]]
 name = "Terrain Harvest Particles"

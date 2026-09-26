@@ -579,9 +579,14 @@ impl App {
             self_shadows: settings.butterfly_self_shadows.value,
             transmission: settings.butterfly_wing_transmission.value,
         };
-        if let Err(err) = self
-            .tracer
-            .upload_particles(&self.particle_snapshots, butterfly_mesh)
+        let leaf_model = crate::tracer::LeafModelSettings {
+            enabled: settings.falling_leaf_mesh.value,
+            resolution: settings.falling_leaf_pixel_resolution.value,
+            size_scale: settings.falling_leaf_size_scale.value,
+        };
+        if let Err(err) =
+            self.tracer
+                .upload_particles(&self.particle_snapshots, butterfly_mesh, leaf_model)
         {
             log::error!("Failed to upload particles: {}", err);
         }
@@ -649,6 +654,7 @@ impl App {
                 animation_sample_time: None,
                 butterfly_wingbeat: None,
                 leaf_orientation: None,
+                leaf_shape_seed: None,
             });
         }
     }
@@ -658,6 +664,45 @@ impl App {
             0.237
         } else {
             self.time_info.time_since_start()
+        }
+    }
+
+    /// Explicit hidden-app correctness fixture, not a saved setting or a perf
+    /// path. Exercises real GUI-bound inputs, attachment motion and fruit drops.
+    pub(super) fn prepare_apple_pixel_review(&mut self) {
+        let Some(counter) = self.apple_pixel_review_frame.as_mut() else {
+            return;
+        };
+        let frame = *counter;
+        *counter = counter.saturating_add(1);
+        let phase = (frame / 30).min(11);
+        let dropped = phase >= 6;
+        let stage = phase % 6;
+        let n = match stage {
+            1 => 8,
+            3 => 64,
+            _ => 32,
+        };
+        let settings = &mut self.debug_settings.adjustables;
+        settings.apple_pixel_resolution.value = n;
+        settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
+        if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
+            let stage = (frame / 8) % 10;
+            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize / 2];
+            settings.model_pixel_screen_grid.value = stage & 1 != 0;
+            settings.butterfly_mesh_preview.value = true;
+            settings.falling_leaf_mesh.value = true;
+            settings.falling_leaf_size_scale.value = 1.;
+            let (leaf_pixels, butterfly_pixels) =
+                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3];
+            settings.falling_leaf_pixel_resolution.value = leaf_pixels;
+            settings.butterfly_pixel_resolution.value = butterfly_pixels;
+            if frame.is_multiple_of(30) {
+                log::info!("[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels={leaf_pixels} butterfly_pixels={butterfly_pixels} apple_pixels={n}");
+            }
+        }
+        if frame.is_multiple_of(30) && frame / 30 <= 11 {
+            log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} resolution={n} diagnostic_only=true saved=false");
         }
     }
 
@@ -672,6 +717,43 @@ impl App {
         let right = front.cross(Vec3::Y).normalize_or_zero();
         let up = right.cross(front).normalize();
         let time = frame.time_seconds();
+        // Explicit renderer-only Release stress fixture. It exercises the same
+        // production upload/tile/draw paths without readbacks or CPU oracles;
+        // real flight correctness remains covered by fallen_leaf_review.
+        if let Ok(value) = std::env::var("RE_FLORA_MODEL_PIXEL_STRESS_LEAVES") {
+            let count = value
+                .parse::<usize>()
+                .expect("stress leaf count must be an integer");
+            assert!(
+                count <= crate::particles::PARTICLE_CAPACITY,
+                "stress leaf count exceeds particle capacity"
+            );
+            static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+            ANNOUNCE.call_once(||log::info!("[MODEL_PIXEL_STRESS] leaves={count} butterflies=21 renderer_only=true readback=false saved=false"));
+            let columns = (count as f32).sqrt().ceil().max(1.) as usize;
+            for index in 0..count {
+                let x = ((index % columns) as f32 + 0.5) / columns as f32 * 2. - 1.;
+                let y = ((index / columns) as f32 + 0.5) / columns as f32 * 2. - 1.;
+                let phase = index as f32 * 0.173;
+                self.particle_snapshots.push(ParticleSnapshot {
+                    position_ws: origin + front * 0.35 + right * (x * 0.13) + up * (y * 0.075),
+                    velocity: Vec3::ZERO,
+                    color: Vec4::new(0.7, 0.35, 0.12, 1.),
+                    size: 0.008,
+                    kind: ParticleRenderKind::Leaf,
+                    palette_index: 0,
+                    animation_phase_offset: 0.,
+                    animation_sample_time: None,
+                    butterfly_wingbeat: None,
+                    leaf_orientation: Some(
+                        glam::Quat::from_rotation_x(time * 0.7 + phase)
+                            * glam::Quat::from_rotation_y(phase)
+                            * glam::Quat::from_rotation_z(time * 0.4),
+                    ),
+                    leaf_shape_seed: Some(index as u32 * 137),
+                });
+            }
+        }
         for (row, distance) in [0.25, 0.5, 1.0].into_iter().enumerate() {
             for preset in 0..crate::tracer::ButterflyPalettePreset::COUNT {
                 let heading = preset as f32 * 0.35 + time * 0.3;
@@ -689,6 +771,7 @@ impl App {
                     animation_sample_time: Some(time),
                     butterfly_wingbeat: None,
                     leaf_orientation: None,
+                    leaf_shape_seed: None,
                 });
             }
         }

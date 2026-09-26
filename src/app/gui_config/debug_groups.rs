@@ -29,6 +29,20 @@ const GROUPS: &[ControlGroup] = &[
         ],
     },
     ControlGroup {
+        parent: Some("Flora"),
+        title: "Apple Appearance",
+        description: "Shared pixel-rendered apples on trees and after falling. Physical collision is unchanged.",
+        initially_open: false,
+        params: &["apple_pixel_resolution"],
+    },
+    ControlGroup {
+        parent: None,
+        title: "Pixel Models — Global",
+        description: "Shared by butterflies, 3D falling leaves and attached/fallen apples. Pixel resolution stays in each object's settings. Discrete views use a Fibonacci sphere without blending; fewer views give larger angular steps. Per-object lighting is always enabled: environment light and external shadows are shared, while pixel normals still shade each surface. Both display modes bake fixed orthographic tiles live, not cached. A rotates pixels with the object; B resamples the same tile onto a screen-aligned grid with conservative coverage.",
+        initially_open: true,
+        params: &["model_pixel_view_count", "model_pixel_screen_grid"],
+    },
+    ControlGroup {
         parent: Some("Wind"),
         title: "Vegetation Wind Response",
         description: "How plants react to wind. Pose rate is separate from the world tick.",
@@ -168,6 +182,38 @@ mod tests {
                 .collect::<BTreeSet<_>>()
         );
         assert!(!is_grouped("future_debug_control"));
+    }
+
+    #[test]
+    fn pixel_model_global_controls_exclude_object_resolutions() {
+        let global = GROUPS
+            .iter()
+            .find(|g| g.title == "Pixel Models — Global")
+            .unwrap();
+        assert_eq!(global.parent, None);
+        assert_eq!(
+            global.params,
+            &["model_pixel_view_count", "model_pixel_screen_grid"]
+        );
+        let apples = GROUPS
+            .iter()
+            .find(|g| g.title == "Apple Appearance")
+            .unwrap();
+        assert_eq!(apples.parent, Some("Flora"));
+        assert_eq!(apples.params, &["apple_pixel_resolution"]);
+        let config: crate::app::gui_config_model::GuiConfigFile =
+            toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
+        for (id, section) in [
+            ("falling_leaf_pixel_resolution", "Falling Leaves"),
+            ("butterfly_pixel_resolution", "Butterflies"),
+        ] {
+            let owner = config
+                .section
+                .iter()
+                .find(|s| s.param.iter().any(|p| p.id == id))
+                .unwrap();
+            assert_eq!(owner.name, section);
+        }
     }
 
     #[test]

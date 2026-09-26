@@ -519,6 +519,36 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let apple_pixel_tree_comp_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel_tree.comp",
+            "main",
+        )
+        .unwrap();
+        let apple_pixel_dynamic_comp_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel_dynamic.comp",
+            "main",
+        )
+        .unwrap();
+        let apple_pixel_tree_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel_tree.vert",
+            "main",
+        )
+        .unwrap();
+        let apple_pixel_dynamic_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel_dynamic.vert",
+            "main",
+        )
+        .unwrap();
+        let apple_pixel_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/apple_pixel.frag",
+            "main",
+        )
+        .unwrap();
         let dynamic_fruit_shadow_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/props/dynamic_fruit_shadow.frag",
@@ -634,6 +664,11 @@ impl PipelineBuilder {
             raster_tree_lighting_sm,
             tree_skin_sm,
             tree_refit_sm,
+            apple_pixel_tree_comp_sm,
+            apple_pixel_dynamic_comp_sm,
+            apple_pixel_tree_vert_sm,
+            apple_pixel_dynamic_vert_sm,
+            apple_pixel_frag_sm,
             dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
             dynamic_fruit_shadow_frag_sm,
@@ -746,6 +781,31 @@ impl PipelineBuilder {
             pool,
             &[ddgi_voxel_visibility],
         );
+        let apple_pixel_tree_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.apple_pixel_tree_comp_sm,
+            pool,
+        );
+        let apple_pixel_dynamic_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.apple_pixel_dynamic_comp_sm,
+            pool,
+        );
+        for pipeline in [&apple_pixel_tree_ppl, &apple_pixel_dynamic_ppl] {
+            pipeline
+                .initialize_descriptors(DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &[
+                        resources,
+                        contree_builder_resources,
+                        scene_accel_resources,
+                        plain_builder_resources,
+                        ddgi_volume,
+                        ddgi_voxel_visibility,
+                    ],
+                })
+                .expect("model tile static descriptors must resolve");
+        }
         let butterfly_tile_ppl = ComputePipeline::new(
             device,
             &shader_modules.butterfly_tile_comp_sm,
@@ -977,6 +1037,8 @@ impl PipelineBuilder {
             tree_skin_ppl,
             tree_refit_ppl,
             butterfly_tile_ppl,
+            apple_pixel_tree_ppl,
+            apple_pixel_dynamic_ppl,
             flora_lighting_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
@@ -1127,6 +1189,27 @@ impl PipelineBuilder {
                 providers: &environment_lighting_resources,
             })
             .expect("leaf static descriptors must resolve from tracer resources");
+
+        let apple_pixel_tree_ppl = Self::create_gfx_pipeline_uninitialized(
+            vulkan_ctx,
+            &shader_modules.apple_pixel_tree_vert_sm,
+            &shader_modules.apple_pixel_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        apple_pixel_tree_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            })
+            .expect("apple pixel tree static descriptors");
 
         let leaves_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
@@ -1282,6 +1365,25 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
+        let apple_pixel_dynamic_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.apple_pixel_dynamic_vert_sm,
+            &shader_modules.apple_pixel_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(4),
+            pool,
+            &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                vertex_binding_strides: vec![(
+                    1,
+                    std::mem::size_of::<super::DynamicFruitInstanceGpu>() as u32,
+                )],
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
 
         let dynamic_fruit_shadow_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
@@ -1292,6 +1394,10 @@ impl PipelineBuilder {
             pool,
             &[resources],
             GraphicsPipelineDesc {
+                vertex_binding_strides: vec![(
+                    0,
+                    std::mem::size_of::<super::DynamicFruitVertex>() as u32,
+                )],
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
                 depth_write_enable: true,
@@ -1306,7 +1412,7 @@ impl PipelineBuilder {
             &render_passes.render_pass_color_and_depth,
             Some(1),
             pool,
-            &[resources],
+            &environment_lighting_resources,
             GraphicsPipelineDesc {
                 cull_mode: vk::CullModeFlags::NONE,
                 depth_test_enable: true,
@@ -1377,6 +1483,8 @@ impl PipelineBuilder {
             environment_probe_visualization_overlay_ppl,
             raster_tree_ppl,
             raster_tree_shadow_ppl,
+            apple_pixel_tree_ppl,
+            apple_pixel_dynamic_ppl,
             dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
             butterfly_tile_ppl,
@@ -1590,6 +1698,9 @@ macro_rules! declare_ddgi_consumer_registry {
 declare_ddgi_consumer_registry! {
     Tracer => Compute(compute.tracer_ppl),
     ButterflyTiles => Compute(compute.butterfly_tile_ppl),
+    AppleTreeTiles => Compute(compute.apple_pixel_tree_ppl),
+    DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
+    AppleDynamicTiles => Compute(compute.apple_pixel_dynamic_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
     Flora => Graphics(graphics.flora_ppl),
@@ -1599,7 +1710,6 @@ declare_ddgi_consumer_registry! {
     Sprinkler => Graphics(graphics.sprinkler_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
-    DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),
     EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
@@ -1856,6 +1966,19 @@ impl PipelineTopology {
             );
         }
 
+        for pipeline in [
+            &self.compute.apple_pixel_tree_ppl,
+            &self.compute.apple_pixel_dynamic_ppl,
+        ] {
+            retire_compute(
+                pipeline,
+                DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &all_resources,
+                },
+                "model tile extent descriptor update failed",
+            );
+        }
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -1916,7 +2039,11 @@ impl PipelineTopology {
                 "graphics descriptor set update failed during extent publication",
             );
         }
-        for pipeline in [&self.graphics.leaves_ppl, &self.graphics.leaves_lod_ppl] {
+        for pipeline in [
+            &self.graphics.leaves_ppl,
+            &self.graphics.leaves_lod_ppl,
+            &self.graphics.apple_pixel_tree_ppl,
+        ] {
             retire_graphics(
                 pipeline,
                 DescriptorUpdate::SetContaining {
@@ -1939,6 +2066,7 @@ impl PipelineTopology {
             &self.graphics.environment_probe_visualization_depth_ppl,
             &self.graphics.environment_probe_visualization_overlay_ppl,
             &self.graphics.dynamic_fruit_ppl,
+            &self.graphics.apple_pixel_dynamic_ppl,
             &self.graphics.butterfly_tile_ppl,
             &self.graphics.particle_ppl,
             &self.graphics.water_droplet_ppl,
@@ -2426,6 +2554,11 @@ pub struct ShaderModules {
     pub raster_tree_vert_sm: ShaderModule,
     pub raster_tree_frag_sm: ShaderModule,
     pub raster_tree_shadow_vert_sm: ShaderModule,
+    pub apple_pixel_tree_comp_sm: ShaderModule,
+    pub apple_pixel_dynamic_comp_sm: ShaderModule,
+    pub apple_pixel_tree_vert_sm: ShaderModule,
+    pub apple_pixel_dynamic_vert_sm: ShaderModule,
+    pub apple_pixel_frag_sm: ShaderModule,
     pub dynamic_fruit_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_frag_sm: ShaderModule,
@@ -2440,6 +2573,8 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
+    pub apple_pixel_tree_ppl: ComputePipeline,
+    pub apple_pixel_dynamic_ppl: ComputePipeline,
     pub butterfly_tile_ppl: ComputePipeline,
     pub ddgi_global_sky_filter_ppl: ComputePipeline,
     pub ddgi_octahedral_gutter_ppl: ComputePipeline,
@@ -2504,6 +2639,8 @@ pub struct GraphicsPipelines {
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
     pub raster_tree_ppl: GraphicsPipeline,
     pub raster_tree_shadow_ppl: GraphicsPipeline,
+    pub apple_pixel_tree_ppl: GraphicsPipeline,
+    pub apple_pixel_dynamic_ppl: GraphicsPipeline,
     pub dynamic_fruit_ppl: GraphicsPipeline,
     pub dynamic_fruit_shadow_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,
@@ -2513,10 +2650,14 @@ pub struct GraphicsPipelines {
 
 impl GraphicsPipelines {
     pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
+        self.butterfly_tile_ppl
+            .begin_transient_descriptor_frame(frame_slot);
         self.flora_ppl.begin_transient_descriptor_frame(frame_slot);
         self.flora_lod_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.leaves_ppl.begin_transient_descriptor_frame(frame_slot);
+        self.apple_pixel_tree_ppl
+            .begin_transient_descriptor_frame(frame_slot);
         self.leaves_lod_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.leaves_shadow_lod_ppl

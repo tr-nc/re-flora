@@ -1,5 +1,8 @@
 import butterfly_mesh_types;
 import tracer_types;
+import model_pixel_projection;
+import model_pixel_view_data;
+[[vk::binding(0,0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(3,0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(72,0)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 struct VertexOutput {
@@ -19,7 +22,11 @@ VertexOutput main(VertexInput input) {
     float4 bounds=butterflyTileBounds(butterfly_mesh_instances[instanceIndex],camera_info);
     VertexOutput output;
     output.uv=float2((input.packed_data>>21u)&1u,(input.packed_data>>22u)&1u);
-    output.position=float4(lerp(bounds.xy,bounds.zw,output.uv),0.0,1.0);
+    ButterflyMeshInstance instance=butterfly_mesh_instances[instanceIndex];
+    output.position=gui_input.model_pixel_view_count!=0u
+        ?modelOrthographicQuad(readModelPixelView(instanceIndex),instance.position_size.xyz,instance.position_size.w*(1.53125*0.5),
+            output.uv,gui_input.model_pixel_screen_grid!=0u,camera_info)
+        :float4(lerp(bounds.xy,bounds.zw,output.uv),0.0,1.0);
     output.instanceIndex=instanceIndex;
     return output;
 }

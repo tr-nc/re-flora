@@ -60,6 +60,21 @@ change their source and include generated diffs only when they follow from the s
 Performance conclusions require measured release-mode app runs. Debug builds and unit tests are not
 performance evidence. See [Performance Benchmarking](./performance-benchmarking.md).
 
+## Model Art Preview
+
+Use the [unified model pixel preview](../experiments/model-preview/README.md) for leaf and animated
+butterfly art iteration. From the repository root:
+
+```sh
+node scripts/serve-model-preview.mjs
+```
+
+Open `http://127.0.0.1:8765/model-preview/`. The tool shares camera controls, animation sampling,
+fixed eight-neighbor connectivity repair, pixel processing, and JSON presets across models. Add new assets through its model
+definitions rather than copying another HTML demo. Game and preview models use the
+[shared asset contract](../assets/models/README.md). Browser visuals do not replace in-game lighting,
+occlusion, or release-mode performance validation.
+
 ## Technology Overview
 
 | Area | Primary implementation |

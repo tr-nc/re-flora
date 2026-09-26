@@ -71,6 +71,8 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
+        Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
+        Self::add_missing_param(&mut config, "Debug", "model_pixel_screen_grid");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
         // The vine no longer has a pause mode. Old zero-speed saves must also
@@ -106,6 +108,9 @@ impl GuiConfigLoader {
                         | "climbing_enabled"
                         | "climbing_clockwise"
                         | "climbing_seed"
+                        | "apple_preview_model"
+                        | "model_pixel_snap_views"
+                        | "model_pixel_single_light"
                 )
             });
         }
@@ -927,7 +932,14 @@ mod tests {
     fn retired_render_switches_are_removed_without_changing_other_settings() {
         use crate::app::gui_config_model::GuiParamValue;
         for (enabled, retired_id) in [false, true].into_iter().flat_map(|enabled| {
-            ["raster_tree_axis_aligned", "terrain_hybrid_lighting"].map(|id| (enabled, id))
+            [
+                "raster_tree_axis_aligned",
+                "terrain_hybrid_lighting",
+                "apple_preview_model",
+                "model_pixel_snap_views",
+                "model_pixel_single_light",
+            ]
+            .map(|id| (enabled, id))
         }) {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -968,6 +980,76 @@ mod tests {
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn discrete_view_checkbox_migrates_to_a_saved_count() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for enabled in [false, true] {
+            for existing_count in [None, Some(37)] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let debug = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                let mut old = debug
+                    .param
+                    .iter()
+                    .find(|p| p.id == "raster_tree_static")
+                    .unwrap()
+                    .clone();
+                debug.param.retain(|p| p.id != "model_pixel_screen_grid");
+                old.id = "model_pixel_snap_views".into();
+                old.value = GuiParamValue::Bool { value: enabled };
+                debug.param.push(old);
+                if let Some(count) = existing_count {
+                    let value = &mut debug
+                        .param
+                        .iter_mut()
+                        .find(|p| p.id == "model_pixel_view_count")
+                        .unwrap()
+                        .value;
+                    if let GuiParamValue::Uint { value, .. } = value {
+                        *value = count;
+                    } else {
+                        panic!("view count must be a uint");
+                    }
+                } else {
+                    debug.param.retain(|p| p.id != "model_pixel_view_count");
+                }
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+                assert!(!params.iter().any(|p| p.id == "model_pixel_snap_views"));
+                assert!(matches!(
+                    params
+                        .iter()
+                        .find(|p| p.id == "model_pixel_screen_grid")
+                        .unwrap()
+                        .value,
+                    GuiParamValue::Bool { value: false }
+                ));
+                let param = params
+                    .iter()
+                    .find(|p| p.id == "model_pixel_view_count")
+                    .unwrap();
+                assert!(
+                    matches!(param.value,GuiParamValue::Uint{value,..} if value==existing_count.unwrap_or(16))
+                );
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert!(!std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("model_pixel_snap_views"));
+                assert_eq!(
+                    toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                    toml::to_string(&loaded).unwrap()
+                );
+            }
         }
     }
 

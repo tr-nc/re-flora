@@ -1,26 +1,28 @@
 # 蝴蝶实时像素翼面
 
-**当前入口：[精简调试台](comparison-v6.html)**（目录首页也跳转到这里）。
+**唯一预览工具：[模型像素化预览台 · 蝴蝶](../model-preview/?model=butterfly)**。目录首页只保留跳转，不再保留带版本编号的比较页面或独立蝴蝶查看器。见 [工具说明与模型接入接口](../model-preview/README.md)。
 
 游戏现在只使用[实时翼面渲染器](../../docs/research/butterfly_game_pixel_renderer.md)。旧手绘 Aseprite/PNG、实验中的参考副本、手绘对照页面/GIF、分析脚本及运行时 spritesheet/色块链路均已退役；没有旧渲染回退开关。
 
 ## 当前源与工具
 
-- `blender-v5/`：已批准的无身体双翼模型、动画及制作/验证记录。
-- `export-runtime-mesh.py`：从批准源导出 `assets/butterfly/wing-mesh.json`，游戏实时摆翼并按每只蝴蝶的固定 N×N 分辨率采样，不读取方向图集。
-- `comparison-v6.html`、`debug-preview.js`、`custom-color-picker.js`：同步相机的原始/像素双预览，共用翼面颜色，自定义 HSV/HEX 色盘，8–64px、2–60 FPS；见 [使用与验证](debug-preview.md)。网页临时设置不自动同步游戏。
-- `validate-debug-preview.cjs`：浏览器交互、尺寸和像素输出检查。
+- `blender-v5/`：已批准的无身体双翼模型制作源与历史输出。当前正式资产为 `../../assets/models/butterfly.glb`，游戏和网页直接共用；见[共享资源约定](../../assets/models/README.md)。
+- 游戏与网页直接读取同一份正式 GLB 的几何和节点动画；独立的游戏 JSON 导出器已删除。游戏依旧按每只蝴蝶的固定 N×N 分辨率采样，不读取方向图集。
+- `../model-preview/models/butterfly.js`：使用同一个批准 GLB、原动画、统一翼色与光照/阴影；相机、双视图、时间轴、8–128px、2–60 FPS、HSV/HEX、像素处理及预设均由统一工具维护。网页参数不自动同步游戏。
+- `../model-preview/tests/browser.cjs`：当前两模型共用的浏览器验证；`validate-debug-preview.cjs` 只是兼容转发。迁移时 24 个蝴蝶 A 样本与旧版逐字节一致。
 - `../../scripts/validate_butterfly_mesh.py`：实际游戏 GPU 原生像素、深度与自阴影检查。
 
 ```sh
-python3 -m http.server 8788 --bind 127.0.0.1 --directory experiments/butterfly-method-comparison
+node scripts/serve-model-preview.mjs
 ```
 
-打开 `http://127.0.0.1:8788/`。
+打开 `http://127.0.0.1:8765/model-preview/?model=butterfly`。使用统一服务，同时提供预览目录与 `assets/models` 正式资源。
 
 ## 保留的建模研究记录
 
-`blender/`、`blender-v2/`、`blender-v3/` 是三维模型迭代及离线采样研究，不是游戏回退资源；`blender-v4/` 和 [v4 页面](comparison-v4.html) 记录无身体任意视角预览；[v5 页面](comparison-v5.html) 记录已弃用的浏览器边框实验。AI 候选只保留为失败案例记录。
+各 `blender*` 目录保存模型源与离线采样记录，内部资源路径维持不变，不是用户需要选择的网页版本或游戏回退模式。AI 候选只保留为失败案例记录。
+
+旧比较页面、边框实验及其独立脚本不再保留在当前树中，可在提交 `86b4b81c` 查看。当前只维护统一工具。
 
 历史 Markdown、日志与 JSON 中的旧路径和验收结论是当时的记录，不代表旧手绘资源或旧对照页面仍存在。新制作流程与当前入口以上文为准，不再维护手绘参考链路。
 

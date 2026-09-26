@@ -1,5 +1,7 @@
 # v5 材质、阴影与像素边框
 
+> 历史资产验证记录：下列旧页面与脚本已从当前树移除，可在提交 `86b4b81c` 查看。当前使用[统一预览台](../../model-preview/README.md)，没有编号网页入口。
+
 页面：`../comparison-v5.html`。共享场景/相机逻辑在 `../material-preview.js`，低分辨率目标与边框 GPU pass 在 `../pixel-outline.js`。
 
 ## 控制与语义

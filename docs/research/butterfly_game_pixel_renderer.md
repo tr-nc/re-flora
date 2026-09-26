@@ -21,7 +21,7 @@
 
 ## 实现
 
-源为已批准的 `blender-v5/butterfly-prototype.blend`：两块翼面，无身体、无边框、无表面异色色块。`experiments/butterfly-method-comparison/export-runtime-mesh.py` 从保存的 Blender 源导出 `assets/butterfly/wing-mesh.json`，包含156个三角形、26个关节动画关键帧、源SHA256。不是方向图集或渲染图片。JSON嵌入二进制；不要手改生成的模型数据。
+正式源是 `assets/models/butterfly.glb`：两块翼面、156 个三角形、26 个闭环动画关键帧，无身体、无边框、无表面异色色块。网页 GLTFLoader 与游戏 `src/model_assets.rs` 直接读取同一份 GLB（游戏构建时嵌入），不再使用独立的游戏 JSON 导出器。原 Blender 制作工程保留为制作源；发布和跨运行时顶点对照见[共享模型约定](../../assets/models/README.md)。不是方向图集或渲染图片。
 
 `src/tracer/butterfly_mesh.rs` 负责动画、朝向、配色和实例数据：
 
