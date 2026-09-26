@@ -4935,7 +4935,7 @@ impl App {
             self.tracer.raster_trees.source.compiled(
                 self.visible_terrain_revision,
                 self.trees.canonical_revision,
-                read_bounds,
+                mesh.terrain_dependencies(),
             );
             log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
                 self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());

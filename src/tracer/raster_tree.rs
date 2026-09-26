@@ -5,7 +5,10 @@ use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use std::{collections::BTreeMap, sync::Arc};
 
-use super::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES};
+use super::{
+    tree_surface_cache::{TreeSurfaceDependencies, TREE_SURFACE_SAMPLE_RADIUS},
+    voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES},
+};
 use crate::{
     geom::{RoundCone, RoundConeClearanceIndex},
     resource::Resource,
@@ -53,10 +56,15 @@ pub struct RasterTreeMesh {
     pub solid_cells: std::collections::BTreeSet<[u32; 3]>,
     bindings: Vec<Option<(u32, SkinBinding)>>,
     binding_cache: BTreeMap<u32, TreeBindingCache>,
+    dependencies: TreeSurfaceDependencies,
     pub cell_vertex_indices: Vec<u32>,
 }
 
 impl RasterTreeMesh {
+    pub(crate) fn terrain_dependencies(&self) -> TreeSurfaceDependencies {
+        self.dependencies.clone()
+    }
+
     /// Exact equality of the facts consumed by rendering, queries, and physics.
     /// Binding memoization is not an observable fact. Never use a fingerprint or
     /// just topology counts here: occupancy and normal-only changes also matter.
@@ -81,6 +89,7 @@ impl RasterTreeMesh {
             bytes.len() == dim.as_u64vec3().element_product() as usize,
             "tree atlas region size mismatch"
         );
+        self.dependencies.include_region(origin, dim, cones);
         let sample = |world: IVec3| -> u8 {
             let p = world - origin.as_ivec3();
             if p.cmplt(IVec3::ZERO).any() || p.cmpge(dim.as_ivec3()).any() {
@@ -105,9 +114,9 @@ impl RasterTreeMesh {
                         continue;
                     }
                     let mut estimate = super::voxel_normal::OccupancyNormal::default();
-                    for dz in -2..=2 {
-                        for dy in -2..=2 {
-                            for dx in -2..=2 {
+                    for dz in -TREE_SURFACE_SAMPLE_RADIUS..=TREE_SURFACE_SAMPLE_RADIUS {
+                        for dy in -TREE_SURFACE_SAMPLE_RADIUS..=TREE_SURFACE_SAMPLE_RADIUS {
+                            for dx in -TREE_SURFACE_SAMPLE_RADIUS..=TREE_SURFACE_SAMPLE_RADIUS {
                                 let offset = IVec3::new(dx, dy, dz);
                                 if solid(cell.as_ivec3() + offset) {
                                     estimate.add(offset);
@@ -675,6 +684,53 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn terrain_dependencies_cover_every_surface_changing_voxel_in_small_fixture() {
+        use crate::tracer::tree_surface_cache::TreeSurfaceCache;
+        let cones = [RoundCone::new(
+            1.5,
+            Vec3::splat(3.5),
+            0.5,
+            Vec3::new(3.5, 5., 3.5),
+        )];
+        let mut bytes = vec![0; 512];
+        bytes[3 + 8 * (3 + 8 * 3)] = 5;
+        let build = |bytes: &[u8]| {
+            let mut mesh = RasterTreeMesh::default();
+            mesh.append_region(UVec3::ZERO, UVec3::splat(8), bytes, &cones)
+                .unwrap();
+            mesh.finish().unwrap();
+            mesh
+        };
+        let before = build(&bytes);
+        let mut observed_changes = 0;
+        for z in 0..8 {
+            for y in 0..8 {
+                for x in 0..8 {
+                    let index = (x + 8 * (y + 8 * z)) as usize;
+                    let saved = bytes[index];
+                    for material in [0, 2, 5] {
+                        bytes[index] = material;
+                        let after = build(&bytes);
+                        let mut cache = TreeSurfaceCache::default();
+                        cache.compiled(1, 7, before.terrain_dependencies());
+                        let cell = UVec3::new(x, y, z);
+                        cache.observe_terrain(2, crate::geom::UAabb3::new(cell, cell));
+                        if !before.same_surface(&after) {
+                            observed_changes += 1;
+                            assert!(
+                                !cache.is_current(2, 7),
+                                "missed {cell:?} material={material}"
+                            );
+                        }
+                    }
+                    bytes[index] = saved;
+                }
+            }
+        }
+        assert!(observed_changes > 100);
     }
 
     #[test]
