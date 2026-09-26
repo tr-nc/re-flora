@@ -1374,13 +1374,32 @@ mod tests {
         let visibility_owner = include_str!("../shader/slang/ddgi_visibility_filter_owner.slang");
         for causal_step in [
             "DdgiExecutedHistory2 executed = ddgiExecuteHistory(",
-            "ddgiRecordVisibilityHistoryDecision(",
+            "ddgiRecordVisibilityFilterResult(",
             "ddgiRecordVisibilitySampleDecision(",
             "ddgiAccumulateVisibility(",
-            "ddgiOwnerStoreVisibilityValue(",
+            "ddgiOwnerStoreVisibilityResult(",
         ] {
             assert!(visibility_owner.contains(causal_step));
         }
+        // Wiring guard only; executable Slang tests prove the result producer's
+        // terminal/fresh evidence contract and native captures exercise GPU storage.
+        let (terminal, fresh) = visibility_owner
+            .split_once("public bool ddgiOwnerTryStoreTerminalVisibility(")
+            .unwrap()
+            .1
+            .split_once("public void ddgiOwnerStoreFreshVisibility(")
+            .unwrap();
+        for path in [terminal, fresh] {
+            assert_eq!(path.matches("ddgiOwnerStoreVisibilityResult(").count(), 1);
+            assert!(!path.contains("ddgiRecordVisibility"));
+        }
+        assert_eq!(
+            visibility_owner
+                .matches("ddgiRecordVisibilityFilterResult(")
+                .count(),
+            1,
+            "both visibility stores must share one result/evidence owner"
+        );
         let policy = include_str!("../shader/slang/ddgi_filter_policy.slang");
         for removed_adapter in [
             "DdgiFilterHistoryPolicy",

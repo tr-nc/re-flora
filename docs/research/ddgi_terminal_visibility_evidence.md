@@ -45,9 +45,11 @@ No capture layout, decoder rule, filter value, history policy or publication sch
 
 Evidence is in this worktree's `target/improve-delivery/` (red logs, raw lanes, commands, test logs,
 config hashes, captures and JSON analysis). `cargo fmt --check`, `cargo check`, 125 focused DDGI
-Rust tests, all 24 native Slang CPU tests, and default hidden/muted Release smoke pass. Generated
-files did not change. Tests still include the pending-completed-staging guard and black-atlas
-acceptance. Temporary raw-lane logging was removed.
+Rust tests, 30 environment-lighting tests, all 24 native Slang CPU tests, and default hidden/muted
+Release smoke pass. The existing source-wiring guard in `src/environment_lighting.rs` was updated
+for the completion interface and checks that both stores use it; it is not GPU execution evidence.
+Generated files did not change. Tests still include the pending-completed-staging guard and
+black-atlas acceptance. Temporary raw-lane logging was removed.
 
 **The exact e2 fixture is still blocked, not accepted.** After fixing the missing evidence it
 reaches geometry 4, field 7, e2, but exits 101 at the 15-second deadline with
