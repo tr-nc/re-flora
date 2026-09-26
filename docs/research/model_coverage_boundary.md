@@ -234,3 +234,26 @@ of the **unchanged** strict leaf runner (`--seconds 20`) pass at 5120×2880:
 counts are 1593 / 1575 / 1581. Commands, all logs and artifacts are retained;
 there were no failed attempts in this final sequence. Every invocation held
 `/tmp/re-flora-summer-gpu.lock` without nesting. No thresholds or runners changed.
+
+### Corrected consumer gates and cleanup
+
+With the corrected shader, the unchanged commands listed in **Consumer protection**
+were rerun under the same GPU lock. `correction/butterfly/` passes 30 strict
+8/22/64px numerical checks across 21 models, with shadow/transmission switches
+and maximum depth error 0.000001013. `correction/model-stage-one/` passes ordinary
+orthographic A/B at all five view counts, mixed leaf/butterfly resolutions,
+attached/fallen apples at 8/32/64px, 17 actual fruit drops and five resize requests.
+This remains a real consumer/lifecycle fixture, not a pixel-exact color oracle;
+color preservation evidence is the controlled producer comparison above.
+`correction/smoke/` passes Release hidden/mute, auto-exit 0.5; the same-worktree
+`--latest-log` and `--tail-latest-log 200` output is retained. All three report
+successful exit, failures=0, and no ERROR/VUID/panic.
+
+Saved GUI/camera hashes are unchanged; no generated files, original strict
+runners, config defaults, resource lifetime or frame scheduling changed.
+Temporary probes/legacy copies are absent from tracked source. All failures,
+including the initial material RED and a failed summary-helper parse, remain
+recorded; no native failures were discarded. The earlier missing-cell negative
+control remains valid evidence for the unchanged coverage assertion. No full
+Cargo/DDGI matrix or performance benchmark was repeated. Final independent
+review and aggregate acceptance remain controller-owned.
