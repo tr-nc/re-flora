@@ -5,7 +5,7 @@ use glam::{Mat4, Vec2, Vec4};
 use re_flora_vkn::{execute_one_time_command, BufferUse, VulkanContext};
 
 /// Explicit native regression: the published variant/pose that exposed the
-/// 64px conservative boundary disagreement. No simulation or camera overrides.
+/// conservative boundary disagreements. No simulation or camera overrides.
 /// Kept here with the oracle, never enabled by normal play or the live A/B runner.
 pub(super) fn apply_coverage_fixture(
     instances: &mut Vec<Instance>,
@@ -16,17 +16,53 @@ pub(super) fn apply_coverage_fixture(
         return Ok(());
     };
     ensure!(
-        matches!(fixture.as_str(), "leaf-boundary" | "leaf-small-boundary")
-            && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
+        matches!(
+            fixture.as_str(),
+            "leaf-boundary" | "leaf-small-boundary" | "leaf-pose-sweep"
+        ) && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
         "model coverage fixture requires a known leaf boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
     );
-    let Some(mut instance) = instances
+    let Some(instance) = instances
         .iter()
         .find(|i| i.metadata[3] & LEAF_MODEL_FLAG != 0)
         .copied()
     else {
         anyhow::bail!("model coverage fixture requires a published leaf");
     };
+    instances.clear();
+    if fixture == "leaf-pose-sweep" {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let cases = coverage_pose_cases(instance, leaf_first, triangles_per_leaf);
+        let batches = cases.len().div_ceil(64);
+        let requested = NEXT.fetch_add(1, Ordering::Relaxed);
+        let batch = requested.min(batches - 1);
+        instances.extend_from_slice(&cases[batch * 64..((batch + 1) * 64).min(cases.len())]);
+        if requested < batches {
+            log::info!(
+                "[MODEL-COVERAGE-SWEEP] batch={}/{} cases={} saved_config_unchanged=true",
+                batch + 1,
+                batches,
+                cases.len()
+            );
+        }
+    } else {
+        instances.push(captured_coverage_instance(
+            instance,
+            leaf_first,
+            triangles_per_leaf,
+            fixture == "leaf-small-boundary",
+        ));
+    }
+    Ok(())
+}
+
+fn captured_coverage_instance(
+    mut instance: Instance,
+    leaf_first: u32,
+    triangles_per_leaf: usize,
+    small: bool,
+) -> Instance {
     instance.position_size = [0.8934032, 1.5581794, 1.4821042, 0.00390625];
     instance.lighting = [0.64829177, 0.3265856, 0.45352986, -0.51707864];
     instance.view_orientation = instance.lighting;
@@ -36,7 +72,7 @@ pub(super) fn apply_coverage_fixture(
         64,
         LEAF_MODEL_FLAG,
     ];
-    if fixture == "leaf-small-boundary" {
+    if small {
         // Captured variant 0 at the live runner's 0.25 size, not a scaled
         // substitute for the 64px case. Pixel (5,10) exposes a distinct context.
         instance.position_size = [1.1692841, 1.3915664, 1.4927582, 0.0009765625];
@@ -44,9 +80,45 @@ pub(super) fn apply_coverage_fixture(
         instance.view_orientation = instance.lighting;
         instance.metadata = [leaf_first, triangles_per_leaf as u32, 16, LEAF_MODEL_FLAG];
     }
-    instances.clear();
-    instances.push(instance);
-    Ok(())
+    instance
+}
+
+/// Explicit diagnostic-only, bounded, unscreened phases plus representable
+/// neighbors of both captures. Runtime time/load cannot select favorable poses.
+fn coverage_pose_cases(template: Instance, first: u32, count: usize) -> Vec<Instance> {
+    let mut cases = Vec::new();
+    for small in [false, true] {
+        let base = captured_coverage_instance(template, first, count, small);
+        for axis in 0..3 {
+            for ulps in [-16i32, -4, -1, 0, 1, 4, 16] {
+                let mut instance = base;
+                instance.position_size[axis] = f32::from_bits(
+                    (base.position_size[axis].to_bits() as i64 + i64::from(ulps)) as u32,
+                );
+                cases.push(instance);
+            }
+        }
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            for phase in 0..16 {
+                let rotation =
+                    glam::Quat::from_axis_angle(axis, phase as f32 * std::f32::consts::TAU / 16.);
+                let pose = (rotation * glam::Quat::from_array(base.lighting))
+                    .normalize()
+                    .to_array();
+                for resolution in [8, 16, 64] {
+                    for scale in [0.25, 1., 4.] {
+                        let mut instance = base;
+                        instance.lighting = pose;
+                        instance.view_orientation = pose;
+                        instance.metadata[2] = resolution;
+                        instance.position_size[3] = 0.00390625 * scale;
+                        cases.push(instance);
+                    }
+                }
+            }
+        }
+    }
+    cases
 }
 
 fn leaf_review_can_be_empty(
@@ -288,7 +360,9 @@ impl ButterflyMeshRenderer {
             || self.compute_count == 0
             || (self.previous_mode == self.validated_mode
                 && (!leaf_review || self.previous_leaf_mode == self.validated_leaf_mode)
-                && !self.validation_calls.is_multiple_of(16))
+                && !self.validation_calls.is_multiple_of(16)
+                && std::env::var("RE_FLORA_MODEL_COVERAGE_FIXTURE").as_deref()
+                    != Ok("leaf-pose-sweep"))
         {
             return Ok(());
         }
@@ -662,6 +736,24 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coverage_pose_sweep_is_bounded_and_keeps_both_captured_inputs() {
+        let template = Instance::zeroed();
+        let cases = coverage_pose_cases(template, 0, 32);
+        assert_eq!(cases.len(), 906);
+        for small in [false, true] {
+            let captured = captured_coverage_instance(template, 0, 32, small);
+            assert!(cases
+                .iter()
+                .any(|i| bytemuck::bytes_of(i) == bytemuck::bytes_of(&captured)));
+        }
+        for instance in cases {
+            assert!(glam::Quat::from_array(instance.lighting).is_normalized());
+            assert!([8, 16, 64].contains(&instance.metadata[2]));
+            assert!([0.0009765625, 0.00390625, 0.015625].contains(&instance.position_size[3]));
+        }
+    }
 
     #[test]
     fn captured_leaf_boundary_uses_producer_projection_not_cpu_reprojection() {

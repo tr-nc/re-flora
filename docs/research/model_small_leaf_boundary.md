@@ -102,3 +102,16 @@ not a production missing-pixel repair or a new numerical tolerance.
   generated files changed. All temporary shader probes and CPU pose generator
   were archived and removed. Broader deterministic phases and final live gates
   follow separately; this is not final acceptance.
+
+## Deterministic pose coverage
+
+`node scripts/validate-model-coverage-poses.mjs` (same enclosing GPU lock and
+Release/hidden/mute policy) passes **906 unscreened cases in 15 batches**:
+both exact captures and ±1/4/16-ULP translations on each axis, plus full rotations
+around three axes at 16 phases × 8/16/64px × 0.25/1/4 sizes. The runner checks the
+entire ordered batch sequence, nonzero independent numerical checks, and actual
+completion of the final 10-instance batch. It does not change the live runner,
+simulation cadence, saved settings or normal play. Every phase is checked;
+there is no retry/filtering of troublesome poses. Runtime wall-clock timing
+cannot select the sample set. `poses-1/`, `pose-check.log`, `pose-fmt.log` and
+`test-pose-sweep.log` retain the passing explicit native and fast pure guardrails.
