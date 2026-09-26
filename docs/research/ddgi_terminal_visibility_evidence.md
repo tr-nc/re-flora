@@ -76,3 +76,33 @@ Diagnostic controls, **not substitutes for that acceptance**:
 Both controls and the Release smoke shut down with `failures=0`, no ERROR/panic/VUID messages.
 The e2 timeout remains a failed check. No visible game was launched, and no App/Tracer or saved
 GUI/camera files were changed.
+
+## Sustained-edit and response checks
+
+The two existing Python runners now accept `--gpu-lock-held` **only** for a caller already holding
+`/tmp/re-flora-summer-gpu.lock` over the entire run. Default internal locking is unchanged. This
+avoids nested acquisition under the delivery contract's `flock --close`; it changes no fixture,
+analysis, threshold or deadline. Help documents the precondition and full invocation. Mocked
+runner tests verify both ownership modes and config restoration on launch failure.
+
+```sh
+CARGO_BUILD_JOBS=4 flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY \
+  python3 scripts/check_ddgi_sustained_edits.py target/improve-delivery/sustained32 \
+  --spacing 32 --binary target/release/re-flora --gpu-lock-held
+# Same command with --vary-lights and a different output directory.
+CARGO_BUILD_JOBS=4 flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY \
+  python3 scripts/check_ddgi_indirect_response.py target/improve-delivery/response32 \
+  --spacing 32 --binary target/release/re-flora --gpu-lock-held
+# Same command with --static-control and a different output directory.
+```
+
+All four Release runs pass their unchanged checks. Each sustained run executes 40 advancing edits,
+with 22 useful publications during editing; the light variant executes ten toggles and catches up
+to final geometry 42/radiance 11. First 10% indirect response during edits is 306 ms on / 311 ms
+off; off reaches 90% at 517 ms, with a negligible final residual. Static control also passes.
+These are bounded correctness/response observations, not a new performance or visual-quality claim.
+Process-bound console and canonical logs have no ERROR/panic/VUID or nonzero shutdown failures;
+initial GUI/camera hashes still match.
+
+Ninety focused Python tests (runners, lock ownership and capture analyzer), targeted Ruff, and CLI
+help/error checks pass. Global `pyright` is unavailable; no type-check pass is claimed.
