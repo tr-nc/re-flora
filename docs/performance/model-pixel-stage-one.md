@@ -11,8 +11,8 @@ use that report for current cache behavior and measurements.
 **Pixel Models — Global** contains:
 
 - **Discrete View Count** — integer slider, **8–512**, default **16**.
-- **Shared Startup Cache (unchecked: Live Generation)** — saved comparison,
-  default unchecked; see the stage-two report.
+
+Shared surfaces are permanent; the cache/live checkbox and capacity fallback are retired.
 
 Rotating pixels is fixed on; the screen-grid B mode and its checkbox are retired.
 
@@ -61,7 +61,7 @@ An immutable 8 KiB azimuth table avoids per-frame trigonometry and GPU resource
 replacement of that table when dragging the slider. Every integer count in
 8–512 is supported, not just powers of two. Stage-two surface-bank keys include
 count as well as view index: changing N redistributes directions and rebuilds
-banks (or retains the live generator when a bank exceeds its memory budget).
+data in generic paged storage, without a per-kind budget or live fallback.
 
 The nearest direction is selected once per object. No view interpolation,
 temporal blend, or hysteresis is applied. Angular jumps while moving the camera,

@@ -1,118 +1,107 @@
-# Shared startup model-surface cache
+# Permanent shared model surfaces
 
-Implemented after acceptance of orthographic **Rotating Pixels**. This is a real
-persistent GPU cache, not a view-snapping preview. It covers all 64 falling-leaf
-variants, attached/fallen apples sharing one shape, and 32 butterfly animation
-poses. There is no disk cache yet.
+All 64 falling-leaf variants, attached/fallen apples sharing one shape, and 32
+butterfly articulation poses use startup-generated surfaces. Rotating Pixels and
+per-object lighting remain permanent. There is no disk cache yet.
 
-## Try / compare
+The original cache/live comparison and its 128 MiB per-kind fallback have been
+**removed**. `model_pixel_cache` is retired from saved settings whether true or
+false. **Pixel Models — Global contains only Discrete View Count**, default 16,
+range 8–512. Per-object resolutions remain in their own settings.
 
-**Pixel Models — Global → Shared Startup Cache (unchecked: Live Generation)**
+## Two deep modules
 
-- Unchecked: regenerate canonical surfaces per instance, every frame.
-- Checked: read the startup-generated shared surfaces instead.
-- Both use the same generator, projection, nearest view/frame selection,
-  per-object lighting, per-pixel normal shading, rotating pixels and depth display.
-- The comparison is saved; missing old settings default to unchecked. This is
-  **not** the retired screen-grid B mode. View count remains 8–512, default 16.
-- Resolutions remain in the individual object settings. One apple setting applies
-  to both attached and fallen fruit.
+1. `src/tracer/model_pixel_cache.rs`: immutable model sources, view/animation
+   keys, current specifications, generation and rebuild policy.
+2. [`GpuPagedStorage`](../gpu-paged-storage.md): generic record allocation,
+   blocking, shader addressing, synchronization and fence-scoped residency.
 
-Both modes prebuild the current configuration at first render, before consumers,
-so switching the checkbox is immediate and does not trigger another bake. Only
-current resolutions/view count are generated, not every possible setting.
+Storage never receives a shape count, view count or animation concept. Models
+request a number of records with a layout and receive an opaque handle. Physical
+storage blocks, page tables and their lifetime are hidden by the storage module.
 
-## Deep module / generation seam
+The shader seam is still **model source + bake specification → unlit surface**:
 
-`src/tracer/model_pixel_cache.rs` owns immutable source preparation, animation
-frame selection, per-kind specifications, allocation limits, GPU generation,
-publication and frame-slot retirement. Callers request a frame configuration and
-bind its resources; they do not implement an atlas allocator or a generator.
+- `model_pixel_views.slang`: shared actual-N direction distribution and basis.
+- `model_pixel_bake.slang`: sole canonical generator, using the existing common
+  orthographic geometry/coverage sampler.
+- `model_pixel_bake.comp.slang`: startup/rebuild execution, writing through the
+  generic storage handle.
+- `model_pixel_cache.slang`: stored-surface lookup. It has no live-generation
+  return branch or memory-budget fallback.
+- Material adapters relight stored data in the instance's real pose; the common
+  display reads the transient shaded tile without triangle traversal.
 
-The shader half consists of:
+Each stored surface is 32 bytes: model-local physical position + canonical depth,
+then model-local normal + material index. Coverage is `depth < 1`; empty records
+are initialized too. Instance palette, color, opacity, physical transform,
+lighting and external shadows are not baked. No color quantization was introduced.
 
-- `model_pixel_views.slang`: one actual-N direction distribution and canonical
-  basis for both startup generation and runtime nearest-view selection.
-- `model_pixel_bake.slang`: **immutable model source + bake specification → unlit
-  surface tile**. It calls the existing shared orthographic geometry/coverage
-  sampler. Model source IDs resolve to geometry ranges and bank/shape keys.
-- `model_pixel_bake.comp.slang`: startup/rebuild scheduling of that generator.
-- `model_pixel_cache.slang`: validated bank lookup or the same live generator.
-- Existing material adapters relight the result in the instance's real pose.
-  Existing `model_pixel_display.slang` displays it without triangle traversal.
+Compact per-instance RGBA/depth tiles remain transient. Their compute pass now
+performs lookup + relighting, not model intersection or coverage generation.
+This keeps shading at N×N rather than repeating it per enlarged screen fragment.
 
-Each surface texel is 32 bytes:
+The surface format remains version 1. Source assets are immutable within a running
+renderer. Offline loading later must validate source identity and generator/format
+versions before supplying the same records; no speculative plugin or disk format
+was introduced.
 
-1. model-local physical sample position (xyz), normalized orthographic depth (w);
-2. model-local normal (xyz), material index (w).
+## Butterfly pose contract
 
-Coverage is `depth < 1`. Empty cells are initialized too. Material IDs retain leaf
-stem tinting and apple skin/stem/leaf colors. Instance palette/color, fading,
-lighting, external shadows and physical transform are **not baked**. There is no
-color quantization or final scene-lit color in the persistent banks.
+The nearest of 32 cyclic authored articulation poses is selected without blending
+or hysteresis. Published facing, position, scale and flight coupling remain live.
+Authored root translation is evaluated at the published continuous phase, applied
+as rigid placement with `(1-blend)`, and removed from the canonical shape bank.
+Thus intermediate coupling stays continuous and full coupling suppresses duplicate
+bob. Physics snapshots are not changed.
 
-The existing compact per-instance RGBA/depth tiles remain transient. In cached
-mode, their compute pass does lookup + relighting, not triangle sampling or
-coverage generation. This deliberately keeps expensive shading at N×N instead
-of repeating it for every enlarged screen fragment.
+Production does not build/upload per-instance butterfly triangles or upload the
+leaf triangle bank every frame. The pre-existing continuous numerical diagnostic
+path remains test-only. The GPU stored-surface oracle can call the sole generator
+to compare records, but never displays that recomputed value or uses it as fallback.
 
-The internal baked-result format is version 1. Sources are immutable compiled
-assets for the lifetime of this renderer, so runtime keys only need kind,
-resolution and actual view count; shape/animation frame and view index address
-within a bank. A future offline loader must additionally validate source content
-identity, format and generator version before supplying this same result. No
-speculative plugin or file-format framework was added.
+## Rebuilds and capacity
 
-## Butterfly articulation versus published flight
+- First render generates the current configuration before consumers.
+- One resolution change rebuilds only its affected model data.
+- Changing N rebuilds for the actual-N direction distribution.
+- Camera, rotation, animation, colors, lighting, spawning and scene/window resize
+  do not rebuild stored surfaces.
+- Replacement allocations are prepared before recording/publishing their new
+  generation. Pointer-reachable buffers receive explicit tracked GPU dependencies.
+  Old allocations remain leased until all consuming frame slots complete.
 
-The nearest of **32 cyclic authored poses** is selected without interpolation or
-hysteresis. This is a new rendering approximation, shared by both sides of the
-cache comparison; unchecked is not the old continuous-articulation renderer.
+There is **no fixed total/per-kind budget**. Storage's preferred 64 MiB block size
+is allocation granularity, not a limit on a logical dataset. It queries real
+allocation constraints and uses Vulkan buffer device addresses. Actual exhaustion
+or invalid/overflowing requests produce an explicit error, not quality reduction
+or a different renderer. Physical capacity is not infinite.
 
-Only articulated shape is discretized. Published facing, position, scale and
-flight coupling are preserved. The authored root translation is evaluated at the
-published continuous phase and applied as rigid placement, scaled by `(1-blend)`.
-It is removed from the canonical shape bank. Thus full flight coupling still
-suppresses duplicate bob, intermediate blends remain continuous, and root motion
-does not require an additional cache dimension. Physics snapshots are untouched.
+At 16 directions:
 
-Production no longer builds/uploads per-instance butterfly triangles or uploads
-the leaf triangle bank every frame. The legacy geometry path remains solely for
-the existing continuous numerical diagnostics.
+| Model data | Current saved resolution | Payload | At 64×64 |
+|---|---:|---:|---:|
+| 64 leaf variants | 22×22 | 15.125 MiB | 128 MiB |
+| One apple shape | 32×32 | 0.5 MiB | 2 MiB |
+| 32 butterfly poses | 16×16 | 4 MiB | 64 MiB |
 
-## Rebuilds, bounds and safety
+Current payload total: **19.625 MiB**, independent of instance count. Benchmark
+16px leaves/butterflies + 32px apples use **12.5 MiB**, or **14 MiB** with 64px apples.
+Address tables/alignment and temporarily retained generations add storage. The
+block count and buffer bytes are reported in `MODEL_CACHE_BUILD`.
 
-- Changing one object's resolution rebuilds only its bank.
-- Changing view count rebuilds affected banks for the new actual-N distribution.
-- Camera motion, object rotation, animation, lighting, spawning and the checkbox
-  do not rebuild banks. Animation frames and shape variants share ready data.
-- Scene/window resize does not alter bake inputs.
-- New banks are written before same-command-buffer consumers. Reflected buffer
-  uses provide compute-write/read dependencies. Frame slots retain old allocations
-  until their fences complete; an in-flight descriptor is never edited in place.
-- Generation metadata has a separate frame-owned buffer, so a full 128 MiB bank
-  does not exceed the portable storage-buffer limit just to hold a header.
+At 32 directions, 64px leaf data is 256 MiB and occupies four blocks; it no longer
+switches to live generation. The maximum allowed view/resolution combination can
+request several GiB: allocation success depends on actual available resources.
+Startup and settings changes can hitch; generation is not progressive/background.
 
-There is a **128 MiB per-bank limit** (three banks). Over-budget combinations keep
-the exact live generator for that kind and emit `MODEL_CACHE_FALLBACK`, rather
-than displaying stale data, lowering resolution, dropping shapes or allocating
-several gigabytes. The checkbox remains requested-on; consult these explicit logs
-for per-kind fallback. Returning to a supported setting restores caching.
-
-For 16 views and 16px leaves/butterflies + 32px apples, banks total **12.5 MiB**;
-64px apples raise this to **14 MiB**. The currently saved 22px leaf setting instead
-uses **19.625 MiB** total at 16 views. Even 64px leaves at 16 views fit exactly in
-one 128 MiB bank. Maximum live-bank storage is 384 MiB; temporarily retained old
-generations add memory according to the number of in-flight frame slots. Startup
-and setting changes may hitch; this implementation is synchronous GPU generation,
-not a background/progressive baker.
-
-## Correctness validation
+## Validation
 
 ```sh
 cargo fmt --check
 cargo check
 cargo test
+cargo test -p re-flora-vkn
 env -u WAYLAND_DISPLAY node scripts/validate-apple-model.mjs --cache
 env -u WAYLAND_DISPLAY node scripts/validate-leaf-model.mjs --seconds 9
 env -u WAYLAND_DISPLAY python3 scripts/validate_butterfly_mesh.py --seconds 12
@@ -120,56 +109,58 @@ env -u WAYLAND_DISPLAY cargo run --release -- --hidden --mute --auto-exit 0.5
 cargo run --release -- --tail-latest-log 200
 ```
 
-**1106 tests passed / 4 ignored.** New tests cover canonical sources, bounds,
-cyclic frame selection, budget boundaries, continuous published root/coupling,
-shared adapter use, GUI migration and persistence. Shader-derived files were
-regenerated with `cargo check`, not hand-edited.
+Main tests: **1106 passed / 4 ignored**. Vulkan library: **45 passed**, including
+storage planning, boundaries, overflow/device limits and retirement. Saved-setting
+migration removes both former checkbox values. Generated files were regenerated
+with `cargo check`.
 
-`--cache` enables an internal GPU oracle that independently regenerates the live
-surface at each consumed cache address and compares **all eight float bit patterns**,
-including empty cells. No epsilon/tolerance is used. Counters are read only after
-frame completion. The final 16-second run checked 20,684,800 leaf, 12,844,928 apple
-and 6,015,744 butterfly texels with **zero mismatches**. It also verified:
+The GPU oracle compares all eight float bit patterns of stored and regenerated
+surfaces, including empty cells; no epsilon is used. The 16-second review checked
+34,996,224 leaf, 17,508,096 apple and 12,676,608 butterfly records with **zero
+mismatches**. It exercised 8/16/37/128/512 views, independent resolutions, actual
+fruit drops, native resizes, isolated rebuilds, 256 MiB/four-block storage and
+replacement. A broader combination also used 296 MiB/five-block leaf data.
 
-- both modes at 8/16/37/128/512 directions and independent resolutions;
-- attached fruit, actual drops and five native resize generations;
-- checkbox-only reuse, isolated per-kind rebuilds, budget fallback and recovery;
-- no Vulkan errors or saved config changes.
+The 1,100-leaf stress run checked 585,164,800 leaf records, including 4,505,600 per
+64px frame across the existing 64 MiB transient-tile batching boundary. All kinds
+had zero mismatches. Artifacts:
 
-An additional 1,100-leaf run exercised 64px output across the existing 64 MiB
-transient-tile batch boundary. It checked 338,905,600 leaf texels, including
-4,505,600 per frame in 64px cached cases, with zero mismatches in all kinds.
-Artifacts: `target/model-cache-review/{validation.log,scene.png,cross-batch.log}`.
+- `target/model-cache-review/validation.log`, `scene.png`
+- `target/model-cache-review/paged-cross-batch.log`
 
-The existing strict continuous GPU/CPU coverage/depth and RGBA diagnostics also
-passed unchanged. Neither those oracles nor the new surface-bit oracle constitute
-artistic approval of the 32-frame butterfly approximation. Screenshots were
-inspected, but the visible game was not automatically launched.
+Both old strict continuous GPU/CPU coverage/depth/RGBA diagnostics passed. These
+tests do not replace artistic review of 32-frame butterfly articulation. No
+visible game was automatically launched. Vulkan errors and saved-config changes
+were absent. Runtime coverage is Linux / RTX 3060 Ti, not Windows/MoltenVK.
 
-## Release performance
+## Release measurements
 
 ```sh
 node scripts/benchmark-model-pixels.mjs --seconds 8 --stress-leaves 256 \
-  --suite cache --output target/model-cache-bench
+  --suite cache --output target/model-paged-bench
 ```
 
+`cache` is now an alias of `apples`, not a live/cached A/B. Both run 8/32/64px
+apples; `stage-one` varies direction count with caching always active. Historical
+live comparisons require the older revision.
+
 RTX 3060 Ti; 2880×1620 output / 1440×810 scene; 256 rotating 16px leaves + 21 16px
-butterflies + 17 apples; 16 views; nine post-warmup GPU samples per case. No GPU
-oracle, readback, fallback or repeated cache builds in these eight runs.
+butterflies + 17 apples; 16 views; nine post-warmup GPU samples per case. Every
+kind generated once, without an oracle or regeneration during steady state.
 
-| Scene / apple pixels | Live GPU p50 | Cached GPU p50 | Apple tile live → cached | Particle tiles live → cached |
-|---|---:|---:|---:|---:|
-| Attached / 32 | 7.194 ms | 6.128 ms | 1.424 → 0.032 ms | 0.389 → 0.035 ms |
-| Fallen / 32 | 7.149 ms | 6.371 ms | 1.402 → 0.028 ms | 0.390 → 0.035 ms |
-| Attached / 64 | 8.897 ms | 6.285 ms | 3.084 → 0.039 ms | 0.390 → 0.035 ms |
-| Fallen / 64 | 8.785 ms | 6.142 ms | 3.019 → 0.032 ms | 0.388 → 0.035 ms |
+| Scene / apple pixels | Whole GPU p50 | Apple lookup/shading | Particle lookup/shading |
+|---|---:|---:|---:|
+| Attached / 32 | 5.408 ms | 0.029 ms | 0.031 ms |
+| Fallen / 32 | 5.340 ms | 0.026 ms | 0.032 ms |
+| Attached / 64 | 6.169 ms | 0.035 ms | 0.032 ms |
+| Fallen / 64 | 5.313 ms | 0.030 ms | 0.031 ms |
 
-Actual measured cadence remained **58.0–58.6 FPS**; do not turn reciprocal GPU
-milliseconds into claimed FPS. Default-32px GPU/cadence acceptance passed.
-Screenshots, logs and `summary.json` are in `target/model-cache-bench/`.
+Across all six cases, GPU p95 was 5.351–7.600 ms and actual cadence **58.1–58.5 FPS**.
+The default-32px GPU/cadence checks passed. These short runs establish usable
+Release behavior, not a controlled speedup from paging: scene/GPU timings vary.
+Artifacts: `target/model-paged-bench/{summary.json,*.log,*.png}`.
 
-These are short steady-state measurements, not startup-latency measurements.
-`MODEL_CACHE_BUILD record_us` measures CPU command recording, **not GPU bake time**.
-The `models.cache.bake` GPU scope exists, but normal periodic logging missed the
-first generation in this run. No startup GPU-time or offline-loading speed claim
-is made. The cache still spends per-instance lighting/shading/display time.
+For context, the previous live/cached A/B at `f44c9340` measured 32px apple stages
+around 1.4 → 0.03 ms and particle stages 0.39 → 0.035 ms. Those were cache-reuse
+savings, not measurements of this storage refactor. Startup bake latency and
+allocation-exhaustion behavior were not benchmarked or deliberately forced.

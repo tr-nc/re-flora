@@ -6,9 +6,9 @@ canonical collision/attachment metadata remains. The original-mode measurements
 below are historical and require the corresponding older checkout/config/script
 to reproduce. The current benchmark compares 8/32/64px, using 8px as its cadence
 reference (or the default 16 views for the stage-one suite). Per-object lighting
-is now permanent. The global group contains the shared view-count slider and the
-startup-cache comparison; [orthographic rotating pixels](model-pixel-orthographic-preview.md)
-is fixed on.
+is now permanent. The global group contains only the shared view-count slider.
+[Orthographic rotating pixels](model-pixel-orthographic-preview.md) and shared
+surfaces are permanent; there is no live-generation comparison/fallback.
 
 For the subsequent per-object-lighting and adjustable discrete-view controls, see
 [Stage-one preview and measurements](model-pixel-stage-one.md). Its performance
@@ -24,8 +24,8 @@ Butterflies, falling leaves, and both attached/fallen new apples now use:
 2. `shader/slang/model_pixel_surface.slang::sampleModelPixelGeometry` performs
    center-ray nearest-hit selection, near/far clipping, conservative projected
    cell coverage, and supporting-surface depth selection.
-3. The startup-cache mode reuses those unlit surfaces; the live comparison
-   regenerates them. Compute relights the surface and writes each instance's N×N
+3. Startup/rebuild stores those unlit surfaces in generic GPU paged storage.
+   Ordinary frames only read and relight them, writing each instance's N×N
    color/depth tile once per frame.
 4. `shader/slang/model_pixel_display.slang` reads that tile in screen fragments.
    There is no screen-fragment triangle traversal or model-specific repair loop.

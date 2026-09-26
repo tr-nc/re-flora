@@ -15,7 +15,7 @@ instance poses and mesh shadow casting remain unchanged.
 ## Controls
 
 **Pixel Models — Global** contains **Discrete View Count** (shared, default
-**16**, range 8–512) and the new **Shared Startup Cache** comparison checkbox.
+**16**, range 8–512) only. Shared surfaces are permanent; the cache/live comparison is retired.
 Canonical square pixels rotate with the object's screen roll.
 Per-object lighting is permanent. Resolution stays under Butterflies, Falling
 Leaves and Apple Appearance (one apple resolution covers attached/fallen states).
@@ -64,8 +64,8 @@ stage-two report for keys, frame ownership, limits and the future offline seam.
 - Normals/light shading use the real pose. Depth uses the orthographic surface,
   not a flat quad. Both approximate a perspective mesh, especially close up or
   at coarse view counts. Geometry coverage remains conservative.
-- Butterfly articulation now uses 32 cached canonical poses in both live/cache
-  modes. Published root translation and flight coupling remain continuous; see
+- Butterfly articulation now uses 32 shared canonical poses.
+  Published root translation and flight coupling remain continuous; see
   the stage-two report for this additional rendering approximation.
 
 ## Validation
