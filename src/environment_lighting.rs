@@ -1305,22 +1305,24 @@ mod tests {
         irradiance: &str,
         visibility: &str,
     ) -> Result<(), &'static str> {
-        for (filter, owner_import, terminal, fresh) in [
+        for (filter, owner_import, terminal, fresh, history_policy) in [
             (
                 irradiance,
                 "import ddgi_irradiance_filter_owner;",
                 "ddgiOwnerTryStoreTerminalIrradiance(",
                 "ddgiOwnerStoreFreshIrradiance(",
+                "ddgiFilterIrradianceHistoryDecision(",
             ),
             (
                 visibility,
                 "import ddgi_visibility_filter_owner;",
                 "ddgiOwnerTryStoreTerminalVisibility(",
                 "ddgiOwnerStoreFreshVisibility(",
+                "ddgiFilterHistoryDecision(",
             ),
         ] {
             if !filter.contains(owner_import)
-                || filter.matches("ddgiFilterHistoryDecision(").count() != 1
+                || filter.matches(history_policy).count() != 1
                 || filter.matches(terminal).count() != 1
                 || filter.matches(fresh).count() != 1
             {
@@ -1395,6 +1397,17 @@ mod tests {
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
             "ddgiOwnerStoreFreshIrradiance(",
             "bypassHistoryCommit(",
+            1,
+        );
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        assert!(validate_ddgi_filter_owner_wiring(&irradiance, visibility).is_err());
+    }
+
+    #[test]
+    fn wiring_guard_rejects_visibility_retention_policy_for_irradiance() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
+            "ddgiFilterIrradianceHistoryDecision(",
+            "ddgiFilterHistoryDecision(",
             1,
         );
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");

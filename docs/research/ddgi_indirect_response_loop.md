@@ -84,6 +84,71 @@ complete fields with newer identities publish. At spacing 32 the edited on-refer
 is within about 1.5% of the independent static control, so it is not a different brightness target
 invented to manufacture the failure.
 
+## Corrective policy and final remeasurement
+
+Root cause: the shared filter policy selected **Retain**, byte-for-byte, outside the geometry-local
+recovery bound. That is a geometric visibility optimization, not a proof that incident radiance is
+unchanged. It discarded freshly traced irradiance even when lights or remote bounce paths changed.
+Every new edit restarted local recovery, so the receiver waited until editing ended and that local
+partition was retired. The static control, exact frozen receiver values, shader decision, and
+RED Slang regression separate this from a stale diagnostic binding or mere scheduling delay.
+
+`ddgiFilterIrradianceHistoryDecision` now owns the irradiance-specific rule: every valid probe consumes
+fresh transport, with the existing field-epoch recovery cap applied across the field. The configured
+and source/target radiance-adaptive retention remain inputs; absent/invalid history still follows
+Replace. Geometric visibility retains its spatial partition. No ray budget, probe density, field
+publication rule, promotion barrier, or consistency check was relaxed. The evidence action schema
+and exact per-field Blend-retention witness remain unchanged. The additional Slang truth table checks
+brightening, fading, bounded history, recovery, invalid support, and unchanged visibility retention;
+the Rust wiring guard rejects accidentally reusing the visibility policy for irradiance.
+
+Final executable: `bin/fixed-final`. `fixed*-run1` and `bin/changed-irradiance-history` are an
+intermediate experiment, **not** the final comparison. The final runs use exactly the same runner,
+fixture, tolerances, and GUI hash as the baseline. `comparison.json` aggregates the retained logs.
+
+| Final comparisons | On 10% | On 90% | Off 10% | Off 90% | Final off residual |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline 32, two runs | 6.245–6.247 s | 11.551–11.560 s | 6.241–6.244 s | 12.237–12.244 s | 9.09–9.67% |
+| Fixed 32, two runs | 0.308–0.310 s | 0.308–0.310 s | 0.310–0.312 s | 0.516–0.517 s | below 0.000001% |
+| Baseline 16, one run | 14.905 s | 58.823 s | 14.901 s | 59.947 s | 8.04% |
+| Fixed 16, one run | 1.371 s | 1.371 s | 1.341 s | 2.601 s | 0.00659% |
+
+All final fixed response runs pass; all baseline edit runs fail the unchanged response/removal
+contracts. The stable lit references differ by less than 0.1% between the compared arms. Static
+fixed control also passes (on/off 90% at 515/514 ms), closely matching the baseline static control.
+The improvement is **first response**, not proof of faster final convergence: the on-reference
+phase still performs many iterations before the renderer's convergence/sample-budget decision.
+Dense mode still has a noticeable whole-field response delay.
+
+There is real extra filtering work, not free performance: spacing-32 sampled
+`ddgi.irradiance_filter` means rise from roughly 7–10 µs to 23–24 µs per dispatched batch because
+fresh values are no longer discarded. Corresponding on-edit `frame.render` means are 5.917–5.957 ms
+baseline versus 5.911–5.941 ms fixed. Dense on-edit means are 5.971 versus 6.100 ms, while off-edit
+samples move the other way. These are only 9–10 GPU scope samples per window, **not** a rigorous
+frame-time equivalence claim. No universal latency/performance budget is inferred from them.
+
+### Validation and remaining limitations
+
+- `cargo fmt --check`, `cargo check`, `cargo test`: 1174 main + 4 library tests pass, 4 ignored.
+- All 21 Slang CPU tests; 84 targeted Python tests (response, sustained editing, capture parser).
+- Targeted Ruff and CLI help pass. Global `pyright` is unavailable; no type-check pass is claimed.
+- Default hidden/muted Release run and full tree smoke plus resize pass, with clean shutdown and
+  no ERROR/panic/VUID messages. The tree smoke still includes actual light additions/removals.
+- Existing sustained terrain/light cross-test passes; the screenshot is evidence of the exercised
+  frame, not an independent illumination-correctness oracle.
+- Static legacy RFIRR e2 capture and its strict current-format analyzer pass.
+- **Known baseline blocker:** legacy `terrain-edits-inflight-capture` with e2 capture aborts with
+  `DDGI visibility sample evidence owner version is inconsistent`. The identical command on the
+  preserved baseline aborts with the identical error. Both logs are under `regressions/`; this
+  older capture-validation defect is not a new regression and was not bypassed or claimed green.
+  Consequently the complete legacy capture acceptance matrix is not validated by this change.
+
+The irradiance history outside the edited region is no longer frozen, so unrelated regions may
+show more temporal variation. No visible game was automatically launched, and whole-scene visual
+quality/flicker is not approved by these numeric tests. Longer gestures, multiple receivers and
+edited regions, terrain-only response, more hardware, and richer convergence/performance studies
+remain follow-ups. Nothing was merged into `main`.
+
 ## Reproduce
 
 ```sh

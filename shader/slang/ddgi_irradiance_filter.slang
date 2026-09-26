@@ -55,12 +55,8 @@ void main(uint3 groupId : SV_GroupID,
                        DDGI_IRRADIANCE_STORED_SIDE) +
         localInvocationId.xy + uint2(1u);
     DdgiProbeMetadata metadata = ddgi_probe_metadata.data[probeIndex];
-    bool localRecoveryProbe = ddgiFilterProbeNeedsLocalRefresh(
-        metadata.nominal_position_and_min_clearance.xyz,
-        pc.local_refresh_enabled.x, pc.local_refresh_world_min.xyz,
-        pc.local_refresh_world_max.xyz);
-    DdgiFilterHistoryDecision historyDecision = ddgiFilterHistoryDecision(
-        pc.has_history, pc.local_refresh_enabled.x, localRecoveryProbe,
+    DdgiFilterHistoryDecision historyDecision = ddgiFilterIrradianceHistoryDecision(
+        pc.has_history, pc.local_refresh_enabled.x,
         pc.local_refresh_enabled.y, pc.history_retention);
     bool samePlacement = false;
     if (pc.filter_evidence.y != 0u)
@@ -87,8 +83,8 @@ void main(uint3 groupId : SV_GroupID,
             pc.destination_is_transport_source, atlasCoordinate,
             historyDecision, freshAvailable, history))
     {
-        // Geometry recovery owns only its explicit dirty partition. Keeping the other tiles
-        // byte-for-byte identical avoids turning a local edit into global temporal noise.
+        // Unavailable current probe evidence is handled by the same terminal owner. A valid
+        // remote probe still incorporates fresh irradiance; only visibility may be retained.
         return;
     }
 

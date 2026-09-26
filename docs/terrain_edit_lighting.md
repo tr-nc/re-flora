@@ -3,8 +3,12 @@
 For the subsequent edit-specific cave brightening diagnosis, source-readiness/source-placement
 fixes, and matched closed-room/opening controls, see [cave edit lighting](cave_edit_lighting.md).
 
-Current validation command: `python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/recheck`
-(release, hidden/muted, GPU lock, screenshot/receiver measurement + during-edit publication assertions).
+Publication/screenshot validation: `python3 scripts/check_ddgi_sustained_edits.py target/edit-lighting/recheck`.
+Indirect-response validation: `python3 scripts/check_ddgi_indirect_response.py target/edit-lighting/response`.
+Both use hidden/muted Release and the GPU lock. See the [response measurement loop](research/ddgi_indirect_response_loop.md)
+for static/negative controls, measured on/off response during editing, and the remaining legacy capture blocker.
+Publication alone did not imply changing illumination: irradiance filtering now consumes fresh transport
+outside the geometry-local recovery bound too; only visibility retains that spatial partition.
 
 ## Current behavior: physical lighting during edits
 

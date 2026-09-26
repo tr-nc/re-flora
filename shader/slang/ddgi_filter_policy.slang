@@ -82,6 +82,18 @@ public DdgiFilterHistoryDecision ddgiFilterHistoryDecision(
     return result;
 }
 
+public DdgiFilterHistoryDecision ddgiFilterIrradianceHistoryDecision(
+    uint hasHistory, uint recoveryEnabled, uint recoveryEpoch,
+    float configuredRetention)
+{
+    // A geometry-local bound justifies retaining distant visibility moments, not radiance.
+    // Incoming light can change anywhere through remote bounce paths or light mutations.
+    // Consume the already-traced transport across the whole field, applying the same
+    // field-epoch recovery cap everywhere, even when new edits repeatedly restart e0.
+    return ddgiFilterHistoryDecision(hasHistory, 0u, recoveryEnabled != 0u,
+        recoveryEpoch, min(configuredRetention, 0.99));
+}
+
 public bool ddgiAggregatePlacementMatches(DdgiProbeMetadata current, DdgiProbeMetadata source)
 {
     return current.state_and_reserved.x == DDGI_PROBE_STATE_VALID &&
