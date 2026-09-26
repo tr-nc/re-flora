@@ -285,7 +285,7 @@ pub(super) struct ButterflyMeshRenderer {
     pub resolution: u32,
     tile_count: u32,
     pub compute_count: u32,
-    pub tile_batches: Vec<super::model_pixel_tiles::TileBatch>,
+    pub tile_layout: super::model_pixel_tiles::ParticleTiles,
     pub dispatch_resolution: u32,
     previous_leaf_mode: Option<(bool, u32, u32)>,
     validated_leaf_mode: Option<(bool, u32, u32)>,
@@ -312,7 +312,7 @@ impl Default for ButterflyMeshRenderer {
             resolution: 22,
             tile_count: 0,
             compute_count: 0,
-            tile_batches: Vec::new(),
+            tile_layout: super::model_pixel_tiles::ParticleTiles::default(),
             dispatch_resolution: 22,
             previous_leaf_mode: None,
             validated_leaf_mode: None,
@@ -663,14 +663,11 @@ impl ButterflyMeshRenderer {
             let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
             instance.repair[3] = u32::from(visible);
         }
-        self.assign_pixel_tiles();
-        if !self.instances.is_empty() {
-            // Publish only the complete frame: never overwrite in-flight tile
-            // offsets/visibility with prepare_models' zero-initialized metadata.
-            resources.butterfly_mesh_instances.fill(&self.instances)?;
-            resources.butterfly_mesh_triangles.fill(&self.triangles)?;
-            resources.draw_indices.fill(&self.draw_order)?;
-        }
+        self.publish_pixel_frame(|instances, triangles, draw_order| {
+            resources.butterfly_mesh_instances.fill(instances)?;
+            resources.butterfly_mesh_triangles.fill(triangles)?;
+            resources.draw_indices.fill(draw_order)
+        })?;
         self.compute_count = self.count();
         self.dispatch_resolution = self
             .instances
@@ -716,16 +713,28 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
-    fn assign_pixel_tiles(&mut self) {
-        let (offsets, batches) =
-            super::model_pixel_tiles::pack_tiles(self.draw_order.iter().map(|&index| {
-                let i = &self.instances[index as usize];
-                (i.metadata[2], i.repair[3] != 0)
-            }));
-        self.tile_batches = batches;
-        for (&index, offset) in self.draw_order.iter().zip(offsets) {
-            self.instances[index as usize].repair[2] = offset;
+    fn publish_pixel_frame(
+        &mut self,
+        publish: impl FnOnce(&[Instance], &[Triangle], &[u32]) -> Result<()>,
+    ) -> Result<()> {
+        self.tile_layout = super::model_pixel_tiles::ParticleTiles::pack(
+            &self
+                .instances
+                .iter()
+                .map(|i| (i.metadata[2], i.repair[3] != 0))
+                .collect::<Vec<_>>(),
+            &self.draw_order,
+        );
+        for (instance, &offset) in self.instances.iter_mut().zip(self.tile_layout.offsets()) {
+            instance.repair[2] = offset;
         }
+        if !self.instances.is_empty() {
+            // One complete publication, only after sorted offsets and visibility
+            // are final. CPU pose preparation must never upload its zeroed repair
+            // metadata over an in-flight frame (a3661975).
+            publish(&self.instances, &self.triangles, &self.draw_order)?;
+        }
+        Ok(())
     }
     pub fn tile_compute_mode(&self) -> u32 {
         if native_review() {
@@ -814,7 +823,7 @@ impl ButterflyMeshRenderer {
 mod tests {
     use super::*;
     #[test]
-    fn sorted_draw_batches_keep_tile_offsets_with_their_instances() {
+    fn publication_contains_complete_sorted_offsets_and_skips_empty_uploads() {
         let mut renderer = ButterflyMeshRenderer::default();
         renderer.instances = (0..1100)
             .map(|_| Instance {
@@ -827,22 +836,27 @@ mod tests {
             })
             .collect();
         renderer.draw_order = (0..1100u32).rev().collect();
-        renderer.assign_pixel_tiles();
-        assert_eq!(renderer.tile_batches.len(), 2);
-        for batch in &renderer.tile_batches {
-            for (tile, &instance) in renderer.draw_order
-                [batch.first as usize..(batch.first + batch.count) as usize]
-                .iter()
-                .enumerate()
-            {
-                assert_eq!(
-                    renderer.instances[instance as usize].repair[2],
-                    tile as u32 * 64 * 64
-                );
-            }
-        }
-        assert_eq!(renderer.instances[0].repair[2], 75 * 4096);
-        assert_eq!(renderer.instances[1099].repair[2], 0);
+        let mut publications = 0;
+        renderer
+            .publish_pixel_frame(|instances, _, order| {
+                publications += 1;
+                assert_eq!(order, &(0..1100u32).rev().collect::<Vec<_>>());
+                for (draw, &index) in order.iter().enumerate() {
+                    assert_eq!(
+                        instances[index as usize].repair,
+                        [0, 0, (draw as u32 % 1024) * 4096, 1]
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(publications, 1);
+        renderer.instances.clear();
+        renderer.draw_order.clear();
+        renderer
+            .publish_pixel_frame(|_, _, _| panic!("empty frame must not upload stale models"))
+            .unwrap();
+        assert!(renderer.tile_layout.offsets().is_empty());
     }
 
     #[test]
