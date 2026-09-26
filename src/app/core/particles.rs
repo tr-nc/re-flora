@@ -4,7 +4,7 @@ use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightTuning, ButterflyFlightVariant,
     FallenLeafEmitter, LeafEmitterDesc, ParticleEmitter, ParticleHandle, ParticleRenderKind,
     ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig,
-    PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
+    STANDARD_PARTICLE_SIZE,
 };
 use crate::util::ClusterResult;
 use egui::Color32;
@@ -624,7 +624,10 @@ impl App {
             return;
         }
 
-        let remaining_capacity = PARTICLE_CAPACITY.saturating_sub(self.particle_snapshots.len());
+        let remaining_capacity = self
+            .particle_system
+            .capacity()
+            .saturating_sub(self.particle_snapshots.len());
         if remaining_capacity == 0 {
             return;
         }
@@ -755,10 +758,6 @@ impl App {
             let count = value
                 .parse::<usize>()
                 .expect("stress leaf count must be an integer");
-            assert!(
-                count <= crate::particles::PARTICLE_CAPACITY,
-                "stress leaf count exceeds particle capacity"
-            );
             static ANNOUNCE: std::sync::Once = std::sync::Once::new();
             ANNOUNCE.call_once(||log::info!("[MODEL_PIXEL_STRESS] leaves={count} butterflies=21 renderer_only=true readback=false saved=false"));
             let columns = (count as f32).sqrt().ceil().max(1.) as usize;

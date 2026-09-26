@@ -6,7 +6,6 @@ use crate::{
     },
     geom::UAabb3,
     lighting::{LOCAL_LIGHT_GPU_ABI_VERSION, LOCAL_LIGHT_GPU_CAPACITY},
-    particles::PARTICLE_CAPACITY,
     resource::Resource,
     tracer::{
         leaves_construct::{
@@ -814,7 +813,6 @@ fn particle_mesh_data(lod: bool) -> (Vec<LeafVertex>, Vec<u32>) {
 
 impl ParticleRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
-        let instance_capacity = PARTICLE_CAPACITY as u32;
         let (vertices, indices, indices_len) =
             Self::create_particle_mesh(device.clone(), allocator.clone(), true);
         let (tree_leaf_vertices, tree_leaf_indices, tree_leaf_indices_len) =
@@ -826,7 +824,7 @@ impl ParticleRendererResources {
                 allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
                 MemoryLocation::CpuToGpu,
-                (std::mem::size_of::<ParticleInstanceGpu>() as u64) * instance_capacity as u64,
+                std::mem::size_of::<ParticleInstanceGpu>() as u64,
             )
         };
         let instance_buffer = create_instance_buffer();

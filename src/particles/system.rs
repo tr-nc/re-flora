@@ -5,8 +5,9 @@ use super::butterfly_presentation::{ButterflyFrame, ButterflyPresentation};
 use super::leaf_flight::LeafFlight;
 use crate::wind_field::WindFieldFrame;
 
-/// Default maximum particle capacity shared between the CPU simulation and GPU buffer.
-pub const PARTICLE_CAPACITY: usize = 16_384;
+/// Initial reservation only. ParticleSystem owns admission and batch growth;
+/// renderers must size their storage from submitted instances, never this value.
+pub const INITIAL_PARTICLE_CAPACITY: usize = 16_384;
 /// Standard world-space particle quad size, matching one terrain voxel.
 pub const STANDARD_PARTICLE_SIZE: f32 = 1.0 / 256.0;
 /// Preserve the approved live wing mesh's guided-flight world size.
@@ -392,7 +393,7 @@ impl ParticleSystem {
         self.alive_indices.len()
     }
 
-    /// Maximum number of particles that can exist at once.
+    /// Currently allocated slots, not a permanent population limit.
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.max_particles

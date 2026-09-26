@@ -9,6 +9,9 @@ use std::{
 };
 
 pub const BATCH_TEXELS: usize = 64 * 1024 * 1024 / 16;
+// Vulkan's guaranteed Z dispatch range. This splits work in the SAME frame;
+// it is a resource constraint, never an object/population limit.
+const BATCH_INSTANCES: u32 = 65_535;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TileBatch {
     pub first: u32,
@@ -31,7 +34,7 @@ pub fn pack_tiles(models: impl IntoIterator<Item = (u32, bool)>) -> (Vec<u32>, V
         } else {
             0
         };
-        if batch.texels + cells > BATCH_TEXELS {
+        if batch.texels + cells > BATCH_TEXELS || batch.count == BATCH_INSTANCES {
             batches.push(batch);
             batch = TileBatch {
                 first: offsets.len() as u32,
@@ -71,6 +74,20 @@ mod tests {
         }
     }
     #[test]
+    fn large_populations_split_for_dispatch_without_losing_objects() {
+        let count = 200_000;
+        let (offsets, batches) = pack_tiles(std::iter::repeat_n((8, true), count));
+        assert_eq!(offsets.len(), count);
+        assert_eq!(
+            batches.iter().map(|b| b.count as usize).sum::<usize>(),
+            count
+        );
+        assert!(batches
+            .iter()
+            .all(|b| b.count <= BATCH_INSTANCES && b.texels <= BATCH_TEXELS));
+    }
+
+    #[test]
     fn mixed_resolution_and_offscreen_models_use_only_actual_cells() {
         let (offsets, batches) = pack_tiles([(8, true), (64, false), (16, true), (32, true)]);
         assert_eq!(offsets, [0, 64, 64, 320]);
@@ -88,8 +105,8 @@ mod tests {
 
 #[derive(Default)]
 pub struct ModelPixelTiles {
-    frames: Vec<HashMap<u64, (Arc<Buffer>, usize)>>,
-    used: Vec<HashSet<u64>>,
+    frames: Vec<HashMap<(u64, bool), (Arc<Buffer>, usize)>>,
+    used: Vec<HashSet<(u64, bool)>>,
 }
 impl ModelPixelTiles {
     pub fn begin_frame(&mut self, frame: usize) {
@@ -108,6 +125,40 @@ impl ModelPixelTiles {
         &mut self,
         frame: usize,
         key: u64,
+        texels: usize,
+        device: Device,
+        allocator: Allocator,
+    ) -> Result<Arc<Buffer>> {
+        self.buffer(frame, (key, false), texels, device, allocator)
+    }
+
+    /// Publish host-authored model inputs using the same fence-slot ownership
+    /// as generated tiles. No renderer-side particle population policy.
+    pub fn upload(
+        &mut self,
+        frame: usize,
+        key: u64,
+        bytes: &[u8],
+        device: Device,
+        allocator: Allocator,
+    ) -> Result<Arc<Buffer>> {
+        let buffer = self.buffer(
+            frame,
+            (key, true),
+            bytes.len().div_ceil(16),
+            device,
+            allocator,
+        )?;
+        if !bytes.is_empty() {
+            buffer.fill_range_with_raw_u8(0, bytes)?;
+        }
+        Ok(buffer)
+    }
+
+    fn buffer(
+        &mut self,
+        frame: usize,
+        key: (u64, bool),
         texels: usize,
         device: Device,
         allocator: Allocator,
@@ -132,8 +183,19 @@ impl ModelPixelTiles {
             let buffer = Buffer::new_sized(
                 device,
                 allocator,
-                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-                MemoryLocation::GpuOnly,
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | if key.1 {
+                            vk::BufferUsageFlags::VERTEX_BUFFER
+                        } else {
+                            vk::BufferUsageFlags::empty()
+                        },
+                ),
+                if key.1 {
+                    MemoryLocation::CpuToGpu
+                } else {
+                    MemoryLocation::GpuOnly
+                },
                 (capacity * 16) as u64,
             );
             slots.insert(key, (Arc::new(buffer), capacity));

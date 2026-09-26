@@ -22,7 +22,6 @@ use crate::{
 const CAPACITY: usize = 256;
 const MAX_TRIANGLES: usize = 256;
 pub const MAX_RESOLUTION: u32 = 64;
-const MODEL_CAPACITY: usize = crate::particles::PARTICLE_CAPACITY + CAPACITY;
 const LEAF_MODEL_FLAG: u32 = 2;
 
 // Match the GPU frame construction and operation order. Quaternion-vector
@@ -184,11 +183,9 @@ impl ButterflyMeshResources {
                 vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
             ),
             MemoryLocation::CpuToGpu,
-            (MODEL_CAPACITY * 4) as u64,
+            4,
         );
-        draw_indices
-            .fill(&(0..MODEL_CAPACITY as u32).collect::<Vec<_>>())
-            .unwrap();
+        draw_indices.fill(&[0u32]).unwrap();
         let model_view_azimuths = buffer(
             super::model_pixel_views::MAX_VIEWS as usize * 16,
             MemoryLocation::CpuToGpu,
@@ -200,7 +197,7 @@ impl ButterflyMeshResources {
             model_view_azimuths,
             draw_indices: Resource::new(draw_indices),
             butterfly_mesh_instances: buffer(
-                MODEL_CAPACITY * std::mem::size_of::<Instance>(),
+                std::mem::size_of::<Instance>(),
                 MemoryLocation::CpuToGpu,
             ),
             butterfly_mesh_triangles: buffer(
@@ -272,7 +269,14 @@ impl Mesh {
     }
 }
 
+pub(super) struct ModelInputs {
+    pub instances: Arc<Buffer>,
+    pub triangles: Arc<Buffer>,
+    pub indices: Arc<Buffer>,
+}
+
 pub(super) struct ButterflyMeshRenderer {
+    pub inputs: Option<ModelInputs>,
     mesh: Mesh,
     instances: Vec<Instance>,
     draw_order: Vec<u32>,
@@ -301,6 +305,7 @@ pub(super) struct ButterflyMeshRenderer {
 impl Default for ButterflyMeshRenderer {
     fn default() -> Self {
         Self {
+            inputs: None,
             mesh: Mesh::load(),
             instances: Vec::new(),
             draw_order: Vec::new(),
@@ -491,10 +496,6 @@ impl ButterflyMeshRenderer {
             .filter(|s| leaves.uses_model(s) && s.size > 0. && s.color.w > 0.)
             .collect();
         ensure!(
-            candidates.len() <= crate::particles::PARTICLE_CAPACITY,
-            "falling leaf model capacity exceeded"
-        );
-        ensure!(
             candidates.iter().all(|s| s
                 .leaf_orientation
                 .is_some_and(|q| q.is_finite() && q.is_normalized())
@@ -557,7 +558,7 @@ impl ButterflyMeshRenderer {
         &mut self,
         view: Mat4,
         projection: Mat4,
-        resources: &ButterflyMeshResources,
+        storage: &mut super::model_pixel_tiles::ModelPixelTiles,
         device: Device,
         allocator: Allocator,
         frame_slot: usize,
@@ -699,11 +700,29 @@ impl ButterflyMeshRenderer {
         if !self.instances.is_empty() {
             // Publish only the complete frame: never overwrite in-flight tile
             // offsets/visibility with prepare_models' zero-initialized metadata.
-            resources.butterfly_mesh_instances.fill(&self.instances)?;
-            if !self.triangles.is_empty() {
-                resources.butterfly_mesh_triangles.fill(&self.triangles)?;
-            }
-            resources.draw_indices.fill(&self.draw_order)?;
+            self.inputs = Some(ModelInputs {
+                instances: storage.upload(
+                    frame_slot,
+                    0,
+                    bytemuck::cast_slice(&self.instances),
+                    device.clone(),
+                    allocator.clone(),
+                )?,
+                triangles: storage.upload(
+                    frame_slot,
+                    1,
+                    bytemuck::cast_slice(&self.triangles),
+                    device.clone(),
+                    allocator.clone(),
+                )?,
+                indices: storage.upload(
+                    frame_slot,
+                    2,
+                    bytemuck::cast_slice(&self.draw_order),
+                    device.clone(),
+                    allocator.clone(),
+                )?,
+            });
         }
         self.compute_count = self.count();
         self.dispatch_resolution = self
@@ -1123,7 +1142,8 @@ mod tests {
             .unwrap();
         let mut source = Vec::new();
         system.write_snapshots(&mut source);
-        let snapshots = vec![source[0]; crate::particles::PARTICLE_CAPACITY];
+        // The renderer consumes demand, not the simulation's initial reservation.
+        let snapshots = vec![source[0]; 32_769];
         let mut renderer = ButterflyMeshRenderer::default();
         renderer
             .prepare_models(

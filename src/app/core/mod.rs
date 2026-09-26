@@ -109,7 +109,7 @@ use crate::geom::UAabb3;
 use crate::lighting::LocalLightRegistry;
 use crate::particles::{
     ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, LeafEmitterDesc,
-    ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem, PARTICLE_CAPACITY,
+    ParticleForces, ParticleHandle, ParticleSnapshot, ParticleSystem, INITIAL_PARTICLE_CAPACITY,
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
@@ -1369,7 +1369,7 @@ impl App {
             )
         };
 
-        let particle_system = ParticleSystem::new(PARTICLE_CAPACITY);
+        let particle_system = ParticleSystem::new(INITIAL_PARTICLE_CAPACITY);
         let leaf_emitter_desc = LeafEmitterDesc {
             color_low: color_to_vec4(debug_settings.adjustables.leaves_bottom_color.value),
             color_high: color_to_vec4(debug_settings.adjustables.leaves_tip_color.value),
@@ -1398,7 +1398,7 @@ impl App {
             butterfly_flight_variant,
             butterfly_flight_tuning,
         );
-        let particle_snapshots = Vec::with_capacity(PARTICLE_CAPACITY);
+        let particle_snapshots = Vec::with_capacity(particle_system.capacity());
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
         let water = water::WaterRuntime::launch(water::WaterLaunchRequest::from_plan(

@@ -10,7 +10,7 @@ use super::*;
 use crate::cli::{TerrainConnectivityBenchMode, TerrainConnectivityBenchOptions};
 use crate::particles::{
     MotionMode, ParticleRenderKind, ParticleSpawn, ParticleSystem, ParticleUpdateConfig,
-    PARTICLE_CAPACITY,
+    INITIAL_PARTICLE_CAPACITY as PARTICLE_CAPACITY,
 };
 use anyhow::Context;
 use glam::{UVec3, Vec3, Vec4};

@@ -140,7 +140,7 @@ use crate::lighting::{
     EMISSIVE_VOXEL_COLOR_SRGB, EMISSIVE_VOXEL_SURFACE_RADIANCE,
     LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS, LOCAL_LIGHT_GPU_CAPACITY,
 };
-use crate::particles::{ParticleSnapshot, PARTICLE_CAPACITY};
+use crate::particles::ParticleSnapshot;
 use crate::util::TimeInfo;
 use anyhow::{Context, Result};
 use re_flora_vkn::vk;
@@ -1982,7 +1982,6 @@ impl Tracer {
             frame_extent_generation,
             frame_retirement_sink: frame_retirement_sink.clone(),
         });
-        let particle_capacity = PARTICLE_CAPACITY;
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
@@ -2057,8 +2056,8 @@ impl Tracer {
             initialized_wind_volume_bucket_count: 0,
             butterfly_mesh_renderer: butterfly_mesh::ButterflyMeshRenderer::default(),
             model_pixel_tiles: model_pixel_tiles::ModelPixelTiles::default(),
-            particle_instance_scratch: Vec::with_capacity(particle_capacity),
-            translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
+            particle_instance_scratch: Vec::new(),
+            translucent_particle_instance_scratch: Vec::new(),
             tree_leaf_particle_scratch: Vec::new(),
         })
     }
@@ -4017,7 +4016,7 @@ impl Tracer {
             self.butterfly_mesh_renderer.prepare_repair_frame(
                 self.camera.get_view_mat(),
                 self.camera.get_proj_mat(),
-                &self.resources.butterfly_mesh,
+                &mut self.model_pixel_tiles,
                 self.vulkan_ctx.device().clone(),
                 self.allocator.clone(),
                 gpu_profiler_frame_slot,
@@ -4026,6 +4025,12 @@ impl Tracer {
                 .butterfly_mesh_renderer
                 .repair_buffer(gpu_profiler_frame_slot);
             let cache_frame = self.model_pixel_cache.frame(gpu_profiler_frame_slot);
+            let inputs = self
+                .butterfly_mesh_renderer
+                .inputs
+                .as_ref()
+                .expect("published model inputs");
+            cmdbuf.use_buffer(&inputs.indices, BufferUse::VertexRead);
             let pipeline = &self.pipeline_topology.compute().butterfly_tile_ppl;
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             Self::with_gpu_scope(
@@ -4053,6 +4058,15 @@ impl Tracer {
                             self.allocator.clone(),
                         )?;
                         let mut descriptors = vec![
+                            (
+                                "butterfly_mesh_instances",
+                                DescriptorResource::Buffer(&inputs.instances),
+                            ),
+                            (
+                                "butterfly_mesh_triangles",
+                                DescriptorResource::Buffer(&inputs.triangles),
+                            ),
+                            ("draw_indices", DescriptorResource::Buffer(&inputs.indices)),
                             (
                                 "model_object_samples",
                                 DescriptorResource::Buffer(&object_samples),
@@ -5110,6 +5124,17 @@ impl Tracer {
                                 .prepare_draw_descriptors(
                                     cmdbuf,
                                     &[
+                                        (
+                                            "butterfly_mesh_instances",
+                                            DescriptorResource::Buffer(
+                                                &self
+                                                    .butterfly_mesh_renderer
+                                                    .inputs
+                                                    .as_ref()
+                                                    .expect("published model inputs")
+                                                    .instances,
+                                            ),
+                                        ),
                                         ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
                                         (
                                             "model_object_view_samples",
@@ -5688,7 +5713,12 @@ impl Tracer {
                     0,
                     &[
                         &particle_resources.vertices,
-                        &self.resources.butterfly_mesh.draw_indices,
+                        &self
+                            .butterfly_mesh_renderer
+                            .inputs
+                            .as_ref()
+                            .expect("published model inputs")
+                            .indices,
                     ],
                 );
                 for (batch, descriptors) in &prepared_model_descriptors {

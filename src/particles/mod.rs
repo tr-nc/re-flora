@@ -17,5 +17,5 @@ pub use emitters::{
 pub use system::{
     AttachedLeafRelease, MotionMode, ParticleForces, ParticleHandle, ParticleRenderKind,
     ParticleSnapshot, ParticleSpawn, ParticleSystem, ParticleTickStep, ParticleUpdateConfig,
-    PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
+    INITIAL_PARTICLE_CAPACITY, STANDARD_PARTICLE_SIZE,
 };
