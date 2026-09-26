@@ -66,3 +66,50 @@ The correction must retain original RGBA/depth preservation, independently verif
 projected geometry identity and surface depth, and reject a real missing covered
 cell with a negative control. Ordinary production sampling must remain unchanged.
 Final acceptance belongs to the controller.
+
+## Implemented correction and proofs
+
+`projectModelPixelTriangle` now owns the producer's clipping/projection arithmetic.
+The native reference dispatch exports its projected vertices, bounds, triangle
+identity and polygon length in a fifth diagnostic slab (normal play still
+allocates one slab). The CPU checks this evidence against independent projection,
+including source identity, clipping topology, finite coordinates, camera framing
+and depth. Its existing 16-machine-epsilon spatial envelope is propagated only
+for this projection-identity check. It does **not** enter coverage classification.
+The unchanged CPU planner evaluates the observed tile coordinates with the same
+0.0001px epsilon as before. CPU-derived vertex depths, not GPU-provided depths,
+remain the independent depth oracle. Original center RGBA/depth checks are intact.
+
+This fixes a diagnostic input-contract error, not a dropped production repair.
+Ordinary rendering still uses the same GPU center/coverage algorithm, no CPU
+ownership or readback, and no repair fallback. The projected-vertex calculation
+is shared rather than copied into the diagnostic adapter. Final publication,
+frame-slot safety, compute/draw pairing and the three model consumers are untouched.
+
+Validated before committing the correction:
+
+- `cargo fmt --check`, `CARGO_BUILD_JOBS=4 cargo check`.
+- `CARGO_BUILD_JOBS=4 cargo test model_pixel`: 24 passed, 1 existing ignored.
+- `CARGO_BUILD_JOBS=4 cargo test butterfly_mesh`: 17 passed, including the captured
+  boundary, real covered neighbor, wrong identity/topology/frame/depth rejection.
+- `slangc shader/tests/model_pixel_projection_evidence.slang -std 2025 -I shader/slang
+  -target executable -o target/improve-delivery/v3/model_pixel_projection_evidence`,
+  then execute it: passed. It exercises the actual producer projection/clipping
+  helper and boundary coverage predicate. The pinned Slang CPU backend needs
+  test-only C++ prelude definitions for `precise` and `SLANG_UNROLL`; its failed
+  compiler attempts and diagnosis are retained. Production qualifiers are unchanged.
+- The same deterministic native fixture is green (`fixture-green-2/`). Its final
+  and center masks match the original red capture exactly; center depths are bit
+  identical, and final depth differences are at most 1.1920928955078125e-7.
+  Separate-run lighting is not bit-identical (recorded in
+  `production-tile-comparison.txt`); this is not a pixel-exact color or perf claim.
+- Native negative control: actually replace the producer's center-empty, covered
+  pixel (12,26) with transparent depth=1. The **unchanged coverage assertion**
+  rejects it: `GPU omitted conservative coverage: instance=0 pixel=12,26`.
+  See `negative-control/` for patch, build/run logs and nonzero runner exit.
+  The injected defect was removed and shaders regenerated before final gates.
+- Three consecutive independent, unchanged `validate-leaf-model.mjs --seconds 20`
+  runs pass at 5120×2880: `strict-leaf-{1,2,3}/`. Initial B64 checked-hit counts are
+  1573, 1581, 1581, respectively; original samples and repairs are nonzero. Every
+  attempt is retained. No runner, coverage epsilon, depth threshold, mode,
+  camera or saved default was changed.

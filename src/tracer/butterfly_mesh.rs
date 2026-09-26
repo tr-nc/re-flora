@@ -221,7 +221,7 @@ impl ButterflyMeshResources {
                 ),
                 MemoryLocation::GpuOnly,
                 (CAPACITY
-                    * if native_review() { 4 } else { 1 }
+                    * if native_review() { 5 } else { 1 }
                     * MAX_RESOLUTION as usize
                     * MAX_RESOLUTION as usize
                     * 16) as u64,

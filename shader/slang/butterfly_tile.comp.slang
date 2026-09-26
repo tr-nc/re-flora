@@ -61,6 +61,19 @@ void main(uint3 id : SV_DispatchThreadID) {
     if(model_pass.mode==3u && instance.repair.w==0u)return;
     ModelPixelHit hit;
     if(model_pass.mode==2u) {
+        // Native-only projection evidence, separate from the final and center
+        // tiles. The CPU independently classifies these vertices; no GPU mask
+        // or chosen coverage triangle is used as an oracle.
+        uint projectionBase=butterflyTileAddress(model_pass.tile_base*4u+id.z,uint2(0));
+        uint lane=id.y*instance.metadata.z+id.x;
+        if(lane==0u)butterfly_pixel_tiles[projectionBase]=butterflyTileBounds(instance,camera_info);
+        for(uint t=lane;t<instance.metadata.y;t+=instance.metadata.z*instance.metadata.z) {
+            ModelPixelPolygon polygon=particleModelProjectedTriangle(instance,t);
+            uint address=projectionBase+1u+t*13u;
+            butterfly_pixel_tiles[address]=float4(polygon.count,asfloat(instance.metadata.x+t),instance.metadata.z,0);
+            for(uint v=0u;v<polygon.count;v++)
+                butterfly_pixel_tiles[address+1u+v]=float4(polygon.vertices[v],0);
+        }
         hit=particleModelHitAt(instance,float2(id.xy)+0.5);
         // Diagnostic-only exact GPU rays let the CPU verify intersection rather
         // than guessing how much cancellation occurred during unprojection.

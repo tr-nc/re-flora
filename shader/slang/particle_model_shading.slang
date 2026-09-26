@@ -99,6 +99,10 @@ ModelPixelFrame particleModelFrame(ButterflyMeshInstance instance) {
     }
     return frame;
 }
+public ModelPixelPolygon particleModelProjectedTriangle(ButterflyMeshInstance instance,uint triangle) {
+    return projectModelPixelTriangle(butterfly_mesh_triangles[instance.metadata.x+triangle],
+        particleModelFrame(instance),butterflyTileBounds(instance,camera_info),instance.metadata.z,camera_info);
+}
 public ModelPixelHit particleModelHitAt(ButterflyMeshInstance instance,float2 pixel) {
     return modelPixelCenterHit(butterfly_mesh_triangles,instance.metadata.x,
         instance.metadata.y,particleModelFrame(instance),butterflyTileBounds(instance,camera_info),pixel,

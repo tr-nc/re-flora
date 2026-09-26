@@ -22,4 +22,8 @@ assert.doesNotMatch(text, /\bERROR\b|VUID-|panicked at/, `inspect ${output}/run.
 assert.deepEqual(await readFile('config/gui.toml'), before, 'Fixture changed saved settings');
 assert.match(text, /MODEL-REPAIR-CHECK\] original_samples=[1-9]\d* original_changed=0 added=[1-9]\d*/);
 assert.match(text, /LEAF-MODEL-CHECK\] mode=B .*active=1 checked_hits=[1-9]\d*/);
+const tile = await readFile(`${output}/final.bin`);
+assert.equal(tile.length, 4096 * 16);
+assert.equal(tile.readFloatLE((26 * 64 + 11) * 16 + 12), 1, 'Captured boundary is not the minimized case');
+assert.ok(tile.readFloatLE((26 * 64 + 12) * 16 + 12) < 1, 'Missing genuinely covered neighbor');
 console.log('PASS: fixed 64px leaf boundary, real producer/readback, independent coverage and depth, original RGBA/depth unchanged.');

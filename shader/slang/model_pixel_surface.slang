@@ -61,7 +61,7 @@ float3 pixelClosestBary(float2 p,float2 a,float2 b,float2 c) {
     }
     return result;
 }
-bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
+public bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
     const float epsilon=0.0001;
     if(any(max(max(a,b),c)<pixel-epsilon)||any(min(min(a,b),c)>pixel+1.0+epsilon))return false;
     float winding=((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))>=0.0?1.0:-1.0;
@@ -74,6 +74,46 @@ bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
     }
     return true;
 }
+// The native oracle observes these vertices, not this module's coverage decision.
+// Keep clipping/projection at the same seam as the real tile producer.
+public struct ModelPixelPolygon {
+    public float3 vertices[12];
+    public uint count;
+};
+public ModelPixelPolygon projectModelPixelTriangle(ButterflyMeshTriangle tri,
+    ModelPixelFrame frame,float4 bounds,uint resolution,U_CameraInfo camera) {
+    ModelPixelPolygon result;
+    result.count=0u;
+    if(any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return result;
+    float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
+    precise float4 polygon[12];uint length=3u;
+    polygon[0]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1));
+    polygon[1]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p1),1));
+    polygon[2]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p2),1));
+    for(uint plane=0u;plane<3u;plane++) {
+        bool inside=true;
+        for(uint j=0u;j<length;j++)inside=inside&&pixelClipDistance(polygon[j],plane)>=0.0;
+        if(inside)continue;
+        float4 next[12];uint nextLength=0u;
+        for(uint edge=0u;edge<length;edge++) {
+            float4 a=polygon[edge],b=polygon[(edge+1u)%length];
+            float da=pixelClipDistance(a,plane),db=pixelClipDistance(b,plane);
+            if(da>=0.0)next[nextLength++]=a;
+            if((da>=0.0)!=(db>=0.0))next[nextLength++]=lerp(a,b,da/(da-db));
+        }
+        length=nextLength;
+        for(uint j=0u;j<length;j++)polygon[j]=next[j];
+        if(length<3u)break;
+    }
+    result.count=length;
+    for(uint j=0u;j<length;j++) {
+        float3 p=polygon[j].xyz/polygon[j].w;
+        precise float2 pixel=(p.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+        result.vertices[j]=float3(pixel,saturate(p.z));
+    }
+    return result;
+}
+
 public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
     uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
     U_CameraInfo camera,ModelPixelHit hit) {
@@ -81,32 +121,10 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
     for(uint i=0u;i<count;i++) {
         ButterflyMeshTriangle tri=triangles[first+i];
         float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
-        precise float4 polygon[12];uint length=3u;
-        polygon[0]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1));
-        polygon[1]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p1),1));
-        polygon[2]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p2),1));
-        for(uint plane=0u;plane<3u;plane++) {
-            bool inside=true;
-            for(uint j=0u;j<length;j++)inside=inside&&pixelClipDistance(polygon[j],plane)>=0.0;
-            if(inside)continue;
-            float4 next[12];uint nextLength=0u;
-            for(uint edge=0u;edge<length;edge++) {
-                float4 a=polygon[edge],b=polygon[(edge+1u)%length];
-                float da=pixelClipDistance(a,plane),db=pixelClipDistance(b,plane);
-                if(da>=0.0)next[nextLength++]=a;
-                if((da>=0.0)!=(db>=0.0))next[nextLength++]=lerp(a,b,da/(da-db));
-            }
-            length=nextLength;
-            for(uint j=0u;j<length;j++)polygon[j]=next[j];
-            if(length<3u)break;
-        }
-        for(uint j=1u;j+1u<length;j++) {
-            float3 pa=polygon[0].xyz/polygon[0].w;
-            float3 pb=polygon[j].xyz/polygon[j].w;
-            float3 pc=polygon[j+1u].xyz/polygon[j+1u].w;
-            precise float2 a=(pa.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
-            precise float2 b=(pb.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
-            precise float2 c=(pc.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+        ModelPixelPolygon polygon=projectModelPixelTriangle(tri,frame,bounds,resolution,camera);
+        for(uint j=1u;j+1u<polygon.count;j++) {
+            float3 pa=polygon.vertices[0],pb=polygon.vertices[j],pc=polygon.vertices[j+1u];
+            float2 a=pa.xy,b=pb.xy,c=pc.xy;
             if(!pixelTriangleCovers(a,b,c,float2(pixel)))continue;
             float3 weights=pixelClosestBary(float2(pixel)+0.5,a,b,c);
             float depth=dot(weights,saturate(float3(pa.z,pb.z,pc.z)));
