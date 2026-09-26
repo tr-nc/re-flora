@@ -72,6 +72,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
+        Self::add_missing_param(&mut config, "Debug", "model_pixel_cache");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {

@@ -364,6 +364,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/models/model_pixel_bake.comp",
+        source_path: "shader/slang/model_pixel_bake.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/props/apple_pixel_tree.comp",
         source_path: "shader/slang/apple_pixel_tree.comp.slang",
         module_path: "shader/slang",

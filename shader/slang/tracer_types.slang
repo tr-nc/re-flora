@@ -7,6 +7,7 @@ public struct U_GuiInput
     public uint raster_flora_ddgi_lighting;
     public uint raster_tree_static;
     public uint apple_pixel_resolution;
+    public uint model_pixel_cache; // 0 live, 1 cached, 2 internal GPU oracle
     public uint model_pixel_view_count; // 8..512; zero reserved for numerical oracle
     public uint raster_tree_hybrid_lighting;
     public uint path_tracing_reference;

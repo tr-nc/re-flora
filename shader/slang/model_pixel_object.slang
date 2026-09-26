@@ -1,4 +1,4 @@
-// Stage-one live preview. No atlas, interpolation, or persistent image cache.
+// Per-object dynamic light and shared discrete-view selection.
 module model_pixel_object;
 import model_pixel_surface;
 import model_pixel_projection;
@@ -14,7 +14,7 @@ import tracer_types;
 [[vk::binding(9,0)]] public Sampler2D leaf_shadow_opacity_blended_tex;
 [[vk::binding(10,0)]] public Sampler2D leaf_shadow_mask_tex;
 [[vk::binding(11,0)]] public Sampler2D cloud_shadow_tex;
-[[vk::binding(77,0)]] StructuredBuffer<float4> model_view_azimuths;
+import model_pixel_views;
 // Compute uses one read/write binding; graphics uses a separate NonWritable declaration.
 [[vk::binding(6,1)]] public RWStructuredBuffer<float4> model_object_samples;
 public ModelPixelView modelObjectView(uint index) {
@@ -28,22 +28,6 @@ float3 rotateBetween(float3 a,float3 b,float3 v) {
     // Nearest of the distributed directions is never antipodal to the input.
     float3 c=cross(a,b);
     return v+cross(c,v)+cross(c,cross(c,v))/max(1.0+dot(a,b),1e-6);
-}
-public float3 modelDiscreteDirection(float3 view) {
-    float best=-2.;float3 selected=float3(0,0,1);
-    uint capacity,stride;model_view_azimuths.GetDimensions(capacity,stride);
-    uint count=min(gui_input.model_pixel_view_count,capacity);
-    for(uint i=0u;i<count;i++) {
-        // Recompute latitudes for N: taking N entries from a larger sphere
-        // would cluster directions into a cap instead of covering the sphere.
-        float y=1.0-2.0*(float(i)+0.5)/float(count);
-        float radius=sqrt(max(0.0,1.0-y*y));
-        float2 azimuth=model_view_azimuths[i].xy;
-        float3 direction=float3(azimuth.x*radius,y,azimuth.y*radius);
-        float score=dot(view,direction);
-        if(score>best){best=score;selected=direction;}
-    }
-    return selected;
 }
 public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientation,bool apple) {
     float4 light=float4(0.);
@@ -60,7 +44,8 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
     model_object_samples[index*4u]=light;
     float3 delta=camera_info.pos.xyz-pivot;
     float3 view=length(delta)>1e-8?normalize(delta):orientation.axisZ;
-    float3 chosen=modelDiscreteDirection(modelPixelLocalVector(orientation,view));
+    uint viewIndex=nearestModelView(modelPixelLocalVector(orientation,view),gui_input.model_pixel_view_count);
+    float3 chosen=modelViewDirection(viewIndex,gui_input.model_pixel_view_count);
     // Fixed up rule for each view key, not camera-dependent framing.
     float3 up=abs(chosen.y)<0.99?float3(0,1,0):float3(1,0,0);
     float3 localX=normalize(cross(up,chosen)),localY=cross(chosen,localX);
@@ -75,5 +60,5 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
     float2 roll=normalize(mul(camera_info.view_mat,float4(right,0)).xy);
     model_object_samples[index*4u+1u]=float4(x,roll.x);
     model_object_samples[index*4u+2u]=float4(y,roll.y);
-    model_object_samples[index*4u+3u]=float4(z,0);
+    model_object_samples[index*4u+3u]=float4(z,float(viewIndex));
 }

@@ -136,6 +136,7 @@ struct Instance {
     lighting: [f32; 4],
     repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
     view_orientation: [f32; 4],
+    cache: [u32; 4], // kind, canonical shape/animation frame; reserved
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -273,6 +274,7 @@ pub(super) struct ButterflyMeshRenderer {
     draw_order: Vec<u32>,
     pub repair_nodes: Vec<RepairNode>,
     reference_tiles: bool,
+    canonical_frames: bool,
     validation_calls: u64,
     repair_frames: Vec<Option<(Arc<Buffer>, usize)>>,
     repair_key: Vec<u8>,
@@ -300,6 +302,7 @@ impl Default for ButterflyMeshRenderer {
             draw_order: Vec::new(),
             repair_nodes: Vec::new(),
             reference_tiles: native_review(),
+            canonical_frames: false,
             validation_calls: 0,
             repair_frames: Vec::new(),
             repair_key: Vec::new(),
@@ -374,6 +377,12 @@ impl ButterflyMeshRenderer {
                     original_phase + ((p.phase - original_phase + 0.5).rem_euclid(1.) - 0.5) * blend
                 }
             });
+            let animation_frame = super::model_pixel_cache::animation_frame(phase);
+            let phase = if self.canonical_frames {
+                super::model_pixel_cache::animation_phase(animation_frame)
+            } else {
+                phase
+            };
             let transforms = self.mesh.source.transforms(phase, 0);
             // Only authored root displacement is suppressed by flight coupling;
             // articulated geometry and rotations still come directly from the GLB.
@@ -401,7 +410,12 @@ impl ButterflyMeshRenderer {
             // per-frame silhouette: flapping must not pump the pixel scale.
             let scale = snapshot.size * (1.53125 / 3.4);
             let start = self.triangles.len() as u32;
-            for triangle in &self.mesh.triangles {
+            for triangle in self
+                .mesh
+                .triangles
+                .iter()
+                .filter(|_| !self.canonical_frames)
+            {
                 let transform = transforms[triangle.node];
                 let p = triangle.positions.map(|p| {
                     snapshot.position_ws
@@ -418,7 +432,18 @@ impl ButterflyMeshRenderer {
             }
             let rgb = ButterflyPalettePreset::from_index(snapshot.palette_index).base_color_srgb();
             self.instances.push(Instance {
-                position_size: snapshot.position_ws.extend(snapshot.size).to_array(),
+                // Root translation is rigid placement, not another cache dimension.
+                // Physical snapshots/flight remain untouched. Both live/cache modes
+                // use the same discrete articulation and continuous coupling blend.
+                position_size: (snapshot.position_ws
+                    + if self.canonical_frames {
+                        facing * root_motion * ((1. - blend) * scale)
+                    } else {
+                        Vec3::ZERO
+                    })
+                .extend(snapshot.size)
+                .to_array(),
+                cache: [2, animation_frame, 0, 0],
                 color: [
                     rgb[0] as f32 / 255.,
                     rgb[1] as f32 / 255.,
@@ -502,6 +527,7 @@ impl ButterflyMeshRenderer {
                 // No resampling, local animation, velocity-facing override or reset.
                 lighting: snapshot.leaf_orientation.unwrap().to_array(),
                 view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
+                cache: [0, shape as u32, 0, 0],
                 repair: [0; 4],
             });
         }
@@ -727,6 +753,10 @@ impl ButterflyMeshRenderer {
             self.instances[index as usize].repair[2] = offset;
         }
     }
+    pub fn pixel_resolutions(&self) -> [u32; 2] {
+        [self.previous_leaf_mode.map_or(16, |m| m.1), self.resolution]
+    }
+
     pub fn tile_compute_mode(&self) -> u32 {
         if native_review() {
             1
@@ -750,6 +780,7 @@ impl ButterflyMeshRenderer {
         leaves: LeafModelSettings,
         camera_position: Vec3,
     ) -> Result<()> {
+        self.canonical_frames = !native_review();
         self.prepare_models(snapshots, settings, leaves, camera_position)?;
         self.draw_order.clear();
         if !self.instances.is_empty() {
@@ -823,6 +854,7 @@ mod tests {
                 metadata: [0, 32, 64, LEAF_MODEL_FLAG],
                 lighting: [0., 0., 0., 1.],
                 view_orientation: [0., 0., 0., 1.],
+                cache: [0; 4],
                 repair: [0, 0, 0, 1],
             })
             .collect();
@@ -1135,7 +1167,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 96);
+        assert_eq!(std::mem::size_of::<Instance>(), 112);
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
     }
     #[test]

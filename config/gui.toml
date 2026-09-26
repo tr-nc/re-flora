@@ -121,6 +121,15 @@ min = 8
 max = 64
 
 [[section.param]]
+id = "model_pixel_cache"
+kind = "bool"
+label = "Shared Startup Cache (unchecked: Live Generation)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "model_pixel_view_count"
 kind = "uint"
 label = "Discrete View Count"

@@ -38,9 +38,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Models — Global",
-        description: "Shared by butterflies, 3D falling leaves and attached/fallen apples. Pixel resolution stays in each object's settings. Discrete views use a Fibonacci sphere without blending; fewer views give larger angular steps. Per-object lighting is always enabled: environment light and external shadows are shared, while pixel normals still shade each surface. Fixed orthographic tiles are generated live, not cached. Pixels rotate with the object; no screen-grid resampling.",
+        description: "Shared by butterflies, 3D falling leaves and attached/fallen apples. Pixel resolution stays in each object's settings. Discrete views use a Fibonacci sphere without blending; fewer views give larger angular steps. Per-object lighting is always enabled: environment light and external shadows are shared, while pixel normals still shade each surface. Pixels rotate with the object. Compare live generation with shared startup surfaces; both use the same projection and 32 butterfly animation poses. Lighting stays dynamic. Banks above 128 MiB fall back to exact live generation; see run log.",
         initially_open: true,
-        params: &["model_pixel_view_count"],
+        params: &["model_pixel_view_count", "model_pixel_cache"],
     },
     ControlGroup {
         parent: Some("Wind"),
@@ -191,7 +191,10 @@ mod tests {
             .find(|g| g.title == "Pixel Models — Global")
             .unwrap();
         assert_eq!(global.parent, None);
-        assert_eq!(global.params, &["model_pixel_view_count"]);
+        assert_eq!(
+            global.params,
+            &["model_pixel_view_count", "model_pixel_cache"]
+        );
         let apples = GROUPS
             .iter()
             .find(|g| g.title == "Apple Appearance")

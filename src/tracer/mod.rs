@@ -34,6 +34,7 @@ pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
+mod model_pixel_cache;
 #[cfg(test)]
 mod model_pixel_projection;
 mod model_pixel_tiles;
@@ -1402,6 +1403,7 @@ pub struct TerrainFrameInput {
     pub ddgi_aggregate_history: bool,
     pub apple_pixel_resolution: u32,
     pub model_pixel_view_count: u32,
+    pub model_pixel_cache: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1671,6 +1673,7 @@ pub struct Tracer {
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
     model_pixel_view_count: u32,
+    model_pixel_cache_enabled: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -1696,6 +1699,7 @@ pub struct Tracer {
     initialized_wind_volume_bucket_count: u32,
     butterfly_mesh_renderer: butterfly_mesh::ButterflyMeshRenderer,
     model_pixel_tiles: model_pixel_tiles::ModelPixelTiles,
+    model_pixel_cache: model_pixel_cache::ModelPixelCache,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
 }
@@ -1986,6 +1990,12 @@ impl Tracer {
             vulkan_ctx.clone(),
             allocator.clone(),
         )?;
+        let model_pixel_cache = model_pixel_cache::ModelPixelCache::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            &pool,
+            &resources,
+        );
         Ok(Self {
             vulkan_ctx,
             desc,
@@ -2022,6 +2032,8 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             model_pixel_view_count: 0,
+            model_pixel_cache_enabled: false,
+            model_pixel_cache,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3057,11 +3069,14 @@ impl Tracer {
             terrain.model_pixel_view_count,
             butterfly_mesh::native_review(),
         );
-        if self.model_pixel_view_count != view_count {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} rotating_pixels=true",
-                view_count!=0,view_count==0,view_count!=0);
+        if self.model_pixel_view_count != view_count
+            || self.model_pixel_cache_enabled != terrain.model_pixel_cache
+        {
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} rotating_pixels=true shared_surfaces={}",
+                view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_cache && view_count!=0);
         }
         self.model_pixel_view_count = view_count;
+        self.model_pixel_cache_enabled = terrain.model_pixel_cache;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3427,6 +3442,26 @@ impl Tracer {
 
         self.start_next_ddgi_scheduled_work()?;
         self.model_pixel_tiles.begin_frame(gpu_profiler_frame_slot);
+        let [leaf_resolution, butterfly_resolution] =
+            self.butterfly_mesh_renderer.pixel_resolutions();
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "models.cache.bake",
+            || {
+                self.model_pixel_cache.prepare(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    self.model_pixel_view_count,
+                    [
+                        leaf_resolution,
+                        self.apple_pixel_resolution,
+                        butterfly_resolution,
+                    ],
+                )
+            },
+        )?;
 
         self.pipeline_topology
             .graphics()
@@ -3985,6 +4020,7 @@ impl Tracer {
             let repairs = self
                 .butterfly_mesh_renderer
                 .repair_buffer(gpu_profiler_frame_slot);
+            let cache_frame = self.model_pixel_cache.frame(gpu_profiler_frame_slot);
             let pipeline = &self.pipeline_topology.compute().butterfly_tile_ppl;
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             Self::with_gpu_scope(
@@ -4011,7 +4047,7 @@ impl Tracer {
                             self.vulkan_ctx.device().clone(),
                             self.allocator.clone(),
                         )?;
-                        let descriptors = [
+                        let mut descriptors = vec![
                             (
                                 "model_object_samples",
                                 DescriptorResource::Buffer(&object_samples),
@@ -4026,6 +4062,7 @@ impl Tracer {
                                 DescriptorResource::Buffer(&repairs),
                             ),
                         ];
+                        descriptors.extend(cache_frame.bindings());
                         if !self.butterfly_mesh_renderer.repair_nodes.is_empty() {
                             pipeline.record_with_descriptors(
                                 cmdbuf,
@@ -4131,6 +4168,8 @@ impl Tracer {
             // composition pipeline declares its shader reads after the render pass.
         }
 
+        self.model_pixel_cache
+            .finish(gpu_profiler_frame_slot, cmdbuf);
         if render_flags.enable_god_rays {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -4813,7 +4852,9 @@ impl Tracer {
                             self.allocator.clone(),
                         )
                         .expect("tree model object allocation");
+                    let cache_frame = self.model_pixel_cache.frame(gpu_profiler_frame_slot);
                     let mut compute_resources = resources.clone();
+                    compute_resources.extend(cache_frame.bindings());
                     compute_resources.push((
                         "model_object_samples",
                         DescriptorResource::Buffer(&object_samples),
@@ -4960,6 +5001,7 @@ impl Tracer {
                     self.allocator.clone(),
                 )
                 .expect("dynamic model object allocation");
+            let cache_frame = self.model_pixel_cache.frame(gpu_profiler_frame_slot);
             let compute = &self.pipeline_topology.compute().apple_pixel_dynamic_ppl;
             compute.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             Self::with_gpu_scope(
@@ -4968,7 +5010,7 @@ impl Tracer {
                 cmdbuf,
                 "models.apple_dynamic.tiles",
                 || {
-                    let descriptors = [
+                    let mut descriptors = vec![
                         ("model_pixel_tiles", DescriptorResource::Buffer(&tiles)),
                         (
                             "model_object_samples",
@@ -4979,6 +5021,7 @@ impl Tracer {
                             DescriptorResource::Buffer(&self.dynamic_fruit_resources.instances),
                         ),
                     ];
+                    descriptors.extend(cache_frame.bindings());
                     if self.model_pixel_view_count != 0 {
                         compute.record_with_descriptors(
                             cmdbuf,
