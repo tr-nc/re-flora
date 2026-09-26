@@ -207,7 +207,6 @@ def main():
         "--windowed",
         "--no-flora",
         "--no-particles",
-        "--no-clouds",
         "--no-god-rays",
         "--no-lens-flare",
         "--perf",
