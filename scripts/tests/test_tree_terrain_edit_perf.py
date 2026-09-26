@@ -4,7 +4,7 @@ from scripts.check_tree_terrain_edit_perf import analyze
 
 
 def replay(extra=""):
-    return f"""[00:00:00.100 INFO test] [TREE][RASTER_STATIC] revision=1 compile_ms=80
+    return f"""[00:00:00.100 INFO test] [TREE][MESH] trees=1 compile_ms=80
 [00:00:00.200 INFO test] [PERF][FRAME] frame 1 total 100.0ms
 [00:00:02.000 INFO test] [WATER][EDIT_SOAK] applied shore-dig-a
 {extra}
@@ -25,7 +25,7 @@ class TreeTerrainEditPerfTests(unittest.TestCase):
     def test_recompiling_an_unchanged_tree_is_red(self):
         report = analyze(
             replay(
-                "[00:00:02.050 INFO test] [TREE][RASTER_STATIC] revision=2 compile_ms=80"
+                "[00:00:02.050 INFO test] [TREE][MESH] trees=1 compile_ms=80"
             )
         )
         self.assertFalse(report["passed"])
@@ -34,7 +34,7 @@ class TreeTerrainEditPerfTests(unittest.TestCase):
     def test_missing_edits_tree_or_errors_cannot_pass(self):
         for text in [
             replay().replace("applied shore-dig-b", "not-applied"),
-            replay().replace("[TREE][RASTER_STATIC] revision=", "not-a-tree="),
+            replay().replace("[TREE][MESH] trees=", "not-a-tree="),
             replay() + "\nERROR: renderer failed",
         ]:
             self.assertFalse(analyze(text)["passed"])

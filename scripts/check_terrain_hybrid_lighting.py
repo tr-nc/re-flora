@@ -41,7 +41,8 @@ def fixed_configuration():
                 ("auto_daynight_cycle", "false"),
                 ("time_of_day", "0.47"),
                 ("path_tracing_reference", "false"),
-                ("raster_tree_wind", "false"),
+                ("tree_wind", "false"),
+                ("tree_pixelized", "false"),
             ):
                 source = setting(source, name, value)
             yield gui, source

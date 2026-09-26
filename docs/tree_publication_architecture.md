@@ -101,6 +101,36 @@ counts, not performance acceptance. Hidden bare-wood closeups are `target/tree-m
 `target/tree-mesh-B.png` (4 scene pixels) and `target/tree-mesh-B16.png`. No visible game
 was launched. These captures do not substitute for manual visual approval.
 
+### Reproducible review commands
+
+```sh
+cargo build --release
+python3 scripts/check_raster_tree_static.py --thin-branches
+python3 scripts/benchmark_tree_update.py --output target/tree-mesh-update-bench \
+  --seconds 6 --warmup-seconds 2
+python3 scripts/check_tree_terrain_edit_perf.py target/tree-mesh-terrain-edit
+```
+
+The historical capture command now compares **only normal/pixelized new mesh display**;
+its old `--hybrid-lighting` option is rejected. It restores GUI/camera bytes, checks zero
+terrain writes and equal geometry fingerprints in both bare/canopy captures. Four actual
+captures passed with fingerprint `120bb3e71e5c6ea8`; the source contains 1,259 branch
+segments with radii below half a voxel, now represented directly as geometry. Results are
+under `target/tree-display-evidence/`. Twenty-one focused script tests, Ruff and Pyright passed.
+
+The repaired terrain-edit replay passed three real edits, one initial wood compile and
+**zero** tree rebuilds during editing, with no runtime errors. This is not a test of water
+colliding with wood. A short RTX 3060 Ti single-tree Release measurement (5120×2880 output,
+ordinary display, fixed camera/daylight, 6 s each, first 2 s excluded) recorded:
+
+| Wind | Frame median / p95 | CPU tree update median | GPU surface update median |
+| --- | --- | --- | --- |
+| Off | 17.16 / 18.05 ms | 0.410 ms | 0.064 ms |
+| On | 17.16 / 18.19 ms | 0.684 ms | 0.065 ms |
+
+There are 227/219 frame samples but only 8/8 GPU scope samples. This measures the **new**
+mesh's wind toggle, not old/new rendering, not display A/B, and not a performance win.
+
 Manual appearance, dense-scene performance and full environment integration remain
 unaccepted. In particular water's existing terrain SDF and acoustic terrain snapshots
 are separate consumers: their former static voxel wood no longer exists. They need an

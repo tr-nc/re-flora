@@ -2,7 +2,7 @@
 """Compare static and smooth wind-driven release trees; restore GUI/camera bytes.
 
 Build first with cargo build --release. Static disables wind on the wood surface;
-smooth animates the same exposed-face topology. This is a whole-path single-tree
+smooth animates the same continuous procedural mesh. This is a whole-path single-tree
 diagnostic, not an isolated animation kernel or a forest performance budget.
 The experimental blocks mode has been removed; use smooth for animated trees.
 """
@@ -121,7 +121,7 @@ def main():
         original_gui, original_camera = gui.read_bytes(), camera.read_bytes()
         try:
             source = original_gui.decode()
-            for name, value in [('raster_tree_static', 'true'), ('auto_daynight_cycle', 'false'), ('time_of_day', '0.47')]:
+            for name, value in [('tree_pixelized', 'false'), ('auto_daynight_cycle', 'false'), ('time_of_day', '0.47')]:
                 source = setting(source, name, value)
             camera.write_text('''[[snapshots]]
 name = "tree-update-bench"
@@ -135,7 +135,7 @@ fly_mode = true
             for repeat in range(args.repeats):
                 offset = repeat % len(args.modes)
                 for name in args.modes[offset:] + args.modes[:offset]:
-                    gui.write_text(setting(source, 'raster_tree_wind', str(MODES[name]).lower()))
+                    gui.write_text(setting(source, 'tree_wind', str(MODES[name]).lower()))
                     stem = name if args.repeats == 1 else f'{name}-{repeat+1}'
                     log_path = out / f'{stem}.log'
                     with log_path.open('w') as log:
@@ -146,7 +146,7 @@ fly_mode = true
                                        timeout=max(120., args.seconds+90.), check=True)
                     text = log_path.read_text()
                     assert 'Application exited successfully' in text, log_path
-                    assert '[TREE][RASTER_STATIC] mode=B' in text, log_path
+                    assert '[TREE][MESH]' in text and 'terrain_voxel_writes=0' in text, log_path
                     assert not any(s in text for s in [' ERROR ', 'panicked at', 'VUID-']), log_path
                     values = samples_from_log(text, args.warmup_seconds)
                     assert len(values) >= 30, f'insufficient steady frames: {log_path}; increase --seconds'

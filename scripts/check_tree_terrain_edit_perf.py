@@ -3,8 +3,8 @@
 
 Run from the worktree being tested, after cargo build --release. Uses the normal
 world's real three-step water-edit-soak brush replay, without lighting fixtures,
-screenshots, or disabling vegetation. Temporarily enables raster trees and restores
-GUI/camera bytes. Exit 1 means the workload or no-unrelated-rebuild contract failed.
+screenshots, or disabling vegetation. Uses ordinary continuous mesh display and
+restores GUI/camera bytes. Exit 1 means the workload or no-unrelated-rebuild contract failed.
 """
 
 import argparse
@@ -51,7 +51,7 @@ def analyze(text):
             for line in lines
             if (t := timestamp(line)) is not None and (t - edits[0]) % 86400 <= span
         ]
-    tree_marker = "[TREE][RASTER_STATIC] revision="
+    tree_marker = "[TREE][MESH] trees="
     compiles = [line for line in lines if tree_marker in line]
     rebuilds = [line for line in active if tree_marker in line]
     frame_ms = [
@@ -132,13 +132,13 @@ def main():
                 (output / (p.name + ".before")).write_bytes(data)
         try:
             gui, count = re.subn(
-                r'(id = "raster_tree_static"\n(?:(?!\[\[section).)*?value = )(true|false)',
-                lambda m: m[1] + "true",
+                r'(id = "tree_pixelized"\n(?:(?!\[\[section).)*?value = )(true|false)',
+                lambda m: m[1] + "false",
                 paths[0].read_text(),
                 flags=re.DOTALL,
             )
             if count != 1:
-                raise ValueError("expected exactly one raster_tree_static control")
+                raise ValueError("expected exactly one tree_pixelized control")
             paths[0].write_text(gui)
             report["gui_sha256"] = hashlib.sha256(paths[0].read_bytes()).hexdigest()
             with (output / "run.log").open("w") as log:

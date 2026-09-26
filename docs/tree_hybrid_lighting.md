@@ -1,5 +1,11 @@
 # Hybrid lighting for thin raster-tree wood
 
+> Historical experiment, retired by the continuous-mesh cutover (2026-09-27).
+> The voxel-normal cache and lighting A/B below no longer exist. Current controls,
+> geometry ownership and normal/pixelized display are documented in
+> [Garden Tree Publication](tree_publication_architecture.md). The historical
+> `check_raster_tree_static.py` command now captures only that new display A/B.
+
 ## Try-out
 
 `R → Debug → Whole Tree Rasterization → Hybrid thin-branch lighting (B, requires raster trees)`.
