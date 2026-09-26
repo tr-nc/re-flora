@@ -122,6 +122,26 @@ pub struct GrassGrowthPotentialLevels {
     pub words: [u32; 0],
 }
 
+/// Auto-generated from `B_LeafHandoffInputs` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LeafHandoffInputs {
+    pub world: [u32; 4],
+    pub state: [u32; 4],
+}
+
+/// Auto-generated from `B_LeafHandoffOutputs` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LeafHandoffOutputs {
+    pub position_size: [f32; 4],
+    pub velocity: [f32; 4],
+    pub normal: [f32; 4],
+    pub color: [f32; 4],
+    pub rotation: [f32; 4],
+    pub angular_velocity: [f32; 4],
+}
+
 /// Auto-generated from `B_LevelDispatchIndirect` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -349,6 +369,13 @@ pub struct TreeLeafShadowInstances {
     pub response_source_count: u32,
 }
 
+/// Auto-generated from `B_TreeLeafState` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafState {
+    pub growth: [u32; 0],
+}
+
 /// Auto-generated from `B_VoxelPropertySampleResult` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -458,6 +485,20 @@ pub struct PushConstantIrradianceGutter {
     pub probe_count: u32,
     pub tile_columns: u32,
     pub destination_is_transport_source: u32,
+}
+
+/// Auto-generated from `PushConstantLeafHandoff` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantLeafHandoff {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub response_offset: u32,
+    pub model_object_prepare: u32,
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantLeafShadowTemporal` (native Slang source of truth).

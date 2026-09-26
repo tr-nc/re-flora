@@ -630,6 +630,9 @@ fn render_gui_from_config(
                 });
                 return;
             }
+            if section.name == "Falling Leaves" {
+                ui.small("B transfers actual tree voxels, preserving their size. Strong wind may strip the entire canopy. Switching A/B clears falling leaves and resets sockets; canopy progress is session-only. Mesh/size controls below apply only to decorative leaves.");
+            }
             render_section_controls(ui, section, adjustables);
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
                 debug_groups::render(ui, debug, adjustables, Some(&section.name));

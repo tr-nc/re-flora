@@ -134,6 +134,19 @@ impl Default for ParticleSpawn {
     }
 }
 
+/// One published tree leaf becomes one falling leaf with no invented release pose.
+#[derive(Clone, Copy, Debug)]
+pub struct AttachedLeafRelease {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub normal: Vec3,
+    pub angular_velocity: Vec3,
+    pub geometry_rotation: Quat,
+    pub color: Vec4,
+    pub size: f32,
+    pub seed: u32,
+}
+
 /// Parameters driving the global forces applied during simulation.
 #[derive(Clone, Copy, Debug)]
 pub struct SpeedNoise {
@@ -195,6 +208,9 @@ pub struct ParticleSnapshot {
     pub leaf_orientation: Option<Quat>,
     /// Per-life visual seed for derived mesh shape; never feeds flight physics.
     pub leaf_shape_seed: Option<u32>,
+    /// Real tree leaves retain the source voxel geometry and exact source size.
+    /// Decorative leaves continue using their existing sprite/model settings.
+    pub leaf_geometry: Option<Quat>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -253,6 +269,7 @@ pub struct ParticleSystem {
     speed_noise: FastNoiseLite,
     leaf_flight: Vec<LeafFlight>,
     leaf_shape_seeds: Vec<u32>,
+    leaf_geometry_offsets: Vec<Option<Quat>>,
     leaf_display: Vec<LeafDisplayPose>,
     butterfly_display: Vec<ButterflyPresentation>,
     butterfly_wingbeats: Vec<Option<super::ButterflyWingbeatPose>>,
@@ -315,6 +332,7 @@ impl ParticleSystem {
             speed_noise,
             leaf_flight: vec![LeafFlight::new(0); max_particles],
             leaf_shape_seeds: vec![0; max_particles],
+            leaf_geometry_offsets: vec![None; max_particles],
             butterfly_display: vec![ButterflyPresentation::default(); max_particles],
             butterfly_wingbeats: vec![None; max_particles],
             leaf_display: vec![
@@ -377,6 +395,102 @@ impl ParticleSystem {
         self.free_list.len()
     }
 
+    /// Reserve an entire real-leaf handoff batch, never rate-limit or silently
+    /// discard source leaves when the original decorative pool fills up.
+    pub fn reserve_for_batch(&mut self, additional: usize) {
+        if additional <= self.available_capacity() {
+            return;
+        }
+        let capacity = (self.alive_count() + additional).next_power_of_two();
+        assert!(
+            capacity <= u32::MAX as usize,
+            "particle handle address space exhausted"
+        );
+        self.positions.resize(capacity, Vec3::ZERO);
+        self.velocities.resize(capacity, Vec3::ZERO);
+        self.colors.resize(capacity, Vec4::ZERO);
+        self.sizes.resize(capacity, 0.0);
+        self.wind_factors.resize(capacity, 1.0);
+        self.gravity_factors.resize(capacity, 1.0);
+        self.drift_directions.resize(capacity, Vec3::ZERO);
+        self.drift_strengths.resize(capacity, 0.0);
+        self.drift_frequencies.resize(capacity, 1.0);
+        self.lifetimes.resize(capacity, 0.0);
+        self.ages.resize(capacity, 0.0);
+        self.generations.resize(capacity, 0);
+        self.motion_modes.resize(capacity, MotionMode::Falling);
+        self.sink_on_lifetime.resize(capacity, false);
+        self.sink_speeds.resize(capacity, 0.1);
+        self.is_sinking.resize(capacity, false);
+        self.is_alive.resize(capacity, false);
+        self.speed_noise_offsets.resize(capacity, 0.0);
+        self.palette_indices.resize(capacity, 0);
+        self.render_kinds.resize(capacity, ParticleRenderKind::Leaf);
+        self.despawn_on_lifetime.resize(capacity, true);
+        self.despawn_below_ground.resize(capacity, true);
+        self.update_buckets.resize(capacity, 0);
+        self.update_intervals.resize(capacity, 0.1);
+        self.update_bucket_counts.resize(capacity, 2);
+        self.update_elapsed.resize(capacity, 0.0);
+        self.pending_sim_dt.resize(capacity, 0.0);
+        self.leaf_flight.resize(capacity, LeafFlight::new(0));
+        self.leaf_shape_seeds.resize(capacity, 0);
+        self.leaf_geometry_offsets.resize(capacity, None);
+        self.leaf_display.resize(
+            capacity,
+            LeafDisplayPose {
+                position: Vec3::ZERO,
+                velocity: Vec3::ZERO,
+                orientation: Quat::IDENTITY,
+            },
+        );
+        self.butterfly_display
+            .resize(capacity, ButterflyPresentation::default());
+        self.butterfly_wingbeats.resize(capacity, None);
+        self.free_list.extend((self.max_particles..capacity).rev());
+        self.alive_indices.reserve(capacity - self.max_particles);
+        log::info!(
+            "[PARTICLES][CAPACITY] old={} new={} reason=complete_leaf_handoff",
+            self.max_particles,
+            capacity
+        );
+        self.max_particles = capacity;
+    }
+
+    /// A/B cleanup is kind-scoped; never clears butterflies, water or harvest.
+    pub fn clear_leaves(&mut self) {
+        let previous = std::mem::take(&mut self.alive_indices);
+        for &slot in &previous {
+            if self.render_kinds[slot] == ParticleRenderKind::Leaf {
+                self.retire_slot(slot);
+            } else {
+                self.alive_indices.push(slot);
+            }
+        }
+    }
+
+    pub fn spawn_attached_leaf(&mut self, release: AttachedLeafRelease) -> Option<ParticleHandle> {
+        let handle = self.spawn(ParticleSpawn {
+            position: release.position,
+            velocity: release.velocity,
+            color: release.color,
+            size: release.size,
+            lifetime: 120.0,
+            sink_on_lifetime: true,
+            sink_speed: 0.1,
+            speed_noise_offset: f32::from_bits(release.seed & 0x007fffff | 0x3f800000),
+            ..ParticleSpawn::default()
+        })?;
+        let slot = handle.index as usize;
+        let orientation = Quat::from_rotation_arc(Vec3::Z, release.normal.normalize_or_zero());
+        self.leaf_flight[slot] = LeafFlight::released(orientation, release.angular_velocity);
+        self.leaf_display[slot].orientation = orientation;
+        self.leaf_shape_seeds[slot] = release.seed;
+        self.leaf_geometry_offsets[slot] =
+            Some(orientation.conjugate() * release.geometry_rotation);
+        Some(handle)
+    }
+
     /// Spawns a new particle using the provided description.
     /// Returns a handle that can be used to manipulate the particle later.
     pub fn spawn(&mut self, spawn: ParticleSpawn) -> Option<ParticleHandle> {
@@ -389,6 +503,7 @@ impl ParticleSystem {
             ^ spawn.speed_noise_offset.to_bits();
         self.leaf_flight[slot] = LeafFlight::new(life_seed);
         self.leaf_shape_seeds[slot] = life_seed;
+        self.leaf_geometry_offsets[slot] = None;
         self.positions[slot] = spawn.position;
         self.velocities[slot] = spawn.velocity;
         self.butterfly_display[slot] = ButterflyPresentation::default();
@@ -782,6 +897,8 @@ impl ParticleSystem {
                 leaf_shape_seed: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_shape_seeds[*slot]),
+                leaf_geometry: self.leaf_geometry_offsets[*slot]
+                    .map(|offset| self.leaf_display[*slot].orientation * offset),
             });
         }
     }
@@ -1036,6 +1153,61 @@ mod tests {
 
         system.update(0.04, ParticleForces::default());
         assert!(!system.is_alive_handle(handle));
+    }
+
+    #[test]
+    fn real_leaf_handoff_preserves_source_pose_size_color_and_unrelated_particles() {
+        let mut system = ParticleSystem::new(2);
+        let water = system
+            .spawn(ParticleSpawn {
+                render_kind: ParticleRenderKind::WaterDroplet,
+                position: Vec3::Y,
+                lifetime: 100.,
+                ..ParticleSpawn::default()
+            })
+            .unwrap();
+        let release = AttachedLeafRelease {
+            position: Vec3::new(0.3, 1.0, 0.7),
+            velocity: Vec3::new(0.1, 0.0, -0.1),
+            normal: Vec3::new(1., 2., 3.).normalize(),
+            angular_velocity: Vec3::Y,
+            geometry_rotation: Quat::from_rotation_z(0.6),
+            color: Vec4::new(0.2, 0.4, 0.1, 1.),
+            size: STANDARD_PARTICLE_SIZE * 0.7,
+            seed: 93,
+        };
+        system.reserve_for_batch(40);
+        let leaves = (0..40)
+            .map(|_| system.spawn_attached_leaf(release).unwrap())
+            .collect::<Vec<_>>();
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        assert_eq!(snapshots.len(), 41);
+        for leaf in snapshots.iter().filter(|s| s.leaf_geometry.is_some()) {
+            assert_eq!(leaf.position_ws, release.position);
+            assert_eq!(leaf.velocity, release.velocity);
+            assert_eq!(leaf.size, release.size);
+            assert_eq!(leaf.color, release.color);
+            assert_eq!(leaf.leaf_shape_seed, Some(release.seed));
+            assert!((leaf.leaf_orientation.unwrap() * Vec3::Z - release.normal).length() < 1e-6);
+            assert!(
+                leaf.leaf_geometry
+                    .unwrap()
+                    .dot(release.geometry_rotation)
+                    .abs()
+                    > 0.99999
+            );
+        }
+        system.update(0.1, ParticleForces::default());
+        assert!(system.is_alive_handle(water));
+        system.clear_leaves();
+        assert_eq!(system.alive_count(), 1);
+        assert!(system.is_alive_handle(water));
+        assert!(leaves.iter().all(|&leaf| !system.is_alive_handle(leaf)));
+        let ordinary = system.spawn(long_lived_leaf()).unwrap();
+        system.write_snapshots(&mut snapshots);
+        assert!(snapshots.iter().all(|s| s.leaf_geometry.is_none()));
+        assert!(system.is_alive_handle(ordinary));
     }
 
     fn long_lived_leaf() -> ParticleSpawn {

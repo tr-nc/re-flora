@@ -87,6 +87,11 @@ public float3 treeAttachmentPoint(uint3 anchor, float3 position) {
     if (index==0u) return position;
     return rotateTreeVector(tree_attachment_poses[(index-1u)*2u],position)+tree_attachment_poses[(index-1u)*2u+1u].xyz;
 }
+public float4 treeAttachmentRotation(uint3 anchor) {
+    if (!treeSceneActive()) return float4(0.0, 0.0, 0.0, 1.0);
+    uint index = treeAttachmentIndex(anchor);
+    return index == 0u ? float4(0.0, 0.0, 0.0, 1.0) : tree_attachment_poses[(index-1u)*2u];
+}
 public float3 treeAttachmentVector(uint3 anchor, float3 vector) {
     if (!treeSceneActive()) return vector;
     uint index=treeAttachmentIndex(anchor);

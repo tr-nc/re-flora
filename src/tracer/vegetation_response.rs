@@ -421,6 +421,18 @@ impl VegetationResponse {
         self.flower_offsets[chunk][species]
     }
 
+    pub(super) fn published_leaf(
+        &self,
+        tree: u32,
+        world: glam::UVec3,
+        anchor_local: u32,
+    ) -> Option<(u32, f32)> {
+        Some((
+            self.leaves.published_index(tree, world, anchor_local)?,
+            self.last_time?,
+        ))
+    }
+
     pub fn leaf_offset(&self, tree_id: u32) -> u32 {
         if self.grid.grid[3] < 2. {
             0 // Legacy and surface-only comparisons never sample leaf states.

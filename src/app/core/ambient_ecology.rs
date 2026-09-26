@@ -132,7 +132,11 @@ impl App {
                     continue;
                 };
                 self.ecology.candidates += 1;
-                let Some(site) = self.sample_ecology_habitat(region.key, slot)? else {
+                let candidate = match region.key {
+                    RegionKey::Canopy(tree) => self.trees.sample_ecology_leaf_candidate(tree, slot),
+                    _ => self.sample_ecology_habitat(region.key, slot)?,
+                };
+                let Some(site) = candidate else {
                     continue;
                 };
                 if site.position.distance(listener) > RANGE {

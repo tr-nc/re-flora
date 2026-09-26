@@ -1,4 +1,5 @@
 import tree_scene;
+import leaf_lifecycle;
 import flora_types;
 import flora_lighting_cache;
 import flora_vertex;
@@ -62,17 +63,18 @@ VertexOutput main(VertexInput input)
         INSTANCE_GROWTH_PROGRESS_MATURE, 1.0, 1.0,
         INSTANCE_SPAWN_INACTIVE, input.instance_index);
 
+    float growth = treeLeafGrowth(input.instance_index);
     VertexOutput output;
-    if (prepared.should_trim)
+    if (prepared.should_trim || growth <= 0.0)
     {
         output.position = float4(2.0, 2.0, 2.0, 1.0);
         output.color = float3(0.0);
         return output;
     }
 
-    float3 vertexPosition = prepared.anchor_position +
+    float3 vertexPosition = prepared.voxel_position +
         treeAttachmentVector(instancePosition,
-            float3(vertexOffset) * FLORA_SCALING_FACTOR);
+            (float3(vertexOffset) - 0.5) * (FLORA_SCALING_FACTOR * growth));
     output.position = applyFloraDepthOffset(vertexPosition, instancePosition);
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,

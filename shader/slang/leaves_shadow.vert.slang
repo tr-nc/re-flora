@@ -1,4 +1,5 @@
 import tree_scene;
+import leaf_lifecycle;
 import apple_preview_vertex;
 import flora_motion;
 import flora_types;
@@ -214,25 +215,36 @@ VertexOutput main(VertexInput input)
         windOffset += leafShadowSprayPaddling(
             gui_input, wind, windGradient, seed, pc.time);
     }
-    if (attachedVegetationResponseEnabled())
+    float liveArea = 1.0;
+    if (isTreeLeaf)
     {
-        if (isTreeLeaf)
+        float area = 0.0;
+        float3 response = float3(0.0);
+        for (uint member = 0u; member < leafInstance.response_source_count; ++member)
         {
-            float3 response = float3(0.0);
-            for (uint member = 0u; member < leafInstance.response_source_count; ++member)
-            {
-                uint2 source = leaf_shadow_response_sources.data[leafInstance.response_source_offset + member];
-                response += sampleVegetationResponse(uint3(0u), source.y,
+            uint2 source = leaf_shadow_response_sources.data[leafInstance.response_source_offset + member];
+            float growth = treeLeafGrowth(source.x);
+            float weight = growth * growth;
+            area += weight;
+            if (attachedVegetationResponseEnabled() && weight > 0.0)
+                response += weight * sampleVegetationResponse(uint3(0u), source.y,
                     FLORA_SPECIES_TREE_LEAF, source.x, pc.response_offset);
-            }
-            windOffset = response / float(max(leafInstance.response_source_count, 1u));
         }
-        else
+        if (area <= 0.0)
         {
-            float3 response = sampleVegetationResponse(instancePositionVoxels,
-                seed, pc.instance_ty, 0u, 0u);
-            windOffset = appleInertialOffset(gui_input, response);
+            VertexOutput empty;
+            empty.position = float4(2.0, 2.0, 2.0, 1.0);
+            empty.opacity = 0.0;
+            return empty;
         }
+        liveArea = area / float(max(leafInstance.response_source_count, 1u));
+        if (attachedVegetationResponseEnabled()) windOffset = response / area;
+    }
+    else if (attachedVegetationResponseEnabled())
+    {
+        float3 response = sampleVegetationResponse(instancePositionVoxels,
+            seed, pc.instance_ty, 0u, 0u);
+        windOffset = appleInertialOffset(gui_input, response);
     }
 
     float3 anchorPosition =
@@ -256,7 +268,7 @@ VertexOutput main(VertexInput input)
     // turning a coarse billboard into an opaque/binary caster.
     output.opacity = isTreeLeaf
         ? 1.0 - pow(1.0 - fragmentOpacity,
-                    max(leafInstance.opacity_layer_count, 0.0))
+                    max(leafInstance.opacity_layer_count, 0.0) * liveArea)
         : fragmentOpacity;
 
     uint paletteSeed = wellonsHash(seed);

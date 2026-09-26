@@ -377,6 +377,13 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let leaf_handoff_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/leaf_handoff.comp",
+            "main",
+        )
+        .unwrap();
+
         let flora_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flora.vert",
@@ -639,6 +646,7 @@ impl PipelineBuilder {
             terrain_query_sm,
             wind_volume_sm,
             vegetation_response_sm,
+            leaf_handoff_sm,
             flora_vert_sm,
             flora_frag_sm,
             flora_lod_vert_sm,
@@ -865,6 +873,21 @@ impl PipelineBuilder {
                 ],
             })
             .expect("tree-leaf lighting cache static descriptors must resolve");
+        let leaf_handoff_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.leaf_handoff_sm, pool);
+        leaf_handoff_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            })
+            .expect("leaf handoff static descriptors must resolve");
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -1057,6 +1080,7 @@ impl PipelineBuilder {
             terrain_query_ppl,
             wind_volume_ppl,
             vegetation_response_ppl,
+            leaf_handoff_ppl,
             post_processing_ppl,
         }
     }
@@ -1937,6 +1961,7 @@ impl PipelineTopology {
         for pipeline in [
             &self.compute.apple_pixel_tree_ppl,
             &self.compute.apple_pixel_dynamic_ppl,
+            &self.compute.leaf_handoff_ppl,
         ] {
             retire_compute(
                 pipeline,
@@ -2502,6 +2527,7 @@ pub struct ShaderModules {
     pub terrain_query_sm: ShaderModule,
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
+    pub leaf_handoff_sm: ShaderModule,
     pub flora_vert_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lod_vert_sm: ShaderModule,
@@ -2582,6 +2608,7 @@ pub struct ComputePipelines {
     pub terrain_query_ppl: ComputePipeline,
     pub wind_volume_ppl: ComputePipeline,
     pub vegetation_response_ppl: ComputePipeline,
+    pub leaf_handoff_ppl: ComputePipeline,
     pub post_processing_ppl: ComputePipeline,
 }
 

@@ -45,6 +45,14 @@ impl LeafFlight {
         }
     }
 
+    pub fn released(orientation: Quat, angular_velocity: Vec3) -> Self {
+        Self {
+            orientation,
+            angular_velocity,
+            remainder: 0.0,
+        }
+    }
+
     pub fn advance(
         &mut self,
         position: &mut Vec3,

@@ -104,7 +104,10 @@ impl LeafModelSettings {
     /// Visual size only: never feed this back into LeafFlight's aerodynamic size.
     /// Both A/B paths scale detached leaves, not butterflies or leaf-colored debris.
     pub fn render_size(self, snapshot: &ParticleSnapshot) -> f32 {
-        if snapshot.kind == ParticleRenderKind::Leaf && snapshot.leaf_orientation.is_some() {
+        if snapshot.kind == ParticleRenderKind::Leaf
+            && snapshot.leaf_orientation.is_some()
+            && snapshot.leaf_geometry.is_none()
+        {
             snapshot.size * self.display_scale()
         } else {
             snapshot.size
@@ -115,6 +118,7 @@ impl LeafModelSettings {
         self.enabled
             && snapshot.kind == ParticleRenderKind::Leaf
             && snapshot.leaf_orientation.is_some()
+            && snapshot.leaf_geometry.is_none()
     }
 }
 
@@ -1193,6 +1197,7 @@ mod tests {
             butterfly_wingbeat: Some(pose),
             leaf_orientation: None,
             leaf_shape_seed: None,
+            leaf_geometry: None,
         };
         let settings = ButterflyMeshSettings {
             resolution: 16,
@@ -1257,6 +1262,7 @@ mod tests {
                 butterfly_wingbeat: Some(pose),
                 leaf_orientation: None,
                 leaf_shape_seed: None,
+                leaf_geometry: None,
             };
             renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
             let instance = renderer.instances[0];
@@ -1303,6 +1309,7 @@ mod tests {
             butterfly_wingbeat: None,
             leaf_orientation: None,
             leaf_shape_seed: None,
+            leaf_geometry: None,
         };
         let snapshots = [
             snapshot(0.1, ParticleRenderKind::Butterfly),
@@ -1371,6 +1378,7 @@ mod tests {
                 ),
                 leaf_orientation: None,
                 leaf_shape_seed: None,
+                leaf_geometry: None,
             };
             renderer
                 .prepare(

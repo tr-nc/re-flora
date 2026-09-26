@@ -3335,6 +3335,7 @@ impl App {
                     self.debug_settings.adjustables.auto_daynight_cycle.value,
                 );
 
+                self.sync_leaf_lifecycle_mode();
                 if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
                     log::warn!("[ECOLOGY] update failed: {error:#}");
                 }
@@ -3384,6 +3385,12 @@ impl App {
                 self.publish_tree_surface_pose()
                     .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
+                self.tracer
+                    .publish_leaf_and_particle_state(
+                        &mut self.surface_builder.resources,
+                        frame_slot,
+                    )
+                    .expect("publish acquired-frame leaf and particle state");
                 self.collect_gpu_profiler_frame(frame_slot);
                 self.launch_owners.record_connectivity_gpu_submission(
                     frame_slot,

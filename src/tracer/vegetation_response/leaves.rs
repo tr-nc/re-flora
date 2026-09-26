@@ -61,6 +61,21 @@ impl LeafResponses {
         Ok(())
     }
 
+    pub(super) fn published_index(
+        &self,
+        tree: u32,
+        world: UVec3,
+        anchor_local: u32,
+    ) -> Option<u32> {
+        self.previous
+            .get(&LeafKey {
+                tree,
+                world,
+                anchor_local,
+            })
+            .copied()
+    }
+
     pub(super) fn offset(&self, tree_id: u32) -> u32 {
         *self
             .offsets

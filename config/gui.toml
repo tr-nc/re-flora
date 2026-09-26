@@ -2173,6 +2173,59 @@ value = "#98CE00"
 name = "Falling Leaves"
 
 [[section.param]]
+id = "real_leaf_lifecycle"
+kind = "bool"
+label = "Real Detachment + Regrowth (B; Unchecked = Original)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "leaf_connection_strength"
+kind = "float"
+label = "Connection Strength Multiplier (B)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.1
+max = 4
+
+[[section.param]]
+id = "leaf_connection_half_life"
+kind = "float"
+label = "Connection Weakening Half-life (Seconds, B)"
+type = "Float"
+
+[section.param.data]
+value = 120
+min = 5
+max = 600
+
+[[section.param]]
+id = "leaf_regrowth_delay"
+kind = "float"
+label = "Empty Socket Recovery (Seconds, B)"
+type = "Float"
+
+[section.param.data]
+value = 8
+min = 0
+max = 60
+
+[[section.param]]
+id = "leaf_regrowth_duration"
+kind = "float"
+label = "New Leaf Growth (Seconds, B)"
+type = "Float"
+
+[section.param.data]
+value = 20
+min = 1
+max = 120
+
+[[section.param]]
 id = "falling_leaf_mesh"
 kind = "bool"
 label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"

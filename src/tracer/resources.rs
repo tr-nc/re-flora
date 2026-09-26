@@ -422,6 +422,9 @@ pub struct ParticleInstanceGpu {
     /// Other leaf particles: optical normal + enable. Geometry is always billboarded.
     /// Packing both optical inputs preserves the existing reflected 52-byte instance ABI.
     pub leaf_optics: [f32; 4],
+    /// Actual detached tree voxels retain a separate geometry frame. w=2 on
+    /// ordinary particles is the inactive sentinel, outside unit quaternions.
+    pub leaf_geometry: [f32; 4],
 }
 
 pub struct ParticleRendererResources {
@@ -432,6 +435,12 @@ pub struct ParticleRendererResources {
     pub instance_count: u32,
     pub translucent_instance_buffer: Resource<Buffer>,
     pub translucent_instance_count: u32,
+    pub tree_leaf_vertices: Resource<Buffer>,
+    pub tree_leaf_indices: Resource<Buffer>,
+    pub tree_leaf_indices_len: u32,
+    pub tree_leaf_instance_buffer: Resource<Buffer>,
+    pub tree_leaf_instance_count: u32,
+    instance_frames: Vec<Option<[Buffer; 3]>>,
 }
 
 #[repr(C)]
@@ -783,7 +792,7 @@ impl GlassMeshResources {
 }
 
 // The active particle shader exposes only packed_data at vertex rate; locations 2+ are instances.
-fn particle_mesh_data() -> (Vec<LeafVertex>, Vec<u32>) {
+fn particle_mesh_data(lod: bool) -> (Vec<LeafVertex>, Vec<u32>) {
     use crate::tracer::voxel_encoding::append_indexed_leaf_cube_data;
 
     let mut vertices = Vec::new();
@@ -797,7 +806,7 @@ fn particle_mesh_data() -> (Vec<LeafVertex>, Vec<u32>) {
         0,
         IVec3::ZERO,
         1,
-        true,
+        lod,
     )
     .unwrap();
     (vertices, indices)
@@ -807,7 +816,9 @@ impl ParticleRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         let instance_capacity = PARTICLE_CAPACITY as u32;
         let (vertices, indices, indices_len) =
-            Self::create_particle_mesh(device.clone(), allocator.clone());
+            Self::create_particle_mesh(device.clone(), allocator.clone(), true);
+        let (tree_leaf_vertices, tree_leaf_indices, tree_leaf_indices_len) =
+            Self::create_particle_mesh(device.clone(), allocator.clone(), false);
 
         let create_instance_buffer = || {
             Buffer::new_sized(
@@ -829,11 +840,69 @@ impl ParticleRendererResources {
             instance_count: 0,
             translucent_instance_buffer: Resource::new(translucent_instance_buffer),
             translucent_instance_count: 0,
+            tree_leaf_vertices: Resource::new(tree_leaf_vertices),
+            tree_leaf_indices: Resource::new(tree_leaf_indices),
+            tree_leaf_indices_len,
+            tree_leaf_instance_buffer: Resource::new(create_instance_buffer()),
+            tree_leaf_instance_count: 0,
+            instance_frames: Vec::new(),
         }
     }
 
-    fn create_particle_mesh(device: Device, allocator: Allocator) -> (Buffer, Buffer, u32) {
-        let (vertices_data, indices_data) = particle_mesh_data();
+    /// Host uploads occur only after the caller acquired this frame slot.
+    /// Storage grows with actual demand; real leaf loss is never emission-capped.
+    pub fn publish_frame(
+        &mut self,
+        slot: usize,
+        device: Device,
+        allocator: Allocator,
+        batches: [&[ParticleInstanceGpu]; 3],
+    ) -> anyhow::Result<()> {
+        while self.instance_frames.len() <= slot {
+            self.instance_frames.push(None);
+        }
+        let buffers = self.instance_frames[slot].get_or_insert_with(|| {
+            std::array::from_fn(|index| {
+                Buffer::new_sized(
+                    device.clone(),
+                    allocator.clone(),
+                    BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+                    MemoryLocation::CpuToGpu,
+                    (batches[index].len().max(1).next_power_of_two()
+                        * std::mem::size_of::<ParticleInstanceGpu>()) as u64,
+                )
+            })
+        });
+        for (buffer, batch) in buffers.iter_mut().zip(batches) {
+            let bytes = std::mem::size_of_val(batch) as u64;
+            if buffer.get_size_bytes() < bytes {
+                *buffer = Buffer::new_sized(
+                    device.clone(),
+                    allocator.clone(),
+                    BufferUsage::from_flags(vk::BufferUsageFlags::VERTEX_BUFFER),
+                    MemoryLocation::CpuToGpu,
+                    bytes.next_power_of_two(),
+                );
+            }
+            if bytes > 0 {
+                buffer.fill_range_with_raw_u8(0, bytemuck::cast_slice(batch))?;
+            }
+        }
+        self.instance_buffer = Resource::new(buffers[0].clone());
+        self.translucent_instance_buffer = Resource::new(buffers[1].clone());
+        self.tree_leaf_instance_buffer = Resource::new(buffers[2].clone());
+        self.instance_count = batches[0].len() as u32;
+        self.translucent_instance_count = batches[1].len() as u32;
+        self.tree_leaf_instance_count = batches[2].len() as u32;
+        Ok(())
+    }
+
+    fn create_particle_mesh(
+        device: Device,
+        allocator: Allocator,
+        lod: bool,
+    ) -> (Buffer, Buffer, u32) {
+        let (vertices_data, indices_data) = particle_mesh_data(lod);
 
         let vertices = Buffer::new_sized(
             device.clone(),
@@ -1929,7 +1998,7 @@ mod tests {
 
     #[test]
     fn particle_mesh_matches_the_compact_shader_vertex_stride() {
-        let (vertices, indices) = particle_mesh_data();
+        let (vertices, indices) = particle_mesh_data(true);
 
         assert!(!vertices.is_empty());
         assert!(!indices.is_empty());
@@ -1937,7 +2006,7 @@ mod tests {
             std::mem::size_of_val(vertices.as_slice()) / vertices.len(),
             std::mem::size_of::<LeafVertex>(),
         );
-        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 52);
+        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 68);
         assert_eq!(std::mem::offset_of!(ParticleInstanceGpu, leaf_optics), 36);
     }
 }

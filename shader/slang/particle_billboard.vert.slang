@@ -22,6 +22,7 @@ struct VertexInput
     [[vk::location(4)]] float4 instance_color : COLOR0;
     [[vk::location(5)]] uint leaf_pose_flags : TEXCOORD3;
     [[vk::location(6)]] float4 leaf_optics : TEXCOORD4;
+    [[vk::location(7)]] float4 leaf_geometry : TEXCOORD5;
 };
 
 struct VertexOutput
@@ -86,6 +87,14 @@ VertexOutput main(VertexInput input)
 
     float scale = max(input.instance_size, 0.001) * 1.25;
     float3 vertexPosition = input.instance_position + billboardVertexOffset(vertexOffset, scale);
+    if (input.leaf_geometry.w <= 1.0)
+    {
+        // Real tree leaves retain the source cube, without decorative size boosts.
+        float3 offset = (float3(vertexOffset) - 0.5) * input.instance_size;
+        float4 q = input.leaf_geometry;
+        offset += 2.0 * cross(q.xyz, cross(q.xyz, offset) + q.w * offset);
+        vertexPosition = input.instance_position + offset;
+    }
     bool hasFlightPose = (input.leaf_pose_flags & LEAF_FLIGHT_BIT) != 0u;
 
     VertexOutput output;

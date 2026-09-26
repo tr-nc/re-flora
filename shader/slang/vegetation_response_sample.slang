@@ -52,6 +52,11 @@ public float3 sampleVegetationResponse(uint3 rootVoxels, uint seed, uint species
     return float3(response.x, 0.0, response.y);
 }
 
+public VegetationResponseState leafHandoffResponse(uint index)
+{
+    return vegetation_response.data[index];
+}
+
 public float sampleLeafAngle(uint seed, uint localIndex, uint responseOffset)
 {
     // Local flutter uses the current frame's mechanical state. The whole-leaf

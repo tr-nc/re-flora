@@ -501,7 +501,8 @@ impl App {
                 &mut self.particle_system,
                 dt,
                 &self.wind_prototype.field.frame(),
-                self.render_flags.enable_leaves,
+                self.render_flags.enable_leaves
+                    && !self.debug_settings.adjustables.real_leaf_lifecycle.value,
             );
             let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
             self.sprinklers.advance_particles(
@@ -540,6 +541,9 @@ impl App {
             );
         }
         let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
+        if let Err(error) = self.advance_leaf_lifecycle(dt) {
+            log::error!("[LEAF_LIFECYCLE] handoff not committed: {error:#}");
+        }
 
         let collect_start = Instant::now();
         self.update_terrain_harvest_particle_collection(dt);
@@ -655,6 +659,7 @@ impl App {
                 butterfly_wingbeat: None,
                 leaf_orientation: None,
                 leaf_shape_seed: None,
+                leaf_geometry: None,
             });
         }
     }
@@ -777,6 +782,7 @@ impl App {
                             * glam::Quat::from_rotation_z(time * 0.4),
                     ),
                     leaf_shape_seed: Some(index as u32 * 137),
+                    leaf_geometry: None,
                 });
             }
         }
@@ -798,6 +804,7 @@ impl App {
                     butterfly_wingbeat: None,
                     leaf_orientation: None,
                     leaf_shape_seed: None,
+                    leaf_geometry: None,
                 });
             }
         }

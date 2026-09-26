@@ -1160,6 +1160,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Falling Leaves",
+        id: "real_leaf_lifecycle",
+        kind: "bool",
+        label: "Real Detachment + Regrowth (B; Unchecked = Original)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "leaf_connection_strength",
+        kind: "float",
+        label: "Connection Strength Multiplier (B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "leaf_connection_half_life",
+        kind: "float",
+        label: "Connection Weakening Half-life (Seconds, B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "leaf_regrowth_delay",
+        kind: "float",
+        label: "Empty Socket Recovery (Seconds, B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
+        id: "leaf_regrowth_duration",
+        kind: "float",
+        label: "New Leaf Growth (Seconds, B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Falling Leaves",
         id: "falling_leaf_mesh",
         kind: "bool",
         label: "Shared 3D Leaf (B; Unchecked = Original Sprite)",
@@ -1615,6 +1645,11 @@ pub struct GuiAdjustables {
     pub leaf_transmission_strength: crate::gui_adjustables::FloatParam,
     pub leaves_bottom_color: crate::gui_adjustables::ColorParam,
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
+    pub real_leaf_lifecycle: crate::gui_adjustables::BoolParam,
+    pub leaf_connection_strength: crate::gui_adjustables::FloatParam,
+    pub leaf_connection_half_life: crate::gui_adjustables::FloatParam,
+    pub leaf_regrowth_delay: crate::gui_adjustables::FloatParam,
+    pub leaf_regrowth_duration: crate::gui_adjustables::FloatParam,
     pub falling_leaf_mesh: crate::gui_adjustables::BoolParam,
     pub falling_leaf_size_scale: crate::gui_adjustables::FloatParam,
     pub falling_leaf_pixel_resolution: crate::gui_adjustables::UintParam,
@@ -1861,6 +1896,11 @@ impl GuiAdjustables {
         let mut leaf_transmission_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaves_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut real_leaf_lifecycle_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut leaf_connection_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_connection_half_life_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_regrowth_delay_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut leaf_regrowth_duration_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut falling_leaf_mesh_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut falling_leaf_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut falling_leaf_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -3174,6 +3214,39 @@ impl GuiAdjustables {
                             leaves_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "real_leaf_lifecycle" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            real_leaf_lifecycle_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "leaf_connection_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_connection_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_connection_half_life" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_connection_half_life_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_regrowth_delay" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_regrowth_delay_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "leaf_regrowth_duration" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            leaf_regrowth_duration_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "falling_leaf_mesh" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             falling_leaf_mesh_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3657,6 +3730,11 @@ impl GuiAdjustables {
             leaf_transmission_strength: leaf_transmission_strength_field.expect("Missing parameter: leaf_transmission_strength"),
             leaves_bottom_color: leaves_bottom_color_field.expect("Missing parameter: leaves_bottom_color"),
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
+            real_leaf_lifecycle: real_leaf_lifecycle_field.expect("Missing parameter: real_leaf_lifecycle"),
+            leaf_connection_strength: leaf_connection_strength_field.expect("Missing parameter: leaf_connection_strength"),
+            leaf_connection_half_life: leaf_connection_half_life_field.expect("Missing parameter: leaf_connection_half_life"),
+            leaf_regrowth_delay: leaf_regrowth_delay_field.expect("Missing parameter: leaf_regrowth_delay"),
+            leaf_regrowth_duration: leaf_regrowth_duration_field.expect("Missing parameter: leaf_regrowth_duration"),
             falling_leaf_mesh: falling_leaf_mesh_field.expect("Missing parameter: falling_leaf_mesh"),
             falling_leaf_size_scale: falling_leaf_size_scale_field.expect("Missing parameter: falling_leaf_size_scale"),
             falling_leaf_pixel_resolution: falling_leaf_pixel_resolution_field.expect("Missing parameter: falling_leaf_pixel_resolution"),
@@ -3853,6 +3931,10 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_flutter_frequency_full" => Some(&adjustables.leaf_flutter_frequency_full),
         "leaf_flutter_frequency_knee" => Some(&adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
+        "leaf_connection_strength" => Some(&adjustables.leaf_connection_strength),
+        "leaf_connection_half_life" => Some(&adjustables.leaf_connection_half_life),
+        "leaf_regrowth_delay" => Some(&adjustables.leaf_regrowth_delay),
+        "leaf_regrowth_duration" => Some(&adjustables.leaf_regrowth_duration),
         "falling_leaf_size_scale" => Some(&adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&adjustables.butterfly_wing_transmission),
@@ -3949,6 +4031,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&adjustables.cloud_shadows_enabled),
+        "real_leaf_lifecycle" => Some(&adjustables.real_leaf_lifecycle),
         "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
@@ -4131,6 +4214,10 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_flutter_frequency_full" => Some(&mut adjustables.leaf_flutter_frequency_full),
         "leaf_flutter_frequency_knee" => Some(&mut adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
+        "leaf_connection_strength" => Some(&mut adjustables.leaf_connection_strength),
+        "leaf_connection_half_life" => Some(&mut adjustables.leaf_connection_half_life),
+        "leaf_regrowth_delay" => Some(&mut adjustables.leaf_regrowth_delay),
+        "leaf_regrowth_duration" => Some(&mut adjustables.leaf_regrowth_duration),
         "falling_leaf_size_scale" => Some(&mut adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&mut adjustables.butterfly_wing_transmission),
@@ -4227,6 +4314,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "clouds_enabled" => Some(&mut adjustables.clouds_enabled),
         "cloud_shadows_enabled" => Some(&mut adjustables.cloud_shadows_enabled),
+        "real_leaf_lifecycle" => Some(&mut adjustables.real_leaf_lifecycle),
         "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),

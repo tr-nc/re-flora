@@ -88,6 +88,10 @@ impl LeafCanopy {
         }
     }
 
+    pub fn generation(&self, slot: usize) -> u32 {
+        self.sockets[slot].generation
+    }
+
     pub fn len(&self) -> usize {
         self.sockets.len()
     }

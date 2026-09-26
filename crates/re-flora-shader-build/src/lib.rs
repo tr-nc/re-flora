@@ -760,6 +760,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/leaf_handoff.comp",
+        source_path: "shader/slang/leaf_handoff.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/terrarium/glass.frag",
         source_path: "shader/slang/terrarium_glass.frag.slang",
         module_path: "shader/slang",

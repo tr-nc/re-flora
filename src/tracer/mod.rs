@@ -43,6 +43,7 @@ pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
+mod leaf_handoff;
 mod vegetation_response;
 use vegetation_response::VegetationResponse;
 
@@ -1700,6 +1701,7 @@ pub struct Tracer {
     model_pixel_cache: model_pixel_cache::ModelPixelCache,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
+    tree_leaf_particle_scratch: Vec<ParticleInstanceGpu>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2057,6 +2059,7 @@ impl Tracer {
             model_pixel_tiles: model_pixel_tiles::ModelPixelTiles::default(),
             particle_instance_scratch: Vec::with_capacity(particle_capacity),
             translucent_particle_instance_scratch: Vec::with_capacity(particle_capacity),
+            tree_leaf_particle_scratch: Vec::new(),
         })
     }
 
@@ -3842,6 +3845,14 @@ impl Tracer {
             &self.particle_resources.vertices,
             self.particle_resources.indices_len,
         );
+        record_mesh(
+            &self.particle_resources.tree_leaf_indices,
+            &self.particle_resources.tree_leaf_vertices,
+            self.particle_resources.tree_leaf_indices_len,
+        );
+        if self.particle_resources.tree_leaf_instance_count > 0 {
+            record_instance(&self.particle_resources.tree_leaf_instance_buffer);
+        }
         let glass = &self.resources.meshes.glass;
         record_mesh(&glass.indices, &glass.vertices, glass.indices_len);
 
@@ -4824,6 +4835,12 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
+                if batch.kind() == TreeFoliageKind::Leaves {
+                    resources.push((
+                        "tree_leaf_state",
+                        DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
+                    ));
+                }
                 let pixel_tiles = if batch.kind() == TreeFoliageKind::Apples {
                     let n = self.apple_pixel_resolution;
                     let tiles = self
@@ -5625,29 +5642,43 @@ impl Tracer {
                 )
             });
             let particle_resources = &self.particle_resources;
-            let draw_particles =
-                |pipeline: &GraphicsPipeline, instance_buffer: &Buffer, instance_count: u32| {
-                    if instance_count == 0 {
-                        return;
-                    }
-                    pipeline.record_bind(cmdbuf);
-                    pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-                    cmdbuf.bind_index_buffer_u32(&particle_resources.indices);
-                    cmdbuf.bind_vertex_buffers(0, &[&particle_resources.vertices, instance_buffer]);
-                    pipeline.record_indexed(
-                        cmdbuf,
+            let draw_particles = |pipeline: &GraphicsPipeline,
+                                  instance_buffer: &Buffer,
+                                  instance_count: u32,
+                                  source_voxel: bool| {
+                if instance_count == 0 {
+                    return;
+                }
+                pipeline.record_bind(cmdbuf);
+                pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                let (indices, vertices, count) = if source_voxel {
+                    (
+                        &particle_resources.tree_leaf_indices,
+                        &particle_resources.tree_leaf_vertices,
+                        particle_resources.tree_leaf_indices_len,
+                    )
+                } else {
+                    (
+                        &particle_resources.indices,
+                        &particle_resources.vertices,
                         particle_resources.indices_len,
-                        instance_count,
-                        0,
-                        0,
-                        0,
-                        None,
-                    );
+                    )
                 };
+                cmdbuf.bind_index_buffer_u32(indices);
+                cmdbuf.bind_vertex_buffers(0, &[vertices, instance_buffer]);
+                pipeline.record_indexed(cmdbuf, count, instance_count, 0, 0, 0, None);
+            };
             draw_particles(
                 &self.pipeline_topology.graphics().particle_ppl,
                 &particle_resources.instance_buffer,
                 particle_resources.instance_count,
+                false,
+            );
+            draw_particles(
+                &self.pipeline_topology.graphics().particle_ppl,
+                &particle_resources.tree_leaf_instance_buffer,
+                particle_resources.tree_leaf_instance_count,
+                true,
             );
             if self.butterfly_mesh_renderer.count() > 0 {
                 let pipeline = &self.pipeline_topology.graphics().butterfly_tile_ppl;
@@ -5680,6 +5711,7 @@ impl Tracer {
                 &self.pipeline_topology.graphics().water_droplet_ppl,
                 &particle_resources.translucent_instance_buffer,
                 particle_resources.translucent_instance_count,
+                false,
             );
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), particles_scope) {
                 profiler.end_scope(
@@ -5845,6 +5877,10 @@ impl Tracer {
                                 DescriptorResource::Buffer(
                                     &instance.resources.shadow_response_sources,
                                 ),
+                            ),
+                            (
+                                "tree_leaf_state",
+                                DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
                             ),
                             self.vegetation_response.descriptors()[0],
                             self.vegetation_response.descriptors()[1],
@@ -7028,13 +7064,13 @@ impl Tracer {
             self.allocator.clone(),
             &self.resources,
         )?;
-        let capacity = PARTICLE_CAPACITY;
-        let count = snapshots.len().min(capacity);
+        let count = snapshots.len();
+        self.tree_leaf_particle_scratch.clear();
         self.particle_instance_scratch.clear();
         self.particle_instance_scratch.reserve(count);
         self.translucent_particle_instance_scratch.clear();
         self.translucent_particle_instance_scratch.reserve(count);
-        for snap in snapshots.iter().take(capacity) {
+        for snap in snapshots {
             if snap.kind == crate::particles::ParticleRenderKind::Butterfly
                 || leaf_model.uses_model(snap)
             {
@@ -7044,11 +7080,16 @@ impl Tracer {
             let instance = ParticleInstanceGpu {
                 leaf_optics,
                 leaf_pose_flags,
+                leaf_geometry: snap
+                    .leaf_geometry
+                    .map_or([0., 0., 0., 2.], |q| q.to_array()),
                 position: snap.position_ws.to_array(),
                 size: leaf_model.render_size(snap),
                 color: snap.color.to_array(),
             };
-            if snap.kind == crate::particles::ParticleRenderKind::WaterDroplet {
+            if snap.leaf_geometry.is_some() {
+                self.tree_leaf_particle_scratch.push(instance);
+            } else if snap.kind == crate::particles::ParticleRenderKind::WaterDroplet {
                 self.translucent_particle_instance_scratch.push(instance);
             } else {
                 self.particle_instance_scratch.push(instance);
@@ -7064,19 +7105,8 @@ impl Tracer {
                 distance_sq(b).total_cmp(&distance_sq(a))
             });
 
-        if !self.particle_instance_scratch.is_empty() {
-            self.particle_resources
-                .instance_buffer
-                .fill(&self.particle_instance_scratch)?;
-        }
-        if !self.translucent_particle_instance_scratch.is_empty() {
-            self.particle_resources
-                .translucent_instance_buffer
-                .fill(&self.translucent_particle_instance_scratch)?;
-        }
-        self.particle_resources.instance_count = self.particle_instance_scratch.len() as u32;
-        self.particle_resources.translucent_instance_count =
-            self.translucent_particle_instance_scratch.len() as u32;
+        // The acquired frame-slot fence owns the eventual GPU upload; staging
+        // here cannot overwrite an earlier draw's instance storage.
         // Publish ordinary particles even if the butterfly tile pool rejects
         // an oversized batch; never leave unrelated particles on a stale frame.
         self.butterfly_mesh_renderer.prepare_frame_models(
@@ -7084,6 +7114,35 @@ impl Tracer {
             butterfly_mesh,
             leaf_model,
             self.camera.position(),
+        )
+    }
+
+    pub(crate) fn publish_leaf_and_particle_state(
+        &mut self,
+        surface: &mut SurfaceResources,
+        frame_slot: usize,
+    ) -> Result<()> {
+        for tree in surface
+            .instances
+            .leaves_instances
+            .values_mut()
+            .chain(surface.instances.apple_instances.values_mut())
+        {
+            tree.resources.leaf_state.publish(
+                frame_slot,
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+            )?;
+        }
+        self.particle_resources.publish_frame(
+            frame_slot,
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            [
+                &self.particle_instance_scratch,
+                &self.translucent_particle_instance_scratch,
+                &self.tree_leaf_particle_scratch,
+            ],
         )
     }
 
