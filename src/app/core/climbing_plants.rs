@@ -2,8 +2,7 @@
 use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{
-    ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport, ContreeCpuVoxelSourceDependency,
-    ContreeCpuVoxelSourceSnapshot,
+    ContreeCpuVoxelBlock, ContreeCpuVoxelBlockExport, ContreeCpuVoxelSourceSnapshot,
 };
 use crate::builder::{VOXEL_TYPE_EMPTY, VOXEL_TYPE_LIMESTONE};
 use crate::climbing_plants::{fixtures::Fixture, Plant, SearchDirection, Terrain};
@@ -17,13 +16,22 @@ use std::time::Instant;
 
 mod review;
 mod site;
+mod tick;
 use site::Site;
+use tick::{Action, Cadence, Event, Search, Snapshot, Tuning, VineTick};
 
 const PLAYABLE_VINE_SEED: u64 = 3500;
 
+fn climbing_scene_available(
+    test_scene: super::launch_owners::TestSceneFramePlan,
+    fallen_leaf_review_active: bool,
+) -> bool {
+    !test_scene.owns_capture_scene() && !fallen_leaf_review_active
+}
+
 #[derive(Default)]
 pub(super) struct ClimbingPlants {
-    plant: Option<Plant>,
+    vine: Option<VineTick>,
     created: bool,
     awaiting_seed: bool,
     fixture: Fixture,
@@ -33,40 +41,13 @@ pub(super) struct ClimbingPlants {
     direction: SearchDirection,
     pub reset_requested: bool,
     pub focus_requested: bool,
-    pub disconnect_root_requested: bool,
     pub refill_tip_requested: bool,
-    peel_highest_requested: bool,
-    peel_all_requested: bool,
     waiting_for_terrain: bool,
-    growth_blocked: bool,
     last_action: &'static str,
-    growth_clock: QuantumClock,
-    shoot_clock: QuantumClock,
     instances: Vec<DynamicFruitRenderInstance>,
-    terrain_dirty: bool,
-    last_dependencies: Vec<ContreeCpuVoxelSourceDependency>,
     collision_cache: CollisionPatchCache,
     review: review::Review,
 }
-#[derive(Default)]
-struct QuantumClock {
-    accumulator: f64,
-}
-impl QuantumClock {
-    fn quanta(&mut self, dt: f32, speed: f32) -> u32 {
-        if !dt.is_finite() || !speed.is_finite() || dt <= 0.0 || speed <= 0.0 {
-            return 0;
-        }
-        // Bound catch-up work rather than retaining an ever-growing simulation debt.
-        self.accumulator = (self.accumulator + f64::from(dt) * f64::from(speed)).min(8.0);
-        // Input tick durations are f32: tolerate their sub-micro-quantum roundoff
-        // at integer boundaries so 5 x 10 ms and 1 x 50 ms emit the same step.
-        let quanta = (self.accumulator + 1e-6).floor() as u32;
-        self.accumulator = (self.accumulator - f64::from(quanta)).max(0.0);
-        quanta
-    }
-}
-
 impl ClimbingPlants {
     fn observe_selection(&mut self, fixture: Fixture, seed: u64) {
         let selection = (fixture, seed);
@@ -79,7 +60,12 @@ impl ClimbingPlants {
         }
     }
 
+    fn plant(&self) -> Option<&Plant> {
+        self.vine.as_ref().map(VineTick::plant)
+    }
+
     pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui) {
+        let mut actions = Vec::new();
         ui.small("3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
         ui.horizontal(|ui| {
             if self.site.is_none() {
@@ -91,7 +77,7 @@ impl ClimbingPlants {
             }
             if ui
                 .add_enabled(
-                    self.plant.is_some() || self.site.is_some(),
+                    self.vine.is_some() || self.site.is_some(),
                     egui::Button::new("Focus vine"),
                 )
                 .clicked()
@@ -111,7 +97,8 @@ impl ClimbingPlants {
         if self.waiting_for_terrain {
             ui.label("Waiting for current terrain collision data; simulation is held safely.");
         }
-        if let Some(plant) = &self.plant {
+        if let Some(vine) = &self.vine {
+            let plant = vine.plant();
             let attached = plant.anchors.iter().filter(|a| a.attached).count();
             let flexible = plant.nodes.iter().filter(|node| !node.fixed).count();
             ui.small(format!(
@@ -130,7 +117,7 @@ impl ClimbingPlants {
                 ui.label("Root disconnected: regrowth stopped. Reset to restore the root.");
             } else if plant.nodes.len() >= 512 || plant.live_arc() + 2.0 > plant.max_live_arc() {
                 ui.label("Live stem limit reached. Pruning frees room to grow again.");
-            } else if self.growth_blocked {
+            } else if vine.growth_blocked() {
                 ui.label("Searching for reachable support; large unsupported gaps stop extension.");
             } else {
                 ui.label("Root connected. A cut leaves a new exploratory tip on the lower stem.");
@@ -139,15 +126,15 @@ impl ClimbingPlants {
                 ui.horizontal(|ui| {
                     if ui.add_enabled(plant.anchors.iter().any(|a| a.attached && a.node != 0), egui::Button::new("Prune highest attachment"))
                         .on_hover_text("Remove this attachment's stem and all descendants. The wall is unchanged; the cut can regrow.").clicked() {
-                        self.peel_highest_requested = true;
+                        actions.push(Action::PruneHighest);
                     }
                     if ui.add_enabled(plant.nodes.len() > 1, egui::Button::new("Prune back to root")).clicked() {
-                        self.peel_all_requested = true;
+                        actions.push(Action::PruneToRoot);
                     }
                 });
                 if ui.add_enabled(plant.root_connected(), egui::Button::new("Disconnect root"))
                     .on_hover_text("Stop regrowth until reset. This mode prunes unsupported stems instead of simulating falling remnants.").clicked() {
-                    self.disconnect_root_requested = true;
+                    actions.push(Action::DisconnectRoot);
                 }
                 ui.collapsing("Blocked-tip test", |ui| {
                     ui.small("Inserts real limestone through a tip. Blocked stem is pruned; the surviving shoot searches for a safe route.");
@@ -157,23 +144,66 @@ impl ClimbingPlants {
                 });
             });
         }
+        if let Some(vine) = &mut self.vine {
+            for action in actions {
+                vine.request(action);
+            }
+        }
         if !self.last_action.is_empty() {
             ui.label(self.last_action);
         }
     }
 
     pub fn has_history(&self) -> bool {
-        self.plant.is_some()
+        self.vine.is_some()
     }
     pub fn observe_edit(&mut self, bound: UAabb3) {
-        let Some(plant) = &self.plant else {
-            return;
-        };
-        let (min, max) = support_bounds(plant);
-        if min.cmple(bound.max()).all() && max.cmpge(bound.min()).all() {
-            self.terrain_dirty = true;
+        if let Some(vine) = &mut self.vine {
+            vine.observe_edit(bound);
         }
     }
+    fn observe_tick(&mut self, report: &tick::Report) {
+        self.waiting_for_terrain = report.waiting_for_terrain;
+        for event in &report.events {
+            match event {
+                Event::PrunedHighest(pruned) => {
+                    self.last_action =
+                        "Pruned the highest attachment and its upper branch; the cut can regrow.";
+                    log::info!(
+                        "[CLIMBING] manually pruned nodes={} buds={}",
+                        pruned.removed,
+                        pruned.buds
+                    );
+                }
+                Event::PrunedToRoot(pruned) => {
+                    self.last_action = "Pruned back to the root. Suitable wall allows new growth.";
+                    log::info!(
+                        "[CLIMBING] pruned to root nodes={} buds={}",
+                        pruned.removed,
+                        pruned.buds
+                    );
+                }
+                Event::DisconnectedRoot => {
+                    self.last_action =
+                        "Disconnected root; reset the wall and vine to restore growth.";
+                    log::info!("[CLIMBING] root disconnected; regrowth stopped until reset");
+                }
+                Event::SupportPruned {
+                    pruned,
+                    remaining_nodes,
+                } => {
+                    self.last_action =
+                        "Missing or blocked wall: upper branches pruned. The rooted stump can explore again.";
+                    log::info!(
+                        "[CLIMBING] support lost: pruned_nodes={} buds={} remaining_nodes={remaining_nodes}",
+                        pruned.removed,
+                        pruned.buds,
+                    );
+                }
+            }
+        }
+    }
+
     /// World replacement drops history and prevents silently authoring a new wall on load.
     pub fn replace_world(&mut self) {
         *self = Self {
@@ -181,18 +211,6 @@ impl ClimbingPlants {
             ..Self::default()
         };
     }
-}
-// Cover all backing surface and stem clearance, not only the sparse anchor cells.
-// Root-to-tip revalidation determines the exact affected subtree after the broad phase.
-fn support_bounds(plant: &Plant) -> (UVec3, UVec3) {
-    let (min, max) = plant.nodes.iter().fold(
-        (plant.nodes[0].position, plant.nodes[0].position),
-        |(min, max), node| (min.min(node.position), max.max(node.position)),
-    );
-    (
-        (min - Vec3::splat(3.0)).max(Vec3::ZERO).floor().as_uvec3(),
-        (max + Vec3::splat(3.0)).ceil().as_uvec3(),
-    )
 }
 /// The cache owns one immutable export; dependency readiness is checked on every use.
 #[derive(Default)]
@@ -379,10 +397,10 @@ impl App {
                 "Choose a clear, solid terrain face for the vine root.";
             return Ok(false);
         };
-        self.climbing_plants.plant = Some(
+        self.climbing_plants.vine = Some(VineTick::new(
             Plant::seed(position, normal, cell, material, PLAYABLE_VINE_SEED)
                 .with_search_direction(SearchDirection::Counterclockwise),
-        );
+        ));
         self.climbing_plants.created = true;
         self.climbing_plants.awaiting_seed = false;
         self.climbing_plants.reset_requested = false;
@@ -393,10 +411,6 @@ impl App {
             Fixture::from_index(self.debug_settings.adjustables.climbing_fixture.value),
             PLAYABLE_VINE_SEED,
         ));
-        self.climbing_plants.growth_clock = QuantumClock::default();
-        self.climbing_plants.shoot_clock = QuantumClock::default();
-        self.climbing_plants.last_dependencies.clear();
-        self.climbing_plants.terrain_dirty = true;
         self.climbing_plants.waiting_for_terrain = false;
         self.climbing_plants.last_action =
             "Planted vine at the selected surface (one session vine at a time).";
@@ -405,13 +419,12 @@ impl App {
     }
 
     pub(super) fn update_climbing_plants(&mut self, steps: u32, tick_seconds: f32) -> Result<()> {
-        // Explicit test scenes own their terrain and camera. The automatic interactive
-        // demo must not author another fixture or steal their capture viewpoint.
-        if self
-            .launch_owners
-            .test_scene_frame_plan()
-            .owns_capture_scene()
-        {
+        // Explicit test scenes and fallen-leaf/model reviews own their terrain and
+        // camera. Yield before the demo authors a wall or requests camera focus.
+        if !climbing_scene_available(
+            self.launch_owners.test_scene_frame_plan(),
+            self.fallen_leaf_review.is_some(),
+        ) {
             return Ok(());
         }
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
@@ -494,13 +507,13 @@ impl App {
                 fixture.name()
             );
         }
-        if !self.climbing_plants.awaiting_seed && self.climbing_plants.plant.is_none() {
+        if !self.climbing_plants.awaiting_seed && self.climbing_plants.vine.is_none() {
             return Ok(()); // loading a world must not silently seed a new vine
         }
         let site = self.climbing_plants.site;
         if self.climbing_plants.focus_requested {
             self.climbing_plants.focus_requested = false;
-            let target = self.climbing_plants.plant.as_ref().map_or_else(
+            let target = self.climbing_plants.plant().map_or_else(
                 || {
                     site.expect("fixture seed has a grounded site")
                         .point(Vec3::new(
@@ -536,7 +549,7 @@ impl App {
             self.reset_camera_movement_input();
         }
         if std::mem::take(&mut self.climbing_plants.refill_tip_requested) {
-            if let Some(plant) = &self.climbing_plants.plant {
+            if let Some(plant) = self.climbing_plants.plant() {
                 let tip = plant.nodes.last().unwrap().position;
                 let cell = tip.floor().as_uvec3();
                 let min = UVec3::new(cell.x.saturating_sub(1), cell.y.saturating_sub(2), cell.z);
@@ -557,7 +570,7 @@ impl App {
         let elapsed_us = || profile_start.map_or(0, |start| start.elapsed().as_micros());
         let source = self.contree_builder.cpu_voxel_source_snapshot();
 
-        let (min, max) = if let Some(plant) = &self.climbing_plants.plant {
+        let (min, max) = if let Some(plant) = self.climbing_plants.plant() {
             let mut min = plant.nodes[0].position;
             let mut max = min;
             for node in &plant.nodes {
@@ -584,40 +597,39 @@ impl App {
                 (position + Vec3::splat(9.0)).ceil().as_uvec3(),
             )
         };
-        self.climbing_plants.waiting_for_terrain = true;
-        let Some(block) = self
+        let patch = self
             .climbing_plants
             .collision_cache
             .query(&source, min, max)?
-        else {
-            return Ok(());
-        };
-        // Publication/cache readiness is distinct from revision equality. No world mutation can
-        // interleave this synchronous query/commit, and all overlapping chunks are dependencies.
-        let latest = self.contree_builder.cpu_voxel_source_snapshot();
-        let fresh = block
-            .source_dependencies
-            .iter()
-            .all(|d| latest.is_chunk_voxel_cache_ready(*d));
-        if !fresh {
-            return Ok(());
-        }
-        let patch = Patch {
-            block,
-            fresh,
-            queries: self.perf_logging.then(|| Cell::new(0)),
-        };
-        self.climbing_plants.waiting_for_terrain = false;
+            .map(|block| {
+                // Publication readiness is distinct from revision equality. Pass
+                // both facts to the tick owner, including unavailable/stale exports.
+                let latest = self.contree_builder.cpu_voxel_source_snapshot();
+                let fresh = block
+                    .source_dependencies
+                    .iter()
+                    .all(|d| latest.is_chunk_voxel_cache_ready(*d));
+                Patch {
+                    block,
+                    fresh,
+                    queries: self.perf_logging.then(|| Cell::new(0)),
+                }
+            });
         let export_us = elapsed_us();
         if self.climbing_plants.awaiting_seed {
+            self.climbing_plants.waiting_for_terrain = true;
+            let Some(patch) = patch.as_ref().filter(|patch| patch.current()) else {
+                return Ok(());
+            };
+            self.climbing_plants.waiting_for_terrain = false;
             let (position, normal, cell) = site
                 .expect("fixture seed has a grounded site")
                 .seed(self.climbing_plants.fixture);
             if patch.voxel(cell) == Some(VOXEL_TYPE_LIMESTONE as u8)
-                && crate::climbing_plants::clear_segment(&patch, position, position, 0.65)
+                && crate::climbing_plants::clear_segment(patch, position, position, 0.65)
                     == Some(true)
             {
-                self.climbing_plants.plant = Some(
+                self.climbing_plants.vine = Some(VineTick::new(
                     Plant::seed(
                         position,
                         normal,
@@ -626,9 +638,8 @@ impl App {
                         self.climbing_plants.seed,
                     )
                     .with_search_direction(self.climbing_plants.direction),
-                );
+                ));
                 self.climbing_plants.awaiting_seed = false;
-                self.climbing_plants.terrain_dirty = true;
                 log::info!(
                     "[CLIMBING] seed={} direction={:?} position={position:?} fixture={} dependencies={}",
                     self.climbing_plants.seed,
@@ -638,68 +649,9 @@ impl App {
                 );
             }
         }
-        let Some(plant) = &mut self.climbing_plants.plant else {
+        let Some(vine) = &mut self.climbing_plants.vine else {
             return Ok(());
         };
-        if !review {
-            plant.set_search_tuning(
-                self.debug_settings.adjustables.climbing_search_turn.value,
-                self.debug_settings.adjustables.climbing_search_reach.value,
-            );
-            plant.set_search_rate(self.debug_settings.adjustables.climbing_search_rate.value);
-        }
-        if std::mem::take(&mut self.climbing_plants.peel_highest_requested) {
-            if let Some(pruned) = plant.prune_highest_attachment() {
-                self.climbing_plants.last_action =
-                    "Pruned the highest attachment and its upper branch; the cut can regrow.";
-                log::info!(
-                    "[CLIMBING] manually pruned nodes={} buds={}",
-                    pruned.removed,
-                    pruned.buds
-                );
-            }
-        }
-        if std::mem::take(&mut self.climbing_plants.peel_all_requested) {
-            let pruned = plant.prune_to_root();
-            self.climbing_plants.last_action =
-                "Pruned back to the root. Suitable wall allows new growth.";
-            log::info!(
-                "[CLIMBING] pruned to root nodes={} buds={}",
-                pruned.removed,
-                pruned.buds
-            );
-        }
-        if self.climbing_plants.disconnect_root_requested {
-            self.climbing_plants.disconnect_root_requested = false;
-            plant.disconnect_root();
-            self.climbing_plants.last_action =
-                "Disconnected root; reset the wall and vine to restore growth.";
-            log::info!("[CLIMBING] root disconnected; regrowth stopped until reset");
-        }
-        // Poll dependency AND readiness changes as well as published edit events.
-        // A wall gap between anchors is relevant, so revalidate all backing stem spans.
-        if self.climbing_plants.terrain_dirty
-            || self.climbing_plants.last_dependencies != patch.block.source_dependencies
-        {
-            let Some(pruned) = plant.revalidate(&patch) else {
-                self.climbing_plants.waiting_for_terrain = true;
-                return Ok(());
-            };
-            self.climbing_plants.terrain_dirty = false;
-            self.climbing_plants
-                .last_dependencies
-                .clone_from(&patch.block.source_dependencies);
-            if pruned.removed > 0 {
-                self.climbing_plants.last_action =
-                    "Missing or blocked wall: upper branches pruned. The rooted stump can explore again.";
-                log::info!(
-                    "[CLIMBING] support lost: pruned_nodes={} buds={} remaining_nodes={}",
-                    pruned.removed,
-                    pruned.buds,
-                    plant.nodes.len()
-                );
-            }
-        }
         let spacing = if overhang_review {
             10.0
         } else if review {
@@ -714,46 +666,43 @@ impl App {
         } else {
             self.debug_settings.adjustables.climbing_flexibility.value
         };
-        let before_nodes = plant.nodes.len();
-        let revalidate_end_us = elapsed_us();
-        let dt = steps as f32 * tick_seconds;
-        let speed = self.debug_settings.adjustables.climbing_speed.value;
-        let exploring = !review || self.climbing_plants.review.growing();
-        let mut quanta = 0;
-        let mut growth_us = 0;
-        let pose_steps = if review {
-            2
+        let cadence = if review {
+            Cadence::Review {
+                growing: self.climbing_plants.review.growing(),
+            }
         } else {
-            self.climbing_plants.shoot_clock.quanta(dt, 20.0)
+            Cadence::Play {
+                dt: steps as f32 * tick_seconds,
+                growth_per_second: self.debug_settings.adjustables.climbing_speed.value,
+            }
         };
-        for i in 0..pose_steps {
-            // New growth and motion share an ordered fixed tick. Changing render
-            // cadence must not batch all births before all bending steps.
-            let births = if review {
-                u32::from(i == 0 && exploring)
-            } else {
-                self.climbing_plants.growth_clock.quanta(0.05, speed)
-            };
-            let begin = elapsed_us();
-            for _ in 0..births {
-                plant.grow(&patch, spacing);
-            }
-            growth_us += elapsed_us() - begin;
-            quanta += births;
-            if plant
-                .step_motion(&patch, 0.05, flexibility, spacing, exploring)
-                .is_none()
-            {
-                self.climbing_plants.waiting_for_terrain = true;
-                break;
-            }
-        }
-        if quanta > 0 {
-            self.climbing_plants.growth_blocked = plant.nodes.len() == before_nodes;
-        }
+        let report = vine.advance(
+            patch.as_ref().map(|patch| Snapshot {
+                terrain: patch,
+                dependencies: &patch.block.source_dependencies,
+            }),
+            cadence,
+            Tuning {
+                spacing,
+                flexibility,
+                search: (!review).then_some(Search {
+                    turn: self.debug_settings.adjustables.climbing_search_turn.value,
+                    reach: self.debug_settings.adjustables.climbing_search_reach.value,
+                    rate: self.debug_settings.adjustables.climbing_search_rate.value,
+                }),
+            },
+            self.perf_logging,
+        );
         let pose_end_us = elapsed_us();
-        let pose_us = pose_end_us - revalidate_end_us - growth_us;
-        if before_nodes / 16 != plant.nodes.len() / 16 {
+        self.climbing_plants.observe_tick(&report);
+        if !report.publish {
+            return Ok(());
+        }
+        let patch = patch
+            .as_ref()
+            .expect("a published tick has a terrain export");
+        let plant = self.climbing_plants.vine.as_ref().unwrap().plant();
+        if report.nodes_before_motion / 16 != plant.nodes.len() / 16 {
             log::info!(
                 "[CLIMBING] growth nodes={} attached={} tips={} finite={}",
                 plant.nodes.len(),
@@ -854,7 +803,7 @@ impl App {
             }
         }
         let review_edit = if review {
-            self.climbing_plants.review.advance(plant, &patch)?
+            self.climbing_plants.review.advance(plant, patch)?
         } else {
             None
         };
@@ -867,14 +816,18 @@ impl App {
             } else {
                 "play"
             };
-            let plant = self.climbing_plants.plant.as_ref().unwrap();
+            let plant = self.climbing_plants.plant().unwrap();
             log::info!(
-                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} quanta={quanta} queries={} export_us={export_us} prune_us={} growth_us={growth_us} pose_us={pose_us} render_us={} total_us={total_us}",
+                "[CLIMBING][PERF] phase={phase} tick={} nodes={} attached={} quanta={} motion_steps={} queries={} export_us={export_us} prune_us={} growth_us={} pose_us={} render_us={} total_us={total_us}",
                 self.climbing_plants.review.ticks,
                 plant.nodes.len(),
                 plant.anchors.iter().filter(|a| a.attached).count(),
+                report.growth_attempts,
+                report.motion_steps,
                 patch.queries.as_ref().map_or(0, Cell::get),
-                revalidate_end_us - export_us,
+                report.timings.revalidate_us,
+                report.timings.growth_us,
+                report.timings.pose_us,
                 total_us - pose_end_us,
             );
         }
@@ -900,6 +853,71 @@ fn block_instance(
 mod tests {
     use super::*;
     use crate::builder::test_cpu_voxel_source_snapshot;
+
+    #[test]
+    fn climbing_scene_yields_to_active_leaf_review_not_to_screenshot_names() {
+        use super::super::launch_owners::prepare_startup_owners;
+        use crate::cli::{AutomationPlan, CameraAutomation, Scenario, ScreenshotOptions};
+
+        for camera in [
+            CameraAutomation::None,
+            CameraAutomation::Screenshot {
+                snapshot: "any-snapshot".to_owned(),
+                capture: ScreenshotOptions {
+                    path: "unused.png".to_owned(),
+                    delay: 1.5,
+                    sequence: None,
+                },
+            },
+        ] {
+            let owners = prepare_startup_owners(
+                AutomationPlan {
+                    camera,
+                    ..Default::default()
+                },
+                Scenario::Garden,
+            )
+            .unwrap();
+            let plan = owners.test_scene_frame_plan();
+            assert!(
+                climbing_scene_available(plan, false),
+                "ordinary play and explicit climbing review must keep their scene"
+            );
+            assert!(
+                !climbing_scene_available(plan, true),
+                "active fallen-leaf/model review must retain its world and camera"
+            );
+        }
+    }
+
+    #[test]
+    fn climbing_scene_still_yields_to_existing_capture_owners() {
+        use super::super::launch_owners::prepare_startup_owners;
+        use crate::cli::{
+            AutomationPlan, EnvironmentLightingTestCase, GlassCoverage, GlassDebugView,
+            GlassVoxelOptions, Scenario,
+        };
+
+        for scenario in [
+            Scenario::EnvironmentLighting(EnvironmentLightingTestCase::TerrainEditsInflightCapture),
+            Scenario::HybridTransparency,
+            Scenario::GlassVoxel(GlassVoxelOptions {
+                coverage: GlassCoverage::TwentyFive,
+                debug_view: GlassDebugView::Final,
+                validate_fixed_camera_frame: true,
+            }),
+        ] {
+            let owners = prepare_startup_owners(AutomationPlan::default(), scenario).unwrap();
+            let plan = owners.test_scene_frame_plan();
+            for leaf_review in [false, true] {
+                assert!(
+                    !climbing_scene_available(plan, leaf_review),
+                    "capture owner {:?} must keep its scene even before capture readiness",
+                    plan.kind()
+                );
+            }
+        }
+    }
 
     struct Wall;
     impl Terrain for Wall {
@@ -978,84 +996,6 @@ mod tests {
         )
     }
     #[test]
-    fn growth_speed_is_independent_of_world_tick_cadence() {
-        let mut outcomes = Vec::new();
-        for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
-            let mut plant = test_plant();
-            let mut clock = QuantumClock::default();
-            let mut total = 0;
-            for _ in 0..frames {
-                let steps = clock.quanta(dt, 12.0);
-                total += steps;
-                for _ in 0..steps {
-                    plant.grow(&Wall, 16.0);
-                }
-            }
-            assert_eq!(total, 12);
-            outcomes.push(plant);
-        }
-        assert_eq!(outcomes[0], outcomes[1]);
-        assert_eq!(outcomes[1], outcomes[2]);
-    }
-
-    #[test]
-    fn continuous_growth_and_motion_keep_the_same_order_across_frame_cadences() {
-        let mut outcomes = Vec::new();
-        for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
-            let mut plant = test_plant();
-            let mut motion = QuantumClock::default();
-            let mut growth = QuantumClock::default();
-            for _ in 0..frames {
-                for _ in 0..motion.quanta(dt, 20.0) {
-                    for _ in 0..growth.quanta(0.05, 10.0) {
-                        plant.grow(&Wall, 16.0);
-                    }
-                    plant.step_motion(&Wall, 0.05, 1.0, 16.0, true).unwrap();
-                }
-            }
-            outcomes.push(plant);
-        }
-        assert_eq!(outcomes[0], outcomes[1]);
-        assert_eq!(outcomes[1], outcomes[2]);
-    }
-
-    #[test]
-    fn young_shoot_settles_without_births_independent_of_tick_cadence() {
-        let mut outcomes = Vec::new();
-        for (frames, dt) in [(100, 0.01), (20, 0.05), (10, 0.1)] {
-            let mut plant = test_plant();
-            for _ in 0..5 {
-                plant.grow(&Wall, 64.0);
-            }
-            let before = plant.clone();
-            let mut shoot = QuantumClock::default();
-            for _ in 0..frames {
-                for _ in 0..shoot.quanta(dt, 20.0) {
-                    plant.relax_shoot(&Wall, 0.05, 1.0, 64.0).unwrap();
-                }
-            }
-            assert_eq!(plant.nodes.len(), before.nodes.len());
-            assert_ne!(plant.nodes, before.nodes);
-            outcomes.push(plant);
-        }
-        assert_eq!(outcomes[0], outcomes[1]);
-        assert_eq!(outcomes[1], outcomes[2]);
-    }
-
-    #[test]
-    fn quantum_clocks_bound_catch_up_and_hold_without_world_time() {
-        let mut clock = QuantumClock::default();
-        assert_eq!(clock.quanta(100.0, 40.0), 8);
-        assert_eq!(clock.quanta(0.0, 40.0), 0);
-        assert_eq!(clock.quanta(0.01, 40.0), 0);
-        assert_eq!(clock.quanta(0.01, 40.0), 0);
-        assert_eq!(clock.quanta(0.01, 40.0), 1);
-        for dt in [f32::NAN, f32::INFINITY, -1.0] {
-            assert_eq!(clock.quanta(dt, 40.0), 0);
-        }
-    }
-
-    #[test]
     fn action_buttons_restart_immediately_and_gate_unavailable_simulation() {
         fn text_position(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
             match shape {
@@ -1099,19 +1039,36 @@ mod tests {
                 ]);
             }
         }
+        fn advance(runtime: &mut ClimbingPlants, cadence: Cadence) -> tick::Report {
+            let report = runtime.vine.as_mut().unwrap().advance(
+                Some(Snapshot {
+                    terrain: &Wall,
+                    dependencies: &[],
+                }),
+                cadence,
+                Tuning {
+                    spacing: 16.0,
+                    flexibility: 1.0,
+                    search: None,
+                },
+                false,
+            );
+            runtime.observe_tick(&report);
+            report
+        }
         let mut runtime = ClimbingPlants {
             created: true,
-            plant: Some(test_plant()),
+            vine: Some(VineTick::new(test_plant())),
             site: Some(Site::default()),
             ..Default::default()
         };
         for _ in 0..40 {
-            let plant = runtime.plant.as_mut().unwrap();
-            plant.grow(&Wall, 16.0);
-            for _ in 0..2 {
-                plant.step_motion(&Wall, 0.05, 1.0, 16.0, true).unwrap();
-            }
+            advance(&mut runtime, Cadence::Review { growing: true });
         }
+        let hold = Cadence::Play {
+            dt: 0.0,
+            growth_per_second: 10.0,
+        };
         let context = egui::Context::default();
         click(&mut runtime, &context, "Restart wall and vine");
         assert!(
@@ -1121,14 +1078,24 @@ mod tests {
         runtime.reset_requested = false;
         runtime.waiting_for_terrain = true;
         click(&mut runtime, &context, "Prune highest attachment");
-        assert!(!runtime.peel_highest_requested);
-        runtime.waiting_for_terrain = false;
+        assert!(advance(&mut runtime, hold).events.is_empty());
         click(&mut runtime, &context, "Prune highest attachment");
-        assert!(runtime.peel_highest_requested);
+        assert!(matches!(
+            advance(&mut runtime, hold).events.as_slice(),
+            [Event::PrunedHighest(_)]
+        ));
         click(&mut runtime, &context, "Prune back to root");
-        assert!(runtime.peel_all_requested);
+        assert!(matches!(
+            advance(&mut runtime, hold).events.as_slice(),
+            [Event::PrunedToRoot(_)]
+        ));
+        assert_eq!(runtime.plant().unwrap().nodes.len(), 1);
         click(&mut runtime, &context, "Disconnect root");
-        assert!(runtime.disconnect_root_requested);
+        assert_eq!(
+            advance(&mut runtime, hold).events,
+            vec![Event::DisconnectedRoot]
+        );
+        assert!(!runtime.plant().unwrap().root_connected());
         click(&mut runtime, &context, "Restart wall and vine");
         assert!(runtime.reset_requested);
     }
@@ -1211,35 +1178,18 @@ mod tests {
     }
 
     #[test]
-    fn local_edit_index_and_world_replacement_preserve_unrelated_state() {
-        let plant = Plant::seed(
-            Vec3::new(256.5, 10.5, 20.8),
-            Vec3::Z,
-            IVec3::new(256, 10, 19),
-            1,
-            42,
-        );
+    fn world_replacement_drops_the_vine_without_silently_reseeding() {
         let mut runtime = ClimbingPlants {
-            plant: Some(plant.clone()),
+            vine: Some(VineTick::new(test_plant())),
             created: true,
             ..Default::default()
         };
-        runtime.observe_edit(UAabb3::new(
-            UVec3::new(300, 10, 19),
-            UVec3::new(310, 20, 25),
-        ));
-        assert!(!runtime.terrain_dirty);
-        assert_eq!(runtime.plant.as_ref(), Some(&plant));
-        runtime.observe_edit(UAabb3::new(
-            UVec3::new(255, 10, 19),
-            UVec3::new(257, 12, 20),
-        ));
-        assert!(runtime.terrain_dirty);
+        assert!(runtime.has_history());
         runtime.replace_world();
-        assert!(runtime.plant.is_none());
+        assert!(!runtime.has_history());
+        assert!(runtime.plant().is_none());
         assert!(runtime.created); // load must not silently respawn the authored wall
         assert!(!runtime.awaiting_seed); // nor silently grow a new vine in existing terrain
-        assert!(!runtime.terrain_dirty);
         assert!(runtime.collision_cache.block.is_none());
     }
 
@@ -1285,31 +1235,5 @@ mod tests {
         assert_eq!(patch.voxel(IVec3::new(255, 1, 1)), Some(0));
         assert_eq!(patch.voxel(IVec3::new(256, 1, 1)), Some(0));
         assert_eq!(patch.voxel(IVec3::new(257, 1, 1)), None);
-    }
-    #[test]
-    fn contact_exposure_indexes_neighbouring_chunk_and_precise_refill_bounds() {
-        let plant = Plant::seed(
-            Vec3::new(255.8, 10.5, 255.8),
-            Vec3::Z,
-            IVec3::new(255, 10, 254),
-            1,
-            42,
-        );
-        let mut runtime = ClimbingPlants {
-            plant: Some(plant),
-            ..Default::default()
-        };
-        assert!(!runtime.terrain_dirty);
-        runtime.observe_edit(UAabb3::new(
-            UVec3::new(256, 10, 256),
-            UVec3::new(257, 11, 257),
-        ));
-        assert!(runtime.terrain_dirty);
-        runtime.terrain_dirty = false;
-        runtime.observe_edit(UAabb3::new(
-            UVec3::new(260, 10, 260),
-            UVec3::new(261, 11, 261),
-        ));
-        assert!(!runtime.terrain_dirty);
     }
 }
