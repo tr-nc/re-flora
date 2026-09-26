@@ -120,6 +120,16 @@ impl App {
             return;
         }
 
+        // Diagnostic-only replay: no change unless explicitly enabled with water-edit-soak.
+        let diagnostic_start = std::time::Instant::now();
+        if std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some() {
+            log::info!(
+                "[TREE_EDIT_DIAG] begin step={} xz={:?} radius={}",
+                current_step,
+                step.xz,
+                step.radius
+            );
+        }
         let result = match self.apply_water_edit_soak_step(step) {
             Ok(()) => super::super::launch_owners::WaterEditFrameResult::Applied,
             Err(err) => {
@@ -132,6 +142,13 @@ impl App {
                 super::super::launch_owners::WaterEditFrameResult::Failed
             }
         };
+        if std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some() {
+            log::info!(
+                "[TREE_EDIT_DIAG] end step={} edit_ms={:.3}",
+                current_step,
+                diagnostic_start.elapsed().as_secs_f64() * 1000.0
+            );
+        }
         if self
             .launch_owners
             .finish_water_edit_frame(transaction, result)
@@ -194,6 +211,22 @@ impl App {
 }
 
 fn water_edit_soak_step(step: usize) -> Option<WaterEditSoakStep> {
+    // Temporary, opt-in diagnosis only. Three equal spherical removal dabs after warmup.
+    if let Ok(mode) = std::env::var("RE_FLORA_TREE_EDIT_DIAGNOSTIC") {
+        let x = match mode.as_str() {
+            "far" => 1.625,
+            "near" => 1.125,
+            "trunk" => 1.0,
+            _ => panic!("RE_FLORA_TREE_EDIT_DIAGNOSTIC expects far, near, or trunk"),
+        };
+        return (step < 3).then_some(WaterEditSoakStep {
+            delay_sec: 5.0 + step as f32 * 3.0,
+            label: "tree-edit-diagnostic-remove",
+            xz: Vec2::new(x, 1.0 + step as f32 * 0.08),
+            radius: 0.055,
+            op: WaterEditSoakOp::Remove,
+        });
+    }
     match step {
         0 => Some(WaterEditSoakStep {
             delay_sec: 2.0,
