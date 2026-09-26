@@ -9,7 +9,6 @@ import ray;
 import scene_query;
 #endif
 import scene_marching;
-import raster_tree_lookup;
 import tracer_types;
 import voxel_material;
 import voxel_types;
@@ -85,9 +84,6 @@ float tracePixelDepth(Ray ray, uint localInvocationIndex)
             ray.direction, ray.inverse_direction, localInvocationIndex);
     }
 #endif
-    if (gui_input.raster_tree_static != 0u)
-        result = skipRasterTreeSurfaces(result,contree_node_data,contree_leaf_data,scene_tex,
-            ray.origin,ray.direction,ray.inverse_direction,localInvocationIndex);
     if (!result.is_hit)
     {
         return 1.0;

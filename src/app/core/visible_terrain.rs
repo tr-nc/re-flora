@@ -532,11 +532,8 @@ impl VisibleTerrainPublicationHost for App {
             .observe_published_environment_probe_terrain(revision, affected_voxels)
     }
 
-    fn commit_visible_terrain_revision(&mut self, revision: u32, affected_voxels: UAabb3) {
-        self.tracer
-            .raster_trees
-            .source
-            .observe_terrain(revision, affected_voxels);
+    fn commit_visible_terrain_revision(&mut self, revision: u32, _affected_voxels: UAabb3) {
+        // Procedural trees no longer derive their surface from terrain revisions.
         self.visible_terrain_revision = revision;
     }
 

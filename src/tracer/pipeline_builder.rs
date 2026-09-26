@@ -1721,7 +1721,6 @@ declare_ddgi_consumer_registry! {
     Flora => Graphics(graphics.flora_ppl),
     FloraLod => Graphics(graphics.flora_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
-    RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),

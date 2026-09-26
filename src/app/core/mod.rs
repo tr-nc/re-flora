@@ -3361,12 +3361,6 @@ impl App {
                     self.on_terminate(event_loop);
                     return;
                 }
-                if let Err(error) = self.sync_static_raster_trees() {
-                    log::error!("[TREE][RASTER_STATIC] preparation failed; restoring A: {error:#}");
-                    self.debug_settings.adjustables.raster_tree_static.value = false;
-                    self.tracer.raster_trees.enabled = false;
-                    self.tracer.invalidate_local_direct_sun_shadow_histories();
-                }
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
                     frame_perf_enabled,

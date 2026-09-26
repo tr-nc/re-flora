@@ -9,7 +9,6 @@ import packer;
 import ray;
 import scene_query;
 import scene_marching;
-import raster_tree_lookup;
 import skylight;
 import surface_irradiance;
 import terrain_edit_preview;
@@ -79,9 +78,6 @@ MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
 MarchingResult cameraSceneMarching(Ray ray, uint invocation) {
     MarchingResult result = marchTerrain(contree_node_data,contree_leaf_data,scene_tex,
         ray.origin,ray.direction,ray.inverse_direction,invocation);
-    if (gui_input.raster_tree_static != 0u)
-        result = skipRasterTreeSurfaces(result,contree_node_data,contree_leaf_data,scene_tex,
-            ray.origin,ray.direction,ray.inverse_direction,invocation);
     return result;
 }
 

@@ -81,7 +81,6 @@ pub(super) fn freeze_render_frame_inputs(
         voxel_rock_color: color_to_vec3(gui.voxel_rock_color.value),
     };
     let vegetation = VegetationFrameInput {
-        tree_hybrid_lighting: gui.raster_tree_hybrid_lighting.value,
         appearance: FloraAppearanceFrameInput {
             leaf_models: crate::tracer::LeafModelSettings {
                 resolution: gui.falling_leaf_pixel_resolution.value,
@@ -326,7 +325,6 @@ mod tests {
         }
 
         gui.flora_growth_override_enabled.value = true;
-        gui.raster_tree_hybrid_lighting.value = true;
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
         gui.apple_pixel_resolution.value = 24;
@@ -501,7 +499,6 @@ mod tests {
                 voxel_rock_color,
             },
             vegetation: VegetationFrameInput {
-                tree_hybrid_lighting: true,
                 appearance: FloraAppearanceFrameInput {
                     leaf_models: crate::tracer::LeafModelSettings {
                         resolution: settings.adjustables.falling_leaf_pixel_resolution.value,

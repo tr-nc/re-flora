@@ -141,8 +141,7 @@ uint sceneQueryVoxelType(readonly RWTexture3D<uint> denseAtlas,
                          uint3 dimensions)
 {
     if (!sceneQueryCellInside(cell, dimensions)) return 0u;
-    uint type = voxelTypeFromAtlasData(denseAtlas[uint3(cell)]);
-    return type==5u && treeRestVoxel(uint3(cell)) ? 0u : type;
+    return voxelTypeFromAtlasData(denseAtlas[uint3(cell)]);
 }
 
 public uint sceneQueryVoxelTypeAtWorld(

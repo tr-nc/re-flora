@@ -253,7 +253,6 @@ impl BufferUpdater {
 
     pub fn update_gui_input(
         resources: &TracerResources,
-        raster_tree_static: bool,
         lighting_frame: &ResolvedLightingFrameInputs,
         terrain: &TerrainFrameInput,
         materials: &MaterialFrameInput,
@@ -270,7 +269,6 @@ impl BufferUpdater {
             falling_leaf_size_scale: appearance.leaf_models.size_scale.clamp(0.25, 4.),
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
-            raster_tree_static: raster_tree_static as u32,
             model_pixel_cache_verify: std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some()
                 as u32,
             model_pixel_view_count: super::model_pixel_views::effective_count(
@@ -280,7 +278,6 @@ impl BufferUpdater {
             apple_pixel_resolution: terrain
                 .apple_pixel_resolution
                 .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),
-            raster_tree_hybrid_lighting: vegetation.tree_hybrid_lighting as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
