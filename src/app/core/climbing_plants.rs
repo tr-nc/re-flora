@@ -405,6 +405,15 @@ impl App {
     }
 
     pub(super) fn update_climbing_plants(&mut self, steps: u32, tick_seconds: f32) -> Result<()> {
+        // Explicit test scenes own their terrain and camera. The automatic interactive
+        // demo must not author another fixture or steal their capture viewpoint.
+        if self
+            .launch_owners
+            .test_scene_frame_plan()
+            .owns_capture_scene()
+        {
+            return Ok(());
+        }
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
         let review = review_mode.is_some();
         let overhang_review = review_mode.as_deref() == Some("overhang");

@@ -52,6 +52,11 @@ class SustainedEditLogTests(unittest.TestCase):
         self.assertTrue(analyze_log(fixture(end=False))["validation_failures"])
         self.assertTrue(analyze_log(fixture() + "\nthread 'main' panicked")["validation_failures"])
 
+    def test_unrelated_demo_invalidates_receiver_evidence(self):
+        log = fixture() + "\n[00:00:00.000 INFO test] [CLIMBING] authored editable inward fixture"
+        self.assertIn("unrelated climbing demo changed fixture terrain/camera",
+                      analyze_log(log)["validation_failures"])
+
     def test_repeated_edit_number_fails(self):
         log = fixture().replace("edit=40 ", "edit=39 ")
         self.assertTrue(analyze_log(log)["validation_failures"])

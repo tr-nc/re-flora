@@ -82,6 +82,8 @@ def analyze_log(text):
         failures.append("final terrain revision did not publish after editing ended")
     if errors:
         failures.append("runtime errors in log")
+    if "[CLIMBING] authored editable" in text:
+        failures.append("unrelated climbing demo changed fixture terrain/camera")
     return {"validation_failures": failures,
             "screenshot_during_edits": any("[SCREENSHOT] Saved" in line for _, line in active),
             "edits": len(edits), "edit_duration_ms": end - begin if bounded else None,
