@@ -6,8 +6,10 @@ use super::{
 use crate::app::world_edits::{TerrainRemovalEdit, VoxelEdit, WorldEditTransaction};
 use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_EMPTY, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
 use crate::ddgi::{
-    DdgiBuildKind, DdgiFieldGeneration, DdgiFieldIdentity, DdgiFieldState, DdgiProbePriorityReason,
-    DdgiRefreshState, DdgiScheduledWorkKind, DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
+    DdgiBuildKind, DdgiBuildToken, DdgiCaptureCheckpoint, DdgiCapturePublication,
+    DdgiCaptureTarget, DdgiFieldGeneration, DdgiFieldIdentity, DdgiFieldState,
+    DdgiProbePriorityReason, DdgiRefreshState, DdgiRuntimeVolumeStatus, DdgiScheduledWorkKind,
+    DdgiVolumeStage, DDGI_PROBE_BATCH_SIZE,
 };
 use crate::geom::{build_bvh, Cuboid, UAabb3};
 use crate::lighting::{
@@ -415,8 +417,12 @@ enum TestScenePhase {
     WaitingForDensityRebuild {
         terrain_revision: u32,
     },
+    WaitingForInflightCaptureOverlap {
+        baseline: DdgiFieldIdentity,
+        close_revision: u32,
+    },
     CapturingInflightStaleActive {
-        target_revision: u32,
+        window: InflightCaptureWindow,
     },
     Ready,
 }
@@ -449,6 +455,30 @@ fn next_nonzero_revision(revision: u32) -> u32 {
 
 fn is_converged_field(field: DdgiFieldIdentity) -> bool {
     field.field().state() == DdgiFieldState::Converged
+}
+
+// First-publication captures keep their existing timing. Later epoch/terminal targets must
+// exist on the old Active field before the fixture starts its overlapping edits.
+fn inflight_capture_needs_baseline(target: Option<DdgiCaptureTarget>) -> bool {
+    matches!(
+        target,
+        Some(DdgiCaptureTarget::Epoch(1..) | DdgiCaptureTarget::Converged)
+    )
+}
+
+fn inflight_capture_baseline(
+    target: DdgiCaptureTarget,
+    terrain_revision: u32,
+    active: Option<DdgiFieldIdentity>,
+    checkpoint: Option<DdgiCaptureCheckpoint>,
+) -> Option<DdgiFieldIdentity> {
+    let field = active?;
+    let checkpoint = checkpoint?;
+    (field.field().geometry_revision() == terrain_revision
+        && target.matches(field)
+        && checkpoint.field == field
+        && checkpoint.publication == DdgiCapturePublication::Published)
+        .then_some(field)
 }
 
 fn assert_radiance_epoch_zero(
@@ -870,8 +900,76 @@ pub(super) enum EnvironmentCapturePort {
     Active {
         scene_ready: bool,
         radiance_request: Option<RadianceCaptureRequest>,
-        inflight_target_revision: Option<u32>,
+        inflight_window: Option<InflightCaptureWindow>,
     },
+}
+
+/// Exact fixture observation, not a request to hold or delay DDGI publication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum InflightCaptureWindow {
+    LatestTerrain {
+        target_revision: u32,
+    },
+    OverlappingEdits {
+        active_field: DdgiFieldIdentity,
+        candidate: DdgiBuildToken,
+        target_revision: u32,
+    },
+}
+
+impl InflightCaptureWindow {
+    pub(super) fn target_revision(self) -> u32 {
+        match self {
+            Self::LatestTerrain { target_revision }
+            | Self::OverlappingEdits {
+                target_revision, ..
+            } => target_revision,
+        }
+    }
+
+    pub(super) fn is_ready(
+        self,
+        active: DdgiRuntimeVolumeStatus,
+        staging: Option<DdgiRuntimeVolumeStatus>,
+        coordinator: DdgiRefreshState,
+    ) -> bool {
+        let DdgiRefreshState::BuildingTerrain {
+            candidate,
+            latest_terrain_revision,
+        } = coordinator
+        else {
+            return false;
+        };
+        if latest_terrain_revision != self.target_revision()
+            || !active.is_ready()
+            || !active
+                .relocated_terrain_revision
+                .is_some_and(|revision| revision != self.target_revision())
+            || !staging.is_some_and(|staging| {
+                staging.build_token == Some(candidate) && staging.stage != DdgiVolumeStage::Ready
+            })
+        {
+            return false;
+        }
+        match self {
+            Self::LatestTerrain { target_revision } => {
+                candidate.terrain_revision() == target_revision
+            }
+            Self::OverlappingEdits {
+                active_field,
+                candidate: expected_candidate,
+                ..
+            } => {
+                active.published_field() == Some(active_field)
+                    && active.relocated_terrain_revision
+                        == Some(active_field.field().geometry_revision())
+                    && candidate == expected_candidate
+                    && candidate.kind() == DdgiBuildKind::Terrain
+                    && candidate.terrain_revision() != active_field.field().geometry_revision()
+                    && candidate.spacing_voxels() == active_field.field().spacing_voxels()
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -900,13 +998,12 @@ impl EnvironmentCapturePort {
         }
     }
 
-    pub(super) fn inflight_target_revision(self) -> Option<u32> {
+    pub(super) fn inflight_window(self) -> Option<InflightCaptureWindow> {
         match self {
             Self::Inactive => None,
             Self::Active {
-                inflight_target_revision,
-                ..
-            } => inflight_target_revision,
+                inflight_window, ..
+            } => inflight_window,
         }
     }
 }
@@ -997,7 +1094,7 @@ impl LaunchOwners {
             LaunchMode::Environment { owner, .. } => EnvironmentCapturePort::Active {
                 scene_ready: owner.is_capture_ready(),
                 radiance_request: owner.radiance_capture_request(),
-                inflight_target_revision: owner.inflight_capture_target_revision(),
+                inflight_window: owner.inflight_capture_window(),
             },
             LaunchMode::General { .. }
             | LaunchMode::CanopyAudio { .. }
@@ -1230,11 +1327,9 @@ impl EnvironmentLightingTestScene {
         })
     }
 
-    pub(super) fn inflight_capture_target_revision(&self) -> Option<u32> {
+    fn inflight_capture_window(&self) -> Option<InflightCaptureWindow> {
         match self.ready_phase().phase {
-            TestScenePhase::CapturingInflightStaleActive { target_revision } => {
-                Some(target_revision)
-            }
+            TestScenePhase::CapturingInflightStaleActive { window } => Some(window),
             _ => None,
         }
     }
@@ -1261,9 +1356,14 @@ impl EnvironmentLightingTestScene {
                 target_revision, ..
             }
             | TestScenePhase::PattSeamTerrainPublished { target_revision }
-            | TestScenePhase::WaitingForPattSeamProbeField { target_revision }
-            | TestScenePhase::CapturingInflightStaleActive { target_revision } => {
+            | TestScenePhase::WaitingForPattSeamProbeField { target_revision } => {
                 Some(target_revision)
+            }
+            TestScenePhase::WaitingForInflightCaptureOverlap { close_revision, .. } => {
+                Some(close_revision)
+            }
+            TestScenePhase::CapturingInflightStaleActive { window } => {
+                Some(window.target_revision())
             }
             TestScenePhase::WaitingForDensityRebuild { terrain_revision } => Some(terrain_revision),
             TestScenePhase::WaitingForRadianceBaseline { terrain_revision } => {
@@ -1539,6 +1639,9 @@ impl EnvironmentLightingTestScene {
             TestScenePhase::TerrainEditPublished { .. } => "terrain-edit-published",
             TestScenePhase::WaitingForEditedProbeField { .. } => "waiting-for-edited-probe-field",
             TestScenePhase::WaitingForDensityRebuild { .. } => "waiting-for-density-rebuild",
+            TestScenePhase::WaitingForInflightCaptureOverlap { .. } => {
+                "waiting-for-inflight-capture-overlap"
+            }
             TestScenePhase::CapturingInflightStaleActive { .. } => {
                 "capturing-inflight-stale-active"
             }
@@ -3461,6 +3564,32 @@ impl App {
                         ),
                     }
                 } else if is_terrain_edit_case(case) {
+                    let capture_target = self
+                        .environment_irradiance_capture
+                        .is_enabled()
+                        .then(|| self.tracer.ddgi_capture_target());
+                    let baseline = if case
+                        == EnvironmentLightingTestCase::TerrainEditsInflightCapture
+                        && inflight_capture_needs_baseline(capture_target)
+                    {
+                        let runtime = self.tracer.ddgi_runtime_status();
+                        let Some(baseline) = inflight_capture_baseline(
+                            capture_target.expect("baseline capture has an explicit target"),
+                            terrain_revision,
+                            runtime.active().published_field(),
+                            runtime.capture_checkpoint(),
+                        ) else {
+                            return;
+                        };
+                        log_acceptance_field(
+                            "INFLIGHT_CAPTURE",
+                            "old-active-before-edits",
+                            baseline,
+                        );
+                        Some(baseline)
+                    } else {
+                        None
+                    };
                     log::info!(
                         "[ENV_LIGHT_EDIT_CYCLE] initial probe field ready terrain_revision={}",
                         terrain_revision,
@@ -3469,10 +3598,16 @@ impl App {
                         TerrainEdit::CloseSkylight,
                         terrain_revision,
                     ) {
-                        Ok(target_revision) => TestScenePhase::TerrainEditPublished {
-                            edit: TerrainEdit::CloseSkylight,
-                            target_revision,
-                        },
+                        Ok(target_revision) => baseline.map_or(
+                            TestScenePhase::TerrainEditPublished {
+                                edit: TerrainEdit::CloseSkylight,
+                                target_revision,
+                            },
+                            |baseline| TestScenePhase::WaitingForInflightCaptureOverlap {
+                                baseline,
+                                close_revision: target_revision,
+                            },
+                        ),
                         Err(err) => panic!(
                             "[ENV_LIGHT_EDIT_CYCLE] close edit failed after a physical edit may have started; retry is unsafe: {err:#}"
                         ),
@@ -6183,6 +6318,56 @@ impl App {
                 );
                 TestScenePhase::Ready
             }
+            TestScenePhase::WaitingForInflightCaptureOverlap {
+                baseline,
+                close_revision,
+            } => {
+                let runtime = self.tracer.ddgi_runtime_status();
+                // Observe the first edit's real incomplete builder before issuing the second.
+                // Waiting for the second builder would let normal progressive publication
+                // replace our old eN with the first edit's e0.
+                if runtime.active().published_field() != Some(baseline)
+                    || !(InflightCaptureWindow::LatestTerrain {
+                        target_revision: close_revision,
+                    })
+                    .is_ready(
+                        runtime.active(),
+                        runtime.staging(),
+                        runtime.coordinator(),
+                    )
+                {
+                    return;
+                }
+                let candidate = runtime
+                    .staging_token()
+                    .expect("ready overlap has a builder");
+                let staging = runtime.staging().expect("ready overlap has staging");
+                log::info!(
+                    "[ENV_LIGHT_EDIT_INFLIGHT] obsolete candidate observed terrain_revision={} stage={:?} active_terrain_revision={:?} token={:?}",
+                    close_revision, staging.stage, runtime.active().relocated_terrain_revision, Some(candidate),
+                );
+                let target_revision = self.apply_environment_lighting_terrain_edit(
+                    TerrainEdit::ReopenSkylight, close_revision,
+                ).unwrap_or_else(|err| panic!(
+                    "[ENV_LIGHT_EDIT_INFLIGHT] reopen edit failed after a physical edit may have started; retry is unsafe: {err:#}"
+                ));
+                let window = InflightCaptureWindow::OverlappingEdits {
+                    active_field: baseline,
+                    candidate,
+                    target_revision,
+                };
+                let runtime = self.tracer.ddgi_runtime_status();
+                assert!(window.is_ready(runtime.active(), runtime.staging(), runtime.coordinator()),
+                    "overlapping fixture edit must preserve its exact old Active and in-flight builder");
+                log::info!(
+                    "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] armed active_terrain_revision={:?} active_field_serial={} active_update_epoch={} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=stale-active",
+                    runtime.active().relocated_terrain_revision,
+                    baseline.field().serial(), baseline.field().update_epoch(), target_revision,
+                    Some(candidate.serial()), staging.stage, staging.filtered_probe_count,
+                    staging.grid.probe_count(), runtime.coordinator(),
+                );
+                TestScenePhase::CapturingInflightStaleActive { window }
+            }
             TestScenePhase::TerrainEditPublished {
                 edit,
                 target_revision,
@@ -6264,8 +6449,9 @@ impl App {
                         staging.grid.probe_count(),
                         runtime.coordinator(),
                     );
-                    environment.phase =
-                        TestScenePhase::CapturingInflightStaleActive { target_revision };
+                    environment.phase = TestScenePhase::CapturingInflightStaleActive {
+                        window: InflightCaptureWindow::LatestTerrain { target_revision },
+                    };
                     return;
                 } else if !self.tracer.ddgi_ready_for_terrain_revision(target_revision) {
                     return;
@@ -6849,20 +7035,166 @@ mod tests {
         }
     }
 
+    fn capture_field(epoch: u32) -> DdgiFieldIdentity {
+        DdgiFieldIdentity::new(
+            DdgiFieldKey::new(
+                10 + u64::from(epoch),
+                2,
+                1,
+                32,
+                DdgiFieldState::Converging,
+                epoch,
+            )
+            .unwrap(),
+            (epoch > 0).then(|| {
+                DdgiFieldKey::new(
+                    9 + u64::from(epoch),
+                    2,
+                    1,
+                    32,
+                    DdgiFieldState::Converging,
+                    epoch - 1,
+                )
+                .unwrap()
+            }),
+        )
+        .unwrap()
+    }
+
+    fn capture_checkpoint(field: DdgiFieldIdentity) -> DdgiCaptureCheckpoint {
+        DdgiCaptureCheckpoint {
+            build_token: DdgiBuildToken::for_test(1, 2, 32, DdgiBuildKind::Terrain),
+            field,
+            validation: crate::ddgi::DdgiAtlasValidationStats::default(),
+            filter_proof: None,
+            publication: crate::ddgi::DdgiCapturePublication::Published,
+            batch_order: crate::ddgi::DdgiBatchOrder::Forward,
+        }
+    }
+
+    #[test]
+    fn inflight_capture_only_waits_for_later_explicit_targets() {
+        for target in [
+            None,
+            Some(DdgiCaptureTarget::default()),
+            Some(DdgiCaptureTarget::Published),
+        ] {
+            assert!(!inflight_capture_needs_baseline(target));
+        }
+        for target in [
+            DdgiCaptureTarget::Epoch(1),
+            DdgiCaptureTarget::Epoch(2),
+            DdgiCaptureTarget::Converged,
+        ] {
+            assert!(inflight_capture_needs_baseline(Some(target)));
+        }
+        let e0 = capture_field(0);
+        for target in [DdgiCaptureTarget::default(), DdgiCaptureTarget::Published] {
+            assert_eq!(
+                inflight_capture_baseline(target, 2, Some(e0), Some(capture_checkpoint(e0))),
+                Some(e0)
+            );
+        }
+    }
+
+    #[test]
+    fn inflight_capture_waits_for_exact_old_active_epoch_before_editing() {
+        let target = DdgiCaptureTarget::Epoch(2);
+        for epoch in [0, 1, 3] {
+            let field = capture_field(epoch);
+            assert_eq!(
+                inflight_capture_baseline(target, 2, Some(field), Some(capture_checkpoint(field))),
+                None,
+                "the fixture must not issue edits against e{epoch} for target e2",
+            );
+        }
+        let e2 = capture_field(2);
+        assert_eq!(
+            inflight_capture_baseline(target, 2, Some(e2), Some(capture_checkpoint(e2))),
+            Some(e2),
+        );
+    }
+
+    #[test]
+    fn inflight_capture_baseline_requires_the_exact_published_checkpoint() {
+        let e2 = capture_field(2);
+        let checkpoint = capture_checkpoint(e2);
+        assert_eq!(
+            inflight_capture_baseline(DdgiCaptureTarget::Epoch(2), 2, None, Some(checkpoint)),
+            None
+        );
+        assert_eq!(
+            inflight_capture_baseline(DdgiCaptureTarget::Epoch(2), 2, Some(e2), None),
+            None
+        );
+        assert_eq!(
+            inflight_capture_baseline(DdgiCaptureTarget::Epoch(2), 3, Some(e2), Some(checkpoint)),
+            None,
+        );
+        let mut wrong = checkpoint;
+        wrong.field = capture_field(1);
+        assert_eq!(
+            inflight_capture_baseline(DdgiCaptureTarget::Epoch(2), 2, Some(e2), Some(wrong)),
+            None,
+        );
+        wrong = checkpoint;
+        wrong.publication = crate::ddgi::DdgiCapturePublication::Unpublished;
+        assert_eq!(
+            inflight_capture_baseline(DdgiCaptureTarget::Epoch(2), 2, Some(e2), Some(wrong)),
+            None,
+        );
+    }
+
     #[test]
     fn inflight_stale_active_checkpoint_is_capture_ready_without_becoming_final_ready() {
         let mut scene = EnvironmentLightingTestScene::new(
             EnvironmentLightingTestCase::TerrainEditsInflightCapture,
         );
         let mut attempt = scene.begin_phase().unwrap();
-        attempt.request_mut().phase =
-            TestScenePhase::CapturingInflightStaleActive { target_revision: 3 };
+        attempt.request_mut().phase = TestScenePhase::CapturingInflightStaleActive {
+            window: InflightCaptureWindow::LatestTerrain { target_revision: 3 },
+        };
         scene.commit_phase(attempt.complete()).unwrap();
 
         assert!(scene.is_capture_ready());
         assert!(!scene.is_ready());
-        assert_eq!(scene.inflight_capture_target_revision(), Some(3));
+        assert_eq!(
+            scene
+                .inflight_capture_window()
+                .map(InflightCaptureWindow::target_revision),
+            Some(3)
+        );
         assert_eq!(scene.edit_cycle_target_revision(), Some(3));
+    }
+
+    #[test]
+    fn inflight_overlap_fixture_exposes_its_exact_capture_window_only_after_both_edits() {
+        let mut scene = EnvironmentLightingTestScene::new(
+            EnvironmentLightingTestCase::TerrainEditsInflightCapture,
+        );
+        let baseline = capture_field(2);
+        let candidate = DdgiBuildToken::for_test(2, 3, 32, DdgiBuildKind::Terrain);
+        let mut attempt = scene.begin_phase().unwrap();
+        attempt.request_mut().phase = TestScenePhase::WaitingForInflightCaptureOverlap {
+            baseline,
+            close_revision: 3,
+        };
+        scene.commit_phase(attempt.complete()).unwrap();
+        assert!(!scene.is_capture_ready());
+        assert_eq!(scene.inflight_capture_window(), None);
+        assert_eq!(scene.edit_cycle_target_revision(), Some(3));
+        let window = InflightCaptureWindow::OverlappingEdits {
+            active_field: baseline,
+            candidate,
+            target_revision: 4,
+        };
+        let mut attempt = scene.begin_phase().unwrap();
+        attempt.request_mut().phase = TestScenePhase::CapturingInflightStaleActive { window };
+        scene.commit_phase(attempt.complete()).unwrap();
+        assert!(scene.is_capture_ready());
+        assert!(!scene.is_ready());
+        assert_eq!(scene.inflight_capture_window(), Some(window));
+        assert_eq!(scene.edit_cycle_target_revision(), Some(4));
     }
 
     #[test]
