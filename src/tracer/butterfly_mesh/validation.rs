@@ -4,6 +4,43 @@ use super::*;
 use glam::{Mat4, Vec2, Vec4};
 use re_flora_vkn::{execute_one_time_command, BufferUse, VulkanContext};
 
+/// Explicit native regression: the published variant/pose that exposed the
+/// 64px conservative boundary disagreement. No simulation or camera overrides.
+/// Kept here with the oracle, never enabled by normal play or the live A/B runner.
+pub(super) fn apply_coverage_fixture(
+    instances: &mut Vec<Instance>,
+    leaf_first: u32,
+    triangles_per_leaf: usize,
+) -> Result<()> {
+    let Ok(fixture) = std::env::var("RE_FLORA_MODEL_COVERAGE_FIXTURE") else {
+        return Ok(());
+    };
+    ensure!(
+        fixture == "leaf-boundary"
+            && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
+        "model coverage fixture requires leaf-boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
+    );
+    let Some(mut instance) = instances
+        .iter()
+        .find(|i| i.metadata[3] & LEAF_MODEL_FLAG != 0)
+        .copied()
+    else {
+        anyhow::bail!("model coverage fixture requires a published leaf");
+    };
+    instance.position_size = [0.8934032, 1.5581794, 1.4821042, 0.00390625];
+    instance.lighting = [0.64829177, 0.3265856, 0.45352986, -0.51707864];
+    instance.view_orientation = instance.lighting;
+    instance.metadata = [
+        leaf_first + 18 * triangles_per_leaf as u32,
+        triangles_per_leaf as u32,
+        64,
+        LEAF_MODEL_FLAG,
+    ];
+    instances.clear();
+    instances.push(instance);
+    Ok(())
+}
+
 fn leaf_review_can_be_empty(
     leaf_review: bool,
     checked: usize,

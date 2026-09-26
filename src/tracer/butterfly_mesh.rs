@@ -505,6 +505,7 @@ impl ButterflyMeshRenderer {
                 repair: [0; 4],
             });
         }
+        validation::apply_coverage_fixture(&mut self.instances, first, triangles_per_leaf)?;
         if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some() {
             // Diagnostic-only readback of the same shader function used by the
             // production fragment path, bounded by the existing tile allocation.
