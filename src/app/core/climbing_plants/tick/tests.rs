@@ -261,6 +261,80 @@ fn unavailable_motion_stops_catch_up_without_replaying_issued_quanta() {
 }
 
 #[test]
+fn later_unavailable_motion_keeps_committed_work_without_replaying_issued_quanta() {
+    struct ExhaustedQueries {
+        wall: Wall,
+        remaining: Cell<usize>,
+        unavailable: Cell<usize>,
+    }
+    impl Terrain for ExhaustedQueries {
+        fn voxel(&self, cell: IVec3) -> Option<u8> {
+            let remaining = self.remaining.get();
+            if remaining == 0 {
+                self.unavailable.set(self.unavailable.get() + 1);
+                None
+            } else {
+                self.remaining.set(remaining - 1);
+                self.wall.voxel(cell)
+            }
+        }
+        fn current(&self) -> bool {
+            self.wall.current()
+        }
+    }
+
+    let wall = Wall::default();
+    let initial = grown(5).plant().clone();
+    let mut reference = VineTick::new(initial.clone());
+    advance(&mut reference, &wall, 1, play(0.0, 20.0));
+    wall.queries.set(0);
+    let report = advance(&mut reference, &wall, 1, play(0.05, 20.0));
+    assert_eq!((report.growth_attempts, report.motion_steps), (1, 1));
+    assert!(initial
+        .nodes
+        .iter()
+        .zip(&reference.plant().nodes)
+        .any(|(old, new)| old.position != new.position));
+
+    // Calibrate at the Terrain seam, not against a hardcoded solver query count:
+    // one production quantum plus the next birth succeeds; the second motion's
+    // first query is unavailable. This single-birth oracle is not a copied tick loop.
+    let mut committed = reference.plant().clone();
+    assert!(committed.grow(&wall, TUNING.spacing));
+    let terrain = ExhaustedQueries {
+        wall: Wall::default(),
+        remaining: Cell::new(wall.queries.get()),
+        unavailable: Cell::new(0),
+    };
+    let mut vine = VineTick::new(initial.clone());
+    advance(&mut vine, &wall, 1, play(0.0, 20.0));
+    let report = advance(&mut vine, &terrain, 1, play(0.15, 20.0));
+    assert!(report.publish && report.waiting_for_terrain);
+    assert_eq!((report.growth_attempts, report.motion_steps), (2, 1));
+    assert!(terrain.unavailable.get() > 0);
+    assert_eq!(committed.nodes.len(), initial.nodes.len() + 2);
+    // Includes the successful pose, both births, RNG and rod memory, but no state
+    // from the failed motion. Earlier successful work remains publishable.
+    assert_eq!(vine.plant(), &committed);
+
+    for dt in [0.0, 0.025] {
+        let report = advance(&mut vine, &wall, 1, play(dt, 20.0));
+        assert!(report.publish && !report.waiting_for_terrain);
+        assert_eq!((report.growth_attempts, report.motion_steps), (0, 0));
+        assert_eq!(vine.plant(), &committed);
+    }
+    // Neither the failed nor the unvisited issued motion quantum is replayed.
+    // Only newly elapsed time advances; compare through the production interface.
+    let mut resumed = VineTick::new(committed);
+    let expected = advance(&mut resumed, &wall, 1, play(0.05, 20.0));
+    let report = advance(&mut vine, &wall, 1, play(0.025, 20.0));
+    assert_eq!((expected.growth_attempts, expected.motion_steps), (1, 1));
+    assert_eq!((report.growth_attempts, report.motion_steps), (1, 1));
+    assert!(report.publish && !report.waiting_for_terrain);
+    assert_eq!(vine.plant(), resumed.plant());
+}
+
+#[test]
 fn failed_revalidation_keeps_edit_and_dependency_changes_pending_until_recovery() {
     for changed_dependency in [false, true] {
         let mut vine = grown(5);

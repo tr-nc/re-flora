@@ -69,6 +69,10 @@ rod state), not clock internals. Short single-step solver oracles pin birth-befo
 motion and the review's two pose steps. Other cases cover bounded catch-up, no time,
 invalid input, unavailable exports, stale matching identities, late stale validation,
 edit/dependency retry, prune/regrowth/root recovery, action ordering and replacement.
+A query-budget regression also lets one motion and the next birth commit, then makes
+terrain unavailable during the following motion. It compares complete Plant state
+and recovery through `advance`, proving the committed work survives without replaying
+failed or unvisited issued quanta; no production clocks or solver behavior change.
 Host tests still cover the real export cache, clicked surfaces, GUI action wiring and
 world replacement. Ownership tests call the same scene decision as the production
 update with real launch-owner frame plans: active leaf review holds its scene with or
