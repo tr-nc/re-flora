@@ -7,8 +7,26 @@ import model_pixel_object;
 [[vk::binding(3,1)]] RWStructuredBuffer<float4> model_pixel_tiles;
 // Compute-only write view of the same buffer. Fragment consumers remain read-only.
 [[vk::binding(1,1)]] RWStructuredBuffer<ParticleModelRepairNode> particle_model_repair_output;
-struct ModelPass { uint mode; uint count; uint tile_base; };
+struct ModelPass { uint mode; uint count; uint tile_base; uint projection_base; };
 [[vk::push_constant]] ConstantBuffer<ModelPass> model_pass;
+
+// Only one invocation writes each instance's independent geometry evidence.
+// It observes the real coverage loop, including a center-occupied (0,0).
+public struct TileProjectionObserver : IModelPixelProjectionObserver {
+    bool capture;
+    uint base,first;
+    public bool enabled() { return capture; }
+    public void triangle(uint source,uint vertices,float4 bounds,uint resolution) {
+        if(source==first)butterfly_pixel_tiles[base]=bounds;
+        butterfly_pixel_tiles[base+1u+(source-first)*13u]=float4(vertices,asfloat(source),resolution,0);
+    }
+    public void fan(uint source,uint index,float3 a,float3 b,float3 c) {
+        uint address=base+2u+(source-first)*13u;
+        butterfly_pixel_tiles[address]=float4(a,0);
+        butterfly_pixel_tiles[address+index]=float4(b,0);
+        butterfly_pixel_tiles[address+index+1u]=float4(c,0);
+    }
+};
 
 float4 endpoint(ButterflyMeshInstance instance,uint reference) {
     if ((reference&0x80000000u)!=0u) {
@@ -61,24 +79,17 @@ void main(uint3 id : SV_DispatchThreadID) {
     if(model_pass.mode==3u && instance.repair.w==0u)return;
     ModelPixelHit hit;
     if(model_pass.mode==2u) {
-        // Native-only projection evidence, separate from the final and center
-        // tiles. The CPU independently classifies these vertices; no GPU mask
-        // or chosen coverage triangle is used as an oracle.
-        uint projectionBase=butterflyTileAddress(model_pass.tile_base*4u+id.z,uint2(0));
-        uint lane=id.y*instance.metadata.z+id.x;
-        if(lane==0u)butterfly_pixel_tiles[projectionBase]=butterflyTileBounds(instance,camera_info);
-        for(uint t=lane;t<instance.metadata.y;t+=instance.metadata.z*instance.metadata.z) {
-            ModelPixelPolygon polygon=particleModelProjectedTriangle(instance,t);
-            uint address=projectionBase+1u+t*13u;
-            butterfly_pixel_tiles[address]=float4(polygon.count,asfloat(instance.metadata.x+t),instance.metadata.z,0);
-            for(uint v=0u;v<polygon.count;v++)
-                butterfly_pixel_tiles[address+1u+v]=float4(polygon.vertices[v],0);
-        }
         hit=particleModelHitAt(instance,float2(id.xy)+0.5);
         // Diagnostic-only exact GPU rays let the CPU verify intersection rather
         // than guessing how much cancellation occurred during unprojection.
         butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*2u+id.z,id.xy)]=float4(hit.localOrigin,asfloat(hit.triangle));
         butterfly_pixel_tiles[butterflyTileAddress(model_pass.tile_base*3u+id.z,id.xy)]=float4(hit.localDirection,0);
+    } else if(model_pass.mode==1u) {
+        TileProjectionObserver observer;
+        observer.capture=all(id.xy==uint2(0));
+        observer.base=butterflyTileAddress(model_pass.projection_base+id.z,uint2(0));
+        observer.first=instance.metadata.x;
+        hit=particleModelHit(instance,id.xy,instanceIndex,observer);
     } else hit=particleModelHit(instance,id.xy,instanceIndex);
     // One shading site preserves bit-identical center samples in the reference
     // and covered paths, including transmission and shared object lighting.

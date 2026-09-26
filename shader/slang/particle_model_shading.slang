@@ -121,13 +121,16 @@ public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pi
     return sampleParticleModelAt(instance,float2(pixel)+0.5);
 }
 
-public ModelPixelHit particleModelHit(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex) {
+public ModelPixelHit particleModelHit<T : IModelPixelProjectionObserver>(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex,T observer) {
     ModelPixelFrame frame=particleModelFrame(instance);
     if(modelDiscreteViews())return sampleOrthographicModelPixel(butterfly_mesh_triangles,
         instance.metadata.x,instance.metadata.y,frame,modelObjectView(objectIndex),instance.position_size.xyz,
         instance.position_size.w*(1.53125*0.5),pixel,instance.metadata.z);
     return sampleModelPixelGeometry(butterfly_mesh_triangles,instance.metadata.x,
-        instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,instance.metadata.z,camera_info);
+        instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,instance.metadata.z,camera_info,observer);
+}
+public ModelPixelHit particleModelHit(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex) {
+    return particleModelHit(instance,pixel,objectIndex,NoModelPixelProjectionObserver());
 }
 public float4 shadeParticleModelHit(ButterflyMeshInstance instance,ModelPixelHit hit,uint objectIndex) {
     if(hit.triangle==0xffffffffu)return float4(0,0,0,1);

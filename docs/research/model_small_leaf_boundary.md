@@ -56,3 +56,49 @@ not production code. A correct diagnostic must observe the actual producer
 arithmetic rather than assume a shared helper called elsewhere is bit-identical.
 Do not change coverage epsilon, supporting-depth/material arithmetic, or trust
 the producer's coverage decision as the oracle. Controller acceptance is pending.
+
+## Correction and bounded proof
+
+Two interfaces were considered: constrain/reimplement division in the separate
+reference adapter, or observe vertices at the actual coverage-loop seam. The
+first cannot promise identical compiler context and risks changing supporting
+materials again. The second is implemented with a specialized projection
+observer: normal consumers use a no-op; native mode 1 writes the existing fifth
+slab from the actual per-fan XY/depth locals. One designated invocation per
+instance writes all triangles, even if its center is occupied; it never changes
+that center hit. Offscreen triangles publish empty topology. Mode 2 now only
+exports the center/ray references. The explicit push field carries the evidence
+slab address; there is no new production allocation or readback.
+
+The original coverage predicate, f64 planner, 0.0001px epsilon, CPU-derived depth
+oracle, projection/frame/source checks and center RGBA preservation are unchanged.
+The original per-fan division, precise XY, depth dot/saturation and supporting
+triangle ordering remain. This is a correction to diagnostic geometry identity,
+not a production missing-pixel repair or a new numerical tolerance.
+
+- `fixed-small-green/`, `fixed64-green/`: both uninstrumented native regressions
+  pass. The 64px complete final/center tiles also match the original v3 capture
+  byte-for-byte (`observer-fixed64/rgba-comparison.log`).
+- Small-case separate-run captures had identical masks/depth but different RGB,
+  including center samples; they are **not** color-equivalence proof. A temporary
+  same-dispatch comparison invoked the original coverage loop with the identical
+  mesh/pose/camera/lighting. At both captured poses **every final RGB/depth lane
+  and supporting triangle matches** (`preservation-comparison.txt`,
+  `preservation-{small,fixed64}-2/pixels.bin`). The earlier two comparison attempts
+  failed shader compilation (private helper visibility), not a numerical test.
+- `negative-missing-pixel/` deletes a real center pixel and the unchanged center
+  preservation check rejects it. `negative-coverage-only/` deletes center-empty
+  covered (6,9); the unchanged coverage assertion rejects it with
+  `GPU omitted conservative coverage: instance=0 pixel=6,9`. Both patches are
+  archived; neither is in source. v3's (12,26) negative control is retained.
+- Focused Rust: `cargo test butterfly_mesh` (18 pass), `cargo test model_pixel`
+  (24 pass, one existing ignored). The small-case test crosses the actual evidence
+  decoder and planner, including nearby shifted geometry, both windings, real
+  covered neighbors and wrong projection/depth/source rejection. The old 64px
+  test remains intact. Slang projection/coverage executable passes both captured
+  cases and neighboring shifts/windings. Failed intermediate compilation logs
+  are retained, followed by `test-*-2.log` successes.
+- `cargo check`, `cargo fmt --check` and Release hidden/mute smoke pass. No
+  generated files changed. All temporary shader probes and CPU pose generator
+  were archived and removed. Broader deterministic phases and final live gates
+  follow separately; this is not final acceptance.

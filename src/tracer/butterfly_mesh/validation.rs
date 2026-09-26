@@ -748,6 +748,84 @@ mod tests {
     }
 
     #[test]
+    fn small_leaf_requires_observations_from_the_executed_coverage_loop() {
+        // Triangle 30: homogeneous clips and bounds match, but a separately
+        // compiled projection rounds division differently. Both f64 and f32
+        // classify the old exported vertices as covered, the real ones outside.
+        let mut expected = vec![model_pixel_repair::Group {
+            id: 1,
+            sources: vec![0],
+            triangles: vec![[
+                [5.997326374053955, 11.06486988067627, 0.9684357047080994],
+                [5.986303329467773, 11.020524978637695, 0.968437135219574],
+                [6.267250061035156, 10.604071617126465, 0.9684338569641113],
+            ]],
+        }];
+        let vp = Mat4::from_cols_array(&[
+            0.97427857,
+            0.,
+            0.,
+            0.,
+            0.,
+            -1.7320508,
+            0.,
+            0.,
+            0.,
+            0.,
+            -1.001001,
+            -1.,
+            -0.97427857,
+            2.6846786,
+            1.7917918,
+            1.8,
+        ]);
+        let bounds = Vec4::new(0.5331397, 0.8867834, 0.5404943, 0.89956045);
+        let mut data = [[0.; 4]; 14];
+        data[0] = [0.5331397, 0.88678336, 0.5404943, 0.89956045];
+        data[1] = [3., f32::from_bits(30), 16., 0.];
+        data[2] = [5.997374, 11.064843, 0.96843576, 0.];
+        data[3] = [5.9863524, 11.020508, 0.96843714, 0.];
+        data[4] = [6.2672176, 10.6040945, 0.9684339, 0.];
+        let observed =
+            checked_projected_groups(&expected, &data, 30, 1, bounds, vp, 0.9684, 16).unwrap();
+        let covers = |groups: &[model_pixel_repair::Group], x: u32, y: u32| {
+            model_pixel_repair::plan(&[0; 256], groups, 16)
+                .nodes
+                .iter()
+                .any(|node| node.links[0] == y * 16 + x)
+        };
+        assert!(covers(&expected, 5, 10));
+        assert!(!covers(&observed, 5, 10));
+        assert!(covers(&observed, 6, 10));
+        // Nearby cells and both windings, not just a fortunate single pose.
+        for shift in [-0.01, -0.001, 0., 0.001, 0.01] {
+            for reverse in [false, true] {
+                expected = observed.clone();
+                for p in &mut expected[0].triangles[0] {
+                    p[0] += shift;
+                }
+                if reverse {
+                    expected[0].triangles[0].swap(1, 2);
+                }
+                assert_eq!(covers(&expected, 5, 10), shift < 0.);
+                assert!(covers(&expected, 6, 10));
+            }
+        }
+        // Identity/depth checks remain independent; an observer isn't a mask.
+        let decode = |data: &[[f32; 4]]| {
+            checked_projected_groups(&observed, data, 30, 1, bounds, vp, 0.9684, 16)
+        };
+        for lane in [0, 1, 2] {
+            let mut wrong = data;
+            wrong[2][lane] += 0.1;
+            assert!(decode(&wrong).is_err());
+        }
+        let mut wrong = data;
+        wrong[1][1] = f32::from_bits(31);
+        assert!(decode(&wrong).is_err());
+    }
+
+    #[test]
     fn leaf_review_only_accepts_empty_visibility_without_original_or_planned_samples() {
         assert!(leaf_review_can_be_empty(true, 0, 0, 0));
         for (leaf, checked, original, planned) in [

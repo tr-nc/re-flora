@@ -52,5 +52,8 @@ if (resolution === 64) {
 } else {
   assert.equal(tile.readFloatLE((10 * 64 + 5) * 16 + 12), 1, 'Captured small boundary changed');
   assert.ok(tile.readFloatLE((10 * 64 + 6) * 16 + 12) < 1, 'Missing genuinely covered neighbor');
+  const center = await readFile(`${output}/center.bin`);
+  assert.equal(center.readFloatLE((9 * 64 + 6) * 16 + 12), 1, 'Expected coverage-only witness');
+  assert.ok(tile.readFloatLE((9 * 64 + 6) * 16 + 12) < 1, 'Missing coverage-only neighbor');
   console.log('PASS: fixed 16px small leaf boundary, independent coverage/depth and original RGBA/depth checks.');
 }
