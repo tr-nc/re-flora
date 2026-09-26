@@ -57,6 +57,26 @@ class SustainedEditLogTests(unittest.TestCase):
         self.assertIn("unrelated climbing demo changed fixture terrain/camera",
                       analyze_log(log)["validation_failures"])
 
+    def test_light_mode_rejects_geometry_only_progress(self):
+        self.assertTrue(analyze_log(fixture(), vary_lights=True)["validation_failures"])
+
+    def test_light_mode_requires_both_progress_and_final_lighting(self):
+        log = fixture().replace("geometry_revision=7 radiance_revision=1",
+                                "geometry_revision=7 radiance_revision=2")
+        log = log.replace("geometry_revision=42 radiance_revision=1",
+                          "geometry_revision=42 radiance_revision=11")
+        for i in range(10):
+            ms = i * 400 + 100
+            log += (f"\n[00:00:{ms // 1000:02}.{ms % 1000:03} INFO test] "
+                    f"[DDGI_SUSTAINED_LIGHT] edit={i * 4 + 1} enabled={'true' if i % 2 == 0 else 'false'}")
+            log += (f"\n[00:00:{ms // 1000:02}.{ms % 1000:03} INFO test] "
+                    f"[DDGI][LIGHTING] transport_published=true live_revision={i + 2} transport_revision={i + 2}")
+        self.assertEqual(analyze_log(log, vary_lights=True)["validation_failures"], [])
+        stale = log.replace("geometry_revision=42 radiance_revision=11",
+                            "geometry_revision=42 radiance_revision=10")
+        self.assertIn("final terrain publication did not catch up to final lighting",
+                      analyze_log(stale, vary_lights=True)["validation_failures"])
+
     def test_repeated_edit_number_fails(self):
         log = fixture().replace("edit=40 ", "edit=39 ")
         self.assertTrue(analyze_log(log)["validation_failures"])

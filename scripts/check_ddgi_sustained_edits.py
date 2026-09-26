@@ -31,7 +31,7 @@ def timing_summary(values):
             "max": max(ordered) if ordered else None}
 
 
-def analyze_log(text):
+def analyze_log(text, vary_lights=False):
     """Check publication liveness, not pixel brightness or physical convergence."""
     events = []
     day = 0
@@ -84,7 +84,28 @@ def analyze_log(text):
         failures.append("runtime errors in log")
     if "[CLIMBING] authored editable" in text:
         failures.append("unrelated climbing demo changed fixture terrain/camera")
+    toggles = [(int(match[1]), match[2]) for _, line in active
+               if (match := re.search(r"\[DDGI_SUSTAINED_LIGHT\] edit=(\d+) enabled=(true|false)", line))]
+    lighting_fields = [(ms, int(match[1]), int(match[2])) for ms, line in events
+                       if (match := re.search(r"staging promoted .*?geometry_revision=(\d+) radiance_revision=(\d+)", line))]
+    during_lighting = [rev for ms, _, rev in lighting_fields if bounded and begin <= ms < end]
+    transports = [int(match[1]) for _, line in active
+                  if (match := re.search(r"transport_published=true .*?transport_revision=(\d+)", line))]
+    latest_transport = transports[-1] if transports else None
+    final_lighting_time = next((ms for ms, geometry, radiance in lighting_fields
+                                if ms >= end and geometry == final_revision and radiance == latest_transport), None)
+    if vary_lights:
+        if toggles != [(i * 4 + 1, "true" if i % 2 == 0 else "false") for i in range(10)]:
+            failures.append("expected ten ordered point-light toggles during editing")
+        if len(set(during_lighting)) < 2:
+            failures.append("lighting revisions did not advance during editing")
+        if final_lighting_time is None:
+            failures.append("final terrain publication did not catch up to final lighting")
     return {"validation_failures": failures,
+            "light_toggles": len(toggles),
+            "radiance_revisions_during_edits": during_lighting,
+            "latest_transport_revision_during_edits": latest_transport,
+            "final_lighting_catchup_ms": final_lighting_time - end if final_lighting_time is not None else None,
             "screenshot_during_edits": any("[SCREENSHOT] Saved" in line for _, line in active),
             "edits": len(edits), "edit_duration_ms": end - begin if bounded else None,
             "promoted_during_edits": [str(rev) for rev in revisions],
@@ -104,6 +125,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--spacing", type=int, choices=(16, 32, 64), default=32)
+    parser.add_argument("--vary-lights", action="store_true",
+                        help="also toggle a point light ten times without waiting for DDGI; require lighting progress/catch-up")
     parser.add_argument("--binary", type=Path,
                         help="use an existing Release executable without rebuilding; assets/config come from cwd")
     args = parser.parse_args()
@@ -117,7 +140,8 @@ def main():
     command = [str(binary), "--hidden", "--mute", "--windowed",
                "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays",
                "--no-lens-flare", "--perf", "--environment-lighting-test-scene",
-               "terrain-edits-sustained", "--auto-exit", "18",
+               "terrain-edits-sustained-lights" if args.vary_lights else "terrain-edits-sustained",
+               "--auto-exit", "18",
                "--environment-probe-spacing-voxels", str(args.spacing),
                "--screenshot", "ddgi-edit-repro", str(output / "editing.png"),
                "--screenshot-delay", "0"]
@@ -153,7 +177,7 @@ fly_mode = true
     report = {"command": command,
               "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
               "gui_sha256": effective_gui_sha256,
-              **analyze_log(text)}
+              **analyze_log(text, vary_lights=args.vary_lights)}
     # Measure the newly exposed left skylight reveal without imposing a nonzero
     # floor: a physical estimate may be dark or unconverged. Display wiring is
     # covered by terrain_and_raster_consumers_share_the_ddgi_sampler_contract;
