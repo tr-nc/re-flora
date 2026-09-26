@@ -22,6 +22,13 @@ use tick::{Action, Cadence, Event, Search, Snapshot, Tuning, VineTick};
 
 const PLAYABLE_VINE_SEED: u64 = 3500;
 
+fn climbing_scene_available(
+    test_scene: super::launch_owners::TestSceneFramePlan,
+    fallen_leaf_review_active: bool,
+) -> bool {
+    !test_scene.owns_capture_scene() && !fallen_leaf_review_active
+}
+
 #[derive(Default)]
 pub(super) struct ClimbingPlants {
     vine: Option<VineTick>,
@@ -412,13 +419,12 @@ impl App {
     }
 
     pub(super) fn update_climbing_plants(&mut self, steps: u32, tick_seconds: f32) -> Result<()> {
-        // Explicit test scenes own their terrain and camera. The automatic interactive
-        // demo must not author another fixture or steal their capture viewpoint.
-        if self
-            .launch_owners
-            .test_scene_frame_plan()
-            .owns_capture_scene()
-        {
+        // Explicit test scenes and fallen-leaf/model reviews own their terrain and
+        // camera. Yield before the demo authors a wall or requests camera focus.
+        if !climbing_scene_available(
+            self.launch_owners.test_scene_frame_plan(),
+            self.fallen_leaf_review.is_some(),
+        ) {
             return Ok(());
         }
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
@@ -847,6 +853,71 @@ fn block_instance(
 mod tests {
     use super::*;
     use crate::builder::test_cpu_voxel_source_snapshot;
+
+    #[test]
+    fn climbing_scene_yields_to_active_leaf_review_not_to_screenshot_names() {
+        use super::super::launch_owners::prepare_startup_owners;
+        use crate::cli::{AutomationPlan, CameraAutomation, Scenario, ScreenshotOptions};
+
+        for camera in [
+            CameraAutomation::None,
+            CameraAutomation::Screenshot {
+                snapshot: "any-snapshot".to_owned(),
+                capture: ScreenshotOptions {
+                    path: "unused.png".to_owned(),
+                    delay: 1.5,
+                    sequence: None,
+                },
+            },
+        ] {
+            let owners = prepare_startup_owners(
+                AutomationPlan {
+                    camera,
+                    ..Default::default()
+                },
+                Scenario::Garden,
+            )
+            .unwrap();
+            let plan = owners.test_scene_frame_plan();
+            assert!(
+                climbing_scene_available(plan, false),
+                "ordinary play and explicit climbing review must keep their scene"
+            );
+            assert!(
+                !climbing_scene_available(plan, true),
+                "active fallen-leaf/model review must retain its world and camera"
+            );
+        }
+    }
+
+    #[test]
+    fn climbing_scene_still_yields_to_existing_capture_owners() {
+        use super::super::launch_owners::prepare_startup_owners;
+        use crate::cli::{
+            AutomationPlan, EnvironmentLightingTestCase, GlassCoverage, GlassDebugView,
+            GlassVoxelOptions, Scenario,
+        };
+
+        for scenario in [
+            Scenario::EnvironmentLighting(EnvironmentLightingTestCase::TerrainEditsInflightCapture),
+            Scenario::HybridTransparency,
+            Scenario::GlassVoxel(GlassVoxelOptions {
+                coverage: GlassCoverage::TwentyFive,
+                debug_view: GlassDebugView::Final,
+                validate_fixed_camera_frame: true,
+            }),
+        ] {
+            let owners = prepare_startup_owners(AutomationPlan::default(), scenario).unwrap();
+            let plan = owners.test_scene_frame_plan();
+            for leaf_review in [false, true] {
+                assert!(
+                    !climbing_scene_available(plan, leaf_review),
+                    "capture owner {:?} must keep its scene even before capture readiness",
+                    plan.kind()
+                );
+            }
+        }
+    }
 
     struct Wall;
     impl Terrain for Wall {

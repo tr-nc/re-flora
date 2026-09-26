@@ -55,7 +55,11 @@ its tests. The leverage is shared production and regression execution, not a mov
    existing bounded-export behavior instead of inventing whole-frame rollback.
 6. New seeding constructs a new tick owner; world replacement drops it and does not
    silently author or seed a demo. Terrain edits, camera and render publication remain
-   at their original App seam. The explicit test-scene isolation gate is unchanged.
+   at their original App seam. The existing capture-scene isolation gate also yields
+   to App's active `fallen_leaf_review` (including leaf-model reviews), before any
+   fixture edit or focus request. Review presence, not screenshot names or duplicated
+   environment parsing, owns this decision. Ordinary play and explicit climbing
+   reviews retain their existing initialization and schedule.
 
 ## Regression surface and native checks
 
@@ -66,7 +70,11 @@ motion and the review's two pose steps. Other cases cover bounded catch-up, no t
 invalid input, unavailable exports, stale matching identities, late stale validation,
 edit/dependency retry, prune/regrowth/root recovery, action ordering and replacement.
 Host tests still cover the real export cache, clicked surfaces, GUI action wiring and
-world replacement. Existing Plant/rod invariants remain separate solver tests.
+world replacement. Ownership tests call the same scene decision as the production
+update with real launch-owner frame plans: active leaf review holds its scene with or
+without a screenshot, ordinary play remains enabled, and environment/hybrid/glass
+capture owners still exclude the demo. Existing Plant/rod invariants remain separate
+solver tests.
 
 ```sh
 CARGO_BUILD_JOBS=4 cargo fmt --check
@@ -74,6 +82,8 @@ CARGO_BUILD_JOBS=4 cargo check
 CARGO_BUILD_JOBS=4 cargo test climbing_plants:: -- --test-threads=4
 flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
   cargo run --release -- --hidden --mute --auto-exit 0.5
+flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
+  node scripts/validate-leaf-model.mjs --seconds 20
 # Hold the same lock over the entire loop; do not nest acquisition.
 flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 bash -c '
   for scene in flat hole outward inward slope ground pole 1 overhang; do
@@ -92,3 +102,12 @@ Release smoke passed. All nine native reviews completed; their full review facts
 matched baseline `618203af` exactly after removing log prefixes. Same-worktree logs
 had no ERROR/panic/VUID or shutdown failures. GUI/camera hashes remained unchanged;
 no generated files or solver files changed. The 13 existing check/build warnings remain.
+
+Scope-v2 isolation follow-up: the production ownership regression failed before the
+leaf-review fact was included, then all 25 host/tick checks passed. Ordinary native
+smoke still seeded the demo; the pruning/root-recovery native review retained all
+baseline facts. The unchanged 20-second strict leaf runner now observes positive
+8/16px samples without vine interference, but remains **blocked** at 64px by
+`GPU omitted conservative coverage: instance=1 pixel=11,26`. This renderer-side
+validation failure is not waived by the App isolation repair. Evidence is retained
+under `target/improve-delivery/v2/`; strict leaf and aggregate acceptance are pending.
