@@ -14,6 +14,7 @@ mod gameplay;
 #[path = "auto-generated/mod.rs"]
 mod generated;
 mod geom;
+mod leaf_lifecycle;
 mod lighting;
 mod model_assets;
 #[macro_use]
