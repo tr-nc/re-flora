@@ -2426,9 +2426,6 @@ impl Tracer {
         build_token: Option<DdgiBuildToken>,
     ) -> Result<()> {
         let stats = progress.stats();
-        if batch.local_refresh_voxel_bound().is_some() {
-            log::info!("[DDGI][HISTORY] geometry={} epoch={} first={} probes={} retain={} blend_zero={} qualified_blend={} placement_reset={} edit_proximity_reset={}", batch.geometry_revision(), batch.update_epoch(), batch.first_probe_index, batch.probe_count, stats.history_diagnostics[0], stats.history_diagnostics[1], stats.history_diagnostics[2], stats.history_diagnostics[3], stats.history_diagnostics[4]);
-        }
         if progress.filtered_probe_count() == batch.probe_count
             || progress.filtered_probe_count() == progress.probe_count()
             || progress.filtered_probe_count().is_multiple_of(1_024)

@@ -94,23 +94,18 @@ struct ManagedFootstepVoice<EmitterHandle, ControlHandle> {
     control: ControlHandle,
     routing: FootstepRouting,
     published_revision: u64,
-    emitter_gain_db: f32,
-    clip_duration_seconds: f64,
     wet_observation: FootstepWetObservation,
     acoustics_at_play: AcousticPipelineSnapshot,
     completion_deadline_seconds: f64,
 }
 
 impl<EmitterHandle, ControlHandle> ManagedFootstepVoice<EmitterHandle, ControlHandle> {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         event_seq: u64,
         emitter: EmitterHandle,
         control: ControlHandle,
         routing: FootstepRouting,
         published_revision: u64,
-        emitter_gain_db: f32,
-        clip_duration_seconds: f64,
         acoustics_at_play: AcousticPipelineSnapshot,
         completion_deadline_seconds: f64,
     ) -> Self {
@@ -120,8 +115,6 @@ impl<EmitterHandle, ControlHandle> ManagedFootstepVoice<EmitterHandle, ControlHa
             control,
             routing,
             published_revision,
-            emitter_gain_db,
-            clip_duration_seconds,
             wet_observation: FootstepWetObservation::default(),
             acoustics_at_play,
             completion_deadline_seconds,
@@ -279,11 +272,15 @@ enum FootstepWetOutcome {
     ResponseArrivedDuringPlayback,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TelemetryObservationStatus {
-    Observed,
-    NotExpectedAcousticsDisabled,
-    NotReceivedBeforeDeadline,
+impl FootstepWetOutcome {
+    fn requires_warning(self) -> bool {
+        matches!(
+            self,
+            Self::EnvironmentExcludedByBudget
+                | Self::TelemetryIncomplete
+                | Self::TelemetryNotReceivedBeforeDeadline
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -452,8 +449,6 @@ struct PreparedSpatialFootstep {
     event: FootstepEvent,
     emitter: TransientSpatialEmitter,
     routing: FootstepRouting,
-    emitter_gain_db: f32,
-    clip_duration_seconds: f64,
     completion_deadline_seconds: f64,
 }
 
@@ -634,25 +629,9 @@ impl LocalPlayerFootstepAudio {
                         control,
                         prepared_voice.routing,
                         publication.revision(),
-                        prepared_voice.emitter_gain_db,
-                        prepared_voice.clip_duration_seconds,
                         acoustics_at_play,
                         prepared_voice.completion_deadline_seconds,
                     ));
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial order=publish_before_play event_seq={} kind={:?} side={:?} surface={:?} contact={:?} direct_world_offset={:?} environment_gain_db={:.1} speed_mps={:.3} event_sim_time={:.6} spatial_revision={} active={}",
-                        event.event_seq,
-                        event.kind,
-                        event.side,
-                        event.surface,
-                        event.contact_world,
-                        prepared_voice.routing.direct_world_offset,
-                        LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB,
-                        event.speed_mps,
-                        event.sim_time_seconds,
-                        publication.revision(),
-                        self.active.len(),
-                    );
                 }
                 Err(err) => {
                     log::error!(
@@ -679,12 +658,6 @@ impl LocalPlayerFootstepAudio {
                     event.surface,
                     event.contact_world,
                     event.sim_time_seconds,
-                );
-            } else {
-                log::debug!(
-                    "[AUDIO][LOCAL_FOOTSTEP] route=legacy_2d order=publish_before_play event_seq={} spatial_revision={}",
-                    event.event_seq,
-                    publication.revision(),
                 );
             }
         }
@@ -748,8 +721,6 @@ impl LocalPlayerFootstepAudio {
                 event,
                 emitter,
                 routing,
-                emitter_gain_db: gain_db,
-                clip_duration_seconds: duration_seconds,
                 completion_deadline_seconds: sim_time_seconds
                     + duration_seconds
                     + COMPLETION_DEADLINE_GRACE_SECONDS,
@@ -829,10 +800,6 @@ impl LocalPlayerFootstepAudio {
         conclusion: AcousticVoiceConclusionTelemetry,
     ) {
         let Some(voice) = self.voice_by_event_seq_mut(event_seq) else {
-            log::debug!(
-                "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} voice_id={} reason=unmatched_acoustic_conclusion",
-                conclusion.voice_id,
-            );
             return;
         };
         if !voice.emitter.matches(conclusion.emitter) {
@@ -845,16 +812,6 @@ impl LocalPlayerFootstepAudio {
         voice
             .wet_observation
             .record_acoustic_conclusion(conclusion.into());
-        log::debug!(
-            "[AUDIO][LOCAL_FOOTSTEP] event_seq={} state=acoustic_conclusion voice_id={} candidate_rank={:?} candidate_limit={} direct={:?} environment={:?} solve_status={:?}",
-            voice.event_seq,
-            conclusion.voice_id,
-            conclusion.candidate_rank,
-            conclusion.candidate_limit,
-            conclusion.direct,
-            conclusion.environment,
-            conclusion.solve_status,
-        );
     }
 
     fn handle_petalsonic_event(&mut self, event: PetalSonicEvent, sim_time_seconds: f64) {
@@ -865,16 +822,9 @@ impl LocalPlayerFootstepAudio {
                 tag,
             } => {
                 let Some(event_seq) = local_footstep_event_seq(tag.0) else {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] correlation_id={} reason=unowned_completion",
-                        tag.0,
-                    );
                     return;
                 };
                 let Some(expected) = self.active.get(event_seq) else {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_completion"
-                    );
                     return;
                 };
                 if expected.control != control || !expected.emitter.matches(emitter) {
@@ -887,13 +837,10 @@ impl LocalPlayerFootstepAudio {
                     .active
                     .complete(event_seq)
                     .expect("matched footstep completion must remain active");
-                log::debug!(
-                    "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={event_seq} state=completed active={}",
-                    self.active.len(),
-                );
                 self.begin_voice_retirement(voice, false, "completed", sim_time_seconds);
             }
-            other => log::debug!("PetalSonic event: {other:?}"),
+            // SpatialSoundManager reports runtime/device transitions with output details.
+            PetalSonicEvent::RuntimeStateChanged(_) => {}
         }
     }
 
@@ -908,12 +855,7 @@ impl LocalPlayerFootstepAudio {
                     emitter.matches(telemetry.emitter)
                 }) {
                     FootstepTelemetryAttribution::Accepted => {}
-                    FootstepTelemetryAttribution::UnknownVoice => {
-                        log::debug!(
-                            "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_first_render"
-                        );
-                        return;
-                    }
+                    FootstepTelemetryAttribution::UnknownVoice => return,
                     FootstepTelemetryAttribution::WrongEmitter => {
                         log::error!(
                             "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=first_render_emitter_mismatch"
@@ -935,17 +877,7 @@ impl LocalPlayerFootstepAudio {
                     telemetry.render_block_index,
                     telemetry.environment_response,
                 );
-                if contract.satisfied() {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={event_seq} state=first_render render_block={} published_revision={} audible_revision={} direct_world_offset={:?} direct_local_pose={:?} environment_world={:?}",
-                        telemetry.render_block_index,
-                        voice.published_revision,
-                        telemetry.spatial_revision,
-                        voice.routing.direct_world_offset,
-                        telemetry.direct_local_pose,
-                        voice.routing.environment_world,
-                    );
-                } else {
+                if !contract.satisfied() {
                     log::error!(
                         "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={event_seq} reason=first_render_contract_violation published_revision={} audible_revision={} revision_ok={} direct_ok={} environment_ok={} direct_local_pose={:?} acoustic_origin={:?}",
                         voice.published_revision,
@@ -964,19 +896,9 @@ impl LocalPlayerFootstepAudio {
             } => {
                 debug_assert_eq!(local_footstep_event_seq(play_command_id.0), Some(event_seq));
                 let Some(voice) = self.voice_by_event_seq_mut(event_seq) else {
-                    log::debug!(
-                        "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_environment_response"
-                    );
                     return;
                 };
                 voice.wet_observation.record_environment_response(response);
-                log::debug!(
-                    "[AUDIO][LOCAL_FOOTSTEP] route=split_spatial event_seq={} state=environment_response spatial_revision={} geometry_version={} age_ms={:.3}",
-                    event_seq,
-                    response.spatial_revision,
-                    response.geometry_version,
-                    response.age.as_secs_f64() * 1000.0,
-                );
             }
             VoiceTelemetryEvent::EnergySummary(telemetry) => {
                 debug_assert_eq!(
@@ -988,12 +910,7 @@ impl LocalPlayerFootstepAudio {
                     |emitter| emitter.matches(telemetry.emitter),
                 ) {
                     FootstepTelemetryAttribution::Accepted => {}
-                    FootstepTelemetryAttribution::UnknownVoice => {
-                        log::debug!(
-                            "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=unmatched_energy_summary"
-                        );
-                        return;
-                    }
+                    FootstepTelemetryAttribution::UnknownVoice => return,
                     FootstepTelemetryAttribution::WrongEmitter => {
                         log::error!(
                             "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} reason=energy_summary_emitter_mismatch"
@@ -1007,15 +924,8 @@ impl LocalPlayerFootstepAudio {
                 voice
                     .wet_observation
                     .record_energy_summary(telemetry.into());
-                log::debug!(
-                    "[AUDIO][LOCAL_FOOTSTEP] event_seq={event_seq} state=energy_summary source_energy={:.6} direct_energy={:.6} environment_send_energy={:.6} early_reflection_energy={:.6}",
-                    telemetry.source_energy,
-                    telemetry.direct_energy,
-                    telemetry.environment_send_energy,
-                    telemetry.early_reflection_energy,
-                );
             }
-            other => log::debug!("PetalSonic voice telemetry: {other:?}"),
+            _ => {}
         }
     }
 
@@ -1073,7 +983,7 @@ impl LocalPlayerFootstepAudio {
                 .wet_observation
                 .ready_for_final_summary(concluding_voice.voice.acoustics_at_play.enabled);
             if telemetry_complete || deadline_expired {
-                self.log_wet_path_summary(
+                self.warn_wet_path_failure(
                     &concluding_voice.voice,
                     concluding_voice.reason,
                     deadline_expired,
@@ -1086,7 +996,7 @@ impl LocalPlayerFootstepAudio {
         }
     }
 
-    fn log_wet_path_summary(
+    fn warn_wet_path_failure(
         &self,
         voice: &ManagedFootstepVoice<TransientSpatialEmitter, PlaybackControl>,
         reason: &'static str,
@@ -1099,96 +1009,22 @@ impl LocalPlayerFootstepAudio {
         let outcome = voice
             .wet_observation
             .outcome(voice.acoustics_at_play.enabled, telemetry_was_dropped);
-        let environment_send_gain_linear = 10.0_f32.powf(LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB / 20.0);
-        let environment_pre_acoustics_gain_db =
-            voice.emitter_gain_db + LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB;
-        let response_revision = voice
-            .wet_observation
-            .response
-            .map(|response| response.spatial_revision);
-        let response_geometry = voice
-            .wet_observation
-            .response
-            .map(|response| response.geometry_version);
-        let response_age_ms = voice
-            .wet_observation
-            .response
-            .map(|response| response.age.as_secs_f64() * 1000.0);
-        let conclusion = voice.wet_observation.acoustic_conclusion;
-        let energy = voice.wet_observation.energy_summary;
-        let qos_status = if conclusion.is_some() {
-            TelemetryObservationStatus::Observed
-        } else if !voice.acoustics_at_play.enabled {
-            TelemetryObservationStatus::NotExpectedAcousticsDisabled
-        } else {
-            debug_assert!(telemetry_deadline_expired);
-            TelemetryObservationStatus::NotReceivedBeforeDeadline
-        };
-        let energy_status = if energy.is_some() {
-            TelemetryObservationStatus::Observed
-        } else {
-            debug_assert!(telemetry_deadline_expired);
-            TelemetryObservationStatus::NotReceivedBeforeDeadline
-        };
-        let message = format!(
-            "[AUDIO][LOCAL_FOOTSTEP_WET] event_seq={} reason={} outcome={:?} first_render_block={:?} clip_duration_ms={:.3} dry_path=listener_position_relative_immediate direct_pre_dsp_gain_db={:.1} environment_send=world_contact send_gain_db={:.1} send_gain_linear={:.4} environment_pre_acoustics_gain_db={:.1} environment_response_spatial_revision={:?} environment_response_geometry_version={:?} environment_response_age_ms={:?} qos_status={:?} qos_voice_id={:?} qos_spatial_revision={:?} qos_geometry_version={:?} candidate_rank={:?} candidate_limit={:?} direct_outcome={:?} environment_outcome={:?} environment_transmission_gain={:?} solve_status={:?} early_reflections_status={:?} early_tap_count={:?} energy_status={:?} source_energy={:?} direct_energy={:?} environment_send_energy={:?} early_reflection_energy={:?} global_late_reverb_status={:?} global_late_pre_delay_seconds={:?} global_late_rt60_seconds={:?} global_late_wet_gain={:?} global_late_cumulative_input_energy={:?} global_late_cumulative_output_energy={:?} acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} solves_during_voice={} superseded_during_voice={} responses_published_during_voice={} dropped_voice_telemetry_during_voice={} dropped_acoustic_telemetry_during_voice={} latest_response_spatial_revision={} latest_response_geometry_version={} latest_response_age_ms={}",
-            voice.event_seq,
-            reason,
-            outcome,
-            voice.wet_observation.first_render_block,
-            voice.clip_duration_seconds * 1000.0,
-            voice.emitter_gain_db,
-            LOCAL_FOOTSTEP_ENVIRONMENT_GAIN_DB,
-            environment_send_gain_linear,
-            environment_pre_acoustics_gain_db,
-            response_revision,
-            response_geometry,
-            response_age_ms,
-            qos_status,
-            conclusion.map(|observation| observation.voice_id),
-            conclusion.map(|observation| observation.spatial_revision),
-            conclusion.map(|observation| observation.geometry_version),
-            conclusion.and_then(|observation| observation.candidate_rank),
-            conclusion.map(|observation| observation.candidate_limit),
-            conclusion.map(|observation| observation.direct),
-            conclusion.map(|observation| observation.environment),
-            conclusion.map(|observation| observation.environment_transmission_gain),
-            conclusion.and_then(|observation| observation.solve_status),
-            qos_status,
-            conclusion.map(|observation| observation.early_tap_count),
-            energy_status,
-            energy.map(|observation| observation.source_energy),
-            energy.map(|observation| observation.direct_energy),
-            energy.map(|observation| observation.environment_send_energy),
-            energy.map(|observation| observation.early_reflection_energy),
-            energy_status,
-            energy.map(|observation| observation.global_late_reverb.pre_delay_seconds),
-            energy.map(|observation| observation.global_late_reverb.rt60_seconds),
-            energy.map(|observation| observation.global_late_reverb.wet_gain),
-            energy.map(|observation| {
-                observation.global_late_reverb.cumulative_input_energy
-            }),
-            energy.map(|observation| {
-                observation.global_late_reverb.cumulative_output_energy
-            }),
-            voice.acoustics_at_play.enabled,
-            acoustics_at_retirement.enabled,
-            activity.solves,
-            activity.superseded,
-            activity.published,
-            activity.dropped_voice_telemetry,
-            activity.dropped_acoustic_telemetry,
-            acoustics_at_retirement.response_spatial_revision,
-            acoustics_at_retirement.response_geometry_version,
-            acoustics_at_retirement.response_age_ms,
+        // Keep observing through the bounded tail for ownership and failure detection, not
+        // for a per-step success report. Muting output is not an acoustic failure.
+        debug_assert!(voice.wet_observation.energy_summary.is_some() || telemetry_deadline_expired);
+        debug_assert!(
+            voice.wet_observation.acoustic_conclusion.is_some()
+                || !voice.acoustics_at_play.enabled
+                || telemetry_deadline_expired
         );
-        match outcome {
-            FootstepWetOutcome::TelemetryIncomplete
-            | FootstepWetOutcome::TelemetryNotReceivedBeforeDeadline
-            | FootstepWetOutcome::EnvironmentExcludedByBudget => log::warn!("{message}"),
-            FootstepWetOutcome::AcousticsDisabled
-            | FootstepWetOutcome::ResponseReadyAtFirstRender
-            | FootstepWetOutcome::ResponseArrivedDuringPlayback => log::info!("{message}"),
+        if outcome.requires_warning() {
+            log::warn!(
+                "[AUDIO][LOCAL_FOOTSTEP] event_seq={} reason={reason} wet_path_failure={outcome:?} observation={:?} acoustics_enabled_at_play={} acoustics_enabled_at_retirement={} activity={activity:?}",
+                voice.event_seq,
+                voice.wet_observation,
+                voice.acoustics_at_play.enabled,
+                acoustics_at_retirement.enabled,
+            );
         }
     }
 
@@ -1223,11 +1059,6 @@ impl LocalPlayerFootstepAudio {
                     retired.event_seq,
                 );
                 self.retiring.push(retired);
-            } else {
-                log::debug!(
-                    "[AUDIO][LOCAL_FOOTSTEP] event_seq={} state=emitter_retired",
-                    retired.event_seq,
-                );
             }
         }
     }
@@ -1279,8 +1110,6 @@ mod tests {
             control,
             FootstepRouting::for_event(&footstep),
             event_seq + 10,
-            -8.0,
-            0.5,
             AcousticPipelineSnapshot {
                 enabled: true,
                 solve_count: 10,
@@ -1333,6 +1162,24 @@ mod tests {
                 cumulative_input_energy: 3.0,
                 cumulative_output_energy: 1.5,
             },
+        }
+    }
+
+    #[test]
+    fn wet_path_only_warns_for_missing_telemetry_or_budget_exclusion() {
+        for outcome in [
+            FootstepWetOutcome::AcousticsDisabled,
+            FootstepWetOutcome::ResponseReadyAtFirstRender,
+            FootstepWetOutcome::ResponseArrivedDuringPlayback,
+        ] {
+            assert!(!outcome.requires_warning(), "{outcome:?}");
+        }
+        for outcome in [
+            FootstepWetOutcome::EnvironmentExcludedByBudget,
+            FootstepWetOutcome::TelemetryIncomplete,
+            FootstepWetOutcome::TelemetryNotReceivedBeforeDeadline,
+        ] {
+            assert!(outcome.requires_warning(), "{outcome:?}");
         }
     }
 

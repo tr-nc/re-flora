@@ -295,8 +295,6 @@ struct AudioHealthLogState {
     rejected_commands: u64,
     dropped_events: u64,
     dropped_voice_telemetry: u64,
-    acoustic_published_responses: u64,
-    acoustic_response_geometry_version: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -819,27 +817,12 @@ impl SpatialSoundManager {
                 diagnostics.render_time_p99_us,
             );
         }
-        if diagnostics.acoustic_published_response_count > previous.acoustic_published_responses
-            && diagnostics.acoustic_response_geometry_version
-                != previous.acoustic_response_geometry_version
-        {
-            log::debug!(
-                "PetalSonic acoustics: spatial_revision={}, geometry_version={}, solve_us={}, response_age_ms={}",
-                diagnostics.acoustic_response_spatial_revision,
-                diagnostics.acoustic_response_geometry_version,
-                diagnostics.acoustic_last_solve_time_us,
-                diagnostics.acoustic_response_age_ms,
-            );
-        }
         previous.runtime_state = Some(status.state);
         previous.device_generation = diagnostics.device_generation;
         previous.underruns = diagnostics.underrun_count;
         previous.rejected_commands = diagnostics.rejected_commands;
         previous.dropped_events = diagnostics.dropped_events;
         previous.dropped_voice_telemetry = voice_telemetry.dropped_events;
-        previous.acoustic_published_responses = diagnostics.acoustic_published_response_count;
-        previous.acoustic_response_geometry_version =
-            diagnostics.acoustic_response_geometry_version;
         Ok(SpatialFramePublication::published(revision))
     }
 

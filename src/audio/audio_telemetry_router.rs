@@ -188,9 +188,6 @@ impl AudioTelemetryRouter {
         let Some(&(owned_emitter, event_seq)) = self.footstep_commands.get(&play_command_id) else {
             self.diagnostics.unowned_voice_events =
                 self.diagnostics.unowned_voice_events.saturating_add(1);
-            log::debug!(
-                "[AUDIO][TELEMETRY_ROUTER] play_command_id={play_command_id:?} reason=unowned_voice_telemetry"
-            );
             return;
         };
         if observed_emitter.is_some_and(|emitter| emitter != owned_emitter) {
@@ -224,10 +221,6 @@ impl AudioTelemetryRouter {
                     None => {
                         self.diagnostics.unowned_acoustic_events =
                             self.diagnostics.unowned_acoustic_events.saturating_add(1);
-                        log::debug!(
-                            "[AUDIO][TELEMETRY_ROUTER] emitter={} reason=unowned_extent_response",
-                            response.emitter,
-                        );
                     }
                 }
             }
@@ -244,11 +237,6 @@ impl AudioTelemetryRouter {
                     None => {
                         self.diagnostics.unowned_acoustic_events =
                             self.diagnostics.unowned_acoustic_events.saturating_add(1);
-                        log::debug!(
-                            "[AUDIO][TELEMETRY_ROUTER] emitter={} voice_id={} reason=unowned_voice_conclusion",
-                            conclusion.emitter,
-                            conclusion.voice_id,
-                        );
                     }
                 }
             }

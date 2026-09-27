@@ -104,9 +104,12 @@ same-geometry updates use destination metadata. Readiness/source tuple ownership
 
 Five separate diagnostic lanes report original Retain, zero-retention Blend, qualified Blend,
 placement/validity reset and edit-proximity reset; RFIRR owner/proof lanes are unchanged.
-`[DDGI][HISTORY]` records batch identity and those counts. For the first portal edit, 3,835 of
-4,913 probes qualified and 1,078 were placement/validity resets. These are not all relocated:
-invalid probes are included explicitly. Full per-batch records are retained in run logs.
+The historical `[DDGI][HISTORY]` logs recorded batch identity and those counts. For the first
+portal edit, 3,835 of 4,913 probes qualified and 1,078 were placement/validity resets. These are
+not all relocated: invalid probes are included explicitly. The archived experiment logs retain
+those records, but current normal runs no longer print this per-batch report. The five GPU
+readback lanes remain intact; `scripts/check_ddgi_cave_edits.py` uses explicit scene/capture
+and history-toggle evidence, not this removed message. See [runtime logging](runtime_logging.md).
 
 Measured single-variable sequence (same source/camera/geometry, 40 edits / 22 publications):
 
