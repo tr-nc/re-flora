@@ -8,6 +8,9 @@ struct PipelineLayoutInner {
     pipeline_layout: vk::PipelineLayout,
 
     descriptor_set_layouts: HashMap<u32, DescriptorSetLayout>,
+    // Padding is deliberately absent from reflection, but its owner must survive
+    // later pipeline creation just like the reflected set-layout owners.
+    _padding_layout: DescriptorSetLayout,
     push_constant_ranges: HashMap<u32, vk::PushConstantRange>,
 }
 
@@ -73,6 +76,7 @@ impl PipelineLayout {
             device: device.clone(),
             pipeline_layout,
             descriptor_set_layouts: descriptor_set_layouts.clone(),
+            _padding_layout: empty_layout,
             push_constant_ranges: push_constant_ranges.clone(),
         }));
 
