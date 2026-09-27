@@ -15,7 +15,8 @@ not restored.
   triangles per instance and never silently falls back to live geometry.
 - Camera motion, instance count, growth/scale, root wind, lighting, flower A/B and
   screen-grid/rotating display do not rebuild surfaces. Changing one resolution
-  rebuilds only its bank; changing view count rebuilds all four banks.
+  rebuilds only its bank. Flower directions and authored head/height controls
+  rebuild only flowers; the global view count applies to the other three banks.
 - Each 32-byte surface stores model-local position + canonical depth and normal +
   material key. Colors/lighting/transforms remain per-instance. Flower material
   keys address a separate compact authored palette, not a geometry buffer. Empty
@@ -36,8 +37,8 @@ not restored.
 
 `ModelPixelFrame` owns `ModelPixelCache` and prepares it once in the acquired,
 completed frame slot before any consumer. `PipelineTopology` owns the bake pipeline;
-only immutable source/direction buffers are bound to it. Its resources do not
-participate in DDGI/extent generations. Dynamic consumer descriptors still follow
+its source/direction buffers are immutable within each published generation and
+bound through ready-slot descriptors. They do not participate in DDGI/extent generations. Dynamic consumer descriptors still follow
 existing topology publication and compute/draw pairing.
 
 Restored `re-flora-vkn::GpuPagedStorage` owns buffer-device-address paging and
@@ -46,8 +47,11 @@ and retained until each consuming frame slot completes. It has 64 MiB allocation
 granularity, not a total-cache cap. Allocation failures are explicit and clean up
 unpublished buffers. Replacements are allocated before any generation is published.
 
-The four bank keys contain kind, resolution and view count. Sources are immutable
-compiled assets for the renderer's lifetime; format version is 3. This is an
+The four bank keys contain kind, resolution and their actual view count. The
+flower key also contains head/height geometry controls. Authored assets are
+compiled once; the cache publishes immutable transformed source generations for
+configuration changes, sharing them with native stems. The direction prefix is
+allocated for the largest current bank, never the slider maximum. Format version is 3. This is an
 in-memory GPU cache, not a disk cache. Maximum settings can require GiB of memory;
 there is no truncation, silent resolution reduction or uncached fallback.
 
@@ -83,6 +87,29 @@ display-only reuse, real fruit drops and post-consumer resize. Large-view cases 
 evidence, not timing or a maximum-memory test.
 
 See [cache-only worker evidence and validator migrations](../evidence/cache-only-renderer.md).
+
+## Current saved controls and acceptance
+
+**Debug → Flora → Ground Plants → Model Flowers (A/B)** applies to all eight
+species, in both complete-head and whole-plant modes:
+
+- Complete Head Size: 0.25–4×, around each published attachment including calyx/center.
+- Plant Height (Stems / Attachments): 0.25–4×, independent of head size.
+- Pixel Resolution: 8–64px, default 32.
+- View Count: 8–512, default 16, independent of apples/leaves/butterflies.
+
+All are saved through the standard config system and apply live. The old overall
+size and head/whole toggle retain their meaning; old saves acquire new defaults.
+Small changes around 1× preserve framing continuously rather than jumping pixel
+density. High settings can take time/memory to rebuild; there is no maximum-slider
+preallocation, quality downgrade or live fallback.
+
+[Integrated acceptance](../evidence/cache-controls-delivery/README.md), code
+`2fb853df`: 1,246 main tests + 4 root tests, 25 Slang CPU tests; 18 native control
+phases, the 13-phase four-bank matrix, all migrated native validators and normal
+hidden Release runs passed. 128 plants at 32px cost 0.048–0.050 ms in the tile pass;
+1,024 plants cost 0.226 ms (actual cadence about 58 FPS). The older timings below
+remain historical evidence, not claims for the current code.
 
 ## Historical cache-restoration acceptance
 

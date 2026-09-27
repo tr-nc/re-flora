@@ -1,0 +1,1371 @@
+{
+  "scope_version": 1,
+  "validated_code_revision": "2fb853df",
+  "base": "3eeebc34",
+  "integration_revision": "31dc0269",
+  "framing_correction_revision": "22247171",
+  "device": "NVIDIA GeForce RTX 3060 Ti",
+  "controls": {
+    "configUnchanged": true,
+    "performanceEvidence": false,
+    "readySlotCount": 1,
+    "sawPendingRetirement": false,
+    "results": [
+      {
+        "phase": 0,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          495616,
+          16384,
+          131072,
+          344064
+        ],
+        "independentHits": [
+          3325,
+          752,
+          4784,
+          7991
+        ],
+        "maxDepthErrors": [
+          7.75e-7,
+          1.79e-7,
+          0.000001073,
+          7.75e-7
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 266240
+      },
+      {
+        "phase": 1,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 2,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          9146
+        ],
+        "maxDepthErrors": [
+          0.000001401
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 279552
+      },
+      {
+        "phase": 2,
+        "headsOnly": false,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 2,
+        "heightScale": 1,
+        "rebuiltKinds": [],
+        "flowerBytes": [],
+        "bakedRecords": [],
+        "independentHits": [],
+        "maxDepthErrors": [],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 172032
+      },
+      {
+        "phase": 3,
+        "headsOnly": false,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 2,
+        "heightScale": 2,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          7778
+        ],
+        "maxDepthErrors": [
+          0.000001281
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 172032
+      },
+      {
+        "phase": 4,
+        "headsOnly": false,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 2,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          7195
+        ],
+        "maxDepthErrors": [
+          0.000001281
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 172032
+      },
+      {
+        "phase": 5,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 2,
+        "rebuiltKinds": [],
+        "flowerBytes": [],
+        "bakedRecords": [],
+        "independentHits": [],
+        "maxDepthErrors": [],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 279552
+      },
+      {
+        "phase": 6,
+        "headsOnly": true,
+        "resolution": 8,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          688128
+        ],
+        "bakedRecords": [
+          21504
+        ],
+        "independentHits": [
+          821
+        ],
+        "maxDepthErrors": [
+          0.000002384
+        ],
+        "activeBytes": 21266524,
+        "retainedBytes": 21266524,
+        "directionBytes": 256,
+        "consumedTexels": 17472
+      },
+      {
+        "phase": 7,
+        "headsOnly": true,
+        "resolution": 8,
+        "views": 512,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          22020096
+        ],
+        "bakedRecords": [
+          688128
+        ],
+        "independentHits": [
+          716
+        ],
+        "maxDepthErrors": [
+          0.000001013
+        ],
+        "activeBytes": 42598492,
+        "retainedBytes": 42598492,
+        "directionBytes": 8192,
+        "consumedTexels": 17472
+      },
+      {
+        "phase": 8,
+        "headsOnly": true,
+        "resolution": 8,
+        "views": 37,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          1591296
+        ],
+        "bakedRecords": [
+          49728
+        ],
+        "independentHits": [
+          770
+        ],
+        "maxDepthErrors": [
+          6.26e-7
+        ],
+        "activeBytes": 22169692,
+        "retainedBytes": 22169692,
+        "directionBytes": 592,
+        "consumedTexels": 17472
+      },
+      {
+        "phase": 9,
+        "headsOnly": true,
+        "resolution": 8,
+        "views": 8,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          344064
+        ],
+        "bakedRecords": [
+          10752
+        ],
+        "independentHits": [
+          824
+        ],
+        "maxDepthErrors": [
+          4.77e-7
+        ],
+        "activeBytes": 20922460,
+        "retainedBytes": 20922460,
+        "directionBytes": 256,
+        "consumedTexels": 17472
+      },
+      {
+        "phase": 10,
+        "headsOnly": true,
+        "resolution": 64,
+        "views": 8,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          22020096
+        ],
+        "bakedRecords": [
+          688128
+        ],
+        "independentHits": [
+          29264
+        ],
+        "maxDepthErrors": [
+          0.000008196
+        ],
+        "activeBytes": 42598492,
+        "retainedBytes": 42598492,
+        "directionBytes": 256,
+        "consumedTexels": 1118208
+      },
+      {
+        "phase": 11,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          7991
+        ],
+        "maxDepthErrors": [
+          7.75e-7
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 279552
+      },
+      {
+        "phase": 12,
+        "headsOnly": false,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 0.25,
+        "heightScale": 4,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          6893
+        ],
+        "maxDepthErrors": [
+          0.000009924
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 172032
+      },
+      {
+        "phase": 13,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 0.25,
+        "heightScale": 4,
+        "rebuiltKinds": [],
+        "flowerBytes": [],
+        "bakedRecords": [],
+        "independentHits": [],
+        "maxDepthErrors": [],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 279552
+      },
+      {
+        "phase": 14,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 4,
+        "heightScale": 0.25,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          10691
+        ],
+        "maxDepthErrors": [
+          7.75e-7
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 279552
+      },
+      {
+        "phase": 15,
+        "headsOnly": false,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 4,
+        "heightScale": 0.25,
+        "rebuiltKinds": [],
+        "flowerBytes": [],
+        "bakedRecords": [],
+        "independentHits": [],
+        "maxDepthErrors": [],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 172032
+      },
+      {
+        "phase": 16,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [
+          3
+        ],
+        "flowerBytes": [
+          11010048
+        ],
+        "bakedRecords": [
+          344064
+        ],
+        "independentHits": [
+          7991
+        ],
+        "maxDepthErrors": [
+          7.75e-7
+        ],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 279552
+      },
+      {
+        "phase": 17,
+        "headsOnly": true,
+        "resolution": 32,
+        "views": 16,
+        "headScale": 1,
+        "heightScale": 1,
+        "rebuiltKinds": [],
+        "flowerBytes": [],
+        "bakedRecords": [],
+        "independentHits": [],
+        "maxDepthErrors": [],
+        "activeBytes": 31588444,
+        "retainedBytes": 31588444,
+        "directionBytes": 256,
+        "consumedTexels": 15508480
+      }
+    ]
+  },
+  "cache": {
+    "consumers": [
+      "model leaves",
+      "attached/fallen apples",
+      "butterflies",
+      "whole flowers/complete heads"
+    ],
+    "consumed_texels": [
+      43470848,
+      27201088,
+      11093568,
+      19016000
+    ],
+    "mismatches": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "config_unchanged": true,
+    "width": 1280,
+    "height": 720,
+    "performance_evidence": false,
+    "results": [
+      {
+        "phase": 0,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          327680,
+          348160,
+          107520,
+          266240
+        ],
+        "baked_records": [
+          262144,
+          16384,
+          131072,
+          344064
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 2103,
+            "max_depth_error": 8.34e-7
+          },
+          {
+            "kind": 1,
+            "hits": 752,
+            "max_depth_error": 1.79e-7
+          },
+          {
+            "kind": 2,
+            "hits": 4784,
+            "max_depth_error": 0.000001073
+          },
+          {
+            "kind": 3,
+            "hits": 7991,
+            "max_depth_error": 7.75e-7
+          }
+        ]
+      },
+      {
+        "phase": 1,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [],
+        "consumed_texels": [
+          344064,
+          365568,
+          112896,
+          172032
+        ],
+        "baked_records": [],
+        "geometry_checks": []
+      },
+      {
+        "phase": 2,
+        "views": 16,
+        "resolutions": [
+          64,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          0
+        ],
+        "consumed_texels": [
+          5505024,
+          365568,
+          112896,
+          279552
+        ],
+        "baked_records": [
+          4194304
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 19239,
+            "max_depth_error": 0.000003755
+          }
+        ]
+      },
+      {
+        "phase": 3,
+        "views": 16,
+        "resolutions": [
+          64,
+          64,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          1
+        ],
+        "consumed_texels": [
+          5505024,
+          1462272,
+          112896,
+          279552
+        ],
+        "baked_records": [
+          65536
+        ],
+        "geometry_checks": [
+          {
+            "kind": 1,
+            "hits": 2808,
+            "max_depth_error": 4.77e-7
+          }
+        ]
+      },
+      {
+        "phase": 4,
+        "views": 16,
+        "resolutions": [
+          64,
+          64,
+          64,
+          32
+        ],
+        "rebuilt_kinds": [
+          2
+        ],
+        "consumed_texels": [
+          5505024,
+          1462272,
+          1806336,
+          279552
+        ],
+        "baked_records": [
+          2097152
+        ],
+        "geometry_checks": [
+          {
+            "kind": 2,
+            "hits": 58805,
+            "max_depth_error": 0.000006706
+          }
+        ]
+      },
+      {
+        "phase": 5,
+        "views": 16,
+        "resolutions": [
+          64,
+          64,
+          64,
+          64
+        ],
+        "rebuilt_kinds": [
+          3
+        ],
+        "consumed_texels": [
+          5505024,
+          1462272,
+          1806336,
+          1118208
+        ],
+        "baked_records": [
+          1376256
+        ],
+        "geometry_checks": [
+          {
+            "kind": 3,
+            "hits": 28760,
+            "max_depth_error": 0.000001878
+          }
+        ]
+      },
+      {
+        "phase": 6,
+        "views": 37,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ],
+        "baked_records": [
+          151552,
+          2368,
+          75776,
+          49728
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 792,
+            "max_depth_error": 4.77e-7
+          },
+          {
+            "kind": 1,
+            "hits": 64,
+            "max_depth_error": 1.79e-7
+          },
+          {
+            "kind": 2,
+            "hits": 1621,
+            "max_depth_error": 0.000001073
+          },
+          {
+            "kind": 3,
+            "hits": 770,
+            "max_depth_error": 6.26e-7
+          }
+        ]
+      },
+      {
+        "phase": 7,
+        "views": 128,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ],
+        "baked_records": [
+          524288,
+          8192,
+          262144,
+          172032
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 728,
+            "max_depth_error": 2.38e-7
+          },
+          {
+            "kind": 1,
+            "hits": 64,
+            "max_depth_error": 1.19e-7
+          },
+          {
+            "kind": 2,
+            "hits": 1647,
+            "max_depth_error": 0.000001431
+          },
+          {
+            "kind": 3,
+            "hits": 726,
+            "max_depth_error": 4.47e-7
+          }
+        ]
+      },
+      {
+        "phase": 8,
+        "views": 512,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ],
+        "baked_records": [
+          2097152,
+          32768,
+          1048576,
+          688128
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 797,
+            "max_depth_error": 2.98e-7
+          },
+          {
+            "kind": 1,
+            "hits": 64,
+            "max_depth_error": 6e-8
+          },
+          {
+            "kind": 2,
+            "hits": 1655,
+            "max_depth_error": 7.75e-7
+          },
+          {
+            "kind": 3,
+            "hits": 716,
+            "max_depth_error": 0.000001013
+          }
+        ]
+      },
+      {
+        "phase": 9,
+        "views": 8,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ],
+        "baked_records": [
+          32768,
+          512,
+          16384,
+          10752
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 991,
+            "max_depth_error": 5.96e-7
+          },
+          {
+            "kind": 1,
+            "hits": 64,
+            "max_depth_error": 1.49e-7
+          },
+          {
+            "kind": 2,
+            "hits": 1471,
+            "max_depth_error": 6.56e-7
+          },
+          {
+            "kind": 3,
+            "hits": 824,
+            "max_depth_error": 4.77e-7
+          }
+        ]
+      },
+      {
+        "phase": 10,
+        "views": 16,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ],
+        "baked_records": [
+          65536,
+          1024,
+          32768,
+          21504
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 962,
+            "max_depth_error": 3.28e-7
+          },
+          {
+            "kind": 1,
+            "hits": 64,
+            "max_depth_error": 1.19e-7
+          },
+          {
+            "kind": 2,
+            "hits": 1575,
+            "max_depth_error": 0.000001222
+          },
+          {
+            "kind": 3,
+            "hits": 821,
+            "max_depth_error": 0.000002384
+          }
+        ]
+      },
+      {
+        "phase": 11,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "consumed_texels": [
+          344064,
+          365568,
+          112896,
+          279552
+        ],
+        "baked_records": [
+          262144,
+          16384,
+          131072,
+          344064
+        ],
+        "geometry_checks": [
+          {
+            "kind": 0,
+            "hits": 2103,
+            "max_depth_error": 8.34e-7
+          },
+          {
+            "kind": 1,
+            "hits": 752,
+            "max_depth_error": 1.79e-7
+          },
+          {
+            "kind": 2,
+            "hits": 4784,
+            "max_depth_error": 0.000001073
+          },
+          {
+            "kind": 3,
+            "hits": 7991,
+            "max_depth_error": 7.75e-7
+          }
+        ]
+      },
+      {
+        "phase": 12,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [],
+        "consumed_texels": [
+          20004864,
+          21255168,
+          6780672,
+          16253952
+        ],
+        "baked_records": [],
+        "geometry_checks": []
+      }
+    ]
+  },
+  "oracle_totals": {
+    "control_baked_records": 4853824,
+    "control_independent_hits": 106932,
+    "control_max_depth_error": 0.000009924,
+    "cache_baked_records": 14534528,
+    "cache_independent_hits": 157288,
+    "cache_max_depth_error": 0.000006706
+  },
+  "flower_performance": {
+    "binary": "/home/terence/.herdr/worktrees/re-flora/vegi/target/release/re-flora",
+    "seconds": 8,
+    "config_sha256": "a6f26f70bee8cba228745463f10d7b84917cded2a9d39676241e366313b371c2",
+    "config_unchanged": true,
+    "release_acceptance": false,
+    "results": [
+      {
+        "count": 0,
+        "view": "front",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 5.677,
+        "gpu_ms_p95": 5.749,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.166666666666668,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "count": 32,
+        "view": "front",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 32,
+        "planned_tiles": 64,
+        "planned_texels": 65536,
+        "samples": 11,
+        "gpu_ms_p50": 5.784,
+        "gpu_ms_p95": 6.13,
+        "flower_tile_ms_p50": 0.034,
+        "flower_display_ms_p50": 0.055,
+        "vegetation_response_ms_p50": 0.023,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.3,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "count": 128,
+        "view": "front",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 128,
+        "planned_tiles": 256,
+        "planned_texels": 262144,
+        "samples": 10,
+        "gpu_ms_p50": 6.193,
+        "gpu_ms_p95": 7.991,
+        "flower_tile_ms_p50": 0.048,
+        "flower_display_ms_p50": 0.16,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.2,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "count": 0,
+        "view": "away",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 4.598,
+        "gpu_ms_p95": 4.81,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0.001,
+        "vegetation_response_ms_p50": 0.025,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.2,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "count": 128,
+        "view": "away",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 128,
+        "planned_tiles": 256,
+        "planned_texels": 262144,
+        "samples": 11,
+        "gpu_ms_p50": 4.58,
+        "gpu_ms_p95": 4.683,
+        "flower_tile_ms_p50": 0.05,
+        "flower_display_ms_p50": 0.005,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.333333333333332,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "count": 128,
+        "view": "away",
+        "resolution": 8,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 128,
+        "planned_tiles": 256,
+        "planned_texels": 16384,
+        "samples": 11,
+        "gpu_ms_p50": 4.593,
+        "gpu_ms_p95": 4.997,
+        "flower_tile_ms_p50": 0.03,
+        "flower_display_ms_p50": 0.013,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.2,
+        "frame_interval_ms_p95": 17.566666666666666,
+        "fps_from_median_interval": 58.139534883720934
+      },
+      {
+        "count": 0,
+        "view": "outside",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 5.949,
+        "gpu_ms_p95": 6.476,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0.001,
+        "vegetation_response_ms_p50": 0.036,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.3,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "count": 128,
+        "view": "outside",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 6.084,
+        "gpu_ms_p95": 6.384,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0.001,
+        "vegetation_response_ms_p50": 0.036,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.266666666666666,
+        "fps_from_median_interval": 58.252427184466015
+      }
+    ]
+  },
+  "other_model_performance": {
+    "binary": "/home/terence/.herdr/worktrees/re-flora/vegi/target/release/re-flora",
+    "seconds": 8,
+    "results": [
+      {
+        "scene": "attached",
+        "resolution": 8,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 6.438,
+        "gpu_ms_p95": 6.552,
+        "tile_ms_p50": 0.031,
+        "particle_tile_ms_p50": 0.034,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.3,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "scene": "attached",
+        "resolution": 32,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 6.124,
+        "gpu_ms_p95": 6.275,
+        "tile_ms_p50": 0.031,
+        "particle_tile_ms_p50": 0.033,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.2,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "scene": "attached",
+        "resolution": 64,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 6.385,
+        "gpu_ms_p95": 6.503,
+        "tile_ms_p50": 0.037,
+        "particle_tile_ms_p50": 0.033,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.366666666666667,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "scene": "fallen",
+        "resolution": 8,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 6.365,
+        "gpu_ms_p95": 6.467,
+        "tile_ms_p50": 0.027,
+        "particle_tile_ms_p50": 0.033,
+        "frame_interval_ms_p50": 17.066666666666666,
+        "frame_interval_ms_p95": 17.266666666666666,
+        "fps_from_median_interval": 58.59375
+      },
+      {
+        "scene": "fallen",
+        "resolution": 32,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 6.456,
+        "gpu_ms_p95": 6.612,
+        "tile_ms_p50": 0.027,
+        "particle_tile_ms_p50": 0.034,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.333333333333332,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "scene": "fallen",
+        "resolution": 64,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 6.443,
+        "gpu_ms_p95": 6.577,
+        "tile_ms_p50": 0.032,
+        "particle_tile_ms_p50": 0.034,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.366666666666667,
+        "fps_from_median_interval": 58.36575875486381
+      }
+    ]
+  },
+  "dense_scene": {
+    "plants": 1024,
+    "submitted_head_tiles": 2048,
+    "head_resolution": 32,
+    "views": 16,
+    "output": [
+      2880,
+      1620
+    ],
+    "scene": [
+      1440,
+      810
+    ],
+    "samples": 10,
+    "tile_gpu_ms_p50": 0.226,
+    "frame_gpu_ms_p50": 7.603,
+    "frame_gpu_ms_p95": 7.834,
+    "frame_interval_ms_p50": 17.166666666666668,
+    "actual_fps": 58.252427184466015,
+    "cache_builds": 4
+  },
+  "logging": {
+    "baseline-normal-45s.log": {
+      "runtime_lines": 283,
+      "ddgi_history": 60,
+      "routine_audio_ecology": 37,
+      "warnings": [
+        "[00:57:12.153 WARN re_flora::app::core::physics] [COLLISION][FRUIT] physics hitch dropped 18.202 ms"
+      ],
+      "audio_queue_warnings": 0
+    },
+    "normal-45s.log": {
+      "runtime_lines": 188,
+      "ddgi_history": 0,
+      "routine_audio_ecology": 0,
+      "warnings": [
+        "[01:22:16.241 WARN re_flora::app::core::physics] [COLLISION][FRUIT] physics hitch dropped 12.791 ms",
+        "[01:22:16.323 WARN re_flora::app::core::physics] [COLLISION][FRUIT] physics hitch dropped 13.735 ms"
+      ],
+      "audio_queue_warnings": 0
+    }
+  },
+  "tests": {
+    "main_passed": 1246,
+    "main_ignored": 4,
+    "other_root_passed": 4,
+    "slang_cpu_passed": 25,
+    "vkn_paging_passed": 4,
+    "vkn_descriptor_retirement_passed": 1
+  },
+  "config_unchanged_after_runs": true,
+  "normal_rendering_geometry_fallback": false,
+  "maximum_setting_or_cross_device_acceptance": false,
+  "known_limits": [
+    "One native frame slot; multiple pending slots covered by deterministic residency/descriptor tests, not native overlap.",
+    "High settings rebuild synchronously and can require GiB.",
+    "One worker audio-queue warning was not reproduced in controller before/after 45s runs; warning remains enabled.",
+    "Idle/muted audio runs are not walking/listening acceptance.",
+    "Known VKN retired-shader artifact test not changed or masked."
+  ],
+  "workflow_reported_usage": {
+    "agents": 3,
+    "reported_tokens_approx": 622400,
+    "cached_tokens_approx": 20500000,
+    "estimated_usd": 31.36,
+    "reported_seconds": 5653.3,
+    "controller_usage_included": false
+  },
+  "log_sha256": {
+    "tests-final.log": "c13b9fb3c356046ac207575d8c3016d7b13f99c4d1de5c3d6fc8d0ee03cf8008",
+    "shape-tests.log": "0bd4e2a3d008ba92c0f3c93a53dde20f90fc37e72219a9b591a9f8236f1d3c86",
+    "lighting-tests.log": "989c7514154d5c5fa909b7e91b5e15ca0d7c3f3a5ae60bd491984bb25c918936",
+    "cache-tests.log": "a89f0eee9dfc73f5c3f297e5ca6ce4ba1b3a11778d8b48c34ae17795b418b8c5",
+    "slang-tests.log": "091624351d55bac401e880cbbf86530662c4b2b611b22cb0e2ee1c60973621dd",
+    "storage-tests.log": "baffc4646cca31fcdef6aa62ba571e1b5aa51e9f7d3c3dbb6d6c8d1e4cdb0ef7",
+    "descriptor-tests.log": "a26095c441243cd75e68e9df672a238c37b8658bc32572686e0974d9219ff4f4",
+    "flower-regression.log": "94d0671ce37d2a0f4a20f7f2d4546fcd896d055ae3c7782ec4e6a5edcf7f03a0",
+    "apple-regression.log": "ee33a66cfcad0859ca86696609b6b85632dc81a6f91a613041d2c3876fb17347",
+    "leaf-regression.log": "a495cfa51965735205170783072266399f842521ea0a29798ddaff845d72a1a5",
+    "butterfly-regression.log": "b3f185eb9211ebe42941178e33bdf76b57d6a536697f2fce7007692ec62aacd5",
+    "normal-45s.log": "66516cd3b71b1a86311bdeae8f6554adf1715f10aa54f23db3e3a57ab83cfa3d",
+    "final-hidden.log": "59ad26d25518738742f1665affb3a8a05dcc97454408754bfdb8a916d4455b2a",
+    "1024-front.log": "08a59edd934320d9c366ba02fb5ff7d7bbdc0a6f71e781384fc1c3c9fab448b6"
+  }
+}
