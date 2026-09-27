@@ -34,6 +34,39 @@
 - 左侧始终是完整原始 3D 模型，A/B 不改变模型、材质、相机或参数。B 只改变像素处理单元和组合方式，不通过放大花瓣、换模型或更改色彩作弊。
 - 全部设置只在本次网页会话有效，切模型／重置恢复默认。不修改 `config/gui.toml`，也不新增游戏 Debug 控件。
 
+## 已交付与观察
+
+已在原 HTML 的同一下拉框接入上述 8 种，各 **250–648 个三角形**；原有落叶、蝴蝶、苹果仍保留。建模配方位于 `experiments/model-preview/models/flower-recipes.mjs`，适配层为 `models/flowers.js`。没有 Blender 运行依赖、CDN、外部贴图或需另行安装的网页依赖。
+
+下面是自动化运行真实 WebGL 输出的对照，不是概念图。每行依次为原始低模、A 整株 32²、B 每个完整花头 32² 后合成。全部是本项目原创网格截图，无第三方图片。
+
+![8 种植物的原始低模、整株像素化、花头拼茎叶对照](../evidence/stylized-flowers/contact-sheet.png)
+
+视觉观察：A 的整体像素密度统一，但小花五瓣、菊花细瓣和羽状叶容易被保守覆盖连成色团；B 保留茎叶轮廓、放大花头细节预算，但连续茎叶与像素花的混合感更明显。B 仍可能合并极细瓣缝，**没有为花草暗改原补点算法**。两种均保留供用户选择，目前不替用户确定最终方向。
+
+### 复现
+
+```sh
+node scripts/serve-model-preview.mjs
+# http://127.0.0.1:8765/model-preview/?model=wild-geranium
+node --test experiments/model-preview/tests/*.test.mjs
+# 与原浏览器验证相同，Playwright 可通过 NODE_PATH 提供。
+node experiments/model-preview/tests/browser.cjs
+node experiments/model-preview/tests/flowers-browser.cjs
+```
+
+完整截图／逐植物透明 PNG／JSON 在 `target/flower-study/validation/`，可通过 `PREVIEW_ARTIFACT_DIR` 改输出位置。两个模式的 PNG 文件名区分 `whole` 与 `heads-512px-composite`；B 导出不是 32² 整株，而是 512² 合成。
+
+### 已执行的验收
+
+- Node：**21 项通过**，包括 8 种配方确定性、有限顶点、低面数、完整花头分组、每个造型控制有效、深度解码与补点深度。
+- Chrome / SwiftShader：**176 个花头姿态样本**，覆盖 8 种花的正交／透视、正背侧、8/32/64px，另有每种 128px 和参数端点。逐像素检查补点不覆盖原始 RGBA；120,078 个非边界中心采样的 GPU 深度核对，最大绝对深度误差约 `1.013e-6`（归一化深度）。
+- **8 个遮挡夹具**：两种投影下，茎在花前／花后、花头在另一个花头前／后；不是统一写入花头中心平面深度。新增覆盖像素的深度依然是几何估计，不宣称精确子像素积分。
+- 所有花的 A→B→A 原图恢复一致；B 不改变左侧模型；线框、检查缩放不污染右侧；造型与颜色参数、覆盖开关、两种 PNG 尺寸／透明背景、模型切换／重置均通过。
+- 反复切换模型与像素分辨率后 GPU 几何／纹理计数稳定；1440×1000、1280×720、390×844 已截图并人工查看，无横向溢出；没有页面／控制台／请求错误或外网请求。
+- 原有浏览器回归（包括旧入口跳转）通过：叶片、蝴蝶、苹果、动画、颜色、覆盖与导出未退化。
+- 机器可读摘要：[summary.json](../evidence/stylized-flowers/summary.json)。本次改动仅网页实验／文档，未改 Rust、游戏 Slang、游戏资产、`config/gui.toml` 或生成的 Rust 文件；没有以网页测试代替游戏隐藏 Release 验收，也没有作性能结论。
+
 ## 实施边界
 
 本次交付是美术验证候选，不发布游戏资产、不改 Rust／Slang。特别是 B 的茎叶是此网页的低模茎叶代理，不声称已经接入游戏原生植物茎。游戏中的世界尺度、风动、遮挡与批量实例预算，要在用户选择视觉方向之后再单独集成和 Release 验收。

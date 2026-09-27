@@ -1,0 +1,41 @@
+{
+  "models": [
+    {
+      "name": "五瓣野花 · 野老鹳草",
+      "triangles": 528
+    },
+    {
+      "name": "勿忘草",
+      "triangles": 552
+    },
+    {
+      "name": "白色滨菊",
+      "triangles": 380
+    },
+    {
+      "name": "波斯菊",
+      "triangles": 648
+    },
+    {
+      "name": "虞美人",
+      "triangles": 412
+    },
+    {
+      "name": "桃叶风铃草",
+      "triangles": 460
+    },
+    {
+      "name": "紫松果菊",
+      "triangles": 352
+    },
+    {
+      "name": "郁金香",
+      "triangles": 250
+    }
+  ],
+  "headTilePoses": 176,
+  "maxDepthError": 0.0000010129192605790038,
+  "depthSamples": 120078,
+  "occlusionFixtures": 8,
+  "errors": []
+}
