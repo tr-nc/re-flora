@@ -36,7 +36,7 @@
 
 ## 已交付与观察
 
-已在原 HTML 的同一下拉框接入上述 8 种，各 **250–648 个三角形**；原有落叶、蝴蝶、苹果仍保留。建模配方位于 `experiments/model-preview/models/flower-recipes.mjs`，适配层为 `models/flowers.js`。没有 Blender 运行依赖、CDN、外部贴图或需另行安装的网页依赖。
+已在原 HTML 的同一下拉框接入上述 8 种，各 **250–648 个三角形**；原有落叶、蝴蝶、苹果仍保留。建模配方位于 `assets/models/flower-source.mjs`，适配层为 `models/flowers.js`。没有 Blender 运行依赖、CDN、外部贴图或需另行安装的网页依赖。
 
 下面是自动化运行真实 WebGL 输出的对照，不是概念图。每行依次为原始低模、A 整株 32²、B 每个完整花头 32² 后合成。全部是本项目原创网格截图，无第三方图片。
 

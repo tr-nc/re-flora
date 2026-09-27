@@ -1510,9 +1510,33 @@ fn validate_shared_apple_asset() {
         "Stale {path}. Run node scripts/publish-apple-model.mjs, review, and commit the generated mesh.");
 }
 
+fn validate_shared_flower_assets() {
+    let mut hash = crc32fast::Hasher::new();
+    for source in [
+        "assets/models/flower-source.mjs",
+        "scripts/publish-flower-models.mjs",
+    ] {
+        println!("cargo:rerun-if-changed={source}");
+        hash.update(&fs::read(source).expect("shared flower authoring source"));
+    }
+    let path = "assets/models/flowers.json";
+    println!("cargo:rerun-if-changed={path}");
+    let json: serde_json::Value = serde_json::from_slice(
+        &fs::read(path).expect("run node scripts/publish-flower-models.mjs"),
+    )
+    .expect("published flower mesh JSON");
+    assert_eq!(
+        json["source_crc32"].as_u64(),
+        Some(u64::from(hash.finalize())),
+        "Stale {path}. Run node scripts/publish-flower-models.mjs and commit the derived assets."
+    );
+    assert_eq!(json["flowers"].as_array().map(Vec::len), Some(8));
+}
+
 fn main() {
     validate_shared_leaf_asset();
     validate_shared_apple_asset();
+    validate_shared_flower_assets();
     // Tell Cargo to rerun this script if these files/directories change.
     // config/gui.toml drives GuiAdjustables codegen.
     println!("cargo:rerun-if-changed=config/gui.toml");

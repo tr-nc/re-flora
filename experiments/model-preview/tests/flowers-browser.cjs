@@ -7,7 +7,7 @@ const path=require('node:path');
 const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../../target/flower-study/validation');
 (async()=>{
   const {createPreviewServer}=await import('../../../scripts/serve-model-preview.mjs');
-  const {flowerCatalog}=await import('../models/flower-recipes.mjs');
+  const {flowerCatalog}=await import('../../../assets/models/flower-source.mjs');
   const server=createPreviewServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const base=`http://127.0.0.1:${server.address().port}`;
   let browser;

@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {flowerCatalog,flowerGeometry} from '../models/flower-recipes.mjs';
+import {flowerCatalog,flowerGeometry} from '../../../assets/models/flower-source.mjs';
+import {readFile} from 'node:fs/promises';
+import {publishedFlowers} from '../../../scripts/publish-flower-models.mjs';
+
+test('native flower publication regenerates byte-for-byte from the browser recipe',async()=>{
+  assert.equal(await readFile(new URL('../../../assets/models/flowers.json',import.meta.url),'utf8'),await publishedFlowers());
+});
 
 test('eight distinct original flower recipes have finite, low-poly geometry and complete head groups',()=>{
   assert.equal(flowerCatalog.length,8);

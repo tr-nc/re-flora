@@ -27,6 +27,15 @@ or local animation. Butterfly flight coupling still owns world attitude and supp
 root bob to avoid double world displacement. Its stroke integrals are now derived from the same GLB
 rotation channel. Browser lights are not a substitute for in-game environment lighting.
 
+## Publish the flower bank
+
+The eight original flower recipes live in `flower-source.mjs`; the HTML preview imports
+that exact source. `node scripts/publish-flower-models.mjs` writes `flowers.json`, embedded
+by `src/flora/models.rs`. Commit source and derived output together. `cargo check` verifies
+the source/publisher fingerprint; Node tests compare complete deterministic output.
+The native adapter only shifts the authored root to zero and derives complete-head ranges
+and rotation-safe bounds. It does not reauthor petals or split petals into separate sprites.
+
 ## Publish a leaf shape
 
 Edit `leaf-source.mjs` (including `leafDefaults` for approved width/length/fold/curl), then run:

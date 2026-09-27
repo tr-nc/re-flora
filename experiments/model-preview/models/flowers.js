@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {flowerCatalog,flowerGeometry} from './flower-recipes.mjs';
+import {flowerCatalog,flowerGeometry} from '../../../assets/models/flower-source.mjs';
 import {disposeScene} from './resources.js';
 
 const colorKeys=['petalColor','innerColor','centerColor','leafColor','stemColor'];

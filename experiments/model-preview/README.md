@@ -56,7 +56,7 @@ node scripts/serve-model-preview.mjs
 | `timeline.mjs` | 静态/动态统一时间采样与播放推进 |
 | `pipeline.js` | 原始/像素绘制、可见组 ID、统一图像处理与资源释放；整株和分部共用 `renderTile` |
 | `part-composite.js` / `part-depth.mjs` | 可选花头裁切、GPU 深度读取、补点深度与透明合成；不另建 renderer |
-| `models/flower-recipes.mjs` / `flowers.js` | 8 种原创纯几何配方及统一模型接口适配 |
+| `assets/models/flower-source.mjs` / `models/flowers.js` | 8 种原创纯几何配方及统一模型接口适配 |
 | `geometry.js` | 读取当前动画姿态，世界变换，齐次裁剪，投影到像素格 |
 | `connectivity.mjs` | 几何约束的八邻接连通判定与逐条最短补点路径 |
 | `postprocess.mjs` | 分组修复、缺失颜色重建 |
