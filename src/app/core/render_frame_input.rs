@@ -83,6 +83,11 @@ pub(super) fn freeze_render_frame_inputs(
     let vegetation = VegetationFrameInput {
         tree_hybrid_lighting: gui.raster_tree_hybrid_lighting.value,
         appearance: FloraAppearanceFrameInput {
+            model_flowers: crate::flora::models::Settings {
+                heads_only: gui.model_flower_heads_only.value,
+                resolution: gui.model_flower_pixel_resolution.value,
+                size_scale: gui.model_flower_size_scale.value,
+            },
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
             instance_hsv_offset_max: Vec3::new(
@@ -296,6 +301,9 @@ mod tests {
             }};
         }
 
+        gui.model_flower_heads_only.value = false;
+        gui.model_flower_pixel_resolution.value = 24;
+        gui.model_flower_size_scale.value = 1.25;
         gui.flora_growth_override_enabled.value = true;
         gui.raster_tree_hybrid_lighting.value = true;
         gui.ddgi_continuous_sampling.value = true;
@@ -458,6 +466,11 @@ mod tests {
             vegetation: VegetationFrameInput {
                 tree_hybrid_lighting: true,
                 appearance: FloraAppearanceFrameInput {
+                    model_flowers: crate::flora::models::Settings {
+                        heads_only: false,
+                        resolution: 24,
+                        size_scale: 1.25,
+                    },
                     growth_override_enabled: true,
                     growth_override: flora_growth_override,
                     instance_hsv_offset_max: Vec3::new(

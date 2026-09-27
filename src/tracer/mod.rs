@@ -34,6 +34,8 @@ pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
+mod flower_models;
+use crate::flora::species;
 mod model_pixel_frame;
 #[cfg(test)]
 mod model_pixel_projection;
@@ -1305,7 +1307,10 @@ mod flora_lighting_cache_location_tests {
     fn every_surface_flora_mesh_fits_the_cache_voxel_count_encoding() {
         for desc in crate::flora::species::species() {
             for is_lod in [false, true] {
-                let voxel_count = (desc.mesh_generator)(is_lod).unwrap().voxel_infos.len() as u32;
+                let Some(generate) = desc.mesh_generator else {
+                    continue;
+                };
+                let voxel_count = generate(is_lod).unwrap().voxel_infos.len() as u32;
                 assert!(
                     voxel_count <= FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX,
                     "{} has {voxel_count} voxels",
@@ -1391,6 +1396,7 @@ pub struct MaterialFrameInput {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
+    pub model_flowers: crate::flora::models::Settings,
     pub growth_override_enabled: bool,
     pub growth_override: f32,
     pub instance_hsv_offset_max: Vec3,
@@ -1647,6 +1653,7 @@ pub struct Tracer {
     ddgi_continuous_sampling: bool,
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
+    flower_model_settings: crate::flora::models::Settings,
     model_pixel_view_count: u32,
     model_pixel_screen_grid: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
@@ -2000,6 +2007,7 @@ impl Tracer {
             ddgi_continuous_sampling: false,
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
+            flower_model_settings: crate::flora::models::Settings::default(),
             model_pixel_view_count: 0,
             model_pixel_screen_grid: false,
             ddgi_sampling_progress: Default::default(),
@@ -3045,10 +3053,17 @@ impl Tracer {
             );
         }
         self.apple_pixel_resolution = terrain.apple_pixel_resolution.clamp(8, 64);
-        let view_count = model_pixel_views::effective_count(
-            terrain.model_pixel_view_count,
-            butterfly_mesh::native_review(),
-        );
+        let flowers = vegetation.appearance.model_flowers.normalized();
+        if flowers != self.flower_model_settings {
+            log::info!(
+                "[FLOWER_MODE] heads_only={} resolution={} size={} pose=shared live_switch=true",
+                flowers.heads_only,
+                flowers.resolution,
+                flowers.size_scale
+            );
+        }
+        self.flower_model_settings = flowers;
+        let view_count = model_pixel_views::runtime_count(terrain.model_pixel_view_count);
         if self.model_pixel_view_count != view_count
             || self.model_pixel_screen_grid != terrain.model_pixel_screen_grid
         {
@@ -4372,7 +4387,10 @@ impl Tracer {
                         .1
                         .species_len(species_index)
                 },
-                |species_index| should_render_grass_species(species_index, grass_render_mode),
+                |species_index| {
+                    species::species()[species_index].mesh_generator.is_some()
+                        && should_render_grass_species(species_index, grass_render_mode)
+                },
                 |species_index, lod_state| match lod_state {
                     LodState::Lod0 => self.resources.meshes.flora_meshes[species_index].voxel_count,
                     LodState::Lod1 => {
@@ -4594,6 +4612,87 @@ impl Tracer {
             None
         };
 
+        let mut prepared_flowers = Vec::new();
+        if enable_flora {
+            let settings = self.flower_model_settings;
+            for (chunk_index, (bounds, instances)) in surface_resources
+                .instances
+                .chunk_flora_instances
+                .iter()
+                .enumerate()
+            {
+                let padding =
+                    Vec3::splat(4.0 * crate::flora::models::WORLD_SCALE * settings.size_scale);
+                let bounds =
+                    crate::geom::Aabb3::new(bounds.min() - padding, bounds.max() + padding);
+                if !bounds.is_inside_frustum(self.current_view_proj_mat)
+                    || self.camera.position().distance(bounds.center()) > flora_draw_distance
+                {
+                    continue;
+                }
+                for (species_index, desc) in species::species().iter().enumerate() {
+                    let Some(model) = desc.model_flower else {
+                        continue;
+                    };
+                    let count = instances.species_len(species_index);
+                    if count == 0 {
+                        continue;
+                    }
+                    let push = crate::generated::gpu_structs::PushConstantFlowerPixel {
+                        chunk_world_offset: instances.chunk_world_offset.to_array(),
+                        species: species_index as u32,
+                        response_offset: self
+                            .vegetation_response
+                            .flower_offset(chunk_index, species_index),
+                        time,
+                        resolution: settings.resolution,
+                        heads_only: settings.heads_only as u32,
+                        world_scale: crate::flora::models::WORLD_SCALE * settings.size_scale,
+                        tile_first: 0,
+                        prepare_object: 0,
+                        padding: 0,
+                    };
+                    let descriptors = [
+                        (
+                            "flora_instances",
+                            DescriptorResource::Buffer(&instances.resource.instances_buf),
+                        ),
+                        self.vegetation_response.descriptors()[0],
+                        self.vegetation_response.descriptors()[1],
+                    ];
+                    prepared_flowers.push(
+                        Self::with_gpu_scope(
+                            gpu_profiler.as_deref_mut(),
+                            gpu_profiler_frame_slot,
+                            cmdbuf,
+                            "models.flowers.tiles",
+                            || {
+                                self.model_pixel_frame.flowers(
+                                    cmdbuf,
+                                    PixelPass {
+                                        compute: &self.pipeline_topology.compute().flower_pixel_ppl,
+                                        display: &self
+                                            .pipeline_topology
+                                            .graphics()
+                                            .flower_pixel_ppl,
+                                    },
+                                    &self.pipeline_topology.graphics().flower_stem_ppl,
+                                    count,
+                                    push,
+                                    self.model_pixel_view_count != 0,
+                                    &descriptors,
+                                )
+                            },
+                        )
+                        .expect("paired flower model pixels"),
+                    );
+                    if std::env::var_os("RE_FLORA_FLOWER_MODEL_REVIEW").is_some() {
+                        log::info!("[FLOWER_DRAW] species={} plants={} heads_only={} resolution={} parts_per_plant={}",desc.key,count,settings.heads_only,settings.resolution,if settings.heads_only {crate::flora::models::flowers()[model].heads.len()} else {1});
+                    }
+                }
+            }
+        }
+
         let prepared_flora_descriptors = flora_frame_plan
             .batches()
             .iter()
@@ -4731,6 +4830,8 @@ impl Tracer {
                 &self.pipeline_topology.graphics().leaves_ppl,
                 &self.pipeline_topology.graphics().leaves_lod_ppl,
                 &self.pipeline_topology.graphics().apple_pixel_tree_ppl,
+                &self.pipeline_topology.graphics().flower_pixel_ppl,
+                &self.pipeline_topology.graphics().flower_stem_ppl,
             ] {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }
@@ -4845,7 +4946,19 @@ impl Tracer {
         cmdbuf.bind_vertex_buffers(0, &[&self.resources.meshes.terrain_depth_prefill_vertices]);
         terrain_depth_prefill.record(cmdbuf, 3, 1, 0, 0, None);
 
-        // Draw all flora species, both LOD levels
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "models.flowers.display",
+            || {
+                for flowers in &prepared_flowers {
+                    flowers.record(cmdbuf, &self.resources);
+                }
+            },
+        );
+
+        // Draw voxel flora species, both LOD levels
         if enable_flora {
             let recorded_flora_instance_count = flora_frame_plan.instance_count();
             let flora_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {

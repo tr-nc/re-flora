@@ -269,9 +269,8 @@ impl BufferUpdater {
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,
             model_pixel_screen_grid: terrain.model_pixel_screen_grid as u32,
-            model_pixel_view_count: super::model_pixel_views::effective_count(
+            model_pixel_view_count: super::model_pixel_views::runtime_count(
                 terrain.model_pixel_view_count,
-                super::butterfly_mesh::native_review(),
             ),
             apple_pixel_resolution: terrain
                 .apple_pixel_resolution

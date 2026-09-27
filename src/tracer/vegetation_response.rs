@@ -632,7 +632,8 @@ mod tests {
             &HashMap::new(),
             &mut previous,
         );
-        assert_eq!(offsets[2..], [0, 2]);
+        assert_eq!(offsets[2..4], [0, 2]);
+        assert!(offsets[4..].iter().all(|offset| *offset == 3));
         assert!(inputs.iter().all(|input| input.identity[0] == NO_PREVIOUS));
         inputs.clear();
         let mut next = HashMap::new();

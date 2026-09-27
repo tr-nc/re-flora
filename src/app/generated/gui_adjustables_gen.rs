@@ -596,6 +596,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
+        id: "model_flower_heads_only",
+        kind: "bool",
+        label: "Pixel Flower Heads + Mesh Stems (B; Unchecked = Whole Plant)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "model_flower_pixel_resolution",
+        kind: "uint",
+        label: "Pixels per Plant / Flower Head",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "model_flower_size_scale",
+        kind: "float",
+        label: "Model Flower Size",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
         id: "special_flora_plants_per_release",
         kind: "uint",
         label: "Special Flora Plants / Release",
@@ -1485,6 +1503,9 @@ pub struct GuiAdjustables {
     pub god_ray_weight: crate::gui_adjustables::FloatParam,
     pub lens_flare_intensity: crate::gui_adjustables::FloatParam,
     pub lens_flare_sun_pixel_scale: crate::gui_adjustables::FloatParam,
+    pub model_flower_heads_only: crate::gui_adjustables::BoolParam,
+    pub model_flower_pixel_resolution: crate::gui_adjustables::UintParam,
+    pub model_flower_size_scale: crate::gui_adjustables::FloatParam,
     pub special_flora_plants_per_release: crate::gui_adjustables::UintParam,
     pub special_flora_cluster_radius_voxels: crate::gui_adjustables::FloatParam,
     pub special_flora_min_spacing_voxels: crate::gui_adjustables::FloatParam,
@@ -1725,6 +1746,9 @@ impl GuiAdjustables {
         let mut god_ray_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_sun_pixel_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut model_flower_heads_only_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut model_flower_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut model_flower_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut special_flora_plants_per_release_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut special_flora_cluster_radius_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut special_flora_min_spacing_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2488,6 +2512,25 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             lens_flare_sun_pixel_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_flower_heads_only" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            model_flower_heads_only_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "model_flower_pixel_resolution" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            model_flower_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_flower_size_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            model_flower_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "special_flora_plants_per_release" => {
@@ -3469,6 +3512,9 @@ impl GuiAdjustables {
             god_ray_weight: god_ray_weight_field.expect("Missing parameter: god_ray_weight"),
             lens_flare_intensity: lens_flare_intensity_field.expect("Missing parameter: lens_flare_intensity"),
             lens_flare_sun_pixel_scale: lens_flare_sun_pixel_scale_field.expect("Missing parameter: lens_flare_sun_pixel_scale"),
+            model_flower_heads_only: model_flower_heads_only_field.expect("Missing parameter: model_flower_heads_only"),
+            model_flower_pixel_resolution: model_flower_pixel_resolution_field.expect("Missing parameter: model_flower_pixel_resolution"),
+            model_flower_size_scale: model_flower_size_scale_field.expect("Missing parameter: model_flower_size_scale"),
             special_flora_plants_per_release: special_flora_plants_per_release_field.expect("Missing parameter: special_flora_plants_per_release"),
             special_flora_cluster_radius_voxels: special_flora_cluster_radius_voxels_field.expect("Missing parameter: special_flora_cluster_radius_voxels"),
             special_flora_min_spacing_voxels: special_flora_min_spacing_voxels_field.expect("Missing parameter: special_flora_min_spacing_voxels"),
@@ -3674,6 +3720,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "god_ray_weight" => Some(&adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&adjustables.lens_flare_intensity),
         "lens_flare_sun_pixel_scale" => Some(&adjustables.lens_flare_sun_pixel_scale),
+        "model_flower_size_scale" => Some(&adjustables.model_flower_size_scale),
         "special_flora_cluster_radius_voxels" => Some(&adjustables.special_flora_cluster_radius_voxels),
         "special_flora_min_spacing_voxels" => Some(&adjustables.special_flora_min_spacing_voxels),
         "special_flora_cluster_bias" => Some(&adjustables.special_flora_cluster_bias),
@@ -3803,6 +3850,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "glass_ssr_steps" => Some(&adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
+        "model_flower_pixel_resolution" => Some(&adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
         "falling_leaf_pixel_resolution" => Some(&adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
@@ -3843,6 +3891,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
+        "model_flower_heads_only" => Some(&adjustables.model_flower_heads_only),
         "real_leaf_lifecycle" => Some(&adjustables.real_leaf_lifecycle),
         "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
@@ -3948,6 +3997,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "god_ray_weight" => Some(&mut adjustables.god_ray_weight),
         "lens_flare_intensity" => Some(&mut adjustables.lens_flare_intensity),
         "lens_flare_sun_pixel_scale" => Some(&mut adjustables.lens_flare_sun_pixel_scale),
+        "model_flower_size_scale" => Some(&mut adjustables.model_flower_size_scale),
         "special_flora_cluster_radius_voxels" => Some(&mut adjustables.special_flora_cluster_radius_voxels),
         "special_flora_min_spacing_voxels" => Some(&mut adjustables.special_flora_min_spacing_voxels),
         "special_flora_cluster_bias" => Some(&mut adjustables.special_flora_cluster_bias),
@@ -4077,6 +4127,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "glass_ssr_steps" => Some(&mut adjustables.glass_ssr_steps),
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
+        "model_flower_pixel_resolution" => Some(&mut adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
         "falling_leaf_pixel_resolution" => Some(&mut adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
@@ -4117,6 +4168,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&mut adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
+        "model_flower_heads_only" => Some(&mut adjustables.model_flower_heads_only),
         "real_leaf_lifecycle" => Some(&mut adjustables.real_leaf_lifecycle),
         "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),

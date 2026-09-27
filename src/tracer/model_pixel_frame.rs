@@ -34,6 +34,7 @@ struct PixelDraw {
     descriptors: PreparedDrawDescriptors,
     first: u32,
     count: u32,
+    push: Option<PushConstantInfo>,
 }
 
 /// Created only after compute and descriptor preparation succeed. The same
@@ -59,9 +60,28 @@ impl PreparedModelPixels {
                 0,
                 0,
                 draw.first,
-                self.push.as_ref(),
+                draw.push.as_ref().or(self.push.as_ref()),
             );
         }
+    }
+}
+
+pub(super) struct PreparedFlowerModels {
+    pixels: PreparedModelPixels,
+    stems: Option<PreparedModelPixels>,
+    stem_index_count: u32,
+}
+impl PreparedFlowerModels {
+    pub fn record(&self, cmdbuf: &CommandBuffer, resources: &TracerResources) {
+        if let Some(stems) = &self.stems {
+            cmdbuf.bind_vertex_buffers(0, &[&resources.flower_models.flower_stem_vertices]);
+            cmdbuf.bind_index_buffer_u32(&resources.flower_models.flower_stem_indices);
+            stems.record(cmdbuf, self.stem_index_count);
+        }
+        // This is the existing shared four-corner model-display quad, not apple geometry.
+        cmdbuf.bind_vertex_buffers(0, &[&resources.apple_pixel.apple_pixel_quad_vertices]);
+        cmdbuf.bind_index_buffer_u32(&resources.apple_pixel.apple_pixel_quad_indices);
+        self.pixels.record(cmdbuf, 6);
     }
 }
 
@@ -94,6 +114,7 @@ impl ModelPixelFrame {
             &compute.butterfly_tile_ppl,
             &compute.apple_pixel_tree_ppl,
             &compute.apple_pixel_dynamic_ppl,
+            &compute.flower_pixel_ppl,
         ] {
             pipeline.begin_transient_descriptor_frame(slot);
         }
@@ -339,6 +360,108 @@ impl ModelPixelFrame {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn flowers(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        pass: PixelPass<'_>,
+        stem_pipeline: &GraphicsPipeline,
+        count: u32,
+        mut push: crate::generated::gpu_structs::PushConstantFlowerPixel,
+        discrete_views: bool,
+        pose_resources: &[(&str, DescriptorResource<'_>)],
+    ) -> Result<PreparedFlowerModels> {
+        let species = push.species;
+        let model = &crate::flora::models::flowers()
+            [(species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize];
+        let parts = if push.heads_only != 0 {
+            model.heads.len() as u32
+        } else {
+            1
+        };
+        let tile_count = count
+            .checked_mul(parts)
+            .ok_or_else(|| anyhow::anyhow!("flower tile count overflow"))?;
+        let batches = self.storage.flowers(
+            push.chunk_world_offset,
+            species,
+            tile_count,
+            push.resolution,
+            allocator(&self.device, &self.allocator),
+        )?;
+        let mut draws = Vec::new();
+        for batch in batches {
+            push.tile_first = batch.range.first;
+            draws.push(batch.publish(
+                |batch| {
+                    let mut descriptors = pose_resources.to_vec();
+                    descriptors.extend([
+                        (
+                            "model_object_samples",
+                            DescriptorResource::Buffer(&batch.objects),
+                        ),
+                        (
+                            "model_pixel_tiles",
+                            DescriptorResource::Buffer(&batch.tiles),
+                        ),
+                    ]);
+                    if discrete_views {
+                        let mut prepare = push;
+                        prepare.prepare_object = 1;
+                        pass.compute.record_with_descriptors(
+                            cmdbuf,
+                            &descriptors,
+                            Extent3D::new(1, 1, batch.range.count),
+                            Some(bytemuck::bytes_of(&prepare)),
+                        )?;
+                    }
+                    pass.compute.record_with_descriptors(
+                        cmdbuf,
+                        &descriptors,
+                        Extent3D::new(push.resolution, push.resolution, batch.range.count),
+                        Some(bytemuck::bytes_of(&push)),
+                    )
+                },
+                |batch| {
+                    let mut draw = prepare_draw(cmdbuf, pass.display, batch, pose_resources)?;
+                    draw.push = Some(PushConstantInfo {
+                        shader_stage: vk::ShaderStageFlags::VERTEX,
+                        push_constants: bytemuck::bytes_of(&push).to_vec(),
+                    });
+                    Ok(draw)
+                },
+            )?);
+        }
+        let stems = if push.heads_only != 0 && count > 0 {
+            Some(PreparedModelPixels {
+                pipeline: stem_pipeline.clone(),
+                draws: vec![PixelDraw {
+                    descriptors: stem_pipeline.prepare_draw_descriptors(cmdbuf, pose_resources)?,
+                    first: 0,
+                    count,
+                    push: None,
+                }],
+                push: Some(PushConstantInfo {
+                    shader_stage: vk::ShaderStageFlags::VERTEX,
+                    push_constants: bytemuck::bytes_of(&push).to_vec(),
+                }),
+                instance_indices: None,
+            })
+        } else {
+            None
+        };
+        Ok(PreparedFlowerModels {
+            pixels: PreparedModelPixels {
+                pipeline: pass.display.clone(),
+                draws,
+                push: None,
+                instance_indices: None,
+            },
+            stems,
+            stem_index_count: model.stem_triangles * 3,
+        })
+    }
+
     pub fn fallen_apples(
         &mut self,
         cmdbuf: &CommandBuffer,
@@ -474,6 +597,7 @@ fn prepare_draw(
         descriptors: display.prepare_draw_descriptors(cmdbuf, &descriptors)?,
         first: batch.range.first,
         count: batch.range.count,
+        push: None,
     })
 }
 
@@ -558,6 +682,58 @@ mod tests {
             })
             .is_err());
         frame.particle_inputs(make).unwrap(); // Failed publication does not poison a retry.
+    }
+
+    #[test]
+    fn flower_batches_keep_global_head_indices_and_isolate_species_chunks_and_slots() {
+        for resolution in [8, 32, 64] {
+            let mut storage = ModelPixelStorage::default();
+            storage.begin_frame(0);
+            let count = 120_000;
+            let draws = storage
+                .flowers([0, 0, 256], 4, count, resolution, allocate)
+                .unwrap();
+            let mut next = 0;
+            for batch in draws {
+                let (range, tiles, objects) = publish(batch);
+                assert_eq!(range.first, next);
+                next += range.count;
+                assert_eq!(
+                    range.texels,
+                    (range.count * resolution * resolution) as usize
+                );
+                assert!(range.count <= 65_535 && range.texels <= BATCH_TEXELS);
+                assert!(*tiles >= range.texels);
+                assert!(*objects >= count as usize * 4);
+            }
+            assert_eq!(next, count);
+            let (_, a, _) = publish(
+                storage
+                    .flowers([0, 0, 256], 5, 1, resolution, allocate)
+                    .unwrap()
+                    .remove(0),
+            );
+            let (_, b, _) = publish(
+                storage
+                    .flowers([256, 0, 256], 5, 1, resolution, allocate)
+                    .unwrap()
+                    .remove(0),
+            );
+            assert!(!Arc::ptr_eq(&a, &b));
+            storage.begin_frame(1);
+            let (_, c, _) = publish(
+                storage
+                    .flowers([0, 0, 256], 5, 1, resolution, allocate)
+                    .unwrap()
+                    .remove(0),
+            );
+            assert!(!Arc::ptr_eq(&a, &c));
+            assert!(storage
+                .flowers([0, 0, 0], 4, 0, resolution, allocate)
+                .unwrap()
+                .is_empty());
+            assert!(storage.flowers([0, 0, 0], 4, 1, 0, allocate).is_err());
+        }
     }
 
     #[test]

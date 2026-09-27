@@ -10,6 +10,35 @@ pub const MAX_HEADS: usize = 3;
 /// Ten terrain voxels per authoring unit: roughly 20–28 voxels tall.
 pub const WORLD_SCALE: f32 = 10.0 / 256.0;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Settings {
+    pub heads_only: bool,
+    pub resolution: u32,
+    pub size_scale: f32,
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            heads_only: true,
+            resolution: 32,
+            size_scale: 1.0,
+        }
+    }
+}
+impl Settings {
+    pub fn normalized(self) -> Self {
+        Self {
+            resolution: self.resolution.clamp(8, 64),
+            size_scale: if self.size_scale.is_finite() {
+                self.size_scale.clamp(0.5, 2.0)
+            } else {
+                1.0
+            },
+            ..self
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Triangle {
     pub positions: [Vec3; 3],
@@ -170,6 +199,32 @@ fn load(json: &str) -> Result<Vec<Flower>> {
 mod tests {
     use super::*;
     #[test]
+    fn settings_bound_gpu_work_and_reject_nonfinite_scale() {
+        let settings = Settings {
+            heads_only: false,
+            resolution: 0,
+            size_scale: f32::NAN,
+        }
+        .normalized();
+        assert!(!settings.heads_only);
+        assert_eq!(settings.resolution, 8);
+        assert_eq!(settings.size_scale, 1.0);
+        assert_eq!(
+            Settings {
+                resolution: u32::MAX,
+                size_scale: 10.0,
+                ..settings
+            }
+            .normalized(),
+            Settings {
+                resolution: 64,
+                size_scale: 2.0,
+                ..settings
+            }
+        );
+    }
+
+    #[test]
     fn shared_flowers_keep_the_approved_shapes_and_complete_head_ranges() {
         let models = flowers();
         let counts = [528, 552, 380, 648, 412, 460, 352, 250];
@@ -192,7 +247,9 @@ mod tests {
                 .triangles
                 .iter()
                 .flat_map(|t| t.positions)
-                .all(|p| p.is_finite() && p.y >= -0.02));
+                .all(|p| p.is_finite()
+                    && p.y >= -0.02
+                    && p.distance(model.whole.center) < model.whole.radius));
             assert!(model.whole.center.distance(Vec3::new(0., 1.4, 0.)) < 1e-6);
         }
     }

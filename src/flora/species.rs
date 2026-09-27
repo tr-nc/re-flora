@@ -2,7 +2,9 @@ use crate::flora::construct::{gen_ember_bloom, gen_lavender, gen_short_grass, ge
 use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
-pub const MAX_FLORA_SPECIES: usize = 4;
+pub const MODEL_FLOWER_FIRST_SPECIES: u32 = 4;
+pub const MAX_FLORA_SPECIES: usize =
+    MODEL_FLOWER_FIRST_SPECIES as usize + super::models::MODEL_COUNT;
 pub const TALL_GRASS_SPECIES_INDEX: u32 = 0;
 pub const SHORT_GRASS_SPECIES_INDEX: u32 = 1;
 pub const LAVENDER_SPECIES_INDEX: u32 = 2;
@@ -80,7 +82,9 @@ pub struct FloraSpeciesDesc {
     pub display_name: &'static str,
     pub default_bottom_color: [u8; 3],
     pub default_tip_color: [u8; 3],
-    pub mesh_generator: MeshGeneratorFn,
+    /// None for authored model flowers, which do not have a voxel draw mesh.
+    pub mesh_generator: Option<MeshGeneratorFn>,
+    pub model_flower: Option<usize>,
     pub paint_brush: FloraPaintBrushSettings,
     pub placement_mode: FloraPlacementMode,
     /// Radius of this species' contribution to the shared 3D ordinary-grass competition field.
@@ -110,13 +114,34 @@ impl FloraSpeciesDesc {
             display_name,
             default_bottom_color,
             default_tip_color,
-            mesh_generator,
+            mesh_generator: Some(mesh_generator),
+            model_flower: None,
             paint_brush,
             placement_mode,
             grass_growth_influence_radius_voxels,
             grass_growth_influence_min_level,
             moisture_growth_factors,
         }
+    }
+}
+
+const fn model_flower(
+    key: &'static str,
+    display_name: &'static str,
+    index: usize,
+) -> FloraSpeciesDesc {
+    FloraSpeciesDesc {
+        key,
+        display_name,
+        model_flower: Some(index),
+        mesh_generator: None,
+        default_bottom_color: [99, 141, 83],
+        default_tip_color: [214, 149, 197],
+        paint_brush: LAVENDER_PAINT_BRUSH_SETTINGS,
+        placement_mode: FloraPlacementMode::Authored,
+        grass_growth_influence_radius_voxels: 8,
+        grass_growth_influence_min_level: 6,
+        moisture_growth_factors: DEFAULT_MOISTURE_GROWTH_FACTORS,
     }
 }
 
@@ -169,6 +194,14 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         6,
         DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
+    model_flower("wild-geranium", "Wild Geranium", 0),
+    model_flower("forget-me-not", "Forget-me-not", 1),
+    model_flower("oxeye-daisy", "Oxeye Daisy", 2),
+    model_flower("cosmos", "Cosmos", 3),
+    model_flower("corn-poppy", "Corn Poppy", 4),
+    model_flower("bellflower", "Bellflower", 5),
+    model_flower("coneflower", "Coneflower", 6),
+    model_flower("tulip", "Tulip", 7),
 ];
 
 pub const TREE_LEAF_RENDER_SPECIES_INDEX: u32 = FLORA_SPECIES.len() as u32;
@@ -217,6 +250,14 @@ pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
     FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
     FloraPaintSelection::ClimbingVine,
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 1),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 2),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 3),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 4),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 5),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 6),
+    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 7),
 ];
 
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {
@@ -312,10 +353,28 @@ mod tests {
     }
 
     #[test]
+    fn model_registry_matches_shared_assets_and_never_requests_a_voxel_draw() {
+        assert_eq!(
+            MODEL_FLOWER_FIRST_SPECIES,
+            flora_registry_slang_const("MODEL_FLOWER_FIRST_SPECIES")
+        );
+        for (index, model) in super::super::models::flowers().iter().enumerate() {
+            let desc = &species()[MODEL_FLOWER_FIRST_SPECIES as usize + index];
+            assert_eq!(desc.key, model.id);
+            assert_eq!(desc.model_flower, Some(index));
+            assert!(desc.mesh_generator.is_none());
+        }
+        for desc in &species()[..MODEL_FLOWER_FIRST_SPECIES as usize] {
+            assert!(desc.mesh_generator.is_some());
+            assert!(desc.model_flower.is_none());
+        }
+    }
+
+    #[test]
     fn authored_species_are_derived_from_registry_metadata() {
         assert_eq!(
             authored_plant_species_indices().collect::<Vec<_>>(),
-            vec![LAVENDER_SPECIES_INDEX, EMBER_BLOOM_SPECIES_INDEX]
+            (LAVENDER_SPECIES_INDEX..MAX_FLORA_SPECIES as u32).collect::<Vec<_>>()
         );
         assert!(!is_authored_plant_species_index(0));
         assert!(!is_authored_plant_species_index(species_count() as u32));

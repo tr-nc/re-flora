@@ -48,9 +48,16 @@ impl FloraMeshResources {
         device: Device,
         allocator: Allocator,
         is_lod_used: bool,
-        generator: MeshGenerator,
+        generator: Option<MeshGenerator>,
     ) -> Self {
-        let mesh_data = generator(is_lod_used).unwrap();
+        // Model-backed species reserve no voxel geometry. Minimal empty Vulkan
+        // buffers retain species-indexed resource slots; they are never drawn.
+        let mesh_data = generator
+            .map_or_else(
+                || Ok(FloraMeshData::new(1)),
+                |generate| generate(is_lod_used),
+            )
+            .unwrap();
         Self::from_mesh_data(device, allocator, mesh_data)
     }
 
@@ -81,7 +88,7 @@ impl FloraMeshResources {
                 vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
             ),
             MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<Vertex>() * vertices_data.len()) as u64,
+            (std::mem::size_of::<Vertex>() * vertices_data.len().max(1)) as u64,
         );
         vertices.fill(&vertices_data).unwrap();
 
@@ -90,7 +97,7 @@ impl FloraMeshResources {
             allocator.clone(),
             BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
             MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<u32>() * indices_data.len()) as u64,
+            (std::mem::size_of::<u32>() * indices_data.len().max(1)) as u64,
         );
         indices.fill(&indices_data).unwrap();
 
@@ -191,8 +198,9 @@ impl FloraVoxelLookupResources {
         let mut data =
             vec![FloraVoxelLookupTypeData::new(Vec::new(), 1); FLORA_VOXEL_LOOKUP_TYPE_COUNT];
         for (species_index, desc) in species::species().iter().enumerate() {
-            let mesh_data = (desc.mesh_generator)(false)?;
-            data[species_index] = FloraVoxelLookupTypeData::from_mesh_data(&mesh_data);
+            if let Some(generate) = desc.mesh_generator {
+                data[species_index] = FloraVoxelLookupTypeData::from_mesh_data(&generate(false)?);
+            }
         }
 
         let leaf_shape = generate_voxel_leaf_shape(
@@ -1462,6 +1470,8 @@ pub struct TracerResources {
     pub butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources,
     #[resource(nested)]
     pub apple_pixel: super::apple_pixel::ApplePixelResources,
+    #[resource(nested)]
+    pub flower_models: super::flower_models::FlowerModelResources,
     pub tree_scene_info: Resource<Buffer>,
     pub tree_skin_rest: Resource<Buffer>,
     pub tree_skin_bindings: Resource<Buffer>,
@@ -1548,6 +1558,10 @@ impl TracerResources {
                 allocator.clone(),
             ),
             apple_pixel: super::apple_pixel::ApplePixelResources::new(
+                device.clone(),
+                allocator.clone(),
+            ),
+            flower_models: super::flower_models::FlowerModelResources::new(
                 device.clone(),
                 allocator.clone(),
             ),

@@ -72,6 +72,7 @@ enum BatchIdentity {
     Particles(usize),
     AttachedApples(u32),
     FallenApples,
+    Flowers([u32; 3], u32, usize),
 }
 
 #[derive(Clone)]
@@ -216,6 +217,39 @@ impl<B: Clone> ModelPixelStorage<B> {
             resolution,
             allocate,
         )
+    }
+
+    pub fn flowers(
+        &mut self,
+        chunk: [u32; 3],
+        species: u32,
+        count: u32,
+        resolution: u32,
+        mut allocate: impl FnMut(usize) -> Result<B>,
+    ) -> Result<Vec<ModelPixelBatch<B>>> {
+        ensure!(
+            (8..=64).contains(&resolution),
+            "invalid flower pixel resolution"
+        );
+        let cells = (resolution * resolution) as usize;
+        let limit = (BATCH_TEXELS / cells).min(BATCH_INSTANCES as usize) as u32;
+        (0..count)
+            .step_by(limit as usize)
+            .enumerate()
+            .map(|(index, first)| {
+                let length = (count - first).min(limit);
+                self.batch(
+                    BatchIdentity::Flowers(chunk, species, index),
+                    TileBatch {
+                        first,
+                        count: length,
+                        texels: length as usize * cells,
+                    },
+                    count as usize,
+                    &mut allocate,
+                )
+            })
+            .collect()
     }
 
     pub fn fallen_apples(

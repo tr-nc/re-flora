@@ -4,6 +4,14 @@
 pub const MIN_VIEWS: u32 = 8;
 pub const MAX_VIEWS: u32 = 512;
 
+pub fn runtime_count(requested: u32) -> u32 {
+    effective_count(
+        requested,
+        super::butterfly_mesh::native_review()
+            || (requested == 0 && std::env::var_os("RE_FLORA_FLOWER_MODEL_REVIEW").is_some()),
+    )
+}
+
 pub fn effective_count(requested: u32, continuous_oracle: bool) -> u32 {
     // Zero is internal to numerical validation, never a GUI/off option.
     if continuous_oracle {

@@ -123,7 +123,7 @@ pub struct FloraVoxelInfos {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraVoxelTableDescs {
-    pub descs: [u32; 24],
+    pub descs: [u32; 56],
 }
 
 /// Auto-generated from `B_GrassGrowthPotentialLevels` (native Slang source of truth).
@@ -216,6 +216,14 @@ pub struct ManualFloraVertices {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_ManualFlowerInstances` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ManualFlowerInstances {
+    pub packed_local_pos: u32,
+    pub spawn_start_ms: u32,
+}
+
 /// Auto-generated from `B_ManualLeafShadowResponseSources` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -282,7 +290,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 4],
+    pub flora_instance_len: [u32; 12],
     pub has_growing_flora: u32,
 }
 
@@ -457,6 +465,22 @@ pub struct PushConstantFloraLod {
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
     pub height_light_color_rgb10: [u32; 12],
+}
+
+/// Auto-generated from `PushConstantFlowerPixel` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantFlowerPixel {
+    pub chunk_world_offset: [u32; 3],
+    pub species: u32,
+    pub response_offset: u32,
+    pub time: f32,
+    pub resolution: u32,
+    pub heads_only: u32,
+    pub world_scale: f32,
+    pub tile_first: u32,
+    pub prepare_object: u32,
+    pub padding: u32,
 }
 
 /// Auto-generated from `PushConstantGlassResolve` (native Slang source of truth).
@@ -837,7 +861,7 @@ pub struct FloraGrowthInfo {
     pub spawn_overshoot_max_voxels: f32,
     pub spawn_stagger_seconds: f32,
     pub _pad0: [u8; 12],
-    pub moisture_growth_factors: [u32; 16],
+    pub moisture_growth_factors: [u32; 48],
 }
 
 /// Auto-generated from `U_GodRayInfo` (native Slang source of truth).

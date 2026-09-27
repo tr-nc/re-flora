@@ -363,6 +363,11 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         module_path: "shader/slang",
         stage: ShaderStage::Vertex,
     },
+    ShaderConfig { logical_path: "shader/foliage/flower_pixel.comp", source_path: "shader/slang/flower_pixel.comp.slang", module_path: "shader/slang", stage: ShaderStage::Compute },
+    ShaderConfig { logical_path: "shader/foliage/flower_pixel.vert", source_path: "shader/slang/flower_pixel.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
+    ShaderConfig { logical_path: "shader/foliage/flower_pixel.frag", source_path: "shader/slang/flower_pixel.frag.slang", module_path: "shader/slang", stage: ShaderStage::Fragment },
+    ShaderConfig { logical_path: "shader/foliage/flower_stem.vert", source_path: "shader/slang/flower_stem.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
+    ShaderConfig { logical_path: "shader/foliage/flower_stem.frag", source_path: "shader/slang/flower_stem.frag.slang", module_path: "shader/slang", stage: ShaderStage::Fragment },
     ShaderConfig {
         logical_path: "shader/props/apple_pixel_tree.comp",
         source_path: "shader/slang/apple_pixel_tree.comp.slang",

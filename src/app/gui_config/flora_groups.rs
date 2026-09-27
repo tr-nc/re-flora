@@ -59,7 +59,13 @@ const LEAF_FREQUENCY_CURVE: &[&str] = &[
     "leaf_flutter_frequency_full",
     "leaf_flutter_frequency_knee",
 ];
+const MODEL_FLOWERS: &[&str] = &[
+    "model_flower_heads_only",
+    "model_flower_pixel_resolution",
+    "model_flower_size_scale",
+];
 const PARAM_GROUPS: &[&[&str]] = &[
+    MODEL_FLOWERS,
     DISTRIBUTION,
     GROUND_MOTION,
     GRASS_COLORS,
@@ -146,6 +152,10 @@ pub(super) fn render(
         );
     });
     category(ui, "Ground Plants", |ui| {
+        category(ui, "Model Flowers (A/B)", |ui| {
+            controls(ui, flora, MODEL_FLOWERS, adjustables);
+            ui.label("A: one tile per plant. B: one tile per complete flower head, with mesh stems/leaves. Different pixel budgets; same planted models and pose.");
+        });
         category(ui, "Rest Shape", |ui| {
             controls(ui, flora, &GROUND_MOTION[..2], adjustables);
             enforce_flora_natural_bend_order(adjustables);
