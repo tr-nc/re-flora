@@ -24,19 +24,40 @@ struct SpeciesSnapshot {
 }
 
 impl FloraSnapshot {
-    /// The retired last species is dropped only from its exact legacy schema slot. Retained
-    /// entries still pass the usual strict validation; unknown schemas are never silently ignored.
-    pub fn migrate_retired_species(&mut self) -> usize {
+    /// Upgrade only the known pre-model-flower schemas: four original species,
+    /// optionally followed by retired Kochia. Preserve every retained instance,
+    /// growth value, spawn age and identity; new species start empty. Current
+    /// and unknown schemas are left alone for strict validation below.
+    pub fn migrate_species_schema(&mut self) -> usize {
+        const LEGACY: [&str; 4] = ["tall_grass", "short_grass", "lavender", "ember_bloom"];
         let mut removed = 0;
         for chunk in &mut self.chunks {
-            if chunk.species.len() == species::MAX_FLORA_SPECIES + 1
-                && chunk
+            let legacy_count = LEGACY.len();
+            if !(chunk.species.len() == legacy_count || chunk.species.len() == legacy_count + 1)
+                || !chunk
                     .species
-                    .last()
-                    .is_some_and(|saved| saved.key == "kochia")
+                    .iter()
+                    .take(legacy_count)
+                    .map(|s| s.key.as_str())
+                    .eq(LEGACY)
+                || (chunk.species.len() == legacy_count + 1
+                    && chunk.species[legacy_count].key != "kochia")
             {
+                continue;
+            }
+            if chunk.species.len() == legacy_count + 1 {
                 removed += chunk.species.pop().unwrap().instances.len();
             }
+            chunk.species.extend(
+                species::FLORA_SPECIES
+                    .iter()
+                    .skip(legacy_count)
+                    .map(|desc| SpeciesSnapshot {
+                        key: desc.key.to_owned(),
+                        instances: Vec::new(),
+                        authored: Vec::new(),
+                    }),
+            );
         }
         removed
     }
@@ -277,6 +298,9 @@ mod tests {
             .push([0xff02_0304, u32::MAX]);
         retained.chunks[0].species[2].authored.push([17, 99]);
         let mut legacy = retained.clone();
+        // Freeze the historical schema; deriving it from today's registry would
+        // hide an append-only species compatibility regression.
+        legacy.chunks[0].species.truncate(4);
         legacy.chunks[0].species.push(SpeciesSnapshot {
             key: "kochia".to_owned(),
             instances: vec![[0xff01_0203, 42]],
@@ -284,13 +308,66 @@ mod tests {
         });
         let encoded = serde_json::to_vec(&legacy).unwrap();
         let mut decoded: FloraSnapshot = serde_json::from_slice(&encoded).unwrap();
-        assert_eq!(decoded.migrate_retired_species(), 1);
+        assert_eq!(decoded.migrate_species_schema(), 1);
         decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(decoded, retained);
-        assert_eq!(decoded.migrate_retired_species(), 0);
+        assert_eq!(decoded.migrate_species_schema(), 0);
         legacy.chunks[0].species.last_mut().unwrap().key = "unknown".to_owned();
-        assert_eq!(legacy.migrate_retired_species(), 0);
+        assert_eq!(legacy.migrate_species_schema(), 0);
         assert!(legacy.validate(UVec3::ONE, UVec3::splat(8)).is_err());
+    }
+
+    #[test]
+    fn four_species_gardens_gain_empty_model_slots_without_changing_plants() {
+        let mut saved: FloraSnapshot = serde_json::from_str(
+            r#"{"chunks":[{"coordinate":[0,0,0],"species":[
+            {"key":"tall_grass","instances":[[2130772483,123]],"authored":[]},
+            {"key":"short_grass","instances":[],"authored":[]},
+            {"key":"lavender","instances":[[4278321924,4294967295]],"authored":[[17,99]]},
+            {"key":"ember_bloom","instances":[],"authored":[]}
+        ]}]}"#,
+        )
+        .unwrap();
+        let original = saved.chunks[0].species.clone();
+        assert_eq!(saved.migrate_species_schema(), 0);
+        saved.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(&saved.chunks[0].species[..4], original.as_slice());
+        assert!(saved.chunks[0].species[4..]
+            .iter()
+            .all(|s| s.instances.is_empty() && s.authored.is_empty()));
+        let migrated = saved.clone();
+        saved.migrate_species_schema();
+        assert_eq!(saved, migrated);
+    }
+
+    #[test]
+    fn current_flower_gardens_round_trip_all_new_species_and_identities() {
+        let mut saved = fixture();
+        for (index, plant) in saved.chunks[0].species.iter_mut().enumerate().skip(4) {
+            plant.instances.push([
+                pack_flora_instance(UVec3::new(3, 2, 1), index as u32 * 16, 0).packed_local_pos,
+                index as u32 * 100,
+            ]);
+            plant.authored.push([index as u64, 137 * index as u64]);
+        }
+        let mut decoded: FloraSnapshot =
+            serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        assert_eq!(decoded.migrate_species_schema(), 0);
+        decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(saved, decoded);
+        assert_eq!(decoded.counts(), (8, 8));
+    }
+
+    #[test]
+    fn an_unknown_extra_slot_is_not_silently_dropped_from_current_schema() {
+        let mut saved = fixture();
+        saved.chunks[0].species.push(SpeciesSnapshot {
+            key: "kochia".to_owned(),
+            instances: vec![[0, 0]],
+            authored: vec![[999, 0]],
+        });
+        assert_eq!(saved.migrate_species_schema(), 0);
+        assert!(saved.validate(UVec3::ONE, UVec3::splat(8)).is_err());
     }
 
     #[test]

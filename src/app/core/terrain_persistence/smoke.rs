@@ -9,7 +9,19 @@ impl App {
         }
         let previous_selection = self.player_tools.flora_paint_selection_index;
         for index in 0..crate::flora::species::PLAYER_FLORA_PAINT_SELECTIONS.len() as u32 {
-            let xz = Vec2::new((50 + index * 40) as f32 / 256.0, 70.0 / 256.0);
+            // Vines have a separate, session-only Grow placement path and are
+            // not members of the persistent FloraSnapshot species store.
+            if !matches!(
+                crate::flora::species::PLAYER_FLORA_PAINT_SELECTIONS[index as usize],
+                crate::flora::species::FloraPaintSelection::Species(_)
+            ) {
+                continue;
+            }
+            // Keep every registered species inside the world as the catalog grows.
+            let xz = Vec2::new(
+                (50 + (index % 8) * 40) as f32 / 256.0,
+                (70 + (index / 8) * 70) as f32 / 256.0,
+            );
             let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
             self.player_tools.flora_paint_selection_index = index as usize;
             self.apply_surface_flora_regeneration(

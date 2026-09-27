@@ -23,7 +23,7 @@ impl GardenSnapshot {
     fn decode(bytes: &[u8]) -> Result<Self> {
         let mut snapshot: Self =
             serde_json::from_slice(bytes).context("decode garden vegetation")?;
-        let removed = snapshot.flora.migrate_retired_species();
+        let removed = snapshot.flora.migrate_species_schema();
         if removed > 0 {
             log::info!("[GARDEN_SNAPSHOT] removed retired Kochia plants={removed}; retained species unchanged");
         }
