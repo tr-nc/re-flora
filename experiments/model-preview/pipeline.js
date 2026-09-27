@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {projectGroups} from './geometry.js';
 import {repairImage} from './postprocess.mjs';
+import {PartComposite} from './part-composite.js';
 
 // One rendering/processing pipeline for every adapter. Models own appearance,
 // not renderers, clocks, image repair, canvas controls or download behavior.
@@ -15,7 +16,7 @@ export class PreviewPipeline{
     this.source.setPixelRatio(Math.min(devicePixelRatio||1,2));this.pixel.setPixelRatio(1);
     this.idTarget=new THREE.WebGLRenderTarget(1,1);this.idTarget.texture.colorSpace=THREE.SRGBColorSpace;
     this.colorTarget=new THREE.WebGLRenderTarget(1,1);this.colorTarget.texture.colorSpace=THREE.SRGBColorSpace;
-    this.idMaterials=new Map();
+    this.idMaterials=new Map();this.parts=new PartComposite();
     this.screen=new THREE.Scene();this.screenCamera=new THREE.Camera();
     this.screenMaterial=new THREE.ShaderMaterial({
       uniforms:{image:{value:null}},depthTest:false,depthWrite:false,
@@ -36,7 +37,7 @@ export class PreviewPipeline{
     this.screenMaterial.uniforms.image.value=this.texture;
   }
   render(asset,sourceCamera,pixelCamera,settings){
-    const {time,clip,wireframe,conservativeCoverage=true}=settings;
+    const {time,clip,wireframe,conservativeCoverage=true,flowerHeadsOnly=false}=settings;
     asset.sample(time,clip);asset.scene.updateMatrixWorld(true);sourceCamera.updateMatrixWorld(true);pixelCamera.updateMatrixWorld(true);
     this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
     asset.preparePass('source');
@@ -46,17 +47,28 @@ export class PreviewPipeline{
       if(wireframe)for(const [material]of wires)material.wireframe=true;
       this.source.render(asset.scene,sourceCamera);
     }finally{for(const [material,value]of wires)material.wireframe=value;}
-    asset.preparePass('pixel');this.pixel.render(asset.scene,pixelCamera);
+    asset.preparePass('pixel');
+    if(flowerHeadsOnly&&asset.pixelParts?.length){
+      const partTiles=this.parts.render(this.pixel,asset,pixelCamera,this.size,(subset,camera)=>this.renderTile(subset,camera,conservativeCoverage));
+      this.last={sourceTime:time,pixelTime:time,partTiles,repair:{added:partTiles.reduce((sum,tile)=>sum+tile.repair.added,0),groups:partTiles.flatMap(tile=>tile.repair.groups)}};
+    }else{
+      const tile=this.renderTile(asset,pixelCamera,conservativeCoverage);
+      this.texture.image.data.set(tile.rgba);this.texture.needsUpdate=true;
+      this.pixel.render(this.screen,this.screenCamera);
+      this.last={sourceTime:time,pixelTime:time,...tile};
+    }
+    return this.last;
+  }
+  renderTile(asset,pixelCamera,conservativeCoverage){
+    this.pixel.setSize(this.size,this.size,false);
+    this.pixel.render(asset.scene,pixelCamera);
     const gl=this.pixel.getContext();
     gl.readPixels(0,0,this.size,this.size,gl.RGBA,gl.UNSIGNED_BYTE,this.bytes);
     const original=this.bytes.slice(),owners=this.readOwners(asset,pixelCamera);
     const projected=projectGroups(asset,pixelCamera,this.size);
     const sampleColor=this.captureSurfaceColors(asset,pixelCamera);
     const result=repairImage(original,owners,projected,this.size,sampleColor,{conservativeCoverage});
-    this.texture.image.data.set(result.rgba);this.texture.needsUpdate=true;
-    this.pixel.render(this.screen,this.screenCamera);
-    this.last={sourceTime:time,pixelTime:time,repair:{added:result.added,groups:result.groups},projectedGroups:projected,original,owners};
-    return this.last;
+    return {rgba:result.rgba,repair:{added:result.added,groups:result.groups},projectedGroups:projected,original,owners};
   }
   captureSurfaceColors(asset,camera){
     const resolution=Math.max(256,Math.min(512,this.size*4));
@@ -104,10 +116,10 @@ export class PreviewPipeline{
   }
   releaseAsset(){
     for(const material of this.idMaterials.values())material.dispose();this.idMaterials.clear();
-    this.source.renderLists.dispose();this.pixel.renderLists.dispose();this.last=null;
+    this.parts.reset();this.source.renderLists.dispose();this.pixel.renderLists.dispose();this.last=null;
   }
   dispose(){
-    this.releaseAsset();this.idTarget.dispose();this.colorTarget.dispose();this.texture?.dispose();
+    this.releaseAsset();this.parts.dispose();this.idTarget.dispose();this.colorTarget.dispose();this.texture?.dispose();
     this.screen.children[0].geometry.dispose();this.screenMaterial.dispose();
     this.source.dispose();this.pixel.dispose();
   }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {PreviewPipeline} from './pipeline.js';
+import {PART_COMPOSITE_SIZE} from './part-composite.js';
 import {modelDefinitions,definitionFor} from './models/index.js';
 import {sampleTime,advanceTime} from './timeline.mjs';
 import {projectGroups} from './geometry.js';
@@ -10,7 +11,7 @@ const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
 let asset,definition,modelSettings,pipeline,camera,pixelCamera,controls,request=0,last=0;
 const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,playing:false,time:0,clip:0,fps:60,speed:1,
-  resolution:32,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true};
+  resolution:32,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true,flowerHeadsOnly:false};
 
 function message(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function dirty(){state.dirty=true;}
@@ -47,12 +48,13 @@ function resize(){
   const stages=[sourceCanvas.parentElement,pixelCanvas.parentElement];
   const sourceSize=Math.max(1,Math.floor(Math.min(stages[0].clientWidth,stages[0].clientHeight)));
   const available=Math.max(1,Math.floor(Math.min(stages[1].clientWidth,stages[1].clientHeight)));
-  const scale=Math.floor(available/state.resolution),pixelSize=scale?scale*state.resolution:available;
+  const hybrid=state.flowerHeadsOnly&&Boolean(asset?.pixelParts?.length);
+  const scale=Math.floor(available/state.resolution),pixelSize=hybrid?available:scale?scale*state.resolution:available;
   pipeline.resize(sourceSize,state.resolution);
   sourceCanvas.style.width=sourceCanvas.style.height=`${sourceSize}px`;
   pixelCanvas.style.width=pixelCanvas.style.height=`${pixelSize}px`;
-  $('tile-label').textContent=`${state.resolution} × ${state.resolution}`;
-  $('pixel-info').textContent=scale?`${state.resolution**2} 像素画布 · ${scale}× 最近邻`:'窗口不足以整数放大';dirty();
+  $('tile-label').textContent=hybrid?`${asset.pixelParts.length} 花头 × ${state.resolution}²`:`${state.resolution} × ${state.resolution}`;
+  $('pixel-info').textContent=hybrid?`${PART_COMPOSITE_SIZE}² 透明合成 · 花头最近邻 + 低模茎叶`:scale?`${state.resolution**2} 像素画布 · ${scale}× 最近邻`:'窗口不足以整数放大';dirty();
 }
 function setVariant(value){
   const names={compare:'布局 1 · 双视图对照',model:'布局 2 · 模型优先',pixel:'布局 3 · 像素画放大'};
@@ -103,6 +105,12 @@ function syncControls(){
   for(const key of ['resolution','fps','speed','projection'])$(key).value=state[key];
   for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
   $('conservative-coverage').checked=state.conservativeCoverage;
+  const flower=Boolean(asset?.pixelParts?.length),hybrid=flower&&state.flowerHeadsOnly;
+  $('flower-comparison').hidden=!flower;$('flower-heads-only').checked=hybrid;
+  $('result-mode').textContent=flower?(hybrid?'B / 花头 + 茎叶':'A / 整株像素'):'像素结果';
+  $('flower-mode-hint').textContent=hybrid?'B：每个完整花头各用 N × N；低模茎叶不做像素化，按原锚点和深度拼接。':'A：未勾选，整株共用一张 N × N，花、萼、茎、叶一起像素化。';
+  $('resolution-label').textContent=hybrid?'每个完整花头的像素数':'画布像素数';
+  $('resolution-hint').textContent=hybrid?`每朵花独立 N × N；最终导出 ${PART_COMPOSITE_SIZE} × ${PART_COMPOSITE_SIZE} 透明合成。不是每片花瓣单独处理。`:'真实 N × N 缓冲，最近邻放大。观察范围不随动画轮廓变化，像素尺度不会随拍翼伸缩。';
   $('background').value=state.background;updateBackground();
   $('resolution-value').textContent=`${state.resolution} × ${state.resolution}`;
   $('fps-value').textContent=`${state.fps} FPS`;$('speed-value').textContent=`${state.speed}×`;
@@ -114,6 +122,7 @@ function syncControls(){
   $('phase').max=Math.max(0,Math.ceil((asset?.clips[state.clip]?.duration??0)*1000)-1);
   const disabled=!state.ready||state.loading||state.failed;
   for(const element of document.querySelectorAll('button,input,select'))if(element.id!=='model')element.disabled=disabled;
+  $('flower-heads-only').disabled=disabled||!flower;
   for(const id of ['play','previous-frame','next-frame','clip','phase','fps','speed'])$(id).disabled=disabled||!asset?.clips.length;
   $('play').textContent=state.playing?'暂停':'播放';$('play').setAttribute('aria-pressed',String(state.playing));
 }
@@ -126,7 +135,7 @@ async function loadModel(id){
     if(token!==request){next.dispose();return;}
     const values={...nextDefinition.defaults};next.apply(values);
     asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings=values;
-    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,...definition.preview});
+    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,flowerHeadsOnly:false,...definition.preview});
     $('model').value=id;setProjection('orthographic');setView();
     buildModelControls();syncControls();setVariant(state.variant);
     $('model-info').textContent=definition.label;
@@ -141,7 +150,7 @@ async function loadModel(id){
 function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   syncPixelCamera();
-  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage});
+  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage,flowerHeadsOnly:state.flowerHeadsOnly});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
   let repairMessage=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   if(frame.repair){
@@ -155,7 +164,7 @@ function render(){
     repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个几何覆盖像素）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
   }
   if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
-  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定游戏取景`;
+  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定${asset.pixelParts?'整株':'游戏'}取景`;
   state.dirty=false;
 }
 function tick(now){
@@ -203,6 +212,7 @@ function init(){
   for(const key of ['resolution','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
   for(const key of ['wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
   $('conservative-coverage').addEventListener('change',()=>{state.conservativeCoverage=$('conservative-coverage').checked;syncControls();dirty();});
+  $('flower-heads-only').addEventListener('change',()=>{state.flowerHeadsOnly=$('flower-heads-only').checked;syncControls();resize();dirty();});
   $('background').addEventListener('input',()=>{state.background=$('background').value;updateBackground();});
   $('play').addEventListener('click',()=>setPlaying(!state.playing));
   $('previous-frame').addEventListener('click',()=>stepFrame(-1));$('next-frame').addEventListener('click',()=>stepFrame(1));
@@ -212,7 +222,8 @@ function init(){
   $('download').addEventListener('click',()=>{
     render();const time=pipeline.last.pixelTime.toFixed(3);
     const mode=state.conservativeCoverage?'coverage':'bridge-only';
-    pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-${mode}-${state.resolution}px-${time}s.png`);},'image/png');
+    const scope=asset.pixelParts?(state.flowerHeadsOnly?`heads-${PART_COMPOSITE_SIZE}px-composite-`:'whole-'):'';
+    pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-${scope}${mode}-${state.resolution}px-${time}s.png`);},'image/png');
   });
   $('previous').addEventListener('click',()=>cycleVariant(-1));$('next').addEventListener('click',()=>cycleVariant(1));
   document.addEventListener('keydown',event=>{if(event.target.closest('input,select,textarea,canvas,debug-color-picker,[contenteditable]'))return;if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();cycleVariant(event.key==='ArrowLeft'?-1:1);}});
@@ -229,6 +240,11 @@ window.readModelPreview=(includeGeometry=false)=>({
   pixelCamera:pixelCamera?.position.toArray(),pixelZoom:pixelCamera?.zoom,
   linkedRotation:pixelCamera&&camera?pixelCamera.quaternion.angleTo(camera.quaternion)<1e-6:false,
   repair:pipeline?.last?.repair,repairEnabled:true,
+  pixelPartCount:asset?.pixelParts?.length??0,
+  partTiles:pipeline?.last?.partTiles?.map(tile=>({id:tile.id,rect:tile.rect,size:pipeline.size,
+    ...(includeGeometry?{rgba:Array.from(tile.rgba),original:Array.from(tile.original),depth:Array.from(tile.depth),projectedGroups:tile.projectedGroups}:{}),
+  })),
+  rendererMemory:pipeline?{source:{...pipeline.source.info.memory},pixel:{...pipeline.pixel.info.memory}}:null,
   clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
   ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,pixelCamera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
