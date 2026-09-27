@@ -27,7 +27,6 @@ pub(crate) struct SummerCicadas {
     durations: [f64; 2],
     active: Vec<ActiveCall>,
     next_start: f64,
-    next_summary: f64,
     started: u64,
     retired: u64,
     high_water: usize,
@@ -50,7 +49,6 @@ impl SummerCicadas {
             durations,
             active: Vec::new(),
             next_start: 0.,
-            next_summary: 0.,
             started: 0,
             retired: 0,
             high_water: 0,
@@ -81,11 +79,6 @@ impl SummerCicadas {
         self.next_start = now + 2.7;
         self.started += 1;
         self.high_water = self.high_water.max(self.active.len());
-        log::info!(
-            "[AUDIO][CICADAS][CALL] time={now:.3} habitat={site:?} clip={} active={} end={end:.3}",
-            CLIPS[clip],
-            self.active.len()
-        );
         Ok(true)
     }
     /// A low-frequency live validation supplies only still-valid hosts. Failed reads must not
@@ -96,39 +89,22 @@ impl SummerCicadas {
             let c = &self.active[i];
             let lost = valid.is_some_and(|v| !v.contains(&c.site));
             if lost || now >= c.end {
-                self.retire(
-                    i,
-                    if lost {
-                        "habitat_lost"
-                    } else {
-                        "call_complete"
-                    },
-                )?;
+                self.retire(i)?;
             } else {
                 i += 1;
             }
         }
-        if now >= self.next_summary {
-            let runtime = self.audio.runtime_diagnostics();
-            log::info!("[AUDIO][CICADAS][SUMMARY] time={now:.3} active={} high_water={} started={} retired={} bound={MAX_CALLS} runtime_total_emitters={} runtime_total_voices={}", self.active.len(), self.high_water, self.started, self.retired, runtime.active_emitters, runtime.active_voices);
-            self.next_summary = now + 5.;
-        }
         Ok(())
     }
-    fn retire(&mut self, index: usize, reason: &str) -> Result<()> {
+    fn retire(&mut self, index: usize) -> Result<()> {
         self.audio.try_remove_source(self.active[index].source)?;
-        log::info!(
-            "[AUDIO][CICADAS][RETIRE] habitat={:?} reason={reason} remaining={}",
-            self.active[index].site,
-            self.active.len() - 1
-        );
         self.active.swap_remove(index);
         self.retired += 1;
         Ok(())
     }
     pub(crate) fn clear(&mut self, reason: &str) -> Result<()> {
         while !self.active.is_empty() {
-            self.retire(self.active.len() - 1, reason)?;
+            self.retire(self.active.len() - 1)?;
         }
         self.next_start = 0.;
         log::info!(
