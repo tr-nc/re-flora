@@ -1,0 +1,220 @@
+{
+  "configSha256": "c7e1d71e78b30b6cc0978cc2a381f1312bacc535b5ebc26e8bab2ad90b4d0f39",
+  "pixelBudgets": {
+    "A": "one N×N tile per plant",
+    "B": "one N×N tile per complete head + mesh stems"
+  },
+  "runs": [
+    {
+      "mode": "a",
+      "log": "target/flower-native-review/a.log",
+      "knownPlatformWarnings": [],
+      "image": "target/flower-native-review/a.png",
+      "dimensions": [
+        2880,
+        1620
+      ],
+      "sha256": "80f7c39f0a346733e3774ecc7be9b8e32984b9467e0ad22510da080867b6c0ee"
+    },
+    {
+      "mode": "b",
+      "log": "target/flower-native-review/b.log",
+      "knownPlatformWarnings": [],
+      "image": "target/flower-native-review/b.png",
+      "dimensions": [
+        2880,
+        1620
+      ],
+      "sha256": "265d0527aeb27f1b169ec1a9a821e6d0951b1885d41b92407394735c589c6af7"
+    },
+    {
+      "mode": "ab",
+      "log": "target/flower-native-review/ab.log",
+      "knownPlatformWarnings": [],
+      "phases": [
+        {
+          "phase": 0,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 1,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 2,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 3,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 4,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 5,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 6,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        },
+        {
+          "phase": 7,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos"
+          ]
+        },
+        {
+          "phase": 8,
+          "species": [
+            "wild-geranium",
+            "forget-me-not",
+            "oxeye-daisy",
+            "corn-poppy",
+            "bellflower",
+            "coneflower",
+            "cosmos",
+            "tulip"
+          ]
+        }
+      ]
+    }
+  ],
+  "result": "passed",
+  "validatedCommit": "6c578c60",
+  "tests": {
+    "cargoPassed": 1233,
+    "cargoIgnored": 4,
+    "nodePassed": 22,
+    "browserHeadTilePoses": 176,
+    "browserDepthOcclusionFixtures": 8,
+    "growPanel": {
+      "size": [
+        640,
+        480
+      ],
+      "newSpeciesSelected": 8
+    }
+  },
+  "snapshots": {
+    "configSha256": "c7e1d71e78b30b6cc0978cc2a381f1312bacc535b5ebc26e8bab2ad90b4d0f39",
+    "runs": [
+      {
+        "name": "save",
+        "platformWarnings": [],
+        "log": "target/flower-native-review/snapshots/save.log"
+      },
+      {
+        "name": "current",
+        "platformWarnings": [],
+        "log": "target/flower-native-review/snapshots/current.log"
+      },
+      {
+        "name": "legacy-four",
+        "platformWarnings": [],
+        "log": "target/flower-native-review/snapshots/legacy-four.log"
+      },
+      {
+        "name": "legacy-kochia",
+        "platformWarnings": [],
+        "log": "target/flower-native-review/snapshots/legacy-kochia.log"
+      }
+    ],
+    "savedSpeciesCounts": {
+      "tall_grass": 0,
+      "short_grass": 0,
+      "lavender": 2,
+      "ember_bloom": 2,
+      "wild-geranium": 2,
+      "forget-me-not": 2,
+      "oxeye-daisy": 2,
+      "cosmos": 2,
+      "corn-poppy": 2,
+      "bellflower": 2,
+      "coneflower": 2,
+      "tulip": 2
+    },
+    "result": "passed"
+  },
+  "evidence": {
+    "contactSheet": "docs/evidence/stylized-flowers/native-ab.png",
+    "crop": "1200x460+820+560 from each 2880x1620 capture, no rescaling",
+    "plantingPanel": "docs/evidence/stylized-flowers/native-grow-panel.png",
+    "plantingPanelResize": [
+      1440,
+      810
+    ],
+    "note": "A and B are separate real-game captures in a live world; not frame-identical or equal pixel budgets."
+  }
+}

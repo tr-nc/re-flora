@@ -36,6 +36,30 @@ the source/publisher fingerprint; Node tests compare complete deterministic outp
 The native adapter only shifts the authored root to zero and derives complete-head ranges
 and rotation-safe bounds. It does not reauthor petals or split petals into separate sprites.
 
+All eight are now plantable from **item slot 2 / Grow → the right-side Plant Brush panel**.
+The list scrolls on short windows; the status-only backpack is hidden while Grow is active
+so it cannot cover plant choices. Existing species
+indices are preserved; model flowers occupy 4–11. Their original meshes total 3,582 triangles.
+**Debug → Flora → Ground Plants → Model Flowers (A/B)** owns three saved controls:
+
+- **Pixel Flower Heads + Mesh Stems**: checked/default B draws complete heads with pixel tiles
+  and stems/leaves with native meshes; unchecked A puts the entire plant in one tile.
+- **Pixels per Plant / Flower Head**: 8–64, default 32, independent of other model types.
+- **Model Flower Size**: 0.5×–2×, default 1×; one authoring unit is 10 world voxels at 1×.
+
+Both modes retain the same planted instances, geometry, growth, spawn translation and root
+wind pose. This is rigid shared-root motion, not a new flexible-stem solver. Complete heads
+include calyx and center, never one tile per petal. A/B have **different pixel budgets**.
+`flower_model.slang` adapts pose/materials to the existing sampling/projection/display modules;
+`ModelPixelFrame` owns compute/draw pairing and frame-slot storage, and `PipelineTopology`
+owns descriptor retirement. Native mesh stems and depth-bearing heads share the game depth
+attachment and environment lighting. These flowers add no dedicated collision or shadow-caster
+pass. Browser shape/color edits remain temporary until intentionally published.
+
+See [the study and native screenshots](../../docs/research/stylized-flower-model-study.md)
+and `node scripts/validate-flower-models.mjs --help` for the bounded real-game checks.
+Large-population Release performance acceptance remains separate from this visual candidate.
+
 ## Publish a leaf shape
 
 Edit `leaf-source.mjs` (including `leafDefaults` for approved width/length/fold/curl), then run:
@@ -77,10 +101,10 @@ Non-falling leaf-colored particles without that physical pose remain on the exis
 
 Game lighting/palette/transmission remain the game's leaf lighting, not the preview's studio shader.
 The mesh recipe, vertex normals and UVs are shared. **Conservative projected coverage and the
-resulting eight-neighbor connectivity contract apply to all three game models**; the HTML preview offers a coverage checkbox for visual A/B against its old bridge-only mode. There is no game repair toggle. The existing leaf A/B
+resulting eight-neighbor connectivity contract apply to the shared game models**; the HTML preview offers a coverage checkbox for visual A/B against its old bridge-only mode. There is no game repair toggle. The existing leaf A/B
 still compares the original sprite against the shared model, not two repair algorithms.
 
-Butterflies, falling leaves and new apples all call `sampleModelPixelGeometry` in
+Butterflies, falling leaves, apples and model flowers all call `sampleModelPixelGeometry` in
 `shader/slang/model_pixel_surface.slang` from compute, then use the same
 `model_pixel_display.slang` screen-fragment lookup. The shared
 `model_pixel_projection.slang` now supplies fixed orthographic framing; the global
@@ -142,6 +166,8 @@ cargo test browser_repair_plan_parity -- --ignored --nocapture
 node scripts/validate-leaf-model.mjs
 python3 scripts/validate_butterfly_mesh.py --seconds 12
 node scripts/validate-apple-model.mjs --seconds 12
+node scripts/validate-flower-models.mjs
+node scripts/validate-flower-snapshots.mjs
 # Explicit Release performance matrix; temporarily edits/restores GUI config.
 # Close other game instances first. See --help for dimensions and acceptance.
 cargo build --release
