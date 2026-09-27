@@ -124,21 +124,27 @@ impl Flower {
                 // Positive uniform head scaling leaves the authored normal unchanged.
             }
         }
-        for part in std::iter::once(&mut result.whole).chain(&mut result.heads) {
-            part.anchor = shape.stem_point(part.anchor);
-            let points = || {
-                result.triangles[part.triangles.start as usize..part.triangles.end as usize]
-                    .iter()
-                    .flat_map(|t| t.positions)
-            };
-            let (min, max) = points().fold(
-                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
-                |(min, max), p| (min.min(p), max.max(p)),
-            );
-            part.center = (min + max) * 0.5;
-            // Exact enclosing vertex radius plus the existing 6% coverage margin.
-            part.radius = points().map(|p| p.distance(part.center)).fold(0., f32::max) * 1.06;
+        for (authored, part) in self.heads.iter().zip(&mut result.heads) {
+            part.anchor = shape.stem_point(authored.anchor);
+            part.center = shape.head_point(authored.center, authored.anchor);
+            part.radius = authored.radius * shape.head_scale;
         }
+        // Keep the authored framing continuous through 1.0, not a special
+        // default frame followed by an unrelated tight fit on the first edit.
+        // Whole plants aren't a uniform transform: refit around the vertically
+        // transported authored center, retaining its original relative margin.
+        result.whole.anchor = shape.stem_point(self.whole.anchor);
+        result.whole.center = shape.stem_point(self.whole.center);
+        let vertex_radius = |triangles: &[Triangle], center: Vec3| {
+            triangles
+                .iter()
+                .flat_map(|t| t.positions)
+                .map(|p| p.distance(center))
+                .fold(0., f32::max)
+        };
+        result.whole.radius = self.whole.radius
+            * (vertex_radius(&result.triangles, result.whole.center)
+                / vertex_radius(&self.triangles, self.whole.center));
         result
     }
 }
@@ -319,6 +325,44 @@ mod tests {
                 ..settings
             }
         );
+    }
+
+    #[test]
+    fn shape_controls_preserve_continuous_framing_around_saved_defaults() {
+        for flower in flowers() {
+            for value in [0.9999f32, 1.0001] {
+                for shape in [
+                    Shape {
+                        head_scale: value,
+                        ..Shape::default()
+                    },
+                    Shape {
+                        height_scale: value,
+                        ..Shape::default()
+                    },
+                ] {
+                    let changed = flower.transformed(shape);
+                    for (before, after) in std::iter::once(&flower.whole)
+                        .chain(&flower.heads)
+                        .zip(std::iter::once(&changed.whole).chain(&changed.heads))
+                    {
+                        let tolerance =
+                            (before.center.length() + before.radius) * (value - 1.).abs() * 4.
+                                + 1e-5;
+                        assert!(
+                            before.center.distance(after.center) < tolerance,
+                            "{}: tiny {shape:?} edit jumped the framing center",
+                            flower.id
+                        );
+                        assert!(
+                            (before.radius - after.radius).abs() < tolerance,
+                            "{}: tiny {shape:?} edit jumped the pixel scale",
+                            flower.id
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

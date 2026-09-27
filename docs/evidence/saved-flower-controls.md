@@ -16,8 +16,9 @@ visible game or pi/workflow configuration changes.
 - `src/flora/models.rs` consumes published `heads[].anchor`, root-relative. Stem
   positions use vertical scaling and inverse-transpose normals. Every triangle
   in a complete head uses `height(anchor) + head_scale * (point - anchor)`,
-  including calyx/center. Default framing is preserved exactly. Changed bounds
-  are refit to transformed vertices with the existing 6% coverage margin.
+  including calyx/center. Default framing is preserved exactly. Worker bounds
+  refit to transformed vertices; the controller follow-up below supersedes that
+  framing policy to avoid a discontinuity at the default slider values.
 - `ModelPixelFrame`'s cache owns immutable transformed source generations. Native
   mesh stems read the **same triangle buffer** as whole/head surface baking;
   parts use the same ranges and bounds. Growth, overall scale and wind remain a
@@ -96,7 +97,20 @@ not claimed**. Pending-slot retention is covered by deterministic production
 storage/descriptor tests, not fabricated native telemetry. Residency byte metrics
 count retained buffer payload/page tables, not driver allocator heap reservations.
 
-## Controller acceptance still pending
+## Controller framing follow-up
+
+Integration review reproduced a 21–29% whole-plant frame-radius jump when a shape
+slider moved by only 0.0001 from its default. A new all-species regression failed
+before correction. Complete-head frames now follow their authored attachment
+transform exactly; whole frames vertically transport the authored center and
+refit the enclosing radius while preserving its authored relative margin. This
+keeps old saves/defaults exact and the neighborhood continuous, with no new
+geometry or lifetime owner. All shape/lighting/cache tests and the integrated
+18-phase GPU controls sweep pass. Two lighting wiring guards were also migrated
+from the deleted per-texel branch to the actual cached object-lighting producer
+and both apple consumers, not removed.
+
+## Original worker acceptance handoff
 
 Integration into `vegi`, full Cargo suite, aggregate final controls/cache/log checks,
 visual acceptance and authoritative Release performance comparisons. No maximum

@@ -926,11 +926,26 @@ mod tests {
         assert!(raster.contains("sampleDiffuseEnvironment("));
         assert!(raster.contains("shading, voxelCenter, shadingNormal"));
         for consumer in [
-            include_str!("../shader/slang/apple_pixel_tile.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
             include_str!("../shader/slang/particle_billboard.vert.slang"),
         ] {
             assert!(consumer.contains("applyStylizedVoxelLighting("));
+        }
+        // Cached apples sample DDGI once in object preparation, then relight
+        // each surface with that sample. Do not require the deleted live path.
+        let object = include_str!("../shader/slang/model_pixel_object.slang");
+        let apple = include_str!("../shader/slang/apple_pixel_tile.slang");
+        assert!(object.contains("sampleDiffuseEnvironment(gui_input,shading_info,pivot,"));
+        assert!(object.contains("model_object_samples[index*4u]=light;"));
+        assert!(apple.contains("light=model_object_samples[input.tileIndex*4u]"));
+        assert!(apple.contains("applyStylizedVoxelLightingWithEnvironment("));
+        for producer in [
+            include_str!("../shader/slang/apple_pixel_tree.comp.slang"),
+            include_str!("../shader/slang/apple_pixel_dynamic.comp.slang"),
+        ] {
+            let compact = producer.split_whitespace().collect::<String>();
+            assert!(compact.contains("prepareModelObject(id.z,pose.center,appleModelFrame(pose),true,APPLE_MODEL_SOURCE)"));
+            assert!(compact.contains("sampleAppleModel(pose,id.xy)"));
         }
     }
 
@@ -957,7 +972,6 @@ mod tests {
         assert!(raster.contains("sampleDiffuseEnvironment(\n        gui, shading"));
         for consumer in [
             include_str!("../shader/slang/flora_vertex.slang"),
-            include_str!("../shader/slang/apple_pixel_tile.slang"),
             include_str!("../shader/slang/sprinkler.vert.slang"),
             include_str!("../shader/slang/particle_billboard.vert.slang"),
         ] {
@@ -965,6 +979,15 @@ mod tests {
                 .split_whitespace()
                 .collect::<String>()
                 .contains("gui_input,sun_info,shading_info"));
+        }
+        let object = include_str!("../shader/slang/model_pixel_object.slang");
+        assert!(object.contains("apple || gui_input.raster_flora_ddgi_lighting!=0u"));
+        assert!(object.contains("sampleDiffuseEnvironment(gui_input,shading_info,pivot,"));
+        for consumer in [
+            object,
+            include_str!("../shader/slang/apple_pixel_tile.slang"),
+        ] {
+            assert!(!consumer.contains("path_tracing_reference"));
         }
     }
 
