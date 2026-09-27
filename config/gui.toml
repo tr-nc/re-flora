@@ -116,7 +116,7 @@ label = "Pixels per Apple (N x N, Trees and Fallen Fruit)"
 type = "Uint"
 
 [section.param.data]
-value = 32
+value = 16
 min = 8
 max = 64
 
@@ -1155,7 +1155,7 @@ label = "Pixels per Plant / Flower Head"
 type = "Uint"
 
 [section.param.data]
-value = 32
+value = 20
 min = 8
 max = 64
 
@@ -1166,7 +1166,7 @@ label = "Model Flower View Count"
 type = "Uint"
 
 [section.param.data]
-value = 16
+value = 256
 min = 8
 max = 512
 
@@ -1177,9 +1177,9 @@ label = "Model Flower Complete Head Size"
 type = "Float"
 
 [section.param.data]
-value = 1.0
+value = 0.55
 min = 0.25
-max = 4.0
+max = 4
 
 [[section.param]]
 id = "model_flower_height_scale"
@@ -1188,9 +1188,9 @@ label = "Model Flower Plant Height (Stems / Attachments)"
 type = "Float"
 
 [section.param.data]
-value = 1.0
+value = 0.46
 min = 0.25
-max = 4.0
+max = 4
 
 [[section.param]]
 id = "model_flower_size_scale"
@@ -1199,9 +1199,9 @@ label = "Model Flower Size"
 type = "Float"
 
 [section.param.data]
-value = 1.0
+value = 0.71
 min = 0.5
-max = 2.0
+max = 2
 
 [[section.param]]
 id = "special_flora_plants_per_release"
@@ -2038,9 +2038,12 @@ value = false
 [[section.param]]
 id = "leaf_connection_strength"
 kind = "float"
-enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "Connection Strength Multiplier (B)"
 type = "Float"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = true
 
 [section.param.data]
 value = 1
@@ -2050,9 +2053,12 @@ max = 4
 [[section.param]]
 id = "leaf_connection_half_life"
 kind = "float"
-enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "Connection Weakening Half-life (Seconds, B)"
 type = "Float"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = true
 
 [section.param.data]
 value = 120
@@ -2062,9 +2068,12 @@ max = 600
 [[section.param]]
 id = "leaf_regrowth_delay"
 kind = "float"
-enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "Empty Socket Recovery (Seconds, B)"
 type = "Float"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = true
 
 [section.param.data]
 value = 8
@@ -2074,9 +2083,12 @@ max = 60
 [[section.param]]
 id = "leaf_regrowth_duration"
 kind = "float"
-enabled_if = { param = "real_leaf_lifecycle", equals = true }
 label = "New Leaf Growth (Seconds, B)"
 type = "Float"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = true
 
 [section.param.data]
 value = 20
@@ -2086,9 +2098,12 @@ max = 120
 [[section.param]]
 id = "falling_leaf_mesh"
 kind = "bool"
-enabled_if = { param = "real_leaf_lifecycle", equals = false }
 label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
 type = "Bool"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = false
 
 [section.param.data]
 value = true
@@ -2096,9 +2111,12 @@ value = true
 [[section.param]]
 id = "falling_leaf_size_scale"
 kind = "float"
-enabled_if = { param = "real_leaf_lifecycle", equals = false }
 label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
 type = "Float"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = false
 
 [section.param.data]
 value = 4
@@ -2108,9 +2126,12 @@ max = 4
 [[section.param]]
 id = "falling_leaf_pixel_resolution"
 kind = "uint"
-enabled_if = { param = "real_leaf_lifecycle", equals = false }
 label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
 type = "Uint"
+
+[section.param.enabled_if]
+param = "real_leaf_lifecycle"
+equals = false
 
 [section.param.data]
 value = 22
