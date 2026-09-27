@@ -1,6 +1,6 @@
-# Shared model-surface cache (restored)
+# Shared model-surface cache (cache-only renderer)
 
-The shared cache removed in `6bae0d62` is restored from `f7b7e036`, adapted to the
+The shared cache restored from `f7b7e036` is adapted to the
 current `ModelPixelFrame` ownership boundary and current coverage algorithms.
 **All production model-pixel consumers use it**: all 64 model-leaf variants,
 attached/fallen apples sharing one shape, 32 articulated butterfly frames, and
@@ -18,13 +18,19 @@ not restored.
   rebuilds only its bank; changing view count rebuilds all four banks.
 - Each 32-byte surface stores model-local position + canonical depth and normal +
   material key. Colors/lighting/transforms remain per-instance. Flower material
-  keys address the immutable authored palette. Empty cells are initialized too.
+  keys address a separate compact authored palette, not a geometry buffer. Empty
+  cells are initialized too. Source identities are separate from bake mesh ranges.
 - Per-instance RGBA/depth tiles still run lookup + relighting each frame; they no
   longer perform intersection or coverage generation. Display stays shared.
 - Butterfly articulation uses the restored 32-frame bank. Published root position,
   continuous root motion, orientation and flight-coupling blend are not quantized.
-- Zero-view continuous geometry exists only for explicit numerical diagnostics,
-  not as a player option or resource-pressure fallback. No saved cache-off switch.
+- Continuous/zero-view rendering is removed, including diagnostic frame routes.
+  Requests always clamp to 8–512. Frame consumers cannot import the generator,
+  triangle types or geometry descriptors. New consumers use `model_pixel_cache`
+  and the existing `ModelPixelFrame` publication seam; there is no live fallback.
+- The obsolete butterfly triangle self-shadow checkbox is removed and retired
+  from saved files; the cache path already used object lighting. Transmission,
+  instance pose, root motion, wind and both pixel display modes remain dynamic.
 
 ## Owners and lifetime
 
@@ -41,7 +47,7 @@ granularity, not a total-cache cap. Allocation failures are explicit and clean u
 unpublished buffers. Replacements are allocated before any generation is published.
 
 The four bank keys contain kind, resolution and view count. Sources are immutable
-compiled assets for the renderer's lifetime; format version is 2. This is an
+compiled assets for the renderer's lifetime; format version is 3. This is an
 in-memory GPU cache, not a disk cache. Maximum settings can require GiB of memory;
 there is no truncation, silent resolution reduction or uncached fallback.
 
@@ -53,19 +59,35 @@ cargo check
 cargo test model_pixel
 cargo test tracer::butterfly_mesh
 cargo test -p re-flora-vkn memory::paged_storage
-cargo run --release -- --hidden --mute --auto-exit 0.5
-node scripts/validate-model-cache.mjs
-node scripts/diagnose-flower-performance.mjs --suite offscreen --check-offscreen
+flock --close /tmp/re-flora-vegi-cache-controls-gpu.lock env -u WAYLAND_DISPLAY \
+  cargo run --release -- --hidden --mute --auto-exit 0.5
+flock --close /tmp/re-flora-vegi-cache-controls-gpu.lock \
+  node scripts/validate-model-cache.mjs --seconds 30
 ```
 
-`validate-model-cache.mjs` checks every consumed surface's eight float bit patterns
-against the same canonical generator on the GPU. All four consumers must have
-samples in every phase. It checks independent bank rebuilds, 8/16/37/128/512 views,
-complete-head/whole-plant A/B, growth/size/light/display-only reuse, actual fruit
-drops and resize after cached submissions. Large-view cases use 8px explicitly;
-this is a bounded correctness fixture, not a maximum-memory benchmark. It leaves
-`config/gui.toml` unchanged and never reads/writes player saves. The env-only GPU
-oracle adds expensive live reference work and must not be used for timing.
+`validate-model-cache.mjs` checks every baked record's eight float bit patterns
+against the generator **once per bank rebuild**. A separate bake-only diagnostic
+exports actual center rays and projected vertices at the first/last canonical
+directions of every source. An independent CPU oracle verifies identity,
+coverage, nearest depth and center preservation; it never reads a GPU coverage
+mask as its expected result. Depth tolerance remains 0.00002 and coverage epsilon
+0.0001 pixel. The reference preserves float32 closest-edge selection, rather than
+using a float64 minimizer that can choose a different edge after tile rounding.
+
+Runtime lookup only counts consumed records in explicit review mode; it does not
+resample geometry. All four banks must have consumers in every phase, and every
+rebuild must finish both bake validators. The fixture checks isolated bank
+rebuilds, 8/16/37/128/512 views, complete-head/whole-plant A/B, growth/size/light/
+display-only reuse, real fruit drops and post-consumer resize. Large-view cases use
+8px intentionally. Config and player saves are untouched. This is correctness
+evidence, not timing or a maximum-memory test.
+
+See [cache-only worker evidence and validator migrations](../evidence/cache-only-renderer.md).
+
+## Historical cache-restoration acceptance
+
+The results below apply to the earlier restoration, not a performance acceptance
+for cache-only retirement. Its continuous validators are now retired/migrated.
 
 Final validated code: **`43a5683a`** (cache restoration `44a1ab6e`, storage `89330a88`).
 35,131,392 leaf, 18,340,416 apple, 8,140,608 butterfly and 12,240,192 flower surface

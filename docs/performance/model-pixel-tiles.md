@@ -1,5 +1,10 @@
 # Shared model pixel tiles
 
+> **Historical report:** live/zero-view rendering and its per-frame geometry
+> validators no longer exist. Current interfaces and replacement bake-only
+> checks are documented in [cache-only rendering](../evidence/cache-only-renderer.md).
+> Measurements and commands below require the corresponding historical revision.
+
 > Production surface generation now uses the restored
 > [shared cache](model-pixel-cache.md) across leaves, butterflies, apples and flowers.
 > Frame-local tiles are retained for lookup/relighting, not repeated geometry work.

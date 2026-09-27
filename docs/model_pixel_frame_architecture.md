@@ -2,8 +2,8 @@
 
 `src/tracer/model_pixel_frame.rs` owns the renderer-internal publication protocol
 for particle model pixels (butterflies and fallen leaves), attached apples,
-fallen apples and flowers. The shared Slang geometry, projection, shading and
-display algorithms remain the common seam. The restored
+fallen apples and flowers. Geometry-free Slang surface lookup, pose, shading and
+display form the frame seam; geometry exists only in cache baking. The restored
 [shared model-surface cache](performance/model-pixel-cache.md) is nested in this
 owner: immutable surfaces are generated once per configuration; frame-local tiles
 perform lookup and relighting, not repeated geometry sampling.
@@ -24,7 +24,7 @@ Two plausible interfaces were considered:
 It still owns pass placement, viewport, quad vertex/index bindings and the outer
 render pass. Tree draws retain the pose push used for compute instead of rebuilding
 it later. Deleting this module would restore buffer identities, capacities,
-compute/display declarations and range pairing to three callers, not merely
+compute/display declarations and range pairing to four adapters, not merely
 remove a forwarding method.
 
 ## Ownership and invariants
@@ -32,10 +32,11 @@ remove a forwarding method.
 - `ModelPixelFrame` owns the shared surface cache, particle pose adapter and frame-local storage.
   `ButterflyMeshRenderer` prepares poses/materials, sorts back-to-front and
   publishes instances and draw indices **once**, after visibility and
-  tile offsets are final. Triangle streams exist only in continuous numerical
-  diagnostics; production instances reference immutable leaf variants/animation frames. CPU pose preparation cannot upload partial metadata.
-  The adapter supplies complete byte streams; `ModelPixelFrame` allocates/uploads
-  all three input buffers in the ready fence slot. `PreparedModelPixels` retains
+  tile offsets are final. There is no triangle stream, repair graph, reference tile
+  stream, zero-view sentinel or geometry-mode argument in the frame interface.
+  Instances reference immutable leaf variants/animation frames. CPU preparation
+  cannot upload partial metadata. `ModelPixelFrame` allocates/uploads only the
+  instance and draw-index streams in the ready fence slot. `PreparedModelPixels` retains
   and binds the matching draw-index buffer, rather than exposing it to `Tracer`.
 - `ParticleTiles` packs in that sorted draw order and returns instance-indexed
   offsets. Invisible models reserve no cells. Contiguous particle batches remain
@@ -72,13 +73,15 @@ fence/descriptor boundaries; cache generation is prepared once before consumers.
 interface used by the native adapters, with identifiable in-memory allocations
 rather than a mock Vulkan implementation. It covers reversed sorted draws beyond
 64 MiB, 200,000 low-resolution/invisible models, demand-sized input publication
-and ready-slot reuse/retirement, mixed resolutions/offscreen objects, all three
-consumer identities, compute/draw pairing, empty frames, removal and slot-specific
+and ready-slot reuse/retirement, mixed resolutions/offscreen objects, all four
+adapter identities, compute/draw pairing, empty frames, removal and slot-specific
 retirement, growth/shrink transitions, duplicate publication, allocation/compute
 failure and binding limits. The particle adapter's publication test observes the
 actual upload callback after complete sorted offsets are installed. The former
 standalone packing tests are replaced, not copied beside the new seam.
 
+Transitive shader-import guards discover every model-pixel entry point (including
+future consumers), rejecting bake/triangle imports in compute as well as graphics.
 Native checks remain essential for GPU resource use and visual preservation:
 
 ```sh
@@ -87,15 +90,19 @@ CARGO_BUILD_JOBS=4 cargo check
 CARGO_BUILD_JOBS=4 cargo test model_pixel
 CARGO_BUILD_JOBS=4 cargo test tracer::butterfly_mesh
 CARGO_BUILD_JOBS=4 cargo test tracer::apple_pixel
-flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
+flock --close /tmp/re-flora-vegi-cache-controls-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
   cargo run --release -- --hidden --mute --auto-exit 0.5
-flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
+flock --close /tmp/re-flora-vegi-cache-controls-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
   node scripts/validate-apple-model.mjs --seconds 12 --stage-one
-flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
+flock --close /tmp/re-flora-vegi-cache-controls-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
   python3 scripts/validate_butterfly_mesh.py --seconds 12
-flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
+flock --close /tmp/re-flora-vegi-cache-controls-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4 \
   node scripts/validate-leaf-model.mjs --seconds 20
 ```
+
+Current cache-only checks and explicit diagnostic migrations are recorded in
+[the cache-only handoff](evidence/cache-only-renderer.md). Geometry readback happens
+once per bank rebuild, never in any frame consumer.
 
 The following is historical worker evidence; the later controller acceptance in
 [evidence/model-vine-ddgi-acceptance.md](evidence/model-vine-ddgi-acceptance.md)

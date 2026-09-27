@@ -1,5 +1,10 @@
 # Model frame, vine tick and DDGI capture acceptance
 
+> Historical acceptance. The perspective boundary/pose scripts named below were
+> retired with the live geometry route. Their useful coverage checks migrated to
+> [standalone and bake-only validation](cache-only-renderer.md); they are not
+> claimed as current per-frame tests.
+
 Controller acceptance: **2026-09-27**, local `opti`.
 Validated code: `12d296f11676ee0a6280c92c94fcc9c2883d2e89`.
 Implementation base: `618203afa0199dfdbed09715fb5b345b101d3a0f`.

@@ -1,5 +1,10 @@
 # Pixel models: stage-one lighting and discrete-view preview
 
+> **Historical report:** live/zero-view rendering and its per-frame geometry
+> validators no longer exist. Current interfaces and replacement bake-only
+> checks are documented in [cache-only rendering](../evidence/cache-only-renderer.md).
+> Measurements and commands below require the corresponding historical revision.
+
 > Historical live-generation stage. Production now uses the restored
 > [shared surface cache](model-pixel-cache.md) for every model-pixel consumer.
 > The live-rendering descriptions and measurements below describe this earlier stage.

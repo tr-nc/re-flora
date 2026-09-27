@@ -1,5 +1,10 @@
 # Shared orthographic tiles: rotating pixels vs screen-grid resampling
 
+> **Historical report:** live/zero-view rendering and its per-frame geometry
+> validators no longer exist. Current interfaces and replacement bake-only
+> checks are documented in [cache-only rendering](../evidence/cache-only-renderer.md).
+> Measurements and commands below require the corresponding historical revision.
+
 > Historical pre-cache visual stage. The same projection/display now consumes
 > [shared cached surfaces](model-pixel-cache.md). Claims below about absent startup
 > baking refer to this earlier stage, not current production.
