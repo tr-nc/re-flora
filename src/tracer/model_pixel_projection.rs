@@ -157,12 +157,29 @@ fn authored_shapes_fit_the_fixed_frame_at_every_roll() {
 }
 
 #[test]
-fn all_three_adapters_use_the_shared_bake_and_both_displays_are_geometry_free() {
+fn all_model_consumers_use_shared_surfaces_and_displays_are_geometry_free() {
     let particle = include_str!("../../shader/slang/particle_model_shading.slang");
     let apple = include_str!("../../shader/slang/apple_pixel_tile.slang");
-    for adapter in [particle, apple] {
-        assert!(adapter.contains("sampleOrthographicModelPixel("));
+    let flower = include_str!("../../shader/slang/flower_pixel.comp.slang");
+    for adapter in [particle, apple, flower] {
+        assert!(adapter.contains("modelSurface("));
+        assert!(
+            !adapter.contains("sampleOrthographicModelPixel("),
+            "production adapter must not rebake per instance"
+        );
     }
+    let generator = include_str!("../../shader/slang/model_pixel_bake.slang");
+    assert!(generator.contains("sampleOrthographicModelPixel("));
+    let cache = include_str!("../../shader/slang/model_pixel_cache.slang");
+    let lookup = cache
+        .split("if(gui_input.model_pixel_cache_verify")
+        .next()
+        .unwrap();
+    assert!(lookup.contains("gpuStorageLoad<ModelBakedSurface>"));
+    assert!(
+        !lookup.contains("bakeModelSurface("),
+        "no live fallback in production lookup"
+    );
     let display = include_str!("../../shader/slang/model_pixel_display.slang");
     assert!(!display.contains("sampleModelPixelGeometry("));
     assert!(!display.contains("sampleOrthographicModelPixel("));

@@ -10,6 +10,8 @@ import tracer_types;
 
 import model_pixel_object;
 import model_pixel_projection;
+import model_pixel_cache;
+import model_pixel_bake;
 // Frame-owned input streams share the transient tile/object descriptor set.
 [[vk::binding(11,1)]] public StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 [[vk::binding(12,1)]] public StructuredBuffer<ButterflyMeshTriangle> butterfly_mesh_triangles;
@@ -118,15 +120,33 @@ public float4 sampleParticleModelAt(ButterflyMeshInstance instance, float2 pixel
     return shadeParticleModelHit(instance,particleModelHitAt(instance,pixel));
 }
 
+// Production uses only the shared surface; physical lighting/pose remain live.
+public float4 sampleCanonicalParticle(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex) {
+    uint view=uint(model_object_samples[objectIndex*4u+3u].w);
+    ModelBakedSurface surface=modelSurface(instance.cache.x,view,instance.metadata.z,pixel);
+    if(surface.positionDepth.w>=1.0)return float4(0,0,0,1);
+    float3 normal=normalize(rotatePose(instance.view_orientation,surface.normalMaterial.xyz));
+    float3 position=instance.position_size.xyz+rotatePose(instance.view_orientation,surface.positionDepth.xyz)
+        *instance.position_size.w*(1.53125/3.4);
+    float4 light=model_object_samples[objectIndex*4u];
+    float3 color;
+    if((instance.metadata.w&2u)!=0u) {
+        color=shadeLeafWithEnvironment(instance.color.rgb*(surface.normalMaterial.w>0.5?0.72:1.0),
+            light.rgb,light.w,position,normal,camera_info.pos.xyz,sun_info,gui_input.leaf_transmission_strength);
+    } else {
+        float d=dot(normal,normalize(sun_info.sun_dir));
+        float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
+        color=applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*light.w,light.rgb);
+    }
+    return float4(color,surface.positionDepth.w);
+}
+
 public float4 sampleParticleModelCenter(ButterflyMeshInstance instance, uint2 pixel) {
     return sampleParticleModelAt(instance,float2(pixel)+0.5);
 }
 
 public ModelPixelHit particleModelHit<T : IModelPixelProjectionObserver>(ButterflyMeshInstance instance,uint2 pixel,uint objectIndex,T observer) {
     ModelPixelFrame frame=particleModelFrame(instance);
-    if(modelDiscreteViews())return sampleOrthographicModelPixel(butterfly_mesh_triangles,
-        instance.metadata.x,instance.metadata.y,frame,modelObjectView(objectIndex),instance.position_size.xyz,
-        instance.position_size.w*(1.53125*0.5),pixel,instance.metadata.z);
     return sampleModelPixelGeometry(butterfly_mesh_triangles,instance.metadata.x,
         instance.metadata.y,frame,butterflyTileBounds(instance,camera_info),pixel,instance.metadata.z,camera_info,observer);
 }

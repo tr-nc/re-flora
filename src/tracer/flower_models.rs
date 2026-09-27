@@ -26,7 +26,7 @@ fn geometry() -> (Vec<GpuTriangle>, Vec<GpuPart>, u32) {
     let mut triangles = Vec::new();
     let mut parts = Vec::new();
     let mut max_stem_vertices = 0;
-    for flower in models::flowers() {
+    for (model, flower) in models::flowers().iter().enumerate() {
         let first = triangles.len() as u32;
         for triangle in &flower.triangles {
             let [a, b, c] = triangle.positions;
@@ -54,7 +54,7 @@ fn geometry() -> (Vec<GpuTriangle>, Vec<GpuPart>, u32) {
                 range: [
                     first + part.triangles.start,
                     part.triangles.end - part.triangles.start,
-                    flower.stem_triangles,
+                    super::model_pixel_cache::flower_source(model, i),
                     flower.heads.len() as u32,
                 ],
                 center_radius: part.center.extend(part.radius).to_array(),
@@ -127,7 +127,13 @@ mod tests {
             let base = index * 4;
             assert_eq!(parts[base].range[0], end);
             assert_eq!(parts[base].range[1], flower.triangles.len() as u32);
-            assert!(stem_count >= parts[base].range[2] * 3);
+            assert!(stem_count >= flower.stem_triangles * 3);
+            for part in 0..=flower.heads.len() {
+                assert_eq!(
+                    parts[base + part].range[2],
+                    super::super::model_pixel_cache::flower_source(index, part)
+                );
+            }
             let mut head_end = end + flower.stem_triangles;
             for i in 1..=flower.heads.len() {
                 assert_eq!(parts[base + i].range[0], head_end);

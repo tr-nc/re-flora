@@ -3,11 +3,12 @@
 //! identities, object-buffer sizes, tile ranges or compute/display bindings.
 //!
 //! FrameManager still establishes fence readiness. PipelineTopology and the VKN
-//! pipelines still own descriptor/extent retirement. This is live tile rendering,
-//! not a cache or a transaction for unrelated rendering work.
+//! pipelines still own descriptor/extent retirement. Shared immutable surfaces
+//! feed frame-local relighting tiles; instance count never multiplies baking.
 use super::{
     butterfly_mesh::{ButterflyMeshRenderer, ButterflyMeshSettings, LeafModelSettings},
     dynamic_fruit_resources::DynamicFruitRendererResources,
+    model_pixel_cache::ModelPixelCache,
     model_pixel_tiles::{ModelPixelBatch, ModelPixelStorage, ParticleInputs},
     pipeline_builder::{ComputePipelines, GraphicsPipelines},
     resources::TracerResources,
@@ -23,7 +24,7 @@ use re_flora_vkn::{
 };
 use std::sync::Arc;
 
-/// Native pipelines for one of the three concrete pose/material adapters.
+/// Native pipelines for a concrete pose/material adapter.
 /// This is a dependency, not a list of rendering steps returned to the host.
 pub(super) struct PixelPass<'a> {
     pub compute: &'a ComputePipeline,
@@ -90,11 +91,15 @@ pub(super) struct ModelPixelFrame {
     allocator: Allocator,
     storage: ModelPixelStorage<Arc<Buffer>>,
     particles: ButterflyMeshRenderer,
+    cache: ModelPixelCache,
+    particle_resolutions: [u32; 2],
 }
 impl ModelPixelFrame {
-    pub fn new(device: Device, allocator: Allocator) -> Self {
+    pub fn new(context: &VulkanContext, allocator: Allocator) -> Self {
         Self {
-            device,
+            device: context.device().clone(),
+            cache: ModelPixelCache::new(context, allocator.clone()),
+            particle_resolutions: [16, 22],
             allocator,
             storage: ModelPixelStorage::default(),
             particles: ButterflyMeshRenderer::default(),
@@ -125,6 +130,32 @@ impl ModelPixelFrame {
             .begin_transient_descriptor_frame(slot);
     }
 
+    pub fn prepare_cache(
+        &mut self,
+        cmd: &CommandBuffer,
+        pipeline: &ComputePipeline,
+        views: u32,
+        apple_resolution: u32,
+        flower_resolution: u32,
+    ) -> Result<()> {
+        self.cache.prepare(
+            self.storage.frame_slot(),
+            cmd,
+            pipeline,
+            views,
+            [
+                self.particle_resolutions[0],
+                apple_resolution,
+                self.particle_resolutions[1],
+                flower_resolution,
+            ],
+        )
+    }
+
+    pub fn finish_cache(&self, cmd: &CommandBuffer) {
+        self.cache.finish(self.storage.frame_slot(), cmd);
+    }
+
     pub fn particle_count(&self) -> u32 {
         self.particles.count()
     }
@@ -144,10 +175,20 @@ impl ModelPixelFrame {
         butterflies: ButterflyMeshSettings,
         leaves: LeafModelSettings,
         camera_position: Vec3,
+        discrete_views: bool,
     ) -> Result<()> {
+        self.particle_resolutions = [
+            leaves.resolution.clamp(8, 64),
+            butterflies.resolution.clamp(8, 64),
+        ];
         // CPU pose preparation deliberately does not publish partial GPU metadata.
-        self.particles
-            .prepare_frame_models(snapshots, butterflies, leaves, camera_position)
+        self.particles.prepare_frame_models(
+            snapshots,
+            butterflies,
+            leaves,
+            camera_position,
+            discrete_views,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -159,7 +200,12 @@ impl ModelPixelFrame {
         projection: Mat4,
         discrete_views: bool,
     ) -> Result<PreparedModelPixels> {
+        anyhow::ensure!(
+            self.particles.uses_cached_surfaces() == discrete_views,
+            "particle pose and surface-cache mode must use the same frame settings"
+        );
         let slot = self.storage.frame_slot();
+        let cache = self.cache.frame(slot);
         let mut inputs = None;
         self.particles.prepare_repair_frame(
             view,
@@ -200,7 +246,8 @@ impl ModelPixelFrame {
         for batch in batches {
             draws.push(batch.publish(
                 |batch| {
-                    let descriptors = [
+                    let mut descriptors = cache.bindings().to_vec();
+                    descriptors.extend([
                         (
                             "butterfly_mesh_instances",
                             DescriptorResource::Buffer(&inputs.instances),
@@ -226,7 +273,7 @@ impl ModelPixelFrame {
                             "particle_model_repair_output",
                             DescriptorResource::Buffer(&repairs),
                         ),
-                    ];
+                    ]);
                     if !models.repair_nodes.is_empty() {
                         pass.compute.record_with_descriptors(
                             cmdbuf,
@@ -308,6 +355,7 @@ impl ModelPixelFrame {
         pose_resources: &[(&str, DescriptorResource<'_>)],
         push: PushConstantFlora,
     ) -> Result<PreparedModelPixels> {
+        let cache = self.cache.frame(self.storage.frame_slot());
         let batch = self.storage.attached_apples(
             tree,
             count,
@@ -329,6 +377,7 @@ impl ModelPixelFrame {
                             DescriptorResource::Buffer(&batch.tiles),
                         ),
                     ]);
+                    descriptors.extend(cache.bindings());
                     if discrete_views {
                         let mut prepare = push;
                         prepare.model_object_prepare = 1;
@@ -371,6 +420,7 @@ impl ModelPixelFrame {
         discrete_views: bool,
         pose_resources: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
+        let cache = self.cache.frame(self.storage.frame_slot());
         let species = push.species;
         let model = &crate::flora::models::flowers()
             [(species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize];
@@ -405,6 +455,7 @@ impl ModelPixelFrame {
                             DescriptorResource::Buffer(&batch.tiles),
                         ),
                     ]);
+                    descriptors.extend(cache.bindings());
                     if discrete_views {
                         let mut prepare = push;
                         prepare.prepare_object = 1;
@@ -470,6 +521,7 @@ impl ModelPixelFrame {
         resolution: u32,
         discrete_views: bool,
     ) -> Result<PreparedModelPixels> {
+        let cache = self.cache.frame(self.storage.frame_slot());
         let batch = self.storage.fallen_apples(
             fruit.instance_count,
             resolution,
@@ -479,7 +531,8 @@ impl ModelPixelFrame {
         if let Some(batch) = batch {
             draws.push(batch.publish(
                 |batch| {
-                    let descriptors = [
+                    let mut descriptors = cache.bindings().to_vec();
+                    descriptors.extend([
                         (
                             "model_pixel_tiles",
                             DescriptorResource::Buffer(&batch.tiles),
@@ -492,7 +545,7 @@ impl ModelPixelFrame {
                             "dynamic_fruit_pixel_instances",
                             DescriptorResource::Buffer(&fruit.instances),
                         ),
-                    ];
+                    ]);
                     if discrete_views {
                         pass.compute.record_with_descriptors(
                             cmdbuf,

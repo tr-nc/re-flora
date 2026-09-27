@@ -588,10 +588,12 @@ impl App {
             resolution: settings.falling_leaf_pixel_resolution.value,
             size_scale: settings.falling_leaf_size_scale.value,
         };
-        if let Err(err) =
-            self.tracer
-                .upload_particles(&self.particle_snapshots, butterfly_mesh, leaf_model)
-        {
+        if let Err(err) = self.tracer.upload_particles(
+            &self.particle_snapshots,
+            butterfly_mesh,
+            leaf_model,
+            settings.model_pixel_view_count.value,
+        ) {
             log::error!("Failed to upload particles: {}", err);
         }
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
@@ -683,6 +685,12 @@ impl App {
         };
         let frame = *counter;
         *counter = counter.saturating_add(1);
+        if std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some()
+            && std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some()
+        {
+            self.prepare_shared_model_cache_review(frame);
+            return;
+        }
         let phase = (frame / 30).min(11);
         let dropped = phase >= 6;
         let stage = phase % 6;

@@ -1,10 +1,12 @@
 # Model Pixel Frame ownership
 
 `src/tracer/model_pixel_frame.rs` owns the renderer-internal publication protocol
-for particle model pixels (butterflies and fallen leaves), attached apples, and
-fallen apples. These remain three concrete pose/material adapters. The shared
-Slang geometry, projection, shading and display algorithms are unchanged; tiles
-are still generated live, not cached in an atlas.
+for particle model pixels (butterflies and fallen leaves), attached apples,
+fallen apples and flowers. The shared Slang geometry, projection, shading and
+display algorithms remain the common seam. The restored
+[shared model-surface cache](performance/model-pixel-cache.md) is nested in this
+owner: immutable surfaces are generated once per configuration; frame-local tiles
+perform lookup and relighting, not repeated geometry sampling.
 
 ## Interface decision
 
@@ -27,10 +29,11 @@ remove a forwarding method.
 
 ## Ownership and invariants
 
-- `ModelPixelFrame` owns the particle pose adapter and frame-local storage.
-  `ButterflyMeshRenderer` still prepares poses/materials, sorts back-to-front and
-  publishes instances, triangles and draw indices **once**, after visibility and
-  tile offsets are final. CPU pose preparation cannot upload partial metadata.
+- `ModelPixelFrame` owns the shared surface cache, particle pose adapter and frame-local storage.
+  `ButterflyMeshRenderer` prepares poses/materials, sorts back-to-front and
+  publishes instances and draw indices **once**, after visibility and
+  tile offsets are final. Triangle streams exist only in continuous numerical
+  diagnostics; production instances reference immutable leaf variants/animation frames. CPU pose preparation cannot upload partial metadata.
   The adapter supplies complete byte streams; `ModelPixelFrame` allocates/uploads
   all three input buffers in the ready fence slot. `PreparedModelPixels` retains
   and binds the matching draw-index buffer, rather than exposing it to `Tracer`.
@@ -59,8 +62,9 @@ remove a forwarding method.
 
 The intentional shadow → externally owned terrain moisture → scene seam remains
 unchanged. See [the render transaction decision](render_frame_transaction_architecture_review.md).
-No App scheduling, model settings, simulation, persistent cache or shader policy
-is changed.
+The original frame-ownership refactor did not change App scheduling, simulation
+or shader policy. The later cache restoration preserves its compute/draw and
+fence/descriptor boundaries; cache generation is prepared once before consumers.
 
 ## Regression surface
 

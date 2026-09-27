@@ -14,7 +14,7 @@ import hash;
 import tracer_types;
 
 public struct FlowerModelPart {
-    public uint4 range; // first triangle, count, stem triangle count, head count
+    public uint4 range; // first triangle, count, shared cache source, head count
     public float4 center_radius;
 };
 public struct PushConstantFlower {

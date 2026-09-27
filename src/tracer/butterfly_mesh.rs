@@ -139,6 +139,7 @@ struct Instance {
     lighting: [f32; 4],
     repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
     view_orientation: [f32; 4],
+    cache: [u32; 4], // immutable source key, not a per-instance mesh
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -274,6 +275,7 @@ pub(super) struct ButterflyMeshRenderer {
     draw_order: Vec<u32>,
     pub repair_nodes: Vec<RepairNode>,
     reference_tiles: bool,
+    canonical_frames: bool,
     validation_calls: u64,
     repair_frames: Vec<Option<(Arc<Buffer>, usize)>>,
     repair_key: Vec<u8>,
@@ -301,6 +303,7 @@ impl Default for ButterflyMeshRenderer {
             draw_order: Vec::new(),
             repair_nodes: Vec::new(),
             reference_tiles: native_review(),
+            canonical_frames: false,
             validation_calls: 0,
             repair_frames: Vec::new(),
             repair_key: Vec::new(),
@@ -329,6 +332,9 @@ impl ButterflyMeshRenderer {
     }
     pub fn count(&self) -> u32 {
         self.instances.len() as u32
+    }
+    pub fn uses_cached_surfaces(&self) -> bool {
+        self.canonical_frames
     }
     fn prepare(
         &mut self,
@@ -402,7 +408,12 @@ impl ButterflyMeshRenderer {
             // per-frame silhouette: flapping must not pump the pixel scale.
             let scale = snapshot.size * (1.53125 / 3.4);
             let start = self.triangles.len() as u32;
-            for triangle in &self.mesh.triangles {
+            for triangle in self
+                .mesh
+                .triangles
+                .iter()
+                .filter(|_| !self.canonical_frames)
+            {
                 let transform = transforms[triangle.node];
                 let p = triangle.positions.map(|p| {
                     snapshot.position_ws
@@ -419,7 +430,22 @@ impl ButterflyMeshRenderer {
             }
             let rgb = ButterflyPalettePreset::from_index(snapshot.palette_index).base_color_srgb();
             self.instances.push(Instance {
-                position_size: snapshot.position_ws.extend(snapshot.size).to_array(),
+                // Quantize articulation only; published rigid root motion stays continuous.
+                position_size: (snapshot.position_ws
+                    + if self.canonical_frames {
+                        facing * root_motion * ((1. - blend) * scale)
+                    } else {
+                        Vec3::ZERO
+                    })
+                .extend(snapshot.size)
+                .to_array(),
+                cache: [
+                    super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
+                        + super::model_pixel_cache::animation_frame(phase),
+                    0,
+                    0,
+                    0,
+                ],
                 color: [
                     rgb[0] as f32 / 255.,
                     rgb[1] as f32 / 255.,
@@ -473,7 +499,7 @@ impl ButterflyMeshRenderer {
             "shared leaf exceeds triangle budget"
         );
         let first = self.triangles.len() as u32;
-        if !candidates.is_empty() {
+        if !candidates.is_empty() && !self.canonical_frames {
             let shapes = leaf_variant_triangles();
             ensure!(
                 shapes.len() == triangles_per_leaf * crate::model_assets::LEAF_VARIANT_COUNT,
@@ -499,6 +525,7 @@ impl ButterflyMeshRenderer {
                 // No resampling, local animation, velocity-facing override or reset.
                 lighting: snapshot.leaf_orientation.unwrap().to_array(),
                 view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
+                cache: [shape as u32, 0, 0, 0],
                 repair: [0; 4],
             });
         }
@@ -758,7 +785,9 @@ impl ButterflyMeshRenderer {
         settings: ButterflyMeshSettings,
         leaves: LeafModelSettings,
         camera_position: Vec3,
+        discrete_views: bool,
     ) -> Result<()> {
+        self.canonical_frames = discrete_views;
         self.prepare_models(snapshots, settings, leaves, camera_position)?;
         self.draw_order.clear();
         if !self.instances.is_empty() {
@@ -823,6 +852,69 @@ impl ButterflyMeshRenderer {
 mod tests {
     use super::*;
     #[test]
+    fn canonical_animation_keeps_published_motion_and_avoids_instance_geometry() {
+        let mut renderer = ButterflyMeshRenderer {
+            canonical_frames: true,
+            ..Default::default()
+        };
+        let settings = ButterflyMeshSettings {
+            resolution: 16,
+            fps: 22,
+            self_shadows: true,
+            transmission: 0.8,
+        };
+        for blend in [0., 0.35, 1.] {
+            let pose = crate::particles::ButterflyWingbeatPose {
+                phase: 0.413,
+                blend,
+                orientation: Quat::from_rotation_y(0.7),
+            };
+            let snapshot = ParticleSnapshot {
+                position_ws: Vec3::ONE,
+                velocity: Vec3::NEG_Z,
+                color: glam::Vec4::ONE,
+                size: 0.03,
+                kind: ParticleRenderKind::Butterfly,
+                palette_index: 0,
+                animation_phase_offset: 0.,
+                animation_sample_time: Some(0.137),
+                butterfly_wingbeat: Some(pose),
+                leaf_orientation: None,
+                leaf_shape_seed: None,
+                leaf_geometry: None,
+            };
+            renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
+            let instance = renderer.instances[0];
+            let phase = 0.137 + (pose.phase - 0.137) * blend;
+            let facing = Quat::IDENTITY.slerp(pose.orientation, blend);
+            let transforms = renderer.mesh.source.transforms(phase, 0);
+            let root = transforms[renderer.mesh.source.node("Flight pose")]
+                .w_axis
+                .truncate();
+            let expected = snapshot.position_ws
+                + facing * root * ((1. - blend) * snapshot.size * (1.53125 / 3.4));
+            assert!((Vec3::from_slice(&instance.position_size) - expected).length() < 1e-7);
+            assert!(
+                (Quat::from_array(instance.view_orientation)
+                    .dot(facing)
+                    .abs()
+                    - 1.)
+                    .abs()
+                    < 1e-6
+            );
+            assert_eq!(
+                instance.cache[0],
+                super::super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
+                    + super::super::model_pixel_cache::animation_frame(phase)
+            );
+            assert!(
+                renderer.triangles.is_empty(),
+                "production cannot upload per-instance animated triangles"
+            );
+        }
+    }
+
+    #[test]
     fn publication_contains_complete_sorted_offsets_and_skips_empty_uploads() {
         let mut renderer = ButterflyMeshRenderer::default();
         renderer.instances = (0..1100)
@@ -833,6 +925,7 @@ mod tests {
                 lighting: [0., 0., 0., 1.],
                 view_orientation: [0., 0., 0., 1.],
                 repair: [0, 0, 0, 1],
+                cache: [0; 4],
             })
             .collect();
         renderer.draw_order = (0..1100u32).rev().collect();
@@ -1150,7 +1243,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 96);
+        assert_eq!(std::mem::size_of::<Instance>(), 112);
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
     }
     #[test]

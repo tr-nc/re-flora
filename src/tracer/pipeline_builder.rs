@@ -507,6 +507,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let model_pixel_bake_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/models/model_pixel_bake.comp",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
         let flower_pixel_comp_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flower_pixel.comp",
@@ -680,6 +686,7 @@ impl PipelineBuilder {
             raster_tree_lighting_sm,
             tree_skin_sm,
             tree_refit_sm,
+            model_pixel_bake_sm,
             flower_pixel_comp_sm,
             flower_pixel_vert_sm,
             flower_pixel_frag_sm,
@@ -807,6 +814,12 @@ impl PipelineBuilder {
             &shader_modules.ddgi_voxel_visibility_blocks_sm,
             pool,
             &[ddgi_voxel_visibility],
+        );
+        let model_pixel_bake_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.model_pixel_bake_sm,
+            pool,
+            &[resources],
         );
         let flower_pixel_ppl =
             ComputePipeline::new_uninitialized(device, &shader_modules.flower_pixel_comp_sm, pool);
@@ -1070,6 +1083,7 @@ impl PipelineBuilder {
             raster_tree_lighting_ppl,
             tree_skin_ppl,
             tree_refit_ppl,
+            model_pixel_bake_ppl,
             butterfly_tile_ppl,
             flower_pixel_ppl,
             apple_pixel_tree_ppl,
@@ -2629,6 +2643,7 @@ pub struct ShaderModules {
     pub raster_tree_vert_sm: ShaderModule,
     pub raster_tree_frag_sm: ShaderModule,
     pub raster_tree_shadow_vert_sm: ShaderModule,
+    pub model_pixel_bake_sm: ShaderModule,
     pub flower_pixel_comp_sm: ShaderModule,
     pub flower_pixel_vert_sm: ShaderModule,
     pub flower_pixel_frag_sm: ShaderModule,
@@ -2653,6 +2668,7 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
+    pub model_pixel_bake_ppl: ComputePipeline,
     pub flower_pixel_ppl: ComputePipeline,
     pub apple_pixel_tree_ppl: ComputePipeline,
     pub apple_pixel_dynamic_ppl: ComputePipeline,

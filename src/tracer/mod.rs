@@ -36,6 +36,7 @@ mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
 use crate::flora::species;
+mod model_pixel_cache;
 mod model_pixel_frame;
 #[cfg(test)]
 mod model_pixel_projection;
@@ -1965,8 +1966,7 @@ impl Tracer {
         });
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
-        let model_pixel_frame =
-            ModelPixelFrame::new(vulkan_ctx.device().clone(), allocator.clone());
+        let model_pixel_frame = ModelPixelFrame::new(&vulkan_ctx, allocator.clone());
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
             vulkan_ctx.clone(),
@@ -3067,8 +3067,8 @@ impl Tracer {
         if self.model_pixel_view_count != view_count
             || self.model_pixel_screen_grid != terrain.model_pixel_screen_grid
         {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} screen_grid={}",
-                view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_screen_grid);
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} screen_grid={} shared_surfaces={} tile_work=relighting",
+                view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_screen_grid,view_count!=0);
         }
         self.model_pixel_view_count = view_count;
         self.model_pixel_screen_grid = terrain.model_pixel_screen_grid;
@@ -3440,6 +3440,22 @@ impl Tracer {
             self.pipeline_topology.compute(),
             self.pipeline_topology.graphics(),
         );
+
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "models.cache.bake",
+            || {
+                self.model_pixel_frame.prepare_cache(
+                    cmdbuf,
+                    &self.pipeline_topology.compute().model_pixel_bake_ppl,
+                    self.model_pixel_view_count,
+                    self.apple_pixel_resolution,
+                    self.flower_model_settings.resolution,
+                )
+            },
+        )?;
 
         self.pipeline_topology
             .graphics()
@@ -4071,6 +4087,8 @@ impl Tracer {
             // RenderTarget attachment state is committed by the recording transaction, and the
             // composition pipeline declares its shader reads after the render pass.
         }
+
+        self.model_pixel_frame.finish_cache(cmdbuf);
 
         if render_flags.enable_god_rays {
             Self::with_gpu_scope(
@@ -6795,6 +6813,7 @@ impl Tracer {
         snapshots: &[ParticleSnapshot],
         butterfly_mesh: ButterflyMeshSettings,
         leaf_model: LeafModelSettings,
+        model_views: u32,
     ) -> Result<()> {
         self.model_pixel_frame
             .validate_completed_particles(&self.vulkan_ctx, &self.resources)?;
@@ -6849,6 +6868,7 @@ impl Tracer {
             butterfly_mesh,
             leaf_model,
             self.camera.position(),
+            model_pixel_views::runtime_count(model_views) != 0,
         )
     }
 

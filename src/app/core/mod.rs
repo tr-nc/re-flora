@@ -25,6 +25,7 @@ mod input;
 pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
+mod model_cache_review;
 mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
@@ -2441,9 +2442,9 @@ impl App {
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
                 let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
                 let fruit_cycle_before_gui = self.debug_settings.adjustables.fruit_cycle.value;
-                self.prepare_apple_pixel_review();
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
+                self.prepare_apple_pixel_review();
                 self.prepare_flower_model_bench()
                     .expect("flower model benchmark fixture");
                 let vsm_blur_radius_before_gui =

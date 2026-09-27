@@ -77,6 +77,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy>=uint2(instance.metadata.z))) return;
     // mode 2 is a separate, bounded validation reference; never displayed.
     if(model_pass.mode==3u && instance.repair.w==0u)return;
+    if(modelDiscreteViews() && model_pass.mode!=2u) {
+        float4 value=sampleCanonicalParticle(instance,id.xy,instanceIndex);
+        model_pixel_tiles[instance.repair.z+id.y*instance.metadata.z+id.x]=value;
+        return;
+    }
     ModelPixelHit hit;
     if(model_pass.mode==2u) {
         hit=particleModelHitAt(instance,float2(id.xy)+0.5);

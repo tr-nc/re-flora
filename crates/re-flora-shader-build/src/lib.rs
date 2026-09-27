@@ -363,6 +363,7 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         module_path: "shader/slang",
         stage: ShaderStage::Vertex,
     },
+    ShaderConfig { logical_path: "shader/models/model_pixel_bake.comp", source_path: "shader/slang/model_pixel_bake.comp.slang", module_path: "shader/slang", stage: ShaderStage::Compute },
     ShaderConfig { logical_path: "shader/foliage/flower_pixel.comp", source_path: "shader/slang/flower_pixel.comp.slang", module_path: "shader/slang", stage: ShaderStage::Compute },
     ShaderConfig { logical_path: "shader/foliage/flower_pixel.vert", source_path: "shader/slang/flower_pixel.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
     ShaderConfig { logical_path: "shader/foliage/flower_pixel.frag", source_path: "shader/slang/flower_pixel.frag.slang", module_path: "shader/slang", stage: ShaderStage::Fragment },
