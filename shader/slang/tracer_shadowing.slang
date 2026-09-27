@@ -2,7 +2,14 @@ module tracer_shadowing;
 
 import noise_tex;
 import tracer_types;
+import terrain_ray_origin;
 import vsm;
+
+// Source wiring belongs here, not in each material/gameplay shader. Semantic
+// names are resolved by ResourceContainer; these locations are private to this module.
+[[vk::binding(80, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
+[[vk::binding(81, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
+[[vk::binding(82, 0)]] Sampler2D leaf_shadow_mask_tex;
 
 static const float TWO_PI = 6.283185307179586;
 static const float2 POISSON_16[16] =
@@ -19,11 +26,9 @@ static const float2 POISSON_16[16] =
 
 public static const uint DIRECT_SUN_SHADOW_SOURCE_TERRAIN = 1u << 0u;
 public static const uint DIRECT_SUN_SHADOW_SOURCE_LEAF = 1u << 1u;
-public static const uint DIRECT_SUN_SHADOW_SOURCE_CLOUD = 1u << 2u;
 public static const uint DIRECT_SUN_SHADOW_SOURCE_ALL =
     DIRECT_SUN_SHADOW_SOURCE_TERRAIN |
-    DIRECT_SUN_SHADOW_SOURCE_LEAF |
-    DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+    DIRECT_SUN_SHADOW_SOURCE_LEAF;
 public static const uint DIRECT_TERRAIN_SHADOW_VSM = 1u;
 public static const uint DIRECT_TERRAIN_SHADOW_PCSS = 2u;
 public static const uint DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE = 1u << 0u;
@@ -39,34 +44,31 @@ struct ShadowReceiverPlane
 
 public struct DirectSunShadowReceiver
 {
-    float4 terrain_world_position;
-    float4 leaf_world_position;
-    float4 cloud_world_position;
-    int3 pcss_seed;
-    uint source_mask;
-    uint terrain_mode;
-    uint available_mask;
-    uint flags;
-    float3 receiver_plane_normal;
+    public float4 terrain_world_position;
+    public float4 leaf_world_position;
+    public int3 pcss_seed;
+    public uint source_mask;
+    public uint terrain_mode;
+    public uint available_mask;
+    public uint flags;
+    public float3 receiver_plane_normal;
 };
 
 public struct DirectSunShadowTransmittances
 {
     public float terrain;
     public float leaf;
-    public float cloud;
     public float combined;
 };
 
 public DirectSunShadowReceiver makeDirectSunShadowReceiver(
     float4 terrainWorldPosition, float4 leafWorldPosition,
-    float4 cloudWorldPosition, int3 pcssSeed, uint sourceMask, uint terrainMode,
+    int3 pcssSeed, uint sourceMask, uint terrainMode,
     uint availableMask, uint flags)
 {
     DirectSunShadowReceiver receiver;
     receiver.terrain_world_position = terrainWorldPosition;
     receiver.leaf_world_position = leafWorldPosition;
-    receiver.cloud_world_position = cloudWorldPosition;
     receiver.pcss_seed = pcssSeed;
     receiver.source_mask = sourceMask;
     receiver.terrain_mode = terrainMode;
@@ -86,6 +88,49 @@ public DirectSunShadowReceiver withReceiverPlane(
         receiver.flags |= DIRECT_SUN_SHADOW_FLAG_RECEIVER_PLANE;
     }
     return receiver;
+}
+
+// Point receivers (soil, models, flora) do not acquire voxel-face offsets.
+public DirectSunShadowReceiver pointSunShadowReceiver(
+    float3 worldPosition, uint sourceMask, uint availableMask)
+{
+    float4 position = float4(worldPosition, 1.0);
+    return makeDirectSunShadowReceiver(
+        position, position, int3(0), sourceMask,
+        DIRECT_TERRAIN_SHADOW_VSM, availableMask,
+        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
+}
+
+public DirectSunShadowReceiver pointSunShadowReceiver(float3 worldPosition)
+{
+    return pointSunShadowReceiver(worldPosition,
+        DIRECT_SUN_SHADOW_SOURCE_ALL, DIRECT_SUN_SHADOW_SOURCE_ALL);
+}
+
+public DirectSunShadowReceiver withLeafReceiver(
+    DirectSunShadowReceiver receiver, float3 leafPosition)
+{
+    receiver.leaf_world_position = float4(leafPosition, 1.0);
+    return receiver;
+}
+
+// Canonical voxel receivers are stable across pixels. Leaves retain their own
+// per-receiver depth gate; never replace the sources with one precombined map.
+public DirectSunShadowReceiver voxelSunShadowReceiver(
+    float3 voxelCenter, float3 normal, float offsetWorld)
+{
+    DirectSunShadowReceiver receiver = pointSunShadowReceiver(
+        terrainRayOriginAlongNormal(voxelCenter, normal, offsetWorld));
+    return withReceiverPlane(receiver, normal);
+}
+
+// Exposed faces/triangles already describe a surface, so apply only its normal
+// offset. Treating this point as a voxel center would add a second half voxel.
+public DirectSunShadowReceiver surfaceSunShadowReceiver(
+    float3 surfacePosition, float3 normal, float offsetWorld)
+{
+    return withReceiverPlane(pointSunShadowReceiver(
+        terrainRayOriginFromPosition(surfacePosition, normal, offsetWorld)), normal);
 }
 
 float4 sampleExplicitLod(Sampler2D textureSampler, float2 uv)
@@ -234,6 +279,19 @@ float vsmTransmittance(Sampler2D vsmMap, float4x4 shadowViewProjection,
     return clamp(min(positive, negative), 0.0, 1.0);
 }
 
+// Shared per-tap depth gate. Keeping it separate from texture access lets CPU
+// contract tests exercise exactly the policy used by terrain, flora, and soil.
+public float leafShadowSampleOpacity(float4 sampleValue, float receiverDepth, bool depthGate)
+{
+    float opacity = clamp(sampleValue.a, 0.0, 1.0);
+    if (depthGate && opacity > 1.0e-4)
+    {
+        float casterDepth = clamp(sampleValue.r / opacity, 0.0, 1.0);
+        if (receiverDepth <= casterDepth + 0.0015) opacity = 0.0;
+    }
+    return opacity;
+}
+
 float leafOpacity(Sampler2D leafOpacityMap, U_GuiInput gui, float2 uv,
                   float receiverDepth, bool depthGate)
 {
@@ -250,12 +308,7 @@ float leafOpacity(Sampler2D leafOpacityMap, U_GuiInput gui, float2 uv,
         {
             float4 sampleValue = sampleExplicitLod(
                 leafOpacityMap, uv + float2(float(x), float(y)) * radius);
-            float sampleOpacity = clamp(sampleValue.a, 0.0, 1.0);
-            if (depthGate && sampleOpacity > 1.0e-4)
-            {
-                float casterDepth = clamp(sampleValue.r / sampleOpacity, 0.0, 1.0);
-                if (receiverDepth <= casterDepth + 0.0015) sampleOpacity = 0.0;
-            }
+            float sampleOpacity = leafShadowSampleOpacity(sampleValue, receiverDepth, depthGate);
             opacity = max(opacity, sampleOpacity);
         }
     }
@@ -278,117 +331,64 @@ float leafTransmittance(Sampler2D leafOpacityMap, Sampler2D leafMaskMap,
     return clamp(transmittance, clamp(gui.leaf_shadow_min_transmittance, 0.0, 1.0), 1.0);
 }
 
-float cloudTransmittance(Sampler2D cloudShadowMap, U_GuiInput gui,
-                         float4x4 shadowViewProjection, float4 worldPosition)
-{
-    if (gui.cloud_shadows_enabled == 0u || gui.clouds_enabled == 0u) return 1.0;
-    if (worldPosition.y > gui.cloud_top_height) return 1.0;
-
-    float4 lightSpace = mul(shadowViewProjection, worldPosition);
-    float3 ndc = lightSpace.xyz / lightSpace.w;
-    float2 uv = ndc.xy * 0.5 + 0.5;
-    if (any(uv < float2(0.0)) || any(uv > float2(1.0))) return 1.0;
-    return clamp(sampleExplicitLod(cloudShadowMap, uv).r, 0.0, 1.0);
-}
-
 bool sourceEnabled(DirectSunShadowReceiver receiver, uint source)
 {
     return (receiver.source_mask & source) != 0u &&
            (receiver.available_mask & source) != 0u;
 }
 
-public DirectSunShadowTransmittances directSunShadowTransmittancesVsmLeafCloud(
-    DirectSunShadowReceiver receiver,
-    U_GuiInput gui,
-    float4x4 shadowViewProjection,
-    Sampler2D vsmMap,
-    Sampler2D leafOpacityMap,
-    Sampler2D leafMaskMap,
-    Sampler2D cloudShadowMap)
+DirectSunShadowTransmittances sunShadowWithTerrainVisibility(
+    DirectSunShadowReceiver receiver, U_GuiInput gui,
+    float4x4 shadowViewProjection, float terrainShadow)
 {
-    float terrainShadow = 1.0;
-    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN))
-    {
-        terrainShadow = vsmTransmittance(
-            vsmMap, shadowViewProjection, receiver.terrain_world_position);
-    }
-
     float leafShadow = 1.0;
     if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_LEAF))
     {
         bool depthGate =
             (receiver.flags & DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE) != 0u;
         leafShadow = leafTransmittance(
-            leafOpacityMap,
-            leafMaskMap,
+            leaf_shadow_opacity_blended_tex,
+            leaf_shadow_mask_tex,
             gui,
             shadowViewProjection,
             receiver.leaf_world_position,
             depthGate);
     }
 
-    float cloudShadow = 1.0;
-    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_CLOUD))
-    {
-        cloudShadow = cloudTransmittance(
-            cloudShadowMap,
-            gui,
-            shadowViewProjection,
-            receiver.cloud_world_position);
-    }
     DirectSunShadowTransmittances transmittances;
     transmittances.terrain = terrainShadow;
     transmittances.leaf = leafShadow;
-    transmittances.cloud = cloudShadow;
-    transmittances.combined = terrainShadow * leafShadow * cloudShadow;
+    transmittances.combined = terrainShadow * leafShadow;
     return transmittances;
 }
 
-public float directSunShadowTransmittanceVsmLeafCloud(
-    DirectSunShadowReceiver receiver,
-    U_GuiInput gui,
-    float4x4 shadowViewProjection,
-    Sampler2D vsmMap,
-    Sampler2D leafOpacityMap,
-    Sampler2D leafMaskMap,
-    Sampler2D cloudShadowMap)
+// Stable daylight query used by terrain, raster materials, flora and soil.
+public DirectSunShadowTransmittances sampleDirectSunShadow(
+    DirectSunShadowReceiver receiver, U_GuiInput gui, U_ShadowCameraInfo shadowCamera)
 {
-    return directSunShadowTransmittancesVsmLeafCloud(
-        receiver, gui, shadowViewProjection, vsmMap, leafOpacityMap,
-        leafMaskMap, cloudShadowMap).combined;
+    float terrainShadow = sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN)
+        ? vsmTransmittance(shadow_map_tex_for_vsm_ping,
+            shadowCamera.view_proj_mat, receiver.terrain_world_position)
+        : 1.0;
+    return sunShadowWithTerrainVisibility(
+        receiver, gui, shadowCamera.view_proj_mat, terrainShadow);
 }
 
+// The PCSS receiver policy remains available without duplicating leaf
+// sampling. Its noise and depth dependencies are needed only by PCSS callers.
 public float directSunShadowTransmittance(
-    DirectSunShadowReceiver receiver, U_GuiInput gui, float4x4 shadowViewProjection,
-    float4x4 shadowViewProjectionInverse,
-    Sampler2D shadowMap, Sampler2D leafOpacityMap, Sampler2D leafMaskMap,
-    Sampler2D cloudShadowMap, Sampler2D vsmMap,
-    Sampler2DArray scalarNoise, Sampler2DArray unitVectorNoise)
+    DirectSunShadowReceiver receiver, U_GuiInput gui, U_ShadowCameraInfo shadowCamera,
+    Sampler2D shadowMap, Sampler2DArray scalarNoise, Sampler2DArray unitVectorNoise)
 {
     float terrainShadow = 1.0;
     if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_TERRAIN))
     {
         terrainShadow = receiver.terrain_mode == DIRECT_TERRAIN_SHADOW_VSM
-            ? vsmTransmittance(
-                vsmMap, shadowViewProjection, receiver.terrain_world_position)
+            ? vsmTransmittance(shadow_map_tex_for_vsm_ping,
+                shadowCamera.view_proj_mat, receiver.terrain_world_position)
             : pcssTransmittance(shadowMap, scalarNoise, unitVectorNoise,
-                                shadowViewProjection, shadowViewProjectionInverse,
-                                receiver);
+                shadowCamera.view_proj_mat, shadowCamera.view_proj_mat_inv, receiver);
     }
-
-    float leafShadow = 1.0;
-    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_LEAF))
-    {
-        bool depthGate = (receiver.flags & DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE) != 0u;
-        leafShadow = leafTransmittance(leafOpacityMap, leafMaskMap, gui,
-                                       shadowViewProjection,
-                                       receiver.leaf_world_position,
-                                       depthGate);
-    }
-
-    float cloudShadow = 1.0;
-    if (sourceEnabled(receiver, DIRECT_SUN_SHADOW_SOURCE_CLOUD))
-        cloudShadow = cloudTransmittance(cloudShadowMap, gui, shadowViewProjection,
-                                         receiver.cloud_world_position);
-    return terrainShadow * leafShadow * cloudShadow;
+    return sunShadowWithTerrainVisibility(
+        receiver, gui, shadowCamera.view_proj_mat, terrainShadow).combined;
 }

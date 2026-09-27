@@ -165,6 +165,9 @@ pub enum EnvironmentLightingTestCase {
     TerrainEditsInflightCapture,
     TerrainEditsClosed,
     TerrainEditsSustained,
+    TerrainEditsSustainedLights,
+    IndirectResponse,
+    IndirectResponseStatic,
     CaveEdits,
     CaveEditsOpen,
     CaveEditsPortal,
@@ -198,6 +201,9 @@ impl EnvironmentLightingTestCase {
             "cave-edits-portal-final" => Some(Self::CaveEditsPortalFinal),
             "cave-edits-history-toggles" => Some(Self::CaveEditsHistoryToggles),
             "terrain-edits-sustained" => Some(Self::TerrainEditsSustained),
+            "terrain-edits-sustained-lights" => Some(Self::TerrainEditsSustainedLights),
+            "indirect-response" => Some(Self::IndirectResponse),
+            "indirect-response-static" => Some(Self::IndirectResponseStatic),
             "terrain-edits-closed" => Some(Self::TerrainEditsClosed),
             _ => None,
         }
@@ -228,6 +234,9 @@ impl EnvironmentLightingTestCase {
             Self::CaveEditsPortalFinal => "cave-edits-portal-final",
             Self::CaveEditsHistoryToggles => "cave-edits-history-toggles",
             Self::TerrainEditsSustained => "terrain-edits-sustained",
+            Self::TerrainEditsSustainedLights => "terrain-edits-sustained-lights",
+            Self::IndirectResponse => "indirect-response",
+            Self::IndirectResponseStatic => "indirect-response-static",
             Self::TerrainEditsClosed => "terrain-edits-closed",
         }
     }
@@ -584,7 +593,9 @@ fn parse_query_command(args: &[String]) -> Result<Option<LaunchCommand>, String>
     Ok(Some(LaunchCommand::InspectLogs(inspection)))
 }
 
-fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
+fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
+    // Explicit compatibility boundary, not accidental unknown-argument acceptance.
+    args.retain(|argument| argument != "--no-clouds");
     if let Some(acceptance) = parse_lighting_mode_acceptance(&args)? {
         let program = args
             .first()
@@ -1063,7 +1074,6 @@ fn parse_run_plan(args: Vec<String>) -> Result<RunPlan, String> {
                     enable_flora: !no_flora,
                     enable_leaves: !no_flora,
                     enable_particles: !args.iter().any(|a| a == "--no-particles"),
-                    enable_clouds: false,
                 },
                 perf_logging: args.iter().any(|a| a == "--perf"),
             },
@@ -1285,7 +1295,7 @@ fn parse_environment_lighting_test_scene(
             .map(Some)
             .ok_or_else(|| {
                 format!(
-                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed."
+                    "Invalid --environment-lighting-test-scene '{value}'. Expected one of: sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, terrain-edits-sustained-lights, indirect-response, indirect-response-static, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed."
                 )
             }),
     }
@@ -1504,7 +1514,7 @@ Options:
   --no-tracer                 Disable main tracer pass
   --no-particles              Disable particle simulation and rendering
   --no-flora                  Disable flora and leaves rendering
-  --no-clouds                 Disable procedural cloud rendering
+  --no-clouds                 deprecated; clouds removed; omit this flag.
   --present-mode <mode>       Override auto present mode selection: mailbox, immediate, fifo, fifo_relaxed
   --monitor-score <mode>      Select borderless fullscreen monitor by resolution score: highest, lowest (default: highest)
   --swapchain-images <N>      Override swapchain image count (default: auto)
@@ -1561,7 +1571,12 @@ Options:
                               radiance-changes, point-light-changes, voxel-emissive-changes,
                               raster-emitter-changes, multi-source-stress, local-light-scaling,
                               density-changes, terrain-edits,
-                              terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, or
+                              terrain-edits-inflight, terrain-edits-inflight-capture,
+                              terrain-edits-sustained (40 edits), terrain-edits-sustained-lights
+                              (40 edits plus 10 point-light toggles, independent of DDGI readiness),
+                              indirect-response (raw DDGI on/off response during edits; exits on completion),
+                              indirect-response-static (same receiver/light timeline without terrain edits),
+                              cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, or
                               terrain-edits-closed
                               Screenshot preset 'environment-test-scene' retains the fixture camera.
   --environment-irradiance-capture <path>
@@ -1658,7 +1673,6 @@ pub struct RenderFlags {
     pub enable_flora: bool,
     pub enable_leaves: bool,
     pub enable_particles: bool,
-    pub enable_clouds: bool,
 }
 
 #[cfg(test)]
@@ -1688,6 +1702,21 @@ mod tests {
             Scenario::GlassVoxel(options) => *options,
             scenario => panic!("expected Glass voxel scenario, got {scenario:?}"),
         }
+    }
+
+    #[test]
+    fn retired_no_clouds_flag_is_an_explicit_compatible_noop() {
+        let canonical = parse(&["re-flora", "--hidden", "--mute", "--no-shadows"]);
+        let legacy = parse(&[
+            "re-flora",
+            "--hidden",
+            "--mute",
+            "--no-shadows",
+            "--no-clouds",
+        ]);
+        assert_eq!(format!("{legacy:?}"), format!("{canonical:?}"));
+        assert!(help_text()
+            .contains("--no-clouds                 deprecated; clouds removed; omit this flag."));
     }
 
     #[test]
@@ -2009,6 +2038,18 @@ mod tests {
                 EnvironmentLightingTestCase::TerrainEditsSustained,
             ),
             (
+                "terrain-edits-sustained-lights",
+                EnvironmentLightingTestCase::TerrainEditsSustainedLights,
+            ),
+            (
+                "indirect-response",
+                EnvironmentLightingTestCase::IndirectResponse,
+            ),
+            (
+                "indirect-response-static",
+                EnvironmentLightingTestCase::IndirectResponseStatic,
+            ),
+            (
                 "terrain-edits-inflight",
                 EnvironmentLightingTestCase::TerrainEditsInflight,
             ),
@@ -2036,7 +2077,7 @@ mod tests {
         );
 
         assert!(result.unwrap_err().contains(
-            "sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed"
+            "sealed, patt-seam, portal, walls, thin-voxels, donor, dogleg, radiance-changes, point-light-changes, voxel-emissive-changes, raster-emitter-changes, multi-source-stress, local-light-scaling, density-changes, terrain-edits, terrain-edits-inflight, terrain-edits-inflight-capture, terrain-edits-sustained, terrain-edits-sustained-lights, indirect-response, indirect-response-static, cave-edits, cave-edits-open, cave-edits-portal, cave-edits-portal-final, cave-edits-history-toggles, terrain-edits-closed"
         ));
     }
 

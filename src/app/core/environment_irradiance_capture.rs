@@ -1,7 +1,7 @@
 use super::environment_lighting_test_scene::EnvironmentCapturePort;
 use crate::ddgi::{
     DdgiCaptureCheckpoint, DdgiDebugView, DdgiFieldIdentity, DdgiFieldState, DdgiFilterEpochProof,
-    DdgiRefreshState, DdgiVolumeStage, DDGI_FILTER_POLICY_OWNER_MASK, DDGI_RAYS_PER_PROBE,
+    DdgiRefreshState, DdgiRuntimeVolumeStatus, DDGI_FILTER_POLICY_OWNER_MASK, DDGI_RAYS_PER_PROBE,
 };
 use crate::environment_lighting::{DdgiRadianceSnapshot, DDGI_AUTHORED_SKY_MODEL_IDENTITY};
 use crate::tracer::{
@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const CAPTURE_MAGIC: &[u8; 8] = b"RFIRR001";
-const CAPTURE_VERSION: u32 = 10;
+const CAPTURE_VERSION: u32 = 11;
 const CAPTURE_CHANNEL_COUNT: u32 = 4;
 const CAPTURE_PLANE_COUNT: u32 = ENVIRONMENT_IRRADIANCE_CAPTURE_PLANE_COUNT;
 const CAPTURE_HEADER_BYTE_COUNT: usize = 284;
@@ -64,7 +64,7 @@ impl CaptureMetadata {
         let source = checkpoint.field.source();
         let filter_proof = checkpoint
             .filter_proof
-            .context("RFIRR v10 requires completed owner-generated DDGI filter evidence")?;
+            .context("RFIRR v11 requires completed owner-generated DDGI filter evidence")?;
         let filter_evidence = filter_proof.evidence;
         ensure!(
             filter_proof.configuration.probe_count()? == filter_evidence.probe_count
@@ -320,35 +320,34 @@ struct ProductionCaptureCheckpointSource<'a> {
 
 impl CaptureCheckpointSource for ProductionCaptureCheckpointSource<'_> {
     fn capture_readiness(&self) -> CaptureReadinessObservation {
-        let scene_ready = self.environment.scene_ready();
-        let inflight_target_revision = self.environment.inflight_target_revision();
-        let inflight_checkpoint_ready = inflight_target_revision.is_none_or(|target_revision| {
-            let runtime = self.tracer.ddgi_runtime_status();
-            matches!(
-                runtime.coordinator(),
-                DdgiRefreshState::BuildingTerrain {
-                    candidate,
-                    latest_terrain_revision,
-                } if candidate.terrain_revision() == target_revision
-                    && latest_terrain_revision == target_revision
-            ) && runtime.target_terrain_revision() == Some(target_revision)
-                && runtime
-                    .active()
-                    .relocated_terrain_revision
-                    .is_some_and(|active_revision| active_revision != target_revision)
-                && runtime.staging().is_some_and(|staging| {
-                    staging.build_token.is_some() && staging.stage != DdgiVolumeStage::Ready
-                })
-                && runtime.active_consumers_are_available()
-        });
-        CaptureReadinessObservation::new(
-            scene_ready,
+        let runtime = self.tracer.ddgi_runtime_status();
+        observe_capture_readiness(
+            self.environment,
             self.tracer.ddgi_capture_checkpoint(),
-            self.environment.radiance_request(),
-            inflight_target_revision,
-            inflight_checkpoint_ready,
+            runtime.active(),
+            runtime.staging(),
+            runtime.coordinator(),
         )
     }
+}
+
+// Both frame observations use the fixture's exact window and the current runtime facts.
+// A promotion or a different builder invalidates the frame rather than relabeling its pixels.
+fn observe_capture_readiness(
+    environment: EnvironmentCapturePort,
+    checkpoint: Option<DdgiCaptureCheckpoint>,
+    active: DdgiRuntimeVolumeStatus,
+    staging: Option<DdgiRuntimeVolumeStatus>,
+    coordinator: DdgiRefreshState,
+) -> CaptureReadinessObservation {
+    let window = environment.inflight_window();
+    CaptureReadinessObservation::new(
+        environment.scene_ready(),
+        checkpoint,
+        environment.radiance_request(),
+        window.map(|window| window.target_revision()),
+        window.is_none_or(|window| window.is_ready(active, staging, coordinator)),
+    )
 }
 
 pub(super) struct PendingEnvironmentIrradianceCapture {
@@ -560,8 +559,10 @@ impl EnvironmentIrradianceCaptureRuntime {
                 .staging()
                 .expect("ready in-flight checkpoint must retain staging work");
             log::info!(target: "re_flora::app::core::environment_irradiance_capture",
-                "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=stale-active",
+                "[ENV_LIGHT_EDIT_INFLIGHT_CAPTURE] recording active_terrain_revision={:?} active_field_serial={} active_update_epoch={} target_terrain_revision={} staging_token_serial={:?} staging_stage={:?} staging_progress={}/{} coordinator={:?} invalidation=stale-active",
                 runtime.active().relocated_terrain_revision,
+                candidate.ddgi_checkpoint().field.field().serial(),
+                candidate.ddgi_checkpoint().field.field().update_epoch(),
                 target_revision,
                 runtime.staging_token().map(|token| token.serial()),
                 staging.stage,
@@ -775,7 +776,7 @@ impl EnvironmentIrradianceCaptureRuntime {
             evidence.write(&readback.path)?;
         }
         log::info!(
-            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit+float4-receiver-center-xyz-terrain-shadow-transmittance+float4-terrain-leaf-cloud-combined-shadow-transmittance",
+            "[ENV_IRRADIANCE_CAPTURE] saved path={} extent={}x{} backend={} spacing_voxels={} view={} samples={} geometry_revision={} radiance_revision={} radiance_model_identity={} build_token_serial={} field_serial={} lifecycle_state={} update_epoch={} source_state={} source_update_epoch={} source_field_serial={} source_radiance_revision={} publication_state={} batch_order={} max_abs_delta={} max_rel_delta={} nonfinite_count={} valid_count={} format=float4-linear-rgb-hit+float4-world-xyz-exact-direct-sun-visibility+float4-direct-light-rgb-hit+float4-receiver-center-xyz-terrain-shadow-transmittance+float4-terrain-leaf-integrated-weight-combined-shadow-diagnostics",
             readback.path,
             readback.extent.width,
             readback.extent.height,
@@ -807,6 +808,7 @@ impl EnvironmentIrradianceCaptureRuntime {
 
 #[cfg(test)]
 mod tests {
+    use super::super::environment_lighting_test_scene::InflightCaptureWindow;
     use super::*;
     use crate::ddgi::{
         DdgiAtlasValidationStats, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
@@ -814,11 +816,20 @@ mod tests {
         DdgiFieldState, DdgiFilterActionCounts, DdgiFilterConfigurationIdentity,
         DdgiFilterEpochEvidence, DdgiFilterHistoryEvidence, DdgiFilterVisibilitySampleEvidence,
     };
+    use crate::ddgi::{DdgiFieldPublication, DdgiResourceBytes, DdgiVolumeGrid, DdgiVolumeStage};
     use crate::tracer::record_capture_frame_for_test;
     use std::cell::{Cell, RefCell};
 
     fn checkpoint(serial: u64, state: DdgiFieldState, epoch: u32) -> DdgiCaptureCheckpoint {
-        let geometry_revision = 41;
+        checkpoint_for_geometry(serial, state, epoch, 41)
+    }
+
+    fn checkpoint_for_geometry(
+        serial: u64,
+        state: DdgiFieldState,
+        epoch: u32,
+        geometry_revision: u32,
+    ) -> DdgiCaptureCheckpoint {
         let radiance_revision = 17;
         let spacing_voxels = 16;
         let source = (epoch > 0).then(|| {
@@ -1141,6 +1152,271 @@ mod tests {
         assert_eq!(captured.inflight_target_revision(), Some(42));
     }
 
+    fn active_volume(checkpoint: DdgiCaptureCheckpoint) -> DdgiRuntimeVolumeStatus {
+        let field = checkpoint.field.field();
+        let first_serial = field.serial() - u64::from(field.update_epoch());
+        let root = checkpoint_for_geometry(
+            first_serial,
+            DdgiFieldState::Converging,
+            0,
+            field.geometry_revision(),
+        )
+        .field;
+        let mut publication = DdgiFieldPublication::for_test(checkpoint.build_token, root);
+        for epoch in 1..=field.update_epoch() {
+            publication = publication.advance_for_test(
+                checkpoint_for_geometry(
+                    first_serial + u64::from(epoch),
+                    field.state(),
+                    epoch,
+                    field.geometry_revision(),
+                )
+                .field,
+            );
+        }
+        let grid = DdgiVolumeGrid::new(glam::UVec3::splat(512), 16.try_into().unwrap()).unwrap();
+        DdgiRuntimeVolumeStatus {
+            build_token: Some(checkpoint.build_token),
+            grid,
+            resource_bytes: DdgiResourceBytes::for_grid(grid).unwrap(),
+            stage: DdgiVolumeStage::Ready,
+            target_work: None,
+            complete_field: Some(checkpoint.field),
+            publication: Some(publication),
+            building_field: None,
+            last_atlas_validation: Some(checkpoint.validation),
+            global_sky_revision: field.radiance_revision(),
+            radiance_revision: Some(field.radiance_revision()),
+            relocated_terrain_revision: Some(field.geometry_revision()),
+            filtered_probe_count: grid.probe_count(),
+            probe_priority: None,
+        }
+    }
+
+    fn staging_volume(
+        active: DdgiRuntimeVolumeStatus,
+        token: DdgiBuildToken,
+    ) -> DdgiRuntimeVolumeStatus {
+        DdgiRuntimeVolumeStatus {
+            build_token: Some(token),
+            stage: DdgiVolumeStage::Rebuilding,
+            complete_field: None,
+            publication: None,
+            last_atlas_validation: None,
+            relocated_terrain_revision: Some(token.terrain_revision()),
+            filtered_probe_count: 512,
+            ..active
+        }
+    }
+
+    fn observed_source(
+        window: InflightCaptureWindow,
+        checkpoint: DdgiCaptureCheckpoint,
+        active: DdgiRuntimeVolumeStatus,
+        staging: Option<DdgiRuntimeVolumeStatus>,
+        coordinator: DdgiRefreshState,
+    ) -> TestCaptureCheckpointSource {
+        TestCaptureCheckpointSource(observe_capture_readiness(
+            EnvironmentCapturePort::Active {
+                scene_ready: true,
+                radiance_request: None,
+                inflight_window: Some(window),
+            },
+            Some(checkpoint),
+            active,
+            staging,
+            coordinator,
+        ))
+    }
+
+    #[test]
+    fn inflight_e2_captures_old_active_while_the_two_new_edits_overlap() {
+        let old = checkpoint(89, DdgiFieldState::Converging, 2);
+        let active = active_volume(old);
+        let candidate = DdgiBuildToken::for_test(1090, 42, 16, DdgiBuildKind::Terrain);
+        let window = InflightCaptureWindow::OverlappingEdits {
+            active_field: old.field,
+            candidate,
+            target_revision: 43,
+        };
+        let observed = observed_source(
+            window,
+            old,
+            active,
+            Some(staging_volume(active, candidate)),
+            DdgiRefreshState::BuildingTerrain {
+                candidate,
+                latest_terrain_revision: 43,
+            },
+        );
+        let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+            Some("e2.rfirr".to_owned()),
+            DdgiDebugView::ExactIrradiance,
+        );
+        let time_info = TimeInfo::default();
+        let (view, frame) = begin(&mut runtime, &time_info, &observed);
+        assert_eq!(view, DdgiDebugView::ExactIrradiance);
+        let captured = finish(&mut runtime, &time_info, frame, &observed).unwrap();
+        assert_eq!(captured.ddgi_checkpoint(), old);
+        assert_eq!(captured.ddgi_checkpoint().field.field().update_epoch(), 2);
+        assert_eq!(
+            captured.ddgi_checkpoint().field.field().geometry_revision(),
+            41
+        );
+        assert_eq!(captured.inflight_target_revision(), Some(43));
+    }
+
+    #[test]
+    fn inflight_e2_rejects_changed_active_candidate_or_pending_revision_and_rearms() {
+        let old = checkpoint(89, DdgiFieldState::Converging, 2);
+        let active = active_volume(old);
+        let candidate = DdgiBuildToken::for_test(1090, 42, 16, DdgiBuildKind::Terrain);
+        let staging = staging_volume(active, candidate);
+        let window = InflightCaptureWindow::OverlappingEdits {
+            active_field: old.field,
+            candidate,
+            target_revision: 43,
+        };
+        let building = DdgiRefreshState::BuildingTerrain {
+            candidate,
+            latest_terrain_revision: 43,
+        };
+        let observed = observed_source(window, old, active, Some(staging), building);
+        let wrong_candidate = DdgiBuildToken::for_test(1091, 42, 16, DdgiBuildKind::Terrain);
+        let e0 = checkpoint(91, DdgiFieldState::Converging, 0);
+        let e3 = checkpoint(90, DdgiFieldState::Converging, 3);
+        let new_geometry = checkpoint_for_geometry(92, DdgiFieldState::Converging, 2, 42);
+        let mut missing_active = active;
+        missing_active.publication = None;
+        let mut wrong_geometry = active;
+        wrong_geometry.relocated_terrain_revision = Some(43);
+        for invalid in [
+            observed_source(window, e0, active_volume(e0), Some(staging), building),
+            observed_source(window, e3, active_volume(e3), Some(staging), building),
+            observed_source(
+                window,
+                new_geometry,
+                active_volume(new_geometry),
+                Some(staging),
+                building,
+            ),
+            observed_source(window, old, missing_active, Some(staging), building),
+            observed_source(window, old, wrong_geometry, Some(staging), building),
+            observed_source(window, old, active, None, building),
+            observed_source(
+                window,
+                old,
+                active,
+                Some(DdgiRuntimeVolumeStatus {
+                    stage: DdgiVolumeStage::Ready,
+                    ..staging
+                }),
+                building,
+            ),
+            observed_source(
+                window,
+                old,
+                active,
+                Some(staging_volume(active, wrong_candidate)),
+                building,
+            ),
+            observed_source(
+                window,
+                old,
+                active,
+                Some(staging_volume(active, wrong_candidate)),
+                DdgiRefreshState::BuildingTerrain {
+                    candidate: wrong_candidate,
+                    latest_terrain_revision: 43,
+                },
+            ),
+            observed_source(
+                window,
+                old,
+                active,
+                Some(staging),
+                DdgiRefreshState::BuildingTerrain {
+                    candidate,
+                    latest_terrain_revision: 44,
+                },
+            ),
+            observed_source(window, old, active, Some(staging), DdgiRefreshState::Idle),
+        ] {
+            let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+                Some("e2.rfirr".to_owned()),
+                DdgiDebugView::ExactIrradiance,
+            );
+            let mut time_info = TimeInfo::default();
+            let (_, frame) = begin(&mut runtime, &time_info, &observed);
+            assert!(finish(&mut runtime, &time_info, frame, &invalid).is_none());
+            time_info.update(false);
+            let (view, frame) = begin(&mut runtime, &time_info, &invalid);
+            assert_eq!(view, DdgiDebugView::Final);
+            assert!(
+                finish(&mut runtime, &time_info, frame, &observed).is_none(),
+                "an invalidated frame cannot capture even when readiness recovers"
+            );
+            time_info.update(false);
+            let (_, frame) = begin(&mut runtime, &time_info, &observed);
+            assert_eq!(
+                finish(&mut runtime, &time_info, frame, &observed)
+                    .unwrap()
+                    .ddgi_checkpoint(),
+                old
+            );
+        }
+    }
+
+    #[test]
+    fn inflight_published_and_default_keep_the_latest_candidate_window() {
+        for target in [
+            crate::ddgi::DdgiCaptureTarget::Published,
+            crate::ddgi::DdgiCaptureTarget::default(),
+        ] {
+            let old = checkpoint(89, DdgiFieldState::Converging, 0);
+            assert!(target.matches_checkpoint(old.field, old.publication));
+            let active = active_volume(old);
+            let candidate = DdgiBuildToken::for_test(1090, 42, 16, DdgiBuildKind::Terrain);
+            let window = InflightCaptureWindow::LatestTerrain {
+                target_revision: 42,
+            };
+            let observed = observed_source(
+                window,
+                old,
+                active,
+                Some(staging_volume(active, candidate)),
+                DdgiRefreshState::BuildingTerrain {
+                    candidate,
+                    latest_terrain_revision: 42,
+                },
+            );
+            let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
+                Some("e0.rfirr".to_owned()),
+                DdgiDebugView::Final,
+            );
+            let time_info = TimeInfo::default();
+            let (_, frame) = begin(&mut runtime, &time_info, &observed);
+            assert_eq!(
+                finish(&mut runtime, &time_info, frame, &observed)
+                    .unwrap()
+                    .ddgi_checkpoint(),
+                old
+            );
+            let pending = observed_source(
+                window,
+                old,
+                active,
+                Some(staging_volume(active, candidate)),
+                DdgiRefreshState::BuildingTerrain {
+                    candidate,
+                    latest_terrain_revision: 43,
+                },
+            );
+            let (_, frame) = begin(&mut runtime, &time_info, &pending);
+            assert!(finish(&mut runtime, &time_info, frame, &pending).is_none());
+        }
+    }
+
     #[test]
     fn final_requested_view_still_obeys_the_full_frame_arming_contract() {
         let mut runtime = EnvironmentIrradianceCaptureRuntime::new(
@@ -1193,7 +1469,7 @@ mod tests {
     #[test]
     fn capture_header_is_fixed_width_and_self_describing() {
         assert_eq!(CAPTURE_MAGIC.len(), 8);
-        assert_eq!(CAPTURE_VERSION, 10);
+        assert_eq!(CAPTURE_VERSION, 11);
         assert_eq!(CAPTURE_CHANNEL_COUNT, 4);
         assert_eq!(CAPTURE_PLANE_COUNT, 5);
         assert_eq!(CAPTURE_HEADER_BYTE_COUNT, 284);
@@ -1317,14 +1593,14 @@ mod tests {
             [1.0_f32, 2.0, 3.0, 0.0],
             [0.0_f32, 0.0, 0.0, 1.0],
             [1.0_f32 / 512.0, 1.0 / 512.0, 1.0 / 512.0, 1.0],
-            [1.0_f32, 1.0, 1.0, 1.0],
+            [1.0_f32, 1.0, 0.0, 1.0],
         ] {
             for value in pixel {
                 golden_capture.extend_from_slice(&value.to_le_bytes());
             }
         }
         let fixture_hex =
-            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v10.hex");
+            include_str!("../../../scripts/tests/fixtures/ddgi_filter_evidence_v11.hex");
         let compact: String = fixture_hex.chars().filter(|c| !c.is_whitespace()).collect();
         let fixture: Vec<u8> = compact
             .as_bytes()

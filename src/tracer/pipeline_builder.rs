@@ -142,6 +142,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let ddgi_response_sample_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/ddgi/response_sample.comp",
+            "main",
+        )
+        .unwrap();
         let local_light_visibility_diagnostic_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             if glass_experiment_enabled {
@@ -297,31 +303,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let cloud_sm =
-            ShaderModule::from_precompiled(vulkan_ctx.device(), "shader/tracer/cloud.comp", "main")
-                .unwrap();
-
-        let cloud_shadow_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/cloud_shadow.comp",
-            "main",
-        )
-        .unwrap();
-
-        let cloud_shadow_temporal_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/cloud_shadow_temporal.comp",
-            "main",
-        )
-        .unwrap();
-
-        let cloud_temporal_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/cloud_temporal.comp",
-            "main",
-        )
-        .unwrap();
-
         let lens_flare_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/lens_flare.comp",
@@ -377,12 +358,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let tree_leaf_model_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/foliage/tree_leaf_model.comp",
-            "main",
-        )
-        .unwrap();
         let leaf_handoff_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/leaf_handoff.comp",
@@ -484,24 +459,6 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
-        let tree_pixel_comp_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/trees/tree_pixel.comp",
-            "main",
-        )
-        .map_err(anyhow::Error::msg)?;
-        let tree_pixel_vert_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/trees/tree_pixel.vert",
-            "main",
-        )
-        .map_err(anyhow::Error::msg)?;
-        let tree_pixel_frag_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/trees/tree_pixel.frag",
-            "main",
-        )
-        .map_err(anyhow::Error::msg)?;
         let raster_tree_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/trees/raster_tree.vert",
@@ -535,6 +492,12 @@ impl PipelineBuilder {
         let raster_tree_lighting_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/trees/raster_tree_lighting.comp",
+            "main",
+        )
+        .unwrap();
+        let dynamic_fruit_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/dynamic_fruit.vert",
             "main",
         )
         .unwrap();
@@ -638,6 +601,7 @@ impl PipelineBuilder {
             ddgi_probe_relocate_sm,
             ddgi_probe_trace_sm,
             local_light_visibility_diagnostic_sm,
+            ddgi_response_sample_sm,
             ddgi_irradiance_filter_sm,
             ddgi_visibility_filter_sm,
             ddgi_irradiance_gutter_sm,
@@ -658,10 +622,6 @@ impl PipelineBuilder {
             glass_resolve_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
-            cloud_sm,
-            cloud_shadow_sm,
-            cloud_shadow_temporal_sm,
-            cloud_temporal_sm,
             lens_flare_sm,
             lens_flare_temporal_sm,
             lens_flare_sun_visible_sm,
@@ -671,7 +631,6 @@ impl PipelineBuilder {
             wind_volume_sm,
             vegetation_response_sm,
             leaf_handoff_sm,
-            tree_leaf_model_sm,
             flora_vert_sm,
             flora_frag_sm,
             flora_lod_vert_sm,
@@ -685,9 +644,6 @@ impl PipelineBuilder {
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
             environment_probe_visualization_vert_sm,
-            tree_pixel_comp_sm,
-            tree_pixel_vert_sm,
-            tree_pixel_frag_sm,
             raster_tree_vert_sm,
             raster_tree_frag_sm,
             raster_tree_shadow_vert_sm,
@@ -699,6 +655,7 @@ impl PipelineBuilder {
             apple_pixel_tree_vert_sm,
             apple_pixel_dynamic_vert_sm,
             apple_pixel_frag_sm,
+            dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
             dynamic_fruit_shadow_frag_sm,
             butterfly_tile_comp_sm,
@@ -756,6 +713,12 @@ impl PipelineBuilder {
                 ddgi_volume,
                 ddgi_voxel_visibility,
             ],
+        );
+        let ddgi_response_sample_ppl = ComputePipeline::new(
+            device,
+            &shader_modules.ddgi_response_sample_sm,
+            pool,
+            &[resources, ddgi_volume, ddgi_voxel_visibility],
         );
         let local_light_visibility_diagnostic_ppl = ComputePipeline::new(
             device,
@@ -848,14 +811,6 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
-        let tree_pixel_ppl =
-            ComputePipeline::new_uninitialized(device, &shader_modules.tree_pixel_comp_sm, pool);
-        tree_pixel_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "camera_info",
-                providers: &[resources],
-            })
-            .expect("live tree pixel static descriptors must resolve");
         let tree_skin_ppl =
             ComputePipeline::new(device, &shader_modules.tree_skin_sm, pool, &[resources]);
         let tree_refit_ppl =
@@ -909,21 +864,6 @@ impl PipelineBuilder {
                 ],
             })
             .expect("tree-leaf lighting cache static descriptors must resolve");
-        let tree_leaf_model_ppl =
-            ComputePipeline::new_uninitialized(device, &shader_modules.tree_leaf_model_sm, pool);
-        tree_leaf_model_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &[
-                    resources,
-                    contree_builder_resources,
-                    scene_accel_resources,
-                    plain_builder_resources,
-                    ddgi_volume,
-                    ddgi_voxel_visibility,
-                ],
-            })
-            .expect("tree leaf model static descriptors");
         let leaf_handoff_ppl =
             ComputePipeline::new_uninitialized(device, &shader_modules.leaf_handoff_sm, pool);
         leaf_handoff_ppl
@@ -1051,21 +991,6 @@ impl PipelineBuilder {
                     ],
                 )
             });
-        let cloud_ppl = ComputePipeline::new(device, &shader_modules.cloud_sm, pool, &[resources]);
-        let cloud_shadow_ppl =
-            ComputePipeline::new(device, &shader_modules.cloud_shadow_sm, pool, &[resources]);
-        let cloud_shadow_temporal_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.cloud_shadow_temporal_sm,
-            pool,
-            &[resources],
-        );
-        let cloud_temporal_ppl = ComputePipeline::new(
-            device,
-            &shader_modules.cloud_temporal_sm,
-            pool,
-            &[resources],
-        );
         let lens_flare_ppl =
             ComputePipeline::new(device, &shader_modules.lens_flare_sm, pool, &[resources]);
         let lens_flare_temporal_ppl = ComputePipeline::new(
@@ -1093,6 +1018,7 @@ impl PipelineBuilder {
             ddgi_probe_relocate_ppl,
             ddgi_probe_trace_ppl,
             local_light_visibility_diagnostic_ppl,
+            ddgi_response_sample_ppl,
             ddgi_irradiance_filter_ppl,
             ddgi_visibility_filter_ppl,
             ddgi_irradiance_gutter_ppl,
@@ -1100,7 +1026,6 @@ impl PipelineBuilder {
             ddgi_atlas_reduce_ppl,
             ddgi_voxel_visibility_pack_ppl,
             ddgi_voxel_visibility_blocks_ppl,
-            tree_pixel_ppl,
             raster_tree_lighting_ppl,
             tree_skin_ppl,
             tree_refit_ppl,
@@ -1119,10 +1044,6 @@ impl PipelineBuilder {
             vsm_blur_v_ppl,
             god_ray_ppl,
             god_ray_temporal_ppl,
-            cloud_ppl,
-            cloud_shadow_ppl,
-            cloud_shadow_temporal_ppl,
-            cloud_temporal_ppl,
             lens_flare_ppl,
             lens_flare_temporal_ppl,
             lens_flare_sun_visible_ppl,
@@ -1133,7 +1054,6 @@ impl PipelineBuilder {
             wind_volume_ppl,
             vegetation_response_ppl,
             leaf_handoff_ppl,
-            tree_leaf_model_ppl,
             post_processing_ppl,
         }
     }
@@ -1242,7 +1162,7 @@ impl PipelineBuilder {
         let leaves_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_vert_sm,
-            &shader_modules.butterfly_tile_frag_sm,
+            &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
@@ -1284,7 +1204,7 @@ impl PipelineBuilder {
         let leaves_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_lod_vert_sm,
-            &shader_modules.butterfly_tile_frag_sm,
+            &shader_modules.flora_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
@@ -1390,19 +1310,6 @@ impl PipelineBuilder {
             contree_builder_resources,
             scene_accel_resources,
         ];
-        let tree_pixel_ppl = GraphicsPipeline::new_uninitialized(
-            vulkan_ctx.device(),
-            &shader_modules.tree_pixel_vert_sm,
-            &shader_modules.tree_pixel_frag_sm,
-            &render_passes.render_pass_color_and_depth,
-            &GraphicsPipelineDesc {
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-            None,
-            pool,
-        );
         let raster_tree_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.raster_tree_vert_sm,
@@ -1433,6 +1340,21 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
+        let dynamic_fruit_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.dynamic_fruit_vert_sm,
+            &shader_modules.flora_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(4),
+            pool,
+            &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let apple_pixel_dynamic_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.apple_pixel_dynamic_vert_sm,
@@ -1442,6 +1364,10 @@ impl PipelineBuilder {
             pool,
             &environment_lighting_resources,
             GraphicsPipelineDesc {
+                vertex_binding_strides: vec![(
+                    1,
+                    std::mem::size_of::<super::DynamicFruitInstanceGpu>() as u32,
+                )],
                 cull_mode: vk::CullModeFlags::NONE,
                 depth_test_enable: true,
                 depth_write_enable: true,
@@ -1458,6 +1384,10 @@ impl PipelineBuilder {
             pool,
             &[resources],
             GraphicsPipelineDesc {
+                vertex_binding_strides: vec![(
+                    0,
+                    std::mem::size_of::<super::DynamicFruitVertex>() as u32,
+                )],
                 cull_mode: vk::CullModeFlags::BACK,
                 depth_test_enable: true,
                 depth_write_enable: true,
@@ -1541,11 +1471,11 @@ impl PipelineBuilder {
             geometry_preview_ppl,
             environment_probe_visualization_depth_ppl,
             environment_probe_visualization_overlay_ppl,
-            tree_pixel_ppl,
             raster_tree_ppl,
             raster_tree_shadow_ppl,
             apple_pixel_tree_ppl,
             apple_pixel_dynamic_ppl,
+            dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
             butterfly_tile_ppl,
             particle_ppl,
@@ -1759,13 +1689,18 @@ declare_ddgi_consumer_registry! {
     Tracer => Compute(compute.tracer_ppl),
     ButterflyTiles => Compute(compute.butterfly_tile_ppl),
     AppleTreeTiles => Compute(compute.apple_pixel_tree_ppl),
+    DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     AppleDynamicTiles => Compute(compute.apple_pixel_dynamic_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
     Flora => Graphics(graphics.flora_ppl),
     FloraLod => Graphics(graphics.flora_lod_ppl),
+    Leaves => Graphics(graphics.leaves_ppl),
+    LeavesLod => Graphics(graphics.leaves_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
+    RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
+    DdgiResponseSample => Compute(compute.ddgi_response_sample_ppl),
     Particle => Graphics(graphics.particle_ppl),
     WaterDroplet => Graphics(graphics.water_droplet_ppl),
     EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
@@ -2000,14 +1935,6 @@ impl PipelineTopology {
             active_ddgi_volume,
             ddgi_voxel_visibility,
         ];
-        retire_compute(
-            &self.compute.tree_pixel_ppl,
-            DescriptorUpdate::SetContaining {
-                anchor: "camera_info",
-                providers: &all_resources,
-            },
-            "tree pixel extent descriptor update failed",
-        );
         retire_graphics(
             &self.graphics.raster_tree_ppl,
             DescriptorUpdate::All(&all_resources),
@@ -2015,6 +1942,7 @@ impl PipelineTopology {
         );
         for pipeline in [
             &self.compute.raster_tree_lighting_ppl,
+            &self.compute.ddgi_response_sample_ppl,
             &self.compute.tree_skin_ppl,
             &self.compute.tree_refit_ppl,
             &self.compute.butterfly_tile_ppl,
@@ -2034,7 +1962,6 @@ impl PipelineTopology {
             &self.compute.apple_pixel_tree_ppl,
             &self.compute.apple_pixel_dynamic_ppl,
             &self.compute.leaf_handoff_ppl,
-            &self.compute.tree_leaf_model_ppl,
         ] {
             retire_compute(
                 pipeline,
@@ -2064,10 +1991,6 @@ impl PipelineTopology {
             &self.compute.vsm_blur_v_ppl,
             &self.compute.god_ray_ppl,
             &self.compute.god_ray_temporal_ppl,
-            &self.compute.cloud_ppl,
-            &self.compute.cloud_shadow_ppl,
-            &self.compute.cloud_shadow_temporal_ppl,
-            &self.compute.cloud_temporal_ppl,
             &self.compute.lens_flare_ppl,
             &self.compute.lens_flare_temporal_ppl,
             &self.compute.lens_flare_sun_visible_ppl,
@@ -2131,6 +2054,7 @@ impl PipelineTopology {
             &self.graphics.sprinkler_ppl,
             &self.graphics.environment_probe_visualization_depth_ppl,
             &self.graphics.environment_probe_visualization_overlay_ppl,
+            &self.graphics.dynamic_fruit_ppl,
             &self.graphics.apple_pixel_dynamic_ppl,
             &self.graphics.butterfly_tile_ppl,
             &self.graphics.particle_ppl,
@@ -2568,6 +2492,7 @@ pub struct ShaderModules {
     pub ddgi_probe_relocate_sm: ShaderModule,
     pub ddgi_probe_trace_sm: ShaderModule,
     pub local_light_visibility_diagnostic_sm: ShaderModule,
+    pub ddgi_response_sample_sm: ShaderModule,
     pub ddgi_irradiance_filter_sm: ShaderModule,
     pub ddgi_visibility_filter_sm: ShaderModule,
     pub ddgi_irradiance_gutter_sm: ShaderModule,
@@ -2588,10 +2513,6 @@ pub struct ShaderModules {
     pub glass_resolve_sm: Option<ShaderModule>,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
-    pub cloud_sm: ShaderModule,
-    pub cloud_shadow_sm: ShaderModule,
-    pub cloud_shadow_temporal_sm: ShaderModule,
-    pub cloud_temporal_sm: ShaderModule,
     pub lens_flare_sm: ShaderModule,
     pub lens_flare_temporal_sm: ShaderModule,
     pub lens_flare_sun_visible_sm: ShaderModule,
@@ -2601,7 +2522,6 @@ pub struct ShaderModules {
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
     pub leaf_handoff_sm: ShaderModule,
-    pub tree_leaf_model_sm: ShaderModule,
     pub flora_vert_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lod_vert_sm: ShaderModule,
@@ -2615,9 +2535,6 @@ pub struct ShaderModules {
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
     pub environment_probe_visualization_vert_sm: ShaderModule,
-    pub tree_pixel_comp_sm: ShaderModule,
-    pub tree_pixel_vert_sm: ShaderModule,
-    pub tree_pixel_frag_sm: ShaderModule,
     pub raster_tree_lighting_sm: ShaderModule,
     pub tree_skin_sm: ShaderModule,
     pub tree_refit_sm: ShaderModule,
@@ -2629,6 +2546,7 @@ pub struct ShaderModules {
     pub apple_pixel_tree_vert_sm: ShaderModule,
     pub apple_pixel_dynamic_vert_sm: ShaderModule,
     pub apple_pixel_frag_sm: ShaderModule,
+    pub dynamic_fruit_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_frag_sm: ShaderModule,
     pub butterfly_tile_comp_sm: ShaderModule,
@@ -2650,6 +2568,7 @@ pub struct ComputePipelines {
     pub ddgi_probe_relocate_ppl: ComputePipeline,
     pub ddgi_probe_trace_ppl: ComputePipeline,
     pub local_light_visibility_diagnostic_ppl: ComputePipeline,
+    pub ddgi_response_sample_ppl: ComputePipeline,
     pub ddgi_irradiance_filter_ppl: ComputePipeline,
     pub ddgi_visibility_filter_ppl: ComputePipeline,
     pub ddgi_irradiance_gutter_ppl: ComputePipeline,
@@ -2657,7 +2576,6 @@ pub struct ComputePipelines {
     pub ddgi_atlas_reduce_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
     pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
-    pub tree_pixel_ppl: ComputePipeline,
     pub raster_tree_lighting_ppl: ComputePipeline,
     pub tree_skin_ppl: ComputePipeline,
     pub tree_refit_ppl: ComputePipeline,
@@ -2673,10 +2591,6 @@ pub struct ComputePipelines {
     pub vsm_blur_v_ppl: ComputePipeline,
     pub god_ray_ppl: ComputePipeline,
     pub god_ray_temporal_ppl: ComputePipeline,
-    pub cloud_ppl: ComputePipeline,
-    pub cloud_shadow_ppl: ComputePipeline,
-    pub cloud_shadow_temporal_ppl: ComputePipeline,
-    pub cloud_temporal_ppl: ComputePipeline,
     pub lens_flare_ppl: ComputePipeline,
     pub lens_flare_temporal_ppl: ComputePipeline,
     pub lens_flare_sun_visible_ppl: ComputePipeline,
@@ -2687,7 +2601,6 @@ pub struct ComputePipelines {
     pub wind_volume_ppl: ComputePipeline,
     pub vegetation_response_ppl: ComputePipeline,
     pub leaf_handoff_ppl: ComputePipeline,
-    pub tree_leaf_model_ppl: ComputePipeline,
     pub post_processing_ppl: ComputePipeline,
 }
 
@@ -2709,11 +2622,11 @@ pub struct GraphicsPipelines {
     pub geometry_preview_ppl: GraphicsPipeline,
     pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
-    pub tree_pixel_ppl: GraphicsPipeline,
     pub raster_tree_ppl: GraphicsPipeline,
     pub raster_tree_shadow_ppl: GraphicsPipeline,
     pub apple_pixel_tree_ppl: GraphicsPipeline,
     pub apple_pixel_dynamic_ppl: GraphicsPipeline,
+    pub dynamic_fruit_ppl: GraphicsPipeline,
     pub dynamic_fruit_shadow_ppl: GraphicsPipeline,
     pub particle_ppl: GraphicsPipeline,
     pub water_droplet_ppl: GraphicsPipeline,

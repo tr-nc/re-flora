@@ -76,14 +76,16 @@ pub(super) fn native_review() -> bool {
         || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct LeafModelSettings {
+    pub enabled: bool,
     pub resolution: u32,
     pub size_scale: f32,
 }
 impl Default for LeafModelSettings {
     fn default() -> Self {
         Self {
+            enabled: false,
             resolution: 16,
             size_scale: 1.,
         }
@@ -98,9 +100,13 @@ impl LeafModelSettings {
         }
     }
 
-    /// Visual size only, shared with attached leaves; never modifies aerodynamics.
+    /// Visual size only: never feed this back into LeafFlight's aerodynamic size.
+    /// Both A/B paths scale detached leaves, not butterflies or leaf-colored debris.
     pub fn render_size(self, snapshot: &ParticleSnapshot) -> f32 {
-        if snapshot.kind == ParticleRenderKind::Leaf && snapshot.leaf_orientation.is_some() {
+        if snapshot.kind == ParticleRenderKind::Leaf
+            && snapshot.leaf_orientation.is_some()
+            && snapshot.leaf_geometry.is_none()
+        {
             snapshot.size * self.display_scale()
         } else {
             snapshot.size
@@ -108,7 +114,10 @@ impl LeafModelSettings {
     }
 
     pub fn uses_model(self, snapshot: &ParticleSnapshot) -> bool {
-        snapshot.kind == ParticleRenderKind::Leaf
+        self.enabled
+            && snapshot.kind == ParticleRenderKind::Leaf
+            && snapshot.leaf_orientation.is_some()
+            && snapshot.leaf_geometry.is_none()
     }
 }
 
@@ -130,7 +139,6 @@ struct Instance {
     lighting: [f32; 4],
     repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
     view_orientation: [f32; 4],
-    cache: [u32; 4], // immutable model source ID; reserved
 }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -192,7 +200,7 @@ impl ButterflyMeshResources {
                 MemoryLocation::CpuToGpu,
             ),
             butterfly_mesh_triangles: buffer(
-                ((CAPACITY + 1) * MAX_TRIANGLES) * std::mem::size_of::<Triangle>(),
+                std::mem::size_of::<Triangle>(),
                 MemoryLocation::CpuToGpu,
             ),
             particle_model_repairs: buffer(
@@ -260,20 +268,12 @@ impl Mesh {
     }
 }
 
-pub(super) struct ModelInputs {
-    pub instances: Arc<Buffer>,
-    pub triangles: Arc<Buffer>,
-    pub indices: Arc<Buffer>,
-}
-
 pub(super) struct ButterflyMeshRenderer {
-    pub inputs: Option<ModelInputs>,
     mesh: Mesh,
     instances: Vec<Instance>,
     draw_order: Vec<u32>,
     pub repair_nodes: Vec<RepairNode>,
     reference_tiles: bool,
-    canonical_frames: bool,
     validation_calls: u64,
     repair_frames: Vec<Option<(Arc<Buffer>, usize)>>,
     repair_key: Vec<u8>,
@@ -286,23 +286,21 @@ pub(super) struct ButterflyMeshRenderer {
     pub resolution: u32,
     tile_count: u32,
     pub compute_count: u32,
-    pub tile_batches: Vec<super::model_pixel_tiles::TileBatch>,
+    pub tile_layout: super::model_pixel_tiles::ParticleTiles,
     pub dispatch_resolution: u32,
-    previous_leaf_mode: Option<(u32, u32)>,
-    validated_leaf_mode: Option<(u32, u32)>,
+    previous_leaf_mode: Option<(bool, u32, u32)>,
+    validated_leaf_mode: Option<(bool, u32, u32)>,
     previous_mode: Option<(u32, u32, bool, u32)>,
     validated_mode: Option<(u32, u32, bool, u32)>,
 }
 impl Default for ButterflyMeshRenderer {
     fn default() -> Self {
         Self {
-            inputs: None,
             mesh: Mesh::load(),
             instances: Vec::new(),
             draw_order: Vec::new(),
             repair_nodes: Vec::new(),
             reference_tiles: native_review(),
-            canonical_frames: false,
             validation_calls: 0,
             repair_frames: Vec::new(),
             repair_key: Vec::new(),
@@ -315,7 +313,7 @@ impl Default for ButterflyMeshRenderer {
             resolution: 22,
             tile_count: 0,
             compute_count: 0,
-            tile_batches: Vec::new(),
+            tile_layout: super::model_pixel_tiles::ParticleTiles::default(),
             dispatch_resolution: 22,
             previous_leaf_mode: None,
             validated_leaf_mode: None,
@@ -377,9 +375,6 @@ impl ButterflyMeshRenderer {
                     original_phase + ((p.phase - original_phase + 0.5).rem_euclid(1.) - 0.5) * blend
                 }
             });
-            let animation_frame = super::model_pixel_cache::animation_frame(phase);
-            // Keep published root translation continuous; only articulated shape
-            // selection is quantized. No extra bob or quantized flight attitude.
             let transforms = self.mesh.source.transforms(phase, 0);
             // Only authored root displacement is suppressed by flight coupling;
             // articulated geometry and rotations still come directly from the GLB.
@@ -407,12 +402,7 @@ impl ButterflyMeshRenderer {
             // per-frame silhouette: flapping must not pump the pixel scale.
             let scale = snapshot.size * (1.53125 / 3.4);
             let start = self.triangles.len() as u32;
-            for triangle in self
-                .mesh
-                .triangles
-                .iter()
-                .filter(|_| !self.canonical_frames)
-            {
+            for triangle in &self.mesh.triangles {
                 let transform = transforms[triangle.node];
                 let p = triangle.positions.map(|p| {
                     snapshot.position_ws
@@ -429,23 +419,7 @@ impl ButterflyMeshRenderer {
             }
             let rgb = ButterflyPalettePreset::from_index(snapshot.palette_index).base_color_srgb();
             self.instances.push(Instance {
-                // Root translation is rigid placement, not another cache dimension.
-                // Physical snapshots/flight remain untouched. Both live/cache modes
-                // use the same discrete articulation and continuous coupling blend.
-                position_size: (snapshot.position_ws
-                    + if self.canonical_frames {
-                        facing * root_motion * ((1. - blend) * scale)
-                    } else {
-                        Vec3::ZERO
-                    })
-                .extend(snapshot.size)
-                .to_array(),
-                cache: [
-                    super::model_pixel_cache::BUTTERFLY_SOURCE_BASE + animation_frame,
-                    0,
-                    0,
-                    0,
-                ],
+                position_size: snapshot.position_ws.extend(snapshot.size).to_array(),
                 color: [
                     rgb[0] as f32 / 255.,
                     rgb[1] as f32 / 255.,
@@ -479,6 +453,9 @@ impl ButterflyMeshRenderer {
         self.tile_count = self.count();
         self.compute_count = self.tile_count;
         self.dispatch_resolution = self.resolution;
+        if !leaves.enabled {
+            return Ok(());
+        }
         let candidates: Vec<_> = snapshots
             .iter()
             .filter(|s| leaves.uses_model(s) && s.size > 0. && s.color.w > 0.)
@@ -496,7 +473,7 @@ impl ButterflyMeshRenderer {
             "shared leaf exceeds triangle budget"
         );
         let first = self.triangles.len() as u32;
-        if !candidates.is_empty() && !self.canonical_frames {
+        if !candidates.is_empty() {
             let shapes = leaf_variant_triangles();
             ensure!(
                 shapes.len() == triangles_per_leaf * crate::model_assets::LEAF_VARIANT_COUNT,
@@ -520,20 +497,12 @@ impl ButterflyMeshRenderer {
                     LEAF_MODEL_FLAG,
                 ],
                 // No resampling, local animation, velocity-facing override or reset.
-                lighting: snapshot
-                    .leaf_geometry
-                    .or(snapshot.leaf_orientation)
-                    .unwrap()
-                    .to_array(),
-                view_orientation: snapshot
-                    .leaf_geometry
-                    .or(snapshot.leaf_orientation)
-                    .unwrap()
-                    .to_array(),
-                cache: [shape as u32, 0, 0, 0],
+                lighting: snapshot.leaf_orientation.unwrap().to_array(),
+                view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
                 repair: [0; 4],
             });
         }
+        validation::apply_coverage_fixture(&mut self.instances, first, triangles_per_leaf)?;
         if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some() {
             // Diagnostic-only readback of the same shader function used by the
             // production fragment path, bounded by the existing tile allocation.
@@ -554,10 +523,10 @@ impl ButterflyMeshRenderer {
         &mut self,
         view: Mat4,
         projection: Mat4,
-        storage: &mut super::model_pixel_tiles::ModelPixelTiles,
         device: Device,
         allocator: Allocator,
         frame_slot: usize,
+        publish: impl FnOnce(&[u8], &[u8], &[u8]) -> Result<()>,
     ) -> Result<()> {
         self.repair_key_scratch.clear();
         self.repair_key_scratch
@@ -692,34 +661,13 @@ impl ButterflyMeshRenderer {
             let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
             instance.repair[3] = u32::from(visible);
         }
-        self.assign_pixel_tiles();
-        if !self.instances.is_empty() {
-            // Publish only the complete frame: never overwrite in-flight tile
-            // offsets/visibility with prepare_models' zero-initialized metadata.
-            self.inputs = Some(ModelInputs {
-                instances: storage.upload(
-                    frame_slot,
-                    0,
-                    bytemuck::cast_slice(&self.instances),
-                    device.clone(),
-                    allocator.clone(),
-                )?,
-                triangles: storage.upload(
-                    frame_slot,
-                    1,
-                    bytemuck::cast_slice(&self.triangles),
-                    device.clone(),
-                    allocator.clone(),
-                )?,
-                indices: storage.upload(
-                    frame_slot,
-                    2,
-                    bytemuck::cast_slice(&self.draw_order),
-                    device.clone(),
-                    allocator.clone(),
-                )?,
-            });
-        }
+        self.publish_pixel_frame(|instances, triangles, draw_order| {
+            publish(
+                bytemuck::cast_slice(instances),
+                bytemuck::cast_slice(triangles),
+                bytemuck::cast_slice(draw_order),
+            )
+        })?;
         self.compute_count = self.count();
         self.dispatch_resolution = self
             .instances
@@ -765,21 +713,29 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
-    fn assign_pixel_tiles(&mut self) {
-        let (offsets, batches) =
-            super::model_pixel_tiles::pack_tiles(self.draw_order.iter().map(|&index| {
-                let i = &self.instances[index as usize];
-                (i.metadata[2], i.repair[3] != 0)
-            }));
-        self.tile_batches = batches;
-        for (&index, offset) in self.draw_order.iter().zip(offsets) {
-            self.instances[index as usize].repair[2] = offset;
+    fn publish_pixel_frame(
+        &mut self,
+        publish: impl FnOnce(&[Instance], &[Triangle], &[u32]) -> Result<()>,
+    ) -> Result<()> {
+        self.tile_layout = super::model_pixel_tiles::ParticleTiles::pack(
+            &self
+                .instances
+                .iter()
+                .map(|i| (i.metadata[2], i.repair[3] != 0))
+                .collect::<Vec<_>>(),
+            &self.draw_order,
+        );
+        for (instance, &offset) in self.instances.iter_mut().zip(self.tile_layout.offsets()) {
+            instance.repair[2] = offset;
         }
+        if !self.instances.is_empty() {
+            // One complete publication, only after sorted offsets and visibility
+            // are final. CPU pose preparation must never upload its zeroed repair
+            // metadata over an in-flight frame (a3661975).
+            publish(&self.instances, &self.triangles, &self.draw_order)?;
+        }
+        Ok(())
     }
-    pub fn pixel_resolutions(&self) -> [u32; 2] {
-        [self.previous_leaf_mode.map_or(16, |m| m.0), self.resolution]
-    }
-
     pub fn tile_compute_mode(&self) -> u32 {
         if native_review() {
             1
@@ -803,7 +759,6 @@ impl ButterflyMeshRenderer {
         leaves: LeafModelSettings,
         camera_position: Vec3,
     ) -> Result<()> {
-        self.canonical_frames = !native_review();
         self.prepare_models(snapshots, settings, leaves, camera_position)?;
         self.draw_order.clear();
         if !self.instances.is_empty() {
@@ -818,13 +773,15 @@ impl ButterflyMeshRenderer {
             self.draw_order = order;
         }
         let leaf_mode = (
+            leaves.enabled,
             leaves.resolution.clamp(8, MAX_RESOLUTION),
             leaves.display_scale().to_bits(),
         );
         if self.previous_leaf_mode != Some(leaf_mode) {
-            log::info!("[LEAF-MODEL] mode=shared pixels={}x{} active={} source=assets/models/leaf-variants.glb source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", leaf_mode.0, leaf_mode.0, self.count() - self.tile_count,
-                crc32fast::hash(crate::model_assets::LEAF_VARIANTS_BYTES), leaves.display_scale());
-            if native_review() {
+            log::info!("[LEAF-MODEL] mode={} pixels={}x{} active={} source={} source_crc32={:08x} orientation=published_simulation geometry=32_triangles render_scale={}", if leaves.enabled { "B" } else { "A" }, leaf_mode.1, leaf_mode.1, self.count() - self.tile_count,
+                if leaves.enabled { "assets/models/leaf-variants.glb" } else { "assets/models/leaf.glb" },
+                crc32fast::hash(if leaves.enabled { crate::model_assets::LEAF_VARIANTS_BYTES } else { crate::model_assets::LEAF_BYTES }), leaves.display_scale());
+            if leaves.enabled && native_review() {
                 let first = self.tile_count as usize * self.mesh.triangles.len();
                 let ids: Vec<_> = self.instances[self.tile_count as usize..]
                     .iter()
@@ -866,7 +823,7 @@ impl ButterflyMeshRenderer {
 mod tests {
     use super::*;
     #[test]
-    fn sorted_draw_batches_keep_tile_offsets_with_their_instances() {
+    fn publication_contains_complete_sorted_offsets_and_skips_empty_uploads() {
         let mut renderer = ButterflyMeshRenderer::default();
         renderer.instances = (0..1100)
             .map(|_| Instance {
@@ -875,27 +832,31 @@ mod tests {
                 metadata: [0, 32, 64, LEAF_MODEL_FLAG],
                 lighting: [0., 0., 0., 1.],
                 view_orientation: [0., 0., 0., 1.],
-                cache: [0; 4],
                 repair: [0, 0, 0, 1],
             })
             .collect();
         renderer.draw_order = (0..1100u32).rev().collect();
-        renderer.assign_pixel_tiles();
-        assert_eq!(renderer.tile_batches.len(), 2);
-        for batch in &renderer.tile_batches {
-            for (tile, &instance) in renderer.draw_order
-                [batch.first as usize..(batch.first + batch.count) as usize]
-                .iter()
-                .enumerate()
-            {
-                assert_eq!(
-                    renderer.instances[instance as usize].repair[2],
-                    tile as u32 * 64 * 64
-                );
-            }
-        }
-        assert_eq!(renderer.instances[0].repair[2], 75 * 4096);
-        assert_eq!(renderer.instances[1099].repair[2], 0);
+        let mut publications = 0;
+        renderer
+            .publish_pixel_frame(|instances, _, order| {
+                publications += 1;
+                assert_eq!(order, &(0..1100u32).rev().collect::<Vec<_>>());
+                for (draw, &index) in order.iter().enumerate() {
+                    assert_eq!(
+                        instances[index as usize].repair,
+                        [0, 0, (draw as u32 % 1024) * 4096, 1]
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(publications, 1);
+        renderer.instances.clear();
+        renderer.draw_order.clear();
+        renderer
+            .publish_pixel_frame(|_, _, _| panic!("empty frame must not upload stale models"))
+            .unwrap();
+        assert!(renderer.tile_layout.offsets().is_empty());
     }
 
     #[test]
@@ -923,10 +884,11 @@ mod tests {
         // Saved live values may legitimately diverge after a user edits either
         // slider. Only the initial programmatic default is fixed at 16.
         assert_eq!(LeafModelSettings::default().resolution, 16);
+        assert!(!LeafModelSettings::default().enabled);
     }
 
     #[test]
-    fn leaf_model_consumes_existing_pose_without_retiming_or_changing_the_particle() {
+    fn leaf_ab_consumes_existing_pose_without_retiming_or_changing_the_particle() {
         use crate::particles::{ParticleForces, ParticleSpawn, ParticleSystem};
         let mut system = ParticleSystem::new(1);
         system
@@ -950,6 +912,7 @@ mod tests {
             let snapshot = snapshots[0];
             for resolution in [8, 16, 64] {
                 let enabled = LeafModelSettings {
+                    enabled: true,
                     resolution,
                     ..LeafModelSettings::default()
                 };
@@ -986,7 +949,7 @@ mod tests {
                 renderer
                     .prepare_models(&snapshots, butterfly, LeafModelSettings::default(), Vec3::Z)
                     .unwrap();
-                assert_eq!(renderer.count(), 1);
+                assert_eq!(renderer.count(), 0);
                 assert_eq!(snapshots[0].leaf_orientation, snapshot.leaf_orientation);
                 assert_eq!(snapshots[0].position_ws, snapshot.position_ws);
             }
@@ -994,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn display_scale_changes_leaf_render_size_without_touching_physics() {
+    fn display_scale_changes_only_detached_leaf_render_size_in_both_modes() {
         let mut system = crate::particles::ParticleSystem::new(1);
         system
             .spawn(crate::particles::ParticleSpawn::default())
@@ -1010,11 +973,13 @@ mod tests {
         };
         let mut renderer = ButterflyMeshRenderer::default();
         for scale in [0.25, 1., 2., 4.] {
-            let settings = LeafModelSettings {
+            let mut settings = LeafModelSettings {
                 size_scale: scale,
                 ..LeafModelSettings::default()
             };
+            // The sprite path uses precisely this helper, without editing snapshots.
             assert_eq!(settings.render_size(&original), original.size * scale);
+            settings.enabled = true;
             renderer
                 .prepare_models(&snapshots, butterfly, settings, Vec3::Z)
                 .unwrap();
@@ -1094,7 +1059,10 @@ mod tests {
             self_shadows: true,
             transmission: 0.,
         };
-        let leaves = LeafModelSettings::default();
+        let leaves = LeafModelSettings {
+            enabled: true,
+            ..LeafModelSettings::default()
+        };
         renderer
             .prepare_models(&[original, other], butterfly, leaves, Vec3::Z)
             .unwrap();
@@ -1142,6 +1110,7 @@ mod tests {
                     transmission: 0.9,
                 },
                 LeafModelSettings {
+                    enabled: true,
                     resolution: 64,
                     ..LeafModelSettings::default()
                 },
@@ -1156,20 +1125,12 @@ mod tests {
         );
         let mut no_pose = source[0];
         no_pose.leaf_orientation = None;
-        // An invalid leaf is an explicit publication error, never a sprite fallback.
-        assert!(renderer
-            .prepare_models(
-                &[no_pose],
-                ButterflyMeshSettings {
-                    resolution: 16,
-                    fps: 8,
-                    self_shadows: true,
-                    transmission: 0.9,
-                },
-                LeafModelSettings::default(),
-                Vec3::Z
-            )
-            .is_err());
+        assert!(!LeafModelSettings {
+            enabled: true,
+            resolution: 16,
+            ..LeafModelSettings::default()
+        }
+        .uses_model(&no_pose));
     }
 
     #[test]
@@ -1189,7 +1150,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 112);
+        assert_eq!(std::mem::size_of::<Instance>(), 96);
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
     }
     #[test]
@@ -1244,69 +1205,6 @@ mod tests {
             geometry,
             bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles)
         );
-    }
-
-    #[test]
-    fn canonical_animation_keeps_published_root_motion_and_coupling_continuous() {
-        let mut renderer = ButterflyMeshRenderer {
-            canonical_frames: true,
-            ..Default::default()
-        };
-        let settings = ButterflyMeshSettings {
-            resolution: 16,
-            fps: 22,
-            self_shadows: true,
-            transmission: 0.8,
-        };
-        for blend in [0., 0.35, 1.] {
-            let pose = crate::particles::ButterflyWingbeatPose {
-                phase: 0.413,
-                blend,
-                orientation: Quat::from_rotation_y(0.7),
-            };
-            let snapshot = ParticleSnapshot {
-                position_ws: Vec3::ONE,
-                velocity: Vec3::NEG_Z,
-                color: glam::Vec4::ONE,
-                size: 0.03,
-                kind: ParticleRenderKind::Butterfly,
-                palette_index: 0,
-                animation_phase_offset: 0.,
-                animation_sample_time: Some(0.137),
-                butterfly_wingbeat: Some(pose),
-                leaf_orientation: None,
-                leaf_shape_seed: None,
-                leaf_geometry: None,
-            };
-            renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
-            let instance = renderer.instances[0];
-            let phase = 0.137 + (pose.phase - 0.137) * blend;
-            let facing = Quat::IDENTITY.slerp(pose.orientation, blend);
-            let transforms = renderer.mesh.source.transforms(phase, 0);
-            let root = transforms[renderer.mesh.source.node("Flight pose")]
-                .w_axis
-                .truncate();
-            let expected = snapshot.position_ws
-                + facing * root * ((1. - blend) * snapshot.size * (1.53125 / 3.4));
-            assert!((Vec3::from_slice(&instance.position_size) - expected).length() < 1e-7);
-            assert!(
-                (Quat::from_array(instance.view_orientation)
-                    .dot(facing)
-                    .abs()
-                    - 1.)
-                    .abs()
-                    < 1e-6
-            );
-            assert_eq!(
-                instance.cache[0],
-                super::super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
-                    + super::super::model_pixel_cache::animation_frame(phase)
-            );
-            assert!(
-                renderer.triangles.is_empty(),
-                "production must not upload per-instance animated geometry"
-            );
-        }
     }
 
     #[test]

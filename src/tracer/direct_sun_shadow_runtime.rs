@@ -2,10 +2,8 @@ use glam::Vec3;
 
 pub(super) const DIRECT_SUN_SHADOW_SOURCE_TERRAIN: u32 = 1 << 0;
 pub(super) const DIRECT_SUN_SHADOW_SOURCE_LEAF: u32 = 1 << 1;
-pub(super) const DIRECT_SUN_SHADOW_SOURCE_CLOUD: u32 = 1 << 2;
-pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 = DIRECT_SUN_SHADOW_SOURCE_TERRAIN
-    | DIRECT_SUN_SHADOW_SOURCE_LEAF
-    | DIRECT_SUN_SHADOW_SOURCE_CLOUD;
+pub const DIRECT_SUN_SHADOW_SOURCE_ALL: u32 =
+    DIRECT_SUN_SHADOW_SOURCE_TERRAIN | DIRECT_SUN_SHADOW_SOURCE_LEAF;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DirectSunShadowLightSpaceChange {
@@ -50,7 +48,6 @@ pub(super) struct DirectSunShadowRuntime {
     camera_initialized: bool,
     terrain_history_valid: bool,
     leaf_history_valid: bool,
-    cloud_history_valid: bool,
 }
 
 impl DirectSunShadowRuntime {
@@ -70,7 +67,7 @@ impl DirectSunShadowRuntime {
                 self.light_space_identity = Some(identity);
                 self.light_space_revision = self.light_space_revision.saturating_add(1);
                 self.camera_initialized = false;
-                self.invalidate_all_histories();
+                self.invalidate_local_histories();
                 DirectSunShadowLightSpaceChange::Changed
             }
         }
@@ -93,12 +90,6 @@ impl DirectSunShadowRuntime {
         self.leaf_history_valid = false;
     }
 
-    fn invalidate_all_histories(&mut self) {
-        self.terrain_history_valid = false;
-        self.leaf_history_valid = false;
-        self.cloud_history_valid = false;
-    }
-
     pub(super) fn plan_update(&self, additional_terrain_reset: bool) -> DirectSunShadowUpdatePlan {
         DirectSunShadowUpdatePlan {
             reset_terrain_history: additional_terrain_reset || !self.terrain_history_valid,
@@ -114,18 +105,6 @@ impl DirectSunShadowRuntime {
         self.leaf_history_valid = true;
     }
 
-    pub(super) fn cloud_history_reset_required(&self) -> bool {
-        !self.cloud_history_valid
-    }
-
-    pub(super) fn mark_cloud_history_recorded(&mut self) {
-        self.cloud_history_valid = true;
-    }
-
-    pub(super) fn invalidate_cloud_history(&mut self) {
-        self.cloud_history_valid = false;
-    }
-
     pub(super) fn terrain_ready(&self) -> bool {
         self.camera_initialized && self.terrain_history_valid
     }
@@ -137,9 +116,6 @@ impl DirectSunShadowRuntime {
         }
         if self.leaf_history_valid {
             mask |= DIRECT_SUN_SHADOW_SOURCE_LEAF;
-        }
-        if self.cloud_history_valid {
-            mask |= DIRECT_SUN_SHADOW_SOURCE_CLOUD;
         }
         mask
     }
@@ -160,13 +136,15 @@ mod tests {
         runtime.mark_camera_updated();
         runtime.mark_terrain_history_recorded();
         runtime.mark_leaf_history_recorded();
-        runtime.mark_cloud_history_recorded();
 
         assert_eq!(
             runtime.observe_sun_direction(Vec3::Y),
             DirectSunShadowLightSpaceChange::Unchanged
         );
-        assert_eq!(runtime.available_mask(), DIRECT_SUN_SHADOW_SOURCE_ALL);
+        assert_eq!(
+            runtime.available_mask(),
+            DIRECT_SUN_SHADOW_SOURCE_TERRAIN | DIRECT_SUN_SHADOW_SOURCE_LEAF
+        );
         assert_eq!(runtime.light_space_revision(), 1);
 
         assert_eq!(
@@ -174,7 +152,6 @@ mod tests {
             DirectSunShadowLightSpaceChange::Changed
         );
         assert!(runtime.camera_update_required(false));
-        assert!(runtime.cloud_history_reset_required());
         assert_eq!(runtime.available_mask(), 0);
         assert_eq!(runtime.light_space_revision(), 2);
     }
@@ -192,19 +169,17 @@ mod tests {
 
         runtime.mark_terrain_history_recorded();
         runtime.mark_leaf_history_recorded();
-        runtime.mark_cloud_history_recorded();
         assert!(!runtime.camera_update_required(false));
-        assert_eq!(runtime.available_mask(), DIRECT_SUN_SHADOW_SOURCE_ALL);
+        assert_eq!(
+            runtime.available_mask(),
+            DIRECT_SUN_SHADOW_SOURCE_TERRAIN | DIRECT_SUN_SHADOW_SOURCE_LEAF
+        );
 
         runtime.invalidate_local_histories();
         let invalidated = runtime.plan_update(false);
         assert!(invalidated.reset_terrain_history());
         assert!(invalidated.reset_leaf_history());
-        assert_eq!(
-            runtime.available_mask(),
-            DIRECT_SUN_SHADOW_SOURCE_CLOUD,
-            "local invalidation must preserve independent cloud-shadow history"
-        );
+        assert_eq!(runtime.available_mask(), 0);
     }
 
     #[test]
@@ -218,19 +193,5 @@ mod tests {
 
         assert!(plan.reset_terrain_history());
         assert!(!plan.reset_leaf_history());
-    }
-
-    #[test]
-    fn cloud_shadow_availability_follows_its_own_history() {
-        let mut runtime = DirectSunShadowRuntime::default();
-        assert!(runtime.cloud_history_reset_required());
-
-        runtime.mark_cloud_history_recorded();
-        assert!(!runtime.cloud_history_reset_required());
-        assert_eq!(runtime.available_mask(), DIRECT_SUN_SHADOW_SOURCE_CLOUD);
-
-        runtime.invalidate_cloud_history();
-        assert!(runtime.cloud_history_reset_required());
-        assert_eq!(runtime.available_mask(), 0);
     }
 }

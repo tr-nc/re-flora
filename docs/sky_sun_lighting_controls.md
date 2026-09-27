@@ -22,13 +22,13 @@
 
 天空倍率进入 Authored Lighting identity，变化立即发布为 `TransportInputStep`，重置 DDGI 辐照历史。下游从同一权威派生：
 
-- 实时 `U_SunInfo`：地形路径追踪 sky miss、Legacy flora 环境项、云的环境照明、玻璃离屏表面回退。
+- 实时 `U_SunInfo`：地形路径追踪 sky miss、Legacy flora 环境项、玻璃离屏表面回退。
 - 不可变 `DdgiRadianceSnapshot → U_DdgiRadianceSun`：全局天空积分、probe sky miss 与后续反弹。DDGI 默认地形、树叶、flora 从共享 publication/cache 接收结果。
 - 太阳的既有权威和树叶透射路径保持原样。天空倍率不乘最终整幅间接光，因此不会错误压低太阳反弹、局部灯或自发光。
 - `environment_lighting.slang` 的 consumer 不需要再乘倍率；在那里缩放会重复缩放天空并错误缩放其它光源。
 - Path Tracing Ambient Override 是已有的显式诊断项，仍独立叠加；验收使用其默认黑色。
 
-**可见天空与反射语义**：天空渐变仍来自 `getSkyColor`，背景和镜面中看到的天空保持同一可见外观；天空倍率用于照亮场景，不是曝光或背景调色。镜面中已着色的地形、树叶和 flora 随其实际光照改变。云是受光体，因此云及云的镜像会随照明变化。现有玻璃离屏不透明表面回退仍是近似环境项 `0.18`，现在也使用权威天空倍率；未把这项近似升级为完整 DDGI/路径追踪。既有装饰性 terrarium 边框/高光不属于本次物理材质重写范围。
+**可见天空与反射语义**：天空渐变仍来自 `getSkyColor`，背景和镜面中看到的天空保持同一可见外观；天空倍率用于照亮场景，不是曝光或背景调色。镜面中已着色的地形、树叶和 flora 随其实际光照改变。程序云及云阴影现已移除；下方带 `--no-clouds` 的命令是保留的历史记录，该参数现在是兼容性 no-op。现有玻璃离屏不透明表面回退仍是近似环境项 `0.18`，现在也使用权威天空倍率；未把这项近似升级为完整 DDGI/路径追踪。既有装饰性 terrarium 边框/高光不属于本次物理材质重写范围。
 
 ## 验证与证据
 

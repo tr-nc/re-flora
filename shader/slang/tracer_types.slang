@@ -5,12 +5,11 @@ public struct U_GuiInput
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public uint raster_flora_ddgi_lighting;
+    public uint raster_tree_static;
     public uint apple_pixel_resolution;
-    public uint attached_leaf_rotation;
-    public uint falling_leaf_pixel_resolution;
-    public float falling_leaf_size_scale;
-    public uint model_pixel_cache_verify; // internal stored-surface oracle only; no runtime mode
     public uint model_pixel_view_count; // 8..512; zero reserved for numerical oracle
+    public uint model_pixel_screen_grid; // 0: rotating canonical pixels; 1: screen-grid resampling
+    public uint raster_tree_hybrid_lighting;
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;
     public float3 path_tracing_ambient_light;
@@ -64,26 +63,6 @@ public struct U_GuiInput
     public float leaf_shadow_min_transmittance;
     public float leaf_shadow_filter_radius_texels;
     public float leaf_transmission_strength;
-    public uint clouds_enabled;
-    public float cloud_coverage;
-    public float cloud_density;
-    public float cloud_bottom_height;
-    public float cloud_top_height;
-    public float cloud_shape_scale;
-    public float cloud_detail_scale;
-    public float cloud_detail_strength;
-    public float cloud_wind_speed;
-    public uint cloud_primary_steps;
-    public uint cloud_light_steps;
-    public float cloud_temporal_alpha;
-    public float cloud_absorption;
-    public float cloud_phase_eccentricity;
-    public float cloud_silver_intensity;
-    public float cloud_max_distance;
-    public uint cloud_shadows_enabled;
-    public float cloud_shadow_strength;
-    public float cloud_shadow_min_transmittance;
-    public uint cloud_shadow_steps;
 };
 
 public struct U_SunInfo
@@ -119,18 +98,9 @@ public struct U_ShadingInfo
     public float3 ddgi_invalidation_world_max;
 };
 
+// Frame age is a resource role (camera_info / camera_info_prev_frame), not a
+// separate layout. All temporal effects consume this same camera snapshot type.
 public struct U_CameraInfo
-{
-    public float4 pos;
-    public float4x4 view_mat;
-    public float4x4 view_mat_inv;
-    public float4x4 proj_mat;
-    public float4x4 proj_mat_inv;
-    public float4x4 view_proj_mat;
-    public float4x4 view_proj_mat_inv;
-};
-
-public struct U_CameraInfoPrevFrame
 {
     public float4 pos;
     public float4x4 view_mat;

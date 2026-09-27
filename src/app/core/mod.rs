@@ -6,6 +6,7 @@ mod boot;
 mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
+mod climbing_plants;
 mod ddgi_spatial_weight_readback;
 mod debug_panel;
 mod denoiser_bench;
@@ -477,6 +478,7 @@ pub struct App {
     butterfly_review: Option<particles::ButterflyReview>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
+    climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
@@ -1254,18 +1256,7 @@ impl App {
         {
             let shadow = tracer.direct_sun_shadow_resources();
             let contree_resources = contree_builder.get_resources();
-            plain_builder.initialize_terrain_moisture_dry_resources(
-                shadow.gui_input,
-                &plain_builder.get_resources().chunk_atlas,
-                shadow.shadow_camera_info,
-                shadow.shadow_map_tex_for_vsm_ping,
-                shadow.leaf_shadow_opacity_blended_tex,
-                shadow.leaf_shadow_mask_tex,
-                shadow.cloud_shadow_tex,
-                &contree_resources.contree_leaf_data,
-                &contree_resources.surface_leaf_coords,
-                &contree_resources.surface_leaf_chunk_info,
-            )?;
+            plain_builder.initialize_terrain_moisture_dry_resources(&shadow, contree_resources)?;
         }
 
         let camera_snapshots = match CameraSnapshotLibrary::load_default() {
@@ -1534,6 +1525,7 @@ impl App {
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
+            climbing_plants: Default::default(),
             particle_animation_time_sec: 0.0,
             water,
             particle_snapshots,
@@ -2707,7 +2699,7 @@ impl App {
                                     ui.add_space(8.0);
                                     ui.add_space(8.0);
                                     ui.collapsing("Terrain & Plants", |ui| {
-                                    ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
+                                    ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
                                     });
 
@@ -2720,11 +2712,17 @@ impl App {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
+                                                if section == "Climbing Plants" {
+                                                    ui.not_saved("Vine actions and live status: plant history is session-only; the settings above use Save", |ui| {
+                                                        self.climbing_plants.draw_actions(ui);
+                                                    });
+                                                }
                                             });
 
                                             ui.add_space(8.0);
                                             ui.add_space(8.0);
-                                            ui.collapsing("Environment Probes", |ui| {
+ui.collapsing("Environment Probes", |ui| {
+
                                             ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
                                             if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
@@ -3328,6 +3326,11 @@ impl App {
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
 
+                if let Err(error) =
+                    self.update_climbing_plants(world_tick_steps, world_tick_seconds)
+                {
+                    log::error!("[CLIMBING] update failed: {error:#}");
+                }
                 self.world_clock.advance_daynight(
                     world_tick_steps,
                     world_tick_seconds,
@@ -3360,6 +3363,12 @@ impl App {
                 if raster_tree_smoke::RasterTreeSmoke::run_next(self) {
                     self.on_terminate(event_loop);
                     return;
+                }
+                if let Err(error) = self.sync_static_raster_trees() {
+                    log::error!("[TREE][RASTER_STATIC] preparation failed; restoring A: {error:#}");
+                    self.debug_settings.adjustables.raster_tree_static.value = false;
+                    self.tracer.raster_trees.enabled = false;
+                    self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(

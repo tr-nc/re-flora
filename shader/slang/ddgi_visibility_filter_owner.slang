@@ -55,13 +55,16 @@ public float2 ddgiOwnerLoadVisibility(uint slot, uint2 coordinate)
         : ddgi_transport_source_visibility_atlas[coordinate];
 }
 
-void ddgiOwnerStoreVisibilityValue(
-    uint destinationSlot, uint2 coordinate, float2 value)
+void ddgiOwnerStoreVisibilityResult(
+    uint evidenceEnabled, bool electedProbeLane,
+    uint destinationSlot, uint2 coordinate, DdgiExecutedHistory2 executed)
 {
+    ddgiRecordVisibilityFilterResult(
+        evidenceEnabled, electedProbeLane, executed.decision);
     if (destinationSlot == 0u)
-        ddgi_visibility_atlas[coordinate] = value;
+        ddgi_visibility_atlas[coordinate] = executed.value;
     else
-        ddgi_transport_source_visibility_atlas[coordinate] = value;
+        ddgi_transport_source_visibility_atlas[coordinate] = executed.value;
 }
 
 public bool ddgiOwnerTryStoreTerminalVisibility(
@@ -73,10 +76,8 @@ public bool ddgiOwnerTryStoreTerminalVisibility(
         return false;
     DdgiExecutedHistory2 executed = ddgiExecuteHistory(
         requested, freshAvailable, float2(0.0), source);
-    ddgiRecordVisibilityHistoryDecision(
-        evidenceEnabled, electedProbeLane, executed.decision);
-    ddgiOwnerStoreVisibilityValue(
-        destinationSlot, coordinate, executed.value);
+    ddgiOwnerStoreVisibilityResult(
+        evidenceEnabled, electedProbeLane, destinationSlot, coordinate, executed);
     return true;
 }
 
@@ -87,7 +88,6 @@ public void ddgiOwnerStoreFreshVisibility(
 {
     DdgiExecutedHistory2 executed = ddgiExecuteHistory(
         requested, true, fresh, source);
-    ddgiRecordVisibilityHistoryDecision(
-        evidenceEnabled, electedProbeLane, executed.decision);
-    ddgiOwnerStoreVisibilityValue(destinationSlot, coordinate, executed.value);
+    ddgiOwnerStoreVisibilityResult(
+        evidenceEnabled, electedProbeLane, destinationSlot, coordinate, executed);
 }

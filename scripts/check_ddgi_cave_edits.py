@@ -134,7 +134,7 @@ fly_mode = true
                     ("opened", "cave-edits-open")))
             for name, delay, case in cases:
                 command = ["target/release/re-flora", "--hidden", "--mute", "--windowed",
-                           "--no-flora", "--no-particles", "--no-clouds", "--no-god-rays",
+                           "--no-flora", "--no-particles", "--no-god-rays",
                            "--no-lens-flare", "--perf", "--environment-lighting-test-scene", case,
                            "--ddgi-batch-order", args.batch_order,
                            "--auto-exit", str(args.duration), "--environment-probe-spacing-voxels", str(args.spacing)]

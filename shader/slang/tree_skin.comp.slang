@@ -11,9 +11,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     uint4 info = tree_scene_info[0];
     uint i = id.x;
     if (i >= info.w) return;
-    float3 position = tree_skin_rest[i*2u].xyz;
-    float3 normal = tree_skin_rest[i*2u+1u].xyz;
-    if (info.z != 0u) {
+    float3 position = tree_skin_rest[i*3u].xyz;
+    float3 normal = tree_skin_rest[i*3u+2u].xyz;
+    if (info.x != 0u) {
         uint4 binding = tree_skin_bindings[i];
         float weight = asfloat(binding.z);
         float4 child = tree_skin_poses[binding.x*2u];
@@ -24,5 +24,6 @@ void main(uint3 id : SV_DispatchThreadID) {
         normal = treeSkinNormal(parent, child, weight, normal);
     }
     tree_scene_vertices[i*2u] = float4(position, 1);
-    tree_scene_vertices[i*2u+1u] = float4(normal, 0);
+    // Reliability belongs to rest occupancy, not camera/wind-dependent geometry.
+    tree_scene_vertices[i*2u+1u] = float4(normal, tree_skin_rest[i*3u+2u].w);
 }

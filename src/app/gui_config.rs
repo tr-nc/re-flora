@@ -560,7 +560,6 @@ fn render_gui_param_control(
 const SECTION_PARENTS: &[(&str, &str)] = &[
     ("GodRay", "Sky"),
     ("Starlight", "Sky"),
-    ("Clouds", "Sky"),
     ("Purple Allium", "Flora"),
     ("Flora Spawn Animation", "Flora"),
     ("FloraVariation", "Flora"),
@@ -631,7 +630,7 @@ fn render_gui_from_config(
                 return;
             }
             if section.name == "Falling Leaves" {
-                ui.small("All leaves use the shared model. Real Detachment transfers actual attached leaves; strong wind may strip the canopy. That lifecycle switch clears falling leaves and resets sockets (session-only). Attached Rotation is independent: A holds the initial orientation, B follows wind; neither resets growth or falling leaves. Size/resolution apply to both.");
+                ui.small("B transfers actual tree voxels, preserving their size. Strong wind may strip the entire canopy. Switching A/B clears falling leaves and resets sockets; canopy progress is session-only. Mesh/size controls below apply only to decorative leaves.");
             }
             render_section_controls(ui, section, adjustables);
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
@@ -673,7 +672,7 @@ fn render_section_controls(
         }
         ui.small("Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
         ui.label("Sky appearance & time");
-        ui.small("The sky gradient and its mirror image keep their appearance. Clouds use scene lighting. Sun disk brightness does not set surface lighting.");
+        ui.small("The sky gradient and its mirror image keep their appearance. Sun disk brightness does not set surface lighting.");
         for param in &section.param {
             if !matches!(param.id.as_str(), "sun_luminance" | "sky_light_strength") {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
@@ -1192,6 +1191,57 @@ mod tests {
     }
 
     #[test]
+    fn retired_cloud_settings_load_draw_save_and_reload_without_generated_fields() {
+        for enabled in [false, true] {
+            let mut config = GuiConfigLoader::load();
+            config.custom.butterfly_flight.tuning.speed = 0.75;
+            let mut expected = DebugSettings::from_config(config);
+            expected.adjustables.sun_luminance.value = 3.25;
+            expected.adjustables.sky_light_strength.value = 0.75;
+            expected.sync_config();
+            let expected_text = toml::to_string(&expected.config).unwrap();
+            let mut legacy: GuiConfigFile =
+                toml::from_str(include_str!("fixtures/cloud_settings_v1.toml")).unwrap();
+            for param in &mut legacy.section[0].param {
+                if let GuiParamValue::Bool { value } = &mut param.value {
+                    *value = enabled;
+                }
+            }
+            // An unrelated setting moved into Clouds must survive the migration.
+            let sky = expected
+                .config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Sky")
+                .unwrap();
+            legacy.section[0].param.push(sky.param.pop().unwrap());
+            // IDs are retired regardless of which section contains them.
+            let moved = legacy.section[0].param.remove(0);
+            expected.config.section[0].param.push(moved);
+            expected.config.section.extend(legacy.section);
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&expected.config, &path).unwrap();
+            let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            let context = egui::Context::default();
+            context.memory_mut(|m| m.set_everything_is_visible(true));
+            let _ = context.run_ui(egui::RawInput::default(), |ui| {
+                loaded.draw(ui, |section, _| assert_ne!(section, "Clouds"));
+            });
+            loaded.sync_config();
+            assert_eq!(toml::to_string(&loaded.config).unwrap(), expected_text);
+            loaded.save_to_path(&path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(toml::to_string(&reloaded).unwrap(), expected_text);
+            GuiConfigLoader::save_to_path(&reloaded, &path).unwrap();
+            assert_eq!(
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),
+                expected_text
+            );
+        }
+    }
+
+    #[test]
     fn older_sky_settings_load_the_new_control_and_preserve_saved_sun_values() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.sun_luminance.value = 3.25;
@@ -1305,6 +1355,153 @@ wind_drift = 1.0
             settings.butterfly_flight,
             crate::particles::ButterflyFlightSettings::default()
         );
+    }
+
+    #[test]
+    fn climbing_exploration_controls_use_standard_save_and_older_defaults() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.climbing_fixture.value = 4;
+        settings.adjustables.climbing_flexibility.value = 1.7;
+        settings.adjustables.climbing_search_turn.value = 4.5;
+        settings.adjustables.climbing_search_rate.value = 2.0;
+        settings.adjustables.climbing_search_reach.value = 36.0;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(reloaded.adjustables.climbing_fixture.value, 4);
+        assert_eq!(reloaded.adjustables.climbing_flexibility.value, 1.7);
+        assert_eq!(reloaded.adjustables.climbing_search_turn.value, 4.5);
+        assert_eq!(reloaded.adjustables.climbing_search_rate.value, 2.0);
+        assert_eq!(reloaded.adjustables.climbing_search_reach.value, 36.0);
+        // An older saved checkbox must disappear, regardless of its old value.
+        let section = settings
+            .config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Climbing Plants")
+            .unwrap();
+        let mut retired = section
+            .param
+            .iter()
+            .find(|p| p.id == "climbing_show_anchors")
+            .unwrap()
+            .clone();
+        retired.id = "climbing_continuous_stem".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_paused".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_enabled".into();
+        section.param.push(retired.clone());
+        retired.id = "climbing_clockwise".into();
+        retired.value = GuiParamValue::Bool { value: true };
+        section.param.push(retired.clone());
+        retired.id = "climbing_seed".into();
+        section.param.push(retired);
+        let fixture = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_fixture")
+            .unwrap();
+        if let GuiParamValue::Choice { options, .. } = &mut fixture.value {
+            options.pop(); // old saved menu predates the pole
+        }
+        let speed = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_speed")
+            .unwrap();
+        speed.value = GuiParamValue::Float {
+            value: 0.0,
+            min: Some(0.0),
+            max: Some(40.0),
+        };
+        let turn = section
+            .param
+            .iter_mut()
+            .find(|p| p.id == "climbing_search_turn")
+            .unwrap();
+        if let GuiParamValue::Float { value, max, .. } = &mut turn.value {
+            *value = 2.3;
+            *max = Some(3.0);
+        }
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let mut migrated = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(!migrated
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| matches!(
+                p.id.as_str(),
+                "climbing_continuous_stem"
+                    | "climbing_paused"
+                    | "climbing_enabled"
+                    | "climbing_clockwise"
+                    | "climbing_seed"
+            )));
+        assert_eq!(migrated.adjustables.climbing_speed.value, 1.0);
+        assert_eq!(*migrated.adjustables.climbing_speed.range.start(), 1.0);
+        assert_eq!(*migrated.adjustables.climbing_search_turn.range.end(), 6.0);
+        let options = migrated
+            .config
+            .section
+            .iter()
+            .find(|s| s.name == "Climbing Plants")
+            .unwrap()
+            .param
+            .iter()
+            .find(|p| p.id == "climbing_fixture")
+            .unwrap();
+        assert!(
+            matches!(&options.value, GuiParamValue::Choice { options, .. }
+            if options.last().is_some_and(|option| option == "Climbing pole"))
+        );
+        migrated.save_to_path(&path).unwrap();
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_continuous_stem"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_paused"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_enabled"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_clockwise"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("climbing_seed"));
+        for section in &mut settings.config.section {
+            section.param.retain(|p| {
+                ![
+                    "climbing_fixture",
+                    "climbing_flexibility",
+                    "climbing_search_turn",
+                    "climbing_search_rate",
+                    "climbing_search_reach",
+                ]
+                .contains(&p.id.as_str())
+            });
+        }
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let older = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        // Migration uses compiled declarations, including user-saved defaults.
+        let defaults = DebugSettings::from_config(
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap(),
+        );
+        assert_eq!(
+            older.adjustables.climbing_fixture.value,
+            defaults.adjustables.climbing_fixture.value
+        );
+        assert_eq!(
+            older.adjustables.climbing_flexibility.value,
+            defaults.adjustables.climbing_flexibility.value
+        );
+        assert_eq!(older.adjustables.climbing_search_turn.value, 1.0);
+        assert_eq!(older.adjustables.climbing_search_rate.value, 1.0);
+        assert_eq!(older.adjustables.climbing_search_reach.value, 64.0);
     }
 
     #[test]

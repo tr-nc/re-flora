@@ -1,12 +1,34 @@
 use anyhow::{anyhow, ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Quat, Vec3, Vec4};
+use glam::{Quat, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
     Allocator, Buffer, BufferUsage, Device, FrameRetirement, FrameRetirementSink, MemoryLocation,
 };
 
-use crate::resource::Resource;
+use crate::{
+    resource::Resource,
+    tracer::voxel_geometry::{CUBE_INDICES, VOXEL_VERTICES},
+};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct DynamicFruitVertex {
+    position: [f32; 3],
+    voxel_center: [f32; 3],
+    shading_normal: [f32; 3],
+    color_srgb: [f32; 3],
+}
+impl DynamicFruitVertex {
+    fn new(position: Vec3, voxel_center: Vec3, shading_normal: Vec3, color_srgb: Vec3) -> Self {
+        Self {
+            position: position.to_array(),
+            voxel_center: voxel_center.to_array(),
+            shading_normal: shading_normal.to_array(),
+            color_srgb: color_srgb.to_array(),
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -14,14 +36,16 @@ pub struct DynamicFruitInstanceGpu {
     base_position: [f32; 3],
     tint: [f32; 4],
     rotation: [f32; 4],
+    dimensions: [f32; 3],
 }
 
 impl DynamicFruitInstanceGpu {
     fn new(instance: DynamicFruitRenderInstance) -> Self {
         Self {
             base_position: instance.position.to_array(),
-            tint: Vec4::new(1.0, 1.0, 1.0, instance.scale).to_array(),
+            tint: instance.color.extend(instance.scale).to_array(),
             rotation: instance.rotation.to_array(),
+            dimensions: instance.dimensions.to_array(),
         }
     }
 }
@@ -31,6 +55,8 @@ pub struct DynamicFruitRenderInstance {
     pub position: Vec3,
     pub rotation: Quat,
     pub scale: f32,
+    pub dimensions: Vec3,
+    pub color: Vec3,
 }
 
 impl DynamicFruitRenderInstance {
@@ -39,6 +65,8 @@ impl DynamicFruitRenderInstance {
             position,
             rotation,
             scale,
+            dimensions: Vec3::ONE,
+            color: Vec3::ONE,
         }
     }
 }
@@ -65,7 +93,25 @@ impl DynamicFruitRendererResources {
         allocator: Allocator,
         frame_retirement_sink: FrameRetirementSink,
     ) -> Self {
-        let (vertices_data, indices_data) = build_apple_shadow_mesh();
+        Self::with_mesh(
+            device,
+            allocator,
+            frame_retirement_sink,
+            build_apple_shadow_mesh(),
+        )
+    }
+
+    /// Independently owned resident cuboid mesh; no fruit/tree simulation ownership.
+    pub fn blocks(device: Device, allocator: Allocator, sink: FrameRetirementSink) -> Self {
+        Self::with_mesh(device, allocator, sink, build_block_mesh())
+    }
+
+    fn with_mesh(
+        device: Device,
+        allocator: Allocator,
+        frame_retirement_sink: FrameRetirementSink,
+        (vertices_data, indices_data): (Vec<DynamicFruitVertex>, Vec<u32>),
+    ) -> Self {
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -83,7 +129,8 @@ impl DynamicFruitRendererResources {
             std::mem::size_of_val(indices_data.as_slice()) as u64,
         );
         indices.fill(&indices_data).unwrap();
-        // Both pixel and shadow vertex shaders use packed float3 positions.
+        // Pixel quads use packed float3 positions. Shadow geometry retains the
+        // shared mesh stride, explicitly declared by the shadow pipeline.
         let quad = [
             [0.0f32, 0.0, 0.0],
             [1.0, 0.0, 0.0],
@@ -149,12 +196,21 @@ impl DynamicFruitRendererResources {
                 instance.scale.is_finite() && instance.scale > 0.0,
                 "dynamic fruit scale must be finite and positive"
             );
+            ensure!(
+                instance.dimensions.is_finite()
+                    && instance.dimensions.min_element() > 0.0
+                    && instance.color.is_finite(),
+                "invalid lit instance dimensions/color"
+            );
             normalized.push(DynamicFruitRenderInstance {
                 rotation: instance.rotation.normalize(),
                 ..*instance
             });
         }
 
+        if !instances_changed(&self.last_instances, &normalized) {
+            return Ok(());
+        }
         self.ensure_instance_capacity(normalized.len())?;
         self.shadow_changed |= instances_changed(&self.last_instances, &normalized);
         self.last_instances.clone_from(&normalized);
@@ -227,15 +283,40 @@ fn instances_changed(
         last.position.distance_squared(current.position) > POSITION_EPSILON_SQUARED
             || 1.0 - current.rotation.dot(last.rotation).abs() > ROTATION_DOT_EPSILON
             || (current.scale - last.scale).abs() > SCALE_EPSILON
+            || current.dimensions != last.dimensions
+            || current.color != last.color
     })
 }
 
-fn build_apple_shadow_mesh() -> (Vec<[f32; 3]>, Vec<u32>) {
+fn build_block_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
+    let normals = [-Vec3::Y, Vec3::Y, -Vec3::Z, Vec3::Z, -Vec3::X, Vec3::X];
+    let mut vertices = Vec::new();
+    for (face, normal) in normals.into_iter().enumerate() {
+        for index in &CUBE_INDICES[face * 6..face * 6 + 6] {
+            let position = VOXEL_VERTICES[*index as usize].as_vec3() - Vec3::splat(0.5);
+            // Use the actual surface, not the centre of an elongated block, for shadow reception.
+            vertices.push(DynamicFruitVertex::new(
+                position,
+                position,
+                normal,
+                Vec3::ONE,
+            ));
+        }
+    }
+    (vertices, (0..36).collect())
+}
+
+fn build_apple_shadow_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
     let source = super::apple_preview::mesh();
     let vertices = source
         .positions
         .iter()
-        .map(|&p| super::apple_preview::world_position(p).to_array())
+        .map(|&p| {
+            let position = super::apple_preview::world_position(p);
+            // Only position is consumed by the shadow pass. Keep the shared
+            // mesh layout used by the independently lit climbing blocks.
+            DynamicFruitVertex::new(position, position, Vec3::Y, Vec3::ONE)
+        })
         .collect();
     (vertices, source.indices.clone())
 }
@@ -245,7 +326,10 @@ mod tests {
     use super::*;
     #[test]
     fn pixel_adapter_reads_the_same_packed_rigid_body_stream() {
-        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 11 * 4);
+        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 14 * 4);
+        assert!(
+            include_str!("../../shader/slang/apple_pixel_dynamic.comp.slang").contains("id.z*14u")
+        );
         assert_eq!(
             std::mem::offset_of!(DynamicFruitInstanceGpu, base_position),
             0
@@ -268,8 +352,8 @@ mod tests {
 
     #[test]
     fn dynamic_fruit_layout_matches_shader_locations() {
-        assert_eq!(std::mem::size_of::<[f32; 3]>(), 3 * 4);
-        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 11 * 4);
+        assert_eq!(std::mem::size_of::<DynamicFruitVertex>(), 12 * 4);
+        assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 14 * 4);
     }
 
     #[test]
@@ -280,10 +364,10 @@ mod tests {
         assert_eq!(vertices.len(), source.positions.len());
         for (vertex, &position) in vertices.iter().zip(&source.positions) {
             assert_eq!(
-                *vertex,
+                vertex.position,
                 super::super::apple_preview::world_position(position).to_array()
             );
-            assert!(vertex.iter().all(|v| v.is_finite()));
+            assert!(vertex.position.iter().all(|v| v.is_finite()));
         }
     }
 
@@ -321,7 +405,7 @@ mod tests {
 
     #[test]
     fn rust_buffers_match_both_dynamic_fruit_shader_inputs() {
-        let color_shader = include_str!("../../shader/slang/apple_pixel_dynamic.vert.slang");
+        let color_shader = include_str!("../../shader/slang/dynamic_fruit.vert.slang");
         let shadow_shader = include_str!("../../shader/slang/dynamic_fruit_shadow.vert.slang");
         for shader in [color_shader, shadow_shader] {
             for declaration in [
@@ -329,10 +413,16 @@ mod tests {
                 "[[vk::location(4)]] float3 base_position",
                 "[[vk::location(5)]] float4 tint",
                 "[[vk::location(6)]] float4 rotation",
+                "[[vk::location(7)]] float3 dimensions",
             ] {
                 assert!(shader.contains(declaration), "missing `{declaration}`");
             }
         }
+        assert!(color_shader.contains("rotateByQuaternion(input.position"));
+        assert!(color_shader.contains("input.position * input.tint.a"));
+        assert!(color_shader.contains("rotateByQuaternion(input.voxel_center"));
+        assert!(color_shader
+            .contains("normalize(input.shading_normal / input.dimensions), input.rotation"));
         assert!(shadow_shader.contains("rotateByQuaternion(input.position"));
         assert!(shadow_shader.contains("input.position * input.tint.a"));
     }

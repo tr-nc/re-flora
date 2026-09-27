@@ -7,7 +7,6 @@ import vegetation_response_sample;
 import vegetation_response_types;
 import flora_motion;
 import leaf_flutter;
-import leaf_model_pose;
 
 struct LeafHandoffInput {
     uint4 world; // xyz voxel root; w packed local offset from twig
@@ -35,13 +34,18 @@ void main(uint3 tid : SV_DispatchThreadID)
     LeafHandoffInput input = leaf_handoff_inputs.data[tid.x];
     int3 local = unpackTreeLeafVoxelLocalPosition(input.world.w);
     uint3 anchor = uint3(int3(input.world.xyz) - local);
-    LeafModelPose pose = attachedLeafModelPose(input.world.xyz,input.world.w,input.state.x,asfloat(input.state.y));
-    uint leafSeed = pose.seed;
+    uint seed = instanceSeed(anchor);
+    uint leafSeed = instanceSeed(input.world.xyz);
+    uint info = lookupFloraVoxelInfo(FLORA_SPECIES_TREE_LEAF, local);
+    PreparedFloraVertex pose = prepareFloraVertex(local, info, anchor,
+        FLORA_SPECIES_TREE_LEAF, seed, INSTANCE_GROWTH_PROGRESS_MATURE,
+        1.0, 1.0, INSTANCE_SPAWN_INACTIVE, input.state.x);
     LeafHandoffOutput output;
-    output.position_size = float4(pose.center, pose.size);
-    output.color = pose.color;
-    output.normal = float4(leafQuaternionVector(pose.rotation,float3(0,0,1)),asfloat(pose.seed));
-    output.rotation = pose.rotation;
+    output.position_size = float4(pose.voxel_position, asfloat(input.state.y) / 256.0);
+    output.color = float4(sampleFloraBaseColor(false, FLORA_SPECIES_TREE_LEAF,
+        seed, local, anchor, pose.color_gradient, info), 1.0);
+    output.normal = float4(pose.optical_normal, 0.0);
+    output.rotation = treeAttachmentRotation(anchor);
     output.velocity = float4(0.0);
     output.angular_velocity = float4(0.0);
     if (attachedVegetationResponseEnabled())
@@ -58,8 +62,7 @@ void main(uint3 tid : SV_DispatchThreadID)
                 - leafLocalDisplacement(leafSeed, angle - speed*h, gui_input.leaf_local_displacement_voxels)) / (2.0*h);
         }
         output.velocity.xyz = treeAttachmentVector(anchor, localVelocity / 256.0);
-        if(gui_input.attached_leaf_rotation!=0u)
-            output.angular_velocity.xyz = leafHinge(leafSeed) * speed;
+        output.angular_velocity.xyz = treeAttachmentVector(anchor, leafHinge(leafSeed) * speed);
     }
     leaf_handoff_outputs.data[tid.x] = output;
 }

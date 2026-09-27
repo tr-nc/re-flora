@@ -19,10 +19,10 @@ from ddgi_evidence import validation as validator  # noqa: E402
 class ValidateDdgiRadianceLifecycleTests(unittest.TestCase):
     def test_lifecycle_validator_requires_current_owner_evidence(self) -> None:
         fixture_hex = (
-            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v10.hex"
+            Path(__file__).with_name("fixtures") / "ddgi_filter_evidence_v11.hex"
         ).read_text()
         with tempfile.TemporaryDirectory() as directory:
-            capture_path = Path(directory) / "rust-producer-v10.rfirr"
+            capture_path = Path(directory) / "rust-producer-v11.rfirr"
             capture_path.write_bytes(bytes.fromhex(fixture_hex))
             capture = analyzer.load_capture(capture_path)
 
@@ -51,7 +51,7 @@ class ValidateDdgiRadianceLifecycleTests(unittest.TestCase):
         )
         base = analyzer.Capture(
             path=Path("outside-roi.rfirr"),
-            version=10,
+            version=11,
             width=2,
             height=1,
             backend=1,

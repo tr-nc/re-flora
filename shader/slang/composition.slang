@@ -1,7 +1,5 @@
-import clouds;
 import color;
 import composition_camera_effects;
-import composition_cloud_reflection;
 import composition_scene;
 import composition_terrarium_glass;
 import composition_terrarium_panels;
@@ -35,7 +33,6 @@ RWTexture2D<float4> composited_tex;
 [[vk::binding(13, 0)]] [[vk::image_format("rgba16f")]]
 readonly RWTexture2D<float4> lens_flare_output_tex;
 [[vk::binding(14, 0)]] Sampler2D sun_sprite_tex;
-[[vk::binding(15, 0)]] Sampler2D cloud_output_tex;
 #if RE_FLORA_GLASS_TRANSPORT
 [[vk::binding(16, 0)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> unified_opaque_hdr_tex;
@@ -69,8 +66,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 terrainColor = unpackRgbe(compute_output_tex[coordinate]);
     float3 finalColor = combineSceneColors(
         rasterDepth, computeDepth, rasterColor, terrainColor, screenUv,
-        gui_input, sun_info, camera_info, starlight_info,
-        sun_sprite_tex, cloud_output_tex);
+        sun_info, camera_info, starlight_info,
+        sun_sprite_tex);
 
 #if RE_FLORA_GLASS_TRANSPORT
     {

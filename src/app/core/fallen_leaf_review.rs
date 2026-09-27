@@ -15,7 +15,7 @@ impl FallenLeafReview {
     pub fn from_env() -> Result<Option<Self>> {
         let model_review = std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").ok();
         if model_review.as_ref().is_some_and(|m| m != "ab" && m != "b") {
-            bail!("RE_FLORA_LEAF_MODEL_REVIEW must be ab (model resolution/size sweep; no sprites) or b (fixed 16px model)");
+            bail!("RE_FLORA_LEAF_MODEL_REVIEW must be ab (live toggle/resolution sweep) or b (fixed 16px candidate)");
         }
         let Ok(mode) = std::env::var("RE_FLORA_FALLEN_LEAF_REVIEW") else {
             if model_review.is_some() {
@@ -49,17 +49,18 @@ impl App {
         review.frame += 1;
         if let Some(mode) = &review.model_review {
             // Diagnostic only; the real saved-field-bound controls own normal play.
-            // Historical `ab` argument now means a resolution/size sweep. The
-            // retired sprite renderer is never restored by a diagnostic.
-            let resolution = if mode == "b" {
-                16
+            let (enabled, resolution) = if mode == "b" {
+                (true, 16)
             } else {
                 match frame / 30 {
-                    1 => 8,
-                    3 => 64,
-                    _ => 16,
+                    0 | 4 => (false, 16),
+                    1 => (true, 8),
+                    2 => (true, 16),
+                    3 => (true, 64),
+                    _ => (true, 16),
                 }
             };
+            self.debug_settings.adjustables.falling_leaf_mesh.value = enabled;
             self.debug_settings
                 .adjustables
                 .falling_leaf_pixel_resolution
@@ -136,7 +137,7 @@ impl App {
         {
             log::info!("[LEAF_FLIGHT_REVIEW] frame={} geometry={} leaves={} sample={} position={:?} velocity={:?} normal={:?}",
                 review.frame,
-                "shared-3d-model",
+                if self.debug_settings.adjustables.falling_leaf_mesh.value { "shared-3d-model" } else { "screen-facing" },
                 leaves, index, leaf.position_ws, leaf.velocity,
                 leaf.leaf_orientation.map(|q| q * Vec3::Z));
         }

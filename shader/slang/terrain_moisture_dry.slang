@@ -1,4 +1,5 @@
 import terrain_soil;
+import terrain_moisture_sun;
 import terrain_ray_origin;
 import tracer_shadowing;
 import tracer_types;
@@ -39,9 +40,6 @@ RWTexture3D<uint> chunk_atlas;
 [[vk::binding(2, 0)]]
 ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 
-[[vk::binding(3, 0)]]
-Sampler2D shadow_map_tex_for_vsm_ping;
-
 [[vk::binding(4, 0)]]
 readonly GLSLShaderStorageBuffer<B_ManualContreeLeafData, Std430DataLayout>
     contree_leaf_data;
@@ -53,15 +51,6 @@ readonly GLSLShaderStorageBuffer<B_ManualSurfaceLeafCoords, Std430DataLayout>
 [[vk::binding(6, 0)]]
 readonly GLSLShaderStorageBuffer<B_ManualSurfaceLeafChunkInfo, Std430DataLayout>
     surface_leaf_chunk_info;
-
-[[vk::binding(7, 0)]]
-Sampler2D leaf_shadow_opacity_blended_tex;
-
-[[vk::binding(8, 0)]]
-Sampler2D leaf_shadow_mask_tex;
-
-[[vk::binding(9, 0)]]
-Sampler2D cloud_shadow_tex;
 
 uint loadAtlasMoisture(int3 position)
 {
@@ -140,24 +129,9 @@ float directShadowExposure(float3 worldPosition,
                            uint sourceMask,
                            uint availableMask)
 {
-    float4 receiverPosition = float4(worldPosition, 1.0);
-    DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        receiverPosition,
-        receiverPosition,
-        receiverPosition,
-        int3(0),
-        sourceMask,
-        DIRECT_TERRAIN_SHADOW_VSM,
-        availableMask,
-        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
-    return directSunShadowTransmittanceVsmLeafCloud(
-        receiver,
-        gui_input,
-        shadow_camera_info.view_proj_mat,
-        shadow_map_tex_for_vsm_ping,
-        leaf_shadow_opacity_blended_tex,
-        leaf_shadow_mask_tex,
-        cloud_shadow_tex);
+    DirectSunShadowReceiver receiver = pointSunShadowReceiver(
+        worldPosition, sourceMask, availableMask);
+    return sampleDirectSunShadow(receiver, gui_input, shadow_camera_info).combined;
 }
 
 int3 unpackSurfaceLeafLocalCoordinate(uint packedCoordinate)
@@ -184,21 +158,13 @@ float surfaceSunExposure(float3 sampleWorldPosition,
                          uint sourceMask,
                          uint availableMask)
 {
-    if (sunDirection.y <= 0.0 || dot(normal, sunDirection) <= 0.05)
-    {
-        return 0.0;
-    }
+    SoilSunExposurePlan plan = planSoilSunExposure(normal, sunDirection,
+        sourceMask, availableMask, shadowCameraContains(sampleWorldPosition));
+    if (!plan.lit) return 0.0;
 
-    uint directSourceMask = sourceMask;
     float terrainVisibility = 1.0;
-    bool wantsTerrain =
-        (sourceMask & DIRECT_SUN_SHADOW_SOURCE_TERRAIN) != 0u;
-    bool terrainVsmAvailable = wantsTerrain &&
-        (availableMask & DIRECT_SUN_SHADOW_SOURCE_TERRAIN) != 0u &&
-        shadowCameraContains(sampleWorldPosition);
-    if (wantsTerrain && !terrainVsmAvailable)
+    if (plan.trace_terrain)
     {
-        directSourceMask &= ~DIRECT_SUN_SHADOW_SOURCE_TERRAIN;
         terrainVisibility = !sunRayIsOccluded(
             sampleWorldPosition * voxelsPerWorldUnit, sunDirection)
             ? 1.0
@@ -206,7 +172,7 @@ float surfaceSunExposure(float3 sampleWorldPosition,
     }
 
     return terrainVisibility * directShadowExposure(
-        sampleWorldPosition, directSourceMask, availableMask);
+        sampleWorldPosition, plan.direct_source_mask, availableMask);
 }
 
 [shader("compute")]

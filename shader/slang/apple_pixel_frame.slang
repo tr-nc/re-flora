@@ -22,9 +22,9 @@ public float4 applePixelBounds(ApplePixelVertex input,U_CameraInfo camera) {
     return modelPixelBounds(input.center,1.55*input.scale,camera);
 }
 public void setApplePixelQuad(inout ApplePixelVertex output,float2 uv,U_CameraInfo camera,
-    uint viewCount,ModelPixelView view) {
+    uint viewCount,bool screenAligned,ModelPixelView view) {
     float4 bounds=applePixelBounds(output,camera);
     output.uv=uv;
     output.position=viewCount!=0u?modelOrthographicQuad(view,output.center,
-        1.55*output.scale,uv,camera):float4(lerp(bounds.xy,bounds.zw,uv),0.0,1.0);
+        1.55*output.scale,uv,screenAligned,camera):float4(lerp(bounds.xy,bounds.zw,uv),0.0,1.0);
 }

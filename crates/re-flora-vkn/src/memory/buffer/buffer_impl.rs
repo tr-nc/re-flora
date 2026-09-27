@@ -192,55 +192,51 @@ impl Buffer {
     // TODO: deprecate this one?
     pub fn new_sized(
         device: Device,
-        allocator: Allocator,
-        usage: BufferUsage,
-        location: MemoryLocation,
-        size: u64,
-    ) -> Self {
-        Self::try_new_sized(device, allocator, usage, location, size)
-            .expect("Failed to allocate buffer memory")
-    }
-
-    /// Fallible allocation, with complete cleanup before ownership is published.
-    /// A caller can report real resource exhaustion without substituting a
-    /// different rendering path or leaking the unbound Vulkan buffer.
-    pub fn try_new_sized(
-        device: Device,
         mut allocator: Allocator,
         usage: BufferUsage,
         location: MemoryLocation,
         size: u64,
-    ) -> Result<Self> {
-        anyhow::ensure!(size > 0, "buffer size must be nonzero");
+    ) -> Self {
         let buffer_info = vk::BufferCreateInfo::default()
-            .size(size)
+            .size(size as _)
             .usage(usage.as_raw())
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let buffer = unsafe { device.create_buffer(&buffer_info, None) }?;
+
+        let buffer = unsafe { device.create_buffer(&buffer_info, None).unwrap() };
         let requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
-        let allocated_mem = match allocator.allocate_memory(&AllocationCreateDesc {
-            name: "", requirements, location: location.into(), linear: true,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-        }) {
-            Ok(memory) => memory,
-            Err(error) => {
-                unsafe { device.destroy_buffer(buffer, None) };
-                anyhow::bail!("GPU buffer allocation ({size} bytes) failed: {error}");
-            }
+
+        let allocated_mem = allocator
+            .allocate_memory(&AllocationCreateDesc {
+                name: "",
+                requirements,
+                location: location.into(),
+                linear: true,
+                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+            })
+            .expect("Failed to allocate buffer memory");
+
+        unsafe {
+            device
+                .bind_buffer_memory(buffer, allocated_mem.memory(), allocated_mem.offset())
+                .unwrap()
         };
-        if let Err(error) = unsafe {
-            device.bind_buffer_memory(buffer, allocated_mem.memory(), allocated_mem.offset())
-        } {
-            allocator.destroy_buffer(buffer, allocated_mem);
-            return Err(error.into());
-        }
+
         let desc = BufferDesc {
-            usage, _location: location, layout: None, size: Some(size), element_length: 1,
+            usage,
+            _location: location,
+            layout: None,
+            size: Some(size as vk::DeviceSize),
+            element_length: 1, // TODO: or?
         };
-        Ok(Self(Arc::new(BufferInner {
-            device, allocator, buffer, allocated_mem, desc,
+
+        Self(Arc::new(BufferInner {
+            device,
+            allocator,
+            buffer,
+            allocated_mem,
+            desc,
             current_state: Mutex::new(BufferState::unknown()),
-        })))
+        }))
     }
 
     pub fn get_element_size_bytes(&self) -> u64 {

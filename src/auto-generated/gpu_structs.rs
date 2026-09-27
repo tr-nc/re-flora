@@ -70,6 +70,17 @@ pub struct DdgiRelocationStats {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_DdgiResponseSample` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiResponseSample {
+    pub identity: [u32; 4],
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+    pub irradiance_and_weight: [f32; 4],
+    pub support: [u32; 4],
+}
+
 /// Auto-generated from `B_DdgiTraceStats` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -350,6 +361,13 @@ pub struct TreeLeafInstances {
     pub packed_leaf_local_pos: u32,
 }
 
+/// Auto-generated from `B_TreeLeafLightingCache` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TreeLeafLightingCache {
+    pub irradiance: [u32; 0],
+}
+
 /// Auto-generated from `B_TreeLeafShadowInstances` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -503,6 +521,20 @@ pub struct PushConstantLeafShadowTemporal {
     pub _pad0: [u8; 8],
 }
 
+/// Auto-generated from `PushConstantLeaves` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantLeaves {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub response_offset: u32,
+    pub model_object_prepare: u32,
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
+}
+
 /// Auto-generated from `PushConstantLeavesShadow` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -546,20 +578,6 @@ pub struct PushConstantProbeTrace {
     pub local_refresh_enabled: [u32; 4],
     pub local_refresh_world_min: [f32; 4],
     pub local_refresh_world_max: [f32; 4],
-}
-
-/// Auto-generated from `PushConstantTreeLeafModel` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PushConstantTreeLeafModel {
-    pub time: f32,
-    pub instance_ty: u32,
-    pub response_offset: u32,
-    pub model_object_prepare: u32,
-    pub chunk_world_offset: [u32; 3],
-    pub lighting_cache_location: u32,
-    pub height_dark_color_rgb10: [u32; 12],
-    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
@@ -734,6 +752,15 @@ pub struct DdgiRadianceVoxelPalette {
     pub _pad5: [u8; 4],
 }
 
+/// Auto-generated from `U_DdgiResponseRequest` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DdgiResponseRequest {
+    pub identity: [u32; 4],
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+}
+
 /// Auto-generated from `U_DdgiTransportQueryInfo` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -832,15 +859,14 @@ pub struct GuiInput {
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
     pub raster_flora_ddgi_lighting: u32,
+    pub raster_tree_static: u32,
     pub apple_pixel_resolution: u32,
-    pub attached_leaf_rotation: u32,
-    pub falling_leaf_pixel_resolution: u32,
-    pub falling_leaf_size_scale: f32,
-    pub model_pixel_cache_verify: u32,
     pub model_pixel_view_count: u32,
+    pub model_pixel_screen_grid: u32,
+    pub raster_tree_hybrid_lighting: u32,
     pub path_tracing_reference: u32,
     pub path_tracing_max_bounces: u32,
-    pub _pad0: [u8; 4],
+    pub _pad0: [u8; 8],
     pub path_tracing_ambient_light: [f32; 3],
     pub terrain_ray_origin_offset_world: f32,
     pub terrain_self_shadow_tolerance_voxels: f32,
@@ -899,26 +925,6 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
-    pub clouds_enabled: u32,
-    pub cloud_coverage: f32,
-    pub cloud_density: f32,
-    pub cloud_bottom_height: f32,
-    pub cloud_top_height: f32,
-    pub cloud_shape_scale: f32,
-    pub cloud_detail_scale: f32,
-    pub cloud_detail_strength: f32,
-    pub cloud_wind_speed: f32,
-    pub cloud_primary_steps: u32,
-    pub cloud_light_steps: u32,
-    pub cloud_temporal_alpha: f32,
-    pub cloud_absorption: f32,
-    pub cloud_phase_eccentricity: f32,
-    pub cloud_silver_intensity: f32,
-    pub cloud_max_distance: f32,
-    pub cloud_shadows_enabled: u32,
-    pub cloud_shadow_strength: f32,
-    pub cloud_shadow_min_transmittance: f32,
-    pub cloud_shadow_steps: u32,
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

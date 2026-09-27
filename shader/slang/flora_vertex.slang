@@ -21,13 +21,9 @@ public [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 public [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 public [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(5, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
 [[vk::binding(6, 0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(7, 0)]] ConstantBuffer<U_WindVolumeInfo> wind_volume_info;
 [[vk::binding(8, 0)]] Sampler3D wind_volume_tex;
-[[vk::binding(9, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
-[[vk::binding(10, 0)]] Sampler2D leaf_shadow_mask_tex;
-[[vk::binding(11, 0)]] Sampler2D cloud_shadow_tex;
 [[vk::binding(12, 0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
 
 struct B_FloraVoxelTableDescs
@@ -334,8 +330,6 @@ public PreparedFloraVertex prepareFloraVertex(
         result.shading_normal = treeAttachmentVector(instancePositionVoxels,result.shading_normal);
     StylizedVoxelShadowSample shadowSample = sampleStylizedVoxelShadowAtLeafReceiver(
         gui_input, sun_info, shadow_camera_info,
-        shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
-        leaf_shadow_mask_tex, cloud_shadow_tex,
         result.voxel_position, leafShadowReceiverPosition, result.shading_normal);
     result.sun_transmittance = shadowSample.sun_transmittance;
     result.shadow_weight = shadowSample.weight;

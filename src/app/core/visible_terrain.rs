@@ -532,12 +532,18 @@ impl VisibleTerrainPublicationHost for App {
             .observe_published_environment_probe_terrain(revision, affected_voxels)
     }
 
-    fn commit_visible_terrain_revision(&mut self, revision: u32, _affected_voxels: UAabb3) {
-        // Procedural trees no longer derive their surface from terrain revisions.
+    fn commit_visible_terrain_revision(&mut self, revision: u32, affected_voxels: UAabb3) {
+        self.tracer
+            .raster_trees
+            .source
+            .observe_terrain(revision, affected_voxels);
+        self.climbing_plants.observe_edit(affected_voxels);
         self.visible_terrain_revision = revision;
     }
 
     fn discard_previous_terrain_edits(&mut self) -> Result<()> {
+        self.climbing_plants.replace_world();
+        self.tracer.show_climbing_plant_geometry(&[])?;
         self.discard_terrain_edits_after_snapshot_restore();
         Ok(())
     }
@@ -552,6 +558,10 @@ impl VisibleTerrainPublicationHost for App {
     }
 
     fn begin_world_collider_import(&mut self) -> Result<usize> {
+        if self.climbing_plants.has_history() {
+            self.climbing_plants.replace_world();
+            self.tracer.show_climbing_plant_geometry(&[])?;
+        }
         self.terrain_physics
             .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
     }

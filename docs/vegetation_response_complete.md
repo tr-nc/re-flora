@@ -1,6 +1,6 @@
 # 完整附着植被惯性响应 C
 
-**当前界面：** 不再保留外层 Debug 折叠项。Vegetation Wind Response 位于 Wind 内，Growth & Fruiting 和 Tree 位于 Flora 内；Visibility & Detail、Lighting Diagnostics、World Timing 直接作为一级分类。Atmos（原 Sky）包含 GodRay、Starlight、Clouds；Flora 包含植物品种、生成动画、Variation 和 Leaves；Terrain（原 Voxel）包含采集粒子；Camera 原名 HeadBob。Reset Inertia 和 Original C Rhythm 按钮及对应操作已移除。下面提到的这两个按钮仅是旧版验证记录，不再是当前操作方式。参数值、范围和存档字段未因分类而改变。
+**当前界面：** 不再保留外层 Debug 折叠项。Vegetation Wind Response 位于 Wind 内，Growth & Fruiting 和 Tree 位于 Flora 内；Visibility & Detail、Lighting Diagnostics、World Timing 直接作为一级分类。Atmos（原 Sky）包含 GodRay、Starlight（云渲染及其设置已移除）；Flora 包含植物品种、生成动画、Variation 和 Leaves；Terrain（原 Voxel）包含采集粒子；Camera 原名 HeadBob。Reset Inertia 和 Original C Rhythm 按钮及对应操作已移除。下面提到的这两个按钮仅是旧版验证记录，不再是当前操作方式。参数值、范围和存档字段未因分类而改变。
 
 **后续更新：** 用户要求树叶逐片运动后，叶片状态已从共享 map 改为逐个可见叶体素所有；移除了相对叶簇中心的径向风权重。最新设计、验证和开销见 [逐叶风响应](individual_leaf_wind_response.md)。本文下面保留上一轮共享叶片 map 的设计和九次性能数据，不能将其当作逐叶版本的性能或观感验收。
 

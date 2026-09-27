@@ -348,7 +348,7 @@ impl App {
                 sink_on_lifetime: false,
                 sink_speed: 0.0,
                 palette_index: 0,
-                render_kind: ParticleRenderKind::LitDebris,
+                render_kind: ParticleRenderKind::Leaf,
                 despawn_on_lifetime: false,
                 despawn_below_ground: false,
                 update: TERRAIN_HARVEST_PARTICLE_UPDATE,
@@ -584,6 +584,7 @@ impl App {
             transmission: settings.butterfly_wing_transmission.value,
         };
         let leaf_model = crate::tracer::LeafModelSettings {
+            enabled: settings.falling_leaf_mesh.value,
             resolution: settings.falling_leaf_pixel_resolution.value,
             size_scale: settings.falling_leaf_size_scale.value,
         };
@@ -654,7 +655,7 @@ impl App {
                 velocity: particle.velocity,
                 color: WATER_DEBUG_COLOR,
                 size: water_particle_size,
-                kind: ParticleRenderKind::LitDebris,
+                kind: ParticleRenderKind::Leaf,
                 palette_index: 0,
                 animation_phase_offset: 0.0,
                 animation_sample_time: None,
@@ -694,43 +695,18 @@ impl App {
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
-            let stage = (frame / 8) % 5;
-            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize];
+            let stage = (frame / 8) % 10;
+            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize / 2];
+            settings.model_pixel_screen_grid.value = stage & 1 != 0;
             settings.butterfly_mesh_preview.value = true;
+            settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;
-            // Cover high view counts without making this correctness fixture
-            // request several GiB. The isolated sweep below crosses real pages.
-            let (leaf_pixels, butterfly_pixels) = if settings.model_pixel_view_count.value >= 128 {
-                (8, 8)
-            } else {
-                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3]
-            };
+            let (leaf_pixels, butterfly_pixels) =
+                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3];
             settings.falling_leaf_pixel_resolution.value = leaf_pixels;
             settings.butterfly_pixel_resolution.value = butterfly_pixels;
             if frame.is_multiple_of(30) {
                 log::info!("[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels={leaf_pixels} butterfly_pixels={butterfly_pixels} apple_pixels={n}");
-            }
-        }
-        if std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some() && frame >= 400 {
-            // Hold one spec while motion continues, then change one input at
-            // a time. Step 5 must cache >128 MiB, spanning several storage blocks;
-            // step 6 replaces it while old GPU submissions are still in flight.
-            let step = ((frame - 400) / 16).min(6) as usize;
-            let (views, leaf, apple, butterfly) = [
-                (16, 16, 32, 16),
-                (16, 16, 32, 16),
-                (16, 32, 32, 16),
-                (16, 32, 8, 16),
-                (16, 32, 8, 8),
-                (32, 64, 64, 64),
-                (16, 16, 32, 16),
-            ][step];
-            settings.model_pixel_view_count.value = views;
-            settings.falling_leaf_pixel_resolution.value = leaf;
-            settings.apple_pixel_resolution.value = apple;
-            settings.butterfly_pixel_resolution.value = butterfly;
-            if (frame - 400).is_multiple_of(16) && frame <= 496 {
-                log::info!("[MODEL_CACHE_REVIEW] step={step} views={views} leaf={leaf} apple={apple} butterfly={butterfly}");
             }
         }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {

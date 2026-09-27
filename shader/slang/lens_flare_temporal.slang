@@ -13,7 +13,7 @@ ConstantBuffer<LensFlareTemporalPushConstants> lens_flare_temporal_push;
 [[vk::binding(0, 0)]] ConstantBuffer<U_SunInfo> sun_info;
 [[vk::binding(1, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(2, 0)]]
-ConstantBuffer<U_CameraInfoPrevFrame> camera_info_prev_frame;
+ConstantBuffer<U_CameraInfo> camera_info_prev_frame;
 [[vk::binding(3, 0)]] Sampler2D lens_flare_raw_tex;
 [[vk::binding(4, 0)]] Sampler2D lens_flare_history_tex;
 

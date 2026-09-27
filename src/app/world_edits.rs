@@ -1,4 +1,4 @@
-use crate::geom::{BvhNode, Cuboid, Sphere, Torus, UAabb3};
+use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, Torus, UAabb3};
 use crate::tree_gen::TreeDesc;
 use crate::{
     app::world_ops,
@@ -55,6 +55,12 @@ pub(crate) struct CubePlacementEdit {
     pub(crate) voxel_type: u32,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ClearVoxelRegionEdit {
+    pub(crate) offset: UVec3,
+    pub(crate) dim: UVec3,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TerrainRemovalEdit {
     pub(crate) center: Vec3,
@@ -91,6 +97,17 @@ impl TerrainBrushEdit {
 
 #[derive(Clone, Debug)]
 pub(crate) enum VoxelEdit {
+    StampRoundCones {
+        bvh_nodes: Vec<BvhNode>,
+        round_cones: Vec<RoundCone>,
+        voxel_type: u32,
+    },
+    ReplaceRoundConeVoxelType {
+        bvh_nodes: Vec<BvhNode>,
+        round_cones: Vec<RoundCone>,
+        target_voxel_type: u32,
+        fill_voxel_type: u32,
+    },
     StampCuboids {
         bvh_nodes: Vec<BvhNode>,
         cuboids: Vec<Cuboid>,
@@ -113,6 +130,7 @@ pub(crate) enum VoxelEdit {
         spheres: Vec<Sphere>,
         voxel_type: u32,
     },
+    ClearVoxelRegion(ClearVoxelRegionEdit),
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +148,7 @@ pub(crate) enum BuildEdit {
 enum WorldEditPublication {
     DeferredUntilLoading,
     Terrain(UAabb3),
+    Trees(Vec<UAabb3>),
 }
 
 /// The atlas mutation prepared by one authoritative world-edit transaction.
@@ -181,6 +200,13 @@ impl WorldEditTransaction {
         }
     }
 
+    pub(crate) fn tree_changes(voxel_edits: Vec<VoxelEdit>, affected_regions: Vec<UAabb3>) -> Self {
+        Self {
+            voxel_edits,
+            publication: WorldEditPublication::Trees(affected_regions),
+        }
+    }
+
     pub(crate) fn execute(
         self,
         plain_builder: &mut PlainBuilder,
@@ -199,6 +225,11 @@ impl WorldEditTransaction {
                     "terrain world edit requires at least one affected chunk"
                 );
                 Some(vec![BuildEdit::RebuildMesh(bound)])
+            }
+            WorldEditPublication::Trees(affected_regions) => {
+                let chunk_ids = tree_chunks(&affected_regions, voxel_dim_per_chunk);
+                chunk_bound(&chunk_ids, voxel_dim_per_chunk)?;
+                Some(vec![BuildEdit::RebuildChunksWithoutFlora(chunk_ids)])
             }
         };
 
@@ -240,10 +271,14 @@ impl WorldEditTransaction {
     }
 
     #[cfg(test)]
-    pub(crate) fn affected_voxels(&self, _voxel_dim_per_chunk: UVec3) -> Result<Option<UAabb3>> {
+    pub(crate) fn affected_voxels(&self, voxel_dim_per_chunk: UVec3) -> Result<Option<UAabb3>> {
         match &self.publication {
             WorldEditPublication::DeferredUntilLoading => Ok(None),
             WorldEditPublication::Terrain(bound) => Ok(Some(*bound)),
+            WorldEditPublication::Trees(affected_regions) => {
+                let chunk_ids = tree_chunks(affected_regions, voxel_dim_per_chunk);
+                chunk_bound(&chunk_ids, voxel_dim_per_chunk).map(Some)
+            }
         }
     }
 
@@ -255,6 +290,29 @@ impl WorldEditTransaction {
 
 fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result<()> {
     match edit {
+        VoxelEdit::ClearVoxelRegion(edit) => plain_builder.chunk_init(edit.offset, edit.dim),
+        VoxelEdit::StampRoundCones {
+            bvh_nodes,
+            round_cones,
+            voxel_type,
+        } => {
+            if voxel_type == VOXEL_TYPE_CHERRY_WOOD {
+                plain_builder.chunk_modify(&bvh_nodes, &round_cones)
+            } else {
+                plain_builder.chunk_modify_with_voxel_type(&bvh_nodes, &round_cones, voxel_type)
+            }
+        }
+        VoxelEdit::ReplaceRoundConeVoxelType {
+            bvh_nodes,
+            round_cones,
+            target_voxel_type,
+            fill_voxel_type,
+        } => plain_builder.chunk_replace_voxel_type_in_round_cones(
+            &bvh_nodes,
+            &round_cones,
+            target_voxel_type,
+            fill_voxel_type,
+        ),
         VoxelEdit::StampCuboids {
             bvh_nodes,
             cuboids,
@@ -294,9 +352,54 @@ fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result
     }
 }
 
+fn chunk_bound(chunk_ids: &[UVec3], voxel_dim_per_chunk: UVec3) -> Result<UAabb3> {
+    let min_chunk = chunk_ids
+        .iter()
+        .copied()
+        .reduce(UVec3::min)
+        .ok_or_else(|| anyhow::anyhow!("tree world edit requires at least one affected chunk"))?;
+    let max_chunk = chunk_ids
+        .iter()
+        .copied()
+        .reduce(UVec3::max)
+        .expect("a minimum chunk implies a maximum chunk");
+    Ok(UAabb3::new(
+        min_chunk * voxel_dim_per_chunk,
+        (max_chunk + UVec3::ONE) * voxel_dim_per_chunk,
+    ))
+}
+
+fn tree_chunks(affected_regions: &[UAabb3], voxel_dim_per_chunk: UVec3) -> Vec<UVec3> {
+    let mut chunk_ids = affected_regions
+        .iter()
+        .flat_map(|bound| world_ops::affected_chunk_indices_for_bound(*bound, voxel_dim_per_chunk))
+        .collect::<Vec<_>>();
+    chunk_ids.sort_unstable_by_key(|chunk_id| chunk_id.to_array());
+    chunk_ids.dedup();
+    chunk_ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_batch_has_one_chunk_aligned_visible_world_outcome() {
+        let chunk_dim = UVec3::splat(256);
+        let plan = WorldEditTransaction::tree_changes(
+            Vec::new(),
+            vec![
+                UAabb3::new(UVec3::new(10, 20, 30), UVec3::new(20, 30, 40)),
+                UAabb3::new(UVec3::new(270, 20, 30), UVec3::new(280, 30, 40)),
+                UAabb3::new(UVec3::new(10, 20, 30), UVec3::new(20, 30, 40)),
+            ],
+        );
+
+        assert_eq!(
+            plan.affected_voxels(chunk_dim).unwrap(),
+            Some(UAabb3::new(UVec3::ZERO, UVec3::new(512, 256, 256))),
+        );
+    }
 
     #[test]
     fn loading_changes_defer_visible_world_publication() {

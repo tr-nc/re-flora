@@ -8,7 +8,6 @@ public struct ButterflyMeshInstance {
     public float4 lighting; // butterfly: x transmission; leaf (metadata.w & 2): published quaternion
     public uint4 repair; // sparse expression offset/count, always enabled
     public float4 view_orientation; // published rigid pose, excluding articulated wing motion
-    public uint4 cache; // immutable model source ID; reserved
 };
 public struct ParticleModelRepairNode {
     public uint4 links; // destination, endpoint refs, lerp float bits

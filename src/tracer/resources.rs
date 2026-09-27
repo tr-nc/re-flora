@@ -416,8 +416,15 @@ pub struct ParticleInstanceGpu {
     pub position: [f32; 3],
     pub size: f32,
     pub color: [f32; 4],
-    /// Optical normal + enable for non-leaf harvest/debug points only.
+    pub leaf_pose_flags: u32,
+    /// Falling leaves (texture bit 30): held simulation quaternion for optics only.
+    /// Other leaf particles: optical normal + enable. Geometry is always billboarded.
+    /// Optics keep their original offset; the appended source-voxel frame makes
+    /// the reflected instance stride 68 bytes.
     pub leaf_optics: [f32; 4],
+    /// Actual detached tree voxels retain a separate geometry frame, selected
+    /// by LEAF_SOURCE_VOXEL_BIT. Ordinary particle geometry ignores this field.
+    pub leaf_geometry: [f32; 4],
 }
 
 pub struct ParticleRendererResources {
@@ -428,7 +435,12 @@ pub struct ParticleRendererResources {
     pub instance_count: u32,
     pub translucent_instance_buffer: Resource<Buffer>,
     pub translucent_instance_count: u32,
-    instance_frames: Vec<Option<[Buffer; 2]>>,
+    pub tree_leaf_vertices: Resource<Buffer>,
+    pub tree_leaf_indices: Resource<Buffer>,
+    pub tree_leaf_indices_len: u32,
+    pub tree_leaf_instance_buffer: Resource<Buffer>,
+    pub tree_leaf_instance_count: u32,
+    instance_frames: Vec<Option<[Buffer; 3]>>,
 }
 
 #[repr(C)]
@@ -804,6 +816,8 @@ impl ParticleRendererResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         let (vertices, indices, indices_len) =
             Self::create_particle_mesh(device.clone(), allocator.clone(), true);
+        let (tree_leaf_vertices, tree_leaf_indices, tree_leaf_indices_len) =
+            Self::create_particle_mesh(device.clone(), allocator.clone(), false);
 
         let create_instance_buffer = || {
             Buffer::new_sized(
@@ -825,6 +839,11 @@ impl ParticleRendererResources {
             instance_count: 0,
             translucent_instance_buffer: Resource::new(translucent_instance_buffer),
             translucent_instance_count: 0,
+            tree_leaf_vertices: Resource::new(tree_leaf_vertices),
+            tree_leaf_indices: Resource::new(tree_leaf_indices),
+            tree_leaf_indices_len,
+            tree_leaf_instance_buffer: Resource::new(create_instance_buffer()),
+            tree_leaf_instance_count: 0,
             instance_frames: Vec::new(),
         }
     }
@@ -836,7 +855,7 @@ impl ParticleRendererResources {
         slot: usize,
         device: Device,
         allocator: Allocator,
-        batches: [&[ParticleInstanceGpu]; 2],
+        batches: [&[ParticleInstanceGpu]; 3],
     ) -> anyhow::Result<()> {
         while self.instance_frames.len() <= slot {
             self.instance_frames.push(None);
@@ -870,8 +889,10 @@ impl ParticleRendererResources {
         }
         self.instance_buffer = Resource::new(buffers[0].clone());
         self.translucent_instance_buffer = Resource::new(buffers[1].clone());
+        self.tree_leaf_instance_buffer = Resource::new(buffers[2].clone());
         self.instance_count = batches[0].len() as u32;
         self.translucent_instance_count = batches[1].len() as u32;
+        self.tree_leaf_instance_count = batches[2].len() as u32;
         Ok(())
     }
 
@@ -928,9 +949,6 @@ pub struct ShadowResources {
     pub shadow_map_tex_for_vsm_ping: Resource<Texture>,
     pub shadow_map_tex_for_vsm_pong: Resource<Texture>,
     pub shadow_map_tex_for_vsm_prev: Resource<Texture>,
-    pub cloud_shadow_raw_tex: Resource<Texture>,
-    pub cloud_shadow_history_tex: Resource<Texture>,
-    pub cloud_shadow_tex: Resource<Texture>,
     pub leaf_shadow_opacity_tex: Resource<Texture>,
     pub leaf_shadow_opacity_prev_tex: Resource<Texture>,
     pub leaf_shadow_opacity_blended_tex: Resource<Texture>,
@@ -943,10 +961,6 @@ impl ShadowResources {
             &self.shadow_map_tex_for_vsm_ping,
             &self.shadow_map_tex_for_vsm_prev,
         )
-    }
-
-    pub fn cloud_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
-        CurrentPrevious::new(&self.cloud_shadow_tex, &self.cloud_shadow_history_tex)
     }
 
     pub fn leaf_shadow_history(&self) -> CurrentPrevious<&Resource<Texture>> {
@@ -1102,7 +1116,6 @@ impl TracerUniformResources {
         allocator: Allocator,
         tracer_sm: &ShaderModule,
         composition_sm: &ShaderModule,
-        cloud_temporal_sm: &ShaderModule,
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         flora_vert_sm: &ShaderModule,
@@ -1122,10 +1135,8 @@ impl TracerUniformResources {
             sun_info: Resource::new(layout_buffer(tracer_sm, "U_SunInfo")),
             shading_info: Resource::new(layout_buffer(tracer_sm, "U_ShadingInfo")),
             camera_info: Resource::new(layout_buffer(tracer_sm, "U_CameraInfo")),
-            camera_info_prev_frame: Resource::new(layout_buffer(
-                cloud_temporal_sm,
-                "U_CameraInfoPrevFrame",
-            )),
+            // Frame snapshots share the canonical camera layout, independent of effects.
+            camera_info_prev_frame: Resource::new(layout_buffer(tracer_sm, "U_CameraInfo")),
             env_info: Resource::new(layout_buffer(composition_sm, "U_EnvInfo")),
             starlight_info: Resource::new(layout_buffer(composition_sm, "U_StarlightInfo")),
             voxel_colors: Resource::new(layout_buffer(tracer_sm, "U_VoxelColors")),
@@ -1199,7 +1210,6 @@ impl ShadowResources {
         allocator: Allocator,
         tracer_shadow_sm: &ShaderModule,
         shadow_map_extent: Extent2D,
-        cloud_shadow_extent: Extent2D,
         leaf_shadow_opacity_extent: Extent2D,
     ) -> Self {
         let shadow_camera_info = Buffer::from_buffer_layout(
@@ -1213,7 +1223,6 @@ impl ShadowResources {
             MemoryLocation::CpuToGpu,
         );
         let shadow_map_extent: Extent3D = shadow_map_extent.into();
-        let cloud_shadow_extent: Extent3D = cloud_shadow_extent.into();
         let leaf_shadow_opacity_extent: Extent3D = leaf_shadow_opacity_extent.into();
         let leaf_shadow_mask_extent = Extent3D::new(
             (leaf_shadow_opacity_extent.width / 8).max(1),
@@ -1224,11 +1233,6 @@ impl ShadowResources {
             "[SHADOW] using VSM shadow map {}x{}",
             shadow_map_extent.width,
             shadow_map_extent.height,
-        );
-        log::info!(
-            "[CLOUD_SHADOW] using Beer transmittance map {}x{} with temporal resolve",
-            cloud_shadow_extent.width,
-            cloud_shadow_extent.height,
         );
         log::info!(
             "[LEAF_SHADOW] using 2D opacity map {}x{}, temporal history, and influence mask {}x{}",
@@ -1271,21 +1275,6 @@ impl ShadowResources {
                     shadow_map_extent,
                 ),
             ),
-            cloud_shadow_raw_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
-                device.clone(),
-                allocator.clone(),
-                cloud_shadow_extent,
-            )),
-            cloud_shadow_history_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
-                device.clone(),
-                allocator.clone(),
-                cloud_shadow_extent,
-            )),
-            cloud_shadow_tex: Resource::new(TracerResources::create_cloud_shadow_tex(
-                device.clone(),
-                allocator.clone(),
-                cloud_shadow_extent,
-            )),
             leaf_shadow_opacity_tex: Resource::new(
                 TracerResources::create_leaf_shadow_opacity_tex(
                     device.clone(),
@@ -1473,18 +1462,19 @@ pub struct TracerResources {
     pub butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources,
     #[resource(nested)]
     pub apple_pixel: super::apple_pixel::ApplePixelResources,
-    #[resource(nested)]
-    pub model_cache: super::model_pixel_cache::CacheResources,
     pub tree_scene_info: Resource<Buffer>,
     pub tree_skin_rest: Resource<Buffer>,
     pub tree_skin_bindings: Resource<Buffer>,
     pub tree_skin_poses: Resource<Buffer>,
     pub tree_refit_order: Resource<Buffer>,
+    pub tree_scene_rest_cells: Resource<Buffer>,
     pub tree_attachment_keys: Resource<Buffer>,
     pub tree_attachment_poses: Resource<Buffer>,
     pub tree_scene_nodes: Resource<Buffer>,
     pub tree_scene_primitives: Resource<Buffer>,
     pub tree_scene_vertices: Resource<Buffer>,
+    pub tree_scene_cell_vertices: Resource<Buffer>,
+    pub raster_tree_cells: Resource<Buffer>,
     pub raster_tree_light_cache: Resource<Buffer>,
     #[resource(nested)]
     pub uniforms: TracerUniformResources,
@@ -1498,6 +1488,8 @@ pub struct TracerResources {
     pub terrain_query: TerrainQueryResources,
     #[resource(nested)]
     pub local_lighting: LocalLightingResources,
+    #[resource(nested)]
+    pub ddgi_response: super::ddgi_response_sample::DdgiResponseResources,
     #[resource(nested)]
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,
@@ -1513,7 +1505,6 @@ impl TracerResources {
         tracer_sm: &ShaderModule,
         tracer_shadow_sm: &ShaderModule,
         composition_sm: &ShaderModule,
-        cloud_temporal_sm: &ShaderModule,
         god_ray_sm: &ShaderModule,
         post_processing_sm: &ShaderModule,
         player_collider_sm: &ShaderModule,
@@ -1525,7 +1516,6 @@ impl TracerResources {
         environment_irradiance_capture_enabled: bool,
         glass_experiment_enabled: bool,
         shadow_map_extent: Extent2D,
-        cloud_shadow_extent: Extent2D,
         leaf_shadow_opacity_extent: Extent2D,
         max_terrain_queries: u32,
     ) -> Self {
@@ -1541,13 +1531,19 @@ impl TracerResources {
         };
         let tree_scene_info = tree_buffer(16);
         tree_scene_info.fill(&[[0u32; 4]]).unwrap();
+        let raster_tree_cells = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (super::TREE_CELL_CAPACITY * 16) as u64,
+        );
+        raster_tree_cells
+            .fill(&vec![[0u32; 4]; super::TREE_CELL_CAPACITY])
+            .unwrap();
 
         Self {
             butterfly_mesh: super::butterfly_mesh::ButterflyMeshResources::new(
-                device.clone(),
-                allocator.clone(),
-            ),
-            model_cache: super::model_pixel_cache::CacheResources::new(
                 device.clone(),
                 allocator.clone(),
             ),
@@ -1557,8 +1553,9 @@ impl TracerResources {
             ),
             tree_attachment_keys: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 16),
             tree_attachment_poses: tree_buffer(super::tree_scene::MAX_TREE_ATTACHMENTS * 32),
+            tree_scene_rest_cells: tree_buffer(super::TREE_CELL_CAPACITY * 16),
             tree_scene_info,
-            tree_skin_rest: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 32),
+            tree_skin_rest: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 48),
             tree_skin_bindings: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 16),
             tree_skin_poses: tree_buffer(super::tree_scene::MAX_TREE_VERTICES * 32),
             tree_refit_order: tree_buffer(super::tree_scene::MAX_TREE_NODES * 16),
@@ -1581,6 +1578,8 @@ impl TracerResources {
                 MemoryLocation::GpuOnly,
                 (super::tree_scene::MAX_TREE_VERTICES * 32) as u64,
             )),
+            tree_scene_cell_vertices: tree_buffer(super::TREE_CELL_CAPACITY * 4),
+            raster_tree_cells: Resource::new(raster_tree_cells),
             raster_tree_light_cache: Resource::new(Buffer::new_sized(
                 device.clone(),
                 allocator.clone(),
@@ -1588,14 +1587,13 @@ impl TracerResources {
                     vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
                 ),
                 MemoryLocation::GpuOnly,
-                (super::tree_scene::MAX_TREE_VERTICES * 16) as u64,
+                (super::TREE_CELL_CAPACITY * 16) as u64,
             )),
             uniforms: TracerUniformResources::new(
                 device.clone(),
                 allocator.clone(),
                 tracer_sm,
                 composition_sm,
-                cloud_temporal_sm,
                 god_ray_sm,
                 post_processing_sm,
                 flora_vert_sm,
@@ -1605,7 +1603,6 @@ impl TracerResources {
                 allocator.clone(),
                 tracer_shadow_sm,
                 shadow_map_extent,
-                cloud_shadow_extent,
                 leaf_shadow_opacity_extent,
             ),
             wind: WindResources::new(
@@ -1623,6 +1620,10 @@ impl TracerResources {
                 max_terrain_queries,
             ),
             local_lighting: LocalLightingResources::new(device.clone(), allocator.clone()),
+            ddgi_response: super::ddgi_response_sample::DdgiResponseResources::new(
+                device.clone(),
+                allocator.clone(),
+            ),
             textures: TracerTextureResources::new(vulkan_ctx, allocator.clone()),
             meshes: TracerMeshResources::new(device.clone(), allocator.clone(), chunk_bound),
             extent_dependent_resources: ExtentDependentResources::new(
@@ -1805,30 +1806,6 @@ impl TracerResources {
         Texture::new(device, allocator, &tex_desc, &sam_desc)
     }
 
-    fn create_cloud_shadow_tex(
-        device: Device,
-        allocator: Allocator,
-        cloud_shadow_extent: Extent3D,
-    ) -> Texture {
-        let tex_desc = ImageDesc {
-            extent: cloud_shadow_extent,
-            format: vk::Format::R16_SFLOAT,
-            usage: vk::ImageUsageFlags::STORAGE
-                | vk::ImageUsageFlags::SAMPLED
-                | vk::ImageUsageFlags::TRANSFER_SRC
-                | vk::ImageUsageFlags::TRANSFER_DST,
-            initial_layout: TextureLayout::UNDEFINED,
-            aspect: vk::ImageAspectFlags::COLOR,
-            ..Default::default()
-        };
-        let sam_desc = SamplerDesc {
-            mag_filter: vk::Filter::LINEAR,
-            min_filter: vk::Filter::LINEAR,
-            ..Default::default()
-        };
-        Texture::new(device, allocator, &tex_desc, &sam_desc)
-    }
-
     fn create_leaf_shadow_opacity_tex(
         device: Device,
         allocator: Allocator,
@@ -1968,7 +1945,7 @@ mod tests {
             std::mem::size_of_val(vertices.as_slice()) / vertices.len(),
             std::mem::size_of::<LeafVertex>(),
         );
-        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 48);
-        assert_eq!(std::mem::offset_of!(ParticleInstanceGpu, leaf_optics), 32);
+        assert_eq!(std::mem::size_of::<ParticleInstanceGpu>(), 68);
+        assert_eq!(std::mem::offset_of!(ParticleInstanceGpu, leaf_optics), 36);
     }
 }

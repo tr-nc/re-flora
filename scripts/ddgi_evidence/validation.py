@@ -2095,7 +2095,7 @@ def validate_radiance_lifecycle(action: ValidateRadianceLifecycle) -> str:
             == capture.source_radiance_revision
         ):
             failures.append(
-                f"{checkpoint}: sidecar active field does not match v10 header"
+                f"{checkpoint}: sidecar active field does not match v11 header"
             )
 
     baseline = identities["baseline"]

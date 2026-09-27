@@ -13,7 +13,6 @@ from denoiser_bench import DETAIL_METRIC, load_report
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ISOLATION_FLAGS = (
-    "--no-clouds",
     "--no-particles",
     "--no-god-rays",
     "--no-lens-flare",

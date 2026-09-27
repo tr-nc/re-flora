@@ -54,6 +54,8 @@ pub struct PreparedDrawDescriptors {
 #[derive(Clone, Debug)]
 pub struct GraphicsPipelineDesc {
     pub format_overrides: Vec<FormatOverride>,
+    /// Host buffer strides for bindings whose unused trailing fields are not reflected.
+    pub vertex_binding_strides: Vec<(u32, u32)>,
     pub cull_mode: vk::CullModeFlags,
     pub front_face: vk::FrontFace,
     pub depth_test_enable: bool,
@@ -64,11 +66,66 @@ impl Default for GraphicsPipelineDesc {
     fn default() -> Self {
         Self {
             format_overrides: Vec::new(),
+            vertex_binding_strides: Vec::new(),
             cull_mode: vk::CullModeFlags::NONE,
             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
             depth_test_enable: false,
             depth_write_enable: false,
         }
+    }
+}
+
+fn apply_vertex_binding_strides(
+    bindings: &mut [vk::VertexInputBindingDescription],
+    overrides: &[(u32, u32)],
+) {
+    for &(binding, stride) in overrides {
+        let description = bindings
+            .iter_mut()
+            .find(|d| d.binding == binding)
+            .expect("vertex stride override must name a reflected binding");
+        assert!(
+            stride >= description.stride,
+            "host vertex stride is smaller than reflected attributes"
+        );
+        description.stride = stride;
+    }
+}
+
+#[cfg(test)]
+mod vertex_stride_tests {
+    use super::*;
+
+    #[test]
+    fn shared_mesh_and_instance_padding_survive_reflection() {
+        let mut bindings = [
+            vk::VertexInputBindingDescription::default()
+                .binding(0)
+                .stride(12),
+            vk::VertexInputBindingDescription::default()
+                .binding(1)
+                .stride(44)
+                .input_rate(vk::VertexInputRate::INSTANCE),
+        ];
+        apply_vertex_binding_strides(&mut bindings, &[(0, 48), (1, 56)]);
+        assert_eq!(bindings[0].stride, 48);
+        assert_eq!(bindings[1].stride, 56);
+        assert_eq!(bindings[1].input_rate, vk::VertexInputRate::INSTANCE);
+    }
+
+    #[test]
+    #[should_panic(expected = "smaller than reflected")]
+    fn reject_truncating_reflected_attributes() {
+        let mut bindings = [vk::VertexInputBindingDescription::default()
+            .binding(0)
+            .stride(48)];
+        apply_vertex_binding_strides(&mut bindings, &[(0, 12)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "name a reflected binding")]
+    fn reject_unknown_binding() {
+        apply_vertex_binding_strides(&mut [], &[(1, 56)]);
     }
 }
 
@@ -143,9 +200,11 @@ impl GraphicsPipeline {
 
         let shader_states_infos = [vert_state_info, frag_state_info];
 
-        let (binding_descs, attribute_descs) = vert_shader_module
+        let (mut binding_descs, attribute_descs) = vert_shader_module
             .get_vertex_input_state(&desc.format_overrides, instance_rate_starting_location)
             .unwrap();
+
+        apply_vertex_binding_strides(&mut binding_descs, &desc.vertex_binding_strides);
 
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&binding_descs)

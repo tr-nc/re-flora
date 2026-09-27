@@ -14,7 +14,7 @@ struct ApplePass { uint prepare; };
 void main(uint3 id:SV_DispatchThreadID) {
     uint n=clamp(gui_input.apple_pixel_resolution,8u,64u);
     if(any(id.xy>=uint2(n)))return;
-    uint b=id.z*11u;
+    uint b=id.z*14u;
     float3 center=float3(dynamic_fruit_pixel_instances[b],dynamic_fruit_pixel_instances[b+1],dynamic_fruit_pixel_instances[b+2]);
     float4 rotation=float4(dynamic_fruit_pixel_instances[b+7],dynamic_fruit_pixel_instances[b+8],dynamic_fruit_pixel_instances[b+9],dynamic_fruit_pixel_instances[b+10]);
     ApplePixelVertex pose=appleDynamicPose(center,rotation,dynamic_fruit_pixel_instances[b+6],n,id.z);

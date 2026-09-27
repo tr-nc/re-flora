@@ -253,6 +253,7 @@ impl BufferUpdater {
 
     pub fn update_gui_input(
         resources: &TracerResources,
+        raster_tree_static: bool,
         lighting_frame: &ResolvedLightingFrameInputs,
         terrain: &TerrainFrameInput,
         materials: &MaterialFrameInput,
@@ -264,13 +265,10 @@ impl BufferUpdater {
         let leaf_lighting = vegetation.leaf_lighting;
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
-            attached_leaf_rotation: appearance.attached_leaf_rotation as u32,
-            falling_leaf_pixel_resolution: appearance.leaf_models.resolution.clamp(8, 64),
-            falling_leaf_size_scale: appearance.leaf_models.size_scale.clamp(0.25, 4.),
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
-            model_pixel_cache_verify: std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some()
-                as u32,
+            raster_tree_static: raster_tree_static as u32,
+            model_pixel_screen_grid: terrain.model_pixel_screen_grid as u32,
             model_pixel_view_count: super::model_pixel_views::effective_count(
                 terrain.model_pixel_view_count,
                 super::butterfly_mesh::native_review(),
@@ -278,6 +276,7 @@ impl BufferUpdater {
             apple_pixel_resolution: terrain
                 .apple_pixel_resolution
                 .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),
+            raster_tree_hybrid_lighting: vegetation.tree_hybrid_lighting as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
@@ -337,26 +336,6 @@ impl BufferUpdater {
             leaf_shadow_min_transmittance: leaf_lighting.shadow_min_transmittance,
             leaf_shadow_filter_radius_texels: leaf_lighting.shadow_filter_radius_texels,
             leaf_transmission_strength: leaf_lighting.transmission_strength,
-            clouds_enabled: environment.clouds.enabled as u32,
-            cloud_coverage: environment.clouds.coverage,
-            cloud_density: environment.clouds.density,
-            cloud_bottom_height: environment.clouds.bottom_height,
-            cloud_top_height: environment.clouds.top_height,
-            cloud_shape_scale: environment.clouds.shape_scale,
-            cloud_detail_scale: environment.clouds.detail_scale,
-            cloud_detail_strength: environment.clouds.detail_strength,
-            cloud_wind_speed: environment.clouds.wind_speed,
-            cloud_primary_steps: environment.clouds.primary_steps,
-            cloud_light_steps: environment.clouds.light_steps,
-            cloud_temporal_alpha: environment.clouds.temporal_alpha,
-            cloud_absorption: environment.clouds.absorption,
-            cloud_phase_eccentricity: environment.clouds.phase_eccentricity,
-            cloud_silver_intensity: environment.clouds.silver_intensity,
-            cloud_max_distance: environment.clouds.max_distance,
-            cloud_shadows_enabled: environment.clouds.shadows_enabled as u32,
-            cloud_shadow_strength: environment.clouds.shadow_strength,
-            cloud_shadow_min_transmittance: environment.clouds.shadow_min_transmittance,
-            cloud_shadow_steps: environment.clouds.shadow_steps,
             ..GuiInput::zeroed()
         })
     }

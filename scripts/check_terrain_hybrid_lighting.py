@@ -41,8 +41,7 @@ def fixed_configuration():
                 ("auto_daynight_cycle", "false"),
                 ("time_of_day", "0.47"),
                 ("path_tracing_reference", "false"),
-                ("tree_wind", "false"),
-                ("tree_pixelized", "false"),
+                ("raster_tree_wind", "false"),
             ):
                 source = setting(source, name, value)
             yield gui, source
@@ -74,7 +73,6 @@ def capture(binary: Path, out: Path, irradiance: bool):
             "--windowed",
             "--no-flora",
             "--no-particles",
-            "--no-clouds",
             "--no-god-rays",
             "--no-lens-flare",
             "--ddgi-debug-view",

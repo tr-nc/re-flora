@@ -25,6 +25,7 @@ public bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
 {
     if (!ddgiVoxelCoordinateInside(coordinate, dimensions)) return true;
     uint3 voxel = uint3(coordinate);
+    if (treeRestVoxel(voxel)) return false;
     uint word = ddgi_voxel_visibility_bits[
         uint3(voxel.x >> 5u, voxel.y, voxel.z)];
     return (word & (1u << (voxel.x & 31u))) != 0u;

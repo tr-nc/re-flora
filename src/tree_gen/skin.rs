@@ -4,6 +4,36 @@ use anyhow::{ensure, Result};
 use glam::{Mat3, Vec3};
 
 use super::{pose::BranchPose, Tree};
+use crate::geom::RoundConeClearanceIndex;
+
+/// Repeated exact rest-space queries for one immutable tree. Building the index
+/// once avoids scanning every authored cone for each surface cell and corner.
+pub struct RestSkinBinder<'a> {
+    tree: &'a Tree,
+    cones: RoundConeClearanceIndex<'a>,
+}
+
+impl<'a> RestSkinBinder<'a> {
+    pub fn new(tree: &'a Tree) -> Self {
+        Self {
+            tree,
+            cones: RoundConeClearanceIndex::new(tree.trunks()),
+        }
+    }
+
+    pub fn owns_cell(&self, local_center: Vec3) -> bool {
+        !self.cones.has_minimum_clearance(local_center, 0.)
+    }
+
+    pub fn bind(&self, local_voxels: Vec3) -> Result<SkinBinding> {
+        ensure!(local_voxels.is_finite(), "nonfinite skin position");
+        let cone = self
+            .cones
+            .nearest_cone(local_voxels)
+            .ok_or_else(|| anyhow::anyhow!("cannot bind surface without tree wood"))?;
+        Ok(SkinBinding::on_cone(self.tree, local_voxels, cone))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SkinBinding {
@@ -28,6 +58,10 @@ impl SkinBinding {
             })
             .map(|(i, _)| i)
             .ok_or_else(|| anyhow::anyhow!("cannot bind surface without tree wood"))?;
+        Ok(Self::on_cone(tree, local_voxels, cone))
+    }
+
+    fn on_cone(tree: &Tree, local_voxels: Vec3, cone: usize) -> Self {
         let branch = tree.trunk_branch_indices()[cone];
         let segment = &tree.branches()[branch];
         let axis = segment.end - segment.start;
@@ -36,11 +70,11 @@ impl SkinBinding {
         } else {
             0.
         };
-        Ok(Self {
+        Self {
             branch,
             parent: segment.parent,
             weight: t * t * (3. - 2. * t),
-        })
+        }
     }
 
     /// Attachments authored at a branch tip inherit the complete branch pose.
@@ -156,6 +190,42 @@ mod tests {
         wind_field::WindFieldFrame,
     };
     use glam::Vec2;
+    #[test]
+    fn indexed_rest_bindings_match_full_scan_for_authored_trees() {
+        for seed in [1, 122, 923] {
+            let mut desc = TreeDesc::default();
+            desc.branching.seed = seed;
+            desc.branching.iterations = 4;
+            let tree = Tree::new(desc);
+            let binder = RestSkinBinder::new(&tree);
+            for cone in tree.trunks() {
+                for point in [
+                    cone.center_a(),
+                    cone.center_b(),
+                    (cone.center_a() + cone.center_b()) * 0.5,
+                ] {
+                    for offset in [
+                        Vec3::ZERO,
+                        Vec3::splat(0.5),
+                        Vec3::X * 4.,
+                        Vec3::NEG_Z * 16.,
+                    ] {
+                        let point = point + offset;
+                        assert_eq!(
+                            binder.bind(point).unwrap(),
+                            SkinBinding::at_rest_position(&tree, point).unwrap()
+                        );
+                        assert_eq!(
+                            binder.owns_cell(point),
+                            tree.trunks().iter().any(|c| c.signed_distance(point) < 0.)
+                        );
+                    }
+                }
+            }
+            assert!(binder.bind(Vec3::NAN).is_err());
+        }
+    }
+
     #[test]
     fn rest_bindings_are_deterministic_and_deformation_is_invertible() {
         let tree = Tree::new(TreeDesc::default());

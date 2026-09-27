@@ -9,6 +9,7 @@ import packer;
 import ray;
 import scene_query;
 import scene_marching;
+import raster_tree_lookup;
 import skylight;
 import surface_irradiance;
 import terrain_edit_preview;
@@ -36,13 +37,9 @@ import voxel_material;
 readonly RWTexture3D<uint2> scene_tex;
 [[vk::binding(10, 0)]] Sampler2D shadow_map_tex;
 [[vk::binding(11, 0)]] ConstantBuffer<U_VoxelColors> voxel_colors;
-[[vk::binding(12, 0)]] Sampler2D leaf_shadow_opacity_blended_tex;
-[[vk::binding(13, 0)]] Sampler2D leaf_shadow_mask_tex;
-[[vk::binding(14, 0)]] Sampler2D cloud_shadow_tex;
 [[vk::binding(15, 0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
-[[vk::binding(17, 0)]] Sampler2D shadow_map_tex_for_vsm_ping;
 [[vk::binding(42, 0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
 [[vk::binding(43, 0)]] StructuredBuffer<U_LightGpu> local_lights;
 
@@ -78,6 +75,9 @@ MarchingResult generalSceneMarching(Ray ray, uint localInvocationIndex)
 MarchingResult cameraSceneMarching(Ray ray, uint invocation) {
     MarchingResult result = marchTerrain(contree_node_data,contree_leaf_data,scene_tex,
         ray.origin,ray.direction,ray.inverse_direction,invocation);
+    if (gui_input.raster_tree_static != 0u)
+        result = skipRasterTreeSurfaces(result,contree_node_data,contree_leaf_data,scene_tex,
+            ray.origin,ray.direction,ray.inverse_direction,invocation);
     return result;
 }
 
@@ -165,36 +165,15 @@ float3 terrainShadowReceiverPosition(float3 voxelCenter, float3 normal)
         voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
 }
 
-float3 terrainShadowReceiverPositionFromSurface(float3 surfacePosition,
-                                                float3 normal)
-{
-    return terrainRayOriginFromPosition(
-        surfacePosition, normal, gui_input.terrain_ray_origin_offset_world);
-}
-
 float3 terrainSunIrradiance()
 {
     return sun_info.sun_color * sun_info.sun_luminance * step(0.0, sun_info.sun_dir.y);
 }
 
-float3 shadowRayColor(float3 terrainLeafReceiverPosition,
-                      float3 cloudReceiverPosition,
-                      float3 receiverNormal,
+float3 shadowRayColor(DirectSunShadowReceiver receiver,
                       out DirectSunShadowTransmittances shadow)
 {
-    DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(
-        float4(terrainLeafReceiverPosition, 1.0),
-        float4(terrainLeafReceiverPosition, 1.0),
-        float4(cloudReceiverPosition, 1.0),
-        int3(0), DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_TERRAIN_SHADOW_VSM,
-        DIRECT_SUN_SHADOW_SOURCE_ALL,
-        DIRECT_SUN_SHADOW_FLAG_LEAF_DEPTH_GATE);
-    receiver = withReceiverPlane(receiver, receiverNormal);
-    shadow = directSunShadowTransmittancesVsmLeafCloud(
-        receiver, gui_input, shadow_camera_info.view_proj_mat,
-        shadow_map_tex_for_vsm_ping, leaf_shadow_opacity_blended_tex,
-        leaf_shadow_mask_tex, cloud_shadow_tex);
+    shadow = sampleDirectSunShadow(receiver, gui_input, shadow_camera_info);
     return shadow.combined * terrainSunIrradiance();
 }
 
@@ -231,21 +210,16 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
                       out DirectSunShadowTransmittances shadow)
 {
     float3 sunDirection = normalize(sun_info.sun_dir);
-    float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(
-        voxelCenter, normal);
-    float3 cloudReceiverPosition = terrainShadowReceiverPositionFromSurface(
-        surfacePosition, normal);
     float cosine = max(0.0, dot(sunDirection, normal));
     shadow.terrain = 1.0;
     shadow.leaf = 1.0;
-    shadow.cloud = 1.0;
     shadow.combined = 1.0;
     float3 sunIrradiance = float3(0.0);
     if (cosine > 0.0)
     {
-        sunIrradiance = shadowRayColor(
-            terrainLeafReceiverPosition, cloudReceiverPosition, normal,
-            shadow) * cosine;
+        DirectSunShadowReceiver receiver = voxelSunShadowReceiver(
+            voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
+        sunIrradiance = shadowRayColor(receiver, shadow) * cosine;
     }
     float3 localIrradiance = tracerVisibleLocalLightIrradiance(
         surfacePosition, normal, localInvocationIndex);
@@ -256,7 +230,7 @@ struct TerrainSurfaceLighting
 {
     float3 environment;
     float3 direct;
-    float4 shadows;
+    float3 shadows;
 };
 
 // Same surface-area measure as raster trees, with exact axis-aligned face
@@ -271,7 +245,7 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
     SurfaceIrradianceIntegral environment = beginSurfaceIrradiance();
     SurfaceIrradianceIntegral direct = beginSurfaceIrradiance();
     float3 sunDirection = normalize(sun_info.sun_dir);
-    float4 shadows = float4(0);
+    float3 shadows = float3(0);
     float sunSupport = 0.0;
     for (uint face = 0u; face < 6u; ++face)
     {
@@ -285,11 +259,12 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
         float visibility = 0.0;
         if (cosine > 0.0)
         {
-            float3 receiver = terrainShadowReceiverPositionFromSurface(position, normal);
+            DirectSunShadowReceiver receiver = surfaceSunShadowReceiver(
+                position, normal, gui_input.terrain_ray_origin_offset_world);
             DirectSunShadowTransmittances shadow;
-            shadowRayColor(receiver, receiver, normal, shadow);
+            shadowRayColor(receiver, shadow);
             visibility = shadow.combined;
-            shadows += cosine * float4(shadow.terrain, shadow.leaf, shadow.cloud, shadow.combined);
+            shadows += cosine * float3(shadow.terrain, shadow.leaf, shadow.combined);
             sunSupport += cosine;
         }
         accumulateSurfaceIrradiance(1.0, 0.0, 0.0, diffuse, environment);
@@ -299,7 +274,7 @@ TerrainSurfaceLighting thinTerrainLighting(float3 center, uint faces, uint local
     result.environment = finishSurfaceIrradiance(environment, float3(0));
     result.direct = finishSurfaceIrradiance(direct, terrainSunIrradiance());
     // Visibility-only diagnostics use projected weighting, never shading energy.
-    result.shadows = sunSupport > 0.0 ? shadows / sunSupport : float4(1);
+    result.shadows = sunSupport > 0.0 ? shadows / sunSupport : float3(1);
     return result;
 }
 
@@ -584,7 +559,7 @@ void getPixelColor(out float3 color, out float depth,
     directLight = float3(0.0);
     environmentCaptureWorld = float4(0.0);
     environmentCaptureReceiver = float4(0.0, 0.0, 0.0, 1.0);
-    environmentCaptureDirectSunShadows = float4(1.0);
+    environmentCaptureDirectSunShadows = float4(1.0, 1.0, 0.0, 1.0);
     if (shading_info.ddgi_debug_view == DDGI_DEBUG_IRRADIANCE_ATLAS)
     {
         environmentIrradiance = sampleDdgiIrradianceAtlasDebug(screenUv);
@@ -656,7 +631,7 @@ void getPixelColor(out float3 color, out float depth,
                                      shadow);
         environmentCaptureReceiver.w = shadow.terrain;
         environmentCaptureDirectSunShadows = float4(
-            shadow.terrain, shadow.leaf, shadow.cloud, shadow.combined);
+            shadow.terrain, shadow.leaf, 0.0, shadow.combined);
     }
     // The moment-visibility receiver remains fixed for every pixel of the voxel.
     // Only the nominal-grid position basis follows the exact surface hit so a
@@ -692,7 +667,9 @@ void getPixelColor(out float3 color, out float depth,
         environmentIrradiance = lerp(surface.environment, environmentIrradiance, normalConfidence);
         environmentCaptureIrradiance = environmentIrradiance;
         directLight = lerp(surface.direct * albedo, directLight, normalConfidence);
-        environmentCaptureDirectSunShadows = lerp(surface.shadows,
+        // RFIRR v11: (terrain, leaf, integrated weight, combined). Products
+        // are averaged independently; an integral is not a point product.
+        environmentCaptureDirectSunShadows = lerp(float4(surface.shadows.xy, 1.0, surface.shadows.z),
             environmentCaptureDirectSunShadows, normalConfidence);
         environmentCaptureReceiver.w = environmentCaptureDirectSunShadows.x;
     }

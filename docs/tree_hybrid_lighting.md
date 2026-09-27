@@ -1,11 +1,5 @@
 # Hybrid lighting for thin raster-tree wood
 
-> Historical experiment, retired by the continuous-mesh cutover (2026-09-27).
-> The voxel-normal cache and lighting A/B below no longer exist. Current controls,
-> geometry ownership and normal/pixelized display are documented in
-> [Garden Tree Publication](tree_publication_architecture.md). The historical
-> `check_raster_tree_static.py` command now captures only that new display A/B.
-
 ## Try-out
 
 `R → Debug → Whole Tree Rasterization → Hybrid thin-branch lighting (B, requires raster trees)`.
@@ -176,7 +170,7 @@ uses a per-voxel surface average, rather than treating the numeric upward normal
   invalidation/fail-closed behavior, and finite local-light/Glass visibility remain in force.
 - Sun irradiance is integrated over light-facing exposed samples, weighted by projected area
   and visibility, then divided by total exposed surface area. Back-facing and shadowed samples
-  still count toward that area. Terrain/wood, leaf, and cloud shadows remain active.
+  still count toward that area. Terrain/wood and leaf shadows remain active; procedural clouds have been retired.
   With no light-facing exposed support there is no sun contribution, not an ambient fill.
 - Geometric normals choose safe surface receiver offsets; the uncertain occupancy normal does not
   drive those fallback offsets. The average is a stylized small-surface approximation, not exact

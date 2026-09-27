@@ -74,15 +74,9 @@ still compares the original sprite against the shared model, not two repair algo
 Butterflies, falling leaves and new apples all call `sampleModelPixelGeometry` in
 `shader/slang/model_pixel_surface.slang` from compute, then use the same
 `model_pixel_display.slang` screen-fragment lookup. The shared
-`model_pixel_projection.slang` supplies fixed orthographic framing and rotating
-pixels. Screen-aligned resampling and its A/B checkbox have been retired. See
+`model_pixel_projection.slang` now supplies fixed orthographic framing; the global
+A/B chooses rotating pixels or screen-aligned resampling of the same tile. See
 [`model-pixel-orthographic-preview.md`](../../docs/performance/model-pixel-orthographic-preview.md).
-The [startup cache](../../docs/performance/model-pixel-cache.md) now shares unlit surface tiles
-across instances: 64 leaf variants, one apple shape and 32 butterfly articulation frames.
-Published root motion, instance tint, lighting and physical pose remain dynamic. Startup/rebuild
-uses the sole canonical generator; ordinary frames read shared surfaces. Generic
-[GPU paged storage](../../docs/gpu-paged-storage.md) hides allocation, addressing and retirement;
-there is no per-kind 128 MiB limit or live-generation comparison/fallback.
 Adapters own only mesh ranges, poses and
 material shading; they do not own coverage or screen-fragment ray loops. Some particle binding/type
 names retain the historical `butterfly` prefix. Leaves upload one shared 64-shape bank plus per-particle

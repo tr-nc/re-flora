@@ -1,20 +1,17 @@
 # Pixel models: stage-one lighting and discrete-view preview
 
 Initial implementation: `cb46ae90`; permanent quantization/count slider: `9fe259dc`.
-Stage one measured live tile rendering, **not cache savings**. The subsequent
-[orthographic preview](model-pixel-orthographic-preview.md) established permanent
-Rotating Pixels. [Stage two now implements startup surface caching](model-pixel-cache.md);
-use that report for current cache behavior and measurements.
+This remains live tile rendering, **not an atlas cache**. The subsequent
+[shared orthographic A/B preview](model-pixel-orthographic-preview.md) replaces
+camera-dependent tile projection and adds rotating/screen-aligned pixel display.
 
 ## Try it
 
 **Pixel Models — Global** contains:
 
 - **Discrete View Count** — integer slider, **8–512**, default **16**.
-
-Shared surfaces are permanent; the cache/live checkbox and capacity fallback are retired.
-
-Rotating pixels is fixed on; the screen-grid B mode and its checkbox are retired.
+- **B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)** — saved A/B,
+  default A; both modes use fixed orthographic tiles.
 
 View quantization and per-object lighting are always enabled. The lighting
 checkbox has been removed, including its app/render/GPU option field. Changes to
@@ -58,10 +55,9 @@ For each requested count N, the GPU distributes N model-local directions over th
 whole sphere using `y = 1 - 2 * (i + 0.5) / N`. It does not take a prefix of a fixed
 512-direction sphere, which would incorrectly cluster smaller counts into a cap.
 An immutable 8 KiB azimuth table avoids per-frame trigonometry and GPU resource
-replacement of that table when dragging the slider. Every integer count in
-8–512 is supported, not just powers of two. Stage-two surface-bank keys include
-count as well as view index: changing N redistributes directions and rebuilds
-data in generic paged storage, without a per-kind budget or live fallback.
+replacement when dragging the slider. Every integer count in 8–512 is supported,
+not just powers of two. A future atlas key must include the count as well as the
+view index: changing N redistributes directions.
 
 The nearest direction is selected once per object. No view interpolation,
 temporal blend, or hysteresis is applied. Angular jumps while moving the camera,
@@ -73,17 +69,17 @@ Butterflies carry their published flight orientation separately from their
 articulated wing geometry. Leaves use their published orientation; apples use
 attached-tree or fallen-body axes.
 
-Stage one quantized only **view direction**. The current pipeline uses fixed
-orthographic projection, with screen roll and scene-distance scaling at display
-time. Stage two also discretizes butterfly articulation into 32 poses, preserving
-published root motion and flight coupling. Lighting uses the corresponding surface
-in the real physical pose, not a physically rotated view-correction pose.
+Only the **view direction** is quantized. The current preview uses fixed
+orthographic tile projection; screen roll and scene-distance scaling happen at
+display time. Geometry animation remains continuous. See the orthographic report
+for the A/B resampling rules. An animation-frame cache is still future work. Lighting uses the corresponding surface in
+the real physical pose, rather than treating the view correction as a physical
+rotation of the object.
 
 The existing per-texel depth path remains. In discrete mode this is the depth of
 the view-corrected sampled geometry, hence an intentional approximate silhouette/
-occlusion. Stage one sampled tile geometry every frame. Stage two now caches
-unlit normals/material/position/depth while retaining this depth-display contract;
-there is still no flat-depth alternative.
+occlusion. No normal atlas, depth atlas, flat-depth option, or persistent tile
+cache has been added. Tile geometry is still sampled every frame.
 
 ## Validation
 
@@ -97,16 +93,15 @@ python3 scripts/validate_butterfly_mesh.py --seconds 12
 cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
-- At the rotating-pixel consolidation: 1102 passed / 4 ignored in the main test target, plus
-  the build tests. Declarative round trips cover the saved slider; migration tests
-  cover retirement of the display checkbox.
+- Current Rust validation: 1104 passed / 4 ignored in the main test target, plus
+  the build tests. Declarative round trips cover the saved slider and display A/B.
   A layout test keeps resolutions object-specific.
 - View-set tests check all slider counts for finite unit directions and balanced
   latitudes; selected small, odd and maximum counts additionally check uniqueness,
   sphere coverage and rigid handedness. Migration tests cover both retired checkbox
   values, missing counts and preservation of an existing count. Render-input tests
   check the shared view count.
-- Stage-one live fixture cycles rotating orthographic pixels at 8/16/37/128/512
+- Stage-one live fixture cycles both orthographic display modes at 8/16/37/128/512
   views with fixed per-object lighting, rendering 64 rotating
   leaves, 21 animated butterflies, attached/fallen pixel apples at 8/32/64px, actual
   fruit drops and native resize publication. No saved config changes or Vulkan

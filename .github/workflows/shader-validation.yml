@@ -279,7 +279,7 @@ jobs:
         run: cargo test --locked ddgi::resources::tests::filter_
 
       - name: Decode Rust DDGI evidence fixture
-        run: python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v10_golden_decodes_with_exact_filter_witness
+        run: python3 -m unittest scripts.tests.test_analyze_environment_irradiance_capture.AnalyzeEnvironmentIrradianceCaptureTests.test_rust_producer_v11_golden_decodes_with_exact_filter_witness
 
       - name: Run Slang CPU tests
         run: python3 scripts/run_slang_tests.py

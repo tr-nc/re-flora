@@ -62,8 +62,11 @@ impl CanopyState {
 }
 
 impl App {
-    /// The hidden replay feeds one wind snapshot to both lifecycle and GPU pose
-    /// preparation. Production always consumes the actual transported field.
+    pub(in crate::app::core) fn leaf_lifecycle_validation_active(&self) -> bool {
+        self.trees.leaf_lifecycle.validation.is_some()
+    }
+
+    /// The fixture drives the same field for the detachment rule and attached GPU response.
     pub(in crate::app::core) fn leaf_validation_wind(
         &self,
     ) -> Option<crate::wind_field::WindFieldFrame> {
@@ -136,10 +139,9 @@ impl App {
         });
         let now = runtime.time;
         let settings = runtime.settings;
-        let wind = runtime.validation.as_ref().map_or_else(
-            || self.wind_prototype.field.frame(),
-            validation::Validation::wind,
-        );
+        let wind = self
+            .leaf_validation_wind()
+            .unwrap_or_else(|| self.wind_prototype.field.frame());
         let mut requests = Vec::new();
         for record in self.trees.records.values() {
             if let Some(state) = &record.leaf_lifecycle {
@@ -164,10 +166,10 @@ impl App {
             rgb(a.leaves_bottom_color.value),
             rgb(a.leaves_tip_color.value),
         );
+        // Reserve the entire requested batch before GPU handoff or socket changes.
+        // No canopy floor, rate limiter, delayed queue or silently failed spawn.
+        self.particle_system.reserve_for_batch(requests.len());
         let handoffs = self.tracer.gather_leaf_handoffs(&requests, colors)?;
-        // Reserve the entire batch before changing any socket. No arbitrary
-        // canopy floor, rate limiter, delayed queue or silently failed spawn.
-        self.particle_system.reserve_for_batch(handoffs.len());
         let detached = handoffs.len();
         for (event, release) in handoffs {
             let handle = self

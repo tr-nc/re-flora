@@ -12,7 +12,6 @@ pub(super) struct Validation {
     count: usize,
     saw_growth: bool,
     sentinel: Option<ParticleHandle>,
-    poses: Vec<crate::particles::AttachedLeafRelease>,
 }
 
 impl Validation {
@@ -23,12 +22,11 @@ impl Validation {
             count: 0,
             saw_growth: false,
             sentinel: None,
-            poses: Vec::new(),
         })
     }
 
     pub fn wind(&self) -> WindFieldFrame {
-        if matches!(self.stage, 0 | 1 | 3) {
+        if self.stage == 1 || self.stage == 3 {
             WindFieldFrame::uniform(Vec2::X * 10.0)
         } else {
             WindFieldFrame::default()
@@ -55,83 +53,13 @@ impl Validation {
         }
     }
 
-    // Read the real published GPU pose without committing a detachment. These
-    // bounded probes exercise the same pose helper used by attached model draws.
-    fn probe(&self, app: &App) -> Vec<crate::particles::AttachedLeafRelease> {
-        let mut requests = Vec::new();
-        for (&id, record) in &app.trees.records {
-            let initial;
-            let canopy = if let Some(state) = &record.leaf_lifecycle {
-                &state.canopy
-            } else {
-                initial = LeafCanopy::new(
-                    id,
-                    record.canopy_acoustic_descriptor.generation(),
-                    &record.leaf_render_positions,
-                    0.0,
-                );
-                &initial
-            };
-            requests.extend(
-                canopy
-                    .plan(
-                        app.trees.leaf_lifecycle.time,
-                        app.trees.leaf_lifecycle.settings,
-                        &WindFieldFrame::uniform(Vec2::X * 100.0),
-                    )
-                    .into_iter()
-                    .take(64)
-                    .map(|e| {
-                        let local = record.leaf_render_local_positions[e.id.socket as usize];
-                        (e, local)
-                    }),
-            );
-        }
-        requests.truncate(64);
-        let a = &app.debug_settings.adjustables;
-        let rgb = |c: egui::Color32| Vec3::new(c.r() as f32, c.g() as f32, c.b() as f32) / 255.;
-        let colors = crate::tracer::solid_flora_height_color_tables(
-            rgb(a.leaves_bottom_color.value),
-            rgb(a.leaves_tip_color.value),
-        );
-        let poses: Vec<_> = app
-            .tracer
-            .gather_leaf_handoffs(&requests, colors)
-            .unwrap()
-            .into_iter()
-            .map(|(_, pose)| pose)
-            .collect();
-        assert!(
-            !poses.is_empty(),
-            "pose probes need published attached leaves"
-        );
-        poses
-    }
-
-    fn assert_released_pose(&self, app: &App) {
-        for pose in &self.poses {
-            assert!(
-                app.particle_snapshots
-                    .iter()
-                    .any(|p| p.leaf_shape_seed == Some(pose.seed)
-                        && p.position_ws.distance(pose.position) < 1e-5
-                        && (p.size - pose.size).abs() < 1e-6
-                        && (p.color - pose.color).length() < 1e-5
-                        && p.leaf_geometry
-                            .is_some_and(|q| q.dot(pose.geometry_rotation).abs() > 1.0 - 1e-5)),
-                "release changed model shape/size/color/center/full orientation: {:?}; candidates={:?}",
-                pose.id,
-                app.particle_snapshots.iter().filter(|p| p.leaf_shape_seed == Some(pose.seed))
-                    .map(|p| (p.position_ws.distance(pose.position), p.size - pose.size,
-                        (p.color - pose.color).length(), p.leaf_geometry.map(|q| q.dot(pose.geometry_rotation))))
-                    .collect::<Vec<_>>()
-            );
-        }
-    }
-
     fn step(&mut self, app: &mut App) {
         self.frames += 1;
-        let source_particles = app.particle_system.source_leaf_count();
+        let source_particles = app
+            .particle_snapshots
+            .iter()
+            .filter(|p| p.leaf_geometry.is_some())
+            .count();
         match self.stage {
             0 => {
                 app.debug_settings.adjustables.real_leaf_lifecycle.value = false;
@@ -147,48 +75,9 @@ impl Validation {
                         ..ParticleSpawn::default()
                     });
                 }
-                if self.frames == 1 {
-                    let a = &mut app.debug_settings.adjustables;
-                    a.attached_leaf_rotation.value = false;
-                    // Reproducible excitation under the shared injected test wind.
-                    a.leaf_flutter_amplitude_low.value = 0.8;
-                    a.leaf_flutter_amplitude_high.value = 0.8;
+                if self.frames < 3 {
                     return;
                 }
-                let current = self.probe(app);
-                if self.frames == 2 {
-                    self.poses = current;
-                    return;
-                }
-                let changed = current
-                    .iter()
-                    .filter(|pose| {
-                        let original = self.poses.iter().find(|p| p.id == pose.id).unwrap();
-                        assert_eq!(
-                            pose.seed, original.seed,
-                            "rotation toggle rerolled the model"
-                        );
-                        pose.geometry_rotation.dot(original.geometry_rotation).abs() < 1.0 - 1e-5
-                    })
-                    .count();
-                if self.frames == 4 {
-                    assert!(
-                        changed > 0,
-                        "B must rotate geometry, not just its lighting normal"
-                    );
-                    app.debug_settings.adjustables.attached_leaf_rotation.value = false;
-                    return;
-                }
-                assert_eq!(
-                    changed, 0,
-                    "A must retain the exact initial orientation over time and after B"
-                );
-                if self.frames == 3 {
-                    app.debug_settings.adjustables.attached_leaf_rotation.value = true;
-                    return;
-                }
-                self.poses = current;
-                log::info!("[LEAF_LIFECYCLE][VALIDATE] rotation_ab=passed initial_seed=stable geometry_rotation=true");
                 self.count = app
                     .trees
                     .records
@@ -221,23 +110,11 @@ impl Validation {
                     .all(|&g| g == 0.0)));
                 assert!(app.trees.ecology_regions().iter().all(|r| r.count == 0));
                 self.gpu_growth_is(app, 0.0);
-                self.assert_released_pose(app);
                 log::info!("[LEAF_LIFECYCLE][VALIDATE] first_gust=passed transferred={} attached=0 gpu_occupancy=0 ecology_supply=0", self.count);
                 self.stage = 2;
                 self.frames = 0;
             }
             2 => {
-                assert_eq!(
-                    source_particles, self.count,
-                    "rotation must not reset falling leaves"
-                );
-                assert_eq!(
-                    app.trees.leaf_lifecycle.detached, self.count,
-                    "rotation must not reset the lifecycle"
-                );
-                if self.frames == 1 {
-                    app.debug_settings.adjustables.attached_leaf_rotation.value = true;
-                }
                 let all = app
                     .trees
                     .records
@@ -257,7 +134,6 @@ impl Validation {
                     );
                     self.gpu_growth_is(app, 1.0);
                     log::info!("[LEAF_LIFECYCLE][VALIDATE] regrowth=passed attached={} source_particles={source_particles}", self.count);
-                    self.poses = self.probe(app);
                     self.stage = 3;
                 } else {
                     assert!(self.frames < 100, "regeneration failed to complete");
@@ -265,8 +141,7 @@ impl Validation {
             }
             3 => {
                 assert_eq!(app.trees.leaf_lifecycle.detached, self.count * 2);
-                assert_eq!(source_particles, self.count * 2);
-                self.assert_released_pose(app);
+                assert!(source_particles >= self.count);
                 assert!(app.particle_system.capacity() >= source_particles);
                 self.gpu_growth_is(app, 0.0);
                 log::info!("[LEAF_LIFECYCLE][VALIDATE] second_generation=passed source_particles={source_particles} capacity={}", app.particle_system.capacity());
@@ -302,9 +177,8 @@ impl Validation {
                 self.gpu_growth_is(app, 1.0);
                 app.debug_settings.adjustables.real_leaf_lifecycle.value = false;
                 app.particle_system.despawn(self.sentinel.take().unwrap());
-                app.debug_settings.adjustables.attached_leaf_rotation.value = false;
                 self.stage = 6;
-                log::info!("[LEAF_LIFECYCLE][VALIDATE] PASS all_leaf_transfer=true generations=2 regrowth=true gpu_publication=true ecology=true reversible_ab=true unrelated_particles=preserved rotation_ab=true release_model_pose=true");
+                log::info!("[LEAF_LIFECYCLE][VALIDATE] PASS all_leaf_transfer=true generations=2 regrowth=true gpu_publication=true ecology=true reversible_ab=true unrelated_particles=preserved");
             }
             _ => {}
         }

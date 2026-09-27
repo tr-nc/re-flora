@@ -2,11 +2,10 @@ use super::{FLORA_FULL_GROWTH_TICKS, FLORA_SPROUT_DELAY_TICKS};
 use crate::app::DebugSettings;
 use crate::terrain_material::TerrainMaterialParams;
 use crate::tracer::{
-    CloudGuiParams, EnvironmentFrameInput, FloraAppearanceFrameInput, FloraGrowthFrameInput,
-    FloraMotionFrameInput, FruitMotionParams, GlassGuiParams, GodRayFrameInput,
-    LeafLightingFrameInput, MaterialFrameInput, RenderFrameInputs, StarlightFrameInput,
-    SunFrameInput, TerrainEditPreviewShape, TerrainFrameInput, VegetationFrameInput,
-    WindFrameInput,
+    EnvironmentFrameInput, FloraAppearanceFrameInput, FloraGrowthFrameInput, FloraMotionFrameInput,
+    FruitMotionParams, GlassGuiParams, GodRayFrameInput, LeafLightingFrameInput,
+    MaterialFrameInput, RenderFrameInputs, StarlightFrameInput, SunFrameInput,
+    TerrainEditPreviewShape, TerrainFrameInput, VegetationFrameInput, WindFrameInput,
 };
 use egui::Color32;
 use glam::Vec3;
@@ -47,6 +46,7 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_aggregate_history: gui.ddgi_aggregate_history.value,
         apple_pixel_resolution: gui.apple_pixel_resolution.value,
         model_pixel_view_count: gui.model_pixel_view_count.value,
+        model_pixel_screen_grid: gui.model_pixel_screen_grid.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -81,16 +81,8 @@ pub(super) fn freeze_render_frame_inputs(
         voxel_rock_color: color_to_vec3(gui.voxel_rock_color.value),
     };
     let vegetation = VegetationFrameInput {
+        tree_hybrid_lighting: gui.raster_tree_hybrid_lighting.value,
         appearance: FloraAppearanceFrameInput {
-            tree_display: crate::tracer::TreeDisplaySettings {
-                pixelized: gui.tree_pixelized.value,
-                pixel_size: gui.tree_pixel_size.value,
-            },
-            leaf_models: crate::tracer::LeafModelSettings {
-                resolution: gui.falling_leaf_pixel_resolution.value,
-                size_scale: gui.falling_leaf_size_scale.value,
-            },
-            attached_leaf_rotation: gui.attached_leaf_rotation.value,
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
             instance_hsv_offset_max: Vec3::new(
@@ -219,30 +211,6 @@ pub(super) fn freeze_render_frame_inputs(
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
-        clouds: CloudGuiParams {
-            // Disabled for now; infrastructure kept for easy re-enable.
-            enabled: false,
-            coverage: gui.cloud_coverage.value,
-            density: gui.cloud_density.value,
-            bottom_height: gui.cloud_bottom_height.value,
-            top_height: gui.cloud_top_height.value,
-            shape_scale: gui.cloud_shape_scale.value,
-            detail_scale: gui.cloud_detail_scale.value,
-            detail_strength: gui.cloud_detail_strength.value,
-            wind_speed: gui.cloud_wind_speed.value,
-            primary_steps: gui.cloud_primary_steps.value,
-            light_steps: gui.cloud_light_steps.value,
-            temporal_alpha: gui.cloud_temporal_alpha.value,
-            absorption: gui.cloud_absorption.value,
-            phase_eccentricity: gui.cloud_phase_eccentricity.value,
-            silver_intensity: gui.cloud_silver_intensity.value,
-            max_distance: gui.cloud_max_distance.value,
-            // Disabled for now; restore the original expression to re-enable.
-            shadows_enabled: false,
-            shadow_strength: gui.cloud_shadow_strength.value,
-            shadow_min_transmittance: gui.cloud_shadow_min_transmittance.value,
-            shadow_steps: gui.cloud_shadow_steps.value,
-        },
         sun: SunFrameInput {
             direction: live.sun_direction,
             size: gui.sun_size.value,
@@ -329,10 +297,12 @@ mod tests {
         }
 
         gui.flora_growth_override_enabled.value = true;
+        gui.raster_tree_hybrid_lighting.value = true;
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
         gui.apple_pixel_resolution.value = 24;
         gui.model_pixel_view_count.value = 37;
+        gui.model_pixel_screen_grid.value = true;
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
@@ -404,24 +374,6 @@ mod tests {
         let flora_spawn_stagger_seconds = float!(flora_spawn_stagger_seconds);
         let lens_flare_intensity = float!(lens_flare_intensity);
         let lens_flare_sun_pixel_scale = float!(lens_flare_sun_pixel_scale);
-        let cloud_coverage = float!(cloud_coverage);
-        let cloud_density = float!(cloud_density);
-        let cloud_bottom_height = float!(cloud_bottom_height);
-        let cloud_top_height = float!(cloud_top_height);
-        let cloud_shape_scale = float!(cloud_shape_scale);
-        let cloud_detail_scale = float!(cloud_detail_scale);
-        let cloud_detail_strength = float!(cloud_detail_strength);
-        let cloud_wind_speed = float!(cloud_wind_speed);
-        let cloud_primary_steps = uint!(cloud_primary_steps);
-        let cloud_light_steps = uint!(cloud_light_steps);
-        let cloud_temporal_alpha = float!(cloud_temporal_alpha);
-        let cloud_absorption = float!(cloud_absorption);
-        let cloud_phase_eccentricity = float!(cloud_phase_eccentricity);
-        let cloud_silver_intensity = float!(cloud_silver_intensity);
-        let cloud_max_distance = float!(cloud_max_distance);
-        let cloud_shadow_strength = float!(cloud_shadow_strength);
-        let cloud_shadow_min_transmittance = float!(cloud_shadow_min_transmittance);
-        let cloud_shadow_steps = uint!(cloud_shadow_steps);
         let sun_size = float!(sun_size);
         let sun_color = color!(sun_color);
         let sun_luminance = float!(sun_luminance);
@@ -473,6 +425,7 @@ mod tests {
                 ddgi_aggregate_history: true,
                 apple_pixel_resolution: 24,
                 model_pixel_view_count: 37,
+                model_pixel_screen_grid: true,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,
@@ -503,16 +456,8 @@ mod tests {
                 voxel_rock_color,
             },
             vegetation: VegetationFrameInput {
+                tree_hybrid_lighting: true,
                 appearance: FloraAppearanceFrameInput {
-                    tree_display: crate::tracer::TreeDisplaySettings {
-                        pixelized: settings.adjustables.tree_pixelized.value,
-                        pixel_size: settings.adjustables.tree_pixel_size.value,
-                    },
-                    leaf_models: crate::tracer::LeafModelSettings {
-                        resolution: settings.adjustables.falling_leaf_pixel_resolution.value,
-                        size_scale: settings.adjustables.falling_leaf_size_scale.value,
-                    },
-                    attached_leaf_rotation: settings.adjustables.attached_leaf_rotation.value,
                     growth_override_enabled: true,
                     growth_override: flora_growth_override,
                     instance_hsv_offset_max: Vec3::new(
@@ -636,28 +581,6 @@ mod tests {
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,
-                clouds: CloudGuiParams {
-                    enabled: false,
-                    coverage: cloud_coverage,
-                    density: cloud_density,
-                    bottom_height: cloud_bottom_height,
-                    top_height: cloud_top_height,
-                    shape_scale: cloud_shape_scale,
-                    detail_scale: cloud_detail_scale,
-                    detail_strength: cloud_detail_strength,
-                    wind_speed: cloud_wind_speed,
-                    primary_steps: cloud_primary_steps,
-                    light_steps: cloud_light_steps,
-                    temporal_alpha: cloud_temporal_alpha,
-                    absorption: cloud_absorption,
-                    phase_eccentricity: cloud_phase_eccentricity,
-                    silver_intensity: cloud_silver_intensity,
-                    max_distance: cloud_max_distance,
-                    shadows_enabled: false,
-                    shadow_strength: cloud_shadow_strength,
-                    shadow_min_transmittance: cloud_shadow_min_transmittance,
-                    shadow_steps: cloud_shadow_steps,
-                },
                 sun: SunFrameInput {
                     direction: live.sun_direction,
                     size: sun_size,

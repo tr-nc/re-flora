@@ -9,10 +9,10 @@ missing subordinate checker is a failure.
 
 Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
 
-- `.rfirr` capture v10 contains pre-albedo environment irradiance, world position plus exact sun
+- `.rfirr` capture v11 contains pre-albedo environment irradiance, world position plus exact sun
   visibility, the raster terrain's independent direct-light RGB, and marcher receiver-center XYZ
-  plus terrain VSM transmittance, followed by terrain/leaf/cloud/combined direct-shadow
-  transmittance. Its filter extension records exact owner-version masks, action partitions, and
+  plus terrain VSM transmittance, followed by terrain/leaf/integrated-weight/combined direct-shadow
+  diagnostics. Its filter extension records exact owner-version masks, action partitions, and
   Blend retention `sum+max` witnesses from one complete GPU-produced epoch. Its independent host
   identity records the authoritative probe-grid dimensions and configured history-retention Q16;
 - `.analysis.json` records lifecycle identity, ROI measurements, finiteness, and atlas deltas;
@@ -20,12 +20,21 @@ Runs write beneath `target/ddgi-transport-acceptance/<run-id>/`:
   validation, atomic publication, and terminal sleep reason;
 - `convergence-calibration.json` contains every validated convergence curve.
 
-RFIRR v8 reference captures and the published 252-byte/11Q v9 evidence layout remain readable for
-committed historical evidence. All current-runtime acceptance requires the fixed v10 layout,
+RFIRR v8 reference captures and the published v9 (252-byte/11Q) and v10 (284-byte/13Q) evidence layouts remain readable for
+committed historical evidence. All current-runtime acceptance requires the fixed v11 layout,
 `Converging` / `Converged` metadata, `update_epoch`, authoritative grid/config identity, and
 owner-generated filter evidence. Version selects the layout; byte length never selects a second
 layout for the same version. Source-shape tests remain wiring guards only; they are not runtime
 proof.
+
+The v11 header and five-plane inventory are unchanged from v10; only the fifth plane's
+third lane changes meaning. Zero means a point sample (combined = terrain × leaf).
+A positive value is the surface-integral blend weight (1 − normal confidence). For these
+samples, combined is the weighted mean of products, bounded by
+`max(0, terrain + leaf - 1) <= combined <= min(terrain, leaf)`, not the product of means.
+All four lanes must be finite and in [0,1]. Historical v1–v10 decoding, including the
+cloud lane and its metrics/product check, remains unchanged. No runtime cloud field is
+retained for serialization. Source-separated per-voxel stability gates remain active.
 
 Production runners invoke `scripts/analyze_current_environment_irradiance_capture.py`. That entry
 does not expose `--expect-version`; it binds the analyzer to `CURRENT_RFIRR_VERSION` internally, so
@@ -79,7 +88,7 @@ preflight. Descriptor code can borrow resources only through the permit. A descr
 the permit without committing the Volume or scheduler; after descriptor success, consuming the
 permit is an infallible ownership transition.
 
-The collected runtime writes RFIRR v10, and all seven production runners invoke the v10 current-only
+The collected runtime writes RFIRR v11, and all seven production runners invoke the v11 current-only
 entry without a version-selection surface. The compatibility analyzer retains the published v9
 layout for historical evidence; it cannot redefine the production schema seal.
 
@@ -224,7 +233,7 @@ retention independently from the configured Q16 identity and captured update epo
 constant: with the default configured retention, e1 derives to `32768`, while e8 derives to
 `58254`; a lower configured value caps the witness.
 
-For v10, the grid product must equal the complete epoch probe count. Visibility samples must form
+For v11, the grid product must equal the complete epoch probe count. Visibility samples must form
 whole 64-ray probes, cover every Blend probe, and cannot exceed the Blend+Replace fresh-probe
 partition. These relations are checked independently by the Rust producer and Python analyzer.
 
@@ -253,7 +262,7 @@ describe the old artifacts; they do not reintroduce a current runtime stage path
 legacy-v2 comparator proves only fixed-command Final payload RGB deltas and an exact hit mask for
 the two audited commits. Those captures have no world/identity planes, so this historical evidence
 does not claim five-plane reference correctness and cannot weaken the compatibility analyzer's
-RFIRR v8-v10 five-plane contract or the production current-only v10 seal.
+RFIRR v8-v11 five-plane contract or the production current-only v11 seal.
 
 ## Reproduction
 

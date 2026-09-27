@@ -1013,15 +1013,15 @@ mod tests {
         );
         assert!(!tree_leaf_cache.contains("vertexOffset"));
         for shader in [leaves, leaves_lod] {
-            assert!(shader.contains("displayAttachedLeaf("));
-            assert!(!shader.contains("flora_lighting_cache"));
+            let lighting_branch = shader
+                .split_once("if (rasterFloraUsesDdgiLighting())")
+                .expect("tree-leaf shader must branch before cache access")
+                .1;
+            assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
+            assert!(lighting_branch.contains("shadeTreeLeafVertexWithEnvironment("));
+            assert!(lighting_branch.contains("shadeLegacyTreeLeafVertex("));
+            assert!(!shader.contains("sampleFloraEnvironment("));
         }
-        // Attached and fallen leaf models now share object lighting. Preserve
-        // both environment choices there rather than requiring retired cube shading.
-        let object = include_str!("../shader/slang/model_pixel_object.slang");
-        assert!(object.contains("gui_input.raster_flora_ddgi_lighting!=0u"));
-        assert!(object.contains("sampleDiffuseEnvironment("));
-        assert!(object.contains("LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength"));
         let tree_leaf_finish = shared
             .split_once("float3 finishTreeLeafShading(")
             .expect("tree-leaf view-dependent finishing helper must exist")
@@ -1305,22 +1305,24 @@ mod tests {
         irradiance: &str,
         visibility: &str,
     ) -> Result<(), &'static str> {
-        for (filter, owner_import, terminal, fresh) in [
+        for (filter, owner_import, terminal, fresh, history_policy) in [
             (
                 irradiance,
                 "import ddgi_irradiance_filter_owner;",
                 "ddgiOwnerTryStoreTerminalIrradiance(",
                 "ddgiOwnerStoreFreshIrradiance(",
+                "ddgiFilterIrradianceHistoryDecision(",
             ),
             (
                 visibility,
                 "import ddgi_visibility_filter_owner;",
                 "ddgiOwnerTryStoreTerminalVisibility(",
                 "ddgiOwnerStoreFreshVisibility(",
+                "ddgiFilterHistoryDecision(",
             ),
         ] {
             if !filter.contains(owner_import)
-                || filter.matches("ddgiFilterHistoryDecision(").count() != 1
+                || filter.matches(history_policy).count() != 1
                 || filter.matches(terminal).count() != 1
                 || filter.matches(fresh).count() != 1
             {
@@ -1372,13 +1374,32 @@ mod tests {
         let visibility_owner = include_str!("../shader/slang/ddgi_visibility_filter_owner.slang");
         for causal_step in [
             "DdgiExecutedHistory2 executed = ddgiExecuteHistory(",
-            "ddgiRecordVisibilityHistoryDecision(",
+            "ddgiRecordVisibilityFilterResult(",
             "ddgiRecordVisibilitySampleDecision(",
             "ddgiAccumulateVisibility(",
-            "ddgiOwnerStoreVisibilityValue(",
+            "ddgiOwnerStoreVisibilityResult(",
         ] {
             assert!(visibility_owner.contains(causal_step));
         }
+        // Wiring guard only; executable Slang tests prove the result producer's
+        // terminal/fresh evidence contract and native captures exercise GPU storage.
+        let (terminal, fresh) = visibility_owner
+            .split_once("public bool ddgiOwnerTryStoreTerminalVisibility(")
+            .unwrap()
+            .1
+            .split_once("public void ddgiOwnerStoreFreshVisibility(")
+            .unwrap();
+        for path in [terminal, fresh] {
+            assert_eq!(path.matches("ddgiOwnerStoreVisibilityResult(").count(), 1);
+            assert!(!path.contains("ddgiRecordVisibility"));
+        }
+        assert_eq!(
+            visibility_owner
+                .matches("ddgiRecordVisibilityFilterResult(")
+                .count(),
+            1,
+            "both visibility stores must share one result/evidence owner"
+        );
         let policy = include_str!("../shader/slang/ddgi_filter_policy.slang");
         for removed_adapter in [
             "DdgiFilterHistoryPolicy",
@@ -1395,6 +1416,17 @@ mod tests {
         let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
             "ddgiOwnerStoreFreshIrradiance(",
             "bypassHistoryCommit(",
+            1,
+        );
+        let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
+        assert!(validate_ddgi_filter_owner_wiring(&irradiance, visibility).is_err());
+    }
+
+    #[test]
+    fn wiring_guard_rejects_visibility_retention_policy_for_irradiance() {
+        let irradiance = include_str!("../shader/slang/ddgi_irradiance_filter.slang").replacen(
+            "ddgiFilterIrradianceHistoryDecision(",
+            "ddgiFilterHistoryDecision(",
             1,
         );
         let visibility = include_str!("../shader/slang/ddgi_visibility_filter.slang");
@@ -1494,43 +1526,27 @@ mod tests {
     }
 
     #[test]
-    fn terrain_leaf_shadows_share_voxel_receiver_while_cloud_keeps_continuous_position() {
+    fn daylight_query_keeps_voxel_and_continuous_surface_sampling_distinct() {
         let tracer = include_str!("../shader/slang/tracer.slang");
-        let ray_origin = include_str!("../shader/slang/terrain_ray_origin.slang");
-        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang");
-
-        assert!(ray_origin.contains("public float3 terrainRayOriginAlongNormal("));
-        assert!(ray_origin.contains("public float3 terrainRayOriginFromPosition("));
-        assert!(tracer.contains(
-            "float3 terrainLeafReceiverPosition = terrainShadowReceiverPosition(\n        voxelCenter, normal);"
+        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(shadowing.contains(
+            "pointSunShadowReceiver(terrainRayOriginAlongNormal(voxelCenter,normal,offsetWorld))"
         ));
-        assert!(tracer.contains(
-            "float3 cloudReceiverPosition = terrainShadowReceiverPositionFromSurface(\n        surfacePosition, normal);"
-        ));
-        let receiver_factory = tracer
-            .split_once("DirectSunShadowReceiver receiver = makeDirectSunShadowReceiver(")
-            .expect("terrain direct-light path must construct a shadow receiver")
-            .1
-            .split_once("int3(0)")
-            .expect("terrain direct-light receiver must retain its deterministic seed")
-            .0;
-        assert_eq!(
-            receiver_factory
-                .matches("terrainLeafReceiverPosition")
-                .count(),
-            2
-        );
-        assert_eq!(receiver_factory.matches("cloudReceiverPosition").count(), 1);
         assert!(tracer.contains(
             "directLight = directLighting(albedo, result.normal,\n                                     result.center_position, result.position,"
         ));
-        for position in [
-            "receiver.terrain_world_position",
-            "receiver.leaf_world_position",
-            "receiver.cloud_world_position",
-        ] {
-            assert!(shadowing.contains(position));
-        }
+        let compact = tracer.split_whitespace().collect::<String>();
+        assert!(compact.contains(
+            "voxelSunShadowReceiver(voxelCenter,normal,gui_input.terrain_ray_origin_offset_world)"
+        ));
+        assert!(compact.contains("sampleDirectSunShadow(receiver,gui_input,shadow_camera_info)"));
+        // The exposed-face integral has an actual surface point, not a center.
+        // Reusing the voxel constructor here silently adds a second half voxel.
+        assert!(compact.contains(
+            "surfaceSunShadowReceiver(position,normal,gui_input.terrain_ray_origin_offset_world)"
+        ));
         assert!(tracer.contains(
             "terrainVoxelSurfacePositionAlongNormal(\n        result.center_position, result.normal)"
         ));
@@ -1538,5 +1554,52 @@ mod tests {
         assert!(compact.contains(
             "sampleDdgiTerrainSmoothEnvironment(shading_info,ddgiReceiverPosition,result.position,result.normal)"
         ));
+    }
+
+    #[test]
+    fn material_and_gameplay_consumers_do_not_wire_daylight_or_sky_sources() {
+        for source in [
+            include_str!("../shader/slang/flora_shadow.slang"),
+            include_str!("../shader/slang/flora_vertex.slang"),
+            include_str!("../shader/slang/model_pixel_object.slang"),
+            include_str!("../shader/slang/dynamic_fruit.vert.slang"),
+            include_str!("../shader/slang/sprinkler.vert.slang"),
+            include_str!("../shader/slang/particle_billboard.vert.slang"),
+            include_str!("../shader/slang/raster_tree_shading.slang"),
+            include_str!("../shader/slang/tracer.slang"),
+            include_str!("../shader/slang/terrain_moisture_dry.slang"),
+        ] {
+            for source_map in [
+                "cloud_shadow_tex",
+                "leaf_shadow_opacity_blended_tex",
+                "leaf_shadow_mask_tex",
+                "shadow_map_tex_for_vsm_ping",
+            ] {
+                assert!(!source.contains(source_map), "consumer wires {source_map}");
+            }
+        }
+        for source in [
+            include_str!("../shader/slang/composition_scene.slang"),
+            include_str!("../shader/slang/composition_terrarium_glass.slang"),
+        ] {
+            assert!(!source.contains("cloudOutput"));
+            assert!(!source.contains("cloud_output_tex"));
+        }
+    }
+
+    #[test]
+    fn flora_retains_independent_leaf_receiver_and_shared_depth_gate() {
+        let flora = include_str!("../shader/slang/flora_shadow.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(flora
+            .contains("withLeafReceiver(pointSunShadowReceiver(voxelCenter),leafReceiverCenter)"));
+        assert!(flora.contains("sampleDirectSunShadow(receiver,gui,shadowCamera).combined"));
+        let shadowing = include_str!("../shader/slang/tracer_shadowing.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(shadowing.contains("if(depthGate&&opacity>1.0e-4)"));
+        assert!(shadowing.contains("if(receiverDepth<=casterDepth+0.0015)opacity=0.0;"));
+        assert!(shadowing.contains("opacity=max(opacity,sampleOpacity);"));
     }
 }

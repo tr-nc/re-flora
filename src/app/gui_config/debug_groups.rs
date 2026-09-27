@@ -12,9 +12,9 @@ struct ControlGroup {
 
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
-        parent: None, title: "Tree Rendering",
+        parent: None, title: "Whole Tree Rasterization",
         description: "A: voxel trees. B: rasterized voxel surfaces. Static lighting comparison; branch wind comes next. Static terrain remains the exact secondary-ray and collision representation.",
-        initially_open: true, params: &["tree_pixelized", "tree_pixel_size", "tree_wind", "tree_stiffness"],
+        initially_open: true, params: &["raster_tree_static", "raster_tree_wind", "raster_tree_hybrid_lighting", "tree_stiffness"],
     },
     ControlGroup {
         parent: Some("Flora"),
@@ -38,9 +38,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Models — Global",
-        description: "Shared by butterflies, 3D falling leaves and attached/fallen apples. Pixel resolution stays in each object's settings. Discrete views use a Fibonacci sphere without blending; fewer views give larger angular steps. Per-object lighting is always enabled: environment light and external shadows are shared, while pixel normals still shade each surface. Pixels rotate with the object. Shared surfaces are generated at startup and rebuilt only when bake settings change. Butterfly articulation uses 32 poses; lighting stays dynamic. Storage grows in blocks with no per-kind budget or live-generation fallback.",
+        description: "Shared by butterflies, 3D falling leaves and attached/fallen apples. Pixel resolution stays in each object's settings. Discrete views use a Fibonacci sphere without blending; fewer views give larger angular steps. Per-object lighting is always enabled: environment light and external shadows are shared, while pixel normals still shade each surface. Both display modes bake fixed orthographic tiles live, not cached. A rotates pixels with the object; B resamples the same tile onto a screen-aligned grid with conservative coverage.",
         initially_open: true,
-        params: &["model_pixel_view_count"],
+        params: &["model_pixel_view_count", "model_pixel_screen_grid"],
     },
     ControlGroup {
         parent: Some("Wind"),
@@ -191,7 +191,10 @@ mod tests {
             .find(|g| g.title == "Pixel Models — Global")
             .unwrap();
         assert_eq!(global.parent, None);
-        assert_eq!(global.params, &["model_pixel_view_count"]);
+        assert_eq!(
+            global.params,
+            &["model_pixel_view_count", "model_pixel_screen_grid"]
+        );
         let apples = GROUPS
             .iter()
             .find(|g| g.title == "Apple Appearance")
@@ -289,7 +292,6 @@ mod tests {
             "Tree",
             "GodRay",
             "Starlight",
-            "Clouds",
             "Planting",
             "Distribution",
             "Spawn Animation",

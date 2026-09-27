@@ -33,16 +33,13 @@ public struct ModelPixelHit {
     public float3 position;
     public float3 direction;
     public float depth;
-    // Live-surface coverage selects the footprint point nearest the cell center,
-    // then depth at that point. It must not jump to another triangle's nearer
-    // corner merely because that corner is elsewhere inside the same cell.
-    public float coverageDistanceSquared;
     public float3 localOrigin;
     public float3 localDirection;
 };
-// Rigid-model conservative cells retain the CPU eight-neighbour + coverage
-// planner contract, including centroid material and nearest depth. Live meshes
-// opt into nearest-footprint sampling below. Original center hits always win.
+// Conservative cells use the nearest projected triangle depth and its real
+// material surface. Original center hits always win. This is the final output
+// of the CPU eight-neighbour + coverage planner: coverage supersedes its bridge
+// expressions, including their color interpolation (see equivalence tests).
 struct PixelClipPoint { float4 clip; };
 float pixelClipDistance(float4 p,uint plane) {
     return plane==0u?p.w-1e-7:plane==1u?p.z:p.w-p.z;
@@ -64,7 +61,7 @@ float3 pixelClosestBary(float2 p,float2 a,float2 b,float2 c) {
     }
     return result;
 }
-bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
+public bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
     const float epsilon=0.0001;
     if(any(max(max(a,b),c)<pixel-epsilon)||any(min(min(a,b),c)>pixel+1.0+epsilon))return false;
     float winding=((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))>=0.0?1.0:-1.0;
@@ -77,12 +74,19 @@ bool pixelTriangleCovers(float2 a,float2 b,float2 c,float2 pixel) {
     }
     return true;
 }
-// The bounded numerical oracle captures these same projected vertices. A CPU
-// reprojection of tiny world-space leaves loses different low bits; it is not
-// an independent coverage reference when it starts from different coordinates.
-public uint modelPixelProjectedTriangle(ButterflyMeshTriangle tri,ModelPixelFrame frame,
-    float4 bounds,uint resolution,U_CameraInfo camera,out float3 projected[12]) {
-    for(uint j=0u;j<12u;j++)projected[j]=float3(0);
+// The native oracle observes these vertices, not this module's coverage decision.
+// Keep clipping/projection at the same seam as the real tile producer.
+public struct ModelPixelPolygon {
+    public float3 vertices[12];
+    public uint count;
+};
+struct ModelPixelClipPolygon {
+    float4 vertices[12];
+    uint count;
+};
+ModelPixelClipPolygon clipModelPixelTriangle(ButterflyMeshTriangle tri,
+    ModelPixelFrame frame,U_CameraInfo camera) {
+    ModelPixelClipPolygon result;
     float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
     precise float4 polygon[12];uint length=3u;
     polygon[0]=mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1));
@@ -101,82 +105,106 @@ public uint modelPixelProjectedTriangle(ButterflyMeshTriangle tri,ModelPixelFram
         }
         length=nextLength;
         for(uint j=0u;j<length;j++)polygon[j]=next[j];
-        if(length<3u)return 0u;
+        if(length<3u)break;
     }
-    for(uint j=0u;j<length;j++) {
-        float3 p=polygon[j].xyz/polygon[j].w;
-        precise float2 xy=(p.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
-        projected[j]=float3(xy,saturate(p.z));
+    result.count=length;
+    for(uint j=0u;j<length;j++)result.vertices[j]=polygon[j];
+    return result;
+}
+float2 modelPixelTileXY(float3 ndc,float4 bounds,uint resolution) {
+    precise float2 pixel=(ndc.xy-bounds.xy)/(bounds.zw-bounds.xy)*float(resolution);
+    return pixel;
+}
+public ModelPixelPolygon projectModelPixelTriangle(ButterflyMeshTriangle tri,
+    ModelPixelFrame frame,float4 bounds,uint resolution,U_CameraInfo camera) {
+    ModelPixelPolygon result;
+    result.count=0u;
+    if(any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return result;
+    ModelPixelClipPolygon polygon=clipModelPixelTriangle(tri,frame,camera);
+    result.count=polygon.count;
+    for(uint j=0u;j<polygon.count;j++) {
+        float3 p=polygon.vertices[j].xyz/polygon.vertices[j].w;
+        result.vertices[j]=float3(modelPixelTileXY(p,bounds,resolution),saturate(p.z));
     }
-    return length;
+    return result;
 }
-// Recover perspective-correct source barycentrics directly in homogeneous
-// space. Unlike dividing each original vertex by w, this also handles vertices
-// on/behind the near plane. The covered point and its material must agree.
-float3 modelPixelSurfaceBary(float4 a,float4 b,float4 c,float2 ndc) {
-    float3 x=float3(a.x,b.x,c.x)-ndc.x*float3(a.w,b.w,c.w);
-    float3 y=float3(a.y,b.y,c.y)-ndc.y*float3(a.w,b.w,c.w);
-    float3 weights=cross(x,y);
-    float total=weights.x+weights.y+weights.z;
-    if(abs(total)<1e-30)return float3(1.0/3.0);
-    weights=max(weights/total,float3(0));
-    return weights/(weights.x+weights.y+weights.z);
-}
-// Live meshes sample the nearest covered surface continuously across triangle
-// boundaries. Small rigid-model adapters retain their existing centroid/depth
-// coverage contract unless opted in.
-public ModelPixelHit modelPixelTriangleCoverageHit(ButterflyMeshTriangle tri,uint triangle,
-    ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,U_CameraInfo camera,
-    ModelPixelHit hit,bool continuousSurface=false) {
-        float3 projected[12];
-        uint length=modelPixelProjectedTriangle(tri,frame,bounds,resolution,camera,projected);
-        for(uint j=1u;j+1u<length;j++) {
-            float3 a=projected[0],b=projected[j],c=projected[j+1u];
-            if(!pixelTriangleCovers(a.xy,b.xy,c.xy,float2(pixel)))continue;
-            float3 weights=pixelClosestBary(float2(pixel)+0.5,a.xy,b.xy,c.xy);
-            float depth=dot(weights,float3(a.z,b.z,c.z));
-            if(depth>=1.0)continue;
-            float2 covered=weights.x*a.xy+weights.y*b.xy+weights.z*c.xy;
-            float2 delta=covered-(float2(pixel)+0.5);
-            float distanceSquared=dot(delta,delta);
-            if(continuousSurface) {
-                if(hit.triangle!=0xffffffffu && (distanceSquared>hit.coverageDistanceSquared
-                    || (distanceSquared==hit.coverageDistanceSquared && depth>=hit.depth)))continue;
-            } else if(depth>=hit.depth)continue;
-            hit.coverageDistanceSquared=distanceSquared;
-            hit.triangle=triangle;hit.bary=float2(1.0/3.0);
-            float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
+
+// A native diagnostic observes the actual coverage loop, not a second call to
+// projection code: legal division rounding can differ across compiler contexts.
+// Ordinary model consumers specialize this to a no-op (no buffer/readback).
+public interface IModelPixelProjectionObserver {
+    bool enabled();
+    void triangle(uint source,uint vertices,float4 bounds,uint resolution);
+    void fan(uint source,uint index,float3 a,float3 b,float3 c);
+};
+public struct NoModelPixelProjectionObserver : IModelPixelProjectionObserver {
+    public bool enabled() { return false; }
+    public void triangle(uint source,uint vertices,float4 bounds,uint resolution) {}
+    public void fan(uint source,uint index,float3 a,float3 b,float3 c) {}
+};
+
+public ModelPixelHit modelPixelCoverageHit<T : IModelPixelProjectionObserver>(StructuredBuffer<ButterflyMeshTriangle> triangles,
+    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
+    U_CameraInfo camera,ModelPixelHit hit,T observer) {
+    bool centerOccupied=hit.triangle!=0xffffffffu;
+    if(centerOccupied && !observer.enabled())return hit;
+    if(any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0))) {
+        if(observer.enabled())for(uint i=0u;i<count;i++)observer.triangle(first+i,0u,bounds,resolution);
+        return hit;
+    }
+    for(uint i=0u;i<count;i++) {
+        ButterflyMeshTriangle tri=triangles[first+i];
+        float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
+        ModelPixelClipPolygon polygon=clipModelPixelTriangle(tri,frame,camera);
+        if(observer.enabled())observer.triangle(first+i,polygon.count,bounds,resolution);
+        for(uint j=1u;j+1u<polygon.count;j++) {
+            // Keep the original per-fan division and precise XY dataflow.
+            // Materializing normalized/saturated depths in a projected polygon
+            // changes rounding, which can change the nearest supporting material.
+            float3 pa=polygon.vertices[0].xyz/polygon.vertices[0].w;
+            float3 pb=polygon.vertices[j].xyz/polygon.vertices[j].w;
+            float3 pc=polygon.vertices[j+1u].xyz/polygon.vertices[j+1u].w;
+            precise float2 a=modelPixelTileXY(pa,bounds,resolution);
+            precise float2 b=modelPixelTileXY(pb,bounds,resolution);
+            precise float2 c=modelPixelTileXY(pc,bounds,resolution);
+            if(observer.enabled())observer.fan(first+i,j,float3(a,saturate(pa.z)),
+                float3(b,saturate(pb.z)),float3(c,saturate(pc.z)));
+            // The designated observation invocation must visit every triangle,
+            // even if its center is occupied. Never replace that center's hit.
+            if(centerOccupied)continue;
+            if(!pixelTriangleCovers(a,b,c,float2(pixel)))continue;
+            float3 weights=pixelClosestBary(float2(pixel)+0.5,a,b,c);
+            float depth=dot(weights,saturate(float3(pa.z,pb.z,pc.z)));
+            if(depth>=hit.depth)continue;
+            hit.triangle=first+i;hit.bary=float2(1.0/3.0);
             hit.position=modelPixelWorld(frame,(p0+p1+p2)/3.0);
-            if(continuousSurface) {
-                float2 ndc=modelPixelNdc(bounds,covered,resolution);
-                float3 bary=modelPixelSurfaceBary(
-                    mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1)),
-                    mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p1),1)),
-                    mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p2),1)),ndc);
-                hit.bary=bary.yz;
-                hit.position=modelPixelWorld(frame,p0*bary.x+p1*bary.y+p2*bary.z);
-            }
             hit.depth=depth;
         }
-    return hit;
-}
-public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
-    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
-    U_CameraInfo camera,ModelPixelHit hit) {
-    if(hit.triangle!=0xffffffffu || any(bounds.xy>float2(1.0)) || any(bounds.zw<float2(-1.0)))return hit;
-    for(uint i=0u;i<count;i++)
-        hit=modelPixelTriangleCoverageHit(triangles[first+i],first+i,frame,bounds,pixel,resolution,camera,hit);
+    }
     return hit;
 }
 
-// Rigid shared-model entry point. Live meshes reuse its ray and coverage rules
-// with an adapter-owned acceleration structure, not a cached view bank.
+public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
+    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
+    U_CameraInfo camera,ModelPixelHit hit) {
+    return modelPixelCoverageHit(triangles,first,count,frame,bounds,pixel,resolution,camera,hit,
+        NoModelPixelProjectionObserver());
+}
+
+// Sole production geometry entry point for every model adapter.
+public ModelPixelHit sampleModelPixelGeometry<T : IModelPixelProjectionObserver>(StructuredBuffer<ButterflyMeshTriangle> triangles,
+    uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
+    U_CameraInfo camera,T observer) {
+    ModelPixelHit hit=modelPixelCenterHit(triangles,first,count,frame,bounds,
+        float2(pixel)+0.5,resolution,camera);
+    return modelPixelCoverageHit(triangles,first,count,frame,bounds,pixel,resolution,camera,hit,observer);
+}
+
 public ModelPixelHit sampleModelPixelGeometry(StructuredBuffer<ButterflyMeshTriangle> triangles,
     uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
     U_CameraInfo camera) {
-    ModelPixelHit hit=modelPixelCenterHit(triangles,first,count,frame,bounds,
-        float2(pixel)+0.5,resolution,camera);
-    return modelPixelCoverageHit(triangles,first,count,frame,bounds,pixel,resolution,camera,hit);
+    return sampleModelPixelGeometry(triangles,first,count,frame,bounds,pixel,resolution,camera,
+        NoModelPixelProjectionObserver());
 }
 
 public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle> triangles,
@@ -184,7 +212,7 @@ public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle>
     U_CameraInfo camera) {
     ModelPixelHit hit;
     hit.triangle=0xffffffffu; hit.bary=float2(0.0); hit.position=float3(0.0);
-    hit.direction=float3(0.0); hit.depth=1.0; hit.coverageDistanceSquared=1e30;
+    hit.direction=float3(0.0); hit.depth=1.0;
     hit.localOrigin=float3(0.0);hit.localDirection=float3(0.0);
     if(any(bounds.xy>float2(1.0))||any(bounds.zw<float2(-1.0)))return hit;
     float3 worldOrigin,worldDirection;
@@ -203,7 +231,7 @@ public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle>
         float depth=clip.z/clip.w;
         if(depth<0.0||depth>=1.0)continue;
         closest=distance;hit.triangle=first+i;hit.bary=bary;
-        hit.position=position;hit.depth=depth;hit.coverageDistanceSquared=0.0;
+        hit.position=position;hit.depth=depth;
     }
     return hit;
 }

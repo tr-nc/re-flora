@@ -830,7 +830,7 @@ def _transport(request: RunRequest) -> ExecutionPlan:
             ),
             Claim(
                 "transport.filter-history-action",
-                "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v10",
+                "[DDGI_TRANSPORT] filter-history-action=PROVEN seam=owner-generated-filter-epoch-v11",
                 (
                     *transport_stage_ids,
                     "transport.convergence",

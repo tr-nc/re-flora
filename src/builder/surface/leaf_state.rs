@@ -58,14 +58,6 @@ impl LeafStatePublication {
         Ok(())
     }
 
-    /// Rendering consumes occupancy; it does not decide which leaves exist.
-    pub fn live_indices(&self) -> impl Iterator<Item = u32> + '_ {
-        self.values
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &growth)| (growth > 0.0).then_some(i as u32))
-    }
-
     pub fn buffer(&self) -> &Buffer {
         &self.frames[self.current].0
     }

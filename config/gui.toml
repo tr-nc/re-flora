@@ -121,6 +121,15 @@ min = 8
 max = 64
 
 [[section.param]]
+id = "model_pixel_screen_grid"
+kind = "bool"
+label = "B: Screen-aligned Pixel Grid (unchecked: A, Rotating Pixels)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "model_pixel_view_count"
 kind = "uint"
 label = "Discrete View Count"
@@ -132,30 +141,18 @@ min = 8
 max = 512
 
 [[section.param]]
-id = "tree_pixelized"
+id = "raster_tree_wind"
 kind = "bool"
-label = "Pixelized Wood (B; Unchecked = Normal Mesh)"
+label = "Animate raster trees with wind"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
-id = "tree_pixel_size"
-kind = "uint"
-label = "Wood Pixel Size (Scene Pixels; Current Camera)"
-type = "Uint"
-enabled_if = { param = "tree_pixelized", equals = true }
-
-[section.param.data]
-value = 4
-min = 1
-max = 16
-
-[[section.param]]
-id = "tree_wind"
+id = "raster_tree_hybrid_lighting"
 kind = "bool"
-label = "Animate Tree Mesh with Wind"
+label = "Hybrid thin-branch lighting (B, requires raster trees)"
 type = "Bool"
 
 [section.param.data]
@@ -171,6 +168,15 @@ type = "Float"
 value = 0.5
 min = 0
 max = 1
+
+[[section.param]]
+id = "raster_tree_static"
+kind = "bool"
+label = "Raster whole trees (B)"
+type = "Bool"
+
+[section.param.data]
+value = true
 
 [[section.param]]
 id = "flora_growth_override_enabled"
@@ -1412,225 +1418,6 @@ type = "Color"
 value = "#97C200"
 
 [[section]]
-name = "Clouds"
-
-[[section.param]]
-id = "clouds_enabled"
-kind = "bool"
-label = "Enable Clouds"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "cloud_coverage"
-kind = "float"
-label = "Coverage"
-type = "Float"
-
-[section.param.data]
-value = 0.605
-min = 0
-max = 1
-
-[[section.param]]
-id = "cloud_density"
-kind = "float"
-label = "Density"
-type = "Float"
-
-[section.param.data]
-value = 2
-min = 0
-max = 2
-
-[[section.param]]
-id = "cloud_bottom_height"
-kind = "float"
-label = "Bottom Height"
-type = "Float"
-
-[section.param.data]
-value = 44
-min = 4
-max = 180
-
-[[section.param]]
-id = "cloud_top_height"
-kind = "float"
-label = "Top Height"
-type = "Float"
-
-[section.param.data]
-value = 173
-min = 8
-max = 240
-
-[[section.param]]
-id = "cloud_shape_scale"
-kind = "float"
-label = "Shape Scale"
-type = "Float"
-
-[section.param.data]
-value = 0.021
-min = 0.002
-max = 0.08
-
-[[section.param]]
-id = "cloud_detail_scale"
-kind = "float"
-label = "Detail Scale"
-type = "Float"
-
-[section.param.data]
-value = 0.01
-min = 0.01
-max = 0.25
-
-[[section.param]]
-id = "cloud_detail_strength"
-kind = "float"
-label = "Detail Strength"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 1
-
-[[section.param]]
-id = "cloud_wind_speed"
-kind = "float"
-label = "Wind Speed"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 8
-
-[[section.param]]
-id = "cloud_primary_steps"
-kind = "uint"
-label = "Primary Steps"
-type = "Uint"
-
-[section.param.data]
-value = 16
-min = 4
-max = 64
-
-[[section.param]]
-id = "cloud_light_steps"
-kind = "uint"
-label = "Light Steps"
-type = "Uint"
-
-[section.param.data]
-value = 2
-min = 1
-max = 8
-
-[[section.param]]
-id = "cloud_temporal_alpha"
-kind = "float"
-label = "Temporal Alpha"
-type = "Float"
-
-[section.param.data]
-value = 0.03
-min = 0.01
-max = 1
-
-[[section.param]]
-id = "cloud_absorption"
-kind = "float"
-label = "Absorption"
-type = "Float"
-
-[section.param.data]
-value = 0.68
-min = 0.02
-max = 1.5
-
-[[section.param]]
-id = "cloud_phase_eccentricity"
-kind = "float"
-label = "Phase Eccentricity"
-type = "Float"
-
-[section.param.data]
-value = 0.66
-min = 0
-max = 0.9
-
-[[section.param]]
-id = "cloud_silver_intensity"
-kind = "float"
-label = "Silver Lining"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 2
-
-[[section.param]]
-id = "cloud_max_distance"
-kind = "float"
-label = "Max Ray Distance"
-type = "Float"
-
-[section.param.data]
-value = 800
-min = 40
-max = 1000
-
-[[section.param]]
-id = "cloud_shadows_enabled"
-kind = "bool"
-label = "Enable Cloud Shadows"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "cloud_shadow_strength"
-kind = "float"
-label = "Cloud Shadow Strength"
-type = "Float"
-
-[section.param.data]
-value = 0.9
-min = 0
-max = 2
-
-[[section.param]]
-id = "cloud_shadow_min_transmittance"
-kind = "float"
-label = "Cloud Shadow Min Transmittance"
-type = "Float"
-
-[section.param.data]
-value = 0.42
-min = 0
-max = 1
-
-[[section.param]]
-id = "cloud_shadow_steps"
-kind = "uint"
-label = "Cloud Shadow Steps"
-type = "Uint"
-
-[section.param.data]
-value = 6
-min = 2
-max = 16
-
-[[section]]
 name = "WaterSimulation"
 
 [[section.param]]
@@ -2233,29 +2020,32 @@ min = 1
 max = 120
 
 [[section.param]]
-id = "attached_leaf_rotation"
+id = "falling_leaf_mesh"
 kind = "bool"
-label = "Attached Leaves Rotate in Wind (B; Unchecked = Fixed Initial Angle)"
+enabled_if = { param = "real_leaf_lifecycle", equals = false }
+label = "Shared 3D Leaf (B; Unchecked = Original Sprite)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "falling_leaf_size_scale"
 kind = "float"
-label = "Leaf Display Size (Tree + Fallen; Physics Unchanged)"
+enabled_if = { param = "real_leaf_lifecycle", equals = false }
+label = "Falling Leaf Display Size (A/B; Physics Unchanged)"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 4
 min = 0.25
 max = 4
 
 [[section.param]]
 id = "falling_leaf_pixel_resolution"
 kind = "uint"
-label = "Pixels per Leaf (Tree + Fallen, Independent of Butterflies)"
+enabled_if = { param = "real_leaf_lifecycle", equals = false }
+label = "Pixels per Falling Leaf (N x N, Independent of Butterflies)"
 type = "Uint"
 
 [section.param.data]
@@ -2713,3 +2503,99 @@ type = "Float"
 value = 0
 min = -6
 max = 6
+
+[[section]]
+name = "Climbing Plants"
+
+[[section.param]]
+id = "climbing_fixture"
+kind = "choice"
+label = "Test terrain (applies immediately)"
+type = "Choice"
+
+[section.param.data]
+value = 3
+options = [
+    "Flat wall",
+    "Wall with a hole",
+    "Outward ledge",
+    "Recessed wall",
+    "Sloping wall",
+    "Ground to wall",
+    "Climbing pole",
+]
+
+[[section.param]]
+id = "climbing_flexibility"
+kind = "float"
+label = "Shoot exploration / flexibility"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0
+max = 2
+
+[[section.param]]
+id = "climbing_search_turn"
+kind = "float"
+label = "Search turn width (0–6x flexibility; live)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 6
+
+[[section.param]]
+id = "climbing_search_rate"
+kind = "float"
+label = "Search rotation rate (0.5–3x; live)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
+max = 3
+
+[[section.param]]
+id = "climbing_search_reach"
+kind = "float"
+label = "Unsupported search reach (voxels; live)"
+type = "Float"
+
+[section.param.data]
+value = 64
+min = 16
+max = 96
+
+[[section.param]]
+id = "climbing_speed"
+kind = "float"
+label = "Growth attempts/sec (up to 2.5 voxels per tip)"
+type = "Float"
+
+[section.param.data]
+value = 10
+min = 1
+max = 40
+
+[[section.param]]
+id = "climbing_spacing"
+kind = "float"
+label = "Adhesion spacing (voxels; 256/world unit)"
+type = "Float"
+
+[section.param.data]
+value = 10
+min = 4
+max = 64
+
+[[section.param]]
+id = "climbing_show_anchors"
+kind = "bool"
+label = "Show markers: yellow attachment / blue search / orange regrowth / red missing root"
+type = "Bool"
+
+[section.param.data]
+value = true

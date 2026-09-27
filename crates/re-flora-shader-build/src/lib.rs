@@ -358,34 +358,10 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
-        logical_path: "shader/trees/tree_pixel.comp",
-        source_path: "shader/slang/tree_pixel.comp.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/trees/tree_pixel.vert",
-        source_path: "shader/slang/tree_pixel.vert.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Vertex,
-    },
-    ShaderConfig {
-        logical_path: "shader/trees/tree_pixel.frag",
-        source_path: "shader/slang/tree_pixel.frag.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Fragment,
-    },
-    ShaderConfig {
         logical_path: "shader/trees/raster_tree_shadow.vert",
         source_path: "shader/slang/raster_tree_shadow.vert.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Vertex,
-    },
-    ShaderConfig {
-        logical_path: "shader/models/model_pixel_bake.comp",
-        source_path: "shader/slang/model_pixel_bake.comp.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
     },
     ShaderConfig {
         logical_path: "shader/props/apple_pixel_tree.comp",
@@ -416,6 +392,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         source_path: "shader/slang/apple_pixel.frag.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/dynamic_fruit.vert",
+        source_path: "shader/slang/dynamic_fruit.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
     },
     ShaderConfig {
         logical_path: "shader/props/dynamic_fruit_shadow.vert",
@@ -556,6 +538,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/ddgi/response_sample.comp",
+        source_path: "shader/slang/ddgi_response_sample.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/ddgi/irradiance_filter.comp",
         source_path: "shader/slang/ddgi_irradiance_filter.slang",
         module_path: "shader/slang",
@@ -664,30 +652,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
-        logical_path: "shader/tracer/cloud.comp",
-        source_path: "shader/slang/cloud.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/cloud_shadow.comp",
-        source_path: "shader/slang/cloud_shadow.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/cloud_shadow_temporal.comp",
-        source_path: "shader/slang/cloud_shadow_temporal.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/tracer/cloud_temporal.comp",
-        source_path: "shader/slang/cloud_temporal.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/tracer/god_ray.comp",
         source_path: "shader/slang/god_ray.slang",
         module_path: "shader/slang",
@@ -774,12 +738,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig {
         logical_path: "shader/foliage/vegetation_response.comp",
         source_path: "shader/slang/vegetation_response.comp.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
-        logical_path: "shader/foliage/tree_leaf_model.comp",
-        source_path: "shader/slang/tree_leaf_model.comp.slang",
         module_path: "shader/slang",
         stage: ShaderStage::Compute,
     },

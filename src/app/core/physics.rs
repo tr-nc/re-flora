@@ -203,6 +203,7 @@ impl DirtyTerrainBrickQueue {
 
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
+    tree_surface_revision: Option<u32>,
     dirty_terrain_bricks: DirtyTerrainBrickQueue,
     imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
     failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
@@ -221,9 +222,20 @@ impl TerrainPhysics {
 
     pub(super) fn publish_tree_surface(
         &mut self,
+        revision: Option<u32>,
+        cells: &std::collections::BTreeSet<[u32; 3]>,
         surface: Option<&crate::tracer::PosedTreeSurface>,
         indices: &[u32],
     ) -> anyhow::Result<()> {
+        if self.tree_surface_revision != revision {
+            self.collision_world.set_deforming_surface_exclusions(
+                cells
+                    .iter()
+                    .filter(|_| revision.is_some())
+                    .map(|&p| UVec3::from(p).as_ivec3()),
+            );
+            self.tree_surface_revision = revision;
+        }
         if let Some(surface) = surface {
             let positions: Vec<_> = surface.positions().map(|p| p * 256.).collect();
             let triangles: Vec<_> = indices
@@ -259,6 +271,7 @@ impl TerrainPhysics {
             .expect("dynamic fruit gravity constant must be valid");
         Self {
             collision_world,
+            tree_surface_revision: None,
             dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
             imported_terrain_bricks: HashSet::new(),
             failed_terrain_bricks: HashSet::new(),

@@ -1,10 +1,109 @@
-// Both distance groups use the same leaf shape/pose/display, never a cube fallback.
-import leaf_model_display;
-struct VertexInput {
-    [[vk::location(0)]] uint packed_data:TEXCOORD0;
-    uint instance_index:SV_VulkanInstanceID;
+import tree_scene;
+import leaf_lifecycle;
+import flora_types;
+import flora_lighting_cache;
+import flora_vertex;
+
+struct B_TreeLeafInstances
+{
+    TreeLeafInstance data[];
 };
+
+[[vk::binding(0, 1)]]
+readonly GLSLShaderStorageBuffer<B_TreeLeafInstances, Std430DataLayout>
+    tree_leaf_instances;
+
+struct B_TreeLeafLightingCache
+{
+    float4 irradiance[];
+};
+
+[[vk::binding(2, 1)]]
+readonly GLSLShaderStorageBuffer<B_TreeLeafLightingCache, Std430DataLayout>
+    flora_lighting_cache;
+
+struct VertexInput
+{
+    [[vk::location(0)]] uint packed_data : TEXCOORD0;
+    uint instance_index : SV_VulkanInstanceID;
+};
+
+struct VertexOutput
+{
+    float4 position : SV_Position;
+    [[vk::location(0)]] float3 color : COLOR0;
+};
+
 [shader("vertex")]
-LeafModelVertex main(VertexInput input) {
-    return displayAttachedLeaf(input.packed_data,input.instance_index);
+VertexOutput main(VertexInput input)
+{
+    int3 voxelLocalPosition;
+    uint3 vertexOffset;
+    unpackFloraVertexData(
+        input.packed_data, voxelLocalPosition, vertexOffset);
+
+    uint instanceType = floraInstanceType();
+    uint3 chunkWorldOffset = floraChunkWorldOffset();
+    TreeLeafInstance leafInstance =
+        tree_leaf_instances.data[input.instance_index];
+    uint3 leafVoxelWorldPosition = treeLeafWorldPosition(
+        leafInstance.packed_local_pos, chunkWorldOffset);
+    bool isTreeLeaf = instanceType == FLORA_SPECIES_TREE_LEAF;
+    int3 leafVoxelLocalPosition = isTreeLeaf
+        ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
+        : voxelLocalPosition;
+    uint3 instancePosition = isTreeLeaf
+        ? uint3(int3(leafVoxelWorldPosition) - leafVoxelLocalPosition)
+        : leafVoxelWorldPosition;
+    uint seed = instanceSeed(instancePosition);
+    uint voxelInfo = lookupFloraVoxelInfo(
+        instanceType, leafVoxelLocalPosition);
+    PreparedFloraVertex prepared = prepareFloraVertex(
+        leafVoxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
+        INSTANCE_GROWTH_PROGRESS_MATURE, 1.0, 1.0,
+        INSTANCE_SPAWN_INACTIVE, input.instance_index);
+
+    float growth = treeLeafGrowth(input.instance_index);
+    VertexOutput output;
+    if (prepared.should_trim || growth <= 0.0)
+    {
+        output.position = float4(2.0, 2.0, 2.0, 1.0);
+        output.color = float3(0.0);
+        return output;
+    }
+
+    float3 vertexPosition = floraBillboardVertexPosition(prepared.voxel_position,vertexOffset);
+    if (growth < 1.0) vertexPosition = lerp(prepared.voxel_position, vertexPosition, growth);
+    output.position = projectFloraPosition(vertexPosition);
+    float3 baseColor = sampleFloraBaseColor(
+        prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,
+        instancePosition, prepared.color_gradient, voxelInfo);
+    if (isTreeLeaf)
+    {
+        if (rasterFloraUsesDdgiLighting())
+        {
+            PushConstantFlora floraPc = floraPushConstants();
+            float3 environmentLight = flora_lighting_cache.irradiance[
+                floraLightingCacheIndex(
+                    floraPc, input.instance_index, 0u)].xyz;
+            output.color = shadeTreeLeafVertexWithEnvironment(
+                baseColor, prepared.shadow_weight, environmentLight,
+                prepared.sun_transmittance, prepared.color_gradient,
+                prepared.voxel_position, prepared.optical_normal);
+        }
+        else
+        {
+            output.color = shadeLegacyTreeLeafVertex(
+                baseColor, prepared.shadow_weight,
+                prepared.sun_transmittance, prepared.color_gradient,
+                prepared.voxel_position, prepared.optical_normal);
+        }
+    }
+    else
+    {
+        output.color = shadeFloraVertex(
+            baseColor, prepared.shadow_weight, prepared.voxel_position,
+            prepared.shading_normal);
+    }
+    return output;
 }

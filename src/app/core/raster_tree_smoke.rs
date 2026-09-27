@@ -1,4 +1,4 @@
-//! Explicit real-app contract for the sole procedural mesh tree system.
+//! Explicit hidden-app acceptance of the same saved A/B field used by the Debug checkbox.
 use super::App;
 use crate::lighting::{LightId, LocalLight, PointLight};
 use anyhow::{ensure, Result};
@@ -6,19 +6,17 @@ use glam::Vec3;
 
 pub(super) struct RasterTreeSmoke {
     frame: u32,
-    fingerprint: u64,
-    terrain_revision: u32,
+    initial_draws: u64,
     light: Option<LightId>,
-    camera: Option<crate::gameplay::CameraPose>,
+    thin_fingerprint: u64,
 }
 impl RasterTreeSmoke {
     pub(super) fn new() -> Self {
         Self {
             frame: 0,
-            fingerprint: 0,
-            terrain_revision: 0,
+            initial_draws: 0,
             light: None,
-            camera: None,
+            thin_fingerprint: 0,
         }
     }
     pub(super) fn run_next(app: &mut App) -> bool {
@@ -27,7 +25,7 @@ impl RasterTreeSmoke {
         };
         let done = smoke
             .step(app)
-            .unwrap_or_else(|e| panic!("[TREE][MESH_SMOKE] failed: {e:#}"));
+            .unwrap_or_else(|error| panic!("[TREE][RASTER_SMOKE] failed: {error:#}"));
         if !done {
             app.launch_owners.raster_tree_smoke = Some(smoke);
         }
@@ -36,28 +34,15 @@ impl RasterTreeSmoke {
     fn step(&mut self, app: &mut App) -> Result<bool> {
         self.frame += 1;
         match self.frame {
-            1 => {
-                app.debug_settings.adjustables.tree_wind.value = false;
-                app.debug_settings.adjustables.tree_pixelized.value = false;
-                self.camera = Some(app.tracer.camera_pose());
+            1 | 30 => {
+                app.debug_settings.adjustables.raster_tree_static.value = false;
+                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_hybrid_lighting
+                    .value = false;
             }
-            20 => {
-                if std::env::var_os("RE_FLORA_TREE_PIXEL_MOTION_VALIDATE").is_some() {
-                    app.tracer.validate_tree_pixel_camera_motion()?;
-                    return Ok(true);
-                }
-                self.fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
-                self.terrain_revision = app.visible_terrain_revision;
-                ensure!(
-                    app.tracer.raster_trees.index_count > 0,
-                    "missing continuous wood"
-                );
-                app.tracer.validate_gpu_tree_surface()?;
-                app.tracer.validate_gpu_tree_lighting()?;
-                ensure!(
-                    app.tracer.raster_trees.posed_surface.is_some(),
-                    "static tree lost query/collision surface"
-                );
+            21 => {
                 self.light = Some(
                     app.local_lights.add(LocalLight::Point(
                         PointLight::new(
@@ -67,127 +52,182 @@ impl RasterTreeSmoke {
                             0.01,
                             1.,
                         )
-                        .unwrap(),
+                        .expect("valid tree-lighting smoke fixture"),
                     )),
                 );
+                log::info!("[TREE][HYBRID_LIGHTING] added point-light fixture");
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_hybrid_lighting
+                    .value = true;
             }
             25 => {
-                app.tracer.validate_gpu_tree_lighting()?;
+                app.tracer.validate_gpu_tree_lighting(true)?;
             }
-            26 => {
-                app.debug_settings.adjustables.tree_pixelized.value = true;
-                app.debug_settings.adjustables.tree_pixel_size.value = 4;
-            }
-            30 => {
-                app.debug_settings.adjustables.tree_wind.value = true;
-            }
-            40 | 60 | 85 => {
+            49 | 64 | 81 => {
                 app.drive_tree_pose_smoke()?;
             }
-            41 | 61 | 86 => {
+            10 | 50 => {
+                app.debug_settings.adjustables.raster_tree_wind.value = self.frame == 50;
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_hybrid_lighting
+                    .value = false;
+                self.initial_draws = app.tracer.raster_trees.color_draws;
+                app.debug_settings.adjustables.raster_tree_static.value = true;
+            }
+            20 | 60 | 85 | 125 => {
+                ensure!(app.tracer.raster_trees.enabled, "B is not enabled");
                 app.validate_tree_poses()?;
                 app.validate_tree_surface_pose()?;
                 app.tracer.validate_gpu_tree_surface()?;
-                app.validate_tree_surface_queries()?;
-                app.tracer.validate_gpu_tree_lighting()?;
+                app.tracer.validate_gpu_tree_lighting(
+                    app.debug_settings
+                        .adjustables
+                        .raster_tree_hybrid_lighting
+                        .value,
+                )?;
+                if self.frame == 20 {
+                    self.thin_fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
+                }
+                if self.frame == 60 {
+                    let mesh = &app.tracer.raster_trees.rest_mesh;
+                    ensure!(
+                        mesh.rest_fingerprint() == self.thin_fingerprint,
+                        "rendering A/B changed authored thin geometry"
+                    );
+                    ensure!(
+                        mesh.single_voxel_cross_sections() > 0,
+                        "fixture must publish one-voxel cross sections"
+                    );
+                    ensure!(
+                        mesh.confidence_counts()[0] > 0,
+                        "fixture has no degenerate normals"
+                    );
+                    log::info!("[TREE][THIN_WOOD_SMOKE] original_lighting=true single_voxel_cross_sections={} rest_fingerprint={:016x}",
+                        mesh.single_voxel_cross_sections(), self.thin_fingerprint);
+                }
+                if self.frame >= 60 {
+                    ensure!(
+                        app.tracer.raster_trees.posed_surface.is_some(),
+                        "wind surface not published"
+                    );
+                }
+                ensure!(app.tracer.raster_trees.index_count > 0, "B has no geometry");
                 ensure!(
-                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.fingerprint,
-                    "wind changed rest geometry"
+                    app.tracer.raster_trees.color_draws > self.initial_draws,
+                    "B did not record a color draw"
+                );
+                ensure!(
+                    app.tracer.raster_trees.source.terrain_revision()
+                        == Some(app.visible_terrain_revision),
+                    "stale tree mesh"
+                );
+                log::info!(
+                    "[TREE][RASTER_SMOKE] frame={} B_draws={} triangles={} revision={:?}",
+                    self.frame,
+                    app.tracer.raster_trees.color_draws,
+                    app.tracer.raster_trees.index_count / 3,
+                    app.tracer.raster_trees.source.terrain_revision()
                 );
             }
-            45 => {
-                app.tracer.validate_tree_pixels()?;
-                app.debug_settings.adjustables.tree_pixelized.value = false;
+            40 => {
+                ensure!(
+                    !app.tracer.raster_trees.enabled,
+                    "A did not restore voxel rendering"
+                );
             }
-            50 => {
+            61 => {
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_hybrid_lighting
+                    .value = true;
                 app.debug_settings.adjustables.tree_stiffness.value = 0.;
             }
-            65 => {
-                app.debug_settings.adjustables.tree_pixelized.value = true;
-                app.debug_settings.adjustables.tree_pixel_size.value = 1;
-            }
-            70 => {
+            80 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 1.;
-                let mut pose = app.tracer.camera_pose();
-                pose.yaw_deg += 13.7;
-                app.tracer.apply_camera_pose(pose);
             }
-            75 => {
-                app.tracer.validate_tree_pixels()?;
-                app.debug_settings.adjustables.tree_pixel_size.value = 16;
+            126 => {
+                if let Some(light) = self.light.take() {
+                    app.local_lights
+                        .remove(light)
+                        .expect("live tree-lighting smoke fixture");
+                }
+                log::info!("[TREE][HYBRID_LIGHTING] removed point-light fixture");
+                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                app.debug_settings
+                    .adjustables
+                    .raster_tree_hybrid_lighting
+                    .value = false;
+            }
+            87 => {
+                app.debug_settings.adjustables.raster_tree_wind.value = false;
             }
             88 => {
-                app.tracer.validate_tree_pixels()?;
+                ensure!(
+                    app.tracer.raster_trees.posed_surface.is_none(),
+                    "wind toggle did not restore rest surface"
+                );
+                app.tracer.validate_gpu_tree_surface()?;
             }
-            90 => {
+            89 => {
+                app.debug_settings.adjustables.raster_tree_wind.value = true;
+            }
+            65 => {
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.thin_fingerprint,
+                    "lighting A/B changed thin geometry"
+                );
+                app.tracer.validate_gpu_tree_lighting(true)?;
+                log::info!("[TREE][THIN_WOOD_SMOKE] hybrid_lighting=true same_geometry=true rest_fingerprint={:016x}", self.thin_fingerprint);
+                app.tracer.validate_gpu_tree_surface()?;
+                app.validate_tree_surface_queries()?;
+            }
+            66 => {
+                app.exercise_posed_tree_edit()?;
+            }
+            70 => {
                 app.debug_settings.adjustables.tree_age.value = 0.5;
                 app.update_all_tree_ages_from_gui()?;
             }
-            100 => {
-                ensure!(
-                    app.visible_terrain_revision == self.terrain_revision,
-                    "mesh age changed terrain"
-                );
-                ensure!(
-                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() != self.fingerprint,
-                    "age did not update wood"
-                );
-                app.tracer.validate_gpu_tree_surface()?;
+            90 => {
                 app.clear_procedural_trees()?;
                 app.remove_tree(app.trees.tuned_tree_id())?;
             }
-            110 => {
+            100 => {
                 ensure!(
                     app.tracer.raster_trees.index_count == 0,
-                    "deleted tree remains visible"
+                    "deleted trees remain rasterized"
                 );
-                ensure!(
-                    app.tracer.raster_trees.scene.nodes.is_empty(),
-                    "deleted tree remains in scene queries"
-                );
-                ensure!(
-                    app.visible_terrain_revision == self.terrain_revision,
-                    "tree removal changed terrain"
-                );
-                app.debug_settings.adjustables.tree_age.value = 1.;
+            }
+            110 => {
+                app.debug_settings.adjustables.tree_age.value = 1.0;
                 app.replace_single_tree(app.debug_settings.tree.desc.clone(), app.debug_tree_pos)?;
             }
-            125 => {
-                ensure!(
-                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.fingerprint,
-                    "replacement rerolled geometry"
-                );
-                app.tracer.validate_gpu_tree_surface()?;
-                if let Some(light) = self.light.take() {
-                    app.local_lights.remove(light).unwrap();
-                }
-                app.debug_settings.adjustables.tree_wind.value = false;
-                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+            130 => {
+                app.debug_settings.adjustables.raster_tree_wind.value = false;
             }
             135 => {
                 ensure!(
-                    !app.tracer.raster_trees.wind_enabled,
-                    "wind disable not published"
-                );
-                ensure!(
-                    app.tracer.raster_trees.posed_surface.is_some(),
-                    "wind disable removed collision"
+                    app.tracer.raster_trees.posed_surface.is_none(),
+                    "wind did not restore static surface"
                 );
                 app.tracer.validate_gpu_tree_surface()?;
-                app.tracer.validate_gpu_tree_lighting()?;
+                app.tracer.validate_gpu_tree_lighting(false)?;
             }
-            145 => {
-                app.tracer.validate_tree_pixels()?;
-                app.debug_settings.adjustables.tree_pixelized.value = false;
-                app.debug_settings.adjustables.tree_pixel_size.value = 4;
-                app.tracer.apply_camera_pose(self.camera.take().unwrap());
+            140 => {
+                app.replace_single_tree(app.debug_settings.tree.desc.clone(), app.debug_tree_pos)?;
+            }
+            155 => {
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.thin_fingerprint,
+                    "replacement did not restore authored thin geometry"
+                );
+                app.tracer.validate_gpu_tree_surface()?;
+                app.tracer.validate_gpu_tree_lighting(false)?;
             }
             160 => {
-                ensure!(
-                    app.tracer.tree_pixel_frames() > 50,
-                    "pixel display was not exercised"
-                );
-                log::info!("[TREE][MESH_SMOKE] PASS welded_mesh=true gpu_pose=true gpu_surface=true queries=true wind_roundtrip=true age=true remove_replace=true terrain_unchanged=true display_ab=true current_camera=true pixel_sizes=4,1,16 color_draws={} pixel_frames={}",app.tracer.raster_trees.color_draws,app.tracer.tree_pixel_frames());
+                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true authored_thin_geometry=true same_geometry_lighting_ab=true authored_geometry_restored=true hybrid_lighting_roundtrip=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
                 return Ok(true);
             }
             _ => {}

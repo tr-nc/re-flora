@@ -1,18 +1,26 @@
 module tree_scene;
 import marching_result;
+import tree_cells;
 import tree_scene_types;
 [[vk::binding(49,0)]] StructuredBuffer<uint4> tree_scene_info;
 [[vk::binding(50,0)]] StructuredBuffer<TreeSceneNode> tree_scene_nodes;
 [[vk::binding(51,0)]] StructuredBuffer<uint4> tree_scene_primitives;
 [[vk::binding(52,0)]] StructuredBuffer<float4> tree_scene_vertices;
+[[vk::binding(53,0)]] StructuredBuffer<uint> tree_scene_cell_vertices;
 public bool treeSceneActive() { return tree_scene_info[0].x != 0u; }
-public bool treeWindActive() { return tree_scene_info[0].z != 0u; }
-public uint treeSceneVertexCount() { return tree_scene_info[0].w; }
-public uint treeSceneNodeCount() { return treeSceneActive() ? tree_scene_info[0].y : 0u; }
-public TreeSceneNode treeSceneNode(uint index) { return tree_scene_nodes[index]; }
-public uint4 treeScenePrimitive(uint index) { return tree_scene_primitives[index]; }
 public float3 treeScenePosition(uint i) { return tree_scene_vertices[i*2u].xyz; }
 public float3 treeSceneNormal(uint i) { return tree_scene_vertices[i*2u+1u].xyz; }
+public uint treeCellVertexBase(uint slot) { return tree_scene_cell_vertices[slot]; }
+public float treeCellNormalConfidence(uint slot) {
+    return saturate(tree_scene_vertices[treeCellVertexBase(slot)*2u+1u].w);
+}
+public void treeCellReceiver(uint slot, inout float3 center, inout float3 normal) {
+    if (!treeSceneActive()) return;
+    uint base = tree_scene_cell_vertices[slot];
+    center = float3(0); normal = float3(0);
+    for (uint i=0u;i<8u;++i) { center += treeScenePosition(base+i); normal += treeSceneNormal(base+i); }
+    center *= 0.125; normal = normalize(normal);
+}
 bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, float limit) {
     float lo = 0.0, hi = limit;
     for (uint axis=0u;axis<3u;++axis) {
@@ -26,16 +34,11 @@ bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, flo
     }
     return lo <= hi;
 }
-public struct TreeTriangleHit {
-    public uint primitive;
-    public float distance;
-    public float2 bary;
-};
-public TreeTriangleHit closestTreeTriangle(float3 origin, float3 direction, float limit, bool cullBackFaces) {
-    TreeTriangleHit hit;
-    hit.primitive=0xffffffffu; hit.distance=limit; hit.bary=float2(0);
-    uint count = treeSceneNodeCount();
+public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
+    if (!treeSceneActive()) return hit;
+    uint count = tree_scene_info[0].y;
     uint index = 0u;
+    float limit = hit.is_hit ? hit.distance : 1e10;
     while (index < count) {
         TreeSceneNode node = tree_scene_nodes[index];
         if (!intersectsTreeNode(node,origin,direction,limit)) { index = node.escape; continue; }
@@ -46,28 +49,21 @@ public TreeTriangleHit closestTreeTriangle(float3 origin, float3 direction, floa
         float3 e1 = b-a, e2 = c-a;
         float3 p = cross(direction,e2);
         float determinant = dot(e1,p);
-        if (cullBackFaces ? determinant > 1e-12 : abs(determinant) > 1e-12) {
+        if (abs(determinant) > 1e-12) {
             float3 s = origin-a, q = cross(s,e1);
             float u = dot(s,p)/determinant, v = dot(direction,q)/determinant;
             float distance = dot(e2,q)/determinant;
             if (u >= -1e-6 && v >= -1e-6 && u+v <= 1.000001 && distance >= 1e-6 && distance < limit) {
                 limit = distance;
-                hit.primitive=node.primitive; hit.distance=distance; hit.bary=float2(u,v);
+                hit.is_hit = true; hit.distance = distance;
+                hit.position = origin+direction*distance; hit.center_position = hit.position;
+                hit.normal = normalize(treeSceneNormal(ids.x)*(1.0-u-v)+treeSceneNormal(ids.y)*u+treeSceneNormal(ids.z)*v);
+                hit.voxel_type = 5u; hit.voxel_address = 0u;
+                hit.surface_data = 0u;
             }
         }
         index = node.escape;
     }
-    return hit;
-}
-public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
-    TreeTriangleHit triangle=closestTreeTriangle(origin,direction,hit.is_hit ? hit.distance : 1e10,false);
-    if (triangle.primitive==0xffffffffu) return hit;
-    uint3 ids=treeScenePrimitive(triangle.primitive).xyz;
-    float2 bary=triangle.bary;
-    hit.is_hit=true; hit.distance=triangle.distance;
-    hit.position=origin+direction*hit.distance; hit.center_position=hit.position;
-    hit.normal=normalize(treeSceneNormal(ids.x)*(1-bary.x-bary.y)+treeSceneNormal(ids.y)*bary.x+treeSceneNormal(ids.z)*bary.y);
-    hit.voxel_type=5u; hit.voxel_address=0u; hit.surface_data=0u;
     return hit;
 }
 
@@ -86,22 +82,35 @@ uint treeAttachmentIndex(uint3 anchor) {
 }
 float3 rotateTreeVector(float4 q, float3 v) { return v + 2.0*cross(q.xyz,cross(q.xyz,v)+q.w*v); }
 public float3 treeAttachmentPoint(uint3 anchor, float3 position) {
-    if (!treeWindActive()) return position;
+    if (!treeSceneActive()) return position;
     uint index=treeAttachmentIndex(anchor);
     if (index==0u) return position;
     return rotateTreeVector(tree_attachment_poses[(index-1u)*2u],position)+tree_attachment_poses[(index-1u)*2u+1u].xyz;
 }
 public float4 treeAttachmentRotation(uint3 anchor) {
-    if (!treeWindActive()) return float4(0.0, 0.0, 0.0, 1.0);
+    if (!treeSceneActive()) return float4(0.0, 0.0, 0.0, 1.0);
     uint index = treeAttachmentIndex(anchor);
     return index == 0u ? float4(0.0, 0.0, 0.0, 1.0) : tree_attachment_poses[(index-1u)*2u];
 }
 public float3 treeAttachmentVector(uint3 anchor, float3 vector) {
-    if (!treeWindActive()) return vector;
+    if (!treeSceneActive()) return vector;
     uint index=treeAttachmentIndex(anchor);
     return index==0u ? vector : rotateTreeVector(tree_attachment_poses[(index-1u)*2u],vector);
 }
 
+[[vk::binding(56,0)]] StructuredBuffer<uint4> tree_scene_rest_cells;
+public bool treeRestVoxel(uint3 coordinate) {
+    if (!treeSceneActive()) return false;
+    uint hash=coordinate.x*73856093u ^ coordinate.y*19349663u ^ coordinate.z*83492791u;
+    hash ^= hash>>16u;
+    uint count,stride; tree_scene_rest_cells.GetDimensions(count,stride);
+    for (uint i=0u;i<64u;++i) {
+        uint4 cell=tree_scene_rest_cells[(hash+i)&(count-1u)];
+        if (cell.w==0u) return false;
+        if (all(cell.xyz==coordinate)) return true;
+    }
+    return false;
+}
 public bool treeSceneOccludes(float3 start, float3 end) {
     if (!treeSceneActive()) return false;
     float distance=length(end-start);

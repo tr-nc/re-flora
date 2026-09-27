@@ -26,17 +26,46 @@ static const uint DDGI_VISIBILITY_SAMPLE_REJECT = 28u;
 static const uint DDGI_IRRADIANCE_HISTORY_RETENTION_Q16_MAX = 29u;
 static const uint DDGI_VISIBILITY_HISTORY_RETENTION_Q16_MAX = 30u;
 
-void ddgiRecordFilterStat(uint lane, uint value)
+// Static storage adapter only: the recording functions below own lane selection,
+// gating, owner bits and partitions. CPU tests exercise those same producers.
+public interface IDdgiFilterEvidenceSink
 {
-    if (value != 0u) InterlockedAdd(ddgi_trace_stats.data[lane], value);
+    [mutating] void add(uint lane, uint value);
+    [mutating] void bitOr(uint lane, uint value);
+    [mutating] void maximum(uint lane, uint value);
 }
 
-void ddgiRecordFilterOwner(uint lane, uint ownerVersion)
+struct DdgiGpuFilterEvidenceSink : IDdgiFilterEvidenceSink
+{
+    [mutating] void add(uint lane, uint value)
+    {
+        if (value != 0u) InterlockedAdd(ddgi_trace_stats.data[lane], value);
+    }
+
+    [mutating] void bitOr(uint lane, uint value)
+    {
+        InterlockedOr(ddgi_trace_stats.data[lane], value);
+    }
+
+    [mutating] void maximum(uint lane, uint value)
+    {
+        InterlockedMax(ddgi_trace_stats.data[lane], value);
+    }
+}
+
+void ddgiRecordFilterStat(uint lane, uint value)
+{
+    DdgiGpuFilterEvidenceSink sink;
+    sink.add(lane, value);
+}
+
+void ddgiRecordFilterOwner<T : IDdgiFilterEvidenceSink>(
+    inout T sink, uint lane, uint ownerVersion)
 {
     uint ownerBit = ownerVersion < 31u
         ? (1u << ownerVersion)
         : 0x80000000u;
-    InterlockedOr(ddgi_trace_stats.data[lane], ownerBit);
+    sink.bitOr(lane, ownerBit);
 }
 
 uint ddgiFilterRetentionQ16(float retention)
@@ -44,28 +73,28 @@ uint ddgiFilterRetentionQ16(float retention)
     return uint(round(saturate(retention) * 65536.0));
 }
 
-void ddgiRecordHistoryDecision(
-    uint evidenceEnabled, bool electedProbeLane,
+void ddgiRecordHistoryDecision<T : IDdgiFilterEvidenceSink>(
+    inout T sink, uint evidenceEnabled, bool electedProbeLane,
     DdgiFilterHistoryDecision decision, uint ownerLane, uint probesLane,
     uint replaceLane, uint retainLane, uint blendLane,
     uint retentionSumLane, uint retentionMaxLane)
 {
     if (evidenceEnabled == 0u || !electedProbeLane) return;
-    ddgiRecordFilterOwner(ownerLane, decision.owner_version);
-    ddgiRecordFilterStat(probesLane, 1u);
+    ddgiRecordFilterOwner(sink, ownerLane, decision.owner_version);
+    sink.add(probesLane, 1u);
     switch (decision.action)
     {
     case DdgiFilterHistoryAction::Retain:
-        ddgiRecordFilterStat(retainLane, 1u);
+        sink.add(retainLane, 1u);
         break;
     case DdgiFilterHistoryAction::Blend:
-        ddgiRecordFilterStat(blendLane, 1u);
+        sink.add(blendLane, 1u);
         uint retentionQ16 = ddgiFilterRetentionQ16(decision.retention);
-        ddgiRecordFilterStat(retentionSumLane, retentionQ16);
-        InterlockedMax(ddgi_trace_stats.data[retentionMaxLane], retentionQ16);
+        sink.add(retentionSumLane, retentionQ16);
+        sink.maximum(retentionMaxLane, retentionQ16);
         break;
     default:
-        ddgiRecordFilterStat(replaceLane, 1u);
+        sink.add(replaceLane, 1u);
         break;
     }
 }
@@ -74,8 +103,9 @@ public void ddgiRecordIrradianceHistoryDecision(
     uint evidenceEnabled, bool electedProbeLane,
     DdgiFilterHistoryDecision decision)
 {
+    DdgiGpuFilterEvidenceSink sink;
     ddgiRecordHistoryDecision(
-        evidenceEnabled, electedProbeLane, decision,
+        sink, evidenceEnabled, electedProbeLane, decision,
         DDGI_IRRADIANCE_HISTORY_OWNER_MASK,
         DDGI_IRRADIANCE_HISTORY_PROBES,
         DDGI_IRRADIANCE_HISTORY_REPLACE,
@@ -85,12 +115,12 @@ public void ddgiRecordIrradianceHistoryDecision(
         DDGI_IRRADIANCE_HISTORY_RETENTION_Q16_MAX);
 }
 
-public void ddgiRecordVisibilityHistoryDecision(
-    uint evidenceEnabled, bool electedProbeLane,
+public void ddgiRecordVisibilityFilterResult<T : IDdgiFilterEvidenceSink>(
+    inout T sink, uint evidenceEnabled, bool electedProbeLane,
     DdgiFilterHistoryDecision decision)
 {
     ddgiRecordHistoryDecision(
-        evidenceEnabled, electedProbeLane, decision,
+        sink, evidenceEnabled, electedProbeLane, decision,
         DDGI_VISIBILITY_HISTORY_OWNER_MASK,
         DDGI_VISIBILITY_HISTORY_PROBES,
         DDGI_VISIBILITY_HISTORY_REPLACE,
@@ -98,21 +128,45 @@ public void ddgiRecordVisibilityHistoryDecision(
         DDGI_VISIBILITY_HISTORY_BLEND,
         DDGI_VISIBILITY_HISTORY_RETENTION_Q16,
         DDGI_VISIBILITY_HISTORY_RETENTION_Q16_MAX);
+    if (evidenceEnabled == 0u || !electedProbeLane) return;
+    // Every completed visibility result witnesses the sample-policy owner, even
+    // Retain or invalid-fresh Replace, which intentionally execute no ray loop.
+    // Do not invent samples: their counts and owner bits still come from the loop.
+    ddgiRecordFilterOwner(
+        sink, DDGI_VISIBILITY_SAMPLE_OWNER_MASK, DDGI_FILTER_POLICY_OWNER_VERSION);
+}
+
+public void ddgiRecordVisibilityFilterResult(
+    uint evidenceEnabled, bool electedProbeLane,
+    DdgiFilterHistoryDecision decision)
+{
+    DdgiGpuFilterEvidenceSink sink;
+    ddgiRecordVisibilityFilterResult(
+        sink, evidenceEnabled, electedProbeLane, decision);
+}
+
+public void ddgiRecordVisibilitySampleDecision<T : IDdgiFilterEvidenceSink>(
+    inout T sink, uint evidenceEnabled, bool electedEvidenceLane,
+    DdgiFilterVisibilityDecision decision)
+{
+    if (evidenceEnabled == 0u || !electedEvidenceLane) return;
+    ddgiRecordFilterOwner(
+        sink, DDGI_VISIBILITY_SAMPLE_OWNER_MASK, decision.owner_version);
+    sink.add(DDGI_VISIBILITY_SAMPLE_COUNT, 1u);
+    sink.add(
+        decision.action == DdgiFilterVisibilityAction::Accept
+            ? DDGI_VISIBILITY_SAMPLE_ACCEPT
+            : DDGI_VISIBILITY_SAMPLE_REJECT,
+        1u);
 }
 
 public void ddgiRecordVisibilitySampleDecision(
     uint evidenceEnabled, bool electedEvidenceLane,
     DdgiFilterVisibilityDecision decision)
 {
-    if (evidenceEnabled == 0u || !electedEvidenceLane) return;
-    ddgiRecordFilterOwner(
-        DDGI_VISIBILITY_SAMPLE_OWNER_MASK, decision.owner_version);
-    ddgiRecordFilterStat(DDGI_VISIBILITY_SAMPLE_COUNT, 1u);
-    ddgiRecordFilterStat(
-        decision.action == DdgiFilterVisibilityAction::Accept
-            ? DDGI_VISIBILITY_SAMPLE_ACCEPT
-            : DDGI_VISIBILITY_SAMPLE_REJECT,
-        1u);
+    DdgiGpuFilterEvidenceSink sink;
+    ddgiRecordVisibilitySampleDecision(
+        sink, evidenceEnabled, electedEvidenceLane, decision);
 }
 
 // Diagnostic counters are independent of RFIRR capture ownership and its exact-retention proof.

@@ -1,195 +1,101 @@
 # Garden Tree Publication
 
-`GardenTrees::{place, replace, replace_batch, remove}` owns one canonical tree
-publication. Wood, foliage, fruit, shadow history and canopy audio commit together;
-observer failure compensates the already-published geometry and observers before
-leaving the previous canonical record authoritative.
+Tree placement is one garden change even though its observable result spans trunk voxels and their
+visible-terrain publication, foliage rendering, fruit physics, attached-fruit rendering, local-sun
+shadow history, canopy audio, leaf emitters, and the canonical tree record. `GardenTrees` owns that
+invariant. A tree is canonical only after every earlier publication action succeeds; a failed
+action compensates the already-applied actions while the previous canonical record remains
+authoritative.
 
-## Continuous mesh cutover
+## Interface designs considered
 
-Trees are no longer authored into terrain voxels. `Tree` still owns deterministic
-branches, age-dependent geometry and attachment identities. `tree_gen::mesh::WoodMesh`
-compiles a continuous indexed wood surface directly from that description. A child
-extrudes a parent quad, reusing its four indices; forks are welded rather than a
-collection of intersecting capped cylinders. Shared vertices have one skin binding.
+### App forwarding facade
 
-The four-sided swept surface is an initial faceted art candidate. Authored centreline
-subdivision remains visible; a connected topology does not prove freedom from
-self-intersection under arbitrary authored parameters or extreme wind. Visual review
-of junction proportions remains necessary.
+`App::place_tree` could forward a compiled tree to the existing `Tracer`, `TerrainPhysics`, audio,
+and `TreeRuntime` calls. This minimizes the diff but fails the deletion test: deleting the facade
+would reveal the same ordering and rollback knowledge in every caller. It also leaves removal as a
+different orchestration path. This shallow design is rejected.
 
-`RasterTreeMesh` converts local generator units to world space and assigns the tree
-identity to bindings. The same posed surface supplies color, sun shadows, software
-triangle queries and exact character/rigid-body collision. Disabling wind retains a
-static query/collision mesh; it does not restore terrain voxels. Leaf and fruit
-attachments retain their existing published bone transforms.
+### Extensible command registry
 
-The old occupancy extraction, tree-cell lookup, uncertain voxel-normal lighting,
-rest-voxel query exclusions, tree voxel stamp/erase transactions and shovel
-rest-coordinate editing path are retired. Terrain stays voxel-editable; a nearer
-wood surface blocks the terrain brush. Whole-tree removal continues through
-`GardenTrees`. Ground-height queries deliberately exclude tree geometry.
+A generic command trait and a parameter bag could let subsystems register arbitrary prepare,
+commit, and rollback callbacks. That is flexible, but callers and tests would need to understand
+the registry, callback ordering, downcasts, and a large bag of unrelated dependencies. Re: Flora
+has one concrete tree publication protocol, not an ecosystem of third-party tree actions. The
+extra generation/version machinery would be speculative, so this design is rejected by YAGNI.
 
-## Publication protocol
+### Canonical owner with a closed publication plan
 
-Preparation supplies the target records plus retained trees from the canonical owner.
-The physical transaction contains complete before/after mesh-scene descriptions. Its
-single execution path compiles the desired scene, completes previous GPU readers,
-publishes resident geometry, bindings, attachments and collision, then publishes the
-observer actions. Only after all actions succeed are the records canonical. Restoration
-runs the same path with the previous scene; restoration failures propagate too.
+`GardenTrees::{place, replace, replace_batch, remove}` is the selected interface. Placement
+compilation produces one `PreparedTreePublication` whose fields are meaningful tree facts, not
+caller-selected service arguments. `GardenTrees` executes a closed `TreePublicationAction`
+sequence through one internal executor. That executor alone maps actions to typed publication
+primitives. The production and recording hosts implement those same primitives, so an omitted or
+exchanged production mapping changes the recorded behavior without duplicating the action match.
+Leaf clusters and the canonical record commit together only after trunk and observer publication
+succeed.
 
-Retained trees no longer need a chunk-overlap ownership index or clear-and-restamp
-union. Age replacement does not publish a terrain revision or rebuild terrain chunks.
-The resident mesh is currently rebuilt as a scene on topology changes, not incrementally
-per tree. Ordinary wind only updates poses, surface positions and acceleration bounds.
-GPU resource constraints remain checked explicitly by the existing scene allocator.
+This design has the smallest caller interface, keeps protocol changes local to one owner, and uses
+a real seam because production and recording adapters both exist. It deliberately does not add a
+tree generation abstraction: tree identity and canopy acoustic generation already have distinct,
+adequate meanings.
 
-The branch hierarchy, GPU pose solver, skinning, refit and physical collision foundation
-are retained; removing voxel rendering does not mean deleting these shared capabilities.
-Wood irradiance is now evaluated spatially per mesh vertex and shared by display modes,
-not once at the centre of an entire tree. Current-frame scene queries continue to include
-the mesh for DDGI and local-light visibility.
+## Publication contract
 
-## Runtime display-only A/B
+Placement and replacement checkpoint and publish trunk voxels first, then publish foliage, fruit
+lifecycle, attached fruit, shadow invalidation, and canopy audio in that order. They make the
+prepared record and leaf clusters canonical only after the whole physical transaction commits.
+Removal publishes the inverse physical effects through the same owner and removes the canonical
+record last. Inputs that can be preflighted are checked before the first action. The concrete trunk
+executor treats both atlas mutation and visible-terrain publication as fallible: a failure at any
+point runs the inverse checkpoint publication, aborts unfinished physical terrain work, and reports
+the original and restore errors together if both fail. Later observer failure restores the same
+trunk checkpoint plus observer, fruit-body, and audio publication (or removes a partially placed
+new tree).
 
-Debug → **Tree Rendering** provides saved declarative controls:
+Cherry-wood voxels do not encode a tree identity. `GardenTrees` therefore keeps a chunk-local index
+of canonical trunk owners. A transaction queries only chunks touched by its old and new bounds,
+clears the target plus intersecting retained neighbors, then deterministically redraws the desired
+target and neighbor union. Restore uses the inverse union. This covers remove, shrink, batch, and a
+replacement whose new footprint alone overlaps another canonical tree without scanning every tree.
 
-- `tree_pixelized`: **Pixelized Wood (B; Unchecked = Normal Mesh)**, default **false**.
-- `tree_pixel_size`: **Wood Pixel Size (Scene Pixels; Current Camera)**, default **4**,
-  range **1–16**, enabled in B. These are internal scene pixels, before output scaling.
-- `tree_wind` and `tree_stiffness` remain independent. The old wind value migrates;
-  `raster_tree_static` and `raster_tree_hybrid_lighting` are removed on load/save.
+Age rebuild uses one `replace_batch` transaction. It clears all old trunks before stamping any new
+trunk so overlapping trees cannot erase one another, delays every canonical commit until all
+observers succeed, and restores the entire physical batch if any tree fails. Canopy Voice
+realization is strict within the same transaction: one failed generation spawn removes every Voice
+created by that synchronization, and checkpoint restoration propagates physical realization
+failures instead of accepting a lifecycle-only restoration.
 
-A draws the posed indexed mesh. B samples that same GPU mesh with the **current
-perspective camera** and refit BVH each frame. Center rays retain their original
-surface; empty centers use common clipped-triangle coverage to keep fine twigs
-visible. Live wood chooses the covered footprint point nearest the cell center,
-then resolves depth ties. Its material uses perspective-correct barycentrics at
-that point, not the source triangle centroid. Rigid small-model adapters retain
-their existing coverage/material contract. There is no pre-baked view, fixed camera-angle list or rigid
-whole-tree surface bank. The fragment pass writes the sampled scene depth into the
-ordinary terrain/foliage/fruit depth attachment; it is not a whole-screen image filter.
+When tree description and global age change in the same GUI frame, the tuned description is a
+one-shot staged input rather than a canonical mutation. The age rebuild consumes it and commits it
+with the successful prepared record. Failure leaves the old physical and canonical description in
+place, and a later rebuild cannot accidentally reuse the discarded unpublished description.
 
-Both modes interpolate the same per-vertex irradiance and share `shadeTreeWood`.
-Only wood display changes. Shadows, queries, collision, attachments, leaf regeneration
-and fruit state do not inspect the display switch. The current pixel grid is screen-
-aligned, not world-locked. Large blocks expand thin silhouettes conservatively and
-use one surface depth per cell; they are not exactly equivalent to A per fragment.
-**No camera-motion flicker remains the acceptance requirement.** Screen alignment
-is not an excuse for flashing edges, and static screenshots are not temporal acceptance.
+## Derived raster surface validity and publication
 
-Storage reuses the common fence-slot allocator. Oversized frames split into contiguous
-row bands under the portable storage-buffer budget; every band draws that frame.
-No tree is rejected to satisfy a tile allocation. No production CPU pose/pixel readback
-is added. Smoke-only readback explicitly uses transfer-capable storage.
+A terrain edit does not necessarily change the derived tree surface. The raster path separates
+three responsibilities rather than teaching individual editing tools how to skip tree work:
 
-## Current validation and remaining work
+- `RasterTreeMesh` derives `TreeSurfaceDependencies` alongside surface extraction. Dependencies
+  conservatively cover each authored world-space wood cone plus the surface sampler's shared
+  neighborhood radius, clipped to the sampled atlas region. They include potential wood even
+  where the atlas is currently empty. The bulk readback AABB is not the semantic dependency.
+- `TreeSurfaceCache` owns revision validity. A terrain publication outside those dependencies
+  advances validity without rebuilding. An intersecting edit stays dirty until a complete
+  rebuild succeeds; canonical-tree changes always require revalidation. Dependency intersection
+  accepts inclusive voxel bounds, including single-cell and boundary-touching edits.
+- `Tracer::publish_static_raster_trees` owns publication of the derived surface and attachments.
+  It retains resident resources and pose history only when the complete observable surface is
+  exactly equal: vertex bytes (including normals/confidence), indices, solid occupancy, skin
+  bindings, cell lookup, and attachments. It does not rely on counts or a hash. Publication is
+  marked invalid before any fallible resource change and valid only after every upload succeeds,
+  so a failed partial upload cannot be accepted as an unchanged result on retry.
 
-The display step passed formatting, check, **1113 binary tests / 4 ignored** plus
-4 library tests, and the 160-frame hidden Release tree smoke with resize. This exercises
-GPU poses/normals/refit, exact CPU/GPU rays, wind on/off, local-light data, age,
-deletion/replacement, unchanged terrain revision, A→B→A, camera rotation, pixel sizes
-4/1/16 and four GPU color/depth readbacks (89 B frames). No Vulkan errors remain.
-Initial unsupported fragment-demote / draw-parameters declarations were removed by
-using the existing transparent/far-depth contract and `SV_VulkanVertexID`; readback
-buffers now explicitly declare transfer-source use.
+Terrain changes can affect tree shading without removing any wood. Neither dependency tracking
+nor publication equality may use a removed-wood count as a shortcut. Shared sampling radius,
+conservative potential-wood support, and exact output comparison keep these rules local and
+applicable to every edit path that publishes visible terrain. The current per-cone AABBs can be
+replaced by a more precise dependency index without changing editing tools or the cache interface.
 
-The shared leaf native coverage/depth/RGBA oracle passed after extraction of the common
-single-triangle coverage helper. The full leaf replay also passed with pixelized wood:
-14,572 attached → stripped → regrown → stripped; 29,144 released leaves coexist,
-including complete release-pose and attached-rotation checks.
-
-The default mature source contains 7,768 vertices / 15,532 triangles. These are geometry
-counts, not performance acceptance. Hidden bare-wood closeups are `target/tree-mesh-A.png`,
-`target/tree-mesh-B.png` (4 scene pixels) and `target/tree-mesh-B16.png`. No visible game
-was launched. These captures do not substitute for manual visual approval.
-
-### Camera-motion regression
-
-The first implementation had two distinct continuous-surface sampling errors:
-
-1. Center rays shaded the hit point, but coverage-only cells shaded the triangle
-   centroid. A 0.0001-radian camera yaw step could therefore make a continuously
-   occupied cell jump by **0.9848914 linear RGB** on a fixed lighting gradient.
-2. Correcting barycentrics alone was insufficient: selecting coverage by depth
-   could switch to a different triangle's corner elsewhere in the same cell.
-   A coplanar split-quad replay still jumped by **0.014998436** at a triangle boundary.
-
-Coverage now chooses the nearest projected footprint point before comparing depth,
-then shades that point in homogeneous coordinates. This handles perspective and
-vertices behind the near plane without dividing original vertices by their `w`.
-The corresponding post-fix steps were **0.00038339943** and **0.000893116**. These
-are controlled continuity measurements, not universal perceptual/performance thresholds.
-Neither temporal smoothing, frozen views nor a different camera-angle bank is used.
-
-Run `scripts/check_tree_pixel_motion.sh` for the opt-in native regression. It drives
-**the production compute shader**, with isolated geometry, camera, palette and light
-buffers (no saved settings changes). Thirty-six cases each sweep 121 camera samples:
-front/oblique triangles, a split quad and near-clipped geometry; yaw, pitch and lateral
-translation; block sizes 1/4/16. Stationary repeats must be identical, motion must
-actually change the sampled surface, and continuously covered cells must change by
-less than 0.01 linear RGB per 0.0001-radian/world-unit step. Retriangulating the quad
-must preserve coverage, color and depth. Colors must remain finite and depth in [0,1].
-The helper rejects runtime errors and requires clean shutdown; it is not a unit test.
-
-The replay specifically guards **continuous-surface material flashes**. It records
-coverage transitions but does not prove temporal stability of every silhouette,
-disocclusion, terrain intersection, moving branch or dense forest. Whole-tree motion
-captures at `target/tree-motion-review/{A,B4,B16}.mp4` use the same static mesh and
-scripted moving camera, with GUI/camera files restored. Each includes 32 color
-keyframes from a 96-frame run. Their raw frame-difference metrics include legitimate
-motion and must not be described as flicker scores or performance results. Manual
-confirmation of the full no-flicker criterion remains outstanding.
-
-Post-fix validation passed formatting, `cargo check`, **1113 binary tests / 4 ignored**
-and 4 library tests, the 36-case native motion replay, the strict original leaf
-coverage/depth/RGBA oracle, the 160-frame tree/resize smoke, and real-leaf lifecycle
-replay with pixelized wood enabled (29,144 released leaves, full pose/rotation
-continuity). Hidden Release startup/shutdown and all final run logs were clean.
-No generated files or saved defaults changed. No performance conclusion is claimed.
-
-For dense color keyframes through the existing real-scene camera-motion runner, set
-`RE_FLORA_TREE_PIXEL_MOTION_REVIEW=1` with `--hidden --mute` and
-`--denoiser-bench <snapshot> <report.toml> --denoiser-bench-camera-motion`.
-This only changes capture retention, not rendering,
-wind, lighting or saved controls. Freeze wind/daylight via the ordinary saved settings
-for controlled review and restore those settings afterward.
-
-### Reproducible review commands
-
-```sh
-cargo build --release
-scripts/check_tree_pixel_motion.sh
-python3 scripts/check_raster_tree_static.py --thin-branches
-python3 scripts/benchmark_tree_update.py --output target/tree-mesh-update-bench \
-  --seconds 6 --warmup-seconds 2
-python3 scripts/check_tree_terrain_edit_perf.py target/tree-mesh-terrain-edit
-```
-
-The historical capture command now compares **only normal/pixelized new mesh display**;
-its old `--hybrid-lighting` option is rejected. It restores GUI/camera bytes, checks zero
-terrain writes and equal geometry fingerprints in both bare/canopy captures. Four actual
-captures passed with fingerprint `120bb3e71e5c6ea8`; the source contains 1,259 branch
-segments with radii below half a voxel, now represented directly as geometry. Results are
-under `target/tree-display-evidence/`. Twenty-one focused script tests, Ruff and Pyright passed.
-
-The repaired terrain-edit replay passed three real edits, one initial wood compile and
-**zero** tree rebuilds during editing, with no runtime errors. This is not a test of water
-colliding with wood. A short RTX 3060 Ti single-tree Release measurement (5120×2880 output,
-ordinary display, fixed camera/daylight, 6 s each, first 2 s excluded) recorded:
-
-| Wind | Frame median / p95 | CPU tree update median | GPU surface update median |
-| --- | --- | --- | --- |
-| Off | 17.16 / 18.05 ms | 0.410 ms | 0.064 ms |
-| On | 17.16 / 18.19 ms | 0.684 ms | 0.065 ms |
-
-There are 227/219 frame samples but only 8/8 GPU scope samples. This measures the **new**
-mesh's wind toggle, not old/new rendering, not display A/B, and not a performance win.
-
-Manual appearance, dense-scene performance and full environment integration remain
-unaccepted. In particular water's existing terrain SDF and acoustic terrain snapshots
-are separate consumers: their former static voxel wood no longer exists. They need an
-explicit mesh-consumer policy/validation, not an invisible old voxel tree retained as a
-workaround. Legacy terrain archives containing already-baked tree wood also need a
-migration policy; this change does not silently erase ambiguous saved wood materials.
+Validation and Release measurements are recorded in
+[`research/tree_surface_publication_optimization.md`](research/tree_surface_publication_optimization.md).
