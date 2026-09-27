@@ -180,7 +180,7 @@ impl ModelPixelFrame {
                             cmdbuf,
                             &descriptors,
                             Extent3D::new(8, 8, count.div_ceil(64)),
-                            Some(bytemuck::bytes_of(&[0u32, count, 0])),
+                            Some(bytemuck::bytes_of(&[0u32, count, 0, 0])),
                         )?;
                     }
                     if models.compute_count > 0 {
@@ -189,7 +189,7 @@ impl ModelPixelFrame {
                                 cmdbuf,
                                 &descriptors,
                                 Extent3D::new(1, 1, batch.range.count),
-                                Some(bytemuck::bytes_of(&[4u32, count, batch.range.first])),
+                                Some(bytemuck::bytes_of(&[4u32, count, batch.range.first, 0])),
                             )?;
                         }
                         pass.compute.record_with_descriptors(
@@ -204,6 +204,7 @@ impl ModelPixelFrame {
                                 models.tile_compute_mode(),
                                 count,
                                 batch.range.first,
+                                models.reference_tile_offset().unwrap_or(0) * 4,
                             ])),
                         )?;
                         if let Some(base) = models.reference_tile_offset() {
@@ -215,7 +216,7 @@ impl ModelPixelFrame {
                                     models.dispatch_resolution,
                                     models.compute_count,
                                 ),
-                                Some(bytemuck::bytes_of(&[2u32, count, base])),
+                                Some(bytemuck::bytes_of(&[2u32, count, base, 0])),
                             )?;
                         }
                     }

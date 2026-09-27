@@ -5,7 +5,7 @@ use glam::{Mat4, Vec2, Vec4};
 use re_flora_vkn::{execute_one_time_command, BufferUse, VulkanContext};
 
 /// Explicit native regression: the published variant/pose that exposed the
-/// 64px conservative boundary disagreement. No simulation or camera overrides.
+/// conservative boundary disagreements. No simulation or camera overrides.
 /// Kept here with the oracle, never enabled by normal play or the live A/B runner.
 pub(super) fn apply_coverage_fixture(
     instances: &mut Vec<Instance>,
@@ -16,17 +16,53 @@ pub(super) fn apply_coverage_fixture(
         return Ok(());
     };
     ensure!(
-        fixture == "leaf-boundary"
-            && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
-        "model coverage fixture requires leaf-boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
+        matches!(
+            fixture.as_str(),
+            "leaf-boundary" | "leaf-small-boundary" | "leaf-pose-sweep"
+        ) && std::env::var("RE_FLORA_LEAF_MODEL_REVIEW").as_deref() == Ok("b"),
+        "model coverage fixture requires a known leaf boundary and RE_FLORA_LEAF_MODEL_REVIEW=b"
     );
-    let Some(mut instance) = instances
+    let Some(instance) = instances
         .iter()
         .find(|i| i.metadata[3] & LEAF_MODEL_FLAG != 0)
         .copied()
     else {
         anyhow::bail!("model coverage fixture requires a published leaf");
     };
+    instances.clear();
+    if fixture == "leaf-pose-sweep" {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let cases = coverage_pose_cases(instance, leaf_first, triangles_per_leaf);
+        let batches = cases.len().div_ceil(64);
+        let requested = NEXT.fetch_add(1, Ordering::Relaxed);
+        let batch = requested.min(batches - 1);
+        instances.extend_from_slice(&cases[batch * 64..((batch + 1) * 64).min(cases.len())]);
+        if requested < batches {
+            log::info!(
+                "[MODEL-COVERAGE-SWEEP] batch={}/{} cases={} saved_config_unchanged=true",
+                batch + 1,
+                batches,
+                cases.len()
+            );
+        }
+    } else {
+        instances.push(captured_coverage_instance(
+            instance,
+            leaf_first,
+            triangles_per_leaf,
+            fixture == "leaf-small-boundary",
+        ));
+    }
+    Ok(())
+}
+
+fn captured_coverage_instance(
+    mut instance: Instance,
+    leaf_first: u32,
+    triangles_per_leaf: usize,
+    small: bool,
+) -> Instance {
     instance.position_size = [0.8934032, 1.5581794, 1.4821042, 0.00390625];
     instance.lighting = [0.64829177, 0.3265856, 0.45352986, -0.51707864];
     instance.view_orientation = instance.lighting;
@@ -36,9 +72,53 @@ pub(super) fn apply_coverage_fixture(
         64,
         LEAF_MODEL_FLAG,
     ];
-    instances.clear();
-    instances.push(instance);
-    Ok(())
+    if small {
+        // Captured variant 0 at the live runner's 0.25 size, not a scaled
+        // substitute for the 64px case. Pixel (5,10) exposes a distinct context.
+        instance.position_size = [1.1692841, 1.3915664, 1.4927582, 0.0009765625];
+        instance.lighting = [-0.209657, -0.660767, 0.047330074, -0.7191597];
+        instance.view_orientation = instance.lighting;
+        instance.metadata = [leaf_first, triangles_per_leaf as u32, 16, LEAF_MODEL_FLAG];
+    }
+    instance
+}
+
+/// Explicit diagnostic-only, bounded, unscreened phases plus representable
+/// neighbors of both captures. Runtime time/load cannot select favorable poses.
+fn coverage_pose_cases(template: Instance, first: u32, count: usize) -> Vec<Instance> {
+    let mut cases = Vec::new();
+    for small in [false, true] {
+        let base = captured_coverage_instance(template, first, count, small);
+        for axis in 0..3 {
+            for ulps in [-16i32, -4, -1, 0, 1, 4, 16] {
+                let mut instance = base;
+                instance.position_size[axis] = f32::from_bits(
+                    (base.position_size[axis].to_bits() as i64 + i64::from(ulps)) as u32,
+                );
+                cases.push(instance);
+            }
+        }
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            for phase in 0..16 {
+                let rotation =
+                    glam::Quat::from_axis_angle(axis, phase as f32 * std::f32::consts::TAU / 16.);
+                let pose = (rotation * glam::Quat::from_array(base.lighting))
+                    .normalize()
+                    .to_array();
+                for resolution in [8, 16, 64] {
+                    for scale in [0.25, 1., 4.] {
+                        let mut instance = base;
+                        instance.lighting = pose;
+                        instance.view_orientation = pose;
+                        instance.metadata[2] = resolution;
+                        instance.position_size[3] = 0.00390625 * scale;
+                        cases.push(instance);
+                    }
+                }
+            }
+        }
+    }
+    cases
 }
 
 fn leaf_review_can_be_empty(
@@ -274,13 +354,16 @@ impl ButterflyMeshRenderer {
         resources: &crate::tracer::resources::TracerResources,
     ) -> Result<()> {
         self.validation_calls = self.validation_calls.wrapping_add(1);
+        let pose_sweep =
+            std::env::var("RE_FLORA_MODEL_COVERAGE_FIXTURE").as_deref() == Ok("leaf-pose-sweep");
         let leaf_review = std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
             && self.previous_leaf_mode.is_some_and(|(enabled, ..)| enabled);
         if (!leaf_review && std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_none())
             || self.compute_count == 0
             || (self.previous_mode == self.validated_mode
                 && (!leaf_review || self.previous_leaf_mode == self.validated_leaf_mode)
-                && !self.validation_calls.is_multiple_of(16))
+                && !self.validation_calls.is_multiple_of(16)
+                && !pose_sweep)
         {
             return Ok(());
         }
@@ -322,7 +405,9 @@ impl ButterflyMeshRenderer {
         let vp = projection * view;
         let inverse = vp.inverse();
         if mode_changed && std::env::var_os("RE_FLORA_MODEL_COVERAGE_FIXTURE").is_some() {
-            let directory = std::path::Path::new("target/improve-delivery/v3/coverage-boundary");
+            let output = std::env::var("RE_FLORA_MODEL_COVERAGE_OUTPUT")
+                .unwrap_or_else(|_| "target/improve-delivery/v3/coverage-boundary".into());
+            let directory = std::path::Path::new(&output);
             std::fs::create_dir_all(directory)?;
             for (name, tile) in [("final", 0), ("center", reference_base as usize)] {
                 std::fs::write(
@@ -593,6 +678,12 @@ impl ButterflyMeshRenderer {
                     }
                 }
             }
+            if pose_sweep {
+                ensure!(
+                    count > 0,
+                    "deterministic coverage pose has no checked samples: instance={index}"
+                );
+            }
             let before = model_pixel_repair::label(&original_mask, n as usize).1;
             let after = model_pixel_repair::label(&final_mask, n as usize).1;
             // Conservatively recovered features can be disconnected from the
@@ -652,6 +743,24 @@ impl ButterflyMeshRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coverage_pose_sweep_is_bounded_and_keeps_both_captured_inputs() {
+        let template = Instance::zeroed();
+        let cases = coverage_pose_cases(template, 0, 32);
+        assert_eq!(cases.len(), 906);
+        for small in [false, true] {
+            let captured = captured_coverage_instance(template, 0, 32, small);
+            assert!(cases
+                .iter()
+                .any(|i| bytemuck::bytes_of(i) == bytemuck::bytes_of(&captured)));
+        }
+        for instance in cases {
+            assert!(glam::Quat::from_array(instance.lighting).is_normalized());
+            assert!([8, 16, 64].contains(&instance.metadata[2]));
+            assert!([0.0009765625, 0.00390625, 0.015625].contains(&instance.position_size[3]));
+        }
+    }
 
     #[test]
     fn captured_leaf_boundary_uses_producer_projection_not_cpu_reprojection() {
@@ -735,6 +844,84 @@ mod tests {
         bad = evidence;
         bad[2][1] = f32::NAN;
         assert!(decode(&bad).is_err());
+    }
+
+    #[test]
+    fn small_leaf_requires_observations_from_the_executed_coverage_loop() {
+        // Triangle 30: homogeneous clips and bounds match, but a separately
+        // compiled projection rounds division differently. Both f64 and f32
+        // classify the old exported vertices as covered, the real ones outside.
+        let mut expected = vec![model_pixel_repair::Group {
+            id: 1,
+            sources: vec![0],
+            triangles: vec![[
+                [5.997326374053955, 11.06486988067627, 0.9684357047080994],
+                [5.986303329467773, 11.020524978637695, 0.968437135219574],
+                [6.267250061035156, 10.604071617126465, 0.9684338569641113],
+            ]],
+        }];
+        let vp = Mat4::from_cols_array(&[
+            0.97427857,
+            0.,
+            0.,
+            0.,
+            0.,
+            -1.7320508,
+            0.,
+            0.,
+            0.,
+            0.,
+            -1.001001,
+            -1.,
+            -0.97427857,
+            2.6846786,
+            1.7917918,
+            1.8,
+        ]);
+        let bounds = Vec4::new(0.5331397, 0.8867834, 0.5404943, 0.89956045);
+        let mut data = [[0.; 4]; 14];
+        data[0] = [0.5331397, 0.88678336, 0.5404943, 0.89956045];
+        data[1] = [3., f32::from_bits(30), 16., 0.];
+        data[2] = [5.997374, 11.064843, 0.96843576, 0.];
+        data[3] = [5.9863524, 11.020508, 0.96843714, 0.];
+        data[4] = [6.2672176, 10.6040945, 0.9684339, 0.];
+        let observed =
+            checked_projected_groups(&expected, &data, 30, 1, bounds, vp, 0.9684, 16).unwrap();
+        let covers = |groups: &[model_pixel_repair::Group], x: u32, y: u32| {
+            model_pixel_repair::plan(&[0; 256], groups, 16)
+                .nodes
+                .iter()
+                .any(|node| node.links[0] == y * 16 + x)
+        };
+        assert!(covers(&expected, 5, 10));
+        assert!(!covers(&observed, 5, 10));
+        assert!(covers(&observed, 6, 10));
+        // Nearby cells and both windings, not just a fortunate single pose.
+        for shift in [-0.01, -0.001, 0., 0.001, 0.01] {
+            for reverse in [false, true] {
+                expected = observed.clone();
+                for p in &mut expected[0].triangles[0] {
+                    p[0] += shift;
+                }
+                if reverse {
+                    expected[0].triangles[0].swap(1, 2);
+                }
+                assert_eq!(covers(&expected, 5, 10), shift < 0.);
+                assert!(covers(&expected, 6, 10));
+            }
+        }
+        // Identity/depth checks remain independent; an observer isn't a mask.
+        let decode = |data: &[[f32; 4]]| {
+            checked_projected_groups(&observed, data, 30, 1, bounds, vp, 0.9684, 16)
+        };
+        for lane in [0, 1, 2] {
+            let mut wrong = data;
+            wrong[2][lane] += 0.1;
+            assert!(decode(&wrong).is_err());
+        }
+        let mut wrong = data;
+        wrong[1][1] = f32::from_bits(31);
+        assert!(decode(&wrong).is_err());
     }
 
     #[test]

@@ -16,6 +16,24 @@ export __extern_cpp int main() {
     if(pixelTriangleCovers(a,b,c,float2(11,26)))return 1;
     if(!pixelTriangleCovers(a,b,c,float2(12,26)))return 2;
 
+    // Small-leaf counterexample: separate projection of identical clip vertices
+    // was covered, but the executed coverage-loop vertices are not.
+    float2 sa=float2(5.997374057769775,11.06484317779541);
+    float2 sb=float2(5.986352443695068,11.0205078125);
+    float2 sc=float2(6.267217636108398,10.604094505310059);
+    if(pixelTriangleCovers(sa,sb,sc,float2(5,10)))return 9;
+    if(!pixelTriangleCovers(float2(5.997326374053955,11.06486988067627),
+        float2(5.986303329467773,11.020524978637695),
+        float2(6.267250061035156,10.604071617126465),float2(5,10)))return 10;
+    for(int i=-2;i<=2;i++) {
+        float2 shift=float2(float(i)*0.001,0);
+        if(pixelTriangleCovers(sa+shift,sb+shift,sc+shift,float2(5,10))!=(i<0))return 11;
+        if(pixelTriangleCovers(sa+shift,sc+shift,sb+shift,float2(5,10))!=(i<0))return 12;
+        if(!pixelTriangleCovers(sa+shift,sb+shift,sc+shift,float2(6,10)))return 13;
+        if(pixelTriangleCovers(a+shift,b+shift,c+shift,float2(11,26))!=(i<0))return 14;
+        if(!pixelTriangleCovers(a+shift,b+shift,c+shift,float2(12,26)))return 15;
+    }
+
     // Exercise the exact clipping/projection helper called by the real coverage
     // producer and the native evidence adapter, not a diagnostic copy.
     U_CameraInfo camera;
