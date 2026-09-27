@@ -8,9 +8,21 @@ pub(super) struct TransientDescriptorSets {
     frame_slots: Vec<TransientDescriptorFrame>,
 }
 
-#[derive(Default)]
-struct TransientDescriptorFrame {
-    slots: Vec<TransientDescriptorSlot>,
+struct TransientDescriptorFrame<T = TransientDescriptorSlot> {
+    slots: Vec<T>,
+    used: usize,
+}
+impl<T> Default for TransientDescriptorFrame<T> {
+    fn default() -> Self { Self { slots: Vec::new(), used: 0 } }
+}
+impl<T> TransientDescriptorFrame<T> {
+    /// This slot's fence has completed. Drop unused tail descriptors (and their
+    /// resource owners), including all sets after an idle bake frame. Keeping a
+    /// high-water tail forever pins replaced geometry/direction buffers.
+    fn begin(&mut self) {
+        self.slots.truncate(self.used);
+        self.used = 0;
+    }
 }
 
 struct TransientDescriptorSlot {
@@ -24,6 +36,7 @@ impl TransientDescriptorSets {
             self.frame_slots
                 .resize_with(frame_slot + 1, TransientDescriptorFrame::default);
         }
+        self.frame_slots[frame_slot].begin();
         self.active_frame_slot = Some(frame_slot);
         self.next_slot = 0;
     }
@@ -47,6 +60,7 @@ impl TransientDescriptorSets {
             .frame_slots
             .get_mut(frame_slot)
             .expect("active manual descriptor frame slot was not initialized");
+        frame.used = self.next_slot;
         if let Some(slot) = frame.slots.get(draw_slot) {
             if slot.set_no == set_no {
                 return Ok(slot.descriptor_set.clone());
@@ -69,5 +83,37 @@ impl TransientDescriptorSets {
         }
 
         Ok(descriptor_set)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn idle_bakes_and_shrinking_draws_release_owners_only_in_ready_slots() {
+        let old = Arc::new(());
+        let weak = Arc::downgrade(&old);
+        let mut frames: [TransientDescriptorFrame<Arc<()>>; 2] =
+            std::array::from_fn(|_| TransientDescriptorFrame {
+                slots: vec![old.clone(); 3],
+                used: 3,
+            });
+        drop(old);
+        // Slot 0 becomes ready, then uses just one descriptor with new resources.
+        frames[0].begin();
+        frames[0].slots[0] = Arc::new(());
+        frames[0].used = 1;
+        frames[0].begin();
+        assert_eq!(frames[0].slots.len(), 1);
+        assert!(weak.upgrade().is_some(), "pending slot still owns old resources");
+        // Slot 1 becomes ready and records no bake. Its next ready cycle trims
+        // all idle sets rather than pinning their source/direction buffers forever.
+        frames[1].begin();
+        assert!(weak.upgrade().is_some());
+        frames[1].begin();
+        assert!(frames[1].slots.is_empty());
+        assert!(weak.upgrade().is_none());
     }
 }
