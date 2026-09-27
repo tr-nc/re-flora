@@ -153,8 +153,9 @@ impl ModelPixelFrame {
         )
     }
 
-    pub fn flower_root_radius(&self) -> f32 {
-        self.cache.flower_root_radius()
+    pub fn flower_culling_padding(&self, world_scale: f32, overshoot_voxels: f32) -> (Vec3, Vec3) {
+        self.cache
+            .flower_culling_padding(world_scale, overshoot_voxels)
     }
 
     pub fn finish_cache(&self, cmd: &CommandBuffer) {

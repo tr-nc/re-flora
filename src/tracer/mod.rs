@@ -1657,6 +1657,7 @@ pub struct Tracer {
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
     flower_model_settings: crate::flora::models::Settings,
+    flower_spawn_overshoot_voxels: f32,
     model_pixel_view_count: u32,
     model_pixel_screen_grid: bool,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
@@ -2010,6 +2011,7 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             flower_model_settings: crate::flora::models::Settings::default(),
+            flower_spawn_overshoot_voxels: 0.,
             model_pixel_view_count: 16,
             model_pixel_screen_grid: false,
             ddgi_sampling_progress: Default::default(),
@@ -3068,6 +3070,11 @@ impl Tracer {
             );
         }
         self.flower_model_settings = flowers;
+        self.flower_spawn_overshoot_voxels = vegetation
+            .growth
+            .spawn_overshoot_min_voxels
+            .max(vegetation.growth.spawn_overshoot_max_voxels)
+            .max(0.);
         let view_count = model_pixel_views::runtime_count(terrain.model_pixel_view_count);
         if self.model_pixel_view_count != view_count
             || self.model_pixel_screen_grid != terrain.model_pixel_screen_grid
@@ -4640,13 +4647,11 @@ impl Tracer {
                 .iter()
                 .enumerate()
             {
-                let padding = Vec3::splat(
-                    self.model_pixel_frame.flower_root_radius()
-                        * crate::flora::models::WORLD_SCALE
-                        * settings.size_scale,
+                let (below, above) = self.model_pixel_frame.flower_culling_padding(
+                    crate::flora::models::WORLD_SCALE * settings.size_scale,
+                    self.flower_spawn_overshoot_voxels,
                 );
-                let bounds =
-                    crate::geom::Aabb3::new(bounds.min() - padding, bounds.max() + padding);
+                let bounds = crate::geom::Aabb3::new(bounds.min() - below, bounds.max() + above);
                 if !bounds.is_inside_frustum(self.current_view_proj_mat)
                     || self.camera.position().distance(bounds.center()) > flora_draw_distance
                 {

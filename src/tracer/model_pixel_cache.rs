@@ -88,6 +88,18 @@ pub(super) struct Source {
     palette: Vec<[f32; 4]>,
     flower_parts: Vec<FlowerPart>,
     flower_root_radius: f32,
+    flower_spawn_height: f32,
+}
+impl Source {
+    fn flower_culling_padding(&self, world_scale: f32, overshoot_voxels: f32) -> (Vec3, Vec3) {
+        let radius = self.flower_root_radius * world_scale;
+        // flowerPlantFrame starts one voxel above the planted base; spawn can
+        // rise from -(plantHeight + 1) to the configured overshoot. Growth <= 1.
+        (
+            Vec3::splat(radius) + Vec3::Y * (self.flower_spawn_height * world_scale + 1. / 256.),
+            Vec3::splat(radius) + Vec3::Y * ((overshoot_voxels.max(0.) + 1.) / 256.),
+        )
+    }
 }
 pub(super) fn source(shape: Shape) -> Source {
     let mut triangles = Vec::new();
@@ -147,12 +159,17 @@ pub(super) fn source(shape: Shape) -> Source {
     }
     let mut flower_parts = Vec::new();
     let mut flower_root_radius = 4f32; // Preserve the old minimum culling margin.
+    let mut flower_spawn_height = 0f32;
     for (model, authored) in models::flowers().iter().enumerate() {
         let flower = authored.transformed(shape);
         let first = triangles.len() as u32;
-        for p in flower.triangles.iter().flat_map(|t| t.positions) {
-            flower_root_radius = flower_root_radius.max(p.length() * 1.06);
+        // Bound any rigid growth/wind pose, including the displayed quad corners.
+        // Spawn translation is vertical and bounded separately, not a scale.
+        for part in std::iter::once(&flower.whole).chain(&flower.heads) {
+            flower_root_radius = flower_root_radius
+                .max(part.center.length() + part.radius * std::f32::consts::SQRT_2);
         }
+        flower_spawn_height = flower_spawn_height.max(flower.whole.center.y + flower.whole.radius);
         for part_index in 0..=models::MAX_HEADS {
             let part = if part_index == 0 {
                 Some(&flower.whole)
@@ -209,6 +226,7 @@ pub(super) fn source(shape: Shape) -> Source {
         palette,
         flower_parts,
         flower_root_radius,
+        flower_spawn_height,
     }
 }
 fn buffer(device: &Device, allocator: &Allocator, bytes: usize) -> Result<Arc<Buffer>> {
@@ -630,12 +648,12 @@ impl ModelPixelCache {
         }
         Ok(())
     }
-    pub fn flower_root_radius(&self) -> f32 {
+    pub fn flower_culling_padding(&self, world_scale: f32, overshoot_voxels: f32) -> (Vec3, Vec3) {
         self.source
             .as_ref()
             .expect("prepared flower source")
             .cpu
-            .flower_root_radius
+            .flower_culling_padding(world_scale, overshoot_voxels)
     }
     pub fn frame(&self, slot: usize) -> CacheFrame {
         self.frames[slot]
@@ -787,6 +805,54 @@ mod tests {
             std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlowerPixel>(),
             48
         );
+    }
+
+    #[test]
+    fn flower_culling_contains_grown_wind_rotated_display_quads_and_spawn_translation() {
+        for shape in [
+            Shape::default(),
+            Shape {
+                head_scale: 4.,
+                height_scale: 0.25,
+            },
+            Shape {
+                head_scale: 0.25,
+                height_scale: 4.,
+            },
+        ] {
+            let source = source(shape);
+            for size in [0.5, 2.] {
+                let scale = models::WORLD_SCALE * size;
+                let overshoot = 12.;
+                let (below, above) = source.flower_culling_padding(scale, overshoot);
+                for part in source.flower_parts.iter().filter(|p| p.range[1] != 0) {
+                    let center = Vec3::from_slice(&part.center_radius);
+                    let radius = part.center_radius[3];
+                    for tilt in [-1.2, 0., 1.2] {
+                        let pose =
+                            glam::Quat::from_rotation_z(tilt) * glam::Quat::from_rotation_y(0.7);
+                        for growth in [0.1, 0.55, 1.] {
+                            for spawn in [
+                                -source.flower_spawn_height * scale - 1. / 256.,
+                                0.,
+                                overshoot / 256.,
+                            ] {
+                                for x in [-1., 1.] {
+                                    for y in [-1., 1.] {
+                                        let p = pose
+                                            * (center + Vec3::new(x, y, 0.) * radius)
+                                            * scale
+                                            * growth
+                                            + Vec3::Y * (spawn + 1. / 256.);
+                                        assert!(p.cmpge(-below).all() && p.cmple(above).all());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

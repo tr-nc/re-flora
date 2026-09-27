@@ -110,6 +110,9 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "model_pixel_screen_grid");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
+        // Old saves gain new flower controls from the declarations, without
+        // reinterpreting or overwriting the existing overall-size/A-B values.
+        Self::add_missing_section_params(&mut config, "Flora");
         // The vine no longer has a pause mode. Old zero-speed saves must also
         // become a positive rate, not silently preserve a second way to pause.
         for param in config.section.iter_mut().flat_map(|s| &mut s.param) {

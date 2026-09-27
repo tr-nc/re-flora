@@ -1242,6 +1242,46 @@ mod tests {
     }
 
     #[test]
+    fn saved_flower_controls_round_trip_without_reinterpreting_legacy_overall_size() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.model_flower_size_scale.value = 1.75;
+        settings.adjustables.model_flower_heads_only.value = false;
+        settings.adjustables.model_flower_pixel_resolution.value = 24;
+        settings.sync_config();
+        for section in &mut settings.config.section {
+            section.param.retain(|p| {
+                ![
+                    "model_flower_head_scale",
+                    "model_flower_height_scale",
+                    "model_flower_view_count",
+                ]
+                .contains(&p.id.as_str())
+            });
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(loaded.adjustables.model_flower_size_scale.value, 1.75);
+        assert!(!loaded.adjustables.model_flower_heads_only.value);
+        assert_eq!(loaded.adjustables.model_flower_pixel_resolution.value, 24);
+        assert_eq!(loaded.adjustables.model_flower_head_scale.value, 1.);
+        assert_eq!(loaded.adjustables.model_flower_height_scale.value, 1.);
+        assert_eq!(loaded.adjustables.model_flower_view_count.value, 16);
+        loaded.adjustables.model_flower_head_scale.value = 2.5;
+        loaded.adjustables.model_flower_height_scale.value = 0.5;
+        loaded.adjustables.model_flower_view_count.value = 37;
+        loaded.save_to_path(&path).unwrap();
+        let saved = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(saved.adjustables.model_flower_head_scale.value, 2.5);
+        assert_eq!(saved.adjustables.model_flower_height_scale.value, 0.5);
+        assert_eq!(saved.adjustables.model_flower_view_count.value, 37);
+        assert_eq!(saved.adjustables.model_flower_size_scale.value, 1.75);
+        assert!(!saved.adjustables.model_flower_heads_only.value);
+        assert_eq!(saved.adjustables.model_flower_pixel_resolution.value, 24);
+    }
+
+    #[test]
     fn older_sky_settings_load_the_new_control_and_preserve_saved_sun_values() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.sun_luminance.value = 3.25;
