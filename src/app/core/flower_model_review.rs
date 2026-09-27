@@ -18,8 +18,8 @@ impl FlowerModelReview {
         let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
             return Ok(None);
         };
-        ensure!(["a", "b", "ab"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, or ab (live A/B, resolution, projection and growth sweep)");
+        ensure!(["a", "b", "ab", "controls"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, or controls (saved-field shape/view/allocation sweep)");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -35,31 +35,72 @@ impl App {
         };
         let frame = review.frame;
         review.frame += 1;
-        let phase = if review.mode == "ab" {
+        let controls = review.mode == "controls";
+        let phase = if controls {
+            (frame / 24).min(17)
+        } else if review.mode == "ab" {
             (frame / 24).min(8)
         } else {
             0
         };
-        let heads = review.mode == "b" || (review.mode == "ab" && ![0, 4].contains(&phase));
-        let resolution = match phase {
-            1 => 8,
-            3 => 64,
-            _ => 32,
+        let control = control_settings(phase);
+        let heads = if controls {
+            control.heads_only
+        } else {
+            review.mode == "b" || (review.mode == "ab" && ![0, 4].contains(&phase))
+        };
+        let resolution = if controls {
+            control.resolution
+        } else {
+            match phase {
+                1 => 8,
+                3 => 64,
+                _ => 32,
+            }
         };
         let settings = &mut self.debug_settings.adjustables;
         settings.model_flower_heads_only.value = heads;
         settings.model_flower_pixel_resolution.value = resolution;
-        settings.model_flower_size_scale.value = if phase == 7 {
+        settings.model_flower_view_count.value = if controls {
+            control.views
+        } else if phase == 5 {
+            8
+        } else {
+            16
+        };
+        settings.model_flower_head_scale.value = if controls {
+            control.shape.head_scale
+        } else {
+            1.
+        };
+        settings.model_flower_height_scale.value = if controls {
+            control.shape.height_scale
+        } else {
+            1.
+        };
+        settings.model_flower_size_scale.value = if controls {
+            control.size_scale
+        } else if phase == 7 {
             0.5
         } else if phase == 8 {
             2.0
         } else {
             1.0
         };
-        settings.model_pixel_view_count.value = if phase == 5 { 8 } else { 16 };
-        settings.model_pixel_screen_grid.value = phase == 6;
+        settings.model_pixel_view_count.value = if !controls && phase == 5 { 8 } else { 16 };
+        settings.model_pixel_screen_grid.value = if controls { phase == 17 } else { phase == 6 };
         settings.flora_growth_override_enabled.value = true;
-        settings.flora_growth_override.value = if phase == 7 { 0.25 } else { 1.0 };
+        settings.flora_growth_override.value = if controls {
+            if phase == 17 {
+                0.55
+            } else {
+                1.
+            }
+        } else if phase == 7 {
+            0.25
+        } else {
+            1.0
+        };
         settings.auto_daynight_cycle.value = false;
         if frame == 0 {
             self.select_item_panel_slot(super::ui_style::STAFF_SLOT_INDEX);
@@ -104,7 +145,7 @@ impl App {
             self.set_manual_time_of_day(0.45);
             log::info!("[FLOWER_REVIEW] planted=8 placement=production saved=false target={target:?} camera={camera:?}");
         }
-        if phase == 3 && frame == 72 {
+        if (!controls && phase == 3 && frame == 72) || (controls && phase == 17 && frame == 408) {
             if let Some(resize) = &mut self.resize_lifecycle_test {
                 // Replay the existing extent test after flowers have actually
                 // submitted draws, not just during loading.
@@ -114,7 +155,7 @@ impl App {
                 log::info!("[FLOWER_REVIEW_RESIZE] after_submitted_frames={frame}");
             }
         }
-        if phase >= 7 && frame == phase * 24 {
+        if !controls && phase >= 7 && frame == phase * 24 {
             let anchor = self
                 .flower_model_review
                 .as_ref()
@@ -153,9 +194,57 @@ impl App {
                 .set_camera_pose_looking_at(target + Vec3::new(0., 0.24, 0.57), target);
             self.reset_camera_movement_input();
         }
-        if frame.is_multiple_of(24) && frame / 24 <= 8 {
-            log::info!("[FLOWER_REVIEW_PHASE] phase={phase} heads_only={heads} resolution={resolution} frame={frame} saved=false");
+        if frame.is_multiple_of(24) && frame / 24 <= if controls { 17 } else { 8 } {
+            if controls {
+                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_scale={} size={} frame={frame} saved=false", control.views, control.shape.head_scale, control.shape.height_scale, control.size_scale);
+            } else {
+                log::info!("[FLOWER_REVIEW_PHASE] phase={phase} heads_only={heads} resolution={resolution} frame={frame} saved=false");
+            }
         }
         Ok(())
     }
+}
+
+/// Bounded production-input sweep. Large view counts deliberately use 8px;
+/// maximum simultaneous VRAM stress and visual/performance approval are separate.
+fn control_settings(phase: u32) -> crate::flora::models::Settings {
+    use crate::flora::models::{Settings, Shape};
+    let mut s = Settings::default();
+    s.heads_only = ![2, 3, 4, 12, 15].contains(&phase);
+    s.shape = match phase {
+        1 | 2 => Shape {
+            head_scale: 2.,
+            height_scale: 1.,
+        },
+        3 => Shape {
+            head_scale: 2.,
+            height_scale: 2.,
+        },
+        4 | 5 => Shape {
+            head_scale: 1.,
+            height_scale: 2.,
+        },
+        12 | 13 => Shape {
+            head_scale: 0.25,
+            height_scale: 4.,
+        },
+        14 | 15 => Shape {
+            head_scale: 4.,
+            height_scale: 0.25,
+        },
+        _ => Shape::default(),
+    };
+    s.resolution = match phase {
+        6..=9 => 8,
+        10 => 64,
+        _ => 32,
+    };
+    s.views = match phase {
+        7 => 512,
+        8 => 37,
+        9 | 10 => 8,
+        _ => 16,
+    };
+    s.size_scale = if phase == 17 { 2. } else { 1. };
+    s
 }

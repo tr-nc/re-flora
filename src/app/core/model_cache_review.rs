@@ -23,6 +23,9 @@ impl App {
         };
         let s = &mut self.debug_settings.adjustables;
         s.model_pixel_view_count.value = views;
+        s.model_flower_view_count.value = views;
+        s.model_flower_head_scale.value = 1.;
+        s.model_flower_height_scale.value = 1.;
         s.falling_leaf_pixel_resolution.value = resolutions[0];
         s.apple_pixel_resolution.value = resolutions[1];
         s.butterfly_pixel_resolution.value = resolutions[2];
