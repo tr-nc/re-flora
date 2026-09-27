@@ -61,7 +61,7 @@ fn main() {
         )
         .expect("create shader artifact directory");
 
-        let cache_context = shader_cache_context(shader, compiler.build_tag());
+        let cache_context = shader_cache_context(shader, compiler.build_tag(), project_root);
         if artifact_cache_is_current(
             &cache_path,
             &reflection_path,
@@ -148,9 +148,12 @@ fn emit_shader_rerun_inputs(shader_root: &Path) {
 // Cache entries use dependency paths reported by Slang after a successful
 // compile. On later build-script runs, content and artifact digests
 // let unrelated shader changes reuse both reflection and optimized SPIR-V.
-fn shader_cache_context(shader: &ShaderConfig, slang_build_tag: &str) -> String {
+fn shader_cache_context(shader: &ShaderConfig, slang_build_tag: &str, project_root: &Path) -> String {
     let mut hasher = blake3::Hasher::new();
     hash_field(&mut hasher, ARTIFACT_CACHE_VERSION.as_bytes());
+    // Private target seeds may contain manifests naming a different checkout.
+    // Their unchanged sources must not validate artifacts for this worktree.
+    hash_field(&mut hasher, path_with_forward_slashes(&canonical_dependency(project_root)).as_bytes());
     hash_field(&mut hasher, shader.logical_path.as_bytes());
     hash_field(&mut hasher, shader.source_path.as_bytes());
     hash_field(&mut hasher, shader.module_path.as_bytes());
