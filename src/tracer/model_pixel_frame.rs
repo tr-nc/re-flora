@@ -160,35 +160,20 @@ impl ModelPixelFrame {
         self.particles.count()
     }
 
-    pub fn validate_completed_particles(
-        &mut self,
-        context: &VulkanContext,
-        resources: &TracerResources,
-    ) -> Result<()> {
-        self.particles
-            .validate_completed_tiles(context, self.allocator.clone(), resources)
-    }
-
     pub fn prepare_particle_models(
         &mut self,
         snapshots: &[ParticleSnapshot],
         butterflies: ButterflyMeshSettings,
         leaves: LeafModelSettings,
         camera_position: Vec3,
-        discrete_views: bool,
     ) -> Result<()> {
         self.particle_resolutions = [
             leaves.resolution.clamp(8, 64),
             butterflies.resolution.clamp(8, 64),
         ];
         // CPU pose preparation deliberately does not publish partial GPU metadata.
-        self.particles.prepare_frame_models(
-            snapshots,
-            butterflies,
-            leaves,
-            camera_position,
-            discrete_views,
-        )
+        self.particles
+            .prepare_frame_models(snapshots, butterflies, leaves, camera_position)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -198,35 +183,23 @@ impl ModelPixelFrame {
         pass: PixelPass<'_>,
         view: Mat4,
         projection: Mat4,
-        discrete_views: bool,
     ) -> Result<PreparedModelPixels> {
-        anyhow::ensure!(
-            self.particles.uses_cached_surfaces() == discrete_views,
-            "particle pose and surface-cache mode must use the same frame settings"
-        );
         let slot = self.storage.frame_slot();
         let cache = self.cache.frame(slot);
         let mut inputs = None;
-        self.particles.prepare_repair_frame(
-            view,
-            projection,
-            self.device.clone(),
-            self.allocator.clone(),
-            slot,
-            |instances, triangles, indices| {
+        self.particles
+            .prepare_pixel_frame(view, projection, |instances, indices| {
                 inputs = Some(self.storage.particle_inputs(|previous| {
                     let upload = |previous, bytes| {
                         upload_input(&self.device, &self.allocator, previous, bytes)
                     };
                     Ok(ParticleInputs {
                         instances: upload(previous.map(|p| &p.instances), instances)?,
-                        triangles: upload(previous.map(|p| &p.triangles), triangles)?,
                         indices: upload(previous.map(|p| &p.indices), indices)?,
                     })
                 })?);
                 Ok(())
-            },
-        )?;
+            })?;
         let Some(inputs) = inputs else {
             return Ok(PreparedModelPixels {
                 pipeline: pass.display.clone(),
@@ -236,8 +209,6 @@ impl ModelPixelFrame {
             });
         };
         let models = &self.particles;
-        let repairs = models.repair_buffer(slot);
-        let count = models.count();
         let batches = self.storage.particles(
             &models.tile_layout,
             allocator(&self.device, &self.allocator),
@@ -252,10 +223,6 @@ impl ModelPixelFrame {
                             "butterfly_mesh_instances",
                             DescriptorResource::Buffer(&inputs.instances),
                         ),
-                        (
-                            "butterfly_mesh_triangles",
-                            DescriptorResource::Buffer(&inputs.triangles),
-                        ),
                         ("draw_indices", DescriptorResource::Buffer(&inputs.indices)),
                         (
                             "model_object_samples",
@@ -265,60 +232,23 @@ impl ModelPixelFrame {
                             "model_pixel_tiles",
                             DescriptorResource::Buffer(&batch.tiles),
                         ),
-                        (
-                            "particle_model_repairs",
-                            DescriptorResource::Buffer(&repairs),
-                        ),
-                        (
-                            "particle_model_repair_output",
-                            DescriptorResource::Buffer(&repairs),
-                        ),
                     ]);
-                    if !models.repair_nodes.is_empty() {
-                        pass.compute.record_with_descriptors(
-                            cmdbuf,
-                            &descriptors,
-                            Extent3D::new(8, 8, count.div_ceil(64)),
-                            Some(bytemuck::bytes_of(&[0u32, count, 0, 0])),
-                        )?;
-                    }
-                    if models.compute_count > 0 {
-                        if discrete_views {
-                            pass.compute.record_with_descriptors(
-                                cmdbuf,
-                                &descriptors,
-                                Extent3D::new(1, 1, batch.range.count),
-                                Some(bytemuck::bytes_of(&[4u32, count, batch.range.first, 0])),
-                            )?;
-                        }
-                        pass.compute.record_with_descriptors(
-                            cmdbuf,
-                            &descriptors,
-                            Extent3D::new(
-                                models.dispatch_resolution,
-                                models.dispatch_resolution,
-                                batch.range.count,
-                            ),
-                            Some(bytemuck::bytes_of(&[
-                                models.tile_compute_mode(),
-                                count,
-                                batch.range.first,
-                                models.reference_tile_offset().unwrap_or(0) * 4,
-                            ])),
-                        )?;
-                        if let Some(base) = models.reference_tile_offset() {
-                            pass.compute.record_with_descriptors(
-                                cmdbuf,
-                                &descriptors,
-                                Extent3D::new(
-                                    models.dispatch_resolution,
-                                    models.dispatch_resolution,
-                                    models.compute_count,
-                                ),
-                                Some(bytemuck::bytes_of(&[2u32, count, base, 0])),
-                            )?;
-                        }
-                    }
+                    pass.compute.record_with_descriptors(
+                        cmdbuf,
+                        &descriptors,
+                        Extent3D::new(1, 1, batch.range.count),
+                        Some(bytemuck::bytes_of(&[1u32, batch.range.first])),
+                    )?;
+                    pass.compute.record_with_descriptors(
+                        cmdbuf,
+                        &descriptors,
+                        Extent3D::new(
+                            models.dispatch_resolution,
+                            models.dispatch_resolution,
+                            batch.range.count,
+                        ),
+                        Some(bytemuck::bytes_of(&[0u32, batch.range.first])),
+                    )?;
                     Ok(())
                 },
                 |batch| {
@@ -351,7 +281,6 @@ impl ModelPixelFrame {
         tree: u32,
         count: u32,
         resolution: u32,
-        discrete_views: bool,
         pose_resources: &[(&str, DescriptorResource<'_>)],
         push: PushConstantFlora,
     ) -> Result<PreparedModelPixels> {
@@ -378,7 +307,7 @@ impl ModelPixelFrame {
                         ),
                     ]);
                     descriptors.extend(cache.bindings());
-                    if discrete_views {
+                    {
                         let mut prepare = push;
                         prepare.model_object_prepare = 1;
                         pass.compute.record_with_descriptors(
@@ -417,7 +346,6 @@ impl ModelPixelFrame {
         stem_pipeline: &GraphicsPipeline,
         count: u32,
         mut push: crate::generated::gpu_structs::PushConstantFlowerPixel,
-        discrete_views: bool,
         pose_resources: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
         let cache = self.cache.frame(self.storage.frame_slot());
@@ -456,7 +384,7 @@ impl ModelPixelFrame {
                         ),
                     ]);
                     descriptors.extend(cache.bindings());
-                    if discrete_views {
+                    {
                         let mut prepare = push;
                         prepare.prepare_object = 1;
                         pass.compute.record_with_descriptors(
@@ -519,7 +447,6 @@ impl ModelPixelFrame {
         pass: PixelPass<'_>,
         fruit: &DynamicFruitRendererResources,
         resolution: u32,
-        discrete_views: bool,
     ) -> Result<PreparedModelPixels> {
         let cache = self.cache.frame(self.storage.frame_slot());
         let batch = self.storage.fallen_apples(
@@ -546,7 +473,7 @@ impl ModelPixelFrame {
                             DescriptorResource::Buffer(&fruit.instances),
                         ),
                     ]);
-                    if discrete_views {
+                    {
                         pass.compute.record_with_descriptors(
                             cmdbuf,
                             &descriptors,
@@ -698,7 +625,6 @@ mod tests {
         let make = |_: Option<&ParticleInputs<Allocation>>| -> Result<ParticleInputs<Allocation>> {
             Ok(ParticleInputs {
                 instances: allocate(32769 * 96)?,
-                triangles: allocate(2048 * 128)?,
                 indices: allocate(32769 * 4)?,
             })
         };
@@ -716,7 +642,6 @@ mod tests {
             .particle_inputs(|previous| Ok(previous.unwrap().clone()))
             .unwrap();
         assert!(Arc::ptr_eq(&first.instances, &reused.instances));
-        assert!(Arc::ptr_eq(&first.triangles, &reused.triangles));
         assert!(Arc::ptr_eq(&first.indices, &reused.indices));
         drop((first, reused));
         frame.begin_frame(1);

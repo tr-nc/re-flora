@@ -5,20 +5,7 @@ pub const MIN_VIEWS: u32 = 8;
 pub const MAX_VIEWS: u32 = 512;
 
 pub fn runtime_count(requested: u32) -> u32 {
-    effective_count(
-        requested,
-        super::butterfly_mesh::native_review()
-            || (requested == 0 && std::env::var_os("RE_FLORA_FLOWER_MODEL_REVIEW").is_some()),
-    )
-}
-
-pub fn effective_count(requested: u32, continuous_oracle: bool) -> u32 {
-    // Zero is internal to numerical validation, never a GUI/off option.
-    if continuous_oracle {
-        0
-    } else {
-        requested.clamp(MIN_VIEWS, MAX_VIEWS)
-    }
+    requested.clamp(MIN_VIEWS, MAX_VIEWS)
 }
 pub fn azimuths() -> [[f32; 4]; MAX_VIEWS as usize] {
     std::array::from_fn(|i| {
@@ -31,11 +18,11 @@ mod tests {
     use super::*;
     use glam::Vec3;
     #[test]
-    fn only_the_internal_oracle_can_disable_quantization() {
-        assert_eq!(effective_count(0, false), MIN_VIEWS);
-        assert_eq!(effective_count(u32::MAX, false), MAX_VIEWS);
-        assert_eq!(effective_count(37, false), 37);
-        assert_eq!(effective_count(128, true), 0);
+    fn zero_and_out_of_range_requests_remain_cache_only() {
+        assert_eq!(runtime_count(0), MIN_VIEWS);
+        assert_eq!(runtime_count(u32::MAX), MAX_VIEWS);
+        assert_eq!(runtime_count(37), 37);
+        assert_eq!(runtime_count(128), 128);
     }
     #[test]
     fn every_slider_count_has_finite_unit_directions_and_balanced_latitudes() {

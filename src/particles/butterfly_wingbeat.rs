@@ -57,6 +57,7 @@ fn animation() -> &'static Animation {
 }
 
 /// One authored cycle per second, independently of source or display FPS.
+#[cfg(test)]
 pub(crate) fn wing_pose(phase: f32) -> [f32; 3] {
     let a = animation();
     let key = phase.rem_euclid(1.) * a.source_fps as f32;

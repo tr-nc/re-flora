@@ -56,7 +56,7 @@ impl App {
         } else {
             1.0
         };
-        settings.model_pixel_view_count.value = if phase == 5 { 0 } else { 16 };
+        settings.model_pixel_view_count.value = if phase == 5 { 8 } else { 16 };
         settings.model_pixel_screen_grid.value = phase == 6;
         settings.flora_growth_override_enabled.value = true;
         settings.flora_growth_override.value = if phase == 7 { 0.25 } else { 1.0 };

@@ -49,6 +49,7 @@ pub fn butterfly() -> &'static Model {
     MODEL.get_or_init(|| Model::load(BUTTERFLY_BYTES).expect("validated shared butterfly GLB"))
 }
 
+#[cfg(test)]
 pub fn leaf() -> &'static Model {
     static MODEL: OnceLock<Model> = OnceLock::new();
     MODEL.get_or_init(|| Model::load(LEAF_BYTES).expect("validated shared leaf GLB"))

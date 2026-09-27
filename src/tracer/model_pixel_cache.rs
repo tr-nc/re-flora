@@ -21,7 +21,7 @@ pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
 const KINDS: usize = 4; // leaves, shared attached/fallen apple, butterflies, flowers
 const SURFACE_BYTES: u64 = 32;
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 static SHAPES: LazyLock<[u32; KINDS]> = LazyLock::new(|| {
     [
         64,
@@ -53,13 +53,13 @@ pub fn animation_phase(frame: u32) -> f32 {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Triangle {
-    a: [f32; 4],
-    e1: [f32; 4],
-    e2: [f32; 4],
-    normals: [[f32; 4]; 3],
-    uv01: [f32; 4],
-    uv2: [f32; 4],
+pub(super) struct Triangle {
+    pub(super) a: [f32; 4],
+    pub(super) e1: [f32; 4],
+    pub(super) e2: [f32; 4],
+    pub(super) normals: [[f32; 4]; 3],
+    pub(super) uv01: [f32; 4],
+    pub(super) uv2: [f32; 4],
 }
 fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [Vec2; 3], material: u32) -> Triangle {
     Triangle {
@@ -71,15 +71,17 @@ fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [Vec2; 3], material: u32) -> T
         uv2: [uv[2].x, uv[2].y, material as f32, 0.],
     }
 }
-struct Source {
-    triangles: Vec<Triangle>,
-    ranges: Vec<[u32; 4]>,
-    frames: Vec<[f32; 4]>,
+pub(super) struct Source {
+    pub(super) triangles: Vec<Triangle>,
+    pub(super) ranges: Vec<[u32; 4]>,
+    pub(super) frames: Vec<[f32; 4]>,
+    palette: Vec<[f32; 4]>,
 }
-fn source() -> Source {
+pub(super) fn source() -> Source {
     let mut triangles = Vec::new();
     let mut ranges = Vec::new();
     let mut frames = Vec::new();
+    let mut palette = Vec::new();
     let leaves = model_assets::leaf_variants();
     let transforms = leaves.transforms(0., 0);
     for variant in 0..64 {
@@ -141,6 +143,14 @@ fn source() -> Source {
                 f32::from(t.color[2]) / 255.,
                 0.,
             ];
+            let material = palette
+                .iter()
+                .position(|color| *color == gpu.uv01)
+                .unwrap_or_else(|| {
+                    palette.push(gpu.uv01);
+                    palette.len() - 1
+                });
+            gpu.uv2[3] = material as f32;
             triangles.push(gpu);
         }
         for (part_index, part) in std::iter::once(&flower.whole)
@@ -162,6 +172,7 @@ fn source() -> Source {
         triangles,
         ranges,
         frames,
+        palette,
     }
 }
 fn buffer(device: &Device, allocator: &Allocator, bytes: usize) -> Result<Arc<Buffer>> {
@@ -178,6 +189,9 @@ pub struct CacheResources {
     pub model_bake_triangles: Resource<Buffer>,
     pub model_bake_ranges: Resource<Buffer>,
     pub model_bake_frames: Resource<Buffer>,
+    pub model_cache_sources: Resource<Buffer>,
+    pub model_cache_palette: Resource<Buffer>,
+    pub model_bake_evidence: Resource<Buffer>,
     pub model_cache_validation: Resource<Buffer>,
     pub model_cache_entries: Resource<Buffer>,
 }
@@ -200,16 +214,21 @@ impl CacheResources {
             model_bake_triangles: upload(bytemuck::cast_slice(&s.triangles)),
             model_bake_ranges: upload(bytemuck::cast_slice(&s.ranges)),
             model_bake_frames: upload(bytemuck::cast_slice(&s.frames)),
+            model_cache_sources: upload(bytemuck::cast_slice(
+                &s.ranges.iter().map(|r| [r[2], r[3]]).collect::<Vec<_>>(),
+            )),
+            model_cache_palette: upload(bytemuck::cast_slice(&s.palette)),
             model_cache_entries: upload(bytemuck::cast_slice(&[Entry::zeroed(); KINDS])),
-            model_cache_validation: upload(bytemuck::cast_slice(&[0u32; KINDS * 2])),
+            model_bake_evidence: upload(bytemuck::cast_slice(&[[0f32; 4]])),
+            model_cache_validation: upload(bytemuck::cast_slice(&[0u32; KINDS * 4])),
         }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Spec {
-    kind: u32,
-    resolution: u32,
-    views: u32,
+pub(super) struct Spec {
+    pub(super) kind: u32,
+    pub(super) resolution: u32,
+    pub(super) views: u32,
 }
 impl Spec {
     fn records(self) -> Result<u64> {
@@ -240,6 +259,8 @@ struct BakePush {
     views: u32,
     shapes: u32,
     storage: GpuStorageHandle,
+    verify: u32,
+    evidence_stride: u32,
 }
 #[derive(Clone)]
 pub(super) struct CacheFrame {
@@ -266,6 +287,7 @@ pub(super) struct ModelPixelCache {
     storage: GpuPagedStorage,
     active: [Option<(Spec, GpuStorageAllocation)>; KINDS],
     frames: Vec<Option<CacheFrame>>,
+    diagnostics: Vec<Vec<(Spec, Arc<Buffer>)>>,
     review: bool,
 }
 impl ModelPixelCache {
@@ -276,6 +298,7 @@ impl ModelPixelCache {
             allocator,
             active: std::array::from_fn(|_| None),
             frames: Vec::new(),
+            diagnostics: Vec::new(),
             review: std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some(),
         }
     }
@@ -291,23 +314,43 @@ impl ModelPixelCache {
     ) -> Result<()> {
         while self.frames.len() <= slot {
             self.frames.push(None);
+            self.diagnostics.push(Vec::new());
+        }
+        for (spec, evidence) in self.diagnostics[slot].drain(..) {
+            super::model_pixel_bake_validation::validate(spec, &evidence.read_back()?)?;
         }
         if let Some(frame) = &self.frames[slot] {
             if self.review {
                 let bytes = frame.validation.read_back()?;
                 let counters: &[u32] = bytemuck::try_cast_slice(&bytes)
                     .map_err(|e| anyhow::anyhow!("cache counters: {e}"))?;
+                for kind in 0..KINDS {
+                    let at = KINDS * 2 + kind * 2;
+                    if counters[at] > 0 {
+                        log::info!(
+                            "[MODEL_CACHE_BAKE_CHECK] kind={kind} checked={} mismatches={}",
+                            counters[at],
+                            counters[at + 1]
+                        );
+                        ensure!(
+                            counters[at + 1] == 0,
+                            "stored/baked canonical surface mismatch"
+                        );
+                    }
+                }
                 if counters.iter().any(|&v| v != 0) {
-                    log::info!("[MODEL_CACHE_ORACLE] leaf={} apple={} butterfly={} flower={} mismatches={}/{}/{}/{}",counters[0],counters[2],counters[4],counters[6],counters[1],counters[3],counters[5],counters[7]);
-                    ensure!(
-                        (0..KINDS).all(|i| counters[i * 2 + 1] == 0),
-                        "stored/baked canonical surface mismatch"
+                    log::info!(
+                        "[MODEL_CACHE_CONSUMED] leaf={} apple={} butterfly={} flower={}",
+                        counters[0],
+                        counters[2],
+                        counters[4],
+                        counters[6]
                     );
                 }
             }
         } else {
             self.frames[slot] = Some(CacheFrame {
-                validation: buffer(&self.device, &self.allocator, KINDS * 8)?,
+                validation: buffer(&self.device, &self.allocator, KINDS * 16)?,
                 entries: buffer(
                     &self.device,
                     &self.allocator,
@@ -316,21 +359,12 @@ impl ModelPixelCache {
             });
         }
         self.storage.begin_frame(slot);
+        pipeline.begin_transient_descriptor_frame(slot);
         self.frames[slot]
             .as_ref()
             .unwrap()
             .validation
-            .fill(&[0u32; KINDS * 2])?;
-        // Explicit continuous numerical diagnostics only, never a player option.
-        // Keep immutable banks ready for the next production frame.
-        if views == 0 {
-            self.frames[slot]
-                .as_ref()
-                .unwrap()
-                .entries
-                .fill(&[Entry::zeroed(); KINDS])?;
-            return Ok(());
-        }
+            .fill(&[0u32; KINDS * 4])?;
         let requested: [Spec; KINDS] = std::array::from_fn(|kind| Spec {
             kind: kind as u32,
             resolution: resolutions[kind],
@@ -357,12 +391,47 @@ impl ModelPixelCache {
                 views,
                 shapes: SHAPES[spec.kind as usize],
                 storage: allocation.handle(),
+                verify: 0,
+                evidence_stride: 0,
             };
             pipeline.record(
                 cmd,
                 Extent3D::new(spec.resolution, spec.resolution, views * push.shapes),
                 Some(bytemuck::bytes_of(&push)),
             );
+            if self.review {
+                self.storage
+                    .use_in_frame(slot, cmd, allocation, BufferUse::ComputeRead);
+                let (stride, cases) = super::model_pixel_bake_validation::layout(*spec);
+                let evidence = buffer(&self.device, &self.allocator, stride * cases * 16)?;
+                let descriptors = [
+                    (
+                        "model_cache_validation",
+                        DescriptorResource::Buffer(&self.frames[slot].as_ref().unwrap().validation),
+                    ),
+                    ("model_bake_evidence", DescriptorResource::Buffer(&evidence)),
+                ];
+                let verify = BakePush { verify: 1, ..push };
+                pipeline.record_with_descriptors(
+                    cmd,
+                    &descriptors,
+                    Extent3D::new(spec.resolution, spec.resolution, views * push.shapes),
+                    Some(bytemuck::bytes_of(&verify)),
+                )?;
+                let diagnostic = BakePush {
+                    verify: 2,
+                    evidence_stride: stride as u32,
+                    ..push
+                };
+                pipeline.record_with_descriptors(
+                    cmd,
+                    &descriptors,
+                    Extent3D::new(spec.resolution, spec.resolution, cases as u32),
+                    Some(bytemuck::bytes_of(&diagnostic)),
+                )?;
+                cmd.use_buffer(&evidence, BufferUse::HostRead);
+                self.diagnostics[slot].push((*spec, evidence));
+            }
             log::info!("[MODEL_CACHE_BUILD] kind={} views={views} resolution={} shapes={} bytes={} blocks={} resident_bytes={} version={FORMAT_VERSION}",spec.kind,spec.resolution,push.shapes,spec.records()?*SURFACE_BYTES,allocation.block_count(),allocation.resident_bytes());
         }
         for (spec, allocation) in replacements {
@@ -423,6 +492,10 @@ mod tests {
             }
         }
         assert_eq!(shapes, *SHAPES);
+        assert!(s.palette.len() < 256);
+        for triangle in &s.triangles[s.ranges[FLOWER_SOURCE_BASE as usize][0] as usize..] {
+            assert_eq!(s.palette[triangle.uv2[3] as usize], triangle.uv01);
+        }
         for (model, f) in crate::flora::models::flowers().iter().enumerate() {
             for (part_index, p) in std::iter::once(&f.whole).chain(&f.heads).enumerate() {
                 let id = flower_source(model, part_index) as usize;
@@ -480,7 +553,7 @@ mod tests {
         .is_err());
         assert_eq!(std::mem::size_of::<Entry>(), 40);
         assert_eq!(std::mem::offset_of!(Entry, resolution), 24);
-        assert_eq!(std::mem::size_of::<BakePush>(), 40);
+        assert_eq!(std::mem::size_of::<BakePush>(), 48);
         assert_eq!(std::mem::offset_of!(BakePush, storage), 16);
     }
 }

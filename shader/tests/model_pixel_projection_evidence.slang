@@ -1,5 +1,6 @@
-import model_pixel_surface;
-import butterfly_mesh_types;
+import model_pixel_bake_geometry;
+import model_pixel_types;
+import model_bake_triangle;
 import tracer_types;
 
 export __extern_cpp int main() {

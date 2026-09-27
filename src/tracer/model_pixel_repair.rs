@@ -1,12 +1,17 @@
 //! Geometry-constrained eight-neighbour bridges and conservative projected
 //! coverage. Cross-runtime fixtures compare final browser and native masks.
-//! Produces sparse bridge expressions and model-shaded surface seeds; no GPU image readback.
+//! Projection is used only by bake validation. The historical bridge planner is
+//! test-only, retained for coverage-equivalence fixtures; never a frame input.
+#[cfg(test)]
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 
 const EPS: f64 = 0.0001;
+#[cfg(test)]
 pub const EXPRESSION: u32 = 1 << 31;
+#[cfg(test)]
 pub const HIDDEN: u32 = u32::MAX;
+#[cfg(test)]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Node {
@@ -23,6 +28,7 @@ pub struct Group {
     #[serde(default)]
     pub sources: Vec<u32>,
 }
+#[cfg(test)]
 #[derive(Default)]
 pub struct Plan {
     pub nodes: Vec<Node>,
@@ -31,6 +37,7 @@ pub struct Plan {
     pub after: usize,
 }
 
+#[cfg(test)]
 fn neighbours(pixel: usize, n: usize) -> impl Iterator<Item = usize> {
     let (x, y) = ((pixel % n) as isize, (pixel / n) as isize);
     (-1..=1).flat_map(move |dy| {
@@ -41,6 +48,7 @@ fn neighbours(pixel: usize, n: usize) -> impl Iterator<Item = usize> {
         })
     })
 }
+#[cfg(test)]
 pub fn label(mask: &[bool], n: usize) -> (Vec<usize>, usize) {
     let mut labels = vec![0; mask.len()];
     let mut queue = Vec::with_capacity(mask.len());
@@ -67,6 +75,7 @@ pub fn label(mask: &[bool], n: usize) -> (Vec<usize>, usize) {
     }
     (labels, count)
 }
+#[cfg(test)]
 fn weights(t: &[[f64; 3]; 3], x: f64, y: f64) -> [f64; 3] {
     let cross = |a: usize, b: usize| (t[a][0] - x) * (t[b][1] - y) - (t[a][1] - y) * (t[b][0] - x);
     let area = cross(0, 1) + cross(1, 2) + cross(2, 0);
@@ -94,12 +103,14 @@ fn weights(t: &[[f64; 3]; 3], x: f64, y: f64) -> [f64; 3] {
     }
     result
 }
+#[cfg(test)]
 struct Coverage {
     words: usize,
     bits: Vec<u32>,
     depth: Vec<f64>,
     source: Vec<u32>,
 }
+#[cfg(test)]
 impl Coverage {
     fn new(triangles: &[[[f64; 3]; 3]], sources: &[u32], n: usize) -> Self {
         let words = triangles.len().div_ceil(32).max(1);
@@ -159,6 +170,7 @@ impl Coverage {
     }
 }
 
+#[cfg(test)]
 pub fn plan(owners: &[u32], groups: &[Group], n: usize) -> Plan {
     assert_eq!(owners.len(), n * n);
     let mut output = Plan::default();
@@ -296,51 +308,6 @@ pub fn plan(owners: &[u32], groups: &[Group], n: usize) -> Plan {
         output.after += label(&mask, n).1;
     }
     output
-}
-
-/// Same fixed camera-space cube as butterfly_mesh_types.slang. Never fit a pose.
-pub fn tile_bounds(center: Vec3, size: f32, view: Mat4, projection: Mat4) -> Vec4 {
-    let center = view.transform_point3(center);
-    let r = size * (1.53125 * 0.5);
-    let near = projection.inverse() * Vec4::new(0., 0., 0., 1.);
-    let near_z = near.z / near.w;
-    if center.z - r >= near_z {
-        return Vec4::new(2., 2., 3., 3.);
-    }
-    let mut lo = glam::Vec2::splat(f32::INFINITY);
-    let mut hi = glam::Vec2::splat(f32::NEG_INFINITY);
-    for i in 0..8 {
-        let p = Vec4::new(
-            center.x + if i & 1 == 0 { -r } else { r },
-            center.y + if i & 2 == 0 { -r } else { r },
-            if i & 4 == 0 {
-                center.z - r
-            } else {
-                (center.z + r).min(near_z)
-            },
-            1.,
-        );
-        let clip = projection * p;
-        let ndc = glam::Vec2::new(clip.x, clip.y) / clip.w;
-        lo = lo.min(ndc);
-        hi = hi.max(ndc);
-    }
-    Vec4::new(lo.x, lo.y, hi.x, hi.y)
-}
-
-pub fn ray_triangle(origin: Vec3, direction: Vec3, a: Vec3, e1: Vec3, e2: Vec3) -> Option<f32> {
-    let p = direction.cross(e2);
-    let det = e1.dot(p);
-    if det.abs() < 1e-12 {
-        return None;
-    }
-    let inv = 1. / det;
-    let s = origin - a;
-    let u = s.dot(p) * inv;
-    let q = s.cross(e1);
-    let v = direction.dot(q) * inv;
-    let t = e2.dot(q) * inv;
-    (u >= -1e-6 && v >= -1e-6 && u + v <= 1.000001 && t > 0.).then_some(t)
 }
 
 /// Rasterize center ownership with the production tile's projection/depth convention.

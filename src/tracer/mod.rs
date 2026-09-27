@@ -12,6 +12,8 @@ pub(crate) use capture_frame::{
 };
 
 mod butterfly_mesh;
+mod model_pixel_bake_validation;
+mod model_pixel_bounds;
 mod model_pixel_repair;
 pub use butterfly_mesh::{ButterflyMeshSettings, LeafModelSettings};
 mod butterfly_palette;
@@ -2008,7 +2010,7 @@ impl Tracer {
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
             flower_model_settings: crate::flora::models::Settings::default(),
-            model_pixel_view_count: 0,
+            model_pixel_view_count: 16,
             model_pixel_screen_grid: false,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
@@ -3048,7 +3050,7 @@ impl Tracer {
         if self.apple_pixel_resolution != terrain.apple_pixel_resolution.clamp(8, 64) {
             log::info!(
                 "[APPLE_MODEL] mode=pixel triangles={} resolution={} collider=original_voxels",
-                self.resources.apple_pixel.triangle_count,
+                apple_preview::mesh().indices.len() / 3,
                 terrain.apple_pixel_resolution.clamp(8, 64)
             );
         }
@@ -3067,8 +3069,7 @@ impl Tracer {
         if self.model_pixel_view_count != view_count
             || self.model_pixel_screen_grid != terrain.model_pixel_screen_grid
         {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light={} views={view_count} live_tiles=true continuous_oracle={} orthographic={} screen_grid={} shared_surfaces={} tile_work=relighting",
-                view_count!=0,view_count==0,view_count!=0,terrain.model_pixel_screen_grid,view_count!=0);
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light=true views={view_count} live_tiles=true orthographic=true screen_grid={} shared_surfaces=true tile_work=relighting", terrain.model_pixel_screen_grid);
         }
         self.model_pixel_view_count = view_count;
         self.model_pixel_screen_grid = terrain.model_pixel_screen_grid;
@@ -3785,10 +3786,6 @@ impl Tracer {
             self.resources.meshes.apple_shadow_resources.indices_len,
         );
         cmdbuf.use_buffer(
-            &self.resources.apple_pixel.apple_pixel_triangles,
-            BufferUse::ShaderRead,
-        );
-        cmdbuf.use_buffer(
             &self.resources.apple_pixel.apple_pixel_quad_indices,
             BufferUse::IndexRead,
         );
@@ -4024,7 +4021,6 @@ impl Tracer {
                             },
                             self.camera.get_view_mat(),
                             self.camera.get_proj_mat(),
-                            self.model_pixel_view_count != 0,
                         )
                     },
                 )?)
@@ -4706,7 +4702,6 @@ impl Tracer {
                                     &self.pipeline_topology.graphics().flower_stem_ppl,
                                     count,
                                     push,
-                                    self.model_pixel_view_count != 0,
                                     &descriptors,
                                 )
                             },
@@ -4807,7 +4802,6 @@ impl Tracer {
                                 batch.tree_id(),
                                 batch.instance_count(),
                                 self.apple_pixel_resolution,
-                                self.model_pixel_view_count != 0,
                                 &resources,
                                 flora_push_constant(
                                     time,
@@ -4910,7 +4904,6 @@ impl Tracer {
                             },
                             &self.dynamic_fruit_resources,
                             self.apple_pixel_resolution,
-                            self.model_pixel_view_count != 0,
                         )
                     },
                 )
@@ -6813,10 +6806,7 @@ impl Tracer {
         snapshots: &[ParticleSnapshot],
         butterfly_mesh: ButterflyMeshSettings,
         leaf_model: LeafModelSettings,
-        model_views: u32,
     ) -> Result<()> {
-        self.model_pixel_frame
-            .validate_completed_particles(&self.vulkan_ctx, &self.resources)?;
         let count = snapshots.len();
         self.tree_leaf_particle_scratch.clear();
         self.particle_instance_scratch.clear();
@@ -6868,7 +6858,6 @@ impl Tracer {
             butterfly_mesh,
             leaf_model,
             self.camera.position(),
-            model_pixel_views::runtime_count(model_views) != 0,
         )
     }
 

@@ -6,8 +6,7 @@ import flora_motion;
 import flora_noise;
 import flora_lighting_resources;
 import vegetation_response_sample;
-import model_pixel_surface;
-import butterfly_mesh_types;
+import model_pixel_types;
 import color;
 import flora_shadow;
 import hash;
@@ -37,7 +36,6 @@ public struct PushConstantFlower {
 [[vk::binding(6,0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(7,0)]] ConstantBuffer<U_WindVolumeInfo> wind_volume_info;
 [[vk::binding(8,0)]] Sampler3D wind_volume_tex;
-[[vk::binding(78,0)]] public StructuredBuffer<ButterflyMeshTriangle> flower_triangles;
 [[vk::binding(79,0)]] public StructuredBuffer<FlowerModelPart> flower_parts;
 struct B_ManualFlowerInstances { Instance data[]; };
 [[vk::binding(0,1)]] readonly GLSLShaderStorageBuffer<B_ManualFlowerInstances,Std430DataLayout> flora_instances;

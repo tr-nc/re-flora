@@ -39,7 +39,7 @@ assert.ok(resized.every(([,frame,swapchain,tracer])=>frame===swapchain&&frame===
 assert.ok((await readFile(`${dir}/scene.png`)).length>100);
 if(stageOne){
  for(const views of [8,16,37,128,512])for(const screenGrid of [false,true])assert.ok(text.includes(
-  `[MODEL_PIXEL_PREVIEW] single_light=true views=${views} live_tiles=true continuous_oracle=false orthographic=true screen_grid=${screenGrid}`),'Missing live orthographic A/B, view count or permanent per-object lighting');
+  `[MODEL_PIXEL_PREVIEW] single_light=true views=${views} live_tiles=true orthographic=true screen_grid=${screenGrid}`),'Missing live orthographic A/B, view count or permanent per-object lighting');
  assert.ok(text.includes('[MODEL_PIXEL_STRESS] leaves=64 butterflies=21'),'Missing animated particle fixture');
  for(const [leaf,butterfly] of [[8,64],[16,8],[64,16]])assert.ok(text.includes(
   `[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels=${leaf} butterfly_pixels=${butterfly}`),'Independent particle resolutions were not exercised');

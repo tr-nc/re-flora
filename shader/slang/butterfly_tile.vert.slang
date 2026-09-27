@@ -19,14 +19,11 @@ struct VertexInput {
 [shader("vertex")]
 VertexOutput main(VertexInput input) {
     uint instanceIndex=input.instance_index;
-    float4 bounds=butterflyTileBounds(butterfly_mesh_instances[instanceIndex],camera_info);
     VertexOutput output;
     output.uv=float2((input.packed_data>>21u)&1u,(input.packed_data>>22u)&1u);
     ButterflyMeshInstance instance=butterfly_mesh_instances[instanceIndex];
-    output.position=gui_input.model_pixel_view_count!=0u
-        ?modelOrthographicQuad(readModelPixelView(instanceIndex),instance.position_size.xyz,instance.position_size.w*(1.53125*0.5),
-            output.uv,gui_input.model_pixel_screen_grid!=0u,camera_info)
-        :float4(lerp(bounds.xy,bounds.zw,output.uv),0.0,1.0);
+    output.position=modelOrthographicQuad(readModelPixelView(instanceIndex),instance.position_size.xyz,instance.position_size.w*(1.53125*0.5),
+            output.uv,gui_input.model_pixel_screen_grid!=0u,camera_info);
     output.instanceIndex=instanceIndex;
     return output;
 }

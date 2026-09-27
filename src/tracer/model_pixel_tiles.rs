@@ -108,7 +108,6 @@ impl<B> ModelPixelBatch<B> {
 #[derive(Clone)]
 pub(super) struct ParticleInputs<B> {
     pub instances: B,
-    pub triangles: B,
     pub indices: B,
 }
 

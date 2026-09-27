@@ -1,6 +1,7 @@
 import flower_model;
-import model_pixel_surface;
-import butterfly_mesh_types;
+import model_pixel_types;
+import model_bake_triangle;
+[[vk::binding(78,0)]] StructuredBuffer<ButterflyMeshTriangle> flower_triangles;
 import tracer_types;
 [[vk::binding(3,0)]] ConstantBuffer<U_CameraInfo> camera_info;
 struct VertexInput {

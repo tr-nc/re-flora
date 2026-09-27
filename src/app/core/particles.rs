@@ -580,7 +580,6 @@ impl App {
         let butterfly_mesh = crate::tracer::ButterflyMeshSettings {
             resolution: settings.butterfly_pixel_resolution.value,
             fps: settings.butterfly_animation_fps.value,
-            self_shadows: settings.butterfly_self_shadows.value,
             transmission: settings.butterfly_wing_transmission.value,
         };
         let leaf_model = crate::tracer::LeafModelSettings {
@@ -588,12 +587,10 @@ impl App {
             resolution: settings.falling_leaf_pixel_resolution.value,
             size_scale: settings.falling_leaf_size_scale.value,
         };
-        if let Err(err) = self.tracer.upload_particles(
-            &self.particle_snapshots,
-            butterfly_mesh,
-            leaf_model,
-            settings.model_pixel_view_count.value,
-        ) {
+        if let Err(err) =
+            self.tracer
+                .upload_particles(&self.particle_snapshots, butterfly_mesh, leaf_model)
+        {
             log::error!("Failed to upload particles: {}", err);
         }
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
@@ -831,7 +828,8 @@ impl App {
                     2 => 64,
                     _ => 22,
                 };
-                settings.butterfly_self_shadows.value = stage != 3;
+                // The former self-shadow phase now tests live display rotation.
+                settings.model_pixel_screen_grid.value = stage == 3;
                 settings.butterfly_animation_fps.value = if stage == 1 { 2 } else { 60 };
             }
         }

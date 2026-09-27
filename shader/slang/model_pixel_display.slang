@@ -34,13 +34,12 @@ float4 modelResamplePixel(float2 uv,uint resolution,uint offset,uint index) {
 }
 public ModelPixelOutput displayModelPixel(float2 uv,uint resolution,uint offset,float opacity,
     uint index,float3 pivot,float radius) {
-    bool orthographic=gui_input.model_pixel_view_count!=0u;
     uint2 pixel=min(uint2(saturate(uv)*float(resolution)),uint2(resolution-1u));
-    float4 value=orthographic && gui_input.model_pixel_screen_grid!=0u
+    float4 value=gui_input.model_pixel_screen_grid!=0u
         ?modelResamplePixel(uv,resolution,offset,index)
         :model_pixel_tiles[offset+pixel.y*resolution+pixel.x];
     float depth=value.w;
-    if(orthographic && depth<1.0)depth=modelOrthographicDepth(depth,pivot,radius,camera_info);
+    if(depth<1.0)depth=modelOrthographicDepth(depth,pivot,radius,camera_info);
     bool visible=value.w<1.0 && depth>=0.0 && depth<1.0;
     ModelPixelOutput output;
     output.color=visible?float4(value.rgb*opacity,opacity):float4(0.0);

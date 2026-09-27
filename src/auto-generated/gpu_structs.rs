@@ -887,7 +887,7 @@ pub struct GuiInput {
     pub apple_pixel_resolution: u32,
     pub model_pixel_view_count: u32,
     pub model_pixel_screen_grid: u32,
-    pub model_pixel_cache_verify: u32,
+    pub model_pixel_cache_review: u32,
     pub raster_tree_hybrid_lighting: u32,
     pub path_tracing_reference: u32,
     pub path_tracing_max_bounces: u32,

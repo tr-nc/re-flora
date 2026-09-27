@@ -138,6 +138,7 @@ impl GuiConfigLoader {
                         | "terrain_material_enabled"
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
+                        | "butterfly_self_shadows"
                         | "climbing_continuous_stem"
                         | "climbing_paused"
                         | "climbing_enabled"
@@ -1448,11 +1449,14 @@ mod tests {
                 let mut retired = section
                     .param
                     .iter()
-                    .find(|p| p.id == "butterfly_self_shadows")
+                    .find(|p| p.id == "butterfly_mesh_preview")
                     .unwrap()
                     .clone();
                 retired.id = "butterfly_mesh_enabled".into();
                 retired.value = GuiParamValue::Bool { value: enabled };
+                let mut self_shadows = retired.clone();
+                self_shadows.id = "butterfly_self_shadows".into();
+                section.param.push(self_shadows);
                 section.param.push(retired);
                 let legacy_text = toml::to_string(&config).unwrap().replace(
                     &format!("variant = \"{variant:?}\""),
@@ -1466,6 +1470,7 @@ mod tests {
                 GuiConfigLoader::save_to_path(&migrated, &path).unwrap();
                 let saved = std::fs::read_to_string(&path).unwrap();
                 assert!(!saved.contains("butterfly_mesh_enabled"));
+                assert!(!saved.contains("butterfly_self_shadows"));
                 assert!(!saved.contains(legacy));
                 assert_eq!(
                     toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap(),

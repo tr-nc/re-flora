@@ -1,6 +1,6 @@
 // Per-object lighting/pose stays dynamic; canonical surfaces are shared.
 module model_pixel_object;
-import model_pixel_surface;
+import model_pixel_types;
 import model_pixel_projection;
 import flora_shadow;
 import environment_lighting;
@@ -16,10 +16,6 @@ import model_pixel_views;
 public ModelPixelView modelObjectView(uint index) {
     return modelPixelView(model_object_samples[index*4u+1u],model_object_samples[index*4u+2u],model_object_samples[index*4u+3u]);
 }
-// Production always uses object lighting. Zero is reserved for the continuous
-// numerical oracle, which keeps its original per-texel reference shading.
-public bool modelSingleLight() { return gui_input.model_pixel_view_count!=0u; }
-public bool modelDiscreteViews() { return gui_input.model_pixel_view_count!=0u; }
 float3 rotateBetween(float3 a,float3 b,float3 v) {
     // Nearest of the distributed directions is never antipodal to the input.
     float3 c=cross(a,b);
@@ -27,7 +23,7 @@ float3 rotateBetween(float3 a,float3 b,float3 v) {
 }
 public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientation,bool apple) {
     float4 light=float4(0.);
-    if(modelSingleLight()) {
+    {
         // One spatial lookup per object; no per-texel external-shadow queries.
         StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,
             shadow_camera_info, pivot,float3(0,1,0));

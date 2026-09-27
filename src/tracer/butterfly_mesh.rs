@@ -2,16 +2,14 @@
 //! Both generate one sample per tile texel, then display through the same lookup
 //! shader as apples. Visible tiles are compact, resolution-sized and batched;
 //! no maximum-resolution allocation is reserved for inactive particle slots.
-use super::model_pixel_repair::{self, Node as RepairNode};
+use super::model_pixel_bounds;
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
-use std::sync::{Arc, OnceLock};
 
 use super::ButterflyPalettePreset;
-mod validation;
 use crate::{
     particles::{ParticleRenderKind, ParticleSnapshot},
     resource::Resource,
@@ -20,57 +18,13 @@ use crate::{
 // The current eight-chunk garden allows 16 live butterflies. Reserve room for
 // larger gardens without allocating PARTICLE_CAPACITY * 64² (a gigabyte).
 const CAPACITY: usize = 256;
-const MAX_TRIANGLES: usize = 256;
 pub const MAX_RESOLUTION: u32 = 64;
 const LEAF_MODEL_FLAG: u32 = 2;
 
-// Match the GPU frame construction and operation order. Quaternion-vector
-// multiplication is algebraically equivalent but not numerically identical for
-// subpixel geometry far from the origin.
-fn model_pose_axes(rotation: [f32; 4]) -> [Vec3; 3] {
-    let q = Vec3::from_slice(&rotation);
-    [Vec3::X, Vec3::Y, Vec3::Z].map(|v| v + 2. * q.cross(q.cross(v) + rotation[3] * v))
-}
-fn model_local_vector(axes: [Vec3; 3], v: Vec3) -> Vec3 {
-    Vec3::new(v.dot(axes[0]), v.dot(axes[1]), v.dot(axes[2]))
-}
 fn leaf_variant_index(seed: u32) -> usize {
     seed as usize % crate::model_assets::LEAF_VARIANT_COUNT
 }
 
-// Upload one small authored shape bank, never a unique mesh or tile per leaf.
-// All variants are generated from the same leafGeometry recipe as leaf.glb.
-fn leaf_variant_triangles() -> &'static [Triangle] {
-    static TRIANGLES: OnceLock<Vec<Triangle>> = OnceLock::new();
-    TRIANGLES.get_or_init(|| {
-        let model = crate::model_assets::leaf_variants();
-        let transforms = model.transforms(0., 0);
-        model
-            .triangles
-            .iter()
-            .map(|triangle| {
-                let transform = transforms[triangle.node];
-                let normal_transform = transform.inverse().transpose();
-                let p = triangle.positions.map(|p| transform.transform_point3(p));
-                let uv = triangle.uvs;
-                Triangle {
-                    a: p[0].extend(0.).to_array(),
-                    e1: (p[1] - p[0]).extend(0.).to_array(),
-                    e2: (p[2] - p[0]).extend(0.).to_array(),
-                    normals: triangle.normals.map(|n| {
-                        normal_transform
-                            .transform_vector3(n)
-                            .normalize()
-                            .extend(0.)
-                            .to_array()
-                    }),
-                    uv01: [uv[0].x, uv[0].y, uv[1].x, uv[1].y],
-                    uv2: [uv[2].x, uv[2].y, 0., 0.],
-                }
-            })
-            .collect()
-    })
-}
 pub(super) fn native_review() -> bool {
     std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
         || std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some()
@@ -125,7 +79,6 @@ impl LeafModelSettings {
 pub struct ButterflyMeshSettings {
     pub resolution: u32,
     pub fps: u32,
-    pub self_shadows: bool,
     pub transmission: f32,
 }
 
@@ -134,36 +87,20 @@ pub struct ButterflyMeshSettings {
 struct Instance {
     position_size: [f32; 4],
     color: [f32; 4],
-    // triangle start/count, pixel resolution, flags (bit 0: self-shadow, bit 1: leaf)
+    // immutable source, reserved, pixel resolution, flags (bit 1: leaf)
     metadata: [u32; 4],
     lighting: [f32; 4],
-    repair: [u32; 4], // sparse expression offset/count; no user-selectable mode
+    tile: [u32; 4], // tile offset, visible, reserved, reserved
     view_orientation: [f32; 4],
-    cache: [u32; 4], // immutable source key, not a per-instance mesh
 }
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Triangle {
-    a: [f32; 4],
-    e1: [f32; 4],
-    e2: [f32; 4],
-    normals: [[f32; 4]; 3],
-    uv01: [f32; 4],
-    uv2: [f32; 4],
-}
-
 #[derive(ResourceContainer)]
 pub struct ButterflyMeshResources {
     pub butterfly_mesh_instances: Resource<Buffer>,
-    pub butterfly_mesh_triangles: Resource<Buffer>,
-    pub butterfly_pixel_tiles: Resource<Buffer>,
     pub model_pixel_tiles: Resource<Buffer>,
     pub model_object_samples: Resource<Buffer>,
     pub model_object_view_samples: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
     pub model_view_azimuths: Resource<Buffer>,
-    pub particle_model_repairs: Resource<Buffer>,
-    pub particle_model_repair_output: Resource<Buffer>,
 }
 impl ButterflyMeshResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -200,66 +137,47 @@ impl ButterflyMeshResources {
                 std::mem::size_of::<Instance>(),
                 MemoryLocation::CpuToGpu,
             ),
-            butterfly_mesh_triangles: buffer(
-                std::mem::size_of::<Triangle>(),
-                MemoryLocation::CpuToGpu,
-            ),
-            particle_model_repairs: buffer(
-                std::mem::size_of::<RepairNode>(),
-                MemoryLocation::CpuToGpu,
-            ),
-            particle_model_repair_output: buffer(
-                std::mem::size_of::<RepairNode>(),
-                MemoryLocation::CpuToGpu,
-            ),
             model_pixel_tiles: buffer(16, MemoryLocation::GpuOnly),
             model_object_samples: buffer(16, MemoryLocation::GpuOnly),
             model_object_view_samples: buffer(16, MemoryLocation::GpuOnly),
-            butterfly_pixel_tiles: Resource::new(Buffer::new_sized(
-                device.clone(),
-                allocator.clone(),
-                BufferUsage::from_flags(
-                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
-                ),
-                MemoryLocation::GpuOnly,
-                (CAPACITY
-                    * if native_review() { 5 } else { 1 }
-                    * MAX_RESOLUTION as usize
-                    * MAX_RESOLUTION as usize
-                    * 16) as u64,
-            )),
         }
     }
 }
 
+#[cfg(test)]
 struct RestTriangle {
-    node: usize,
     side: f32,
     positions: [[f32; 3]; 3],
 }
 struct Mesh {
     source: &'static crate::model_assets::Model,
+    #[cfg(test)]
     triangles: Vec<RestTriangle>,
 }
 impl Mesh {
     fn load() -> Self {
         let source = crate::model_assets::butterfly();
+        #[cfg(test)]
         let left = source.node("L continuous fore-hind wing");
+        #[cfg(test)]
         let right = source.node("R continuous fore-hind wing");
+        #[cfg(test)]
         let triangles = source
             .triangles
             .iter()
             .map(|t| {
                 assert!(t.node == left || t.node == right);
                 RestTriangle {
-                    node: t.node,
                     side: if t.node == left { -1. } else { 1. },
                     positions: t.positions.map(|p| p.to_array()),
                 }
             })
             .collect::<Vec<_>>();
-        assert!(triangles.len() <= MAX_TRIANGLES);
-        Self { source, triangles }
+        Self {
+            source,
+            #[cfg(test)]
+            triangles,
+        }
     }
     #[cfg(test)]
     fn pose(&self, phase: f32) -> [f32; 3] {
@@ -273,27 +191,12 @@ pub(super) struct ButterflyMeshRenderer {
     mesh: Mesh,
     instances: Vec<Instance>,
     draw_order: Vec<u32>,
-    pub repair_nodes: Vec<RepairNode>,
-    reference_tiles: bool,
-    canonical_frames: bool,
-    validation_calls: u64,
-    repair_frames: Vec<Option<(Arc<Buffer>, usize)>>,
-    repair_key: Vec<u8>,
-    repair_key_scratch: Vec<u8>,
-    repair_ranges: Vec<[u32; 4]>,
-    pub repair_added: usize,
-    repair_before: usize,
-    repair_after: usize,
-    triangles: Vec<Triangle>,
     pub resolution: u32,
     tile_count: u32,
-    pub compute_count: u32,
     pub tile_layout: super::model_pixel_tiles::ParticleTiles,
     pub dispatch_resolution: u32,
     previous_leaf_mode: Option<(bool, u32, u32)>,
-    validated_leaf_mode: Option<(bool, u32, u32)>,
-    previous_mode: Option<(u32, u32, bool, u32)>,
-    validated_mode: Option<(u32, u32, bool, u32)>,
+    previous_mode: Option<(u32, u32, u32)>,
 }
 impl Default for ButterflyMeshRenderer {
     fn default() -> Self {
@@ -301,40 +204,18 @@ impl Default for ButterflyMeshRenderer {
             mesh: Mesh::load(),
             instances: Vec::new(),
             draw_order: Vec::new(),
-            repair_nodes: Vec::new(),
-            reference_tiles: native_review(),
-            canonical_frames: false,
-            validation_calls: 0,
-            repair_frames: Vec::new(),
-            repair_key: Vec::new(),
-            repair_key_scratch: Vec::new(),
-            repair_ranges: Vec::new(),
-            repair_added: 0,
-            repair_before: 0,
-            repair_after: 0,
-            triangles: Vec::new(),
             resolution: 22,
             tile_count: 0,
-            compute_count: 0,
             tile_layout: super::model_pixel_tiles::ParticleTiles::default(),
             dispatch_resolution: 22,
             previous_leaf_mode: None,
-            validated_leaf_mode: None,
             previous_mode: None,
-            validated_mode: None,
         }
     }
 }
 impl ButterflyMeshRenderer {
-    /// Bounded diagnostic reference storage, never a selectable rendering mode.
-    pub fn reference_tile_offset(&self) -> Option<u32> {
-        self.reference_tiles.then_some(CAPACITY as u32)
-    }
     pub fn count(&self) -> u32 {
         self.instances.len() as u32
-    }
-    pub fn uses_cached_surfaces(&self) -> bool {
-        self.canonical_frames
     }
     fn prepare(
         &mut self,
@@ -343,7 +224,6 @@ impl ButterflyMeshRenderer {
         camera_position: Vec3,
     ) -> Result<()> {
         self.instances.clear();
-        self.triangles.clear();
         self.resolution = settings.resolution.clamp(8, MAX_RESOLUTION);
         let mut candidates: Vec<_> = snapshots
             .iter()
@@ -407,43 +287,18 @@ impl ButterflyMeshRenderer {
             // 3.4 is the approved browser's fixed framing span, not a fitted
             // per-frame silhouette: flapping must not pump the pixel scale.
             let scale = snapshot.size * (1.53125 / 3.4);
-            let start = self.triangles.len() as u32;
-            for triangle in self
-                .mesh
-                .triangles
-                .iter()
-                .filter(|_| !self.canonical_frames)
-            {
-                let transform = transforms[triangle.node];
-                let p = triangle.positions.map(|p| {
-                    snapshot.position_ws
-                        + facing
-                            * (transform.transform_point3(Vec3::from(p)) - root_motion * blend)
-                            * scale
-                });
-                self.triangles.push(Triangle {
-                    a: p[0].extend(0.).to_array(),
-                    e1: (p[1] - p[0]).extend(triangle.side).to_array(),
-                    e2: (p[2] - p[0]).extend(0.).to_array(),
-                    ..Triangle::zeroed()
-                });
-            }
             let rgb = ButterflyPalettePreset::from_index(snapshot.palette_index).base_color_srgb();
             self.instances.push(Instance {
                 // Quantize articulation only; published rigid root motion stays continuous.
                 position_size: (snapshot.position_ws
-                    + if self.canonical_frames {
-                        facing * root_motion * ((1. - blend) * scale)
-                    } else {
-                        Vec3::ZERO
-                    })
-                .extend(snapshot.size)
-                .to_array(),
-                cache: [
+                    + facing * root_motion * ((1. - blend) * scale))
+                    .extend(snapshot.size)
+                    .to_array(),
+                metadata: [
                     super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
                         + super::model_pixel_cache::animation_frame(phase),
                     0,
-                    0,
+                    self.resolution,
                     0,
                 ],
                 color: [
@@ -454,13 +309,7 @@ impl ButterflyMeshRenderer {
                 ],
                 lighting: [settings.transmission.clamp(0., 1.), 0., 0., 0.],
                 view_orientation: facing.to_array(),
-                repair: [0; 4],
-                metadata: [
-                    start,
-                    self.mesh.triangles.len() as u32,
-                    self.resolution,
-                    u32::from(settings.self_shadows),
-                ],
+                tile: [0; 4],
             });
         }
         Ok(())
@@ -473,11 +322,9 @@ impl ButterflyMeshRenderer {
         leaves: LeafModelSettings,
         camera_position: Vec3,
     ) -> Result<()> {
-        self.compute_count = 0;
         self.tile_count = 0;
         self.prepare(snapshots, butterflies, camera_position)?;
         self.tile_count = self.count();
-        self.compute_count = self.tile_count;
         self.dispatch_resolution = self.resolution;
         if !leaves.enabled {
             return Ok(());
@@ -493,20 +340,6 @@ impl ButterflyMeshRenderer {
                 && s.leaf_shape_seed.is_some()),
             "invalid published leaf orientation or shape seed"
         );
-        let triangles_per_leaf = crate::model_assets::leaf().triangles.len();
-        ensure!(
-            triangles_per_leaf <= MAX_TRIANGLES,
-            "shared leaf exceeds triangle budget"
-        );
-        let first = self.triangles.len() as u32;
-        if !candidates.is_empty() && !self.canonical_frames {
-            let shapes = leaf_variant_triangles();
-            ensure!(
-                shapes.len() == triangles_per_leaf * crate::model_assets::LEAF_VARIANT_COUNT,
-                "leaf shape bank does not match the approved topology"
-            );
-            self.triangles.extend_from_slice(shapes);
-        }
         let resolution = leaves.resolution.clamp(8, MAX_RESOLUTION);
         for snapshot in candidates {
             let shape = leaf_variant_index(snapshot.leaf_shape_seed.unwrap());
@@ -516,278 +349,80 @@ impl ButterflyMeshRenderer {
                     .extend(leaves.render_size(snapshot))
                     .to_array(),
                 color: snapshot.color.to_array(),
-                metadata: [
-                    first + (shape * triangles_per_leaf) as u32,
-                    triangles_per_leaf as u32,
-                    resolution,
-                    LEAF_MODEL_FLAG,
-                ],
+                metadata: [shape as u32, 0, resolution, LEAF_MODEL_FLAG],
                 // No resampling, local animation, velocity-facing override or reset.
                 lighting: snapshot.leaf_orientation.unwrap().to_array(),
                 view_orientation: snapshot.leaf_orientation.unwrap().to_array(),
-                cache: [shape as u32, 0, 0, 0],
-                repair: [0; 4],
+                tile: [0; 4],
             });
-        }
-        validation::apply_coverage_fixture(&mut self.instances, first, triangles_per_leaf)?;
-        if std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some() {
-            // Diagnostic-only readback of the same shader function used by the
-            // production fragment path, bounded by the existing tile allocation.
-            ensure!(
-                self.instances.len() <= CAPACITY,
-                "leaf review tile capacity exceeded"
-            );
-            self.compute_count = self.count();
-            self.dispatch_resolution = self.resolution.max(resolution);
         }
         Ok(())
     }
 
-    /// Called after this frame's camera is final, before any model draw/dispatch.
-    /// Exact input comparison avoids rebuilding held poses, but GPU lighting is
-    /// evaluated afresh even when the geometry plan is reused.
-    pub fn prepare_repair_frame(
+    /// Publish pose/visibility only, after the camera is final. No geometry stream.
+    pub fn prepare_pixel_frame(
         &mut self,
         view: Mat4,
         projection: Mat4,
-        device: Device,
-        allocator: Allocator,
-        frame_slot: usize,
-        publish: impl FnOnce(&[u8], &[u8], &[u8]) -> Result<()>,
+        publish: impl FnOnce(&[u8], &[u8]) -> Result<()>,
     ) -> Result<()> {
-        self.repair_key_scratch.clear();
-        self.repair_key_scratch
-            .extend_from_slice(bytemuck::bytes_of(&[
-                self.instances.len() as u64,
-                self.triangles.len() as u64,
-            ]));
-        self.repair_key_scratch
-            .extend_from_slice(bytemuck::bytes_of(&view));
-        self.repair_key_scratch
-            .extend_from_slice(bytemuck::bytes_of(&projection));
-        for instance in &self.instances {
-            self.repair_key_scratch
-                .extend_from_slice(bytemuck::bytes_of(&instance.position_size));
-            self.repair_key_scratch
-                .extend_from_slice(bytemuck::bytes_of(&instance.metadata));
-            self.repair_key_scratch
-                .extend_from_slice(bytemuck::bytes_of(&instance.lighting));
-        }
-        self.repair_key_scratch
-            .extend_from_slice(bytemuck::cast_slice(&self.triangles));
-        if native_review() && self.repair_key != self.repair_key_scratch {
-            std::mem::swap(&mut self.repair_key, &mut self.repair_key_scratch);
-            self.repair_nodes.clear();
-            self.repair_ranges.clear();
-            self.repair_added = 0;
-            self.repair_before = 0;
-            self.repair_after = 0;
-            for instance in &self.instances {
-                let leaf = instance.metadata[3] & LEAF_MODEL_FLAG != 0;
-                let scale = instance.position_size[3] * (1.53125 / 3.4);
-                let center = Vec3::from_slice(&instance.position_size);
-                let bounds = model_pixel_repair::tile_bounds(
-                    center,
-                    instance.position_size[3],
-                    view,
-                    projection,
-                );
-                if bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1. {
-                    self.repair_ranges.push([0; 4]);
-                    continue;
-                }
-                let axes = model_pose_axes(instance.lighting);
-                let start = instance.metadata[0] as usize;
-                let end = start + instance.metadata[1] as usize;
-                let triangles: Vec<_> = self.triangles[start..end]
-                    .iter()
-                    .map(|t| {
-                        let a = Vec3::from_slice(&t.a);
-                        let p = [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)];
-                        (
-                            if leaf || t.e1[3] < 0. { 1 } else { 2 },
-                            if leaf {
-                                p.map(|p| {
-                                    center + scale * (axes[0] * p.x + axes[1] * p.y + axes[2] * p.z)
-                                })
-                            } else {
-                                p
-                            },
-                        )
-                    })
-                    .collect();
-                let vp = projection * view;
-                let inverse = vp.inverse();
-                let center_distance = |index: usize, x: usize, y: usize| {
-                    let uv = glam::Vec2::new(x as f32 + 0.5, y as f32 + 0.5)
-                        / instance.metadata[2] as f32;
-                    let ndc = glam::Vec2::new(bounds.x, bounds.y)
-                        + glam::Vec2::new(bounds.z - bounds.x, bounds.w - bounds.y) * uv;
-                    let near = inverse * glam::Vec4::new(ndc.x, ndc.y, 0., 1.);
-                    let far = inverse * glam::Vec4::new(ndc.x, ndc.y, 1., 1.);
-                    let origin = near.truncate() / near.w;
-                    let direction = (far.truncate() / far.w - origin).normalize();
-                    let (local_origin, local_direction) = if leaf {
-                        (
-                            model_local_vector(axes, origin - center) / scale,
-                            model_local_vector(axes, direction),
-                        )
-                    } else {
-                        (origin, direction)
-                    };
-                    let t = &self.triangles[start + index];
-                    let distance = model_pixel_repair::ray_triangle(
-                        local_origin,
-                        local_direction,
-                        Vec3::from_slice(&t.a),
-                        Vec3::from_slice(&t.e1),
-                        Vec3::from_slice(&t.e2),
-                    )?;
-                    let clip = vp
-                        * (origin + direction * distance * if leaf { scale } else { 1. })
-                            .extend(1.);
-                    (0.0..1.0).contains(&(clip.z / clip.w)).then_some(distance)
-                };
-                let (owners, groups) = model_pixel_repair::project(
-                    &triangles,
-                    vp,
-                    bounds,
-                    instance.metadata[2] as usize,
-                    center_distance,
-                );
-                let plan =
-                    model_pixel_repair::plan(&owners, &groups, instance.metadata[2] as usize);
-                self.repair_ranges.push([
-                    self.repair_nodes.len() as u32,
-                    plan.nodes.len() as u32,
-                    0,
-                    0,
-                ]);
-                self.repair_added += plan.added;
-                self.repair_before += plan.before;
-                self.repair_after += plan.after;
-                self.repair_nodes.extend(plan.nodes);
-            }
-            if native_review() {
-                log::info!("[MODEL_COVERAGE_REVIEW] instances={} added={} original_components={} final_components={} nodes={}",
-                    self.instances.len(), self.repair_added, self.repair_before, self.repair_after, self.repair_nodes.len());
-            }
-        }
-        for (instance, range) in self.instances.iter_mut().zip(&self.repair_ranges) {
-            instance.repair = *range;
-        }
         // Pack only visible tiles, at their own resolution, instead of reserving
         // PARTICLE_CAPACITY * 64². The fragment path never samples geometry.
         for instance in &mut self.instances {
-            let bounds = model_pixel_repair::tile_bounds(
+            let bounds = model_pixel_bounds::tile_bounds(
                 Vec3::from_slice(&instance.position_size),
                 instance.position_size[3],
                 view,
                 projection,
             );
             let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
-            instance.repair[3] = u32::from(visible);
+            instance.tile[1] = u32::from(visible);
         }
-        self.publish_pixel_frame(|instances, triangles, draw_order| {
+        self.publish_pixel_frame(|instances, draw_order| {
             publish(
                 bytemuck::cast_slice(instances),
-                bytemuck::cast_slice(triangles),
                 bytemuck::cast_slice(draw_order),
             )
         })?;
-        self.compute_count = self.count();
         self.dispatch_resolution = self
             .instances
             .iter()
             .map(|i| i.metadata[2])
             .max()
             .unwrap_or(8);
-        while self.repair_frames.len() <= frame_slot {
-            self.repair_frames.push(None);
-        }
-        let required = self
-            .repair_nodes
-            .len()
-            .max(1)
-            .checked_next_power_of_two()
-            .ok_or_else(|| anyhow::anyhow!("repair buffer capacity overflow"))?;
-        // Vulkan guarantees at least 128 MiB per storage-buffer binding. Never
-        // silently drop repairs or bind an out-of-range allocation on overflow.
-        ensure!(
-            required <= 128 * 1024 * 1024 / std::mem::size_of::<RepairNode>(),
-            "sparse repair plan exceeds portable storage-buffer range"
-        );
-        if self.repair_frames[frame_slot]
-            .as_ref()
-            .is_none_or(|(_, capacity)| *capacity < required)
-        {
-            let buffer = Buffer::new_sized(
-                device,
-                allocator,
-                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
-                MemoryLocation::CpuToGpu,
-                (required * std::mem::size_of::<RepairNode>()) as u64,
-            );
-            self.repair_frames[frame_slot] = Some((Arc::new(buffer), required));
-        }
-        if !self.repair_nodes.is_empty() {
-            self.repair_frames[frame_slot]
-                .as_ref()
-                .unwrap()
-                .0
-                .fill(&self.repair_nodes)?;
-        }
         Ok(())
     }
 
     fn publish_pixel_frame(
         &mut self,
-        publish: impl FnOnce(&[Instance], &[Triangle], &[u32]) -> Result<()>,
+        publish: impl FnOnce(&[Instance], &[u32]) -> Result<()>,
     ) -> Result<()> {
         self.tile_layout = super::model_pixel_tiles::ParticleTiles::pack(
             &self
                 .instances
                 .iter()
-                .map(|i| (i.metadata[2], i.repair[3] != 0))
+                .map(|i| (i.metadata[2], i.tile[1] != 0))
                 .collect::<Vec<_>>(),
             &self.draw_order,
         );
         for (instance, &offset) in self.instances.iter_mut().zip(self.tile_layout.offsets()) {
-            instance.repair[2] = offset;
+            instance.tile[0] = offset;
         }
         if !self.instances.is_empty() {
             // One complete publication, only after sorted offsets and visibility
-            // are final. CPU pose preparation must never upload its zeroed repair
+            // are final. CPU pose preparation must never upload its zeroed tile
             // metadata over an in-flight frame (a3661975).
-            publish(&self.instances, &self.triangles, &self.draw_order)?;
+            publish(&self.instances, &self.draw_order)?;
         }
         Ok(())
     }
-    pub fn tile_compute_mode(&self) -> u32 {
-        if native_review() {
-            1
-        } else {
-            3
-        }
-    }
-
-    pub fn repair_buffer(&self, frame_slot: usize) -> Arc<Buffer> {
-        self.repair_frames[frame_slot]
-            .as_ref()
-            .expect("prepared model frame")
-            .0
-            .clone()
-    }
-
     pub fn prepare_frame_models(
         &mut self,
         snapshots: &[ParticleSnapshot],
         settings: ButterflyMeshSettings,
         leaves: LeafModelSettings,
         camera_position: Vec3,
-        discrete_views: bool,
     ) -> Result<()> {
-        self.canonical_frames = discrete_views;
         self.prepare_models(snapshots, settings, leaves, camera_position)?;
         self.draw_order.clear();
         if !self.instances.is_empty() {
@@ -811,13 +446,9 @@ impl ButterflyMeshRenderer {
                 if leaves.enabled { "assets/models/leaf-variants.glb" } else { "assets/models/leaf.glb" },
                 crc32fast::hash(if leaves.enabled { crate::model_assets::LEAF_VARIANTS_BYTES } else { crate::model_assets::LEAF_BYTES }), leaves.display_scale());
             if leaves.enabled && native_review() {
-                let first = self.tile_count as usize * self.mesh.triangles.len();
                 let ids: Vec<_> = self.instances[self.tile_count as usize..]
                     .iter()
-                    .map(|instance| {
-                        (instance.metadata[0] as usize - first)
-                            / crate::model_assets::leaf().triangles.len()
-                    })
+                    .map(|instance| instance.metadata[0] as usize)
                     .collect();
                 let mut unique = ids.clone();
                 unique.sort_unstable();
@@ -833,11 +464,10 @@ impl ButterflyMeshRenderer {
         let mode = (
             self.resolution,
             settings.fps,
-            settings.self_shadows,
             settings.transmission.clamp(0., 1.).to_bits(),
         );
         if self.previous_mode != Some(mode) {
-            log::info!("[BUTTERFLY-MESH] tile={}x{} fps={} self_shadows={} triangles_per_animal={} active={} capacity={CAPACITY} sun=game depth=per_texel", self.resolution,self.resolution,settings.fps,settings.self_shadows,self.mesh.triangles.len(),self.tile_count);
+            log::info!("[BUTTERFLY-MESH] tile={}x{} fps={} triangles_per_animal={} active={} capacity={CAPACITY} sun=game depth=per_texel", self.resolution,self.resolution,settings.fps,self.mesh.source.triangles.len(),self.tile_count);
             log::info!(
                 "[BUTTERFLY-MESH] transmission={}",
                 settings.transmission.clamp(0., 1.)
@@ -853,14 +483,10 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_animation_keeps_published_motion_and_avoids_instance_geometry() {
-        let mut renderer = ButterflyMeshRenderer {
-            canonical_frames: true,
-            ..Default::default()
-        };
+        let mut renderer = ButterflyMeshRenderer::default();
         let settings = ButterflyMeshSettings {
             resolution: 16,
             fps: 22,
-            self_shadows: true,
             transmission: 0.8,
         };
         for blend in [0., 0.35, 1.] {
@@ -903,13 +529,9 @@ mod tests {
                     < 1e-6
             );
             assert_eq!(
-                instance.cache[0],
+                instance.metadata[0],
                 super::super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
                     + super::super::model_pixel_cache::animation_frame(phase)
-            );
-            assert!(
-                renderer.triangles.is_empty(),
-                "production cannot upload per-instance animated triangles"
             );
         }
     }
@@ -921,23 +543,22 @@ mod tests {
             .map(|_| Instance {
                 position_size: [0.; 4],
                 color: [1.; 4],
-                metadata: [0, 32, 64, LEAF_MODEL_FLAG],
+                metadata: [0, 0, 64, LEAF_MODEL_FLAG],
                 lighting: [0., 0., 0., 1.],
                 view_orientation: [0., 0., 0., 1.],
-                repair: [0, 0, 0, 1],
-                cache: [0; 4],
+                tile: [0, 1, 0, 0],
             })
             .collect();
         renderer.draw_order = (0..1100u32).rev().collect();
         let mut publications = 0;
         renderer
-            .publish_pixel_frame(|instances, _, order| {
+            .publish_pixel_frame(|instances, order| {
                 publications += 1;
                 assert_eq!(order, &(0..1100u32).rev().collect::<Vec<_>>());
                 for (draw, &index) in order.iter().enumerate() {
                     assert_eq!(
-                        instances[index as usize].repair,
-                        [0, 0, (draw as u32 % 1024) * 4096, 1]
+                        instances[index as usize].tile,
+                        [(draw as u32 % 1024) * 4096, 1, 0, 0]
                     );
                 }
                 Ok(())
@@ -947,7 +568,7 @@ mod tests {
         renderer.instances.clear();
         renderer.draw_order.clear();
         renderer
-            .publish_pixel_frame(|_, _, _| panic!("empty frame must not upload stale models"))
+            .publish_pixel_frame(|_, _| panic!("empty frame must not upload stale models"))
             .unwrap();
         assert!(renderer.tile_layout.offsets().is_empty());
     }
@@ -996,7 +617,6 @@ mod tests {
         let mut butterfly = ButterflyMeshSettings {
             resolution: 8,
             fps: 2,
-            self_shadows: true,
             transmission: 0.9,
         };
         for _ in 0..120 {
@@ -1014,7 +634,6 @@ mod tests {
                     .unwrap();
                 assert_eq!(renderer.count(), 1);
                 assert_eq!(renderer.tile_count, 0);
-                assert_eq!(renderer.triangles.len(), 64 * 32);
                 let gpu = renderer.instances[0];
                 assert_eq!(gpu.lighting, snapshot.leaf_orientation.unwrap().to_array());
                 assert_eq!(
@@ -1025,8 +644,8 @@ mod tests {
                 assert_eq!(
                     gpu.metadata,
                     [
-                        (leaf_variant_index(snapshot.leaf_shape_seed.unwrap()) * 32) as u32,
-                        32,
+                        leaf_variant_index(snapshot.leaf_shape_seed.unwrap()) as u32,
+                        0,
                         resolution,
                         LEAF_MODEL_FLAG
                     ]
@@ -1061,7 +680,6 @@ mod tests {
         let butterfly = ButterflyMeshSettings {
             resolution: 16,
             fps: 8,
-            self_shadows: true,
             transmission: 0.9,
         };
         let mut renderer = ButterflyMeshRenderer::default();
@@ -1092,17 +710,11 @@ mod tests {
             assert_eq!(
                 instance.metadata,
                 [
-                    (leaf_variant_index(original.leaf_shape_seed.unwrap()) * 32) as u32,
-                    32,
+                    leaf_variant_index(original.leaf_shape_seed.unwrap()) as u32,
+                    0,
                     16,
                     LEAF_MODEL_FLAG
                 ]
-            );
-            assert_eq!(
-                renderer.triangles[0].a,
-                crate::model_assets::leaf().triangles[0].positions[0]
-                    .extend(0.)
-                    .to_array()
             );
             for kind in [
                 ParticleRenderKind::Butterfly,
@@ -1149,7 +761,6 @@ mod tests {
         let butterfly = ButterflyMeshSettings {
             resolution: 16,
             fps: 8,
-            self_shadows: true,
             transmission: 0.,
         };
         let leaves = LeafModelSettings {
@@ -1162,28 +773,15 @@ mod tests {
         let first = renderer.instances[0].metadata[0] as usize;
         let second = renderer.instances[1].metadata[0] as usize;
         assert_ne!(first, second);
-        assert_eq!(
-            renderer.triangles.len(),
-            crate::model_assets::LEAF_VARIANT_COUNT * 32
-        );
-        assert!(renderer.triangles[first..first + 32]
-            .iter()
-            .zip(&renderer.triangles[second..second + 32])
-            .any(|(a, b)| a.a != b.a));
-        let triangle_bytes = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
         other.leaf_orientation = Some(glam::Quat::from_rotation_x(0.3));
         renderer
             .prepare_models(&[original, other], butterfly, leaves, Vec3::Z)
             .unwrap();
         assert_eq!(renderer.instances[1].metadata[0] as usize, second);
-        assert_eq!(
-            bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles),
-            triangle_bytes
-        );
     }
 
     #[test]
-    fn leaf_shape_bank_is_uploaded_once_even_at_full_particle_capacity() {
+    fn full_particle_capacity_publishes_only_shared_source_keys() {
         let mut system = crate::particles::ParticleSystem::new(1);
         system
             .spawn(crate::particles::ParticleSpawn::default())
@@ -1199,7 +797,6 @@ mod tests {
                 ButterflyMeshSettings {
                     resolution: 16,
                     fps: 8,
-                    self_shadows: true,
                     transmission: 0.9,
                 },
                 LeafModelSettings {
@@ -1211,11 +808,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(renderer.count() as usize, snapshots.len());
-        assert_eq!(renderer.triangles.len(), 64 * 32);
-        assert_eq!(
-            renderer.compute_count, 0,
-            "ordinary leaves must not allocate or dispatch per-particle tiles"
-        );
+        assert!(renderer.instances.iter().all(|i| i.metadata[0] < 64));
         let mut no_pose = source[0];
         no_pose.leaf_orientation = None;
         assert!(!LeafModelSettings {
@@ -1243,8 +836,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<Instance>(), 112);
-        assert_eq!(std::mem::size_of::<Triangle>(), 128);
+        assert_eq!(std::mem::size_of::<Instance>(), 96);
     }
     #[test]
     fn coupled_mesh_uses_published_phase_attitude_and_no_duplicate_bob() {
@@ -1270,25 +862,24 @@ mod tests {
         let settings = ButterflyMeshSettings {
             resolution: 16,
             fps: 8,
-            self_shadows: true,
             transmission: 0.8,
         };
         let mut renderer = ButterflyMeshRenderer::default();
         renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
-        let geometry = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
-        let [wing, pitch, bob] = renderer.mesh.pose(pose.phase);
+        let geometry = bytemuck::cast_slice::<Instance, u8>(&renderer.instances).to_vec();
+        let [_, _, bob] = renderer.mesh.pose(pose.phase);
         assert!(
             bob.abs() > 0.01,
             "test a source pose with visible authored bob"
         );
-        for (source, result) in renderer.mesh.triangles.iter().zip(&renderer.triangles) {
-            let rotation = Quat::from_rotation_x(pitch) * Quat::from_rotation_z(wing * source.side);
-            let expected = snapshot.position_ws
-                + pose.orientation
-                    * (rotation * Vec3::from(source.positions[0]))
-                    * (snapshot.size * (1.53125 / 3.4));
-            assert!(Vec3::from_slice(&result.a).distance(expected) < 1e-6);
-        }
+        assert_eq!(
+            renderer.instances[0].position_size,
+            snapshot.position_ws.extend(snapshot.size).to_array()
+        );
+        assert_eq!(
+            renderer.instances[0].view_orientation,
+            pose.orientation.to_array()
+        );
         // The publication timestamp remains required, but cannot independently
         // animate a coupled pose. Nor may ground-relative velocity override yaw.
         snapshot.animation_sample_time = Some(123.731);
@@ -1296,7 +887,7 @@ mod tests {
         renderer.prepare(&[snapshot], settings, Vec3::ZERO).unwrap();
         assert_eq!(
             geometry,
-            bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles)
+            bytemuck::cast_slice::<Instance, u8>(&renderer.instances)
         );
     }
 
@@ -1325,7 +916,6 @@ mod tests {
         let mut settings = ButterflyMeshSettings {
             resolution: 22,
             fps: 60,
-            self_shadows: true,
             transmission: 0.,
         };
         for n in 8..=64 {
@@ -1335,8 +925,6 @@ mod tests {
             assert!(renderer.instances.iter().all(|i| i.metadata[2] == n));
             assert_eq!(renderer.instances[0].position_size[2], -2.);
             assert_eq!(renderer.instances[0].color, renderer.instances[1].color);
-            assert_eq!(renderer.triangles.len(), 312);
-            assert!(renderer.triangles.iter().all(|t| t.e1[3].abs() == 1.));
         }
         for (requested, expected) in [(-1., 0.), (0., 0.), (0.5, 0.5), (1., 1.), (2., 1.)] {
             settings.transmission = requested;
@@ -1346,7 +934,6 @@ mod tests {
         }
         renderer.prepare(&[], settings, Vec3::ZERO).unwrap();
         assert_eq!(renderer.count(), 0);
-        assert!(renderer.triangles.is_empty());
         assert!(renderer
             .prepare(&vec![snapshots[0]; CAPACITY + 1], settings, Vec3::ZERO)
             .is_err());
@@ -1359,7 +946,6 @@ mod tests {
             .prepare(&[snapshots[0], unsampled], settings, Vec3::ZERO)
             .is_err());
         assert_eq!(renderer.count(), 0);
-        assert!(renderer.triangles.is_empty());
     }
 
     #[test]
@@ -1391,13 +977,12 @@ mod tests {
                     ButterflyMeshSettings {
                         resolution: 16,
                         fps: 8,
-                        self_shadows: true,
                         transmission: 0.,
                     },
                     Vec3::ZERO,
                 )
                 .unwrap();
-            let geometry = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
+            let geometry = bytemuck::cast_slice::<Instance, u8>(&renderer.instances).to_vec();
             if let Some((previous_tick, ref previous_geometry)) = previous {
                 if previous_tick == tick {
                     assert_eq!(
@@ -1448,14 +1033,13 @@ mod tests {
                         ButterflyMeshSettings {
                             resolution: 16,
                             fps: 8,
-                            self_shadows: true,
                             transmission: 0.,
                         },
                         Vec3::ZERO,
                     )
                     .unwrap();
                 assert_eq!(renderer.count(), 1);
-                let geometry = bytemuck::cast_slice::<Triangle, u8>(&renderer.triangles).to_vec();
+                let geometry = bytemuck::cast_slice::<Instance, u8>(&renderer.instances).to_vec();
                 if let Some((old_frame, ref old_geometry)) = previous {
                     if old_frame == frame {
                         assert_eq!(&geometry, old_geometry);

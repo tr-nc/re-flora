@@ -1,8 +1,5 @@
-// Cache-compatible geometry/display seam. The bake is always a fixed orthographic
-// cube in the selected model view; instance distance and screen roll never enter it.
+// Geometry-free cache display projection; instance distance and roll stay live.
 module model_pixel_projection;
-import model_pixel_surface;
-import butterfly_mesh_types;
 import tracer_types;
 
 public struct ModelPixelView { public float3 x,y,z; public float2 roll; };
@@ -14,27 +11,6 @@ public float3 modelBakeVector(ModelPixelView view,float3 v) {
 }
 public float2 modelRotatePixel(float2 p,float2 roll) {
     return float2(roll.x*p.x-roll.y*p.y,roll.y*p.x+roll.x*p.y);
-}
-public U_CameraInfo modelBakeCamera() {
-    U_CameraInfo camera=(U_CameraInfo)0;
-    // Rays start at z=+1 and travel toward -Z. Identical for every instance.
-    camera.view_proj_mat=float4x4(1,0,0,0, 0,1,0,0, 0,0,-0.5,0.5, 0,0,0,1);
-    camera.view_proj_mat_inv=float4x4(1,0,0,0, 0,1,0,0, 0,0,-2,1, 0,0,0,1);
-    return camera;
-}
-public ModelPixelHit sampleOrthographicModelPixel(StructuredBuffer<ButterflyMeshTriangle> triangles,
-    uint first,uint count,ModelPixelFrame physical,ModelPixelView view,float3 pivot,float radius,
-    uint2 pixel,uint resolution) {
-    if(radius<=1e-8) {
-        ModelPixelHit empty=(ModelPixelHit)0;empty.triangle=0xffffffffu;empty.depth=1.0;return empty;
-    }
-    ModelPixelFrame bake;
-    bake.center=modelBakeVector(view,physical.center-pivot)/radius;
-    bake.axisX=modelBakeVector(view,physical.axisX);
-    bake.axisY=modelBakeVector(view,physical.axisY);
-    bake.axisZ=modelBakeVector(view,physical.axisZ);
-    bake.scale=physical.scale/radius;
-    return sampleModelPixelGeometry(triangles,first,count,bake,float4(-1,-1,1,1),pixel,resolution,modelBakeCamera());
 }
 public float4 modelOrthographicQuad(ModelPixelView view,float3 pivot,float radius,float2 uv,
     bool screenAligned,U_CameraInfo camera) {

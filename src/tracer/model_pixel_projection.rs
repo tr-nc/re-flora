@@ -157,42 +157,114 @@ fn authored_shapes_fit_the_fixed_frame_at_every_roll() {
 }
 
 #[test]
-fn all_model_consumers_use_shared_surfaces_and_displays_are_geometry_free() {
-    let particle = include_str!("../../shader/slang/particle_model_shading.slang");
-    let apple = include_str!("../../shader/slang/apple_pixel_tile.slang");
-    let flower = include_str!("../../shader/slang/flower_pixel.comp.slang");
-    for adapter in [particle, apple, flower] {
-        assert!(adapter.contains("modelSurface("));
-        assert!(
-            !adapter.contains("sampleOrthographicModelPixel("),
-            "production adapter must not rebake per instance"
-        );
+fn all_model_pixel_entrypoints_have_geometry_free_transitive_interfaces() {
+    use std::collections::{HashMap, HashSet};
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shader/slang");
+    let modules: HashMap<String, String> = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (
+                path.file_stem().unwrap().to_str().unwrap().to_owned(),
+                std::fs::read_to_string(path).unwrap(),
+            )
+        })
+        .collect();
+    fn visit(name: &str, modules: &HashMap<String, String>, seen: &mut HashSet<String>) {
+        if !seen.insert(name.to_owned()) {
+            return;
+        }
+        for statement in modules[name].split(';') {
+            // Imports may follow a module declaration, attributes or comments.
+            if let Some(import) = statement
+                .rsplit_once("import ")
+                .map(|(_, name)| name.trim())
+            {
+                if modules.contains_key(import) {
+                    visit(import, modules, seen);
+                }
+            }
+        }
     }
-    let generator = include_str!("../../shader/slang/model_pixel_bake.slang");
-    assert!(generator.contains("sampleOrthographicModelPixel("));
-    let cache = include_str!("../../shader/slang/model_pixel_cache.slang");
-    let lookup = cache
-        .split("if(gui_input.model_pixel_cache_verify")
-        .next()
-        .unwrap();
-    assert!(lookup.contains("gpuStorageLoad<ModelBakedSurface>"));
-    assert!(
-        !lookup.contains("bakeModelSurface("),
-        "no live fallback in production lookup"
-    );
+    let mut checked = HashSet::new();
+    for name in modules
+        .keys()
+        .filter(|n| n.ends_with(".comp") || n.ends_with(".vert") || n.ends_with(".frag"))
+    {
+        let mut closure = HashSet::new();
+        visit(name, &modules, &mut closure);
+        if name == "model_pixel_bake.comp" {
+            continue;
+        }
+        // Discover future consumers too: not an allowlist of today's four adapters.
+        if !closure.iter().any(|m| {
+            modules[m].contains("model_pixel_tiles")
+                || m == "model_pixel_cache"
+                || m == "model_pixel_object"
+        }) {
+            continue;
+        }
+        checked.insert(name.as_str());
+        for module in closure {
+            for forbidden in [
+                "sampleModelPixelGeometry",
+                "sampleOrthographicModelPixel",
+                "bakeModelSurface",
+                "ButterflyMeshTriangle",
+                "model_bake_triangles",
+                "model_bake_ranges",
+                "continuous_oracle",
+                "modelDiscreteViews",
+                "modelSingleLight",
+            ] {
+                assert!(
+                    !modules[&module].contains(forbidden),
+                    "{name} imports geometry/legacy route via {module}: {forbidden}"
+                );
+            }
+        }
+    }
+    for required in [
+        "butterfly_tile.comp",
+        "apple_pixel_tree.comp",
+        "apple_pixel_dynamic.comp",
+        "flower_pixel.comp",
+        "butterfly_tile.frag",
+        "apple_pixel.frag",
+        "flower_pixel.frag",
+    ] {
+        assert!(checked.contains(required), "unexamined consumer {required}");
+    }
     let display = include_str!("../../shader/slang/model_pixel_display.slang");
-    assert!(!display.contains("sampleModelPixelGeometry("));
-    assert!(!display.contains("sampleOrthographicModelPixel("));
     assert!(display.contains("modelOrthographicDepth("));
     assert!(display.contains("modelPixelCellOverlap("));
-    let bake = include_str!("../../shader/slang/model_pixel_projection.slang");
-    let sampler = bake
-        .split("public ModelPixelHit sampleOrthographicModelPixel")
-        .nth(1)
-        .unwrap()
-        .split("public float4 modelOrthographicQuad")
-        .next()
-        .unwrap();
-    assert!(!sampler.contains("screenAligned"));
-    assert!(!sampler.contains("camera_info"));
+    let bake = include_str!("../../shader/slang/model_pixel_bake_projection.slang");
+    assert!(!bake.contains("screenAligned"));
+    assert!(!bake.contains("camera_info"));
+}
+
+#[test]
+fn rust_frame_adapter_publishes_no_geometry_or_reference_stream() {
+    for text in [
+        include_str!("model_pixel_frame.rs"),
+        include_str!("model_pixel_tiles.rs"),
+        include_str!("butterfly_mesh.rs"),
+    ] {
+        // The authored-mesh tests are deliberately isolated from frame preparation.
+        let production = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+        for forbidden in [
+            "discrete_views",
+            "canonical_frames",
+            "reference_tile",
+            "repair_nodes",
+            "butterfly_mesh_triangles",
+            "triangles: upload",
+            "Vec<Triangle>",
+        ] {
+            assert!(
+                !production.contains(forbidden),
+                "frame route retained: {forbidden}"
+            );
+        }
+    }
 }

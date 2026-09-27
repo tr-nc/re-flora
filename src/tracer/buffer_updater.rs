@@ -269,7 +269,7 @@ impl BufferUpdater {
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,
             model_pixel_screen_grid: terrain.model_pixel_screen_grid as u32,
-            model_pixel_cache_verify: u32::from(
+            model_pixel_cache_review: u32::from(
                 std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some(),
             ),
             model_pixel_view_count: super::model_pixel_views::runtime_count(

@@ -1,32 +1,30 @@
-// Model-independent geometry sampling. Adapters supply only a mesh range and
-// a rigid frame; materials, storage and scheduling do not own intersection rules.
-module model_pixel_surface;
-import model_pixel_grid;
-import butterfly_mesh_types;
+// Conservative geometry sampler: bake and standalone diagnostics only.
+module model_pixel_bake_geometry;
+import model_pixel_types;
+import model_bake_triangle;
 import tracer_types;
+public float2 modelPixelNdc(float4 bounds,float2 pixel,uint resolution) {
+    return lerp(bounds.xy,bounds.zw,pixel/float(resolution));
+}
+public void modelPixelRay(float4 bounds,float2 pixel,uint resolution,U_CameraInfo camera,
+    out float3 origin,out float3 direction) {
+    float2 ndc=modelPixelNdc(bounds,pixel,resolution);
+    float4 nearH=mul(camera.view_proj_mat_inv,float4(ndc,0.0,1.0));
+    float4 farH=mul(camera.view_proj_mat_inv,float4(ndc,1.0,1.0));
+    origin=nearH.xyz/nearH.w;
+    direction=normalize(farH.xyz/farH.w-origin);
+}
+public bool modelPixelTriangleHit(float3 origin,float3 direction,float3 a,float3 e1,float3 e2,
+    out float t,out float2 bary) {
+    float3 p=cross(direction,e2),s=origin-a;
+    float det=dot(e1,p);t=0.0;bary=0.0;
+    if(abs(det)<1e-12)return false;
+    float inv=1.0/det,u=dot(s,p)*inv;
+    float3 q=cross(s,e1);float v=dot(direction,q)*inv;
+    t=dot(e2,q)*inv;bary=float2(u,v);
+    return u>=-1e-6 && v>=-1e-6 && u+v<=1.000001 && t>0.0;
+}
 
-public struct ModelPixelFrame {
-    public float3 center;
-    public float3 axisX;
-    public float3 axisY;
-    public float3 axisZ;
-    public float scale;
-};
-public ModelPixelFrame identityModelPixelFrame() {
-    ModelPixelFrame f;
-    f.center=float3(0.0); f.axisX=float3(1,0,0);
-    f.axisY=float3(0,1,0); f.axisZ=float3(0,0,1); f.scale=1.0;
-    return f;
-}
-public float3 modelPixelWorld(ModelPixelFrame f,float3 p) {
-    // Coverage lives on exact cell boundaries. Keep projection arithmetic
-    // stable when unrelated material branches change compiler contraction.
-    precise float3 world=f.center+f.scale*(f.axisX*p.x+f.axisY*p.y+f.axisZ*p.z);
-    return world;
-}
-public float3 modelPixelLocalVector(ModelPixelFrame f,float3 v) {
-    return float3(dot(v,f.axisX),dot(v,f.axisY),dot(v,f.axisZ));
-}
 public struct ModelPixelHit {
     public uint triangle;
     public float2 bary;
@@ -134,11 +132,15 @@ public ModelPixelPolygon projectModelPixelTriangle(ButterflyMeshTriangle tri,
 // Ordinary model consumers specialize this to a no-op (no buffer/readback).
 public interface IModelPixelProjectionObserver {
     bool enabled();
+    void center(ModelPixelHit hit);
+    void surface(ModelPixelHit hit);
     void triangle(uint source,uint vertices,float4 bounds,uint resolution);
     void fan(uint source,uint index,float3 a,float3 b,float3 c);
 };
 public struct NoModelPixelProjectionObserver : IModelPixelProjectionObserver {
     public bool enabled() { return false; }
+    public void center(ModelPixelHit hit) {}
+    public void surface(ModelPixelHit hit) {}
     public void triangle(uint source,uint vertices,float4 bounds,uint resolution) {}
     public void fan(uint source,uint index,float3 a,float3 b,float3 c) {}
 };
@@ -191,13 +193,16 @@ public ModelPixelHit modelPixelCoverageHit(StructuredBuffer<ButterflyMeshTriangl
         NoModelPixelProjectionObserver());
 }
 
-// Sole production geometry entry point for every model adapter.
+// Sole geometry entry point for cache baking and standalone validation.
 public ModelPixelHit sampleModelPixelGeometry<T : IModelPixelProjectionObserver>(StructuredBuffer<ButterflyMeshTriangle> triangles,
     uint first,uint count,ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,
     U_CameraInfo camera,T observer) {
     ModelPixelHit hit=modelPixelCenterHit(triangles,first,count,frame,bounds,
         float2(pixel)+0.5,resolution,camera);
-    return modelPixelCoverageHit(triangles,first,count,frame,bounds,pixel,resolution,camera,hit,observer);
+    observer.center(hit);
+    hit=modelPixelCoverageHit(triangles,first,count,frame,bounds,pixel,resolution,camera,hit,observer);
+    observer.surface(hit);
+    return hit;
 }
 
 public ModelPixelHit sampleModelPixelGeometry(StructuredBuffer<ButterflyMeshTriangle> triangles,
