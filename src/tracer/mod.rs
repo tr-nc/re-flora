@@ -4613,6 +4613,8 @@ impl Tracer {
         };
 
         let mut prepared_flowers = Vec::new();
+        let mut planned_flower_plants = 0u64;
+        let mut planned_flower_tiles = 0u64;
         if enable_flora {
             let settings = self.flower_model_settings;
             for (chunk_index, (bounds, instances)) in surface_resources
@@ -4638,6 +4640,13 @@ impl Tracer {
                     if count == 0 {
                         continue;
                     }
+                    planned_flower_plants += u64::from(count);
+                    planned_flower_tiles += u64::from(count)
+                        * if settings.heads_only {
+                            crate::flora::models::flowers()[model].heads.len() as u64
+                        } else {
+                            1
+                        };
                     let push = crate::generated::gpu_structs::PushConstantFlowerPixel {
                         chunk_world_offset: instances.chunk_world_offset.to_array(),
                         species: species_index as u32,
@@ -4691,6 +4700,11 @@ impl Tracer {
                     }
                 }
             }
+        }
+
+        if std::env::var_os("RE_FLORA_FLOWER_BENCH").is_some() {
+            static REPORT: std::sync::Once = std::sync::Once::new();
+            REPORT.call_once(|| log::info!("[FLOWER_BENCH_PLAN] plants={planned_flower_plants} tiles={planned_flower_tiles} texels={}",planned_flower_tiles * u64::from(self.flower_model_settings.resolution).pow(2)));
         }
 
         let prepared_flora_descriptors = flora_frame_plan

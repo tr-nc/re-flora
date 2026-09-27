@@ -14,6 +14,7 @@ mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
 mod fallen_leaf_review;
+mod flower_model_bench;
 mod flower_model_review;
 mod foliage_shadow_bench;
 mod frame_timing;
@@ -485,6 +486,7 @@ pub struct App {
     particle_snapshots: Vec<ParticleSnapshot>,
     fallen_leaf_review: Option<fallen_leaf_review::FallenLeafReview>,
     flower_model_review: Option<flower_model_review::FlowerModelReview>,
+    flower_model_bench: Option<flower_model_bench::FlowerModelBench>,
     apple_pixel_review_frame: Option<u32>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
@@ -1533,6 +1535,7 @@ impl App {
             particle_snapshots,
             fallen_leaf_review: fallen_leaf_review::FallenLeafReview::from_env()?,
             flower_model_review: flower_model_review::FlowerModelReview::from_env()?,
+            flower_model_bench: flower_model_bench::FlowerModelBench::from_env()?,
             apple_pixel_review_frame: apple_pixel_review.then_some(0),
             terrain_harvest_particle_handles,
             particle_forces,
@@ -2441,6 +2444,8 @@ impl App {
                 self.prepare_apple_pixel_review();
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
+                self.prepare_flower_model_bench()
+                    .expect("flower model benchmark fixture");
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
