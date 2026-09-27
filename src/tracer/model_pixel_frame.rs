@@ -136,20 +136,25 @@ impl ModelPixelFrame {
         pipeline: &ComputePipeline,
         views: u32,
         apple_resolution: u32,
-        flower_resolution: u32,
+        flowers: crate::flora::models::Settings,
     ) -> Result<()> {
         self.cache.prepare(
             self.storage.frame_slot(),
             cmd,
             pipeline,
-            views,
+            [views, views, views, flowers.views],
             [
                 self.particle_resolutions[0],
                 apple_resolution,
                 self.particle_resolutions[1],
-                flower_resolution,
+                flowers.resolution,
             ],
+            flowers.shape,
         )
+    }
+
+    pub fn flower_root_radius(&self) -> f32 {
+        self.cache.flower_root_radius()
     }
 
     pub fn finish_cache(&self, cmd: &CommandBuffer) {
@@ -349,6 +354,9 @@ impl ModelPixelFrame {
         pose_resources: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
         let cache = self.cache.frame(self.storage.frame_slot());
+        let mut flower_resources = pose_resources.to_vec();
+        flower_resources.push(cache.flower_parts());
+        let pose_resources = flower_resources.as_slice();
         let species = push.species;
         let model = &crate::flora::models::flowers()
             [(species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize];
@@ -412,10 +420,12 @@ impl ModelPixelFrame {
             )?);
         }
         let stems = if push.heads_only != 0 && count > 0 {
+            let mut stem_resources = pose_resources.to_vec();
+            stem_resources.push(cache.flower_triangles());
             Some(PreparedModelPixels {
                 pipeline: stem_pipeline.clone(),
                 draws: vec![PixelDraw {
-                    descriptors: stem_pipeline.prepare_draw_descriptors(cmdbuf, pose_resources)?,
+                    descriptors: stem_pipeline.prepare_draw_descriptors(cmdbuf, &stem_resources)?,
                     first: 0,
                     count,
                     push: None,
@@ -711,6 +721,42 @@ mod tests {
                 .unwrap()
                 .is_empty());
             assert!(storage.flowers([0, 0, 0], 4, 1, 0, allocate).is_err());
+        }
+    }
+
+    #[test]
+    fn flower_tiles_grow_and_shrink_without_retiring_another_pending_slot() {
+        let mut storage = ModelPixelStorage::default();
+        let mut previous = [None, None];
+        for resolution in [8, 64, 32, 8] {
+            for slot in 0..2 {
+                storage.begin_frame(slot);
+                let (_, tiles, objects) = publish(
+                    storage
+                        .flowers([0; 3], 4, 3, resolution, allocate)
+                        .unwrap()
+                        .remove(0),
+                );
+                assert_eq!(
+                    *tiles,
+                    (3usize * resolution as usize * resolution as usize).next_power_of_two()
+                );
+                assert_eq!(*objects, 16);
+                if let Some(old) = previous[slot].take() {
+                    let old: std::sync::Weak<usize> = old;
+                    assert!(
+                        old.upgrade().is_none(),
+                        "completed slot's replaced tile retired"
+                    );
+                }
+                if let Some(other) = &previous[1 - slot] {
+                    assert!(
+                        other.upgrade().is_some(),
+                        "pending slot must retain its tiles"
+                    );
+                }
+                previous[slot] = Some(Arc::downgrade(&tiles));
+            }
         }
     }
 

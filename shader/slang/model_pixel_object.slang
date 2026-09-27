@@ -11,6 +11,7 @@ import tracer_types;
 [[vk::binding(3,0)]] public ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4,0)]] public ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 import model_pixel_views;
+import model_pixel_cache;
 // Compute uses one read/write binding; graphics uses a separate NonWritable declaration.
 [[vk::binding(6,1)]] public RWStructuredBuffer<float4> model_object_samples;
 public ModelPixelView modelObjectView(uint index) {
@@ -21,7 +22,7 @@ float3 rotateBetween(float3 a,float3 b,float3 v) {
     float3 c=cross(a,b);
     return v+cross(c,v)+cross(c,cross(c,v))/max(1.0+dot(a,b),1e-6);
 }
-public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientation,bool apple) {
+public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientation,bool apple,uint source) {
     float4 light=float4(0.);
     {
         // One spatial lookup per object; no per-texel external-shadow queries.
@@ -35,8 +36,9 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
     model_object_samples[index*4u]=light;
     float3 delta=camera_info.pos.xyz-pivot;
     float3 view=length(delta)>1e-8?normalize(delta):orientation.axisZ;
-    uint viewIndex=nearestModelView(modelPixelLocalVector(orientation,view),gui_input.model_pixel_view_count);
-    ModelPixelView canonical=canonicalModelView(viewIndex,gui_input.model_pixel_view_count);
+    uint views=modelSourceViewCount(source);
+    uint viewIndex=nearestModelView(modelPixelLocalVector(orientation,view),views);
+    ModelPixelView canonical=canonicalModelView(viewIndex,views);
     float3 chosen=canonical.z,localX=canonical.x,localY=canonical.y;
     float3 x=orientation.axisX*localX.x+orientation.axisY*localX.y+orientation.axisZ*localX.z;
     float3 y=orientation.axisX*localY.x+orientation.axisY*localY.y+orientation.axisZ*localY.z;

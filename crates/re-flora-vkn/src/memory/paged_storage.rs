@@ -110,6 +110,12 @@ impl GpuPagedStorage {
             len:count,stride:plan.stride,page_shift:plan.page_shift};
         Ok(GpuStorageAllocation(Arc::new(AllocationInner{handle,table,blocks,bytes})))
     }
+    /// Diagnostic payload + page-table bytes retained by all submitted/active
+    /// frame slots, counting shared allocations once (not allocator heap size).
+    pub fn resident_bytes(&self) -> u64 {
+        self.residency.frames.iter().flat_map(|frame| frame.iter())
+            .collect::<HashMap<_, _>>().values().map(|a| a.resident_bytes()).sum()
+    }
     pub fn begin_frame(&mut self,slot:usize) {self.residency.begin(slot);}
     pub fn use_in_frame(&mut self,slot:usize,cmd:&CommandBuffer,allocation:&GpuStorageAllocation,usage:BufferUse) {
         self.residency.retain(slot,Arc::as_ptr(&allocation.0) as usize,allocation);

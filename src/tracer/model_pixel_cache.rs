@@ -1,7 +1,11 @@
 //! Shared immutable model surfaces, restored from f7b7e036 and extended to flowers.
 //! ModelPixelFrame owns this cache; PipelineTopology owns its bake pipeline.
 //! GpuPagedStorage owns allocation/addressing and ready-slot residency.
-use crate::{model_assets, resource::Resource};
+use crate::{
+    flora::models::{self, Shape},
+    model_assets,
+    resource::Resource,
+};
 use anyhow::{ensure, Context, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec2, Vec3};
@@ -71,13 +75,21 @@ fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [Vec2; 3], material: u32) -> T
         uv2: [uv[2].x, uv[2].y, material as f32, 0.],
     }
 }
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FlowerPart {
+    range: [u32; 4],
+    center_radius: [f32; 4],
+}
 pub(super) struct Source {
     pub(super) triangles: Vec<Triangle>,
     pub(super) ranges: Vec<[u32; 4]>,
     pub(super) frames: Vec<[f32; 4]>,
     palette: Vec<[f32; 4]>,
+    flower_parts: Vec<FlowerPart>,
+    flower_root_radius: f32,
 }
-pub(super) fn source() -> Source {
+pub(super) fn source(shape: Shape) -> Source {
     let mut triangles = Vec::new();
     let mut ranges = Vec::new();
     let mut frames = Vec::new();
@@ -133,8 +145,30 @@ pub(super) fn source() -> Source {
         ranges.push([start, triangles.len() as u32 - start, 2, frame]);
         frames.push([0., 0., 0., 1.7]);
     }
-    for (model, flower) in crate::flora::models::flowers().iter().enumerate() {
+    let mut flower_parts = Vec::new();
+    let mut flower_root_radius = 4f32; // Preserve the old minimum culling margin.
+    for (model, authored) in models::flowers().iter().enumerate() {
+        let flower = authored.transformed(shape);
         let first = triangles.len() as u32;
+        for p in flower.triangles.iter().flat_map(|t| t.positions) {
+            flower_root_radius = flower_root_radius.max(p.length() * 1.06);
+        }
+        for part_index in 0..=models::MAX_HEADS {
+            let part = if part_index == 0 {
+                Some(&flower.whole)
+            } else {
+                flower.heads.get(part_index - 1)
+            };
+            flower_parts.push(part.map_or(FlowerPart::zeroed(), |part| FlowerPart {
+                range: [
+                    first + part.triangles.start,
+                    part.triangles.end - part.triangles.start,
+                    flower_source(model, part_index),
+                    flower.heads.len() as u32,
+                ],
+                center_radius: part.center.extend(part.radius).to_array(),
+            }));
+        }
         for t in &flower.triangles {
             let mut gpu = triangle(t.positions, [t.normal; 3], [Vec2::ZERO; 3], 0);
             gpu.uv01 = [
@@ -173,6 +207,8 @@ pub(super) fn source() -> Source {
         ranges,
         frames,
         palette,
+        flower_parts,
+        flower_root_radius,
     }
 }
 fn buffer(device: &Device, allocator: &Allocator, bytes: usize) -> Result<Arc<Buffer>> {
@@ -194,6 +230,7 @@ pub struct CacheResources {
     pub model_bake_evidence: Resource<Buffer>,
     pub model_cache_validation: Resource<Buffer>,
     pub model_cache_entries: Resource<Buffer>,
+    pub model_view_azimuths: Resource<Buffer>,
 }
 impl CacheResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -209,11 +246,13 @@ impl CacheResources {
                 .expect("immutable model cache source");
             Resource::new(b)
         };
-        let s = source();
+        let s = source(Shape::default());
         Self {
-            model_bake_triangles: upload(bytemuck::cast_slice(&s.triangles)),
-            model_bake_ranges: upload(bytemuck::cast_slice(&s.ranges)),
-            model_bake_frames: upload(bytemuck::cast_slice(&s.frames)),
+            // Only initial descriptors; real immutable generations are frame-owned.
+            model_bake_triangles: upload(&[0; 128]),
+            model_bake_ranges: upload(&[0; 16]),
+            model_bake_frames: upload(&[0; 16]),
+            model_view_azimuths: upload(&[0; 16]),
             model_cache_sources: upload(bytemuck::cast_slice(
                 &s.ranges.iter().map(|r| [r[2], r[3]]).collect::<Vec<_>>(),
             )),
@@ -224,11 +263,24 @@ impl CacheResources {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Spec {
     pub(super) kind: u32,
     pub(super) resolution: u32,
     pub(super) views: u32,
+    pub(super) shape: Shape,
+}
+fn requested_specs(views: [u32; KINDS], resolutions: [u32; KINDS], shape: Shape) -> [Spec; KINDS] {
+    std::array::from_fn(|kind| Spec {
+        kind: kind as u32,
+        resolution: resolutions[kind],
+        views: views[kind],
+        shape: if kind == 3 {
+            shape.normalized()
+        } else {
+            Shape::default()
+        },
+    })
 }
 impl Spec {
     fn records(self) -> Result<u64> {
@@ -262,14 +314,93 @@ struct BakePush {
     verify: u32,
     evidence_stride: u32,
 }
+struct SourceGeneration {
+    shape: Shape,
+    cpu: Source,
+    triangles: Arc<Buffer>,
+    ranges: Arc<Buffer>,
+    frames: Arc<Buffer>,
+    parts: Arc<Buffer>,
+    evidence_placeholder: Arc<Buffer>,
+}
+impl SourceGeneration {
+    fn new(device: &Device, allocator: &Allocator, shape: Shape) -> Result<Self> {
+        let cpu = source(shape);
+        let upload = |bytes: &[u8]| -> Result<Arc<Buffer>> {
+            let b = buffer(device, allocator, bytes.len())?;
+            b.fill_range_with_raw_u8(0, bytes)?;
+            Ok(b)
+        };
+        Ok(Self {
+            shape,
+            triangles: upload(bytemuck::cast_slice(&cpu.triangles))?,
+            ranges: upload(bytemuck::cast_slice(&cpu.ranges))?,
+            frames: upload(bytemuck::cast_slice(&cpu.frames))?,
+            parts: upload(bytemuck::cast_slice(&cpu.flower_parts))?,
+            evidence_placeholder: upload(&[0; 16])?,
+            cpu,
+        })
+    }
+    fn bake_bindings<'a>(
+        &'a self,
+        directions: &'a Directions,
+        validation: &'a Buffer,
+        evidence: &'a Buffer,
+    ) -> [(&'static str, DescriptorResource<'a>); 6] {
+        [
+            (
+                "model_bake_triangles",
+                DescriptorResource::Buffer(&self.triangles),
+            ),
+            (
+                "model_bake_ranges",
+                DescriptorResource::Buffer(&self.ranges),
+            ),
+            (
+                "model_bake_frames",
+                DescriptorResource::Buffer(&self.frames),
+            ),
+            (
+                "model_view_azimuths",
+                DescriptorResource::Buffer(&directions.buffer),
+            ),
+            (
+                "model_cache_validation",
+                DescriptorResource::Buffer(validation),
+            ),
+            ("model_bake_evidence", DescriptorResource::Buffer(evidence)),
+        ]
+    }
+}
+struct Directions {
+    count: u32,
+    buffer: Arc<Buffer>,
+}
+impl Directions {
+    fn new(device: &Device, allocator: &Allocator, count: u32) -> Result<Self> {
+        let buffer = buffer(device, allocator, count as usize * 16)?;
+        buffer.fill(&super::model_pixel_views::azimuths(count))?;
+        log::info!(
+            "[MODEL_CACHE_DIRECTIONS] count={count} bytes={} demand_sized=true",
+            buffer.get_size_bytes()
+        );
+        Ok(Self { count, buffer })
+    }
+}
 #[derive(Clone)]
 pub(super) struct CacheFrame {
     validation: Arc<Buffer>,
     entries: Arc<Buffer>,
+    source: Arc<SourceGeneration>,
+    directions: Arc<Directions>,
 }
 impl CacheFrame {
-    pub fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 2] {
+    pub fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 3] {
         [
+            (
+                "model_view_azimuths",
+                DescriptorResource::Buffer(&self.directions.buffer),
+            ),
             (
                 "model_cache_entries",
                 DescriptorResource::Buffer(&self.entries),
@@ -280,6 +411,18 @@ impl CacheFrame {
             ),
         ]
     }
+    pub fn flower_parts(&self) -> (&'static str, DescriptorResource<'_>) {
+        (
+            "flower_parts",
+            DescriptorResource::Buffer(&self.source.parts),
+        )
+    }
+    pub fn flower_triangles(&self) -> (&'static str, DescriptorResource<'_>) {
+        (
+            "flower_triangles",
+            DescriptorResource::Buffer(&self.source.triangles),
+        )
+    }
 }
 pub(super) struct ModelPixelCache {
     device: Device,
@@ -287,7 +430,9 @@ pub(super) struct ModelPixelCache {
     storage: GpuPagedStorage,
     active: [Option<(Spec, GpuStorageAllocation)>; KINDS],
     frames: Vec<Option<CacheFrame>>,
-    diagnostics: Vec<Vec<(Spec, Arc<Buffer>)>>,
+    diagnostics: Vec<Vec<(Spec, Arc<SourceGeneration>, Arc<Buffer>)>>,
+    source: Option<Arc<SourceGeneration>>,
+    directions: Option<Arc<Directions>>,
     review: bool,
 }
 impl ModelPixelCache {
@@ -299,6 +444,8 @@ impl ModelPixelCache {
             active: std::array::from_fn(|_| None),
             frames: Vec::new(),
             diagnostics: Vec::new(),
+            source: None,
+            directions: None,
             review: std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some(),
         }
     }
@@ -309,16 +456,34 @@ impl ModelPixelCache {
         slot: usize,
         cmd: &CommandBuffer,
         pipeline: &ComputePipeline,
-        views: u32,
+        views: [u32; KINDS],
         resolutions: [u32; KINDS],
+        shape: Shape,
     ) -> Result<()> {
         while self.frames.len() <= slot {
             self.frames.push(None);
             self.diagnostics.push(Vec::new());
         }
-        for (spec, evidence) in self.diagnostics[slot].drain(..) {
-            super::model_pixel_bake_validation::validate(spec, &evidence.read_back()?)?;
+        for (spec, source, evidence) in self.diagnostics[slot].drain(..) {
+            super::model_pixel_bake_validation::validate(
+                spec,
+                &source.cpu,
+                &evidence.read_back()?,
+            )?;
         }
+        let requested = requested_specs(views, resolutions, shape);
+        for spec in requested {
+            spec.records()?;
+        }
+        let source = match &self.source {
+            Some(old) if old.shape == shape => old.clone(),
+            _ => Arc::new(SourceGeneration::new(&self.device, &self.allocator, shape)?),
+        };
+        let count = *views.iter().max().unwrap();
+        let directions = match &self.directions {
+            Some(old) if old.count == count => old.clone(),
+            _ => Arc::new(Directions::new(&self.device, &self.allocator, count)?),
+        };
         if let Some(frame) = &self.frames[slot] {
             if self.review {
                 let bytes = frame.validation.read_back()?;
@@ -356,6 +521,8 @@ impl ModelPixelCache {
                     &self.allocator,
                     KINDS * std::mem::size_of::<Entry>(),
                 )?,
+                source: source.clone(),
+                directions: directions.clone(),
             });
         }
         self.storage.begin_frame(slot);
@@ -365,11 +532,11 @@ impl ModelPixelCache {
             .unwrap()
             .validation
             .fill(&[0u32; KINDS * 4])?;
-        let requested: [Spec; KINDS] = std::array::from_fn(|kind| Spec {
-            kind: kind as u32,
-            resolution: resolutions[kind],
-            views,
-        });
+        // Replace only this completed slot's source/direction leases. Other slots
+        // and native transient descriptors keep old immutable buffers alive.
+        let frame = self.frames[slot].as_mut().unwrap();
+        frame.source = source.clone();
+        frame.directions = directions.clone();
         let mut replacements = Vec::new();
         for spec in requested {
             if self.active[spec.kind as usize]
@@ -388,34 +555,32 @@ impl ModelPixelCache {
             let push = BakePush {
                 kind: spec.kind,
                 resolution: spec.resolution,
-                views,
+                views: spec.views,
                 shapes: SHAPES[spec.kind as usize],
                 storage: allocation.handle(),
                 verify: 0,
                 evidence_stride: 0,
             };
-            pipeline.record(
+            let descriptors =
+                source.bake_bindings(&directions, &frame.validation, &source.evidence_placeholder);
+            pipeline.record_with_descriptors(
                 cmd,
-                Extent3D::new(spec.resolution, spec.resolution, views * push.shapes),
+                &descriptors,
+                Extent3D::new(spec.resolution, spec.resolution, spec.views * push.shapes),
                 Some(bytemuck::bytes_of(&push)),
-            );
+            )?;
             if self.review {
                 self.storage
                     .use_in_frame(slot, cmd, allocation, BufferUse::ComputeRead);
-                let (stride, cases) = super::model_pixel_bake_validation::layout(*spec);
+                let (stride, cases) =
+                    super::model_pixel_bake_validation::layout(*spec, &source.cpu);
                 let evidence = buffer(&self.device, &self.allocator, stride * cases * 16)?;
-                let descriptors = [
-                    (
-                        "model_cache_validation",
-                        DescriptorResource::Buffer(&self.frames[slot].as_ref().unwrap().validation),
-                    ),
-                    ("model_bake_evidence", DescriptorResource::Buffer(&evidence)),
-                ];
+                let descriptors = source.bake_bindings(&directions, &frame.validation, &evidence);
                 let verify = BakePush { verify: 1, ..push };
                 pipeline.record_with_descriptors(
                     cmd,
                     &descriptors,
-                    Extent3D::new(spec.resolution, spec.resolution, views * push.shapes),
+                    Extent3D::new(spec.resolution, spec.resolution, spec.views * push.shapes),
                     Some(bytemuck::bytes_of(&verify)),
                 )?;
                 let diagnostic = BakePush {
@@ -430,9 +595,9 @@ impl ModelPixelCache {
                     Some(bytemuck::bytes_of(&diagnostic)),
                 )?;
                 cmd.use_buffer(&evidence, BufferUse::HostRead);
-                self.diagnostics[slot].push((*spec, evidence));
+                self.diagnostics[slot].push((*spec, source.clone(), evidence));
             }
-            log::info!("[MODEL_CACHE_BUILD] kind={} views={views} resolution={} shapes={} bytes={} blocks={} resident_bytes={} version={FORMAT_VERSION}",spec.kind,spec.resolution,push.shapes,spec.records()?*SURFACE_BYTES,allocation.block_count(),allocation.resident_bytes());
+            log::info!("[MODEL_CACHE_BUILD] kind={} views={} resolution={} shapes={} bytes={} blocks={} resident_bytes={} version={FORMAT_VERSION} head_scale={} height_scale={}",spec.kind,spec.views,spec.resolution,push.shapes,spec.records()?*SURFACE_BYTES,allocation.block_count(),allocation.resident_bytes(),spec.shape.head_scale,spec.shape.height_scale);
         }
         for (spec, allocation) in replacements {
             self.active[spec.kind as usize] = Some((spec, allocation));
@@ -451,7 +616,26 @@ impl ModelPixelCache {
             };
         }
         self.frames[slot].as_ref().unwrap().entries.fill(&entries)?;
+        self.source = Some(source);
+        self.directions = Some(directions);
+        if self.review {
+            let active: u64 = self
+                .active
+                .iter()
+                .flatten()
+                .map(|(_, a)| a.resident_bytes())
+                .sum();
+            let direction = self.directions.as_ref().unwrap();
+            log::info!("[MODEL_CACHE_RESIDENCY] slot={slot} active_bytes={active} retained_bytes={} direction_count={} direction_bytes={}", self.storage.resident_bytes(), direction.count, direction.buffer.get_size_bytes());
+        }
         Ok(())
+    }
+    pub fn flower_root_radius(&self) -> f32 {
+        self.source
+            .as_ref()
+            .expect("prepared flower source")
+            .cpu
+            .flower_root_radius
     }
     pub fn frame(&self, slot: usize) -> CacheFrame {
         self.frames[slot]
@@ -473,7 +657,7 @@ mod tests {
     use super::*;
     #[test]
     fn all_consumers_have_shared_canonical_sources() {
-        let s = source();
+        let s = source(Shape::default());
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
         assert_eq!(model_assets::LEAF_VARIANT_COUNT, SHAPES[0] as usize);
         assert_eq!(s.ranges.len(), SHAPES.iter().sum::<u32>() as usize);
@@ -505,6 +689,107 @@ mod tests {
         }
     }
     #[test]
+    fn flower_controls_only_invalidate_the_flower_bank_and_size_current_demand() {
+        let baseline = requested_specs([16; KINDS], [32; KINDS], Shape::default());
+        for (views, resolution, shape) in [
+            (512, 8, Shape::default()),
+            (8, 64, Shape::default()),
+            (
+                16,
+                32,
+                Shape {
+                    head_scale: 2.,
+                    height_scale: 1.,
+                },
+            ),
+            (
+                16,
+                32,
+                Shape {
+                    head_scale: 1.,
+                    height_scale: 2.,
+                },
+            ),
+        ] {
+            let specs = requested_specs([16, 16, 16, views], [32, 32, 32, resolution], shape);
+            assert_eq!(&specs[..3], &baseline[..3]);
+            assert_ne!(specs[3], baseline[3]);
+            assert_eq!(
+                specs[3].records().unwrap(),
+                u64::from(SHAPES[3]) * u64::from(views) * u64::from(resolution).pow(2)
+            );
+            assert_eq!(
+                super::super::model_pixel_views::azimuths(views.max(16)).len(),
+                views.max(16) as usize
+            );
+        }
+        // Global view changes no longer modify the independently configured flower bank.
+        assert_eq!(
+            requested_specs([512, 512, 512, 16], [32; KINDS], Shape::default())[3],
+            baseline[3]
+        );
+    }
+
+    #[test]
+    fn transformed_native_stems_and_both_cached_modes_share_exact_source_and_bounds() {
+        let base = source(Shape::default());
+        for shape in [
+            Shape::default(),
+            Shape {
+                head_scale: 0.25,
+                height_scale: 4.,
+            },
+            Shape {
+                head_scale: 4.,
+                height_scale: 0.25,
+            },
+        ] {
+            let s = source(shape);
+            let first = s.ranges[FLOWER_SOURCE_BASE as usize][0] as usize;
+            assert_eq!(
+                bytemuck::cast_slice::<_, u8>(&s.triangles[..first]),
+                bytemuck::cast_slice::<_, u8>(&base.triangles[..first])
+            );
+            assert_eq!(s.palette, base.palette);
+            assert_eq!(s.ranges, base.ranges);
+            for (model, authored) in models::flowers().iter().enumerate() {
+                let flower = authored.transformed(shape);
+                let whole = &s.flower_parts[model * 4];
+                for (i, triangle) in flower.triangles.iter().enumerate() {
+                    let stored = s.triangles[whole.range[0] as usize + i];
+                    assert_eq!(stored.a, triangle.positions[0].extend(0.).to_array());
+                    assert_eq!(
+                        stored.e1,
+                        (triangle.positions[1] - triangle.positions[0])
+                            .extend(0.)
+                            .to_array()
+                    );
+                    assert_eq!(stored.normals[0], triangle.normal.extend(0.).to_array());
+                    assert!(triangle
+                        .positions
+                        .iter()
+                        .all(|p| p.length() < s.flower_root_radius));
+                }
+                for (part, p) in std::iter::once(&flower.whole)
+                    .chain(&flower.heads)
+                    .enumerate()
+                {
+                    let native = &s.flower_parts[model * 4 + part];
+                    let index = native.range[2] as usize;
+                    assert_eq!(native.range[..2], s.ranges[index][..2]);
+                    assert_eq!(native.center_radius, s.frames[index]);
+                    assert_eq!(native.center_radius, p.center.extend(p.radius).to_array());
+                }
+            }
+        }
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 32);
+        assert_eq!(
+            std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlowerPixel>(),
+            48
+        );
+    }
+
+    #[test]
     fn frame_selection_wraps_with_bounded_error() {
         for i in -1000..1000 {
             let p = i as f32 / 317.;
@@ -525,6 +810,7 @@ mod tests {
                         kind: kind as u32,
                         resolution,
                         views,
+                        shape: Shape::default(),
                     };
                     assert_eq!(
                         s.records().unwrap(),
@@ -537,7 +823,8 @@ mod tests {
             Spec {
                 kind: 0,
                 resolution: 64,
-                views: 512
+                views: 512,
+                shape: Shape::default(),
             }
             .records()
             .unwrap()
@@ -547,7 +834,8 @@ mod tests {
         assert!(Spec {
             kind: 0,
             resolution: 16,
-            views: 0
+            views: 0,
+            shape: Shape::default(),
         }
         .records()
         .is_err());

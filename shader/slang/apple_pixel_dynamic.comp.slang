@@ -3,6 +3,7 @@ import apple_pixel_frame;
 import apple_pixel_tile;
 import tracer_types;
 import model_pixel_object;
+import model_cache_types;
 struct ApplePass { uint prepare; };
 [[vk::push_constant]] ConstantBuffer<ApplePass> apple_pass;
 // Same packed 44-byte stream used for the vertex attributes. Scalar loads avoid
@@ -19,7 +20,7 @@ void main(uint3 id:SV_DispatchThreadID) {
     float4 rotation=float4(dynamic_fruit_pixel_instances[b+7],dynamic_fruit_pixel_instances[b+8],dynamic_fruit_pixel_instances[b+9],dynamic_fruit_pixel_instances[b+10]);
     ApplePixelVertex pose=appleDynamicPose(center,rotation,dynamic_fruit_pixel_instances[b+6],n,id.z);
     if(apple_pass.prepare!=0u) {
-        if(all(id.xy==uint2(0)))prepareModelObject(id.z,pose.center,appleModelFrame(pose),true);
+        if(all(id.xy==uint2(0)))prepareModelObject(id.z,pose.center,appleModelFrame(pose),true,APPLE_MODEL_SOURCE);
         return;
     }
     model_pixel_tiles[(id.z*n+id.y)*n+id.x]=sampleAppleModel(pose,id.xy);

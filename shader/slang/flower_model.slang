@@ -36,7 +36,7 @@ public struct PushConstantFlower {
 [[vk::binding(6,0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(7,0)]] ConstantBuffer<U_WindVolumeInfo> wind_volume_info;
 [[vk::binding(8,0)]] Sampler3D wind_volume_tex;
-[[vk::binding(79,0)]] public StructuredBuffer<FlowerModelPart> flower_parts;
+[[vk::binding(15,1)]] public StructuredBuffer<FlowerModelPart> flower_parts;
 struct B_ManualFlowerInstances { Instance data[]; };
 [[vk::binding(0,1)]] readonly GLSLShaderStorageBuffer<B_ManualFlowerInstances,Std430DataLayout> flora_instances;
 

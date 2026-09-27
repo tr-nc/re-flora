@@ -16,7 +16,7 @@ void main(uint3 id:SV_DispatchThreadID) {
     float3 pivot=modelPixelWorld(frame,part.center_radius.xyz);
     float radius=part.center_radius.w*frame.scale;
     if(flower_pc.prepare_object!=0u) {
-        if(all(id.xy==uint2(0)))prepareModelObject(tile,pivot,frame,true);
+        if(all(id.xy==uint2(0)))prepareModelObject(tile,pivot,frame,true,part.range.z);
         return;
     }
     uint n=flower_pc.resolution;

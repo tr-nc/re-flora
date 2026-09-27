@@ -62,6 +62,9 @@ const LEAF_FREQUENCY_CURVE: &[&str] = &[
 const MODEL_FLOWERS: &[&str] = &[
     "model_flower_heads_only",
     "model_flower_pixel_resolution",
+    "model_flower_view_count",
+    "model_flower_head_scale",
+    "model_flower_height_scale",
     "model_flower_size_scale",
 ];
 const PARAM_GROUPS: &[&[&str]] = &[

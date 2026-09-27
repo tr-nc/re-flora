@@ -100,7 +100,6 @@ pub struct ButterflyMeshResources {
     pub model_object_samples: Resource<Buffer>,
     pub model_object_view_samples: Resource<Buffer>,
     pub draw_indices: Resource<Buffer>,
-    pub model_view_azimuths: Resource<Buffer>,
 }
 impl ButterflyMeshResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -123,15 +122,7 @@ impl ButterflyMeshResources {
             4,
         );
         draw_indices.fill(&[0u32]).unwrap();
-        let model_view_azimuths = buffer(
-            super::model_pixel_views::MAX_VIEWS as usize * 16,
-            MemoryLocation::CpuToGpu,
-        );
-        model_view_azimuths
-            .fill(&super::model_pixel_views::azimuths())
-            .expect("model view directions");
         Self {
-            model_view_azimuths,
             draw_indices: Resource::new(draw_indices),
             butterfly_mesh_instances: buffer(
                 std::mem::size_of::<Instance>(),

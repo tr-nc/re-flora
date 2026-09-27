@@ -14,6 +14,9 @@ pub const WORLD_SCALE: f32 = 10.0 / 256.0;
 pub struct Settings {
     pub heads_only: bool,
     pub resolution: u32,
+    pub views: u32,
+    pub shape: Shape,
+    /// Legacy saved overall scale: still multiplies the entire plant at runtime.
     pub size_scale: f32,
 }
 impl Default for Settings {
@@ -21,6 +24,8 @@ impl Default for Settings {
         Self {
             heads_only: true,
             resolution: 32,
+            views: 16,
+            shape: Shape::default(),
             size_scale: 1.0,
         }
     }
@@ -29,6 +34,8 @@ impl Settings {
     pub fn normalized(self) -> Self {
         Self {
             resolution: self.resolution.clamp(8, 64),
+            views: self.views.clamp(8, 512),
+            shape: self.shape.normalized(),
             size_scale: if self.size_scale.is_finite() {
                 self.size_scale.clamp(0.5, 2.0)
             } else {
@@ -293,6 +300,7 @@ mod tests {
             heads_only: false,
             resolution: 0,
             size_scale: f32::NAN,
+            ..Settings::default()
         }
         .normalized();
         assert!(!settings.heads_only);

@@ -8,9 +8,9 @@ import model_pixel_projection;
 import model_bake_triangle;
 import model_cache_types;
 import model_pixel_views;
-[[vk::binding(84,0)]] public StructuredBuffer<ButterflyMeshTriangle> model_bake_triangles;
-[[vk::binding(85,0)]] public StructuredBuffer<uint4> model_bake_ranges;
-[[vk::binding(86,0)]] StructuredBuffer<float4> model_bake_frames;
+[[vk::binding(18,1)]] public StructuredBuffer<ButterflyMeshTriangle> model_bake_triangles;
+[[vk::binding(19,1)]] public StructuredBuffer<uint4> model_bake_ranges;
+[[vk::binding(20,1)]] StructuredBuffer<float4> model_bake_frames;
 public ModelBakedSurface bakeModelSurface<T : IModelPixelProjectionObserver>(uint source,uint views,uint view,uint n,uint2 pixel,T observer) {
     uint4 range=model_bake_ranges[source]; uint kind=range.z;
     float4 frame=model_bake_frames[source];

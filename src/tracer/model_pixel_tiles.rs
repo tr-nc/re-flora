@@ -312,16 +312,23 @@ impl<B: Clone> ModelPixelStorage<B> {
             "model batch prepared twice in one frame"
         );
         let previous = slot.batches.get(&identity);
-        let mut allocation =
-            |previous: Option<&Allocation<B>>, required| -> Result<Allocation<B>> {
-                if let Some(previous) = previous.filter(|a| a.capacity >= required) {
-                    return Ok(previous.clone());
-                }
-                Ok(Allocation {
-                    buffer: allocate(required)?,
-                    capacity: required,
-                })
-            };
+        let mut allocation = |previous: Option<&Allocation<B>>,
+                              required|
+         -> Result<Allocation<B>> {
+            // Flower resolution/head mode are live controls: release their
+            // high-water tiles when shrinking, in this already-ready slot.
+            // Other dynamic populations retain their existing reuse policy.
+            if let Some(previous) = previous.filter(|a| {
+                a.capacity == required
+                    || (!matches!(identity, BatchIdentity::Flowers(..)) && a.capacity >= required)
+            }) {
+                return Ok(previous.clone());
+            }
+            Ok(Allocation {
+                buffer: allocate(required)?,
+                capacity: required,
+            })
+        };
         let pair = StoragePair {
             tiles: allocation(previous.map(|p| &p.tiles), tile_capacity)?,
             objects: allocation(previous.map(|p| &p.objects), object_capacity)?,

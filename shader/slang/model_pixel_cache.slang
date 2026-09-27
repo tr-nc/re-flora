@@ -12,6 +12,9 @@ struct ModelCacheEntry {
 [[vk::binding(10,1)]] RWStructuredBuffer<uint> model_cache_validation;
 [[vk::binding(87,0)]] StructuredBuffer<uint2> model_cache_sources;
 [[vk::binding(88,0)]] public StructuredBuffer<float4> model_cache_palette;
+public uint modelSourceViewCount(uint source) {
+    return model_cache_entries[model_cache_sources[source].x].views;
+}
 public ModelBakedSurface modelSurface(uint source,uint view,uint n,uint2 pixel) {
     uint2 key=model_cache_sources[source];
     ModelCacheEntry entry=model_cache_entries[key.x];

@@ -3058,10 +3058,13 @@ impl Tracer {
         let flowers = vegetation.appearance.model_flowers.normalized();
         if flowers != self.flower_model_settings {
             log::info!(
-                "[FLOWER_MODE] heads_only={} resolution={} size={} pose=shared live_switch=true",
+                "[FLOWER_MODE] heads_only={} resolution={} size={} views={} head_scale={} height_scale={} pose=shared live_switch=true",
                 flowers.heads_only,
                 flowers.resolution,
-                flowers.size_scale
+                flowers.size_scale,
+                flowers.views,
+                flowers.shape.head_scale,
+                flowers.shape.height_scale
             );
         }
         self.flower_model_settings = flowers;
@@ -3453,7 +3456,7 @@ impl Tracer {
                     &self.pipeline_topology.compute().model_pixel_bake_ppl,
                     self.model_pixel_view_count,
                     self.apple_pixel_resolution,
-                    self.flower_model_settings.resolution,
+                    self.flower_model_settings,
                 )
             },
         )?;
@@ -4637,8 +4640,11 @@ impl Tracer {
                 .iter()
                 .enumerate()
             {
-                let padding =
-                    Vec3::splat(4.0 * crate::flora::models::WORLD_SCALE * settings.size_scale);
+                let padding = Vec3::splat(
+                    self.model_pixel_frame.flower_root_radius()
+                        * crate::flora::models::WORLD_SCALE
+                        * settings.size_scale,
+                );
                 let bounds =
                     crate::geom::Aabb3::new(bounds.min() - padding, bounds.max() + padding);
                 if !bounds.is_inside_frustum(self.current_view_proj_mat)

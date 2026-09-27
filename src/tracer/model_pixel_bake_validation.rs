@@ -1,5 +1,5 @@
 //! Independent bake-only CPU oracle. No instances, frame rendering or shader fallback.
-use super::model_pixel_cache::{source, Spec, Triangle};
+use super::model_pixel_cache::{Source, Spec, Triangle};
 use super::model_pixel_repair;
 use anyhow::{ensure, Result};
 #[cfg(test)]
@@ -271,8 +271,7 @@ fn bake_coverage_depths(groups: &[model_pixel_repair::Group], n: usize) -> Vec<O
 
 /// Two canonical directions per authored source, at the actual requested resolution.
 /// Full bit validation covers every other direction in the bake compute pass.
-pub(super) fn layout(spec: Spec) -> (usize, usize) {
-    let sources = source();
+pub(super) fn layout(spec: Spec, sources: &Source) -> (usize, usize) {
     let ranges: Vec<_> = sources
         .ranges
         .iter()
@@ -285,12 +284,11 @@ pub(super) fn layout(spec: Spec) -> (usize, usize) {
     )
 }
 
-pub(super) fn validate(spec: Spec, bytes: &[u8]) -> Result<()> {
+pub(super) fn validate(spec: Spec, s: &Source, bytes: &[u8]) -> Result<()> {
     let data: &[[f32; 4]] =
         bytemuck::try_cast_slice(bytes).map_err(|e| anyhow::anyhow!("bake evidence ABI: {e}"))?;
-    let (stride, cases) = layout(spec);
+    let (stride, cases) = layout(spec, s);
     ensure!(data.len() == stride * cases, "incomplete bake evidence");
-    let s = source();
     let n = spec.resolution as usize;
     let mut checked = 0;
     let mut centers = 0;
@@ -312,7 +310,7 @@ pub(super) fn validate(spec: Spec, bytes: &[u8]) -> Result<()> {
     {
         for side in 0..2 {
             let view = if side == 0 { 0 } else { spec.views - 1 };
-            let az = super::model_pixel_views::azimuths()[view as usize];
+            let az = super::model_pixel_views::azimuth(view);
             let y = 1. - 2. * (view as f32 + 0.5) / spec.views as f32;
             let r = (1. - y * y).max(0.).sqrt();
             let z = Vec3::new(az[0] * r, y, az[1] * r);

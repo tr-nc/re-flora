@@ -86,6 +86,11 @@ pub(super) fn freeze_render_frame_inputs(
             model_flowers: crate::flora::models::Settings {
                 heads_only: gui.model_flower_heads_only.value,
                 resolution: gui.model_flower_pixel_resolution.value,
+                views: gui.model_flower_view_count.value,
+                shape: crate::flora::models::Shape {
+                    head_scale: gui.model_flower_head_scale.value,
+                    height_scale: gui.model_flower_height_scale.value,
+                },
                 size_scale: gui.model_flower_size_scale.value,
             },
             growth_override_enabled: gui.flora_growth_override_enabled.value,
@@ -303,6 +308,9 @@ mod tests {
 
         gui.model_flower_heads_only.value = false;
         gui.model_flower_pixel_resolution.value = 24;
+        gui.model_flower_view_count.value = 37;
+        gui.model_flower_head_scale.value = 1.5;
+        gui.model_flower_height_scale.value = 0.75;
         gui.model_flower_size_scale.value = 1.25;
         gui.flora_growth_override_enabled.value = true;
         gui.raster_tree_hybrid_lighting.value = true;
@@ -469,6 +477,11 @@ mod tests {
                     model_flowers: crate::flora::models::Settings {
                         heads_only: false,
                         resolution: 24,
+                        views: 37,
+                        shape: crate::flora::models::Shape {
+                            head_scale: 1.5,
+                            height_scale: 0.75,
+                        },
                         size_scale: 1.25,
                     },
                     growth_override_enabled: true,

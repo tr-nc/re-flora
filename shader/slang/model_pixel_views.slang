@@ -1,7 +1,7 @@
 // Shared actual-N view keys for startup baking and runtime selection.
 module model_pixel_views;
 import model_pixel_projection;
-[[vk::binding(77,0)]] StructuredBuffer<float4> model_view_azimuths;
+[[vk::binding(17,1)]] StructuredBuffer<float4> model_view_azimuths;
 public float3 modelViewDirection(uint index,uint count) {
     float y=1.0-2.0*(float(index)+0.5)/float(count);
     float radius=sqrt(max(0.0,1.0-y*y));

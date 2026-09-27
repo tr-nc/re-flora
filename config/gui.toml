@@ -1160,6 +1160,39 @@ min = 8
 max = 64
 
 [[section.param]]
+id = "model_flower_view_count"
+kind = "uint"
+label = "Model Flower View Count"
+type = "Uint"
+
+[section.param.data]
+value = 16
+min = 8
+max = 512
+
+[[section.param]]
+id = "model_flower_head_scale"
+kind = "float"
+label = "Model Flower Complete Head Size"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.25
+max = 4.0
+
+[[section.param]]
+id = "model_flower_height_scale"
+kind = "float"
+label = "Model Flower Plant Height (Stems / Attachments)"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.25
+max = 4.0
+
+[[section.param]]
 id = "model_flower_size_scale"
 kind = "float"
 label = "Model Flower Size"

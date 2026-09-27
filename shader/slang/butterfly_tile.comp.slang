@@ -18,7 +18,7 @@ void main(uint3 id : SV_DispatchThreadID) {
         orientation.axisX=rotatePose(instance.view_orientation,float3(1,0,0));
         orientation.axisY=rotatePose(instance.view_orientation,float3(0,1,0));
         orientation.axisZ=rotatePose(instance.view_orientation,float3(0,0,1));
-        prepareModelObject(index,instance.position_size.xyz,orientation,false);
+        prepareModelObject(index,instance.position_size.xyz,orientation,false,instance.metadata.x);
         return;
     }
     if(any(id.xy>=uint2(instance.metadata.z)))return;

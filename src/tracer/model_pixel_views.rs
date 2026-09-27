@@ -7,11 +7,14 @@ pub const MAX_VIEWS: u32 = 512;
 pub fn runtime_count(requested: u32) -> u32 {
     requested.clamp(MIN_VIEWS, MAX_VIEWS)
 }
-pub fn azimuths() -> [[f32; 4]; MAX_VIEWS as usize] {
-    std::array::from_fn(|i| {
-        let angle = i as f32 * (std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()));
-        [angle.cos(), angle.sin(), 0., 0.]
-    })
+pub fn azimuth(index: u32) -> [f32; 4] {
+    let angle = index as f32 * (std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()));
+    [angle.cos(), angle.sin(), 0., 0.]
+}
+/// Shared prefix sized to the largest *current* bank, never the slider maximum.
+pub fn azimuths(count: u32) -> Vec<[f32; 4]> {
+    assert!((MIN_VIEWS..=MAX_VIEWS).contains(&count));
+    (0..count).map(azimuth).collect()
 }
 #[cfg(test)]
 mod tests {
@@ -26,8 +29,9 @@ mod tests {
     }
     #[test]
     fn every_slider_count_has_finite_unit_directions_and_balanced_latitudes() {
-        let azimuths = azimuths();
         for count in MIN_VIEWS..=MAX_VIEWS {
+            let azimuths = azimuths(count);
+            assert_eq!(azimuths.len(), count as usize);
             let mut mean_y = 0.;
             for i in 0..count {
                 let y = 1. - 2. * (i as f32 + 0.5) / count as f32;
@@ -43,8 +47,8 @@ mod tests {
     }
     #[test]
     fn view_counts_cover_the_whole_sphere_and_preserve_rigid_handedness() {
-        let azimuths = azimuths();
         for count in [8, 9, 37, 128, 511, 512] {
+            let azimuths = azimuths(count as u32);
             let views: Vec<_> = (0..count)
                 .map(|i| {
                     let y = 1. - 2. * (i as f32 + 0.5) / count as f32;
