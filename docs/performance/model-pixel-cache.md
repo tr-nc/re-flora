@@ -67,15 +67,50 @@ this is a bounded correctness fixture, not a maximum-memory benchmark. It leaves
 `config/gui.toml` unchanged and never reads/writes player saves. The env-only GPU
 oracle adds expensive live reference work and must not be used for timing.
 
-First all-consumer run: 14,909,440 leaf, 20,463,104 apple, 9,149,952 butterfly and
-13,608,448 flower surface checks, **zero mismatches**. All 13 phases and expected
-rebuild sets passed. Logs/images: `target/model-cache-review/`.
+Final validated code: **`43a5683a`** (cache restoration `44a1ab6e`, storage `89330a88`).
+35,131,392 leaf, 18,340,416 apple, 8,140,608 butterfly and 12,240,192 flower surface
+checks, **zero mismatches**. Every one of the 13 phases has samples in all four
+kinds after excluding prior-phase frame-slot readbacks. 64px leaves explicitly
+exercise a 128 MiB bank across multiple GPU pages. All expected rebuild sets and
+post-consumer resize passed. Logs: `target/cache-restore/cache-review-final/`.
 
-First fixed-scene Release regression loop: 128 unseen Wild Geranium plants, 32px
-per complete head, still 256 submitted tiles: median flower tile work **0.075 ms**
-versus the diagnosed 18–19 ms. Actual median cadence returned to about 58 FPS.
-This is not a maximum-population acceptance or startup-latency claim. Full before/
-after evidence and other native regressions are recorded separately.
+The main Cargo suite passed **1,238 tests, 4 ignored**, plus 4 other root tests.
+Original native flower A/B/lifetime/resize, attached/fallen apple, strict continuous
+leaf and strict continuous butterfly validators all passed unchanged. No Vulkan
+errors or GUI config changes. Twelve CLI help/error-recovery checks passed too.
+
+## Release measurements
+
+RTX 3060 Ti, 2880×1620 output, 1440×810 scene, automatic present mode; fixed 16
+views. No GPU oracle during timing. Same 32px flower heads and planted populations,
+not a quality reduction or added visibility culling. Original diagnosis is
+[recorded separately](model-flowers-diagnosis.md).
+
+| Wild Geranium case | Previous tile GPU p50 | Restored tile GPU p50 | Actual restored FPS |
+|---|---:|---:|---:|
+| 32 plants, facing plot | 4.681 ms | 0.039 ms | 58.3 |
+| 128 plants, facing plot | 17.886 ms | 0.066 ms | 58.4 |
+| 128 plants, looking away | 19.340 ms | 0.066 ms | 58.1 |
+| 1,024 plants, facing plot | not measured | 0.383 ms | 58.1 |
+
+The 1,024-plant run submitted 2,048 head tiles and built the same four shared banks
+once, not 1,024 caches. Whole-frame GPU p50/p95 was 7.596/9.224 ms. The earlier
+independent offscreen red/green run measured 0.075 ms and passed the reproducer.
+
+With 256 rotating 16px leaves, 21 butterflies and 32px apples, shared particle tile
+work was 0.042 ms; attached/fallen apple tile work was 0.030/0.027 ms. The existing
+benchmark's default-32px GPU and baseline-normalized cadence gates passed. Actual
+cadence stays near 58 FPS; reciprocal GPU time is not claimed as observed FPS.
+
+These are short steady-state measurements, not startup-latency, maximum-population
+or every-device acceptance. Chunk-only flower culling is unchanged: offscreen tiles
+can still do cheap lookup/relighting. High resolution/view-count changes bake
+synchronously and can hitch; they can also request GiB of GPU memory.
+
+[Machine-readable results and validation hashes](../evidence/model-cache-restored/summary.json)
+include the complete matrices. [Native all-consumer diagnostic capture](../evidence/model-cache-restored/cache-scene.png)
+is evidence of the actual renderer, not final artistic approval. Full raw artifacts:
+`target/cache-restore/`.
 
 Known unrelated baseline test issue: the broader VKN suite still expects retired
 `shader/particles/particle_lod_textured.vert`; the unchanged assertion fails before

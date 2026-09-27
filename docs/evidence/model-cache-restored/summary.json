@@ -1,0 +1,627 @@
+{
+  "validated_code_revision": "43a5683a",
+  "cache_restore_revision": "44a1ab6e",
+  "storage_restore_revision": "89330a88",
+  "recovered_from": "f7b7e036",
+  "device": "NVIDIA GeForce RTX 3060 Ti",
+  "mode": "Release/Vulkan",
+  "normal_path": "shared surface lookup + per-instance relighting",
+  "live_geometry_fallback": false,
+  "cache_oracle": {
+    "consumers": [
+      "model leaves",
+      "attached/fallen apples",
+      "butterflies",
+      "whole flowers/complete heads"
+    ],
+    "checked_texels": [
+      35131392,
+      18340416,
+      8140608,
+      12240192
+    ],
+    "mismatches": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "config_unchanged": true,
+    "width": 1280,
+    "height": 720,
+    "performance_evidence": false,
+    "results": [
+      {
+        "phase": 0,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          327680,
+          348160,
+          107520,
+          266240
+        ]
+      },
+      {
+        "phase": 1,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [],
+        "checked_texels": [
+          344064,
+          365568,
+          112896,
+          172032
+        ]
+      },
+      {
+        "phase": 2,
+        "views": 16,
+        "resolutions": [
+          64,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          0
+        ],
+        "checked_texels": [
+          5505024,
+          365568,
+          112896,
+          279552
+        ]
+      },
+      {
+        "phase": 3,
+        "views": 16,
+        "resolutions": [
+          64,
+          64,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          1
+        ],
+        "checked_texels": [
+          5505024,
+          1462272,
+          112896,
+          279552
+        ]
+      },
+      {
+        "phase": 4,
+        "views": 16,
+        "resolutions": [
+          64,
+          64,
+          64,
+          32
+        ],
+        "rebuilt_kinds": [
+          2
+        ],
+        "checked_texels": [
+          5505024,
+          1462272,
+          1806336,
+          279552
+        ]
+      },
+      {
+        "phase": 5,
+        "views": 16,
+        "resolutions": [
+          64,
+          64,
+          64,
+          64
+        ],
+        "rebuilt_kinds": [
+          3
+        ],
+        "checked_texels": [
+          5505024,
+          1462272,
+          1806336,
+          1118208
+        ]
+      },
+      {
+        "phase": 6,
+        "views": 37,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ]
+      },
+      {
+        "phase": 7,
+        "views": 128,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ]
+      },
+      {
+        "phase": 8,
+        "views": 512,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ]
+      },
+      {
+        "phase": 9,
+        "views": 8,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ]
+      },
+      {
+        "phase": 10,
+        "views": 16,
+        "resolutions": [
+          8,
+          8,
+          8,
+          8
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          86016,
+          22848,
+          28224,
+          17472
+        ]
+      },
+      {
+        "phase": 11,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "checked_texels": [
+          344064,
+          365568,
+          112896,
+          279552
+        ]
+      },
+      {
+        "phase": 12,
+        "views": 16,
+        "resolutions": [
+          16,
+          32,
+          16,
+          32
+        ],
+        "rebuilt_kinds": [],
+        "checked_texels": [
+          11665408,
+          12394496,
+          3827712,
+          9478144
+        ]
+      }
+    ]
+  },
+  "flower_matrix": {
+    "binary": "/home/terence/.herdr/worktrees/re-flora/vegi/target/release/re-flora",
+    "seconds": 8,
+    "config_sha256": "c7e1d71e78b30b6cc0978cc2a381f1312bacc535b5ebc26e8bab2ad90b4d0f39",
+    "config_unchanged": true,
+    "release_acceptance": false,
+    "results": [
+      {
+        "count": 0,
+        "view": "front",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 5.766,
+        "gpu_ms_p95": 8.304,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0.001,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.366666666666667,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "count": 32,
+        "view": "front",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 32,
+        "planned_tiles": 64,
+        "planned_texels": 65536,
+        "samples": 11,
+        "gpu_ms_p50": 5.776,
+        "gpu_ms_p95": 6.908,
+        "flower_tile_ms_p50": 0.039,
+        "flower_display_ms_p50": 0.054,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.266666666666666,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "count": 128,
+        "view": "front",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 128,
+        "planned_tiles": 256,
+        "planned_texels": 262144,
+        "samples": 11,
+        "gpu_ms_p50": 5.924,
+        "gpu_ms_p95": 7.926,
+        "flower_tile_ms_p50": 0.066,
+        "flower_display_ms_p50": 0.16,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.333333333333332,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "count": 0,
+        "view": "away",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 4.693,
+        "gpu_ms_p95": 6.149,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.1,
+        "frame_interval_ms_p95": 17.266666666666666,
+        "fps_from_median_interval": 58.47953216374268
+      },
+      {
+        "count": 128,
+        "view": "away",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 128,
+        "planned_tiles": 256,
+        "planned_texels": 262144,
+        "samples": 11,
+        "gpu_ms_p50": 4.456,
+        "gpu_ms_p95": 5.253,
+        "flower_tile_ms_p50": 0.066,
+        "flower_display_ms_p50": 0.013,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0,
+        "frame_interval_ms_p50": 17.2,
+        "frame_interval_ms_p95": 17.266666666666666,
+        "fps_from_median_interval": 58.139534883720934
+      },
+      {
+        "count": 128,
+        "view": "away",
+        "resolution": 8,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 128,
+        "planned_tiles": 256,
+        "planned_texels": 16384,
+        "samples": 11,
+        "gpu_ms_p50": 4.467,
+        "gpu_ms_p95": 5.386,
+        "flower_tile_ms_p50": 0.03,
+        "flower_display_ms_p50": 0.013,
+        "vegetation_response_ms_p50": 0.024,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.3,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "count": 0,
+        "view": "outside",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 4.456,
+        "gpu_ms_p95": 6.759,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0.001,
+        "vegetation_response_ms_p50": 0.026,
+        "wind_volume_ms_p50": 0.002,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.5,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "count": 128,
+        "view": "outside",
+        "resolution": 32,
+        "mode": "heads",
+        "width": 2880,
+        "height": 1620,
+        "planned_plants": 0,
+        "planned_tiles": 0,
+        "planned_texels": 0,
+        "samples": 11,
+        "gpu_ms_p50": 4.202,
+        "gpu_ms_p95": 4.485,
+        "flower_tile_ms_p50": 0,
+        "flower_display_ms_p50": 0.001,
+        "vegetation_response_ms_p50": 0.026,
+        "wind_volume_ms_p50": 0.001,
+        "frame_interval_ms_p50": 17.2,
+        "frame_interval_ms_p95": 17.266666666666666,
+        "fps_from_median_interval": 58.139534883720934
+      }
+    ]
+  },
+  "other_models": {
+    "binary": "/home/terence/.herdr/worktrees/re-flora/vegi/target/release/re-flora",
+    "seconds": 8,
+    "results": [
+      {
+        "scene": "attached",
+        "resolution": 8,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 5.474,
+        "gpu_ms_p95": 6.548,
+        "tile_ms_p50": 0.029,
+        "particle_tile_ms_p50": 0.042,
+        "frame_interval_ms_p50": 17.166666666666668,
+        "frame_interval_ms_p95": 17.233333333333334,
+        "fps_from_median_interval": 58.252427184466015
+      },
+      {
+        "scene": "attached",
+        "resolution": 32,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 5.842,
+        "gpu_ms_p95": 7.846,
+        "tile_ms_p50": 0.03,
+        "particle_tile_ms_p50": 0.042,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.3,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "scene": "attached",
+        "resolution": 64,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 5.523,
+        "gpu_ms_p95": 6.582,
+        "tile_ms_p50": 0.041,
+        "particle_tile_ms_p50": 0.042,
+        "frame_interval_ms_p50": 17.1,
+        "frame_interval_ms_p95": 17.233333333333334,
+        "fps_from_median_interval": 58.47953216374268
+      },
+      {
+        "scene": "fallen",
+        "resolution": 8,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 5.683,
+        "gpu_ms_p95": 7.489,
+        "tile_ms_p50": 0.025,
+        "particle_tile_ms_p50": 0.042,
+        "frame_interval_ms_p50": 17.133333333333333,
+        "frame_interval_ms_p95": 17.233333333333334,
+        "fps_from_median_interval": 58.36575875486381
+      },
+      {
+        "scene": "fallen",
+        "resolution": 32,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 5.8,
+        "gpu_ms_p95": 6.412,
+        "tile_ms_p50": 0.027,
+        "particle_tile_ms_p50": 0.042,
+        "frame_interval_ms_p50": 17.1,
+        "frame_interval_ms_p95": 17.333333333333332,
+        "fps_from_median_interval": 58.47953216374268
+      },
+      {
+        "scene": "fallen",
+        "resolution": 64,
+        "views": 16,
+        "screen_grid": false,
+        "width": 2880,
+        "height": 1620,
+        "stress_leaves": 256,
+        "samples": 11,
+        "gpu_ms_p50": 5.52,
+        "gpu_ms_p95": 6.394,
+        "tile_ms_p50": 0.032,
+        "particle_tile_ms_p50": 0.041,
+        "frame_interval_ms_p50": 17.2,
+        "frame_interval_ms_p95": 17.366666666666667,
+        "fps_from_median_interval": 58.139534883720934
+      }
+    ]
+  },
+  "large_flower_scene": {
+    "count": 1024,
+    "view": "front",
+    "resolution": 32,
+    "mode": "heads",
+    "width": 2880,
+    "height": 1620,
+    "planned_plants": 1024,
+    "planned_tiles": 2048,
+    "samples": 10,
+    "flower_tile_ms_p50": 0.383,
+    "gpu_ms_p50": 7.596,
+    "gpu_ms_p95": 9.224,
+    "frame_interval_ms_p50": 17.2,
+    "fps_from_median_interval": 58.139534883720934,
+    "cache_builds": 4
+  },
+  "tests": {
+    "main_passed": 1238,
+    "main_ignored": 4,
+    "other_root_passed": 4,
+    "paged_storage_passed": 4,
+    "cli_help_recovery_passed": 12,
+    "native_regressions": [
+      "flowers A/B + lifetime/resize",
+      "attached/fallen apples",
+      "strict continuous leaf oracle",
+      "strict continuous butterfly oracle"
+    ],
+    "known_vkn_baseline_failure": "particle_vertex_shader_reflects_one_compact_mesh_input_before_instances references retired particle_lod_textured.vert; not weakened or changed"
+  },
+  "config_unchanged": true,
+  "maximum_population_acceptance": false,
+  "log_sha256": {
+    "final-hidden.log": "04f10ba8307a655a120d4c3def701f3bafa252221e6bcfa42556f259a8948dee",
+    "flower-regression.log": "94d0671ce37d2a0f4a20f7f2d4546fcd896d055ae3c7782ec4e6a5edcf7f03a0",
+    "apple-regression.log": "ee33a66cfcad0859ca86696609b6b85632dc81a6f91a613041d2c3876fb17347",
+    "leaf-regression.log": "f3fb341d83bf84f55d0e73f6e4f8fa2a76c51b7a23b0e76223ed5059dc178469",
+    "butterfly-regression.log": "45411b0cf4ba42ada3720705a06dafb32fb99096082e6737c81d599249431eaf",
+    "full-tests.log": "3bb76534560b6f50f1950ed95d9d11a489d8b7bb9ddc4b7064d02b1877803f22",
+    "1024-front.log": "cec3c588dc4de8fd913f626c0d8a247c76de9e301835727c79ef35d62f58d9fe"
+  }
+}

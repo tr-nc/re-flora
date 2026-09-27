@@ -1,5 +1,9 @@
 # Pixel models: stage-one lighting and discrete-view preview
 
+> Historical live-generation stage. Production now uses the restored
+> [shared surface cache](model-pixel-cache.md) for every model-pixel consumer.
+> The live-rendering descriptions and measurements below describe this earlier stage.
+
 Initial implementation: `cb46ae90`; permanent quantization/count slider: `9fe259dc`.
 This remains live tile rendering, **not an atlas cache**. The subsequent
 [shared orthographic A/B preview](model-pixel-orthographic-preview.md) replaces

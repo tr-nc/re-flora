@@ -1,5 +1,9 @@
 # Shared orthographic tiles: rotating pixels vs screen-grid resampling
 
+> Historical pre-cache visual stage. The same projection/display now consumes
+> [shared cached surfaces](model-pixel-cache.md). Claims below about absent startup
+> baking refer to this earlier stage, not current production.
+
 This is the cache-compatible visual preview, **not startup baking or an atlas**.
 Butterflies, 3D falling leaves, attached apples and fallen apples all use the same
 geometry projection and display implementation. Physics, growth, tree wind,

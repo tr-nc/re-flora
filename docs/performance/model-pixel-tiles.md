@@ -1,5 +1,9 @@
 # Shared model pixel tiles
 
+> Production surface generation now uses the restored
+> [shared cache](model-pixel-cache.md) across leaves, butterflies, apples and flowers.
+> Frame-local tiles are retained for lookup/relighting, not repeated geometry work.
+
 **Apple promotion:** apples now always use this pipeline. The voxel-appearance
 checkbox, old render meshes and old fruit color pipeline have been removed;
 canonical collision/attachment metadata remains. The original-mode measurements
