@@ -94,9 +94,6 @@ pub(crate) struct AcousticPipelineSnapshot {
     pub(crate) solve_count: u64,
     pub(crate) superseded_solve_count: u64,
     pub(crate) published_response_count: u64,
-    pub(crate) response_spatial_revision: u64,
-    pub(crate) response_geometry_version: u64,
-    pub(crate) response_age_ms: u64,
     pub(crate) dropped_voice_telemetry_count: u64,
     pub(crate) dropped_acoustic_telemetry_count: u64,
 }
@@ -902,9 +899,6 @@ impl SpatialSoundManager {
             solve_count: diagnostics.acoustic_solve_count,
             superseded_solve_count: diagnostics.acoustic_superseded_solve_count,
             published_response_count: diagnostics.acoustic_published_response_count,
-            response_spatial_revision: diagnostics.acoustic_response_spatial_revision,
-            response_geometry_version: diagnostics.acoustic_response_geometry_version,
-            response_age_ms: diagnostics.acoustic_response_age_ms,
             dropped_voice_telemetry_count: voice_telemetry.dropped_events,
             dropped_acoustic_telemetry_count: acoustic_telemetry.dropped_events,
         }
@@ -1133,9 +1127,6 @@ mod tests {
             solve_count: solves,
             superseded_solve_count: superseded,
             published_response_count: published,
-            response_spatial_revision: 0,
-            response_geometry_version: 0,
-            response_age_ms: 0,
             dropped_voice_telemetry_count: dropped_voice_telemetry,
             dropped_acoustic_telemetry_count: dropped_acoustic_telemetry,
         }
