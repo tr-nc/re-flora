@@ -115,3 +115,55 @@ simulation cadence, saved settings or normal play. Every phase is checked;
 there is no retry/filtering of troublesome poses. Runtime wall-clock timing
 cannot select the sample set. `poses-1/`, `pose-check.log`, `pose-fmt.log` and
 `test-pose-sweep.log` retain the passing explicit native and fast pure guardrails.
+
+The deterministic sweep now also **requires nonzero checked samples for every
+instance**, not just a nonzero batch total or repeated last batch. All 906 cases
+pass this stronger gate (`poses-nonempty/`). Focused Rust (19 butterfly tests),
+fmt/check and hidden smoke pass again (`nonempty-*.log`, `nonempty-smoke/`).
+
+## Final worker gates (not controller acceptance)
+
+All GPU commands used an enclosing, non-nested
+`flock --close /tmp/re-flora-summer-gpu.lock env -u WAYLAND_DISPLAY CARGO_BUILD_JOBS=4`.
+Every invocation used the worker's own target and existing shared sccache.
+
+- **Unchanged strict live leaf:** `node scripts/validate-leaf-model.mjs --seconds
+  20`, three consecutive independent processes on the final implementation:
+  `strict-final-{1,2,3}/`, PIDs 861883/861982/862785, all 5120×2880, complete
+  8/16/64px and 0.25/4 size sweep, 22/23/22 nonzero checks, no ERROR/VUID/panic.
+  First B64 hits: 1587/1581/1587. `strict-final-summary.json` records identities.
+  The preceding `strict-leaf-{1,2,3}/` sequence also passed; none was discarded.
+- **Both fixed regressions:** the final fixture implementation passes in
+  `final-fixed-small/` (24 hits) and `final-fixed64/` (103 hits). The latter's full
+  final and center RGBA/depth still exactly equal the original v3 captured bytes
+  (`rgba-comparison.log`), not merely its mask or four material witnesses.
+- **Strict butterfly:** `python3 scripts/validate_butterfly_mesh.py --seconds 20`
+  passes 45 checks across 21 models, 8/22/64px and all shadow/transmission stages
+  (`butterfly-complete/`). The preceding unchanged 12-second attempt had no
+  numerical/runtime errors but ended immediately after submitting transmission=1,
+  before its completed readback/image capture; the runner correctly failed its
+  missing-final-stage assertion (`butterfly/`). The documented longer duration
+  completes that stage without changing any oracle or fixture setting.
+- **Ordinary consumers:** `node scripts/validate-apple-model.mjs --seconds 12
+  --stage-one` passes orthographic A/B, 8/16/37/128/512 views, mixed-resolution
+  rotating leaves/butterflies, attached/fallen apples, 17 real fruit drops and
+  native resize requests (`model-stage-one/`). As before, this protects consumers
+  and lifetimes, not an apple-specific numerical color/depth oracle.
+- **Release smoke:** `cargo run --release -- --hidden --mute --auto-exit 0.5`
+  passes with successful exit/failures=0 (`final-smoke/`, `nonempty-smoke/`).
+  Same-worktree latest-log helpers were used and logs inspected.
+- `cargo fmt --check`, `CARGO_BUILD_JOBS=4 cargo check`, focused Rust tests
+  (19 butterfly, 24 model-pixel + one existing ignored), and the explicit Slang
+  executables `model_pixel_projection_evidence`, `leaf_particle_pose_contract`,
+  `leaf_flutter_contract` pass. Slang command: `slangc shader/tests/<name>.slang
+  -std 2025 -I shader/slang -target executable -o target/improve-delivery/v4/<name>`,
+  then execute it. Logs: `final-*` and `nonempty-*`.
+
+GUI/camera hashes match the initial files. Generated files and original live
+strict runners are unchanged. All capture/legacy/negative probes are removed
+from tracked source; raw attempts and patches remain under v4, v3 evidence is
+retained. No unchanged full Cargo/DDGI matrix, performance benchmark, visible
+launch, other worktree mutation, merge, push, release or cleanup was performed.
+The controller owns independent review and integrated acceptance. Single-driver
+native evidence and ordinary consumer coverage are not universal bit-exact
+cross-driver or performance claims.

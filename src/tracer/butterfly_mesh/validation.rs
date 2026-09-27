@@ -354,6 +354,8 @@ impl ButterflyMeshRenderer {
         resources: &crate::tracer::resources::TracerResources,
     ) -> Result<()> {
         self.validation_calls = self.validation_calls.wrapping_add(1);
+        let pose_sweep =
+            std::env::var("RE_FLORA_MODEL_COVERAGE_FIXTURE").as_deref() == Ok("leaf-pose-sweep");
         let leaf_review = std::env::var_os("RE_FLORA_LEAF_MODEL_REVIEW").is_some()
             && self.previous_leaf_mode.is_some_and(|(enabled, ..)| enabled);
         if (!leaf_review && std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_none())
@@ -361,8 +363,7 @@ impl ButterflyMeshRenderer {
             || (self.previous_mode == self.validated_mode
                 && (!leaf_review || self.previous_leaf_mode == self.validated_leaf_mode)
                 && !self.validation_calls.is_multiple_of(16)
-                && std::env::var("RE_FLORA_MODEL_COVERAGE_FIXTURE").as_deref()
-                    != Ok("leaf-pose-sweep"))
+                && !pose_sweep)
         {
             return Ok(());
         }
@@ -676,6 +677,12 @@ impl ButterflyMeshRenderer {
                         image.put_pixel(x, y, image::Rgba([rgb[0], rgb[1], rgb[2], 255]));
                     }
                 }
+            }
+            if pose_sweep {
+                ensure!(
+                    count > 0,
+                    "deterministic coverage pose has no checked samples: instance={index}"
+                );
             }
             let before = model_pixel_repair::label(&original_mask, n as usize).1;
             let after = model_pixel_repair::label(&final_mask, n as usize).1;
