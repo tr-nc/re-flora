@@ -79,11 +79,14 @@ and verifies twenty seconds without new births. A run is accepted only if its lo
 `[ECOLOGY][SMOKE] passed`; merely exiting successfully before this marker is insufficient.
 The old `RE_FLORA_CICADA_SMOKE=1` diagnostic name remains an alias.
 
-`[ECOLOGY][SUPPLY]` logs real instance counts. `[ECOLOGY][BIRTH]` logs animal, kind, region, instance
-slot and world position. `[ECOLOGY][PERF]` reports bounded timing samples including index updates,
-sampling, host validation and consumer calls. It excludes existing butterfly movement/rendering
-and the asynchronous audio engine. `--perf` additionally records whole-frame and GPU scopes.
-Use `--latest-log` and `--tail-latest-log 200` from this worktree.
+Normal runs no longer emit `[ECOLOGY][SUPPLY]`, `[ECOLOGY][BIRTH]`, `[ECOLOGY][PERF]` or
+per-call cicada reports. Supply and accepted-birth counters remain available to the explicit
+smoke fixture's state assertions, including its empty-garden check; use `[ECOLOGY][SMOKE] passed`
+for lifecycle acceptance, not a count of routine log messages. The old periodic CPU timing
+collector was removed with its output. Historical timing reports remain historical evidence;
+`--perf` records whole-frame/GPU scopes, not an equivalent isolated ecology timing metric.
+Use `--latest-log` and `--tail-latest-log 200` from this worktree. See
+[runtime logging contracts](runtime_logging.md).
 
 A muted run proves behavior and lifecycle, not listening quality. CPU unit tests are deterministic
 logic guardrails, not performance measurements. Release app measurements and manual listening

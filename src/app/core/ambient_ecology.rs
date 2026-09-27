@@ -3,15 +3,10 @@ use super::App;
 use crate::ecology::{Animal, Ecology, Habitat, RegionKey, ATTEMPTS, RANGE};
 use crate::particles::ButterflySpawnSource;
 use anyhow::Result;
-use std::time::Instant;
 
 pub(super) struct EcologyRuntime {
     scheduler: Ecology,
     next_refresh: f64,
-    next_report: f64,
-    samples_us: Vec<f64>,
-    roots_read: u64,
-    candidates: u64,
     births: [[u64; 3]; 2],
     last_supply: [u64; 3],
 }
@@ -20,10 +15,6 @@ impl EcologyRuntime {
         Self {
             scheduler: Ecology::new(9173),
             next_refresh: 0.,
-            next_report: 0.,
-            samples_us: Vec::with_capacity(4096),
-            roots_read: 0,
-            candidates: 0,
             births: [[0; 3]; 2],
             last_supply: [0; 3],
         }
@@ -37,16 +28,13 @@ impl EcologyRuntime {
 impl App {
     fn sample_ecology_habitat(&mut self, key: RegionKey, slot: u32) -> Result<Option<Habitat>> {
         match key {
-            RegionKey::Surface(chunk, species) => {
-                self.ecology.roots_read += 1;
-                self.surface_builder
-                    .sample_ecology_root(chunk, species, slot)
-            }
+            RegionKey::Surface(chunk, species) => self
+                .surface_builder
+                .sample_ecology_root(chunk, species, slot),
             RegionKey::Canopy(tree) => Ok(self.trees.sample_ecology_leaf(tree, slot)),
         }
     }
     pub(super) fn update_ambient_ecology(&mut self, now: f64) -> Result<()> {
-        let started = Instant::now();
         let world_ready = self.terrain_persistence.allows_world_updates();
         let listener = self.tracer.camera_position();
         // Metadata publication never expands grass or leaf arrays. A new candidate is fetched
@@ -66,16 +54,7 @@ impl App {
                 supply[region.kind] += u64::from(region.count);
             }
             self.ecology.scheduler.publish(regions, listener);
-            if supply != self.ecology.last_supply {
-                log::info!(
-                    "[ECOLOGY][SUPPLY] grass={} plants={} leaves={} nearby_groups={}",
-                    supply[0],
-                    supply[1],
-                    supply[2],
-                    self.ecology.scheduler.region_count()
-                );
-                self.ecology.last_supply = supply;
-            }
+            self.ecology.last_supply = supply;
             let active: Vec<_> = self.summer_cicadas.active_habitats().collect();
             let mut valid = Vec::new();
             for site in active {
@@ -131,7 +110,6 @@ impl App {
                 let Some((region, slot)) = self.ecology.scheduler.candidate(animal, now) else {
                     continue;
                 };
-                self.ecology.candidates += 1;
                 let candidate = match region.key {
                     RegionKey::Canopy(tree) => self.trees.sample_ecology_leaf_candidate(tree, slot),
                     _ => self.sample_ecology_habitat(region.key, slot)?,
@@ -158,25 +136,9 @@ impl App {
                 if accepted {
                     self.ecology.births[animal as usize][site.kind] += 1;
                     self.ecology.scheduler.accepted(animal, site.region, now);
-                    log::info!("[ECOLOGY][BIRTH] time={now:.3} animal={animal:?} kind={} region={:?} slot={} position={:?}", site.kind, site.region, site.slot, site.position);
                     break;
                 }
             }
-        }
-        if self.ecology.samples_us.len() < 4096 {
-            self.ecology
-                .samples_us
-                .push(started.elapsed().as_secs_f64() * 1e6);
-        }
-        if now >= self.ecology.next_report {
-            let samples = &mut self.ecology.samples_us;
-            samples.sort_by(f64::total_cmp);
-            let n = samples.len();
-            log::info!("[ECOLOGY][PERF] samples={n} cpu_us_p50={:.3} cpu_us_p95={:.3} cpu_us_p99={:.3} cpu_us_max={:.3} groups={} candidate_attempts={} root_bytes={} births={:?}", samples[n/2], samples[n*95/100], samples[n*99/100], samples[n-1], self.ecology.scheduler.region_count(), self.ecology.candidates, self.ecology.roots_read*8, self.ecology.births);
-            samples.clear();
-            self.ecology.roots_read = 0;
-            self.ecology.candidates = 0;
-            self.ecology.next_report = now + 5.;
         }
         self.advance_cicada_smoke(now)
     }

@@ -1,7 +1,7 @@
 # Runtime logging contracts
 
 Normal runs do not report each DDGI history batch, local footstep play/render/completion,
-wet-path success, cicada call/retirement, or routine acoustic response. These call sites
+wet-path success, cicada call/retirement, routine acoustic response, or ecology supply/birth/timing. These call sites
 are removed, not moved to a different logger level or hidden behind a new setting.
 
 Audio still consumes lifecycle, voice and acoustic telemetry in the same order. Correlation,
@@ -26,6 +26,11 @@ clear/shutdown totals and the final acoustics summary remain lifecycle evidence.
   `--canopy-audio-budget-diagnostic` retain their explicit `[AUDIO][CANOPY]` telemetry.
   `scripts/analyze_canopy_audio_diagnostic.py` still requires its same summary/sample fields
   and assertions. Normal-run quieting does not replace or weaken that diagnostic.
+- Ecology's explicit `RE_FLORA_ECOLOGY_SMOKE` fixture still asserts replacement, host removal
+  and empty-garden behavior against state (including retained supply/birth counters). Its
+  `[ECOLOGY][SMOKE] passed` marker is unchanged. No repository script depends on the removed
+  supply/birth/timing chatter. See [ecology evidence](ecology_spawning.md); this fixture saves
+  its own garden under `target` and is not a no-save normal-run smoke.
 - `[DDGI][HISTORY]` is historical experiment output, not a current log contract. Its shader
   counters/readback data are unchanged. `scripts/check_ddgi_cave_edits.py` still checks its
   explicit capture/publication/history-toggle evidence; see
