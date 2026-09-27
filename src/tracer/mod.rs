@@ -1659,7 +1659,8 @@ pub struct Tracer {
     flower_model_settings: crate::flora::models::Settings,
     flower_spawn_overshoot_voxels: f32,
     model_pixel_view_count: u32,
-    model_pixel_screen_grid: bool,
+    // None means no effective display configuration has been published/logged yet.
+    model_pixel_screen_grid: Option<bool>,
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
     ddgi_experiment_latch: crate::ddgi::DdgiExperimentLatch,
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -2013,7 +2014,7 @@ impl Tracer {
             flower_model_settings: crate::flora::models::Settings::default(),
             flower_spawn_overshoot_voxels: 0.,
             model_pixel_view_count: 16,
-            model_pixel_screen_grid: false,
+            model_pixel_screen_grid: None,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
             ddgi_trace_stats_readback_pending: None,
@@ -3074,12 +3075,12 @@ impl Tracer {
             .max(0.);
         let view_count = model_pixel_views::runtime_count(terrain.model_pixel_view_count);
         if self.model_pixel_view_count != view_count
-            || self.model_pixel_screen_grid != terrain.model_pixel_screen_grid
+            || self.model_pixel_screen_grid != Some(terrain.model_pixel_screen_grid)
         {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light=true views={view_count} live_tiles=true orthographic=true screen_grid={} shared_surfaces=true tile_work=relighting", terrain.model_pixel_screen_grid);
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light=true views={view_count} orthographic=true screen_grid={} shared_surfaces=true tile_work=relighting", terrain.model_pixel_screen_grid);
         }
         self.model_pixel_view_count = view_count;
-        self.model_pixel_screen_grid = terrain.model_pixel_screen_grid;
+        self.model_pixel_screen_grid = Some(terrain.model_pixel_screen_grid);
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;

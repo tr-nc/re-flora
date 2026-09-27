@@ -97,7 +97,7 @@ try {
   assert.match(text,/Application exited successfully/);
   if(options['stress-leaves'])assert.ok(text.includes(`[MODEL_PIXEL_STRESS] leaves=${options['stress-leaves']} butterflies=21`),'Requested stress workload was not activated');
   const png=await readFile(image),width=png.readUInt32BE(16),height=png.readUInt32BE(20);
-  assert.ok(text.includes(`[MODEL_PIXEL_PREVIEW] single_light=true views=${views} live_tiles=true orthographic=true screen_grid=${screenGrid}`),'View count/lighting/display mode did not reach renderer');
+  assert.ok(text.includes(`[MODEL_PIXEL_PREVIEW] single_light=true views=${views} orthographic=true screen_grid=${screenGrid} shared_surfaces=true tile_work=relighting`),'View count/lighting/display mode did not reach renderer');
   const row={scene,resolution:n,views,screen_grid:screenGrid,width,height,stress_leaves:options['stress-leaves'],...metrics(text)};
   if(results.length)assert.deepEqual([width,height],[results[0].width,results[0].height],'Viewport changed between runs');
   results.push(row);console.log(JSON.stringify(row));
