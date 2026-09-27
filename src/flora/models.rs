@@ -39,6 +39,39 @@ impl Settings {
     }
 }
 
+/// Authored-space controls only. Overall size/growth/wind remain a rigid instance
+/// pose, so they never invalidate geometry. A head keeps its shape when its
+/// attachment moves vertically; its complete authored range scales about that
+/// attachment, including calyx and center (not just petals).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shape {
+    pub head_scale: f32,
+    pub height_scale: f32,
+}
+impl Default for Shape {
+    fn default() -> Self {
+        Self {
+            head_scale: 1.,
+            height_scale: 1.,
+        }
+    }
+}
+impl Shape {
+    pub fn normalized(self) -> Self {
+        let scale = |v: f32| if v.is_finite() { v.clamp(0.25, 4.) } else { 1. };
+        Self {
+            head_scale: scale(self.head_scale),
+            height_scale: scale(self.height_scale),
+        }
+    }
+    pub fn stem_point(self, point: Vec3) -> Vec3 {
+        point * Vec3::new(1., self.height_scale, 1.)
+    }
+    pub fn head_point(self, point: Vec3, anchor: Vec3) -> Vec3 {
+        self.stem_point(anchor) + (point - anchor) * self.head_scale
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Triangle {
     pub positions: [Vec3; 3],
@@ -48,15 +81,59 @@ pub struct Triangle {
 #[derive(Clone, Debug)]
 pub struct Part {
     pub triangles: Range<u32>,
+    /// Root-relative authored attachment, not the center of its bounding sphere.
+    pub anchor: Vec3,
     pub center: Vec3,
     pub radius: f32,
 }
+#[derive(Clone)]
 pub struct Flower {
     pub id: String,
     pub triangles: Vec<Triangle>,
     pub whole: Part,
     pub heads: Vec<Part>,
     pub stem_triangles: u32,
+}
+
+impl Flower {
+    /// The only source transform used by native stems and both cached modes.
+    /// Runs at startup/config changes, never during per-instance surface lookup.
+    pub fn transformed(&self, shape: Shape) -> Self {
+        let shape = shape.normalized();
+        let mut result = self.clone();
+        // Preserve the published framing exactly for old saves/default controls.
+        if shape == Shape::default() {
+            return result;
+        }
+        for triangle in &mut result.triangles[..self.stem_triangles as usize] {
+            triangle.positions = triangle.positions.map(|p| shape.stem_point(p));
+            triangle.normal = (triangle.normal / Vec3::new(1., shape.height_scale, 1.)).normalize();
+        }
+        for head in &self.heads {
+            for triangle in
+                &mut result.triangles[head.triangles.start as usize..head.triangles.end as usize]
+            {
+                triangle.positions = triangle.positions.map(|p| shape.head_point(p, head.anchor));
+                // Positive uniform head scaling leaves the authored normal unchanged.
+            }
+        }
+        for part in std::iter::once(&mut result.whole).chain(&mut result.heads) {
+            part.anchor = shape.stem_point(part.anchor);
+            let points = || {
+                result.triangles[part.triangles.start as usize..part.triangles.end as usize]
+                    .iter()
+                    .flat_map(|t| t.positions)
+            };
+            let (min, max) = points().fold(
+                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+                |(min, max), p| (min.min(p), max.max(p)),
+            );
+            part.center = (min + max) * 0.5;
+            // Exact enclosing vertex radius plus the existing 6% coverage margin.
+            part.radius = points().map(|p| p.distance(part.center)).fold(0., f32::max) * 1.06;
+        }
+        result
+    }
 }
 
 #[derive(Deserialize)]
@@ -75,6 +152,7 @@ struct PublishedFlower {
 #[derive(Deserialize)]
 struct PublishedHead {
     id: usize,
+    anchor: [f32; 3],
 }
 #[derive(Deserialize)]
 struct PublishedPart {
@@ -108,6 +186,14 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 "contiguous flower head IDs"
             );
             let root = Vec3::from_array(source.root);
+            ensure!(
+                root.is_finite()
+                    && source
+                        .heads
+                        .iter()
+                        .all(|h| Vec3::from_array(h.anchor).is_finite()),
+                "finite flower attachments"
+            );
             let mut triangles = Vec::new();
             let mut ranges = vec![0..0; source.heads.len()];
             let mut stem_triangles = 0;
@@ -162,7 +248,8 @@ fn load(json: &str) -> Result<Vec<Flower>> {
             }
             let heads = ranges
                 .into_iter()
-                .map(|range| {
+                .zip(&source.heads)
+                .map(|(range, head)| {
                     ensure!(!range.is_empty(), "empty flower head");
                     let mut min = Vec3::splat(f32::INFINITY);
                     let mut max = Vec3::splat(f32::NEG_INFINITY);
@@ -175,6 +262,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                     }
                     Ok(Part {
                         triangles: range,
+                        anchor: Vec3::from_array(head.anchor) - root,
                         center: (min + max) * 0.5,
                         radius: (max - min).length() * 0.53,
                     })
@@ -184,6 +272,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 id: source.id,
                 whole: Part {
                     triangles: 0..triangles.len() as u32,
+                    anchor: Vec3::ZERO,
                     center: Vec3::from_array(source.center) - root,
                     radius: source.span * 0.5,
                 },
@@ -221,6 +310,105 @@ mod tests {
                 size_scale: 2.0,
                 ..settings
             }
+        );
+    }
+
+    #[test]
+    fn authored_attachments_and_independent_transforms_cover_all_eight_flowers() {
+        let published: Published =
+            serde_json::from_str(include_str!("../../assets/models/flowers.json")).unwrap();
+        for (flower, authored) in flowers().iter().zip(&published.flowers) {
+            for (head, published) in flower.heads.iter().zip(&authored.heads) {
+                assert_eq!(
+                    head.anchor,
+                    Vec3::from_array(published.anchor) - Vec3::from_array(authored.root)
+                );
+            }
+            let unchanged = flower.transformed(Shape::default());
+            assert_eq!(unchanged.whole.center, flower.whole.center);
+            assert_eq!(unchanged.whole.radius, flower.whole.radius);
+            for head_scale in [0.25, 1., 2., 4.] {
+                for height_scale in [0.25, 1., 2., 4.] {
+                    let shape = Shape {
+                        head_scale,
+                        height_scale,
+                    };
+                    let transformed = flower.transformed(shape);
+                    for (index, (old, new)) in flower
+                        .triangles
+                        .iter()
+                        .zip(&transformed.triangles)
+                        .enumerate()
+                    {
+                        let head = flower
+                            .heads
+                            .iter()
+                            .find(|h| h.triangles.contains(&(index as u32)));
+                        for (p, q) in old.positions.into_iter().zip(new.positions) {
+                            let expected = head.map_or_else(
+                                || shape.stem_point(p),
+                                |h| shape.head_point(p, h.anchor),
+                            );
+                            assert!(
+                                q.distance(expected) < 2e-6,
+                                "{} triangle {index}",
+                                flower.id
+                            );
+                        }
+                        let geometric_normal = (new.positions[1] - new.positions[0])
+                            .cross(new.positions[2] - new.positions[0])
+                            .normalize();
+                        assert!(
+                            geometric_normal.dot(new.normal) > 0.9999,
+                            "{} normal {index}",
+                            flower.id
+                        );
+                        assert_eq!(new.color, old.color);
+                    }
+                    for (old, new) in flower.heads.iter().zip(&transformed.heads) {
+                        assert_eq!(new.triangles, old.triangles);
+                        assert!(new.anchor.distance(shape.stem_point(old.anchor)) < 1e-6);
+                        assert!(
+                            shape
+                                .head_point(old.anchor, old.anchor)
+                                .distance(new.anchor)
+                                < 1e-6
+                        );
+                        // Height moves the entire head without stretching its offsets.
+                        for (a, b) in flower.triangles
+                            [old.triangles.start as usize..old.triangles.end as usize]
+                            .iter()
+                            .zip(
+                                &transformed.triangles
+                                    [new.triangles.start as usize..new.triangles.end as usize],
+                            )
+                        {
+                            for (p, q) in a.positions.into_iter().zip(b.positions) {
+                                assert!(
+                                    ((q - new.anchor) - (p - old.anchor) * head_scale).length()
+                                        < 3e-6
+                                );
+                            }
+                        }
+                    }
+                    for part in std::iter::once(&transformed.whole).chain(&transformed.heads) {
+                        assert!(part.radius.is_finite() && part.radius > 0.);
+                        assert!(transformed.triangles
+                            [part.triangles.start as usize..part.triangles.end as usize]
+                            .iter()
+                            .flat_map(|t| t.positions)
+                            .all(|p| p.distance(part.center) < part.radius));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            Shape {
+                head_scale: f32::NAN,
+                height_scale: f32::INFINITY
+            }
+            .normalized(),
+            Shape::default()
         );
     }
 
