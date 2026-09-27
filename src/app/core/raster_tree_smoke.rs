@@ -42,6 +42,10 @@ impl RasterTreeSmoke {
                 self.camera = Some(app.tracer.camera_pose());
             }
             20 => {
+                if std::env::var_os("RE_FLORA_TREE_PIXEL_MOTION_VALIDATE").is_some() {
+                    app.tracer.validate_tree_pixel_camera_motion()?;
+                    return Ok(true);
+                }
                 self.fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
                 self.terrain_revision = app.visible_terrain_revision;
                 ensure!(

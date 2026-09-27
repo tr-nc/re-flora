@@ -5,6 +5,8 @@
 use super::*;
 use std::sync::Arc;
 
+mod validation;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TreeDisplaySettings {
     pub pixelized: bool,

@@ -33,13 +33,16 @@ public struct ModelPixelHit {
     public float3 position;
     public float3 direction;
     public float depth;
+    // Live-surface coverage selects the footprint point nearest the cell center,
+    // then depth at that point. It must not jump to another triangle's nearer
+    // corner merely because that corner is elsewhere inside the same cell.
+    public float coverageDistanceSquared;
     public float3 localOrigin;
     public float3 localDirection;
 };
-// Conservative cells use the nearest projected triangle depth and its real
-// material surface. Original center hits always win. This is the final output
-// of the CPU eight-neighbour + coverage planner: coverage supersedes its bridge
-// expressions, including their color interpolation (see equivalence tests).
+// Rigid-model conservative cells retain the CPU eight-neighbour + coverage
+// planner contract, including centroid material and nearest depth. Live meshes
+// opt into nearest-footprint sampling below. Original center hits always win.
 struct PixelClipPoint { float4 clip; };
 float pixelClipDistance(float4 p,uint plane) {
     return plane==0u?p.w-1e-7:plane==1u?p.z:p.w-p.z;
@@ -107,10 +110,24 @@ public uint modelPixelProjectedTriangle(ButterflyMeshTriangle tri,ModelPixelFram
     }
     return length;
 }
-// Also consumed by live/deforming adapters after their own spatial broad phase.
+// Recover perspective-correct source barycentrics directly in homogeneous
+// space. Unlike dividing each original vertex by w, this also handles vertices
+// on/behind the near plane. The covered point and its material must agree.
+float3 modelPixelSurfaceBary(float4 a,float4 b,float4 c,float2 ndc) {
+    float3 x=float3(a.x,b.x,c.x)-ndc.x*float3(a.w,b.w,c.w);
+    float3 y=float3(a.y,b.y,c.y)-ndc.y*float3(a.w,b.w,c.w);
+    float3 weights=cross(x,y);
+    float total=weights.x+weights.y+weights.z;
+    if(abs(total)<1e-30)return float3(1.0/3.0);
+    weights=max(weights/total,float3(0));
+    return weights/(weights.x+weights.y+weights.z);
+}
+// Live meshes sample the nearest covered surface continuously across triangle
+// boundaries. Small rigid-model adapters retain their existing centroid/depth
+// coverage contract unless opted in.
 public ModelPixelHit modelPixelTriangleCoverageHit(ButterflyMeshTriangle tri,uint triangle,
     ModelPixelFrame frame,float4 bounds,uint2 pixel,uint resolution,U_CameraInfo camera,
-    ModelPixelHit hit) {
+    ModelPixelHit hit,bool continuousSurface=false) {
         float3 projected[12];
         uint length=modelPixelProjectedTriangle(tri,frame,bounds,resolution,camera,projected);
         for(uint j=1u;j+1u<length;j++) {
@@ -118,10 +135,27 @@ public ModelPixelHit modelPixelTriangleCoverageHit(ButterflyMeshTriangle tri,uin
             if(!pixelTriangleCovers(a.xy,b.xy,c.xy,float2(pixel)))continue;
             float3 weights=pixelClosestBary(float2(pixel)+0.5,a.xy,b.xy,c.xy);
             float depth=dot(weights,float3(a.z,b.z,c.z));
-            if(depth>=hit.depth)continue;
+            if(depth>=1.0)continue;
+            float2 covered=weights.x*a.xy+weights.y*b.xy+weights.z*c.xy;
+            float2 delta=covered-(float2(pixel)+0.5);
+            float distanceSquared=dot(delta,delta);
+            if(continuousSurface) {
+                if(hit.triangle!=0xffffffffu && (distanceSquared>hit.coverageDistanceSquared
+                    || (distanceSquared==hit.coverageDistanceSquared && depth>=hit.depth)))continue;
+            } else if(depth>=hit.depth)continue;
+            hit.coverageDistanceSquared=distanceSquared;
             hit.triangle=triangle;hit.bary=float2(1.0/3.0);
             float3 p0=tri.a.xyz,p1=p0+tri.e1.xyz,p2=p0+tri.e2.xyz;
             hit.position=modelPixelWorld(frame,(p0+p1+p2)/3.0);
+            if(continuousSurface) {
+                float2 ndc=modelPixelNdc(bounds,covered,resolution);
+                float3 bary=modelPixelSurfaceBary(
+                    mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p0),1)),
+                    mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p1),1)),
+                    mul(camera.view_proj_mat,float4(modelPixelWorld(frame,p2),1)),ndc);
+                hit.bary=bary.yz;
+                hit.position=modelPixelWorld(frame,p0*bary.x+p1*bary.y+p2*bary.z);
+            }
             hit.depth=depth;
         }
     return hit;
@@ -150,7 +184,7 @@ public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle>
     U_CameraInfo camera) {
     ModelPixelHit hit;
     hit.triangle=0xffffffffu; hit.bary=float2(0.0); hit.position=float3(0.0);
-    hit.direction=float3(0.0); hit.depth=1.0;
+    hit.direction=float3(0.0); hit.depth=1.0; hit.coverageDistanceSquared=1e30;
     hit.localOrigin=float3(0.0);hit.localDirection=float3(0.0);
     if(any(bounds.xy>float2(1.0))||any(bounds.zw<float2(-1.0)))return hit;
     float3 worldOrigin,worldDirection;
@@ -169,7 +203,7 @@ public ModelPixelHit modelPixelCenterHit(StructuredBuffer<ButterflyMeshTriangle>
         float depth=clip.z/clip.w;
         if(depth<0.0||depth>=1.0)continue;
         closest=distance;hit.triangle=first+i;hit.bary=bary;
-        hit.position=position;hit.depth=depth;
+        hit.position=position;hit.depth=depth;hit.coverageDistanceSquared=0.0;
     }
     return hit;
 }

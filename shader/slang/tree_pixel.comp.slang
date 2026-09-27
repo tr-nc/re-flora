@@ -65,8 +65,9 @@ void main(uint3 id:SV_DispatchThreadID) {
             if(dot(cross(e1,e2),camera_info.pos.xyz-a)>0.0) {
                 ButterflyMeshTriangle tri=(ButterflyMeshTriangle)0;
                 tri.a=float4(a,0);tri.e1=float4(e1,0);tri.e2=float4(e2,0);
+                // Continuous surface sampling, not the rigid-model centroid rule.
                 hit=modelPixelTriangleCoverageHit(tri,node.primitive,identityModelPixelFrame(),
-                    bounds,pixel,grid.x,camera_info,hit);
+                    bounds,pixel,grid.x,camera_info,hit,true);
             }
             index=node.escape;
         }

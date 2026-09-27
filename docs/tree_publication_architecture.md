@@ -63,17 +63,21 @@ Debug → **Tree Rendering** provides saved declarative controls:
 
 A draws the posed indexed mesh. B samples that same GPU mesh with the **current
 perspective camera** and refit BVH each frame. Center rays retain their original
-surface; empty centers use the common model-pixel clipped-triangle coverage rule to
-keep fine twigs visible. There is no pre-baked view, fixed camera-angle list or rigid
+surface; empty centers use common clipped-triangle coverage to keep fine twigs
+visible. Live wood chooses the covered footprint point nearest the cell center,
+then resolves depth ties. Its material uses perspective-correct barycentrics at
+that point, not the source triangle centroid. Rigid small-model adapters retain
+their existing coverage/material contract. There is no pre-baked view, fixed camera-angle list or rigid
 whole-tree surface bank. The fragment pass writes the sampled scene depth into the
 ordinary terrain/foliage/fruit depth attachment; it is not a whole-screen image filter.
 
 Both modes interpolate the same per-vertex irradiance and share `shadeTreeWood`.
 Only wood display changes. Shadows, queries, collision, attachments, leaf regeneration
 and fruit state do not inspect the display switch. The current pixel grid is screen-
-aligned, not world-locked: camera motion can produce pixel crawl. Large blocks expand
-thin silhouettes conservatively and use one surface depth per cell. These are visible
-art tradeoffs to review, not claims of exact per-fragment equivalence to A.
+aligned, not world-locked. Large blocks expand thin silhouettes conservatively and
+use one surface depth per cell; they are not exactly equivalent to A per fragment.
+**No camera-motion flicker remains the acceptance requirement.** Screen alignment
+is not an excuse for flashing edges, and static screenshots are not temporal acceptance.
 
 Storage reuses the common fence-slot allocator. Oversized frames split into contiguous
 row bands under the portable storage-buffer budget; every band draws that frame.
@@ -101,10 +105,62 @@ counts, not performance acceptance. Hidden bare-wood closeups are `target/tree-m
 `target/tree-mesh-B.png` (4 scene pixels) and `target/tree-mesh-B16.png`. No visible game
 was launched. These captures do not substitute for manual visual approval.
 
+### Camera-motion regression
+
+The first implementation had two distinct continuous-surface sampling errors:
+
+1. Center rays shaded the hit point, but coverage-only cells shaded the triangle
+   centroid. A 0.0001-radian camera yaw step could therefore make a continuously
+   occupied cell jump by **0.9848914 linear RGB** on a fixed lighting gradient.
+2. Correcting barycentrics alone was insufficient: selecting coverage by depth
+   could switch to a different triangle's corner elsewhere in the same cell.
+   A coplanar split-quad replay still jumped by **0.014998436** at a triangle boundary.
+
+Coverage now chooses the nearest projected footprint point before comparing depth,
+then shades that point in homogeneous coordinates. This handles perspective and
+vertices behind the near plane without dividing original vertices by their `w`.
+The corresponding post-fix steps were **0.00038339943** and **0.000893116**. These
+are controlled continuity measurements, not universal perceptual/performance thresholds.
+Neither temporal smoothing, frozen views nor a different camera-angle bank is used.
+
+Run `scripts/check_tree_pixel_motion.sh` for the opt-in native regression. It drives
+**the production compute shader**, with isolated geometry, camera, palette and light
+buffers (no saved settings changes). Thirty-six cases each sweep 121 camera samples:
+front/oblique triangles, a split quad and near-clipped geometry; yaw, pitch and lateral
+translation; block sizes 1/4/16. Stationary repeats must be identical, motion must
+actually change the sampled surface, and continuously covered cells must change by
+less than 0.01 linear RGB per 0.0001-radian/world-unit step. Retriangulating the quad
+must preserve coverage, color and depth. Colors must remain finite and depth in [0,1].
+The helper rejects runtime errors and requires clean shutdown; it is not a unit test.
+
+The replay specifically guards **continuous-surface material flashes**. It records
+coverage transitions but does not prove temporal stability of every silhouette,
+disocclusion, terrain intersection, moving branch or dense forest. Whole-tree motion
+captures at `target/tree-motion-review/{A,B4,B16}.mp4` use the same static mesh and
+scripted moving camera, with GUI/camera files restored. Each includes 32 color
+keyframes from a 96-frame run. Their raw frame-difference metrics include legitimate
+motion and must not be described as flicker scores or performance results. Manual
+confirmation of the full no-flicker criterion remains outstanding.
+
+Post-fix validation passed formatting, `cargo check`, **1113 binary tests / 4 ignored**
+and 4 library tests, the 36-case native motion replay, the strict original leaf
+coverage/depth/RGBA oracle, the 160-frame tree/resize smoke, and real-leaf lifecycle
+replay with pixelized wood enabled (29,144 released leaves, full pose/rotation
+continuity). Hidden Release startup/shutdown and all final run logs were clean.
+No generated files or saved defaults changed. No performance conclusion is claimed.
+
+For dense color keyframes through the existing real-scene camera-motion runner, set
+`RE_FLORA_TREE_PIXEL_MOTION_REVIEW=1` with `--hidden --mute` and
+`--denoiser-bench <snapshot> <report.toml> --denoiser-bench-camera-motion`.
+This only changes capture retention, not rendering,
+wind, lighting or saved controls. Freeze wind/daylight via the ordinary saved settings
+for controlled review and restore those settings afterward.
+
 ### Reproducible review commands
 
 ```sh
 cargo build --release
+scripts/check_tree_pixel_motion.sh
 python3 scripts/check_raster_tree_static.py --thin-branches
 python3 scripts/benchmark_tree_update.py --output target/tree-mesh-update-bench \
   --seconds 6 --warmup-seconds 2
