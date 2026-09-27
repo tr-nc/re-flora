@@ -817,6 +817,7 @@ impl App {
             let settings = &mut self.debug_settings.adjustables;
             settings.butterfly_mesh_preview.value = true;
             if mode == "sweep" {
+                settings.model_pixel_view_count.value = 16;
                 let stage = (frame / 60).min(6);
                 settings.butterfly_wing_transmission.value = match stage {
                     5 => 0.5,

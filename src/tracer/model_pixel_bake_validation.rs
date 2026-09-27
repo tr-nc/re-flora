@@ -235,6 +235,11 @@ fn bake_coverage_depths(groups: &[model_pixel_repair::Group], n: usize) -> Vec<O
     for t in groups.iter().flat_map(|g| &g.triangles) {
         let lo = [0, 1].map(|a| t.iter().map(|v| v[a]).fold(f64::INFINITY, f64::min));
         let hi = [0, 1].map(|a| t.iter().map(|v| v[a]).fold(f64::NEG_INFINITY, f64::max));
+        let start = [0, 1].map(|a| (lo[a] - 1. - 0.0001).ceil().max(0.));
+        let end = [0, 1].map(|a| (hi[a] + 0.0001).floor().min(n as f64 - 1.));
+        if (0..2).any(|a| end[a] < start[a]) {
+            continue;
+        }
         let winding = if (t[1][0] - t[0][0]) * (t[2][1] - t[0][1])
             - (t[1][1] - t[0][1]) * (t[2][0] - t[0][0])
             >= 0.
@@ -243,12 +248,8 @@ fn bake_coverage_depths(groups: &[model_pixel_repair::Group], n: usize) -> Vec<O
         } else {
             -1.
         };
-        for y in (lo[1] - 1. - 0.0001).ceil().max(0.) as usize
-            ..=(hi[1] + 0.0001).floor().min(n as f64 - 1.) as usize
-        {
-            for x in (lo[0] - 1. - 0.0001).ceil().max(0.) as usize
-                ..=(hi[0] + 0.0001).floor().min(n as f64 - 1.) as usize
-            {
+        for y in start[1] as usize..=end[1] as usize {
+            for x in start[0] as usize..=end[0] as usize {
                 if (0..3).all(|i| {
                     let j = (i + 1) % 3;
                     let dx = t[j][0] - t[i][0];
@@ -439,6 +440,17 @@ pub(super) fn validate(spec: Spec, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bake_coverage_rejects_outside_degenerate_triangles_before_integer_clamping() {
+        for coordinate in [-10., 10.] {
+            let groups = [model_pixel_repair::Group {
+                id: 1,
+                sources: vec![0],
+                triangles: vec![[[coordinate, coordinate, 0.5]; 3]],
+            }];
+            assert!(bake_coverage_depths(&groups, 8).iter().all(Option::is_none));
+        }
+    }
     #[test]
     fn closest_edge_keeps_float32_tile_reconstruction_before_depth_selection() {
         let triangle = [

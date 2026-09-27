@@ -49,6 +49,7 @@ impl App {
         review.frame += 1;
         if let Some(mode) = &review.model_review {
             // Diagnostic only; the real saved-field-bound controls own normal play.
+            self.debug_settings.adjustables.model_pixel_view_count.value = 16;
             let (enabled, resolution) = if mode == "b" {
                 (true, 16)
             } else {
