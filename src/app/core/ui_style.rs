@@ -260,12 +260,22 @@ pub(crate) fn draw_flora_paint_panel(
                 ui.separator();
                 ui.add_space(4.0);
 
-                for entry in entries {
-                    if draw_flora_paint_panel_entry(ui, entry, interaction_enabled) {
-                        panel_response.clicked_selection_index = Some(entry.index);
-                    }
-                    ui.add_space(4.0);
-                }
+                // Reserve room for the header, screen margins and bottom tool
+                // tray. Every catalog entry remains reachable on short windows.
+                egui::ScrollArea::vertical()
+                    .id_salt("flora_paint_options")
+                    .max_height(
+                        (ctx.content_rect().height() - 200.0).max(FLORA_PAINT_BUTTON_HEIGHT),
+                    )
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        for entry in entries {
+                            if draw_flora_paint_panel_entry(ui, entry, interaction_enabled) {
+                                panel_response.clicked_selection_index = Some(entry.index);
+                            }
+                            ui.add_space(4.0);
+                        }
+                    });
             });
         });
 
@@ -1222,6 +1232,117 @@ fn widget_visuals(
 #[cfg(test)]
 mod hover_layout_tests {
     use super::*;
+
+    #[test]
+    fn grow_panel_can_select_every_model_flower_on_a_short_window() {
+        use crate::flora::species::{self, FloraPaintSelection};
+        let context = egui::Context::default();
+        let mut style = (*context.global_style()).clone();
+        apply_gui_style(&mut style);
+        context.set_global_style(style);
+        let mut entries = species::PLAYER_FLORA_PAINT_SELECTIONS
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, selection)| FloraPaintPanelEntry {
+                index,
+                label: species::flora_paint_selection_label(selection),
+                selected: index == 0,
+            })
+            .collect::<Vec<_>>();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640., 480.));
+        let draw = |events: Vec<egui::Event>, entries: &[FloraPaintPanelEntry]| {
+            let mut clicked = None;
+            let output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |_| {
+                    clicked =
+                        draw_flora_paint_panel(&context, entries, true).clicked_selection_index;
+                },
+            );
+            (output, clicked)
+        };
+        for _ in 0..3 {
+            draw(vec![], &entries);
+        }
+        let mut selected = 0;
+        for (index, selection) in species::PLAYER_FLORA_PAINT_SELECTIONS.iter().enumerate() {
+            let FloraPaintSelection::Species(species) = selection else {
+                continue;
+            };
+            if *species < species::MODEL_FLOWER_FIRST_SPECIES {
+                continue;
+            }
+            let label = entries[index].label;
+            let mut point = None;
+            for _ in 0..24 {
+                let (frame, _) = draw(vec![], &entries);
+                point = frame.shapes.iter().find_map(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        let center = text.pos + text.galley.size() * 0.5;
+                        if text.galley.job.text == label
+                            && shape.clip_rect.contains(center)
+                            && screen.contains(center)
+                        {
+                            return Some(center);
+                        }
+                    }
+                    None
+                });
+                if point.is_some() {
+                    break;
+                }
+                draw(
+                    vec![
+                        egui::Event::PointerMoved(egui::pos2(540., 240.)),
+                        egui::Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: egui::vec2(0., -100.),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                    &entries,
+                );
+            }
+            let point = point.unwrap_or_else(|| panic!("{label} is unreachable in the Grow panel"));
+            draw(
+                vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                &entries,
+            );
+            let (_, clicked) = draw(
+                vec![egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                &entries,
+            );
+            assert_eq!(
+                clicked,
+                Some(index),
+                "Grow click must resolve {label} to its real planting selection"
+            );
+            for entry in &mut entries {
+                entry.selected = entry.index == index;
+            }
+            selected += 1;
+        }
+        assert_eq!(selected, crate::flora::models::MODEL_COUNT);
+    }
 
     #[test]
     fn button_hover_keeps_its_rect_and_following_controls_fixed() {

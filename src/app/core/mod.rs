@@ -3038,8 +3038,13 @@ ui.collapsing("Environment Probes", |ui| {
                                 flora_paint_panel_response.clicked_selection_index;
                         }
 
-                        let voxel_palette_response =
-                            draw_voxel_palette(ctx, &voxel_palette_entries, false);
+                        // Grow owns the right-side plant selector. The status-only
+                        // backpack must not cover its longer, scrollable catalog.
+                        let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Staff {
+                            Default::default()
+                        } else {
+                            draw_voxel_palette(ctx, &voxel_palette_entries, false)
+                        };
                         self.player_tools.backpack_summary_panel_screen_pos =
                             voxel_palette_response
                                 .panel_center
