@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 const help=`Usage: node scripts/validate-model-cache.mjs [--seconds 20] [--output target/model-cache-review]
 Runs hidden/muted Release/Vulkan with real planted flowers, attached/fallen apples,
 64 rotating model leaves and 21 butterflies. Requires a desktop/Vulkan session.
-Checks all eight float bits of every consumed cached surface against the shared
+Checks all eight float bit patterns of every consumed cached surface against the shared
 canonical generator. Sweeps 8/16/37/128/512 views, independent resolutions, A/B,
 lighting/growth/size, actual apple drops and resize after submitted cached draws.
 512-view correctness cases use 8px; this is NOT a multi-GiB stress/perf test.
@@ -44,6 +44,8 @@ async function main(){
  assert.equal([...text.matchAll(/FLOWER_REVIEW_PLANT\] species=/g)].length,8);
  assert.match(text,/\[COLLISION\]\[FRUIT\] dropped tree=/,'No actual fruit drop');
  assert.match(text,/MODEL_CACHE_RESIZE\] ready_banks=true replay_after_consumers=true/);
+ const paged=text.match(/MODEL_CACHE_BUILD\] kind=0 views=16 resolution=64 shapes=64 bytes=134217728 blocks=(\d+)/);
+ assert.ok(paged&&+paged[1]>=2,'64px leaves must exercise multi-page GPU cache addressing');
  const generations=[...text.matchAll(/RESIZE_LIFECYCLE\] phase=frame frame_generation=(\d+) swapchain_generation=(\d+) tracer_generation=(\d+)/g)];
  assert.ok(generations.length>0&&generations.every(([,a,b,c])=>a===b&&b===c),'Inconsistent resize generation');
  assert.ok([...text.matchAll(/RESIZE_LIFECYCLE\] phase=requests_complete count=5/g)].length>=2,'Need startup and post-consumer resize sequences');
@@ -57,9 +59,11 @@ async function main(){
   assert.deepEqual(builds.map(b=>+b[1]),expectedBuilds[i],`Phase ${i}: wrong bank rebuild set`);
   for(const b of builds){assert.equal(+b[2],+m[2]);assert.equal(+b[3],+m[3+(+b[1])]);}
   const counters=[0,0,0,0];
-  for(const row of segment.matchAll(/MODEL_CACHE_ORACLE\] leaf=(\d+) apple=(\d+) butterfly=(\d+) flower=(\d+) mismatches=(\d+)\/(\d+)\/(\d+)\/(\d+)/g)){
-   for(let k=0;k<4;k++){counters[k]+=+row[k+1];assert.equal(+row[k+5],0,`Phase ${i}: kind ${k} mismatch`);}
-  }
+  const checks=[...segment.matchAll(/MODEL_CACHE_ORACLE\] leaf=(\d+) apple=(\d+) butterfly=(\d+) flower=(\d+) mismatches=(\d+)\/(\d+)\/(\d+)\/(\d+)/g)];
+  for(const row of checks)for(let k=0;k<4;k++)assert.equal(+row[k+5],0,`Phase ${i}: kind ${k} mismatch`);
+  // Completed frame-slot readbacks at a phase boundary can belong to the prior
+  // phase. Exclude the first three before requiring current-phase coverage.
+  for(const row of checks.slice(3))for(let k=0;k<4;k++)counters[k]+=+row[k+1];
   assert.ok(counters.every(n=>n>0),`Phase ${i}: every consumer must check real cached samples`);
   counters.forEach((n,k)=>totals[k]+=n);
   results.push({phase:i,views:+m[2],resolutions:m.slice(3,7).map(Number),rebuilt_kinds:builds.map(b=>+b[1]),checked_texels:counters});
