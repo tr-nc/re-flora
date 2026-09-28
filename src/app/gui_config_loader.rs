@@ -151,7 +151,6 @@ impl GuiConfigLoader {
                         | "model_pixel_snap_views"
                         | "model_pixel_single_light"
                         | "model_pixel_screen_grid"
-                        | "model_flower_view_count"
                         | "raster_tree_hybrid_lighting"
                         | "raster_tree_static"
                 )
@@ -1342,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_global_view_count_survives_while_flower_override_is_retired() {
+    fn independent_dynamic_and_flower_view_counts_survive_loading() {
         use crate::app::gui_config_model::GuiParamValue;
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -1375,39 +1374,41 @@ mod tests {
             .iter_mut()
             .find(|s| s.name == "Flora")
             .unwrap();
-        let mut old = flora
+        flora
             .param
-            .iter()
-            .find(|p| p.id == "model_flower_pixel_resolution")
+            .iter_mut()
+            .find(|p| p.id == "model_flower_view_count")
             .unwrap()
-            .clone();
-        old.id = "model_flower_view_count".into();
-        old.value = GuiParamValue::Uint {
+            .value = GuiParamValue::Uint {
             value: 37,
             min: Some(8),
             max: Some(512),
         };
-        flora.param.push(old);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("gui.toml");
         GuiConfigLoader::save_to_path(&config, &path).unwrap();
         let loaded = GuiConfigLoader::load_from_path(&path);
-        assert!(!loaded.section.iter().flat_map(|s| &s.param).any(|p| [
-            "model_flower_view_count",
-            "model_pixel_snap_views"
-        ]
-        .contains(&p.id.as_str())));
+        assert!(!loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "model_pixel_snap_views"));
         assert!(loaded
             .section
             .iter()
             .flat_map(|s| &s.param)
             .any(|p| p.id == "model_pixel_view_count"
                 && matches!(p.value, GuiParamValue::Uint { value: 8, .. })));
+        assert!(loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "model_flower_view_count"
+                && matches!(p.value, GuiParamValue::Uint { value: 37, .. })));
         GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
         let saved = std::fs::read_to_string(&path).unwrap();
-        for id in ["model_flower_view_count", "model_pixel_snap_views"] {
-            assert!(!saved.contains(id));
-        }
+        assert!(saved.contains("model_flower_view_count"));
+        assert!(!saved.contains("model_pixel_snap_views"));
     }
 
     #[test]

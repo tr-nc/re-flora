@@ -123,7 +123,7 @@ max = 64
 [[section.param]]
 id = "model_pixel_view_count"
 kind = "uint"
-label = "Global Pixel Model View Count"
+label = "Dynamic Pixel Model View Count"
 type = "Uint"
 
 [section.param.data]
@@ -1122,6 +1122,17 @@ type = "Uint"
 value = 35
 min = 8
 max = 64
+
+[[section.param]]
+id = "model_flower_view_count"
+kind = "uint"
+label = "Flower View Count (Static)"
+type = "Uint"
+
+[section.param.data]
+value = 256
+min = 8
+max = 512
 
 [[section.param]]
 id = "model_flower_head_scale"

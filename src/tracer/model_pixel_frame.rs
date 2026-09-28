@@ -147,7 +147,7 @@ impl ModelPixelFrame {
             self.storage.frame_slot(),
             cmd,
             pipeline,
-            [views; 4],
+            [views, views, views, flowers.views],
             [
                 self.particle_resolutions[0],
                 apple_resolution,

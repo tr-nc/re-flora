@@ -38,7 +38,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Models — Global",
-        description: "One view count for apples, butterflies, 3D falling leaves and flower heads. Discrete Fibonacci-sphere views are shared without blending; pixel resolutions remain per object. Higher counts use more GPU cache memory.",
+        description: "Dynamic apples, butterflies and 3D falling leaves share this count. Flower heads use the separate static count in Flora → Ground Plants → Model Flowers. Higher counts use more GPU cache memory.",
         initially_open: true,
         params: &["model_pixel_view_count"],
     },

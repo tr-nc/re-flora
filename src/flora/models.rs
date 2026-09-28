@@ -18,6 +18,7 @@ pub const WORLD_SCALE: f32 = 10.0 / 256.0;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Settings {
     pub resolution: u32,
+    pub views: u32,
     pub shape: Shape,
     /// Legacy saved overall scale: still multiplies the entire plant at runtime.
     pub size_scale: f32,
@@ -26,6 +27,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             resolution: 32,
+            views: 256,
             shape: Shape::default(),
             size_scale: 1.0,
         }
@@ -35,6 +37,7 @@ impl Settings {
     pub fn normalized(self) -> Self {
         Self {
             resolution: self.resolution.clamp(8, 64),
+            views: self.views.clamp(8, 512),
             shape: self.shape.normalized(),
             size_scale: if self.size_scale.is_finite() {
                 self.size_scale.clamp(0.5, 2.0)

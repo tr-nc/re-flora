@@ -3060,7 +3060,7 @@ impl Tracer {
                 true,
                 flowers.resolution,
                 flowers.size_scale,
-                model_pixel_views::runtime_count(terrain.model_pixel_view_count),
+                flowers.views,
                 flowers.shape.head_scale,
                 flowers.shape.height_scale
             );

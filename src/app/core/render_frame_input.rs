@@ -83,6 +83,7 @@ pub(super) fn freeze_render_frame_inputs(
         appearance: FloraAppearanceFrameInput {
             model_flowers: crate::flora::models::Settings {
                 resolution: gui.model_flower_pixel_resolution.value,
+                views: gui.model_flower_view_count.value,
                 shape: crate::flora::models::Shape {
                     head_scale: gui.model_flower_head_scale.value,
                     height_scale: gui.model_flower_height_scale.value,
@@ -307,6 +308,7 @@ mod tests {
         }
 
         gui.model_flower_pixel_resolution.value = 24;
+        gui.model_flower_view_count.value = 257;
         gui.model_flower_head_scale.value = 1.5;
         gui.model_flower_height_scale.value = 0.75;
         gui.model_flower_height_variance.value = 0.09;
@@ -474,6 +476,7 @@ mod tests {
                 appearance: FloraAppearanceFrameInput {
                     model_flowers: crate::flora::models::Settings {
                         resolution: 24,
+                        views: 257,
                         shape: crate::flora::models::Shape {
                             head_scale: 1.5,
                             height_scale: 0.75,
