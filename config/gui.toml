@@ -1140,18 +1140,9 @@ max = 8
 name = "Flora"
 
 [[section.param]]
-id = "model_flower_heads_only"
-kind = "bool"
-label = "Pixel Flower Heads + Mesh Stems (B; Unchecked = Whole Plant)"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "model_flower_pixel_resolution"
 kind = "uint"
-label = "Pixels per Plant / Flower Head"
+label = "Pixels per Flower Head"
 type = "Uint"
 
 [section.param.data]

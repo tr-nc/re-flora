@@ -361,11 +361,7 @@ impl ModelPixelFrame {
         let species = push.species;
         let model = &crate::flora::models::flowers()
             [(species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize];
-        let parts = if push.heads_only != 0 {
-            model.heads.len() as u32
-        } else {
-            1
-        };
+        let parts = model.heads.len() as u32;
         let tile_count = count
             .checked_mul(parts)
             .ok_or_else(|| anyhow::anyhow!("flower tile count overflow"))?;
@@ -420,7 +416,7 @@ impl ModelPixelFrame {
                 },
             )?);
         }
-        let stems = if push.heads_only != 0 && count > 0 {
+        let stems = if count > 0 {
             let mut stem_resources = pose_resources.to_vec();
             stem_resources.push(cache.flower_triangles());
             Some(PreparedModelPixels {

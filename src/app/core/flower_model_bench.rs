@@ -15,14 +15,13 @@ struct Parameters {
     count: u32,
     view: View,
     resolution: u32,
-    heads_only: bool,
 }
 impl Parameters {
     fn parse(input: &str) -> Result<Self> {
         let fields = input.split(',').collect::<Vec<_>>();
         ensure!(
             fields.len() == 4,
-            "expected count,front|away|outside,pixels,heads|whole"
+            "expected count,front|away|outside,pixels,heads"
         );
         let count = fields[0].parse::<u32>().context("flower count")?;
         ensure!(
@@ -37,16 +36,15 @@ impl Parameters {
         };
         let resolution = fields[2].parse::<u32>().context("flower resolution")?;
         ensure!((8..=64).contains(&resolution), "pixels must be 8..64");
-        let heads_only = match fields[3] {
-            "heads" => true,
-            "whole" => false,
-            _ => anyhow::bail!("mode must be heads or whole"),
-        };
+        // Accept old benchmark recipes, but never restore whole-plant rendering.
+        ensure!(
+            ["heads", "whole"].contains(&fields[3]),
+            "mode must be heads (legacy whole is normalized to heads)"
+        );
         Ok(Self {
             count,
             view,
             resolution,
-            heads_only,
         })
     }
 }
@@ -76,7 +74,6 @@ impl App {
         };
         let parameters = bench.parameters;
         let settings = &mut self.debug_settings.adjustables;
-        settings.model_flower_heads_only.value = parameters.heads_only;
         settings.model_flower_pixel_resolution.value = parameters.resolution;
         settings.model_flower_size_scale.value = 1.;
         settings.model_pixel_view_count.value = 16;
@@ -110,7 +107,7 @@ impl App {
             self.finish_authored_flora_placement(batch)?;
             self.flower_model_bench.as_mut().unwrap().target = Some(target);
             self.set_manual_time_of_day(0.45);
-            log::info!("[FLOWER_BENCH] species=wild-geranium count={} view={:?} resolution={} heads_only={} target={target:?} placement=production saved=false",parameters.count,parameters.view,parameters.resolution,parameters.heads_only);
+            log::info!("[FLOWER_BENCH] species=wild-geranium count={} view={:?} resolution={} heads_only={} target={target:?} placement=production saved=false",parameters.count,parameters.view,parameters.resolution,true);
         }
         let target = self.flower_model_bench.as_ref().unwrap().target.unwrap();
         let eye = target
@@ -140,10 +137,8 @@ mod tests {
     #[test]
     fn benchmark_input_is_bounded_and_explicit() {
         let p = Parameters::parse("128,away,32,heads").unwrap();
-        assert_eq!(
-            (p.count, p.view, p.resolution, p.heads_only),
-            (128, View::Away, 32, true)
-        );
+        assert_eq!((p.count, p.view, p.resolution), (128, View::Away, 32));
+        assert!(Parameters::parse("128,away,32,whole").is_ok());
         for bad in [
             "",
             "2048,away,32,heads",

@@ -11,7 +11,7 @@ const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
 let asset,definition,modelSettings,pipeline,camera,pixelCamera,controls,request=0,last=0;
 const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,playing:false,time:0,clip:0,fps:60,speed:1,
-  resolution:32,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true,flowerHeadsOnly:false};
+  resolution:32,projection:'orthographic',variant:'compare',wireframe:false,rotate:false,background:'#253426',checker:false,conservativeCoverage:true};
 
 function message(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function dirty(){state.dirty=true;}
@@ -48,7 +48,7 @@ function resize(){
   const stages=[sourceCanvas.parentElement,pixelCanvas.parentElement];
   const sourceSize=Math.max(1,Math.floor(Math.min(stages[0].clientWidth,stages[0].clientHeight)));
   const available=Math.max(1,Math.floor(Math.min(stages[1].clientWidth,stages[1].clientHeight)));
-  const hybrid=state.flowerHeadsOnly&&Boolean(asset?.pixelParts?.length);
+  const hybrid=Boolean(asset?.pixelParts?.length);
   const scale=Math.floor(available/state.resolution),pixelSize=hybrid?available:scale?scale*state.resolution:available;
   pipeline.resize(sourceSize,state.resolution);
   sourceCanvas.style.width=sourceCanvas.style.height=`${sourceSize}px`;
@@ -105,10 +105,8 @@ function syncControls(){
   for(const key of ['resolution','fps','speed','projection'])$(key).value=state[key];
   for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
   $('conservative-coverage').checked=state.conservativeCoverage;
-  const flower=Boolean(asset?.pixelParts?.length),hybrid=flower&&state.flowerHeadsOnly;
-  $('flower-comparison').hidden=!flower;$('flower-heads-only').checked=hybrid;
-  $('result-mode').textContent=flower?(hybrid?'B / 花头 + 茎叶':'A / 整株像素'):'像素结果';
-  $('flower-mode-hint').textContent=hybrid?'B：每个完整花头各用 N × N；低模茎叶不做像素化，按原锚点和深度拼接。':'A：未勾选，整株共用一张 N × N，花、萼、茎、叶一起像素化。';
+  const hybrid=Boolean(asset?.pixelParts?.length);
+  $('result-mode').textContent=hybrid?'花头 + 茎叶':'像素结果';
   $('resolution-label').textContent=hybrid?'每个完整花头的像素数':'画布像素数';
   $('resolution-hint').textContent=hybrid?`每朵花独立 N × N；最终导出 ${PART_COMPOSITE_SIZE} × ${PART_COMPOSITE_SIZE} 透明合成。不是每片花瓣单独处理。`:'真实 N × N 缓冲，最近邻放大。观察范围不随动画轮廓变化，像素尺度不会随拍翼伸缩。';
   $('background').value=state.background;updateBackground();
@@ -122,7 +120,6 @@ function syncControls(){
   $('phase').max=Math.max(0,Math.ceil((asset?.clips[state.clip]?.duration??0)*1000)-1);
   const disabled=!state.ready||state.loading||state.failed;
   for(const element of document.querySelectorAll('button,input,select'))if(element.id!=='model')element.disabled=disabled;
-  $('flower-heads-only').disabled=disabled||!flower;
   for(const id of ['play','previous-frame','next-frame','clip','phase','fps','speed'])$(id).disabled=disabled||!asset?.clips.length;
   $('play').textContent=state.playing?'暂停':'播放';$('play').setAttribute('aria-pressed',String(state.playing));
 }
@@ -135,7 +132,7 @@ async function loadModel(id){
     if(token!==request){next.dispose();return;}
     const values={...nextDefinition.defaults};next.apply(values);
     asset?.dispose();pipeline.releaseAsset();asset=next;next=null;definition=nextDefinition;modelSettings=values;
-    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,flowerHeadsOnly:false,...definition.preview});
+    Object.assign(state,{model:id,ready:true,loading:false,failed:false,playing:false,time:0,clip:0,fps:60,speed:1,wireframe:false,rotate:false,checker:false,conservativeCoverage:true,...definition.preview});
     $('model').value=id;setProjection('orthographic');setView();
     buildModelControls();syncControls();setVariant(state.variant);
     $('model-info').textContent=definition.label;
@@ -150,7 +147,7 @@ async function loadModel(id){
 function render(){
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   syncPixelCamera();
-  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage,flowerHeadsOnly:state.flowerHeadsOnly});
+  const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage});
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
   let repairMessage=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   if(frame.repair){
@@ -212,7 +209,6 @@ function init(){
   for(const key of ['resolution','fps','speed'])$(key).addEventListener('input',()=>{state[key]=Number($(key).value);syncControls();if(key==='resolution')resize();dirty();});
   for(const key of ['wireframe','rotate','checker'])$(key).addEventListener('change',()=>{state[key]=$(key).checked;syncControls();dirty();});
   $('conservative-coverage').addEventListener('change',()=>{state.conservativeCoverage=$('conservative-coverage').checked;syncControls();dirty();});
-  $('flower-heads-only').addEventListener('change',()=>{state.flowerHeadsOnly=$('flower-heads-only').checked;syncControls();resize();dirty();});
   $('background').addEventListener('input',()=>{state.background=$('background').value;updateBackground();});
   $('play').addEventListener('click',()=>setPlaying(!state.playing));
   $('previous-frame').addEventListener('click',()=>stepFrame(-1));$('next-frame').addEventListener('click',()=>stepFrame(1));
@@ -222,7 +218,7 @@ function init(){
   $('download').addEventListener('click',()=>{
     render();const time=pipeline.last.pixelTime.toFixed(3);
     const mode=state.conservativeCoverage?'coverage':'bridge-only';
-    const scope=asset.pixelParts?(state.flowerHeadsOnly?`heads-${PART_COMPOSITE_SIZE}px-composite-`:'whole-'):'';
+    const scope=asset.pixelParts?`heads-${PART_COMPOSITE_SIZE}px-composite-`:'';
     pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-${scope}${mode}-${state.resolution}px-${time}s.png`);},'image/png');
   });
   $('previous').addEventListener('click',()=>cycleVariant(-1));$('next').addEventListener('click',()=>cycleVariant(1));

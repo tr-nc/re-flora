@@ -84,7 +84,6 @@ pub(super) fn freeze_render_frame_inputs(
         tree_hybrid_lighting: gui.raster_tree_hybrid_lighting.value,
         appearance: FloraAppearanceFrameInput {
             model_flowers: crate::flora::models::Settings {
-                heads_only: gui.model_flower_heads_only.value,
                 resolution: gui.model_flower_pixel_resolution.value,
                 views: gui.model_flower_view_count.value,
                 shape: crate::flora::models::Shape {
@@ -306,7 +305,6 @@ mod tests {
             }};
         }
 
-        gui.model_flower_heads_only.value = false;
         gui.model_flower_pixel_resolution.value = 24;
         gui.model_flower_view_count.value = 37;
         gui.model_flower_head_scale.value = 1.5;
@@ -475,7 +473,6 @@ mod tests {
                 tree_hybrid_lighting: true,
                 appearance: FloraAppearanceFrameInput {
                     model_flowers: crate::flora::models::Settings {
-                        heads_only: false,
                         resolution: 24,
                         views: 37,
                         shape: crate::flora::models::Shape {

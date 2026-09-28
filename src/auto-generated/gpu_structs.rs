@@ -476,11 +476,11 @@ pub struct PushConstantFlowerPixel {
     pub response_offset: u32,
     pub time: f32,
     pub resolution: u32,
-    pub heads_only: u32,
     pub world_scale: f32,
     pub tile_first: u32,
     pub prepare_object: u32,
     pub padding: u32,
+    pub _pad0: [u8; 4],
 }
 
 /// Auto-generated from `PushConstantGlassResolve` (native Slang source of truth).

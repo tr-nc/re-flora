@@ -12,7 +12,6 @@ pub const WORLD_SCALE: f32 = 10.0 / 256.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Settings {
-    pub heads_only: bool,
     pub resolution: u32,
     pub views: u32,
     pub shape: Shape,
@@ -22,7 +21,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            heads_only: true,
             resolution: 32,
             views: 16,
             shape: Shape::default(),
@@ -303,13 +301,11 @@ mod tests {
     #[test]
     fn settings_bound_gpu_work_and_reject_nonfinite_scale() {
         let settings = Settings {
-            heads_only: false,
             resolution: 0,
             size_scale: f32::NAN,
             ..Settings::default()
         }
         .normalized();
-        assert!(!settings.heads_only);
         assert_eq!(settings.resolution, 8);
         assert_eq!(settings.size_scale, 1.0);
         assert_eq!(

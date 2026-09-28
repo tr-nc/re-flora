@@ -60,7 +60,6 @@ const LEAF_FREQUENCY_CURVE: &[&str] = &[
     "leaf_flutter_frequency_knee",
 ];
 const MODEL_FLOWERS: &[&str] = &[
-    "model_flower_heads_only",
     "model_flower_pixel_resolution",
     "model_flower_view_count",
     "model_flower_head_scale",
@@ -155,7 +154,7 @@ pub(super) fn render(
         );
     });
     category(ui, "Ground Plants", |ui| {
-        category(ui, "Model Flowers (A/B)", |ui| {
+        category(ui, "Model Flowers", |ui| {
             controls(ui, flora, MODEL_FLOWERS, adjustables);
             ui.label("A: one tile per plant. B: one tile per complete flower head, with mesh stems/leaves. Different pixel budgets; same planted models and pose.");
         });

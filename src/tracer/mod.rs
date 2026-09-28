@@ -3058,8 +3058,8 @@ impl Tracer {
         let flowers = vegetation.appearance.model_flowers.normalized();
         if flowers != self.flower_model_settings {
             log::info!(
-                "[FLOWER_MODE] heads_only={} resolution={} size={} views={} head_scale={} height_scale={} pose=shared live_switch=true",
-                flowers.heads_only,
+                "[FLOWER_MODE] heads_only={} resolution={} size={} views={} head_scale={} height_scale={} pose=shared",
+                true,
                 flowers.resolution,
                 flowers.size_scale,
                 flowers.views,
@@ -4665,11 +4665,7 @@ impl Tracer {
                     }
                     planned_flower_plants += u64::from(count);
                     planned_flower_tiles += u64::from(count)
-                        * if settings.heads_only {
-                            crate::flora::models::flowers()[model].heads.len() as u64
-                        } else {
-                            1
-                        };
+                        * crate::flora::models::flowers()[model].heads.len() as u64;
                     let push = crate::generated::gpu_structs::PushConstantFlowerPixel {
                         chunk_world_offset: instances.chunk_world_offset.to_array(),
                         species: species_index as u32,
@@ -4678,11 +4674,11 @@ impl Tracer {
                             .flower_offset(chunk_index, species_index),
                         time,
                         resolution: settings.resolution,
-                        heads_only: settings.heads_only as u32,
                         world_scale: crate::flora::models::WORLD_SCALE * settings.size_scale,
                         tile_first: 0,
                         prepare_object: 0,
                         padding: 0,
+                        _pad0: Default::default(),
                     };
                     let descriptors = [
                         (
@@ -4718,7 +4714,7 @@ impl Tracer {
                         .expect("paired flower model pixels"),
                     );
                     if std::env::var_os("RE_FLORA_FLOWER_MODEL_REVIEW").is_some() {
-                        log::info!("[FLOWER_DRAW] species={} plants={} heads_only={} resolution={} parts_per_plant={}",desc.key,count,settings.heads_only,settings.resolution,if settings.heads_only {crate::flora::models::flowers()[model].heads.len()} else {1});
+                        log::info!("[FLOWER_DRAW] species={} plants={} heads_only={} resolution={} parts_per_plant={}",desc.key,count,true,settings.resolution,crate::flora::models::flowers()[model].heads.len());
                     }
                 }
             }

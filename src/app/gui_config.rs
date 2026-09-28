@@ -1242,10 +1242,38 @@ mod tests {
     }
 
     #[test]
+    fn retired_flower_scope_is_ignored_in_legacy_configs() {
+        for value in [false, true] {
+            let mut config = GuiConfigLoader::load();
+            let legacy = format!(
+                r#"
+                id = "model_flower_heads_only"
+                kind = "bool"
+                label = "Legacy flower scope"
+                type = "Bool"
+                [data]
+                value = {value}
+            "#
+            );
+            config.section[0]
+                .param
+                .push(toml::from_str(&legacy).unwrap());
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let mut settings = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            settings.sync_config();
+            assert!(settings.config.section.iter().all(|section| section
+                .param
+                .iter()
+                .all(|param| param.id != "model_flower_heads_only")));
+        }
+    }
+
+    #[test]
     fn saved_flower_controls_round_trip_without_reinterpreting_legacy_overall_size() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.model_flower_size_scale.value = 1.75;
-        settings.adjustables.model_flower_heads_only.value = false;
         settings.adjustables.model_flower_pixel_resolution.value = 24;
         settings.sync_config();
         for section in &mut settings.config.section {
@@ -1263,11 +1291,21 @@ mod tests {
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
         let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(loaded.adjustables.model_flower_size_scale.value, 1.75);
-        assert!(!loaded.adjustables.model_flower_heads_only.value);
         assert_eq!(loaded.adjustables.model_flower_pixel_resolution.value, 24);
-        assert_eq!(loaded.adjustables.model_flower_head_scale.value, 1.);
-        assert_eq!(loaded.adjustables.model_flower_height_scale.value, 1.);
-        assert_eq!(loaded.adjustables.model_flower_view_count.value, 16);
+        // Missing controls inherit the current declarative defaults, not the
+        // historical defaults from when these fields were first introduced.
+        assert_eq!(
+            loaded.adjustables.model_flower_head_scale.value,
+            settings.adjustables.model_flower_head_scale.value
+        );
+        assert_eq!(
+            loaded.adjustables.model_flower_height_scale.value,
+            settings.adjustables.model_flower_height_scale.value
+        );
+        assert_eq!(
+            loaded.adjustables.model_flower_view_count.value,
+            settings.adjustables.model_flower_view_count.value
+        );
         loaded.adjustables.model_flower_head_scale.value = 2.5;
         loaded.adjustables.model_flower_height_scale.value = 0.5;
         loaded.adjustables.model_flower_view_count.value = 37;
@@ -1277,7 +1315,6 @@ mod tests {
         assert_eq!(saved.adjustables.model_flower_height_scale.value, 0.5);
         assert_eq!(saved.adjustables.model_flower_view_count.value, 37);
         assert_eq!(saved.adjustables.model_flower_size_scale.value, 1.75);
-        assert!(!saved.adjustables.model_flower_heads_only.value);
         assert_eq!(saved.adjustables.model_flower_pixel_resolution.value, 24);
     }
 

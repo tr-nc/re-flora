@@ -22,7 +22,6 @@ public struct PushConstantFlower {
     public uint response_offset;
     public float time;
     public uint resolution;
-    public uint heads_only;
     public float world_scale;
     public uint tile_first;
     public uint prepare_object;
@@ -43,9 +42,9 @@ struct B_ManualFlowerInstances { Instance data[]; };
 public FlowerModelPart flowerPart(uint part) {
     return flower_parts[(flower_pc.species-MODEL_FLOWER_FIRST_SPECIES)*4u+part];
 }
-public uint flowerPartCount() { return flower_pc.heads_only!=0u?flowerPart(0u).range.w:1u; }
+public uint flowerPartCount() { return flowerPart(0u).range.w; }
 public FlowerModelPart flowerTilePart(uint tile) {
-    return flowerPart(flower_pc.heads_only!=0u?1u+tile%flowerPartCount():0u);
+    return flowerPart(1u+tile%flowerPartCount());
 }
 public ModelPixelFrame flowerPlantFrame(uint plant) {
     Instance instance=flora_instances.data[floraSpeciesInstanceOffset(flower_pc.species)+plant];

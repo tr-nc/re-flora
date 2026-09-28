@@ -596,15 +596,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
-        id: "model_flower_heads_only",
-        kind: "bool",
-        label: "Pixel Flower Heads + Mesh Stems (B; Unchecked = Whole Plant)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Flora",
         id: "model_flower_pixel_resolution",
         kind: "uint",
-        label: "Pixels per Plant / Flower Head",
+        label: "Pixels per Flower Head",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
@@ -1515,7 +1509,6 @@ pub struct GuiAdjustables {
     pub god_ray_weight: crate::gui_adjustables::FloatParam,
     pub lens_flare_intensity: crate::gui_adjustables::FloatParam,
     pub lens_flare_sun_pixel_scale: crate::gui_adjustables::FloatParam,
-    pub model_flower_heads_only: crate::gui_adjustables::BoolParam,
     pub model_flower_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_flower_view_count: crate::gui_adjustables::UintParam,
     pub model_flower_head_scale: crate::gui_adjustables::FloatParam,
@@ -1760,7 +1753,6 @@ impl GuiAdjustables {
         let mut god_ray_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_sun_pixel_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut model_flower_heads_only_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_flower_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_flower_head_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2528,11 +2520,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             lens_flare_sun_pixel_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "model_flower_heads_only" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            model_flower_heads_only_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "model_flower_pixel_resolution" => {
@@ -3544,7 +3531,6 @@ impl GuiAdjustables {
             god_ray_weight: god_ray_weight_field.expect("Missing parameter: god_ray_weight"),
             lens_flare_intensity: lens_flare_intensity_field.expect("Missing parameter: lens_flare_intensity"),
             lens_flare_sun_pixel_scale: lens_flare_sun_pixel_scale_field.expect("Missing parameter: lens_flare_sun_pixel_scale"),
-            model_flower_heads_only: model_flower_heads_only_field.expect("Missing parameter: model_flower_heads_only"),
             model_flower_pixel_resolution: model_flower_pixel_resolution_field.expect("Missing parameter: model_flower_pixel_resolution"),
             model_flower_view_count: model_flower_view_count_field.expect("Missing parameter: model_flower_view_count"),
             model_flower_head_scale: model_flower_head_scale_field.expect("Missing parameter: model_flower_head_scale"),
@@ -3928,7 +3914,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
-        "model_flower_heads_only" => Some(&adjustables.model_flower_heads_only),
         "real_leaf_lifecycle" => Some(&adjustables.real_leaf_lifecycle),
         "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
@@ -4207,7 +4192,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&mut adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
-        "model_flower_heads_only" => Some(&mut adjustables.model_flower_heads_only),
         "real_leaf_lifecycle" => Some(&mut adjustables.real_leaf_lifecycle),
         "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),

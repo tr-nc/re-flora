@@ -37,7 +37,7 @@ export class PreviewPipeline{
     this.screenMaterial.uniforms.image.value=this.texture;
   }
   render(asset,sourceCamera,pixelCamera,settings){
-    const {time,clip,wireframe,conservativeCoverage=true,flowerHeadsOnly=false}=settings;
+    const {time,clip,wireframe,conservativeCoverage=true}=settings;
     asset.sample(time,clip);asset.scene.updateMatrixWorld(true);sourceCamera.updateMatrixWorld(true);pixelCamera.updateMatrixWorld(true);
     this.source.shadowMap.enabled=this.pixel.shadowMap.enabled=asset.shadows;
     asset.preparePass('source');
@@ -48,7 +48,7 @@ export class PreviewPipeline{
       this.source.render(asset.scene,sourceCamera);
     }finally{for(const [material,value]of wires)material.wireframe=value;}
     asset.preparePass('pixel');
-    if(flowerHeadsOnly&&asset.pixelParts?.length){
+    if(asset.pixelParts?.length){
       const partTiles=this.parts.render(this.pixel,asset,pixelCamera,this.size,(subset,camera)=>this.renderTile(subset,camera,conservativeCoverage));
       this.last={sourceTime:time,pixelTime:time,partTiles,repair:{added:partTiles.reduce((sum,tile)=>sum+tile.repair.added,0),groups:partTiles.flatMap(tile=>tile.repair.groups)}};
     }else{

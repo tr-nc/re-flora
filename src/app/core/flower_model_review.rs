@@ -44,11 +44,8 @@ impl App {
             0
         };
         let control = control_settings(phase);
-        let heads = if controls {
-            control.heads_only
-        } else {
-            review.mode == "b" || (review.mode == "ab" && ![0, 4].contains(&phase))
-        };
+        // Legacy a/b/ab inputs now exercise the selected heads-only renderer.
+        let heads = true;
         let resolution = if controls {
             control.resolution
         } else {
@@ -59,7 +56,6 @@ impl App {
             }
         };
         let settings = &mut self.debug_settings.adjustables;
-        settings.model_flower_heads_only.value = heads;
         settings.model_flower_pixel_resolution.value = resolution;
         settings.model_flower_view_count.value = if controls {
             control.views
@@ -210,7 +206,6 @@ impl App {
 fn control_settings(phase: u32) -> crate::flora::models::Settings {
     use crate::flora::models::{Settings, Shape};
     let mut s = Settings::default();
-    s.heads_only = ![2, 3, 4, 12, 15].contains(&phase);
     s.shape = match phase {
         1 | 2 => Shape {
             head_scale: 2.,

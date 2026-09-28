@@ -22,7 +22,6 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     const state=()=>page.evaluate(()=>readModelPreview());
     const image=id=>page.locator('#'+id).evaluate(canvas=>canvas.toDataURL());
     const input=async(id,value)=>{await page.locator('#'+id).fill(String(value));await stable();};
-    const toggle=async checked=>{await page.locator('#flower-heads-only').setChecked(checked);await stable();};
     const select=async id=>{await page.locator('#model').selectOption(id);await stable();assert.equal((await state()).model,id);};
     await page.goto(base+'/model-preview/?model=wild-geranium');await stable();
     assert.equal(await page.locator('#model option').count(),11);
@@ -70,29 +69,24 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       maxDepthError=Math.max(maxDepthError,report.depthError);depthSamples+=report.checked;poses++;
     }
     for(const spec of flowerCatalog){
-      await select(spec.id);assert.equal((await state()).flowerHeadsOnly,false);
+      await select(spec.id);assert.equal(await page.locator('#flower-heads-only').count(),0);
       assert.equal(await page.locator('#play').isDisabled(),true);
       assert.equal((await state()).pixelPartCount,spec.heads.length);
-      const source=await image('source'),whole=await image('pixel');
-      assert.deepEqual((await state()).pixelBuffer,[32,32]);
-      await toggle(true);assert.equal(await image('source'),source,'A/B never alters source geometry or shading');
+      const source=await image('source');
       assert.deepEqual((await state()).pixelBuffer,[512,512]);assert.equal((await state()).partTiles.length,spec.heads.length);
-      const heads=await image('pixel');assert.notEqual(heads,whole);
-      await verifyTiles();rows.push({name:spec.label,latin:spec.latin,source,whole,heads,triangles:(await state()).triangles});
+      const heads=await image('pixel');
+      await verifyTiles();rows.push({name:spec.label,latin:spec.latin,source,heads,triangles:(await state()).triangles});
       await page.screenshot({path:path.join(artifacts,`${spec.id}-heads.png`),fullPage:true});
       await page.locator('#wireframe').check();await stable();assert.equal(await image('pixel'),heads,'source wireframe does not contaminate head tiles');
       await page.locator('#wireframe').uncheck();await stable();
-      await toggle(false);assert.equal(await image('pixel'),whole,'A -> B -> A is byte-identical');
       for(const projection of ['orthographic','perspective']){
         await page.locator('#projection').selectOption(projection);
         for(const view of ['front','back','edge']){
           await page.locator('#'+view).click();
           for(const n of [8,32,64]){
             await input('resolution',n);
-            for(const b of [false,true]){
-              await toggle(b);assert.deepEqual((await state()).pixelBuffer,b?[512,512]:[n,n]);
-              if(b)await verifyTiles();
-            }
+            assert.deepEqual((await state()).pixelBuffer,[512,512]);
+            await verifyTiles();
           }
         }
       }
@@ -110,12 +104,12 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       // Upper shape limits together exercise conservative, rotation-safe framing.
       for(const [key,value]of Object.entries({height:1.15,opening:1.35,tilt:85,bend:.25}))await input('model-'+key,value);
       await verifyTiles();
-      await page.locator('#reset-all').click();await stable();assert.equal((await state()).flowerHeadsOnly,false);assert.deepEqual((await state()).modelSettings,spec.defaults);assert.equal(await image('pixel'),whole);
-      for(const b of [false,true]){
-        await toggle(b);const wait=page.waitForEvent('download');await page.locator('#download').click();const file=await wait;
-        assert.ok(file.suggestedFilename().includes(b?'heads-512px-composite':'whole-coverage'));
+      await page.locator('#reset-all').click();await stable();assert.deepEqual((await state()).modelSettings,spec.defaults);assert.equal(await image('pixel'),heads);
+      {
+        const wait=page.waitForEvent('download');await page.locator('#download').click();const file=await wait;
+        assert.ok(file.suggestedFilename().includes('heads-512px-composite'));
         const output=path.join(artifacts,file.suggestedFilename());await file.saveAs(output);
-        const png=await fs.readFile(output);assert.equal(png.readUInt32BE(16),b?512:32);assert.equal(png.readUInt32BE(20),b?512:32);
+        const png=await fs.readFile(output);assert.equal(png.readUInt32BE(16),512);assert.equal(png.readUInt32BE(20),512);
         const alpha=await page.locator('#pixel').evaluate(async canvas=>{const bitmap=await createImageBitmap(canvas),copy=new OffscreenCanvas(canvas.width,canvas.height),ctx=copy.getContext('2d');ctx.drawImage(bitmap,0,0);bitmap.close();return ctx.getImageData(0,0,1,1).data[3];});assert.equal(alpha,0);
       }
     }
@@ -133,13 +127,13 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
         for(const perspective of [false,true]){
           const camera=perspective?new THREE.PerspectiveCamera(30,1,.1,20):new THREE.OrthographicCamera(-1,1,1,-1,.1,20);camera.position.z=5;
           for(const z of [.3,-.3]){
-            stem.position.z=z;pipeline.render(asset,camera,camera,{time:0,clip:0,flowerHeadsOnly:true});
+            stem.position.z=z;pipeline.render(asset,camera,camera,{time:0,clip:0});
             const gl=pipeline.pixel.getContext(),data=new Uint8Array(4);gl.readPixels(256,256,1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);results.push({perspective,z,color:Array.from(data)});
           }
           // Promote the overlapping stem-shaped mesh to a second flower tile.
           asset.pixelParts.push({id:1,meshes:[stem],center:new THREE.Vector3(),span:1.8});
           for(const z of [.3,-.3]){
-            stem.position.z=z;pipeline.render(asset,camera,camera,{time:0,clip:0,flowerHeadsOnly:true});
+            stem.position.z=z;pipeline.render(asset,camera,camera,{time:0,clip:0});
             const gl=pipeline.pixel.getContext(),data=new Uint8Array(4);gl.readPixels(256,256,1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);results.push({perspective,z,color:Array.from(data)});
           }
           asset.pixelParts.pop();pipeline.releaseAsset();
@@ -148,19 +142,19 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       return results;
     });
     for(const sample of occlusion)assert.deepEqual(sample.color,sample.z>0?[51,187,102,255]:[255,85,119,255],JSON.stringify(sample));
-    await select('wild-geranium');await toggle(true);const memory=(await state()).rendererMemory;
-    for(let i=0;i<6;i++){await select('forget-me-not');await toggle(true);await input('resolution',64);await select('wild-geranium');await toggle(true);}
+    await select('wild-geranium');const memory=(await state()).rendererMemory;
+    for(let i=0;i<6;i++){await select('forget-me-not');await input('resolution',64);await select('wild-geranium');}
     assert.deepEqual((await state()).rendererMemory,memory,'GPU geometry/texture counts stabilize after repeated model/resolution changes');
-    for(const model of ['leaf','butterfly','apple']){await select(model);assert.equal(await page.locator('#flower-comparison').isVisible(),false);assert.equal((await state()).flowerHeadsOnly,false);assert.equal((await state()).partTiles,undefined);}
-    await select('forget-me-not');await toggle(true);
+    for(const model of ['leaf','butterfly','apple']){await select(model);assert.equal(await page.locator('#flower-comparison').isVisible(),false);assert.equal((await state()).partTiles,undefined);}
+    await select('forget-me-not');
     for(const width of [1280,390]){await page.setViewportSize({width,height:width===390?844:720});await stable();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(artifacts,`heads-viewport-${width}.png`),fullPage:true});}
     assert.deepEqual(errors,[]);assert.ok(requests.every(url=>url.startsWith(base)),'preview has no external dependencies');
     assert.ok(depthSamples>1000,'depth oracle must exercise substantial interior samples');
     // Original output only: no third-party reference images embedded in the sheet.
     const sheet=await browser.newPage({viewport:{width:1200,height:2540},deviceScaleFactor:1});
-    await sheet.setContent(`<style>*{box-sizing:border-box}body{margin:0;padding:28px;background:#17231f;color:#e4e8d6;font:14px system-ui}header{padding:4px 12px 20px}h1{margin:0 0 8px;font-size:24px}p{margin:4px 0;color:#a8b6a8}.row{display:grid;grid-template-columns:230px repeat(3,1fr);height:282px;align-items:center;border-top:1px solid #3c5045;gap:10px}.name{padding:12px}img{width:270px;height:270px;object-fit:contain}.pixel{image-rendering:pixelated}.labels{display:grid;grid-template-columns:230px repeat(3,1fr);gap:10px;color:#cdd7b9;margin-bottom:8px}.labels span{text-align:center}small{color:#a7b5a8}</style><header><h1>Re:Flora / 八种低模花草 · A/B 美术候选</h1><p>A：整株 32²　B：每个完整花头 32² + 连续低模茎叶（512² 合成）</p><p>同模型、同参数、同相机；B 获得更多花头细节预算。仅网页预览，不是游戏性能验收。</p></header><div class="labels"><span>植物 / 三角形数</span><span>原始低模</span><span>A · 整株像素</span><span>B · 花头 + 茎叶</span></div>${rows.map(row=>`<div class="row"><div class="name"><strong>${row.name}</strong><p>${row.latin}</p><small>${row.triangles} triangles</small></div><img src="${row.source}"><img class="pixel" src="${row.whole}"><img class="pixel" src="${row.heads}"></div>`).join('')}`);
+    await sheet.setContent(`<style>*{box-sizing:border-box}body{margin:0;padding:28px;background:#17231f;color:#e4e8d6;font:14px system-ui}header{padding:4px 12px 20px}h1{margin:0 0 8px;font-size:24px}p{margin:4px 0;color:#a8b6a8}.row{display:grid;grid-template-columns:230px repeat(2,1fr);height:282px;align-items:center;border-top:1px solid #3c5045;gap:10px}.name{padding:12px}img{width:270px;height:270px;object-fit:contain}.pixel{image-rendering:pixelated}.labels{display:grid;grid-template-columns:230px repeat(2,1fr);gap:10px;color:#cdd7b9;margin-bottom:8px}.labels span{text-align:center}small{color:#a7b5a8}</style><header><h1>Re:Flora / 八种低模花草</h1><p>每个完整花头 32² + 连续低模茎叶（512² 合成）</p><p>仅网页预览，不是游戏性能验收。</p></header><div class="labels"><span>植物 / 三角形数</span><span>原始低模</span><span>花头 + 茎叶</span></div>${rows.map(row=>`<div class="row"><div class="name"><strong>${row.name}</strong><p>${row.latin}</p><small>${row.triangles} triangles</small></div><img src="${row.source}"><img class="pixel" src="${row.heads}"></div>`).join('')}`);
     await sheet.screenshot({path:path.join(artifacts,'flower-contact-sheet.png'),fullPage:true});await sheet.close();
     await fs.writeFile(path.join(artifacts,'summary.json'),JSON.stringify({models:rows.map(({name,triangles})=>({name,triangles})),headTilePoses:poses,maxDepthError,depthSamples,occlusionFixtures:occlusion.length,errors},null,2)+'\n');
-    console.log(`PASS: 8 flowers; ${poses} head-tile poses; original RGBA and GPU depth (max error ${maxDepthError}); ${occlusion.length} depth-occlusion fixtures; all parameters, PNGs, A/B restoration, resource disposal and mobile. Artifacts: ${artifacts}`);
+    console.log(`PASS: 8 flowers; ${poses} head-tile poses; original RGBA and GPU depth (max error ${maxDepthError}); ${occlusion.length} depth-occlusion fixtures; all parameters, PNGs, heads-only reset, resource disposal and mobile. Artifacts: ${artifacts}`);
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
