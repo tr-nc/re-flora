@@ -105,7 +105,6 @@ pub struct Flower {
     pub whole: Part,
     pub heads: Vec<Part>,
     pub stem_triangles: u32,
-    pub stem_voxel_triangles: u32,
     pub column: Column,
 }
 
@@ -120,14 +119,6 @@ impl Flower {
         }
         result.column = self.column.scaled_height(shape.height_scale);
         result.triangles = result.column.triangles();
-        result.stem_voxel_triangles = result.triangles.len() as u32;
-        for old in &self.triangles[self.stem_voxel_triangles as usize..self.stem_triangles as usize]
-        {
-            let mut triangle = old.clone();
-            triangle.anchor = result.column.attachment(self.column, old.anchor);
-            triangle.positions = old.positions.map(|p| p + triangle.anchor - old.anchor);
-            result.triangles.push(triangle);
-        }
         result.stem_triangles = result.triangles.len() as u32;
         for (authored, part) in self.heads.iter().zip(&mut result.heads) {
             part.triangles.start = result.triangles.len() as u32;
@@ -172,18 +163,8 @@ struct Published {
 #[derive(Deserialize)]
 struct PublishedFlower {
     id: String,
-    root: [f32; 3],
-    center: [f32; 3],
-    span: f32,
     heads: Vec<PublishedHead>,
     parts: Vec<PublishedPart>,
-    column: PublishedColumn,
-}
-#[derive(Deserialize)]
-struct PublishedColumn {
-    #[serde(rename = "cellSize")]
-    edge: f32,
-    tip: [f32; 3],
 }
 #[derive(Deserialize)]
 struct PublishedHead {
@@ -192,9 +173,7 @@ struct PublishedHead {
 }
 #[derive(Deserialize)]
 struct PublishedPart {
-    head: Option<usize>,
-    material: String,
-    anchors: Vec<[f32; 3]>,
+    head: usize,
     positions: Vec<f32>,
     indices: Vec<usize>,
     color: [u8; 3],
@@ -220,34 +199,19 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 source.heads.iter().enumerate().all(|(i, h)| i == h.id),
                 "contiguous flower head IDs"
             );
-            let root = Vec3::from_array(source.root);
             ensure!(
-                root.is_finite()
-                    && source
-                        .heads
-                        .iter()
-                        .all(|h| Vec3::from_array(h.anchor).is_finite()),
-                "finite flower attachments"
+                source
+                    .heads
+                    .iter()
+                    .all(|h| Vec3::from_array(h.anchor) == Vec3::ZERO),
+                "attachment-local flower model"
             );
-            let tip = Vec3::from_array(source.column.tip) - root;
-            ensure!(
-                source.column.edge.is_finite()
-                    && source.column.edge > 0.
-                    && tip.is_finite()
-                    && tip.y > 0.,
-                "valid stem column"
-            );
-            let mut column = Column {
-                edge: source.column.edge,
-                height: tip.y,
-                bend: tip.x,
-                color: [0; 3],
-            };
-            let mut stem_voxel_triangles = 0;
-            let mut triangles = Vec::new();
+            // Game-owned assembly: authored assets contain only attachment-local heads.
+            let column = Column::for_flower(&source.id)?;
+            let tip = column.tip();
+            let mut triangles = column.triangles();
+            let stem_triangles = triangles.len() as u32;
             let mut ranges = vec![0..0; source.heads.len()];
-            let mut stem_triangles = 0;
-            let mut previous_head = None;
             for part in source.parts {
                 ensure!(
                     part.positions.len().is_multiple_of(3) && part.indices.len().is_multiple_of(3),
@@ -261,27 +225,14 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                     part.indices.iter().all(|&i| i < part.positions.len() / 3),
                     "flower index range"
                 );
-                ensure!(
-                    part.head.is_none_or(|head| head < ranges.len()),
-                    "flower head index"
-                );
-                if let Some(head) = part.head {
-                    if previous_head != Some(head) {
-                        ensure!(ranges[head].is_empty(), "head parts must be contiguous");
-                        ranges[head].start = triangles.len() as u32;
-                    }
-                } else {
-                    ensure!(previous_head.is_none(), "stems must precede heads");
+                ensure!(part.head < ranges.len(), "flower head index");
+                if ranges[part.head].is_empty() {
+                    ranges[part.head].start = triangles.len() as u32;
                 }
-                ensure!(
-                    part.anchors.len() == part.indices.len() / 3,
-                    "triangle attachment count"
-                );
-                for (index, anchor) in part.indices.chunks_exact(3).zip(&part.anchors) {
-                    let anchor = Vec3::from_array(*anchor) - root;
-                    ensure!(anchor.is_finite(), "finite triangle attachment");
+                for index in part.indices.chunks_exact(3) {
+                    let anchor = tip;
                     let positions = [index[0], index[1], index[2]]
-                        .map(|i| Vec3::from_slice(&part.positions[i * 3..i * 3 + 3]) - root);
+                        .map(|i| Vec3::from_slice(&part.positions[i * 3..i * 3 + 3]) + tip);
                     let normal = (positions[1] - positions[0])
                         .cross(positions[2] - positions[0])
                         .normalize_or_zero();
@@ -296,17 +247,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                         anchor,
                     });
                 }
-                if let Some(head) = part.head {
-                    ranges[head].end = triangles.len() as u32;
-                } else {
-                    stem_triangles = triangles.len() as u32;
-                }
-                if part.head.is_none() && part.material == "stemColor" {
-                    ensure!(stem_voxel_triangles == 0, "one unbranched voxel stem");
-                    stem_voxel_triangles = triangles.len() as u32;
-                    column.color = part.color;
-                }
-                previous_head = part.head;
+                ranges[part.head].end = triangles.len() as u32;
             }
             let heads = ranges
                 .into_iter()
@@ -324,24 +265,30 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                     }
                     Ok(Part {
                         triangles: range,
-                        anchor: Vec3::from_array(head.anchor) - root,
+                        anchor: Vec3::from_array(head.anchor) + tip,
                         center: (min + max) * 0.5,
                         radius: (max - min).length() * 0.53,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
+            let center = Vec3::new(0., tip.y * 0.5, 0.);
+            let radius = triangles
+                .iter()
+                .flat_map(|t| t.positions)
+                .map(|p| p.distance(center))
+                .fold(0f32, f32::max)
+                * 1.06;
             Ok(Flower {
                 id: source.id,
                 whole: Part {
                     triangles: 0..triangles.len() as u32,
                     anchor: Vec3::ZERO,
-                    center: Vec3::from_array(source.center) - root,
-                    radius: source.span * 0.5,
+                    center,
+                    radius,
                 },
                 triangles,
                 heads,
                 stem_triangles,
-                stem_voxel_triangles,
                 column,
             })
         })
@@ -416,7 +363,7 @@ mod tests {
             for (head, published) in flower.heads.iter().zip(&authored.heads) {
                 assert_eq!(
                     head.anchor,
-                    Vec3::from_array(published.anchor) - Vec3::from_array(authored.root)
+                    Vec3::from_array(published.anchor) + flower.column.tip()
                 );
             }
             let unchanged = flower.transformed(Shape::default());
@@ -509,7 +456,11 @@ mod tests {
                 .all(|p| p.is_finite()
                     && p.y >= -0.02
                     && p.distance(model.whole.center) < model.whole.radius));
-            assert!(model.whole.center.distance(Vec3::new(0., 1.4, 0.)) < 1e-6);
+            assert_eq!(
+                model.whole.center,
+                Vec3::new(0., model.column.tip().y * 0.5, 0.)
+            );
+            assert_eq!(model.stem_triangles, model.column.count() * 12);
         }
     }
 }

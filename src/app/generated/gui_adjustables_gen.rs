@@ -620,6 +620,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
+        id: "model_flower_stem_bottom_color",
+        kind: "color",
+        label: "Stem Bottom Color",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "model_flower_stem_tip_color",
+        kind: "color",
+        label: "Stem Tip Color",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
         id: "model_flower_size_scale",
         kind: "float",
         label: "Model Flower Size",
@@ -1513,6 +1525,8 @@ pub struct GuiAdjustables {
     pub model_flower_view_count: crate::gui_adjustables::UintParam,
     pub model_flower_head_scale: crate::gui_adjustables::FloatParam,
     pub model_flower_height_scale: crate::gui_adjustables::FloatParam,
+    pub model_flower_stem_bottom_color: crate::gui_adjustables::ColorParam,
+    pub model_flower_stem_tip_color: crate::gui_adjustables::ColorParam,
     pub model_flower_size_scale: crate::gui_adjustables::FloatParam,
     pub special_flora_plants_per_release: crate::gui_adjustables::UintParam,
     pub special_flora_cluster_radius_voxels: crate::gui_adjustables::FloatParam,
@@ -1757,6 +1771,8 @@ impl GuiAdjustables {
         let mut model_flower_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_flower_head_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut model_flower_height_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut model_flower_stem_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut model_flower_stem_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut model_flower_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut special_flora_plants_per_release_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut special_flora_cluster_radius_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2548,6 +2564,16 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             model_flower_height_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_flower_stem_bottom_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            model_flower_stem_bottom_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "model_flower_stem_tip_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            model_flower_stem_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
                     "model_flower_size_scale" => {
@@ -3535,6 +3561,8 @@ impl GuiAdjustables {
             model_flower_view_count: model_flower_view_count_field.expect("Missing parameter: model_flower_view_count"),
             model_flower_head_scale: model_flower_head_scale_field.expect("Missing parameter: model_flower_head_scale"),
             model_flower_height_scale: model_flower_height_scale_field.expect("Missing parameter: model_flower_height_scale"),
+            model_flower_stem_bottom_color: model_flower_stem_bottom_color_field.expect("Missing parameter: model_flower_stem_bottom_color"),
+            model_flower_stem_tip_color: model_flower_stem_tip_color_field.expect("Missing parameter: model_flower_stem_tip_color"),
             model_flower_size_scale: model_flower_size_scale_field.expect("Missing parameter: model_flower_size_scale"),
             special_flora_plants_per_release: special_flora_plants_per_release_field.expect("Missing parameter: special_flora_plants_per_release"),
             special_flora_cluster_radius_voxels: special_flora_cluster_radius_voxels_field.expect("Missing parameter: special_flora_cluster_radius_voxels"),
@@ -3930,6 +3958,8 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "path_tracing_ambient_light" => Some(&adjustables.path_tracing_ambient_light),
         "sun_color" => Some(&adjustables.sun_color),
         "glass_tint" => Some(&adjustables.glass_tint),
+        "model_flower_stem_bottom_color" => Some(&adjustables.model_flower_stem_bottom_color),
+        "model_flower_stem_tip_color" => Some(&adjustables.model_flower_stem_tip_color),
         "grass_bottom_dark_color" => Some(&adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&adjustables.grass_tip_dark_color),
@@ -4208,6 +4238,8 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "path_tracing_ambient_light" => Some(&mut adjustables.path_tracing_ambient_light),
         "sun_color" => Some(&mut adjustables.sun_color),
         "glass_tint" => Some(&mut adjustables.glass_tint),
+        "model_flower_stem_bottom_color" => Some(&mut adjustables.model_flower_stem_bottom_color),
+        "model_flower_stem_tip_color" => Some(&mut adjustables.model_flower_stem_tip_color),
         "grass_bottom_dark_color" => Some(&mut adjustables.grass_bottom_dark_color),
         "grass_bottom_light_color" => Some(&mut adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&mut adjustables.grass_tip_dark_color),

@@ -54,7 +54,7 @@ function resize(){
   sourceCanvas.style.width=sourceCanvas.style.height=`${sourceSize}px`;
   pixelCanvas.style.width=pixelCanvas.style.height=`${pixelSize}px`;
   $('tile-label').textContent=hybrid?`${asset.pixelParts.length} 花头 × ${state.resolution}²`:`${state.resolution} × ${state.resolution}`;
-  $('pixel-info').textContent=hybrid?`${PART_COMPOSITE_SIZE}² 透明合成 · 花头最近邻 + 低模茎叶`:scale?`${state.resolution**2} 像素画布 · ${scale}× 最近邻`:'窗口不足以整数放大';dirty();
+  $('pixel-info').textContent=hybrid?`${PART_COMPOSITE_SIZE}² 透明合成 · 完整花头最近邻采样`:scale?`${state.resolution**2} 像素画布 · ${scale}× 最近邻`:'窗口不足以整数放大';dirty();
 }
 function setVariant(value){
   const names={compare:'布局 1 · 双视图对照',model:'布局 2 · 模型优先',pixel:'布局 3 · 像素画放大'};
@@ -110,7 +110,7 @@ function syncControls(){
   for(const key of ['wireframe','rotate','checker'])$(key).checked=state[key];
   $('conservative-coverage').checked=state.conservativeCoverage;
   const hybrid=Boolean(asset?.pixelParts?.length);
-  $('result-mode').textContent=hybrid?'花头 + 茎叶':'像素结果';
+  $('result-mode').textContent=hybrid?'花头后处理':'像素结果';
   $('resolution-label').textContent=hybrid?'每个完整花头的像素数':'画布像素数';
   $('resolution-hint').textContent=hybrid?`每朵花独立 N × N；最终导出 ${PART_COMPOSITE_SIZE} × ${PART_COMPOSITE_SIZE} 透明合成。不是每片花瓣单独处理。`:'真实 N × N 缓冲，最近邻放大。观察范围不随动画轮廓变化，像素尺度不会随拍翼伸缩。';
   $('background').value=state.background;updateBackground();
@@ -149,8 +149,7 @@ async function loadModel(id){
 }
 function render(){
   const triangles=asset.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0);
-  const stem=asset.meshes.find(mesh=>mesh.userData.stem)?.userData.stem;
-  $('geometry-info').textContent=`${triangles} 三角形 · ${asset.repairGroups.length} 个补点组${stem?.mode==='voxels'?` · ${stem.cells} 层 × 每层 1 方块`:''}`;
+  $('geometry-info').textContent=`${triangles} 三角形 · ${asset.repairGroups.length} 个补点组`;
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   syncPixelCamera();
   const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage});
@@ -167,7 +166,7 @@ function render(){
     repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个几何覆盖像素）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
   }
   if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
-  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定${asset.pixelParts?'整株':'游戏'}取景`;
+  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定${asset.pixelParts?'花头':'游戏'}取景`;
   state.dirty=false;
 }
 function tick(now){
@@ -248,7 +247,6 @@ window.readModelPreview=(includeGeometry=false)=>({
   })),
   rendererMemory:pipeline?{source:{...pipeline.source.info.memory},pixel:{...pipeline.pixel.info.memory}}:null,
   clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
-  stem:asset?.meshes.find(mesh=>mesh.userData.stem)?.userData.stem,
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
   ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,pixelCamera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
 });

@@ -65,6 +65,8 @@ const MODEL_FLOWERS: &[&str] = &[
     "model_flower_head_scale",
     "model_flower_height_scale",
     "model_flower_size_scale",
+    "model_flower_stem_bottom_color",
+    "model_flower_stem_tip_color",
 ];
 const PARAM_GROUPS: &[&[&str]] = &[
     MODEL_FLOWERS,

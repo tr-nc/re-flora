@@ -1,5 +1,8 @@
 # Native single-column flower stems
 
+Historical integration record. The later [head-platform split](flower-head-platform.md)
+removes stem leaves and JS plant assembly, and adds saved native stem colors.
+
 ## Delivered scope
 
 The game's existing eight model flowers (species 4–11) now use the selected

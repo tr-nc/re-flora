@@ -1184,6 +1184,24 @@ min = 0.25
 max = 4
 
 [[section.param]]
+id = "model_flower_stem_bottom_color"
+kind = "color"
+label = "Stem Bottom Color"
+type = "Color"
+
+[section.param.data]
+value = "#364B00"
+
+[[section.param]]
+id = "model_flower_stem_tip_color"
+kind = "color"
+label = "Stem Tip Color"
+type = "Color"
+
+[section.param.data]
+value = "#97C200"
+
+[[section.param]]
 id = "model_flower_size_scale"
 kind = "float"
 label = "Model Flower Size"

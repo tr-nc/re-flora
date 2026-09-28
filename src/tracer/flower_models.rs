@@ -15,13 +15,8 @@ impl FlowerModelResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
         let max_stem_vertices = models::flowers()
             .iter()
-            // Twelve triangles per closed moving cube; leaves retain their
-            // fixed topology at any height.
-            .map(|f| {
-                (f.column.scaled_height(models::MAX_SHAPE_SCALE).count() * 12 + f.stem_triangles
-                    - f.stem_voxel_triangles)
-                    * 3
-            })
+            // Twelve triangles per closed moving cube; no stem leaves.
+            .map(|f| f.column.scaled_height(models::MAX_SHAPE_SCALE).count() * 12 * 3)
             .max()
             .unwrap();
         let make = |bytes: &[u8], flags| {
@@ -39,7 +34,7 @@ impl FlowerModelResources {
         };
         let stem_indices = (0..max_stem_vertices).collect::<Vec<_>>();
         log::info!(
-            "[FLOWER_MODELS] assets={} source=shared_recipe heads=1 calyx=head stem=single_column layer_pose=translation",
+            "[FLOWER_MODELS] assets={} source=head_models assembly=native heads=1 calyx=head leaves=0 stem=single_column layer_pose=translation",
             models::flowers().len()
         );
         Self {

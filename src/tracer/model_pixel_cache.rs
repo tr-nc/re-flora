@@ -80,7 +80,7 @@ fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [Vec2; 3], material: u32) -> T
 struct FlowerPart {
     range: [u32; 4],
     center_radius: [f32; 4],
-    stem: [f32; 4], // tip x/y, max bend fraction, non-pixel stem/leaf triangle count
+    stem: [f32; 4], // tip x/y, max bend fraction, non-pixel stem triangle count
 }
 pub(super) struct Source {
     pub(super) triangles: Vec<Triangle>,

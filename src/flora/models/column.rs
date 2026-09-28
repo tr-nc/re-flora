@@ -1,4 +1,4 @@
-//! Runtime counterpart of assets/models/flower-stem.mjs. Height changes rebuild
+//! Game-owned stem geometry and assembly dimensions. Height changes rebuild
 //! complete cells instead of stretching them; each cell is translated, not tilted.
 use super::Triangle;
 use glam::Vec3;
@@ -14,6 +14,22 @@ pub struct Column {
     pub color: [u8; 3],
 }
 impl Column {
+    pub fn for_flower(id: &str) -> anyhow::Result<Self> {
+        let height = match id {
+            "wild-geranium" | "corn-poppy" => 2.05,
+            "forget-me-not" => 1.95,
+            "oxeye-daisy" | "cosmos" | "bellflower" => 2.1,
+            "coneflower" => 2.15,
+            "tulip" => 1.85,
+            _ => anyhow::bail!("unknown flower assembly: {id}"),
+        };
+        Ok(Self {
+            edge: 0.05,
+            height,
+            bend: 0.08,
+            color: [255; 3],
+        })
+    }
     pub fn count(self) -> u32 {
         // Published heights are exact multiples before f32 conversion.
         (self.height / self.edge - 1e-5).ceil().max(1.) as u32
@@ -38,11 +54,6 @@ impl Column {
             height: self.height * scale,
             ..self
         }
-    }
-    pub fn attachment(self, old: Self, anchor: Vec3) -> Vec3 {
-        let t = ((anchor.y / old.edge - 0.5) / old.count().saturating_sub(1).max(1) as f32)
-            .clamp(0., 1.);
-        self.center((t * self.count().saturating_sub(1) as f32).round() as u32)
     }
     pub fn triangles(self) -> Vec<Triangle> {
         let mut triangles = Vec::new();
@@ -76,19 +87,12 @@ mod tests {
     use crate::flora::models::{flowers, Shape};
 
     #[test]
-    fn published_voxel_stems_match_runtime_generation() {
+    fn game_assembly_has_no_leaf_triangles() {
         for flower in flowers() {
-            let regenerated = flower.column.triangles();
-            let published = &flower.triangles[..flower.stem_voxel_triangles as usize];
-            assert_eq!(regenerated.len(), published.len(), "{}", flower.id);
-            for (a, b) in regenerated.iter().zip(published) {
-                for (p, q) in a.positions.into_iter().zip(b.positions) {
-                    assert!(p.distance(q) < 2e-6, "{}: {p:?} vs {q:?}", flower.id);
-                }
-                assert!(a.anchor.distance(b.anchor) < 2e-6);
-                assert!(a.normal.dot(b.normal) > 0.9999);
-                assert_eq!(a.color, b.color);
-            }
+            assert_eq!(flower.stem_triangles, flower.column.count() * 12);
+            assert_eq!(flower.heads.len(), 1);
+            assert_eq!(flower.heads[0].triangles.start, flower.stem_triangles);
+            assert_eq!(flower.heads[0].anchor, flower.column.tip());
         }
     }
 
@@ -102,13 +106,12 @@ mod tests {
                 });
                 let column = transformed.column;
                 assert_eq!(
-                    transformed.stem_voxel_triangles,
+                    transformed.stem_triangles,
                     column.count() * 12,
                     "six complete faces per moving cube"
                 );
                 let mut occupied = vec![false; column.count() as usize];
-                for triangle in &transformed.triangles[..transformed.stem_voxel_triangles as usize]
-                {
+                for triangle in &transformed.triangles[..transformed.stem_triangles as usize] {
                     let layer = (triangle.anchor.y / column.edge - 0.5).round() as u32;
                     assert!(layer < column.count());
                     assert!(triangle.anchor.distance(column.center(layer)) < 2e-6);

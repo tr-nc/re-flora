@@ -1404,6 +1404,8 @@ pub struct FloraAppearanceFrameInput {
     pub growth_override: f32,
     pub instance_hsv_offset_max: Vec3,
     pub voxel_hsv_offset_max: Vec3,
+    pub flower_stem_bottom: Vec3,
+    pub flower_stem_tip: Vec3,
     pub grass_bottom_dark: Vec3,
     pub grass_bottom_light: Vec3,
     pub grass_tip_dark: Vec3,

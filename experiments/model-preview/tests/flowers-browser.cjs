@@ -71,7 +71,8 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     for(const spec of flowerCatalog){
       await select(spec.id);assert.equal(await page.locator('#flower-heads-only').count(),0);
       assert.equal(await page.locator('#play').isDisabled(),true);
-      assert.equal((await state()).pixelPartCount,1,'one terminal flower per unbranched stalk');
+      assert.equal((await state()).pixelPartCount,1,'one complete flower model');
+      const defaults=(await state()).modelSettings;
       const source=await image('source');
       assert.deepEqual((await state()).pixelBuffer,[512,512]);assert.equal((await state()).partTiles.length,1);
       const heads=await image('pixel');
@@ -94,7 +95,7 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       await input('resolution',32);
       const fixed=await image('pixel');await page.locator('#source').hover();await page.mouse.wheel(0,-180);await stable();
       assert.equal(await image('pixel'),fixed,'inspection zoom leaves part framing unchanged');
-      for(const [key,value]of Object.entries({height:.75,flowerSize:1.3,opening:.6,tilt:-15,leafSize:1.35,bend:-.25})){
+      for(const [key,value]of Object.entries({flowerSize:1.3,opening:.6,tilt:-15})){
         const before=await image('source');await input('model-'+key,value);assert.equal((await state()).modelSettings[key],value);assert.notEqual(await image('source'),before,`${spec.id} ${key}`);
       }
       const beforeColor=await image('pixel');
@@ -102,9 +103,9 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       await page.locator('#conservative-coverage').uncheck();await stable();assert.ok((await state()).repair.groups.every(group=>group.preserved===0));
       await page.locator('#conservative-coverage').check();await stable();await verifyTiles();
       // Upper shape limits together exercise conservative, rotation-safe framing.
-      for(const [key,value]of Object.entries({height:1.15,opening:1.35,tilt:85,bend:.25}))await input('model-'+key,value);
+      for(const [key,value]of Object.entries({opening:1.35,tilt:85}))await input('model-'+key,value);
       await verifyTiles();
-      await page.locator('#reset-all').click();await stable();assert.deepEqual((await state()).modelSettings,spec.defaults);assert.equal(await image('pixel'),heads);
+      await page.locator('#reset-all').click();await stable();assert.deepEqual((await state()).modelSettings,defaults);assert.equal(await image('pixel'),heads);
       {
         const wait=page.waitForEvent('download');await page.locator('#download').click();const file=await wait;
         assert.ok(file.suggestedFilename().includes('heads-512px-composite'));
@@ -152,7 +153,7 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     assert.ok(depthSamples>1000,'depth oracle must exercise substantial interior samples');
     // Original output only: no third-party reference images embedded in the sheet.
     const sheet=await browser.newPage({viewport:{width:1200,height:2540},deviceScaleFactor:1});
-    await sheet.setContent(`<style>*{box-sizing:border-box}body{margin:0;padding:28px;background:#17231f;color:#e4e8d6;font:14px system-ui}header{padding:4px 12px 20px}h1{margin:0 0 8px;font-size:24px}p{margin:4px 0;color:#a8b6a8}.row{display:grid;grid-template-columns:230px repeat(2,1fr);height:282px;align-items:center;border-top:1px solid #3c5045;gap:10px}.name{padding:12px}img{width:270px;height:270px;object-fit:contain}.pixel{image-rendering:pixelated}.labels{display:grid;grid-template-columns:230px repeat(2,1fr);gap:10px;color:#cdd7b9;margin-bottom:8px}.labels span{text-align:center}small{color:#a7b5a8}</style><header><h1>Re:Flora / 十种低模花草</h1><p>每个完整花头 32² + 连续低模茎叶（512² 合成）</p><p>仅网页预览，不是游戏性能验收。</p></header><div class="labels"><span>植物 / 三角形数</span><span>原始低模</span><span>花头 + 茎叶</span></div>${rows.map(row=>`<div class="row"><div class="name"><strong>${row.name}</strong><p>${row.latin}</p><small>${row.triangles} triangles</small></div><img src="${row.source}"><img class="pixel" src="${row.heads}"></div>`).join('')}`);
+    await sheet.setContent(`<style>*{box-sizing:border-box}body{margin:0;padding:28px;background:#17231f;color:#e4e8d6;font:14px system-ui}header{padding:4px 12px 20px}h1{margin:0 0 8px;font-size:24px}p{margin:4px 0;color:#a8b6a8}.row{display:grid;grid-template-columns:230px repeat(2,1fr);height:282px;align-items:center;border-top:1px solid #3c5045;gap:10px}.name{padding:12px}img{width:270px;height:270px;object-fit:contain}.pixel{image-rendering:pixelated}.labels{display:grid;grid-template-columns:230px repeat(2,1fr);gap:10px;color:#cdd7b9;margin-bottom:8px}.labels span{text-align:center}small{color:#a7b5a8}</style><header><h1>Re:Flora / 十种低模花草</h1><p>完整花头模型与 32² 后处理（512² 透明合成）</p><p>仅网页预览，不是游戏性能验收。</p></header><div class="labels"><span>植物 / 三角形数</span><span>原始低模</span><span>花头后处理</span></div>${rows.map(row=>`<div class="row"><div class="name"><strong>${row.name}</strong><p>${row.latin}</p><small>${row.triangles} triangles</small></div><img src="${row.source}"><img class="pixel" src="${row.heads}"></div>`).join('')}`);
     await sheet.screenshot({path:path.join(artifacts,'flower-contact-sheet.png'),fullPage:true});await sheet.close();
     await fs.writeFile(path.join(artifacts,'summary.json'),JSON.stringify({models:rows.map(({name,triangles})=>({name,triangles})),headTilePoses:poses,maxDepthError,depthSamples,occlusionFixtures:occlusion.length,errors},null,2)+'\n');
     console.log(`PASS: ${flowerCatalog.length} flowers; ${poses} head-tile poses; original RGBA and GPU depth (max error ${maxDepthError}); ${occlusion.length} depth-occlusion fixtures; all parameters, PNGs, heads-only reset, resource disposal and mobile. Artifacts: ${artifacts}`);

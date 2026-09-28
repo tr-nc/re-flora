@@ -104,6 +104,8 @@ pub(super) fn freeze_render_frame_inputs(
                 gui.flora_voxel_saturation_offset.value,
                 gui.flora_voxel_value_offset.value,
             ),
+            flower_stem_bottom: color_to_vec3(gui.model_flower_stem_bottom_color.value),
+            flower_stem_tip: color_to_vec3(gui.model_flower_stem_tip_color.value),
             grass_bottom_dark: color_to_vec3(gui.grass_bottom_dark_color.value),
             grass_bottom_light: color_to_vec3(gui.grass_bottom_light_color.value),
             grass_tip_dark: color_to_vec3(gui.grass_tip_dark_color.value),
@@ -351,6 +353,8 @@ mod tests {
         let flora_voxel_hue_offset = float!(flora_voxel_hue_offset);
         let flora_voxel_saturation_offset = float!(flora_voxel_saturation_offset);
         let flora_voxel_value_offset = float!(flora_voxel_value_offset);
+        let flower_stem_bottom = color!(model_flower_stem_bottom_color);
+        let flower_stem_tip = color!(model_flower_stem_tip_color);
         let grass_bottom_dark = color!(grass_bottom_dark_color);
         let grass_bottom_light = color!(grass_bottom_light_color);
         let grass_tip_dark = color!(grass_tip_dark_color);
@@ -493,6 +497,8 @@ mod tests {
                         flora_voxel_saturation_offset,
                         flora_voxel_value_offset,
                     ),
+                    flower_stem_bottom,
+                    flower_stem_tip,
                     grass_bottom_dark,
                     grass_bottom_light,
                     grass_tip_dark,

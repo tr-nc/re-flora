@@ -287,6 +287,8 @@ impl BufferUpdater {
             terrain_self_shadow_tolerance_voxels: terrain.self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max: appearance.instance_hsv_offset_max.to_array(),
             flora_voxel_hsv_offset_max: appearance.voxel_hsv_offset_max.to_array(),
+            flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
+            flower_stem_tip: appearance.flower_stem_tip.to_array(),
             grass_bottom_dark: appearance.grass_bottom_dark.to_array(),
             grass_bottom_light: appearance.grass_bottom_light.to_array(),
             grass_tip_dark: appearance.grass_tip_dark.to_array(),

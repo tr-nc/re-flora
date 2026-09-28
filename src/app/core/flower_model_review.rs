@@ -37,7 +37,7 @@ impl App {
         review.frame += 1;
         let controls = review.mode == "controls";
         let phase = if controls {
-            (frame / 24).min(17)
+            (frame / 24).min(20)
         } else if review.mode == "ab" {
             (frame / 24).min(8)
         } else {
@@ -83,6 +83,22 @@ impl App {
         } else {
             1.0
         };
+        // Color-only phases exercise the live saved palette without changing
+        // source geometry or the pixelated head/calyx material.
+        if controls && phase >= 19 {
+            let (bottom, tip) = if phase == 19 {
+                (egui::Color32::BLUE, egui::Color32::RED)
+            } else {
+                (egui::Color32::RED, egui::Color32::BLUE)
+            };
+            settings.model_flower_stem_bottom_color.value = bottom;
+            settings.model_flower_stem_tip_color.value = tip;
+            if frame == phase * 24 {
+                log::info!(
+                    "[FLOWER_STEM_COLORS] phase={phase} bottom={bottom:?} tip={tip:?} saved=false"
+                );
+            }
+        }
         settings.model_pixel_view_count.value = if !controls && phase == 5 { 8 } else { 16 };
         settings.model_pixel_screen_grid.value = if controls { phase == 17 } else { phase == 6 };
         settings.flora_growth_override_enabled.value = true;

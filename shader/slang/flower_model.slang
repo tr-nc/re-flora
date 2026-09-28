@@ -15,7 +15,7 @@ import tracer_types;
 public struct FlowerModelPart {
     public uint4 range; // first triangle, count, shared cache source, head count
     public float4 center_radius;
-    public float4 stem; // tip x/y, max bend fraction, stem/leaf triangle count
+    public float4 stem; // tip x/y, max bend fraction, stem triangle count
 };
 public struct PushConstantFlower {
     public uint3 chunk_world_offset;
@@ -73,7 +73,7 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
         :sampleWindVolume(wind_volume_info,wind_volume_tex,float3(root)/256.0,seed);
     float3 rest=floraNaturalRestBend(gui_input,seed,1.0,plantHeight);
     // Keep horizontal voxel layers horizontal. Wind transports whole cells,
-    // leaf attachments and the terminal head; it never rotates/stretches cells.
+    // and the terminal head; it never rotates/stretches cells.
     float3 up=float3(0,1,0);
     float yaw=constructFloat01(wellonsHash(seed))*6.2831853;
     float3 sideways=float3(cos(yaw),0,sin(yaw));
@@ -96,6 +96,10 @@ public float3 flowerStemWorld(FlowerPlantPose pose,float3 local,float anchorHeig
     float t=saturate(anchorHeight/max(flowerPart(0u).stem.y,1e-7));
     float weight=t*t*(3.0-2.0*t);
     return modelPixelWorld(pose.frame,local)+pose.tip_offset*(weight-1.0);
+}
+public float3 flowerStemColor(float height) {
+    return lerp(gui_input.flower_stem_bottom,gui_input.flower_stem_tip,
+        saturate(height/max(flowerPart(0u).stem.y,1e-7)));
 }
 public float3 flowerNormal(ModelPixelFrame frame,float3 normal) {
     return normalize(frame.axisX*normal.x+frame.axisY*normal.y+frame.axisZ*normal.z);

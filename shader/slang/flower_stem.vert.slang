@@ -27,6 +27,8 @@ StemVertex main(VertexInput input) {
     output.position=mul(camera_info.view_proj_mat,float4(output.world,1));
     if(frame.scale<=1e-7)output.position=float4(2,2,2,1);
     output.normal=flowerNormal(frame,tri.normal0.xyz);
-    output.color=tri.uv01.xyz;
+    // Color is game-owned and evaluated along the undeformed stalk. Wind and
+    // overall scale cannot move the gradient; the pixelated calyx is unaffected.
+    output.color=flowerStemColor(local.y);
     return output;
 }
