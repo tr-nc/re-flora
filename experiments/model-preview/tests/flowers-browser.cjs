@@ -104,7 +104,7 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       // Upper shape limits together exercise conservative, rotation-safe framing.
       for(const [key,value]of Object.entries({height:1.15,opening:1.35,tilt:85,bend:.25}))await input('model-'+key,value);
       await verifyTiles();
-      await page.locator('#reset-all').click();await stable();assert.deepEqual((await state()).modelSettings,{...spec.defaults,voxelStems:false});assert.equal(await image('pixel'),heads);
+      await page.locator('#reset-all').click();await stable();assert.deepEqual((await state()).modelSettings,spec.defaults);assert.equal(await image('pixel'),heads);
       {
         const wait=page.waitForEvent('download');await page.locator('#download').click();const file=await wait;
         assert.ok(file.suggestedFilename().includes('heads-512px-composite'));

@@ -5,10 +5,9 @@ import {singleStemFlower} from './single-stem-flower.mjs';
 
 const colorKeys=['petalColor','innerColor','centerColor','leafColor','stemColor'];
 export const flowerDefinitions=flowerCatalog.map(spec=>({
-  id:spec.id,label:spec.label,defaults:{...spec.defaults,voxelStems:false},
+  id:spec.id,label:spec.label,defaults:{...spec.defaults},
   controls:[
-    {key:'voxelStems',type:'checkbox',label:'单列颗粒茎 · B（关闭 = 低模单茎 A）'},
-    {type:'note',label:'仅网页实验，不保存：两种模式均为不分叉单茎、顶端一朵花。B 每个水平层严格一个方块，边长为游戏草的 1/2；弯曲只平移各层。叶片直接接主茎，无叶柄支路。花萼归花头对象，不归茎。'},
+    {type:'note',label:'固定单列颗粒茎：不分叉，顶端一朵花；每个水平层严格一个方块，边长为游戏草的 1/2。弯曲只平移各层。叶片直接接主茎，无叶柄支路；花萼归花头对象。仅网页预览，参数不保存。'},
     {key:'height',label:'花茎高度',min:.75,max:1.15,step:.01},
     {key:'flowerSize',label:'花头大小',min:.65,max:1.3,step:.01},
     {key:'opening',label:spec.id==='coneflower'?'花瓣下垂':spec.kind==='radial'?'花瓣起伏':'花冠张开',min:.6,max:1.35,step:.01},
@@ -40,7 +39,7 @@ export const flowerDefinitions=flowerCatalog.map(spec=>({
             const geometry=new THREE.BufferGeometry();
             geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.positions,3));geometry.setIndex(part.indices);geometry.computeVertexNormals();
             const mesh=new THREE.Mesh(geometry,materials[part.material]);mesh.name=part.name;mesh.userData.head=part.head;
-            if(stem)mesh.userData.stem={mode:settings.voxelStems?'voxels':'mesh',cellSize:recipe.column.cellSize,cells:recipe.column.cells.length,layerCenters:recipe.column.cells.map(cell=>cell.center),root:recipe.column.root,tip:recipe.column.tip};
+            if(stem)mesh.userData.stem={mode:'voxels',cellSize:recipe.column.cellSize,cells:recipe.column.cells.length,layerCenters:recipe.column.cells.map(cell=>cell.center),root:recipe.column.root,tip:recipe.column.tip};
             scene.add(mesh);meshes.push(mesh);
           }
           repairGroups.push({id:1,label:'茎叶',meshes:meshes.filter(mesh=>mesh.userData.head===null)});

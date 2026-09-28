@@ -54,16 +54,3 @@ export function voxelStemSurface(column){
   }
   return mesh;
 }
-export function smoothStemSurface(column){
-  const mesh=surface(),sides=6,radius=.018;
-  const centers=[column.root,...column.cells.map(cell=>cell.center),column.tip];
-  const rings=centers.map(center=>Array.from({length:sides},(_,i)=>[center[0]+radius*Math.cos(i*Math.PI*2/sides),center[1],center[2]+radius*Math.sin(i*Math.PI*2/sides)]));
-  for(let row=0;row<rings.length-1;row++)for(let i=0;i<sides;i++){
-    const next=(i+1)%sides;quad(mesh,[rings[row][i],rings[row+1][i],rings[row+1][next],rings[row][next]]);
-  }
-  for(const [ring,reverse]of [[rings[0],false],[rings.at(-1),true]]){
-    const first=mesh.positions.length/3;mesh.positions.push(...ring.flat());
-    for(let i=1;i<sides-1;i++)mesh.indices.push(...(reverse?[first,first+i+1,first+i]:[first,first+i,first+i+1]));
-  }
-  return mesh;
-}

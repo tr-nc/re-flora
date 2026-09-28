@@ -16,7 +16,7 @@ node scripts/serve-model-preview.mjs
 - 蝴蝶：`?model=butterfly`
 - 苹果（网页红苹果／青苹果配色；红苹果造型可在游戏 Debug 中 A/B 切换）：`?model=apple`
 - 游戏共用花草（8 种）：`?model=wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`corn-poppy`、`bellflower`、`coneflower`、`tulip`；顶部下拉框均可选择。
-- **仅网页花草（2 种）**：白花老鹳草 `?model=white-geranium`、星草梅（*Gillenia trifoliata*）`?model=gillenia`。前者复用老鹳草造型、采用白瓣淡粉瓣根；后者按用户参考图制作：细长五瓣星花、小花心、红褐色茎与狭长三出锯齿叶；当前统一演示单茎、顶端一朵花。已替换先前误做的草莓花；旧 `?model=star-strawberry` 书签会规范化到星草梅。均支持花头像素化、造型参数和茎部 A/B，未加入游戏或正式资产。
+- **仅网页花草（2 种）**：白花老鹳草 `?model=white-geranium`、星草梅（*Gillenia trifoliata*）`?model=gillenia`。前者复用老鹳草造型、采用白瓣淡粉瓣根；后者按用户参考图制作：细长五瓣星花、小花心、红褐色茎与狭长三出锯齿叶；当前统一演示单茎、顶端一朵花。已替换先前误做的草莓花；旧 `?model=star-strawberry` 书签会规范化到星草梅。均支持花头像素化、造型参数和固定单列颗粒茎，未加入游戏或正式资产。
 - 布局：`&variant=compare` / `model` / `pixel`
 
 原有游戏共用花草的名称、在线参考与设计见 [8 种花草调研](../../docs/research/stylized-flower-model-study.md)。它们使用原创参数化低模，不下载第三方模型；同一配方现已发布为游戏资产，8 种均可通过第二个物品栏 Grow／种植工具（快捷键 2）右侧可滚动的 Plant Brush 植物栏选择并种植。游戏集成的历史 A/B、实拍与验证见该调研文档的原生集成章节；当前已固定仅花头像素化。
@@ -48,15 +48,15 @@ node scripts/serve-model-preview.mjs
 - 每种模型有花茎高度、花头大小、起伏／下垂／张开、仰角、叶大小、弯茎和五个颜色控制。全是本会话临时预览设置；切换模型／恢复默认值也始终只处理花头。花草静态无伪造动画，转台仍可用。
 - 网页在浏览器中合成；游戏用同一发布几何原生绘制茎叶，并复用游戏像素管线绘制完整花头。游戏 Debug → Flora → Ground Plants → Model Flowers 保留分辨率与造型控制；旧存档的范围开关不再生效。32px 时保守覆盖仍会加粗／合并很窄的瓣间缝；未为花草改动补点算法。真实游戏视觉与大量实例性能仍需分开验收。
 
-## 单茎单花 A/B（仅网页）
+## 固定单列颗粒茎（仅网页）
 
-所有花草统一为**不分叉的单茎，顶端一朵完整花**。花草「模型参数」中提供 **单列颗粒茎 · B（关闭 = 低模单茎 A）**，默认关闭。A/B 只比较茎表面，不再保留多分枝模式。
+所有花草固定使用已选定的颗粒方案：**不分叉的单茎，顶端一朵完整花**。已移除茎部 A/B 开关和连续低模茎分支；切换植物、恢复默认也不会改变此规则。
 
-- A 是沿同一中心线的连续低模单茎；B **直接按水平高度层生成，每层严格一个轴对齐方块**，不再体素化原始茎网格。弯曲只平移各层的 X/Z 中心，不旋转方块，不增加并排补块。相邻层高度恰好相差一个边长，接触面保留正面积，既不重叠加粗，也不悬空断开；只绘制外露面，避免内部共面闪烁。
+- **直接按水平高度层生成，每层严格一个轴对齐方块**，不再体素化原始茎网格。弯曲只平移各层的 X/Z 中心，不旋转方块，不增加并排补块。相邻层高度恰好相差一个边长，接触面保留正面积，既不重叠加粗，也不悬空断开；只绘制外露面，避免内部共面闪烁。
 - 方块**边长为游戏草颗粒的 1/2、体积为 1/8**。游戏草边长为 `1/256` 世界单位，花草基础制作单位映射为 `10/256`，因此网页方块边长为 `0.05` 制作单位。茎高度向上取整为完整层数，误差小于一个边长；顶端花头锚点跟随最终层顶面。网格不随相机重采样。
 - 只保留制作配方中的第一朵花，将完整花头刚性平移至茎顶。**花萼属于花头对象，随花瓣、花心一起像素化，不归茎生成器，不受每层一个 voxel 的限制**，即使花萼和茎共用 `stemColor` 也不改变所有权。
-- 叶片保持原叶片几何和材质，逐片平移至主茎的连接点；不再生成叶柄支路。A/B 共用这些叶片位置、花头锚点和像素预算，不会切换时移动花头或叶片。`single-stem-flower.mjs` 在预览边界解码叶片附件：原有 blade 配方的首顶点是叶根；fan 配方通过目录的 `leafRootVertex` 明确指定根顶点偏移。
-- 拖动两侧旋转，左侧滚轮放大检查；高度、弯曲、花头大小等控制仍可用。下方几何信息在 B 模式显示「N 层 × 每层 1 方块」。恢复默认或切换植物回到 A。
+- 叶片保持原叶片几何和材质，逐片平移至主茎的连接点；不再生成叶柄支路。`single-stem-flower.mjs` 在预览边界解码叶片附件：原有 blade 配方的首顶点是叶根；fan 配方通过目录的 `leafRootVertex` 明确指定根顶点偏移。
+- 拖动两侧旋转，左侧滚轮放大检查；高度、弯曲、花头大小等控制仍可用。下方几何信息显示「N 层 × 每层 1 方块」。
 - 这是**不保存的网页美术实验**，游戏及正式资产、原始制作配方均未修改；灯光仍是网页预览，不声称复现游戏草的光照、风动或 LOD，远处亚像素细茎仍可能闪烁。
 
 ## 模块职责
@@ -67,7 +67,7 @@ node scripts/serve-model-preview.mjs
 | `timeline.mjs` | 静态/动态统一时间采样与播放推进 |
 | `pipeline.js` | 原始/像素绘制、可见组 ID、统一图像处理与资源释放；普通模型和花头共用 `renderTile` |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度读取、补点深度与透明合成；不另建 renderer |
-| `stem-voxels.mjs` | 单列中心线与逐层方块／低模表面；每层一个方块及相邻层接触检查 |
+| `stem-voxels.mjs` | 单列中心线与逐层方块表面；每层一个方块及相邻层接触检查 |
 | `models/single-stem-flower.mjs` | 网页单茎单花归一化：保留完整顶端花头（含花萼）、叶片直连主茎，不修改制作源 |
 | `assets/models/flower-source.mjs` / `models/flowers.js` | 8 种游戏共用原创配方及所有花草的统一模型接口适配 |
 | `models/flower-catalog.mjs` / `models/gillenia-geometry.mjs` | 仅网页候选的目录与星草梅造型；不进入游戏发布目录 |
@@ -135,7 +135,7 @@ node experiments/model-preview/tests/stems-browser.cjs
 
 支持 `CHROME_EXECUTABLE`、`PREVIEW_ARTIFACT_DIR`。设置 `CHECK_REDIRECTS=1` 一并检查已迁移的旧入口跳转。默认工件在 `target/model-preview-validation/`。
 
-花草专项验证输出到 `target/flower-study/validation/`（可用 `PREVIEW_ARTIFACT_DIR` 覆盖）：十种源模型 / 花头合成对照图、透明 PNG、桌面／手机截图、`summary.json`。覆盖全部花草的花头姿态样本、正交／透视、正背侧、8/32/64/128px、参数端点、源 RGBA 保留、GPU 深度、8 个前后遮挡夹具、重置与反复切换的资源计数。茎部 A/B 的十种植物对照图另由 `stems-browser.cjs` 输出到 `target/stem-preview/`。SwiftShader 深度核对按其 `SUBPIXEL_BITS` 对齐栅格顶点，避开三角形边界所有权歧义，不把 CPU 未量化投影误当 GPU 插值。
+花草专项验证输出到 `target/flower-study/validation/`（可用 `PREVIEW_ARTIFACT_DIR` 覆盖）：十种源模型 / 花头合成对照图、透明 PNG、桌面／手机截图、`summary.json`。覆盖全部花草的花头姿态样本、正交／透视、正背侧、8/32/64/128px、参数端点、源 RGBA 保留、GPU 深度、8 个前后遮挡夹具、重置与反复切换的资源计数。固定颗粒茎的十种植物源模型／合成对照图另由 `stems-browser.cjs` 输出到 `target/stem-preview/`。SwiftShader 深度核对按其 `SUBPIXEL_BITS` 对齐栅格顶点，避开三角形边界所有权歧义，不把 CPU 未量化投影误当 GPU 插值。
 
 既有模型验证：
 

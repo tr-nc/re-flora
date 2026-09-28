@@ -1,7 +1,7 @@
 // Preview topology normalization only: one stalk and its terminal complete head.
-// Authoring recipes/native assets remain unchanged. Both A and B consume this
-// same topology; their only difference is the stalk surface representation.
-import {stemColumn,smoothStemSurface,voxelStemSurface} from '../stem-voxels.mjs';
+// Authoring recipes/native assets remain unchanged. The stalk always uses the
+// selected single-column voxel surface; the calyx stays in the complete head.
+import {stemColumn,voxelStemSurface} from '../stem-voxels.mjs';
 
 function leafComponents(part){
   const parent=Array.from({length:part.positions.length/3},(_,i)=>i);
@@ -19,7 +19,7 @@ export function singleStemFlower(authored,settings,leafRootVertex=0){
   const originalHead=authored.heads[0];
   if(!originalHead)throw new Error('Single-stem flower requires a terminal head');
   const column=stemColumn(originalHead.anchor[1],settings.bend??0);
-  const stemShape=settings.voxelStems?voxelStemSurface(column):smoothStemSurface(column);
+  const stemShape=voxelStemSurface(column);
   const parts=[{name:'Single stem',material:'stemColor',head:null,...stemShape}],leafAttachments=[];
   for(const source of authored.parts.filter(part=>part.head===null&&part.material==='leafColor')){
     const positions=source.positions.slice();

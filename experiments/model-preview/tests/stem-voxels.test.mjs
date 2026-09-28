@@ -65,15 +65,17 @@ test('every horizontal layer contains exactly one cube, including maximum bends'
   }
 });
 
-test('all flowers normalize to one terminal head and directly attached leaves in both modes',()=>{
+test('all flowers use the fixed voxel stalk, one terminal head and directly attached leaves',()=>{
   for(const spec of flowerCatalog)for(const shape of [{},{height:.75,bend:-.25,leafSize:1.35},{height:1.15,bend:.25,leafSize:.6}]){
     const settings={...spec.defaults,...shape},authored=flowerGeometry(spec.id,settings),snapshot=JSON.stringify(authored);
-    const a=singleStemFlower(authored,{...settings,voxelStems:false},spec.leafRootVertex);
-    const b=singleStemFlower(authored,{...settings,voxelStems:true},spec.leafRootVertex);
+    const b=singleStemFlower(authored,settings,spec.leafRootVertex);
+    assert.deepEqual(singleStemFlower(authored,{...settings,voxelStems:false},spec.leafRootVertex),b,'obsolete mode input cannot restore low-poly stems');
     assert.equal(JSON.stringify(authored),snapshot,'native recipes never mutate');
-    assert.equal(b.heads.length,1);assert.deepEqual(a.heads,b.heads);
+    assert.equal(b.heads.length,1);
     assert.deepEqual(b.heads[0].anchor,b.column.tip);
-    assert.deepEqual(a.parts.slice(1),b.parts.slice(1),'A/B only changes the stalk surface');
+    const expectedStem=voxelStemSurface(b.column);
+    assert.deepEqual(b.parts[0].positions,expectedStem.positions);
+    assert.deepEqual(b.parts[0].indices,expectedStem.indices);
     assert.equal(b.parts.filter(part=>part.head===null&&part.material==='stemColor').length,1);
     const sourceHead=authored.heads[0];
     const headParts=b.parts.filter(part=>part.head===0);
