@@ -49,6 +49,10 @@ pub(super) struct ClimbingPlants {
     review: review::Review,
 }
 impl ClimbingPlants {
+    fn should_create_fixture(&self, review: bool) -> bool {
+        self.reset_requested || (review && !self.created)
+    }
+
     fn observe_selection(&mut self, fixture: Fixture, seed: u64) {
         let selection = (fixture, seed);
         if self
@@ -452,12 +456,16 @@ impl App {
         } else {
             SearchDirection::Counterclockwise
         };
-        self.climbing_plants
-            .observe_selection(selected_fixture, selected_seed);
+        // Ordinary sessions start without a test wall or vine. Only an explicit
+        // Debug action or an opt-in fixture review may author test terrain.
+        if review || self.climbing_plants.created || self.climbing_plants.reset_requested {
+            self.climbing_plants
+                .observe_selection(selected_fixture, selected_seed);
+        }
         if !self.terrain_persistence.allows_world_updates() {
             return Ok(());
         }
-        if self.climbing_plants.reset_requested || !self.climbing_plants.created {
+        if self.climbing_plants.should_create_fixture(review) {
             let fixture = selected_fixture;
             let site = if let Some(site) = self.climbing_plants.site {
                 site
@@ -853,6 +861,24 @@ fn block_instance(
 mod tests {
     use super::*;
     use crate::builder::test_cpu_voxel_source_snapshot;
+
+    #[test]
+    fn startup_does_not_author_a_vine_or_test_wall_without_opt_in() {
+        let mut runtime = ClimbingPlants::default();
+        assert!(!runtime.should_create_fixture(false));
+        assert!(
+            runtime.should_create_fixture(true),
+            "explicit review still works"
+        );
+        runtime.reset_requested = true;
+        assert!(
+            runtime.should_create_fixture(false),
+            "Debug action still works"
+        );
+        runtime.reset_requested = false;
+        runtime.created = true;
+        assert!(!runtime.should_create_fixture(false));
+    }
 
     #[test]
     fn climbing_scene_yields_to_active_leaf_review_not_to_screenshot_names() {
