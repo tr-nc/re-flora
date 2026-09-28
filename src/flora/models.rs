@@ -10,7 +10,9 @@ pub use column::{Column, MAX_BEND_FRACTION};
 
 pub const MAX_SHAPE_SCALE: f32 = 4.;
 
-pub const MODEL_COUNT: usize = 7;
+// The published authoring catalog owns model order, display names, stem
+// layers and count. Build-time validation generates these consts from flowers.json.
+include!(concat!(env!("OUT_DIR"), "/flower_registry.rs"));
 pub const MAX_HEADS: usize = 3;
 pub const HEAD_PALETTE_SIZE: usize = 4;
 
@@ -220,6 +222,8 @@ struct Published {
 #[derive(Deserialize)]
 struct PublishedFlower {
     id: String,
+    display_name: String,
+    stem_layers: u32,
     cache_family: String,
     palette: [[u8; 3]; HEAD_PALETTE_SIZE],
     heads: Vec<PublishedHead>,
@@ -253,7 +257,13 @@ fn load(json: &str) -> Result<Vec<Flower>> {
     published
         .flowers
         .into_iter()
-        .map(|source| {
+        .enumerate()
+        .map(|(model, source)| {
+            let (id, name, layers) = FLOWER_REGISTRY[model];
+            ensure!(
+                source.id == id && source.display_name == name && source.stem_layers == layers,
+                "flower catalog differs from published registry"
+            );
             ensure!(source.heads.len() == 1, "flower head count");
             ensure!(
                 source.heads.iter().enumerate().all(|(i, h)| i == h.id),
@@ -267,7 +277,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 "attachment-local flower model"
             );
             // Game-owned assembly: authored assets contain only attachment-local heads.
-            let column = Column::for_flower(&source.id)?;
+            let column = Column::for_layers(source.stem_layers)?;
             let tip = column.tip();
             let mut triangles = column.triangles();
             let stem_triangles = triangles.len() as u32;

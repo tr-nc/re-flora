@@ -145,7 +145,7 @@ const fn model_flower(
     }
 }
 
-pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
+const BASE_SPECIES: [FloraSpeciesDesc; MODEL_FLOWER_FIRST_SPECIES as usize] = [
     FloraSpeciesDesc::new(
         "tall_grass",
         "Tall Grass",
@@ -194,14 +194,25 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
         6,
         DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
-    model_flower("wild-geranium", "Wild Geranium", 0),
-    model_flower("forget-me-not", "Forget-me-not", 1),
-    model_flower("oxeye-daisy", "Oxeye Daisy", 2),
-    model_flower("cosmos", "Cosmos", 3),
-    model_flower("bellflower", "Bellflower", 4),
-    model_flower("coneflower", "Coneflower", 5),
-    model_flower("tulip", "Tulip", 6),
 ];
+
+const fn flora_registry() -> [FloraSpeciesDesc; MAX_FLORA_SPECIES] {
+    let mut result = [BASE_SPECIES[0]; MAX_FLORA_SPECIES];
+    let mut i = 0;
+    while i < BASE_SPECIES.len() {
+        result[i] = BASE_SPECIES[i];
+        i += 1;
+    }
+    i = 0;
+    while i < super::models::MODEL_COUNT {
+        let (id, name, _) = super::models::FLOWER_REGISTRY[i];
+        result[MODEL_FLOWER_FIRST_SPECIES as usize + i] = model_flower(id, name, i);
+        i += 1;
+    }
+    result
+}
+
+pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &flora_registry();
 
 pub const TREE_LEAF_RENDER_SPECIES_INDEX: u32 = FLORA_SPECIES.len() as u32;
 pub const APPLE_RENDER_SPECIES_INDEX: u32 = TREE_LEAF_RENDER_SPECIES_INDEX + 1;
@@ -244,18 +255,19 @@ impl FloraPaintSelection {
     }
 }
 
-pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
-    FloraPaintSelection::GrassMix,
-    FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
-    FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 1),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 2),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 3),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 4),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 5),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 6),
-];
+const fn player_flora_paint_selections() -> [FloraPaintSelection; super::models::MODEL_COUNT + 3] {
+    let mut result = [FloraPaintSelection::GrassMix; super::models::MODEL_COUNT + 3];
+    result[1] = FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX);
+    result[2] = FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX);
+    let mut i = 0;
+    while i < super::models::MODEL_COUNT {
+        result[i + 3] = FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + i as u32);
+        i += 1;
+    }
+    result
+}
+
+pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &player_flora_paint_selections();
 
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {
     match selection {
@@ -428,13 +440,11 @@ mod tests {
             species_count() as u32,
             flora_registry_slang_const("FLORA_SPECIES_COUNT")
         );
-        assert_eq!(
-            TREE_LEAF_RENDER_SPECIES_INDEX,
-            flora_registry_slang_const("FLORA_SPECIES_TREE_LEAF")
-        );
-        assert_eq!(
-            APPLE_RENDER_SPECIES_INDEX,
-            flora_registry_slang_const("FLORA_SPECIES_APPLE")
-        );
+        let shader = include_str!("../../shader/slang/flora_types.slang");
+        assert!(shader.contains("MAX_FLORA_SPECIES = FLORA_SPECIES_COUNT;"));
+        assert!(shader.contains("FLORA_SPECIES_TREE_LEAF = FLORA_SPECIES_COUNT;"));
+        assert!(shader.contains("FLORA_SPECIES_APPLE = FLORA_SPECIES_TREE_LEAF + 1u;"));
+        assert_eq!(TREE_LEAF_RENDER_SPECIES_INDEX, species_count() as u32);
+        assert_eq!(APPLE_RENDER_SPECIES_INDEX, species_count() as u32 + 1);
     }
 }

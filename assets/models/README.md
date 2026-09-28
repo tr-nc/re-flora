@@ -35,7 +35,7 @@ The web displays only this model and its postprocessing; it does not generate or
 Game assembly lives in `src/flora/models.rs` and `src/flora/models/column.rs`. Neither consumer
 renders stem leaves; published meshes contain only petals, centers and calyces.
 `node scripts/publish-flower-models.mjs` writes `flowers.json`, embedded by `src/flora/models.rs`.
-Commit source and derived output together. `cargo check` verifies both sources and the
+Each catalog entry owns its stable `id`, English `displayName` and integer `stemLayers`; `build.rs` generates the Rust count/registry from the published data, and the native stem and Grow list follow that registry. Commit source and derived output together. `cargo check` verifies both sources and the
 publisher fingerprint. Numbers publish at nine decimal places to remove cross-platform
 last-bit math noise; Node tests compare deterministic head output and Rust tests verify
 native assembly, complete layers, wind bounds and independent height/head-size controls. The complete head retains its authored

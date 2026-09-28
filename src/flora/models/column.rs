@@ -14,14 +14,11 @@ pub struct Column {
     pub color: [u8; 3],
 }
 impl Column {
-    pub fn for_flower(id: &str) -> anyhow::Result<Self> {
-        let layers = match id {
-            "wild-geranium" => 41,
-            "forget-me-not" | "oxeye-daisy" | "cosmos" | "bellflower" => 42,
-            "coneflower" => 43,
-            "tulip" => 37,
-            _ => anyhow::bail!("unknown flower assembly: {id}"),
-        };
+    pub fn for_layers(layers: u32) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            (1..=512).contains(&layers),
+            "invalid flower stem layers: {layers}"
+        );
         Ok(Self {
             edge: 0.05,
             layers,

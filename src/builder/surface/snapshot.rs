@@ -24,56 +24,78 @@ struct SpeciesSnapshot {
 }
 
 impl FloraSnapshot {
-    /// Upgrade known older schemas, dropping retired Kochia or Corn Poppy.
-    /// Preserve every retained species' instances, growth and identities.
-    /// Unknown layouts remain untouched for strict validation below.
+    /// Align older snapshots by stable species key, never by shifted index.
+    /// Only explicitly retired keys may be dropped. New species get empty slots;
+    /// all retained growth, spawn ages and authored identities move intact.
+    /// Unknown/duplicate/out-of-order layouts remain for strict validation.
     pub fn migrate_species_schema(&mut self) -> usize {
-        const LEGACY: [&str; 4] = ["tall_grass", "short_grass", "lavender", "ember_bloom"];
+        const BASE: [&str; 4] = ["tall_grass", "short_grass", "lavender", "ember_bloom"];
+        const RETIRED: [&str; 2] = ["kochia", "corn-poppy"];
+        let current = species::FLORA_SPECIES;
         let mut removed = 0;
         for chunk in &mut self.chunks {
-            // Previous eight-flower saves used the same stable keys in order,
-            // with Corn Poppy between Cosmos and Bellflower. Never shift an
-            // index without checking that entire layout first.
-            const RETIRED_POPPY_INDEX: usize = 8;
-            if chunk.species.len() == species::FLORA_SPECIES.len() + 1
-                && chunk.species[RETIRED_POPPY_INDEX].key == "corn-poppy"
-                && chunk.species.iter().enumerate().all(|(index, saved)| {
-                    index == RETIRED_POPPY_INDEX
-                        || saved.key
-                            == species::FLORA_SPECIES
-                                [index - usize::from(index > RETIRED_POPPY_INDEX)]
-                            .key
-                })
-            {
-                removed += chunk.species.remove(RETIRED_POPPY_INDEX).instances.len();
-                continue;
-            }
-            let legacy_count = LEGACY.len();
-            if !(chunk.species.len() == legacy_count || chunk.species.len() == legacy_count + 1)
-                || !chunk
+            if chunk.species.len() == current.len()
+                && chunk
                     .species
                     .iter()
-                    .take(legacy_count)
-                    .map(|s| s.key.as_str())
-                    .eq(LEGACY)
-                || (chunk.species.len() == legacy_count + 1
-                    && chunk.species[legacy_count].key != "kochia")
+                    .zip(current)
+                    .all(|(old, new)| old.key == new.key)
             {
                 continue;
             }
-            if chunk.species.len() == legacy_count + 1 {
-                removed += chunk.species.pop().unwrap().instances.len();
+            if !chunk
+                .species
+                .iter()
+                .take(BASE.len())
+                .map(|s| s.key.as_str())
+                .eq(BASE)
+            {
+                continue;
             }
-            chunk.species.extend(
-                species::FLORA_SPECIES
+            let mut next = 0;
+            let mut retired = HashSet::new();
+            let compatible = chunk.species.iter().all(|saved| {
+                if RETIRED.contains(&saved.key.as_str()) {
+                    return retired.insert(saved.key.as_str());
+                }
+                let Some(index) = current[next..]
                     .iter()
-                    .skip(legacy_count)
-                    .map(|desc| SpeciesSnapshot {
-                        key: desc.key.to_owned(),
-                        instances: Vec::new(),
-                        authored: Vec::new(),
-                    }),
-            );
+                    .position(|desc| desc.key == saved.key)
+                else {
+                    return false;
+                };
+                next += index + 1;
+                true
+            });
+            if !compatible {
+                continue;
+            }
+            let mut kept = std::mem::take(&mut chunk.species)
+                .into_iter()
+                .filter(|saved| {
+                    if RETIRED.contains(&saved.key.as_str()) {
+                        removed += saved.instances.len();
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .peekable();
+            chunk.species = current
+                .iter()
+                .map(|desc| {
+                    if kept.peek().is_some_and(|saved| saved.key == desc.key) {
+                        kept.next().unwrap()
+                    } else {
+                        SpeciesSnapshot {
+                            key: desc.key.to_owned(),
+                            instances: Vec::new(),
+                            authored: Vec::new(),
+                        }
+                    }
+                })
+                .collect();
+            debug_assert!(kept.peek().is_none());
         }
         removed
     }
@@ -365,6 +387,22 @@ mod tests {
     }
 
     #[test]
+    fn a_new_flower_slot_is_inserted_without_shifting_later_saved_identities() {
+        let mut current = fixture();
+        current.chunks[0].species[7]
+            .instances
+            .push([0xff01_0203, 42]);
+        current.chunks[0].species[7].authored.push([17, 99]);
+        let mut old = current.clone();
+        old.chunks[0].species.remove(6);
+        assert_eq!(old.migrate_species_schema(), 0);
+        old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        current.chunks[0].species[6].instances.clear();
+        current.chunks[0].species[6].authored.clear();
+        assert_eq!(old, current);
+    }
+
+    #[test]
     fn four_species_gardens_gain_empty_model_slots_without_changing_plants() {
         let mut saved: FloraSnapshot = serde_json::from_str(
             r#"{"chunks":[{"coordinate":[0,0,0],"species":[
@@ -409,7 +447,7 @@ mod tests {
     fn an_unknown_extra_slot_is_not_silently_dropped_from_current_schema() {
         let mut saved = fixture();
         saved.chunks[0].species.push(SpeciesSnapshot {
-            key: "kochia".to_owned(),
+            key: "unknown".to_owned(),
             instances: vec![[0, 0]],
             authored: vec![[999, 0]],
         });

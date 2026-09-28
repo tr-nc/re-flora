@@ -1532,7 +1532,31 @@ fn validate_shared_flower_assets() {
         Some(u64::from(hash.finalize())),
         "Stale {path}. Run node scripts/publish-flower-models.mjs and commit the derived assets."
     );
-    assert_eq!(json["flowers"].as_array().map(Vec::len), Some(7));
+    let flowers = json["flowers"].as_array().expect("flower bank array");
+    assert!(!flowers.is_empty(), "flower bank must not be empty");
+    let mut seen = HashSet::new();
+    let mut code = format!(
+        "pub const MODEL_COUNT: usize = {};\npub const FLOWER_REGISTRY: [(&str, &str, u32); MODEL_COUNT] = [\n",
+        flowers.len()
+    );
+    for flower in flowers {
+        let id = flower["id"].as_str().expect("flower id");
+        let name = flower["display_name"]
+            .as_str()
+            .expect("flower display name");
+        let layers = flower["stem_layers"].as_u64().expect("flower stem layers");
+        assert!(
+            seen.insert(id) && !name.is_empty() && (1..=512).contains(&layers),
+            "invalid or duplicate flower entry: {id}"
+        );
+        code.push_str(&format!("    ({id:?}, {name:?}, {layers}),\n"));
+    }
+    code.push_str("];\n");
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is not set")).join("flower_registry.rs"),
+        code,
+    )
+    .expect("write derived flower registry");
 }
 
 fn main() {
