@@ -1137,7 +1137,7 @@ label = "Pixels per Flower Head"
 type = "Uint"
 
 [section.param.data]
-value = 20
+value = 35
 min = 8
 max = 64
 
@@ -1148,7 +1148,7 @@ label = "Model Flower View Count"
 type = "Uint"
 
 [section.param.data]
-value = 256
+value = 512
 min = 8
 max = 512
 
@@ -1159,7 +1159,7 @@ label = "Model Flower Complete Head Size"
 type = "Float"
 
 [section.param.data]
-value = 0.55
+value = 1
 min = 0.25
 max = 4
 
@@ -1170,7 +1170,7 @@ label = "Stem Height Multiplier Mean"
 type = "Float"
 
 [section.param.data]
-value = 0.46
+value = 0.5
 min = 0.25
 max = 4
 
@@ -1192,7 +1192,7 @@ label = "Stem Voxel Edge Scale (1 = Half Grass Edge)"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 2
 min = 0.2
 max = 4
 
@@ -1203,7 +1203,7 @@ label = "Stem Bottom Color"
 type = "Color"
 
 [section.param.data]
-value = "#364B00"
+value = "#007D01"
 
 [[section.param]]
 id = "model_flower_stem_tip_color"
@@ -1212,7 +1212,7 @@ label = "Stem Tip Color"
 type = "Color"
 
 [section.param.data]
-value = "#97C200"
+value = "#71B700"
 
 [[section.param]]
 id = "model_flower_size_scale"
@@ -1221,7 +1221,7 @@ label = "Model Flower Size"
 type = "Float"
 
 [section.param.data]
-value = 0.71
+value = 0.5
 min = 0.5
 max = 2
 
