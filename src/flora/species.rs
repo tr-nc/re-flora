@@ -363,6 +363,17 @@ mod tests {
 
     #[test]
     fn model_registry_matches_shared_assets_and_never_requests_a_voxel_draw() {
+        assert!(!species().iter().any(|desc| desc.key == "bellflower"));
+        assert_eq!(
+            PLAYER_FLORA_PAINT_SELECTIONS.len(),
+            super::super::models::MODEL_COUNT + 3
+        );
+        for index in 0..super::super::models::MODEL_COUNT {
+            assert_eq!(
+                PLAYER_FLORA_PAINT_SELECTIONS[index + 3],
+                FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + index as u32)
+            );
+        }
         assert_eq!(
             MODEL_FLOWER_FIRST_SPECIES,
             flora_registry_slang_const("MODEL_FLOWER_FIRST_SPECIES")

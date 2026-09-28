@@ -153,7 +153,7 @@ impl App {
             );
             self.flower_model_review.as_mut().unwrap().target = Some(target);
             self.set_manual_time_of_day(0.45);
-            log::info!("[FLOWER_REVIEW] planted=8 placement=production saved=false target={target:?} camera={camera:?}");
+            log::info!("[FLOWER_REVIEW] planted={} placement=production saved=false target={target:?} camera={camera:?}", crate::flora::models::MODEL_COUNT);
         }
         if (!controls && phase == 3 && frame == 72) || (controls && phase == 17 && frame == 408) {
             if let Some(resize) = &mut self.resize_lifecycle_test {

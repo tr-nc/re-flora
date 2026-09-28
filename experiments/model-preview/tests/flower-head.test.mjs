@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {flowerCatalog,flowerGeometry} from '../models/flower-catalog.mjs';
+import {flowerCatalog as nativeCatalog} from '../../../assets/models/flower-source.mjs';
 import {completeFlowerHead} from '../../../assets/models/flower-head.mjs';
 import {publishedFlowers} from '../../../scripts/publish-flower-models.mjs';
 
-test('all ten preview models contain exactly one complete attachment-local head, no stalk or leaves',()=>{
+test('all preview models contain exactly one complete attachment-local head, no stalk or leaves',()=>{
   for(const spec of flowerCatalog){
     const authored=flowerGeometry(spec.id),before=JSON.stringify(authored);
     const model=completeFlowerHead(authored),head=authored.heads[0];
@@ -22,9 +23,9 @@ test('all ten preview models contain exactly one complete attachment-local head,
     });
   }
 });
-test('native publication contains seven heads and no assembly, leaf or stem mesh data',async()=>{
+test('native publication contains one head per catalog flower, without assembly, leaves or stems',async()=>{
   const published=JSON.parse(await publishedFlowers());
-  assert.equal(published.flowers.length,7);
+  assert.equal(published.flowers.length,nativeCatalog.length);
   for(const flower of published.flowers){
     assert.equal(flower.column,undefined);assert.equal(flower.root,undefined);
     assert.equal(flower.palette.length,4);assert.ok(flower.cache_family);
@@ -38,23 +39,6 @@ test('shared family publishes identical geometry but distinct species palettes',
   assert.equal(forget.cache_family,cosmos.cache_family);
   assert.notDeepEqual(forget.palette,cosmos.palette);
   assert.deepEqual(forget.parts.map(({color,...part})=>part),cosmos.parts.map(({color,...part})=>part));
-  assert.equal(flowers.some(f=>f.id==='corn-poppy'),false);
-});
-test('the published bellflower mouth faces slightly upward, not down or straight skyward',async()=>{
-  const {flowers}=JSON.parse(await publishedFlowers());
-  const bell=flowers.find(f=>f.id==='bellflower');
-  const petals=bell.parts.find(part=>part.material==='petalColor');
-  // The bell's fourth ring (vertices 30–39) is the lip. Sum its edges
-  // (Newell normal) to measure the real published opening, including lobes.
-  let [nx,ny,nz]=[0,0,0];
-  for(let i=0;i<10;i++){
-    const a=petals.positions.slice((30+i)*3,(30+i)*3+3);
-    const b=petals.positions.slice((30+(i+1)%10)*3,(30+(i+1)%10)*3+3);
-    nx+=(a[1]-b[1])*(a[2]+b[2]);
-    ny+=(a[2]-b[2])*(a[0]+b[0]);
-    nz+=(a[0]-b[0])*(a[1]+b[1]);
-  }
-  const elevation=Math.atan2(ny,Math.hypot(nx,nz))*180/Math.PI;
-  assert.ok(elevation>=15&&elevation<=30,`Bellflower mouth elevation: ${elevation.toFixed(1)}° (wanted slightly upward)`);
+  assert.equal(flowers.some(f=>['corn-poppy','bellflower'].includes(f.id)),false);
 });
 test('missing flower heads are rejected',()=>assert.throws(()=>completeFlowerHead({parts:[],heads:[]})));

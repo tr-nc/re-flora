@@ -123,7 +123,7 @@ pub struct FloraVoxelInfos {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraVoxelTableDescs {
-    pub descs: [u32; 52],
+    pub descs: [u32; 48],
 }
 
 /// Auto-generated from `B_GrassGrowthPotentialLevels` (native Slang source of truth).
@@ -290,7 +290,7 @@ pub struct NodeOffsetForLevels {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OccupancyToInstancesResult {
-    pub flora_instance_len: [u32; 11],
+    pub flora_instance_len: [u32; 10],
     pub has_growing_flora: u32,
 }
 
@@ -861,7 +861,7 @@ pub struct FloraGrowthInfo {
     pub spawn_overshoot_max_voxels: f32,
     pub spawn_stagger_seconds: f32,
     pub _pad0: [u8; 12],
-    pub moisture_growth_factors: [u32; 44],
+    pub moisture_growth_factors: [u32; 40],
 }
 
 /// Auto-generated from `U_GodRayInfo` (native Slang source of truth).

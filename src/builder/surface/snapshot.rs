@@ -30,7 +30,7 @@ impl FloraSnapshot {
     /// Unknown/duplicate/out-of-order layouts remain for strict validation.
     pub fn migrate_species_schema(&mut self) -> usize {
         const BASE: [&str; 4] = ["tall_grass", "short_grass", "lavender", "ember_bloom"];
-        const RETIRED: [&str; 2] = ["kochia", "corn-poppy"];
+        const RETIRED: [&str; 3] = ["kochia", "corn-poppy", "bellflower"];
         let current = species::FLORA_SPECIES;
         let mut removed = 0;
         for chunk in &mut self.chunks {
@@ -356,12 +356,21 @@ mod tests {
     }
 
     #[test]
-    fn poppy_is_removed_from_old_gardens_without_shifting_other_flower_identities() {
+    fn retired_poppy_and_bellflower_are_removed_without_shifting_other_flower_identities() {
         let mut retained = fixture();
-        let bell = &mut retained.chunks[0].species[8];
-        bell.instances.push([0xff01_0203, 42]);
-        bell.authored.push([17, 99]);
+        let coneflower = &mut retained.chunks[0].species[8];
+        coneflower.instances.push([0xff01_0203, 42]);
+        coneflower.authored.push([17, 99]);
         let mut old = retained.clone();
+        old.chunks[0].species.insert(
+            8,
+            SpeciesSnapshot {
+                key: "bellflower".into(),
+                instances: vec![[0xff03_0304, 56]],
+                authored: vec![[19, 101]],
+            },
+        );
+        let seven_flower_schema = old.clone();
         old.chunks[0].species.insert(
             8,
             SpeciesSnapshot {
@@ -370,9 +379,12 @@ mod tests {
                 authored: vec![[18, 100]],
             },
         );
-        assert_eq!(old.migrate_species_schema(), 1);
+        assert_eq!(old.migrate_species_schema(), 2);
         old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(old, retained);
+        let mut seven_flower_schema = seven_flower_schema;
+        assert_eq!(seven_flower_schema.migrate_species_schema(), 1);
+        assert_eq!(seven_flower_schema, retained);
         assert_eq!(old.migrate_species_schema(), 0);
         old.chunks[0].species.insert(
             8,
@@ -440,7 +452,13 @@ mod tests {
         assert_eq!(decoded.migrate_species_schema(), 0);
         decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(saved, decoded);
-        assert_eq!(decoded.counts(), (7, 7));
+        assert_eq!(
+            decoded.counts(),
+            (
+                crate::flora::models::MODEL_COUNT,
+                crate::flora::models::MODEL_COUNT
+            )
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 module flora_types;
 
 public static const int FLORA_HEIGHT_COLOR_TABLE_LEN = 12;
-public static const uint FLORA_SPECIES_COUNT = 11u;
+public static const uint FLORA_SPECIES_COUNT = 10u;
 public static const uint MAX_FLORA_SPECIES = FLORA_SPECIES_COUNT;
 public static const uint MODEL_FLOWER_FIRST_SPECIES = 4u;
 public static const uint FLORA_SPECIES_TALL_GRASS = 0u;

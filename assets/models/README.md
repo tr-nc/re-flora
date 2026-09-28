@@ -29,7 +29,7 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 ## Publish the flower bank
 
-The seven flower recipes live in `flower-source.mjs` (Corn Poppy has been removed). Both the HTML preview and
+The six current flower recipes live in `flower-source.mjs` (Corn Poppy and Bellflower have been retired). Both the HTML preview and
 native publisher apply `flower-head.mjs`: one complete head in attachment-local coordinates.
 The web displays only this model and its postprocessing; it does not generate or assemble stems.
 Game assembly lives in `src/flora/models.rs` and `src/flora/models/column.rs`. Neither consumer
@@ -42,12 +42,12 @@ native assembly, complete layers, wind bounds and independent height/head-size c
 geometry (including calyx), never one tile per petal. White geranium and Gillenia remain
 browser-only candidates and are not added to the native species bank.
 
-All seven are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**. For visual debugging, **Debug Panel → Terrain & Plants → Plant all flowers & grasses around me** places the seven model flowers, Lavender, Ember Bloom, Tall Grass and Short Grass in separate positions around the walking player's feet (or the edit-camera focus). It excludes the session-only climbing vine. The one-shot action changes terrain flora and persists only when the terrain snapshot is saved.
+To add a flower, give its recipe an `id`, `displayName` and `stemLayers`, publish the bank, and update `FLORA_SPECIES_COUNT` in `shader/slang/flora_types.slang`. To retire one, delete its recipe, add its stable key to `RETIRED` in `src/builder/surface/snapshot.rs`, publish, and update that same shader count. `build.rs` derives the Rust registry and count; Grow choices, stem assembly and cache shape counts follow automatically. This is a small catalog operation for a new species using the existing radial/tulip head geometry; inventing a genuinely new head topology still needs a geometry authoring function and visual review. Validate historical save schemas and shader-generated layouts with `cargo check`, tests and a hidden Release run. Older research/evidence captures may still mention retired flowers; they are not live assets.
+
+All six are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**. For visual debugging, **Debug Panel → Terrain & Plants → Plant all flowers & grasses around me** places the six model flowers, Lavender, Ember Bloom, Tall Grass and Short Grass in separate positions around the walking player's feet (or the edit-camera focus). It excludes the session-only climbing vine. The one-shot action changes terrain flora and persists only when the terrain snapshot is saved.
 The list scrolls on short windows; the status-only backpack is hidden while Grow is active
 so it cannot cover plant choices. Existing species
-keys and identities are preserved when loading older gardens; model flowers occupy 4–10. **Debug → Flora → Ground Plants →
-Model Flowers** retains the saved pixel resolution, view count, head scale, stem height and
-overall size controls. The former height slider is now **Stem Height Multiplier Mean**
+keys and identities are preserved when loading older gardens; model flowers occupy 4–9. **Debug → Pixel Models — Global** owns the flower pixel resolution and static view count, while **Debug → Flora → Ground Plants → Model Flowers** retains head scale, stem height and overall size controls. The former height slider is now **Stem Height Multiplier Mean**
 (the saved `model_flower_height_scale` ID/value is preserved). **Stem Height Multiplier
 Variance** defaults to `0.01` and **Stem Voxel Edge Scale** defaults to `1`.
 

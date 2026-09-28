@@ -14,9 +14,6 @@ export const flowerCatalog=[
   {id:'cosmos',displayName:'Cosmos',stemLayers:42,label:'波斯菊',latin:'Cosmos bipinnatus',kind:'radial',petals:8,width:.39,leaf:'feather',notch:.1,cacheFamily:'open-radial',cacheTemplate:'cosmos',
     heads:[[-.18,.86,0,.56,-8],[.57,.28,-.08,.31,25]],
     defaults:{...base,petalColor:'#e4a0c0',innerColor:'#b94880',centerColor:'#e9be4c',leafColor:'#689467',tilt:44},note:'八片缺口宽瓣 · 深粉内圈 · 羽状细叶'},
-  {id:'bellflower',displayName:'Bellflower',stemLayers:42,label:'桃叶风铃草',latin:'Campanula persicifolia',kind:'bell',leaf:'blade',
-    heads:[[-.28,.89,0,.34,-28],[.4,.35,.05,.32,27]],
-    defaults:{...base,petalColor:'#9998df',innerColor:'#bbb8ed',centerColor:'#ead7a3',leafColor:'#608c66',tilt:22},note:'五裂连体钟杯 · 可见内壁 · 两朵向外开的花'},
   {id:'coneflower',displayName:'Coneflower',stemLayers:43,label:'紫松果菊',latin:'Echinacea purpurea',kind:'radial',petals:12,width:.2,leaf:'blade',droop:.75,
     heads:[[0,.92,0,.65,0]],defaults:{...base,petalColor:'#d18bb4',innerColor:'#b36c98',centerColor:'#b77c3c',leafColor:'#65854f',tilt:55},note:'十二条下垂粉瓣 · 高起的橙褐锥盘'},
   {id:'tulip',displayName:'Tulip',stemLayers:37,label:'郁金香',latin:'Tulipa',kind:'tulip',leaf:'broad',
@@ -80,16 +77,6 @@ function petals(outer,inner,spec,p){
     }
   }
 }
-function bell(outer,inner,p){
-  // A single fused, five-lobed corolla, open mouth and continuous inner wall.
-  const sides=10,rows=[[.16,-.16],[.46,.05],[.69,.55],[p.opening*.9,.95]];
-  const ids=rows.map(([r,z],row)=>Array.from({length:sides},(_,i)=>{
-    const tip=row===3&&i%2===0;
-    return outer.vertex([r*Math.cos(i*TAU/sides),r*Math.sin(i*TAU/sides),z+(tip?.18:0)]);
-  }));
-  for(let row=0;row<3;row++)for(let i=0;i<sides;i++)outer.quad(ids[row][i],ids[row][(i+1)%sides],ids[row+1][(i+1)%sides],ids[row+1][i]);
-  lathe(inner,[[0,-.13],[.14,-.13],[.43,.06]],10);
-}
 function tulip(outer,inner,p){
   for(let i=0;i<6;i++){
     const angle=i*TAU/6,rows=[];
@@ -114,8 +101,7 @@ export function flowerGeometry(id,settings={}){
     const [x,y,z,radius,azimuth]=head,anchor=[x+p.bend,y*p.height,z],scale=radius*p.flowerSize;
     if(index)tube(stem,[joint,mix(joint,anchor,.55),anchor],.013);
     const outer=builder(`Flower ${index+1} petals`,'petalColor',index),inner=builder(`Flower ${index+1} throat`,'innerColor',index),core=builder(`Flower ${index+1} center`,'centerColor',index),calyx=builder(`Flower ${index+1} calyx`,'stemColor',index);
-    if(spec.kind==='bell')bell(outer,inner,p);
-    else if(spec.kind==='tulip')tulip(outer,inner,p);
+    if(spec.kind==='tulip')tulip(outer,inner,p);
     else petals(outer,inner,spec,p);
     const dome=spec.id==='coneflower';
     lathe(core,dome?[[0,.02],[.3,.04],[.27,.28],[.17,.46],[0,.54]]:[[0,0],[.22,.012],[.2,.09],[0,.12]],10);
