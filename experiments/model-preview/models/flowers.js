@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {flowerCatalog,flowerGeometry} from './flower-catalog.mjs';
 import {disposeScene} from './resources.js';
-import {singleStemFlower} from './single-stem-flower.mjs';
+import {singleStemFlower} from '../../../assets/models/flower-topology.mjs';
 
 const colorKeys=['petalColor','innerColor','centerColor','leafColor','stemColor'];
 export const flowerDefinitions=flowerCatalog.map(spec=>({

@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {flowerCatalog,flowerGeometry} from '../models/flower-catalog.mjs';
-import {singleStemFlower} from '../models/single-stem-flower.mjs';
-import {stemColumn,voxelStemSurface,STEM_CELL_SIZE} from '../stem-voxels.mjs';
+import {singleStemFlower} from '../../../assets/models/flower-topology.mjs';
+import {stemColumn,voxelStemSurface,STEM_CELL_SIZE} from '../../../assets/models/flower-stem.mjs';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 
 test('stem cell edge is half native grass at the published flower world scale',()=>{

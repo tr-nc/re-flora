@@ -1,7 +1,7 @@
-// Preview topology normalization only: one stalk and its terminal complete head.
-// Authoring recipes/native assets remain unchanged. The stalk always uses the
-// selected single-column voxel surface; the calyx stays in the complete head.
-import {stemColumn,voxelStemSurface} from '../stem-voxels.mjs';
+// Shared selected topology: one stalk and its terminal complete head.
+// The stalk always uses the single-column voxel surface; the calyx stays in
+// the complete head. The browser and native publisher consume this same recipe.
+import {stemColumn,voxelStemSurface} from './flower-stem.mjs';
 
 function leafComponents(part){
   const parent=Array.from({length:part.positions.length/3},(_,i)=>i);

@@ -1,4 +1,4 @@
-// Preview-only single-column stems. Native grass edge = 1/256 world units;
+// Shared single-column stems. Native grass edge = 1/256 world units;
 // flower recipe scale = 10/256. Half a grass edge is .05 recipe units.
 export const STEM_CELL_SIZE=.05;
 export const STEM_GRID_ORIGIN=[0,-1.2,0];
