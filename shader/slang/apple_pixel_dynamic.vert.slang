@@ -20,7 +20,6 @@ ApplePixelVertex main(VertexInput input) {
     ApplePixelVertex output=appleDynamicPose(input.base_position,input.rotation,input.tint.a,
         clamp(gui_input.apple_pixel_resolution,8u,64u),input.instance_index);
     setApplePixelQuad(output,input.position.xy,camera_info,
-        gui_input.model_pixel_screen_grid!=0u,
         readModelPixelView(output.tileIndex));
     return output;
 }

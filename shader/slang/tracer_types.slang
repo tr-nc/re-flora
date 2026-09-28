@@ -8,7 +8,6 @@ public struct U_GuiInput
     public uint raster_tree_static;
     public uint apple_pixel_resolution;
     public uint model_pixel_view_count; // 8..512; zero reserved for numerical oracle
-    public uint model_pixel_screen_grid; // 0: rotating canonical pixels; 1: screen-grid resampling
     public uint model_pixel_cache_review; // explicit cache-consumption telemetry only; never a rendering mode
     public uint raster_tree_hybrid_lighting;
     public uint path_tracing_reference;

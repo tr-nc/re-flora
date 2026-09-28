@@ -107,7 +107,6 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
         Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
-        Self::add_missing_param(&mut config, "Debug", "model_pixel_screen_grid");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
         // Old saves gain new flower controls from the declarations, without
@@ -151,6 +150,7 @@ impl GuiConfigLoader {
                         | "model_flower_heads_only"
                         | "model_pixel_snap_views"
                         | "model_pixel_single_light"
+                        | "model_pixel_screen_grid"
                 )
             });
         }
@@ -924,10 +924,7 @@ mod tests {
                 section.param.retain(|p| {
                     !matches!(
                         p.id.as_str(),
-                        "raster_tree_static"
-                            | "raster_tree_hybrid_lighting"
-                            | "falling_leaf_mesh"
-                            | "model_pixel_screen_grid"
+                        "raster_tree_static" | "raster_tree_hybrid_lighting" | "falling_leaf_mesh"
                     ) && (p.id != "raster_tree_wind" || canonical_wind.is_some())
                 });
                 for p in &mut section.param {
@@ -1329,7 +1326,6 @@ mod tests {
                     .find(|p| p.id == "raster_tree_static")
                     .unwrap()
                     .clone();
-                debug.param.retain(|p| p.id != "model_pixel_screen_grid");
                 old.id = "model_pixel_snap_views".into();
                 old.value = GuiParamValue::Bool { value: enabled };
                 debug.param.push(old);
@@ -1354,14 +1350,6 @@ mod tests {
                 let loaded = GuiConfigLoader::load_from_path(&path);
                 let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
                 assert!(!params.iter().any(|p| p.id == "model_pixel_snap_views"));
-                assert!(matches!(
-                    params
-                        .iter()
-                        .find(|p| p.id == "model_pixel_screen_grid")
-                        .unwrap()
-                        .value,
-                    GuiParamValue::Bool { value: false }
-                ));
                 let param = params
                     .iter()
                     .find(|p| p.id == "model_pixel_view_count")
@@ -1378,6 +1366,48 @@ mod tests {
                     toml::to_string(&loaded).unwrap()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn saved_screen_grid_switch_is_retired_without_changing_view_count() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let debug = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap();
+            let mut retired = debug
+                .param
+                .iter()
+                .find(|p| p.id == "raster_tree_static")
+                .unwrap()
+                .clone();
+            retired.id = "model_pixel_screen_grid".into();
+            retired.value = GuiParamValue::Bool { value: enabled };
+            debug.param.push(retired);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert!(!loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == "model_pixel_screen_grid"));
+            assert!(loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == "model_pixel_view_count"
+                    && matches!(p.value, GuiParamValue::Uint { value: 16, .. })));
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("model_pixel_screen_grid"));
         }
     }
 

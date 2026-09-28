@@ -12,5 +12,5 @@ ModelPixelOutput main(FragmentInput input) {
         ModelPixelOutput output;output.color=float4(0.0);output.depth=1.0;return output;
     }
     return displayModelPixel(input.uv,instance.metadata.z,instance.tile.x,instance.color.a,
-        input.instanceIndex,instance.position_size.xyz,instance.position_size.w*(1.53125*0.5));
+        instance.position_size.xyz,instance.position_size.w*(1.53125*0.5));
 }

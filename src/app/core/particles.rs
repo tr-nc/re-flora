@@ -702,7 +702,6 @@ impl App {
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
             let stage = (frame / 8) % 10;
             settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize / 2];
-            settings.model_pixel_screen_grid.value = stage & 1 != 0;
             settings.butterfly_mesh_preview.value = true;
             settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;
@@ -830,7 +829,6 @@ impl App {
                     _ => 22,
                 };
                 // The former self-shadow phase now tests live display rotation.
-                settings.model_pixel_screen_grid.value = stage == 3;
                 settings.butterfly_animation_fps.value = if stage == 1 { 2 } else { 60 };
             }
         }

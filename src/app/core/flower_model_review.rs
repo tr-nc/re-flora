@@ -104,7 +104,6 @@ impl App {
             }
         }
         settings.model_pixel_view_count.value = if !controls && phase == 5 { 8 } else { 16 };
-        settings.model_pixel_screen_grid.value = if controls { phase == 17 } else { phase == 6 };
         settings.flora_growth_override_enabled.value = true;
         settings.flora_growth_override.value = if controls {
             if phase == 17 {

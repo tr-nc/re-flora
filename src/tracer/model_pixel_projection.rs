@@ -237,7 +237,8 @@ fn all_model_pixel_entrypoints_have_geometry_free_transitive_interfaces() {
     }
     let display = include_str!("../../shader/slang/model_pixel_display.slang");
     assert!(display.contains("modelOrthographicDepth("));
-    assert!(display.contains("modelPixelCellOverlap("));
+    assert!(!display.contains("modelResamplePixel("));
+    assert!(display.contains("model_pixel_tiles[offset+pixel.y*resolution+pixel.x]"));
     let bake = include_str!("../../shader/slang/model_pixel_bake_projection.slang");
     assert!(!bake.contains("screenAligned"));
     assert!(!bake.contains("camera_info"));

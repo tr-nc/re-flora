@@ -77,7 +77,6 @@ impl App {
         settings.model_flower_pixel_resolution.value = parameters.resolution;
         settings.model_flower_size_scale.value = 1.;
         settings.model_pixel_view_count.value = 16;
-        settings.model_pixel_screen_grid.value = false;
         settings.flora_growth_override_enabled.value = true;
         settings.flora_growth_override.value = 1.;
         settings.auto_daynight_cycle.value = false;

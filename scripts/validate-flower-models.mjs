@@ -66,7 +66,7 @@ try {
         return {phase:index,species};
       });
       assert.match(log,/single_light=true views=8.*shared_surfaces=true/);
-      assert.match(log,/orthographic=true screen_grid=true/);
+      assert.match(log,/orthographic=true rotating_pixels=true/);
       assert.match(log,/\[FLOWER_REVIEW_LIFETIME\] removed=1/);
       assert.match(log,/\[FLOWER_REVIEW_LIFETIME\] replanted=1/);
       const resize = log.indexOf('[FLOWER_REVIEW_RESIZE] after_submitted_frames=72');

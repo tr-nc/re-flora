@@ -21,8 +21,7 @@ FlowerPixelVertex main(VertexInput input) {
     output.tileIndex=input.instance;
     output.offset=(input.instance-flower_pc.tile_first)*output.resolution*output.resolution;
     output.uv=float2(input.corner&1u,(input.corner>>1u)&1u);
-    output.position=modelOrthographicQuad(readModelPixelView(input.instance),output.center,output.radius,output.uv,
-            gui_input.model_pixel_screen_grid!=0u,camera_info);
+    output.position=modelOrthographicQuad(readModelPixelView(input.instance),output.center,output.radius,output.uv,camera_info);
     if(frame.scale<=1e-7)output.position=float4(2,2,2,1);
     return output;
 }

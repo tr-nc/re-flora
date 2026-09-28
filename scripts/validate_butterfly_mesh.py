@@ -43,8 +43,8 @@ def main():
     assert re.search(r'MODEL_CACHE_CONSUMED\] leaf=\d+ apple=\d+ butterfly=[1-9]\d*', text)
     for n in [8, 22, 64]:
         assert re.search(rf'MODEL_CACHE_GEOMETRY_CHECK\] kind=2 resolution={n} views=16 cases=64 checked_hits=[1-9]\d*', text), f'Missing independent bake geometry check for {n}px'
-    assert 'screen_grid=true' in text, 'Missing live display switch'
-    print(f'PASS: cache-only 8/22/64px, transmission/display sweeps, independent bake coverage/depth (64 cases per resolution), no saved-setting changes.\nLog: {log}\nScreenshot: {output / "renderer-validation.png"}')
+    assert 'rotating_pixels=true' in text, 'Missing rotating pixel display'
+    print(f'PASS: cache-only 8/22/64px, transmission sweeps, independent bake coverage/depth (64 cases per resolution), no saved-setting changes.\nLog: {log}\nScreenshot: {output / "renderer-validation.png"}')
 
 
 

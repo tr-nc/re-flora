@@ -17,7 +17,7 @@ public float3 applePixelWorld(ApplePixelVertex input,float3 local) {
     return input.center+input.scale*(input.axisX*local.x+input.axisY*local.y+input.axisZ*local.z);
 }
 public void setApplePixelQuad(inout ApplePixelVertex output,float2 uv,U_CameraInfo camera,
-    bool screenAligned,ModelPixelView view) {
+    ModelPixelView view) {
     output.uv=uv;
-    output.position=modelOrthographicQuad(view,output.center,1.55*output.scale,uv,screenAligned,camera);
+    output.position=modelOrthographicQuad(view,output.center,1.55*output.scale,uv,camera);
 }

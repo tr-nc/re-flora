@@ -37,7 +37,6 @@ impl App {
         s.model_flower_size_scale.value = if phase == 1 { 2. } else { 1. };
         s.flora_growth_override_enabled.value = true;
         s.flora_growth_override.value = if phase == 1 { 0.55 } else { 1. };
-        s.model_pixel_screen_grid.value = phase % 2 != 0;
         s.auto_daynight_cycle.value = false;
         if frame.is_multiple_of(24) && frame <= 12 * 24 {
             self.set_manual_time_of_day(if phase == 1 { 0.2 } else { 0.45 });
