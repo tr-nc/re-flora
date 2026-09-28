@@ -47,6 +47,16 @@ node scripts/serve-model-preview.mjs
 - 每种模型有花茎高度、花头大小、起伏／下垂／张开、仰角、叶大小、弯茎和五个颜色控制。全是本会话临时预览设置；切换模型／恢复默认值也始终只处理花头。花草静态无伪造动画，转台仍可用。
 - 网页在浏览器中合成；游戏用同一发布几何原生绘制茎叶，并复用游戏像素管线绘制完整花头。游戏 Debug → Flora → Ground Plants → Model Flowers 保留分辨率与造型控制；旧存档的范围开关不再生效。32px 时保守覆盖仍会加粗／合并很窄的瓣间缝；未为花草改动补点算法。真实游戏视觉与大量实例性能仍需分开验收。
 
+## 茎和分枝颗粒 A/B（仅网页）
+
+花草的「模型参数」中提供 **颗粒茎和分枝 · B（关闭 = 原低模 A）**，默认关闭。
+
+- A 保留原始连续低模；B 将同一制作配方中的茎、分枝和叶柄转换为真实三维方块，只输出外露面。不是给整株做低分辨率投影，也不是屏幕像素滤镜。
+- 方块**边长为游戏草颗粒的 1/2、体积为 1/8**。游戏草边长为 `1/256` 世界单位，花草制作单位映射为 `10/256`，因此网页方块边长为 `0.05` 制作单位；不缩小整株模型。网格固定在植株根部，不随相机重采样。
+- **叶片、完整花头（包括花萼）、花头锚点及其像素预算均不变**。茎的颜色仍由原控制调节；高度、弯曲等控制在两种模式中都有效。两种模式都使用现有共享深度合成，近处茎可遮住花头。
+- 拖动两侧旋转；左侧滚轮放大检查三维方块，可切换透视。A/B 改变左右两侧的茎形态，右侧仍是花头像素化 + 三维茎叶。恢复默认或切换植物回到 A。
+- 这是**不保存的网页美术实验**，尚未改变游戏；材质和灯光沿用网页预览，不声称复现游戏草的光照、风动或 LOD。保守体素覆盖会使细茎比原低模更粗，远处亚像素颗粒仍可能闪烁，先比较观感。
+
 ## 模块职责
 
 | 文件 | 职责 |
@@ -55,6 +65,7 @@ node scripts/serve-model-preview.mjs
 | `timeline.mjs` | 静态/动态统一时间采样与播放推进 |
 | `pipeline.js` | 原始/像素绘制、可见组 ID、统一图像处理与资源释放；普通模型和花头共用 `renderTile` |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度读取、补点深度与透明合成；不另建 renderer |
+| `stem-voxels.mjs` | 网页茎部三维三角形／方块相交与外露面生成；不修改制作源，不处理叶片或花头 |
 | `assets/models/flower-source.mjs` / `models/flowers.js` | 8 种原创纯几何配方及统一模型接口适配 |
 | `geometry.js` | 读取当前动画姿态，世界变换，齐次裁剪，投影到像素格 |
 | `connectivity.mjs` | 几何约束的八邻接连通判定与逐条最短补点路径 |
@@ -66,7 +77,7 @@ node scripts/serve-model-preview.mjs
 在 `models/` 提供一个定义，注册到 `models/index.js`。定义包含：
 
 - `id` / `label`：稳定 ID 与显示名。
-- `defaults` / `controls`：专属参数与声明式控件（数值范围/步长、复选框、颜色）。所有控件必须对应默认值。
+- `defaults` / `controls`：专属参数与声明式控件（数值范围/步长、复选框、颜色）。所有可编辑控件必须对应默认值；`type: 'note'` 为只读说明，不产生设置字段。
 - `preview`：默认 `resolution`、`background`。
 - `async create()`：返回下面的模型对象。加载失败必须释放自己已建立的资源；切换竞态中的过期加载由 viewer 释放。
 
@@ -115,6 +126,7 @@ node --test experiments/model-preview/tests/*.test.mjs
 # 若 Playwright 在其它位置，设置 NODE_PATH 指向该 node_modules。
 node experiments/model-preview/tests/browser.cjs
 node experiments/model-preview/tests/flowers-browser.cjs
+node experiments/model-preview/tests/stems-browser.cjs
 ```
 
 支持 `CHROME_EXECUTABLE`、`PREVIEW_ARTIFACT_DIR`。设置 `CHECK_REDIRECTS=1` 一并检查已迁移的旧入口跳转。默认工件在 `target/model-preview-validation/`。

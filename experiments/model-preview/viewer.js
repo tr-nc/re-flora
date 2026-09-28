@@ -67,6 +67,10 @@ function updateBackground(){document.documentElement.style.setProperty('--stage'
 function buildModelControls(){
   $('model-controls').replaceChildren();
   for(const schema of definition.controls){
+    if(schema.type==='note'){
+      const note=document.createElement('p');note.className='hint';note.textContent=schema.label;
+      $('model-controls').append(note);continue;
+    }
     const label=document.createElement('label');label.className=schema.type==='checkbox'?'check-row':'slider-label';
     const input=document.createElement(schema.type==='color'?'debug-color-picker':'input');input.id=`model-${schema.key}`;
     if(schema.type==='color'){
@@ -136,8 +140,6 @@ async function loadModel(id){
     $('model').value=id;setProjection('orthographic');setView();
     buildModelControls();syncControls();setVariant(state.variant);
     $('model-info').textContent=definition.label;
-    const triangles=asset.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0);
-    $('geometry-info').textContent=`${triangles} 三角形 · ${asset.repairGroups.length} 个补点组`;
     message(asset.description);updateURL();dirty();
   }catch(error){
     next?.dispose();if(token!==request)return;
@@ -145,6 +147,9 @@ async function loadModel(id){
   }
 }
 function render(){
+  const triangles=asset.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0);
+  const stem=asset.meshes.find(mesh=>mesh.userData.stem)?.userData.stem;
+  $('geometry-info').textContent=`${triangles} 三角形 · ${asset.repairGroups.length} 个补点组${stem?.mode==='voxels'?` · ${stem.cells} 个茎部方块`:''}`;
   const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
   syncPixelCamera();
   const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage});
@@ -242,6 +247,7 @@ window.readModelPreview=(includeGeometry=false)=>({
   })),
   rendererMemory:pipeline?{source:{...pipeline.source.info.memory},pixel:{...pipeline.pixel.info.memory}}:null,
   clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
+  stem:asset?.meshes.find(mesh=>mesh.userData.stem)?.userData.stem,
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
   ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,pixelCamera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
 });
