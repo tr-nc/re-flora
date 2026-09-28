@@ -5,7 +5,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 (async()=>{
   const {createPreviewServer}=await import('../../../scripts/serve-model-preview.mjs');
-  const {flowerCatalog}=await import('../../../assets/models/flower-source.mjs');
+  const {flowerCatalog}=await import('../models/flower-catalog.mjs');
   const server=createPreviewServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const artifacts=path.resolve(__dirname,'../../../target/stem-preview');await fs.mkdir(artifacts,{recursive:true});
   let browser;
@@ -80,6 +80,6 @@ const path=require('node:path');
     await sheet.setContent(`<style>body{background:#293c36;color:#eee;font:16px system-ui}.row{display:grid;grid-template-columns:200px 360px 360px;align-items:center}img{width:340px;height:340px;image-rendering:pixelated}h1{font-size:22px}</style><h1>茎和分枝：A 原低模 / B 三维颗粒（草边长 1/2）</h1><p>叶片与花头不变；仅网页实验，非游戏光照或性能验收。</p>${rows.map(row=>`<div class="row"><strong>${row.label}</strong><img src="${row.a}"><img src="${row.b}"></div>`).join('')}`);
     await sheet.screenshot({path:path.join(artifacts,'stem-ab.png'),fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log(`PASS: 8 stem A/Bs; unchanged leaf/head geometry, head tiles and anchors; perspective/orthographic views, reset, GPU disposal, mobile. Screenshots: ${artifacts}`);
+    console.log(`PASS: ${flowerCatalog.length} stem A/Bs; unchanged leaf/head geometry, head tiles and anchors; perspective/orthographic views, reset, GPU disposal, mobile. Screenshots: ${artifacts}`);
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

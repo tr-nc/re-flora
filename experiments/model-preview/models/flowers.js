@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {flowerCatalog,flowerGeometry} from '../../../assets/models/flower-source.mjs';
+import {flowerCatalog,flowerGeometry} from './flower-catalog.mjs';
 import {disposeScene} from './resources.js';
 import {voxelizeStem,STEM_CELL_SIZE} from '../stem-voxels.mjs';
 

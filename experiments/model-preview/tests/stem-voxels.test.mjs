@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {flowerCatalog,flowerGeometry} from '../../../assets/models/flower-source.mjs';
+import {flowerCatalog,flowerGeometry} from '../models/flower-catalog.mjs';
 import {voxelizeStem,STEM_CELL_SIZE,STEM_GRID_ORIGIN} from '../stem-voxels.mjs';
 
 const stemFor=(spec,settings={})=>flowerGeometry(spec.id,settings).parts.find(p=>p.head===null&&p.material==='stemColor');
@@ -13,7 +13,7 @@ test('stem cell edge is half native grass at the published flower world scale',(
   assert.ok(grass&&scale,'update the explicit preview scale contract if native units change');
   assert.equal(STEM_CELL_SIZE*(+scale[1]/+scale[2]),(+grass[1]/+grass[2])/2);
 });
-test('all eight authored stems stay connected on a deterministic 3D lattice',()=>{
+test('all preview stems stay connected on a deterministic 3D lattice',()=>{
   for(const spec of flowerCatalog)for(const settings of [{},{height:1.15,bend:-.25,leafSize:1.35}]){
     const part=stemFor(spec,settings),before=JSON.stringify(part),result=voxelizeStem(part);
     assert.equal(JSON.stringify(part),before,'never mutate the shared source recipe');

@@ -15,10 +15,11 @@ node scripts/serve-model-preview.mjs
 - 落叶：`?model=leaf`
 - 蝴蝶：`?model=butterfly`
 - 苹果（网页红苹果／青苹果配色；红苹果造型可在游戏 Debug 中 A/B 切换）：`?model=apple`
-- 花草（8 种）：`?model=wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`corn-poppy`、`bellflower`、`coneflower`、`tulip`；顶部下拉框均可选择。
+- 游戏共用花草（8 种）：`?model=wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`corn-poppy`、`bellflower`、`coneflower`、`tulip`；顶部下拉框均可选择。
+- **仅网页花草（2 种）**：白花老鹳草 `?model=white-geranium`、星草莓（白色草莓花）`?model=star-strawberry`。前者复用老鹳草造型、采用白瓣淡粉瓣根；后者有五片圆白瓣、黄色花心／雄蕊和三出锯齿叶。均支持花头像素化、造型参数和茎部 A/B，未加入游戏或正式资产。
 - 布局：`&variant=compare` / `model` / `pixel`
 
-花草名称、在线参考与设计见 [8 种花草调研](../../docs/research/stylized-flower-model-study.md)。它们使用原创参数化低模，不下载第三方模型；同一配方现已发布为游戏资产，8 种均可通过第二个物品栏 Grow／种植工具（快捷键 2）右侧可滚动的 Plant Brush 植物栏选择并种植。游戏集成的历史 A/B、实拍与验证见该调研文档的原生集成章节；当前已固定仅花头像素化。
+原有游戏共用花草的名称、在线参考与设计见 [8 种花草调研](../../docs/research/stylized-flower-model-study.md)。它们使用原创参数化低模，不下载第三方模型；同一配方现已发布为游戏资产，8 种均可通过第二个物品栏 Grow／种植工具（快捷键 2）右侧可滚动的 Plant Brush 植物栏选择并种植。游戏集成的历史 A/B、实拍与验证见该调研文档的原生集成章节；当前已固定仅花头像素化。
 
 统一工具不使用界面版本编号，也不保留带编号的旧比较页面。`/leaf-prototype/` 与 `/butterfly-method-comparison/` 这两个不带编号的书签入口仍会跳转到对应模型。旧查看器、历史边框实验和旧验证脚本均从当前树移除；历史源在提交 `86b4b81c`。已批准模型资源的内部路径不改动。
 
@@ -66,7 +67,8 @@ node scripts/serve-model-preview.mjs
 | `pipeline.js` | 原始/像素绘制、可见组 ID、统一图像处理与资源释放；普通模型和花头共用 `renderTile` |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度读取、补点深度与透明合成；不另建 renderer |
 | `stem-voxels.mjs` | 网页茎部三维三角形／方块相交与外露面生成；不修改制作源，不处理叶片或花头 |
-| `assets/models/flower-source.mjs` / `models/flowers.js` | 8 种原创纯几何配方及统一模型接口适配 |
+| `assets/models/flower-source.mjs` / `models/flowers.js` | 8 种游戏共用原创配方及所有花草的统一模型接口适配 |
+| `models/flower-catalog.mjs` / `models/strawberry-geometry.mjs` | 仅网页候选的目录与草莓花造型；不进入游戏发布目录 |
 | `geometry.js` | 读取当前动画姿态，世界变换，齐次裁剪，投影到像素格 |
 | `connectivity.mjs` | 几何约束的八邻接连通判定与逐条最短补点路径 |
 | `postprocess.mjs` | 分组修复、缺失颜色重建 |
@@ -110,7 +112,7 @@ node scripts/serve-model-preview.mjs
 - 浏览器和游戏的共享模型都固定使用**通用几何覆盖 + 八邻接补点**。浏览器用小图回读、ID pass、投影几何和高分辨率材质采样；游戏用当前姿态的几何／射线判定生成稀疏补点计划，GPU 对几何补点从所属模型三角形取实际材质／光照，不做生产图像回读。叶面／叶柄／叶背基色控制仍只在网页预览中，尚未同步到游戏着色。当前 **140 个网页样本的最终新增像素位置与 Rust 计划逐一对照通过**；游戏端 8/16/64 叶片与 8/22/64 蝴蝶真实 GPU 夹具通过。跨运行时只对齐形状覆盖，不承诺网页与游戏灯光颜色相同；实现与验证命令见[正式模型资源](../../assets/models/README.md)。大量实例性能仍需单独 Release 验收。
 - 补点当前支持这里的**不透明几何**。未来透明贴图/alpha discard、GPU 自定义顶点变形需要扩展可见 ID 与几何投影约定，不能假装与现有通用流程自动等价。当前动画为 GLB 节点变换；几何采集使用 `getVertexPosition`，但没有另外验收蒙皮/形变资产。
 - 所有投影三角形都允许保守覆盖，不覆盖已采到的像素或被其他组占据的中心格。浏览器新增颜色优先取同视角高分辨率材质采样，极细、连高分辨率采样都未命中的情况退回同组邻近颜色或模型基色；游戏 GPU 使用相应源三角形的材质、法线和环境光着色，不是精确的子像素材质积分。补点没有时间稳定滤波，旋转或动画时仍可能跳像素。亚像素缝隙与完全遮挡的判定不能只靠低分辨率几何投影精确重建。
-- 不是建模编辑器、资产管理系统或任意文件上传查看器。新 GLB 通过一个模型定义接入；当前接入落叶、蝴蝶、苹果和 8 种共用制作源的花草。
+- 不是建模编辑器、资产管理系统或任意文件上传查看器。新 GLB 通过一个模型定义接入；当前接入落叶、蝴蝶、苹果、8 种游戏共用花草和 2 种仅网页白花候选。
 
 ## 验证
 
@@ -131,7 +133,7 @@ node experiments/model-preview/tests/stems-browser.cjs
 
 支持 `CHROME_EXECUTABLE`、`PREVIEW_ARTIFACT_DIR`。设置 `CHECK_REDIRECTS=1` 一并检查已迁移的旧入口跳转。默认工件在 `target/model-preview-validation/`。
 
-花草专项验证输出到 `target/flower-study/validation/`（可用 `PREVIEW_ARTIFACT_DIR` 覆盖）：八种源模型 / A / B 对照图、两模式透明 PNG、桌面／手机截图、`summary.json`。覆盖 176 个花头姿态样本、正交／透视、正背侧、8/32/64/128px、参数端点、源 RGBA 保留、GPU 深度、8 个前后遮挡夹具、重置与反复切换的资源计数。SwiftShader 深度核对按其 `SUBPIXEL_BITS` 对齐栅格顶点，避开三角形边界所有权歧义，不把 CPU 未量化投影误当 GPU 插值。
+花草专项验证输出到 `target/flower-study/validation/`（可用 `PREVIEW_ARTIFACT_DIR` 覆盖）：十种源模型 / 花头合成对照图、透明 PNG、桌面／手机截图、`summary.json`。覆盖全部花草的花头姿态样本、正交／透视、正背侧、8/32/64/128px、参数端点、源 RGBA 保留、GPU 深度、8 个前后遮挡夹具、重置与反复切换的资源计数。茎部 A/B 的十种植物对照图另由 `stems-browser.cjs` 输出到 `target/stem-preview/`。SwiftShader 深度核对按其 `SUBPIXEL_BITS` 对齐栅格顶点，避开三角形边界所有权歧义，不把 CPU 未量化投影误当 GPU 插值。
 
 既有模型验证：
 
