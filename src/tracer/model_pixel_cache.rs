@@ -25,26 +25,46 @@ pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
 const KINDS: usize = 4; // leaves, shared attached/fallen apple, butterflies, flowers
 const SURFACE_BYTES: u64 = 32;
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 static SHAPES: LazyLock<[u32; KINDS]> = LazyLock::new(|| {
     [
         64,
         1,
         ANIMATION_FRAMES,
-        crate::flora::models::flowers()
+        flower_cache_representatives()
             .iter()
-            .map(|f| 1 + f.heads.len() as u32)
+            .map(|&i| 1 + crate::flora::models::flowers()[i].heads.len() as u32)
             .sum(),
     ]
 });
 
-pub fn flower_source(model: usize, part: usize) -> u32 {
-    let flowers = crate::flora::models::flowers();
-    assert!(part <= flowers[model].heads.len());
-    FLOWER_SOURCE_BASE
-        + flowers[..model]
+fn flower_cache_representatives() -> &'static [usize] {
+    static REPRESENTATIVES: LazyLock<Vec<usize>> = LazyLock::new(|| {
+        let flowers = models::flowers();
+        flowers
             .iter()
-            .map(|f| 1 + f.heads.len() as u32)
+            .enumerate()
+            .filter_map(|(i, flower)| {
+                (!flowers[..i]
+                    .iter()
+                    .any(|prior| prior.cache_family == flower.cache_family))
+                .then_some(i)
+            })
+            .collect()
+    });
+    &REPRESENTATIVES
+}
+pub fn flower_source(model: usize, part: usize) -> u32 {
+    let flowers = models::flowers();
+    assert!(part <= flowers[model].heads.len());
+    let representative = flower_cache_representatives()
+        .iter()
+        .position(|&i| flowers[i].cache_family == flowers[model].cache_family)
+        .expect("flower cache family must have a representative");
+    FLOWER_SOURCE_BASE
+        + flower_cache_representatives()[..representative]
+            .iter()
+            .map(|&i| 1 + flowers[i].heads.len() as u32)
             .sum::<u32>()
         + part as u32
 }
@@ -164,7 +184,20 @@ pub(super) fn source(shape: Shape) -> Source {
     let mut flower_spawn_height = 0f32;
     for (model, authored) in models::flowers().iter().enumerate() {
         let flower = authored.transformed(shape);
-        let first = triangles.len() as u32;
+        palette.extend(authored.palette.iter().map(|rgb| {
+            [
+                f32::from(rgb[0]) / 255.,
+                f32::from(rgb[1]) / 255.,
+                f32::from(rgb[2]) / 255.,
+                0.,
+            ]
+        }));
+        let shared = (flower_source(model, 0) as usize) < ranges.len();
+        let first = if shared {
+            ranges[flower_source(model, 0) as usize][0]
+        } else {
+            triangles.len() as u32
+        };
         // Bound growth/yaw and attachment wind transport, including quad corners.
         // Spawn translation is vertical and bounded separately, not a scale.
         for part in std::iter::once(&flower.whole).chain(&flower.heads) {
@@ -199,24 +232,26 @@ pub(super) fn source(shape: Shape) -> Source {
                 ],
             }));
         }
-        for t in &flower.triangles {
+        for (index, t) in flower.triangles.iter().enumerate() {
             let mut gpu = triangle(t.positions, [t.normal; 3], [Vec2::ZERO; 3], 0);
             gpu.normals[0][3] = t.anchor.y;
-            gpu.uv01 = [
-                f32::from(t.color[0]) / 255.,
-                f32::from(t.color[1]) / 255.,
-                f32::from(t.color[2]) / 255.,
-                0.,
-            ];
-            let material = palette
-                .iter()
-                .position(|color| *color == gpu.uv01)
-                .unwrap_or_else(|| {
-                    palette.push(gpu.uv01);
-                    palette.len() - 1
-                });
-            gpu.uv2[3] = material as f32;
-            triangles.push(gpu);
+            // Geometry carries a material role; color is resolved per species
+            // after sampling so identical structures can share the same tiles.
+            gpu.uv01 = [0.; 4];
+            gpu.uv2[3] = t.material as f32;
+            if shared {
+                assert_eq!(
+                    bytemuck::bytes_of(&gpu),
+                    bytemuck::bytes_of(&triangles[first as usize + index]),
+                    "flower family geometry differs: {}",
+                    flower.id
+                );
+            } else {
+                triangles.push(gpu);
+            }
+        }
+        if shared {
+            continue;
         }
         for (part_index, part) in std::iter::once(&flower.whole)
             .chain(&flower.heads)
@@ -711,10 +746,23 @@ mod tests {
             }
         }
         assert_eq!(shapes, *SHAPES);
-        assert!(s.palette.len() < 256);
-        for triangle in &s.triangles[s.ranges[FLOWER_SOURCE_BASE as usize][0] as usize..] {
-            assert_eq!(s.palette[triangle.uv2[3] as usize], triangle.uv01);
+        assert_eq!(
+            s.palette.len(),
+            models::MODEL_COUNT * models::HEAD_PALETTE_SIZE
+        );
+        for (model, flower) in models::flowers().iter().enumerate() {
+            for (role, rgb) in flower.palette.iter().enumerate() {
+                assert_eq!(
+                    s.palette[model * models::HEAD_PALETTE_SIZE + role][..3],
+                    rgb.map(|v| f32::from(v) / 255.)
+                );
+            }
         }
+        assert_eq!(flower_source(1, 0), flower_source(3, 0));
+        assert_ne!(
+            s.palette[models::HEAD_PALETTE_SIZE],
+            s.palette[3 * models::HEAD_PALETTE_SIZE]
+        );
         for (model, f) in crate::flora::models::flowers().iter().enumerate() {
             for (part_index, p) in std::iter::once(&f.whole).chain(&f.heads).enumerate() {
                 let id = flower_source(model, part_index) as usize;

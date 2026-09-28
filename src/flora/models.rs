@@ -12,6 +12,17 @@ pub const MAX_SHAPE_SCALE: f32 = 4.;
 
 pub const MODEL_COUNT: usize = 7;
 pub const MAX_HEADS: usize = 3;
+pub const HEAD_PALETTE_SIZE: usize = 4;
+
+fn head_material(name: &str) -> Result<usize> {
+    match name {
+        "petalColor" => Ok(0),
+        "innerColor" => Ok(1),
+        "centerColor" => Ok(2),
+        "stemColor" => Ok(3),
+        _ => anyhow::bail!("unknown flower head material: {name}"),
+    }
+}
 /// Ten terrain voxels per authoring unit: roughly 20–28 voxels tall.
 pub const WORLD_SCALE: f32 = 10.0 / 256.0;
 
@@ -122,6 +133,7 @@ pub struct Triangle {
     pub positions: [Vec3; 3],
     pub normal: Vec3,
     pub color: [u8; 3],
+    pub material: usize,
     /// Rigid cell/leaf/head attachment; wind translates it without tilting cells.
     pub anchor: Vec3,
 }
@@ -136,6 +148,8 @@ pub struct Part {
 #[derive(Clone)]
 pub struct Flower {
     pub id: String,
+    pub cache_family: String,
+    pub palette: [[u8; 3]; HEAD_PALETTE_SIZE],
     pub triangles: Vec<Triangle>,
     pub whole: Part,
     pub heads: Vec<Part>,
@@ -206,6 +220,8 @@ struct Published {
 #[derive(Deserialize)]
 struct PublishedFlower {
     id: String,
+    cache_family: String,
+    palette: [[u8; 3]; HEAD_PALETTE_SIZE],
     heads: Vec<PublishedHead>,
     parts: Vec<PublishedPart>,
 }
@@ -217,6 +233,7 @@ struct PublishedHead {
 #[derive(Deserialize)]
 struct PublishedPart {
     head: usize,
+    material: String,
     positions: Vec<f32>,
     indices: Vec<usize>,
     color: [u8; 3],
@@ -255,7 +272,11 @@ fn load(json: &str) -> Result<Vec<Flower>> {
             let mut triangles = column.triangles();
             let stem_triangles = triangles.len() as u32;
             let mut ranges = vec![0..0; source.heads.len()];
+            let palette = source.palette;
+            let mut materials_seen = [false; HEAD_PALETTE_SIZE];
             for part in source.parts {
+                let material = head_material(&part.material)?;
+                materials_seen[material] = true;
                 ensure!(
                     part.positions.len().is_multiple_of(3) && part.indices.len().is_multiple_of(3),
                     "triangle attributes"
@@ -287,11 +308,16 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                         positions,
                         normal,
                         color: part.color,
+                        material,
                         anchor,
                     });
                 }
                 ranges[part.head].end = triangles.len() as u32;
             }
+            ensure!(
+                materials_seen.iter().all(|seen| *seen),
+                "incomplete flower head palette"
+            );
             let heads = ranges
                 .into_iter()
                 .zip(&source.heads)
@@ -323,6 +349,8 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 * 1.06;
             Ok(Flower {
                 id: source.id,
+                cache_family: source.cache_family,
+                palette,
                 whole: Part {
                     triangles: 0..triangles.len() as u32,
                     anchor: Vec3::ZERO,

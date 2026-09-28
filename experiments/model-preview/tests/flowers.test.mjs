@@ -8,8 +8,8 @@ test('native flower publication regenerates byte-for-byte from the browser recip
   assert.equal(await readFile(new URL('../../../assets/models/flowers.json',import.meta.url),'utf8'),await publishedFlowers());
 });
 
-test('eight distinct original flower recipes have finite, low-poly geometry and complete head groups',()=>{
-  assert.equal(flowerCatalog.length,8);
+test('seven distinct flower recipes have finite, low-poly geometry and complete head groups',()=>{
+  assert.equal(flowerCatalog.length,7);
   const shapes=new Set();
   for(const spec of flowerCatalog){
     const recipe=flowerGeometry(spec.id);
@@ -33,7 +33,7 @@ test('eight distinct original flower recipes have finite, low-poly geometry and 
     }
     assert.equal(recipe.parts.filter(part=>part.head===null).length,2,'stems and leaves stay outside flower tiles');
   }
-  assert.equal(shapes.size,8,'not eight recolors of the same mesh');
+  assert.equal(shapes.size,7,'source recipes remain individually authored');
 });
 
 test('all shape sliders change geometry without invalid vertices, color-only edits do not',()=>{

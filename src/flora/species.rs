@@ -256,7 +256,6 @@ pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 4),
     FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 5),
     FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 6),
-    FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 7),
 ];
 
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {

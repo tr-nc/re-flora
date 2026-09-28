@@ -17,8 +17,7 @@ impl Column {
     pub fn for_flower(id: &str) -> anyhow::Result<Self> {
         let layers = match id {
             "wild-geranium" => 41,
-            "forget-me-not" => 39,
-            "oxeye-daisy" | "cosmos" | "bellflower" => 42,
+            "forget-me-not" | "oxeye-daisy" | "cosmos" | "bellflower" => 42,
             "coneflower" => 43,
             "tulip" => 37,
             _ => anyhow::bail!("unknown flower assembly: {id}"),
@@ -263,6 +262,7 @@ fn face(
             positions: ids.map(|i| points[i]),
             normal,
             color,
+            material: 0,
             anchor,
         });
     }

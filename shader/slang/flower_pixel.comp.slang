@@ -1,4 +1,5 @@
 import flower_model;
+import flora_types;
 import model_pixel_types;
 import model_pixel_projection;
 import color;
@@ -29,7 +30,7 @@ void main(uint3 id:SV_DispatchThreadID) {
         float3 position=modelPixelWorld(frame,surface.positionDepth.xyz);
         float3 normal=flowerNormal(frame,surface.normalMaterial.xyz);
         if(dot(normal,position-camera_info.pos.xyz)>0.0)normal=-normal;
-        float3 srgb=model_cache_palette[uint(surface.normalMaterial.w)].xyz;
+        float3 srgb=model_cache_palette[(flower_pc.species-MODEL_FLOWER_FIRST_SPECIES)*4u+uint(surface.normalMaterial.w)].xyz;
         float4 light=model_object_samples[tile*4u];
         float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,srgbToLinear(srgb),
             light.w*directionWeight(normal,sun_info.sun_dir),light.rgb);

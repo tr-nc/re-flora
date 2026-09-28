@@ -29,7 +29,7 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 ## Publish the flower bank
 
-The eight original flower recipes live in `flower-source.mjs`. Both the HTML preview and
+The seven flower recipes live in `flower-source.mjs` (Corn Poppy has been removed). Both the HTML preview and
 native publisher apply `flower-head.mjs`: one complete head in attachment-local coordinates.
 The web displays only this model and its postprocessing; it does not generate or assemble stems.
 Game assembly lives in `src/flora/models.rs` and `src/flora/models/column.rs`. Neither consumer
@@ -42,14 +42,16 @@ native assembly, complete layers, wind bounds and independent height/head-size c
 geometry (including calyx), never one tile per petal. White geranium and Gillenia remain
 browser-only candidates and are not added to the native species bank.
 
-All eight are now plantable from **item slot 2 / Grow → the right-side Plant Brush panel**.
+All seven are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**.
 The list scrolls on short windows; the status-only backpack is hidden while Grow is active
 so it cannot cover plant choices. Existing species
-indices are preserved; model flowers occupy 4–11. **Debug → Flora → Ground Plants →
+keys and identities are preserved when loading older gardens; model flowers occupy 4–10. **Debug → Flora → Ground Plants →
 Model Flowers** retains the saved pixel resolution, view count, head scale, stem height and
 overall size controls. The former height slider is now **Stem Height Multiplier Mean**
 (the saved `model_flower_height_scale` ID/value is preserved). **Stem Height Multiplier
 Variance** defaults to `0.01` and **Stem Voxel Edge Scale** defaults to `1`.
+
+Forget-me-not and Cosmos use the same eight-petal head template and 42-layer column geometry, but retain separate palettes and plant identities. `cacheFamily` and `cacheTemplate` in the source specify this reusable topology; published `cache_family` and per-species palettes allow one geometry bake per family while runtime tile shading resolves the species' colors. Sharing is checked byte-for-byte across all shapes, not inferred from color or name. Future flowers may join a family only if their transformed native geometry is identical. The native pixel caches use separate view sliders: dynamic leaves/apples/butterflies default to 32; static flowers default to 256.
 
 Each species owns a base **integer layer count**, not a target height. A position/species
 seed supplies a fixed standard-normal sample `z` per plant (independent of time, draw slot

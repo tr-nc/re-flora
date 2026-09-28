@@ -22,13 +22,22 @@ test('all ten preview models contain exactly one complete attachment-local head,
     });
   }
 });
-test('native publication contains eight heads and no assembly, leaf or stem mesh data',async()=>{
+test('native publication contains seven heads and no assembly, leaf or stem mesh data',async()=>{
   const published=JSON.parse(await publishedFlowers());
-  assert.equal(published.flowers.length,8);
+  assert.equal(published.flowers.length,7);
   for(const flower of published.flowers){
     assert.equal(flower.column,undefined);assert.equal(flower.root,undefined);
+    assert.equal(flower.palette.length,4);assert.ok(flower.cache_family);
     assert.deepEqual(flower.heads[0].anchor,[0,0,0]);
     assert.ok(flower.parts.every(part=>part.head===0&&part.material!=='leafColor'));
   }
+});
+test('shared family publishes identical geometry but distinct species palettes',async()=>{
+  const {flowers}=JSON.parse(await publishedFlowers());
+  const forget=flowers.find(f=>f.id==='forget-me-not'),cosmos=flowers.find(f=>f.id==='cosmos');
+  assert.equal(forget.cache_family,cosmos.cache_family);
+  assert.notDeepEqual(forget.palette,cosmos.palette);
+  assert.deepEqual(forget.parts.map(({color,...part})=>part),cosmos.parts.map(({color,...part})=>part));
+  assert.equal(flowers.some(f=>f.id==='corn-poppy'),false);
 });
 test('missing flower heads are rejected',()=>assert.throws(()=>completeFlowerHead({parts:[],heads:[]})));

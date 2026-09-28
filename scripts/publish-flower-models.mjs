@@ -10,8 +10,9 @@ import {completeFlowerHead} from '../assets/models/flower-head.mjs';
 export async function publishedFlowers(){
   const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
   const flowers=flowerCatalog.map(spec=>{
-    const recipe=completeFlowerHead(flowerGeometry(spec.id));
-    return {id:spec.id,heads:recipe.heads,
+    const recipe=completeFlowerHead(flowerGeometry(spec.cacheTemplate??spec.id));
+    const palette=['petalColor','innerColor','centerColor','stemColor'].map(key=>[1,3,5].map(i=>parseInt(spec.defaults[key].slice(i,i+2),16)));
+    return {id:spec.id,cache_family:spec.cacheFamily??spec.id,palette,heads:recipe.heads,
       parts:recipe.parts.map(part=>({...part,color:[1,3,5].map(i=>parseInt(spec.defaults[part.material].slice(i,i+2),16))}))};
   });
   // Canonical authoring precision avoids cross-platform libm last-bit noise

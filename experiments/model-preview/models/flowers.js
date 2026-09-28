@@ -5,7 +5,7 @@ import {completeFlowerHead} from '../../../assets/models/flower-head.mjs';
 
 const colorKeys=['petalColor','innerColor','centerColor','stemColor'];
 export const flowerDefinitions=flowerCatalog.map(spec=>({
-  id:spec.id,label:spec.label,defaults:Object.fromEntries(Object.entries(spec.defaults).filter(([key])=>!['height','bend','leafSize','leafColor'].includes(key))),
+  id:spec.id,label:spec.label,defaults:Object.fromEntries(Object.entries({...spec.defaults,tilt:(flowerCatalog.find(item=>item.id===spec.cacheTemplate)?.defaults.tilt??spec.defaults.tilt)}).filter(([key])=>!['height','bend','leafSize','leafColor'].includes(key))),
   controls:[
     {type:'note',label:'仅展示完整花头（花瓣、花心、花萼）及后处理；茎生成、整株拼装和风动由游戏负责。网页参数不保存。'},
     {key:'flowerSize',label:'花头大小',min:.65,max:1.3,step:.01},
@@ -30,7 +30,7 @@ export const flowerDefinitions=flowerCatalog.map(spec=>({
         if(nextKey!==shapeKey){
           for(const mesh of meshes){scene.remove(mesh);mesh.geometry.dispose();}
           meshes.length=repairGroups.length=pixelParts.length=0;
-          const recipe=completeFlowerHead(flowerGeometry(spec.id,settings));
+          const recipe=completeFlowerHead(flowerGeometry(spec.cacheTemplate??spec.id,settings));
           for(const part of recipe.parts){
             const geometry=new THREE.BufferGeometry();
             geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.positions,3));geometry.setIndex(part.indices);geometry.computeVertexNormals();
