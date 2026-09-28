@@ -59,9 +59,9 @@ const LEAF_FREQUENCY_CURVE: &[&str] = &[
     "leaf_flutter_frequency_full",
     "leaf_flutter_frequency_knee",
 ];
+const MODEL_FLOWER_PIXEL_CONTROLS: &[&str] =
+    &["model_flower_pixel_resolution", "model_flower_view_count"];
 const MODEL_FLOWERS: &[&str] = &[
-    "model_flower_pixel_resolution",
-    "model_flower_view_count",
     "model_flower_head_scale",
     "model_flower_height_scale",
     "model_flower_height_variance",
@@ -71,6 +71,7 @@ const MODEL_FLOWERS: &[&str] = &[
     "model_flower_stem_tip_color",
 ];
 const PARAM_GROUPS: &[&[&str]] = &[
+    MODEL_FLOWER_PIXEL_CONTROLS,
     MODEL_FLOWERS,
     DISTRIBUTION,
     GROUND_MOTION,
@@ -142,7 +143,7 @@ pub(super) fn render(
     after_section: &mut impl FnMut(&str, &mut egui::Ui),
 ) {
     if let Some(debug) = config.iter().find(|section| section.name == "Debug") {
-        debug_groups::render(ui, debug, adjustables, Some("Flora"));
+        debug_groups::render(ui, debug, config, adjustables, Some("Flora"));
     }
     category(ui, "Planting", |ui| {
         category(ui, "Distribution", |ui| {
@@ -160,7 +161,13 @@ pub(super) fn render(
     category(ui, "Ground Plants", |ui| {
         category(ui, "Model Flowers", |ui| {
             controls(ui, flora, MODEL_FLOWERS, adjustables);
-            ui.label("A: one tile per plant. B: one tile per complete flower head, with mesh stems/leaves. Different pixel budgets; same planted models and pose.");
+            if config.iter().any(|section| section.name == "Debug") {
+                ui.small(
+                    "Flower head pixel resolution and view count are under Pixel Models — Global.",
+                );
+            } else {
+                controls(ui, flora, MODEL_FLOWER_PIXEL_CONTROLS, adjustables);
+            }
         });
         category(ui, "Rest Shape", |ui| {
             controls(ui, flora, &GROUND_MOTION[..2], adjustables);
@@ -415,16 +422,6 @@ mod tests {
         for shape in output.shapes {
             collect_text(&shape.shape, &mut text);
         }
-        assert_eq!(
-            text,
-            [
-                "Growth & Fruiting",
-                "Apple Appearance",
-                "Planting",
-                "Ground Plants",
-                "Tree",
-                "Leaves"
-            ]
-        );
+        assert_eq!(text, ["Planting", "Ground Plants", "Tree", "Leaves"]);
     }
 }

@@ -590,9 +590,20 @@ fn render_gui_from_config(
     adjustables: &mut GuiAdjustables,
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
+    let has_debug = config.iter().any(|s| s.name == "Debug");
     for section in config {
         if section.name == "Debug" {
-            debug_groups::render(ui, section, adjustables, None);
+            debug_groups::render(ui, section, config, adjustables, None);
+            continue;
+        }
+        // Hide the empty legacy wrapper; future unrelated settings stay visible.
+        if has_debug
+            && section.name == "Post Processing"
+            && section
+                .param
+                .iter()
+                .all(|p| debug_groups::is_pixel_model_control(&section.name, &p.id))
+        {
             continue;
         }
         // If a custom config lacks a parent, keep its children visible at the top level.
@@ -605,7 +616,7 @@ fn render_gui_from_config(
             if section.name == "Audio" {
                 after_section(&section.name, ui);
                 ui.collapsing("Advanced audio / source trims", |ui| {
-                    render_section_controls(ui, section, adjustables);
+                    render_section_controls(ui, section, adjustables, has_debug);
                 });
                 return;
             }
@@ -618,12 +629,12 @@ fn render_gui_from_config(
                 ui.collapsing("Response", |ui| {
                     if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
                         ui.collapsing("Shared Mechanics", |ui| {
-                            debug_groups::render(ui, debug, adjustables, Some("Wind"));
+                            debug_groups::render(ui, debug, config, adjustables, Some("Wind"));
                         });
                     }
                     flora_groups::render_wind(ui, config, adjustables);
                     ui.collapsing("Sound", |ui| {
-                        render_section_controls(ui, section, adjustables);
+                        render_section_controls(ui, section, adjustables, has_debug);
                     });
                     after_section("Grass Wind Response", ui);
                 });
@@ -632,9 +643,9 @@ fn render_gui_from_config(
             if section.name == "Falling Leaves" {
                 ui.small("B transfers actual tree voxels, preserving their size. Strong wind may strip the entire canopy. Switching A/B clears falling leaves and resets sockets; canopy progress is session-only. Mesh/size controls below apply only to decorative leaves.");
             }
-            render_section_controls(ui, section, adjustables);
+            render_section_controls(ui, section, adjustables, has_debug);
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
-                debug_groups::render(ui, debug, adjustables, Some(&section.name));
+                debug_groups::render(ui, debug, config, adjustables, Some(&section.name));
             }
             after_section(&section.name, ui);
             for child in config {
@@ -642,7 +653,7 @@ fn render_gui_from_config(
                     && section_parent(&child.name) == Some(section.name.as_str())
                 {
                     ui.collapsing(section_title(&child.name), |ui| {
-                        render_section_controls(ui, child, adjustables);
+                        render_section_controls(ui, child, adjustables, has_debug);
                         after_section(&child.name, ui);
                     });
                 }
@@ -655,6 +666,7 @@ fn render_section_controls(
     ui: &mut egui::Ui,
     section: &crate::app::gui_config_model::GuiSection,
     adjustables: &mut GuiAdjustables,
+    pixel_models_at_root: bool,
 ) {
     if section.name == "Wind" {
         ui.label("Tree sound response");
@@ -681,7 +693,10 @@ fn render_section_controls(
         return;
     }
     for param in &section.param {
-        render_gui_param_from_config(ui, param, &section.name, adjustables);
+        if !pixel_models_at_root || !debug_groups::is_pixel_model_control(&section.name, &param.id)
+        {
+            render_gui_param_from_config(ui, param, &section.name, adjustables);
+        }
     }
 }
 

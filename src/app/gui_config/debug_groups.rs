@@ -12,12 +12,7 @@ struct ControlGroup {
 
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
-        parent: None, title: "Tree Rendering",
-        description: "Trees use rasterized voxel surfaces and hybrid thin-branch lighting. Terrain remains the exact collision representation.",
-        initially_open: true, params: &["raster_tree_wind", "tree_stiffness"],
-    },
-    ControlGroup {
-        parent: Some("Flora"),
+        parent: None,
         title: "Growth & Fruiting",
         description: "Plant growth, tree age and the independent fruiting cycle.",
         initially_open: false,
@@ -29,25 +24,20 @@ const GROUPS: &[ControlGroup] = &[
         ],
     },
     ControlGroup {
-        parent: Some("Flora"),
-        title: "Apple Appearance",
-        description: "Shared pixel-rendered apples on trees and after falling. Physical collision is unchanged.",
-        initially_open: false,
-        params: &["apple_pixel_resolution"],
-    },
-    ControlGroup {
         parent: None,
         title: "Pixel Models — Global",
-        description: "Dynamic apples, butterflies and 3D falling leaves share this count. Flower heads use the separate static count in Flora → Ground Plants → Model Flowers. Higher counts use more GPU cache memory.",
+        description: "Pixel-model cache settings for all affected objects, plus the scene-wide post-processing dither. Dynamic models share one view count; flower heads have a separate static count. More views or pixels use more GPU cache memory.",
         initially_open: true,
-        params: &["model_pixel_view_count"],
+        params: &["model_pixel_view_count", "apple_pixel_resolution"],
     },
     ControlGroup {
         parent: Some("Wind"),
-        title: "Vegetation Wind Response",
-        description: "How plants react to wind. Pose rate is separate from the world tick.",
+        title: "Response & Motion",
+        description: "Wind animation and response for trees and vegetation. Pose rate is separate from the world tick.",
         initially_open: true,
         params: &[
+            "raster_tree_wind",
+            "tree_stiffness",
             "flora_inertial_response",
             "vegetation_response_speed",
             "vegetation_response_damping",
@@ -90,6 +80,22 @@ const GROUPS: &[ControlGroup] = &[
     },
 ];
 
+// Presentation-only ownership. Keep IDs and stored sections unchanged so old
+// saves and generated settings continue to work. Render each control once.
+const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
+    ("Debug", "model_pixel_view_count"),
+    ("Flora", "model_flower_view_count"),
+    ("Debug", "apple_pixel_resolution"),
+    ("Butterflies", "butterfly_pixel_resolution"),
+    ("Falling Leaves", "falling_leaf_pixel_resolution"),
+    ("Flora", "model_flower_pixel_resolution"),
+    ("Post Processing", "dither_strength_lsb"),
+];
+
+pub(super) fn is_pixel_model_control(section: &str, id: &str) -> bool {
+    PIXEL_MODEL_CONTROLS.contains(&(section, id))
+}
+
 fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }
@@ -97,6 +103,7 @@ fn is_grouped(id: &str) -> bool {
 pub(super) fn render(
     ui: &mut egui::Ui,
     section: &GuiSection,
+    config: &[GuiSection],
     adjustables: &mut GuiAdjustables,
     parent: Option<&str>,
 ) {
@@ -116,9 +123,31 @@ pub(super) fn render(
             .show(ui, |ui| {
                 ui.weak(group.description);
                 ui.add_space(4.0);
-                for id in group.params {
-                    if let Some(param) = section.param.iter().find(|param| param.id == *id) {
-                        render_gui_param_from_config(ui, param, &section.name, adjustables);
+                if group.title == "Pixel Models — Global" {
+                    for (title, controls) in [
+                        ("Direction Views", &PIXEL_MODEL_CONTROLS[..2]),
+                        ("Pixels per Model", &PIXEL_MODEL_CONTROLS[2..6]),
+                        ("Post-processing", &PIXEL_MODEL_CONTROLS[6..]),
+                    ] {
+                        ui.label(title);
+                        for &(section_name, id) in controls {
+                            if let Some(owner) = config.iter().find(|s| s.name == section_name) {
+                                if let Some(param) = owner.param.iter().find(|p| p.id == id) {
+                                    render_gui_param_from_config(
+                                        ui,
+                                        param,
+                                        &owner.name,
+                                        adjustables,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for id in group.params {
+                        if let Some(param) = section.param.iter().find(|param| param.id == *id) {
+                            render_gui_param_from_config(ui, param, &section.name, adjustables);
+                        }
                     }
                 }
             });
@@ -157,6 +186,16 @@ mod tests {
 
     #[test]
     fn every_debug_parameter_has_exactly_one_group() {
+        // Review the full Debug section by adjustment concern, not by object.
+        assert!(GROUPS
+            .iter()
+            .all(|group| !matches!(group.title, "Apple Appearance" | "Tree Rendering")));
+        let wind = GROUPS
+            .iter()
+            .find(|g| g.title == "Response & Motion")
+            .unwrap();
+        assert!(wind.params.contains(&"raster_tree_wind"));
+        assert!(wind.params.contains(&"flora_inertial_response"));
         let config = GuiConfigLoader::load();
         let debug = config
             .section
@@ -185,32 +224,52 @@ mod tests {
     }
 
     #[test]
-    fn pixel_model_global_controls_exclude_object_resolutions() {
+    fn pixel_model_global_collects_post_processing_for_every_object() {
         let global = GROUPS
             .iter()
             .find(|g| g.title == "Pixel Models — Global")
             .unwrap();
         assert_eq!(global.parent, None);
-        assert_eq!(global.params, &["model_pixel_view_count"]);
-        let apples = GROUPS
-            .iter()
-            .find(|g| g.title == "Apple Appearance")
-            .unwrap();
-        assert_eq!(apples.parent, Some("Flora"));
-        assert_eq!(apples.params, &["apple_pixel_resolution"]);
+        assert_eq!(
+            global.params,
+            &["model_pixel_view_count", "apple_pixel_resolution"]
+        );
+        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 7);
         let config: crate::app::gui_config_model::GuiConfigFile =
             toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
-        for (id, section) in [
-            ("falling_leaf_pixel_resolution", "Falling Leaves"),
-            ("butterfly_pixel_resolution", "Butterflies"),
-        ] {
-            let owner = config
-                .section
-                .iter()
-                .find(|s| s.param.iter().any(|p| p.id == id))
-                .unwrap();
-            assert_eq!(owner.name, section);
+        for &(section, id) in PIXEL_MODEL_CONTROLS {
+            let owner = config.section.iter().find(|s| s.name == section).unwrap();
+            assert_eq!(
+                owner.param.iter().filter(|p| p.id == id).count(),
+                1,
+                "missing or duplicated pixel control: {section}/{id}"
+            );
+            assert!(is_pixel_model_control(section, id));
         }
+        assert!(!is_pixel_model_control("Wind", "tree_stiffness"));
+        let model_controls = config
+            .section
+            .iter()
+            .flat_map(|s| {
+                s.param
+                    .iter()
+                    .map(move |p| (s.name.as_str(), p.id.as_str()))
+            })
+            .filter(|(_, id)| {
+                id.ends_with("pixel_resolution")
+                    || matches!(
+                        *id,
+                        "model_pixel_view_count"
+                            | "model_flower_view_count"
+                            | "dither_strength_lsb"
+                    )
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            model_controls,
+            PIXEL_MODEL_CONTROLS.iter().copied().collect(),
+            "new pixel model post-processing controls need a Pixel Models owner"
+        );
     }
 
     #[test]
@@ -248,11 +307,30 @@ mod tests {
         for group in GROUPS {
             assert!(text.contains(group.title), "missing group {}", group.title);
         }
+        for &(section, id) in PIXEL_MODEL_CONTROLS {
+            let label = &settings
+                .config
+                .section
+                .iter()
+                .find(|s| s.name == section)
+                .unwrap()
+                .param
+                .iter()
+                .find(|p| p.id == id)
+                .unwrap()
+                .label;
+            assert_eq!(
+                text.lines().filter(|line| *line == label).count(),
+                1,
+                "{section}/{id} should appear exactly once in Pixel Models — Global"
+            );
+        }
+        assert!(!text.lines().any(|line| line == "Post Processing"));
         let expected_sections = settings
             .config
             .section
             .iter()
-            .filter(|s| s.name != "Debug")
+            .filter(|s| s.name != "Debug" && s.name != "Post Processing")
             .map(|s| s.name.clone())
             .collect::<BTreeSet<_>>();
         assert_eq!(
@@ -267,7 +345,7 @@ mod tests {
         assert_eq!(
             GROUPS
                 .iter()
-                .find(|g| g.title == "Vegetation Wind Response")
+                .find(|g| g.title == "Response & Motion")
                 .unwrap()
                 .parent,
             Some("Wind")
@@ -278,7 +356,7 @@ mod tests {
                 .find(|g| g.title == "Growth & Fruiting")
                 .unwrap()
                 .parent,
-            Some("Flora")
+            None
         );
         assert!(!text.contains("Reset Inertia"));
         assert!(!text.contains("Original C Rhythm"));

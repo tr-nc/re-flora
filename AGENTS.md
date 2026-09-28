@@ -12,6 +12,7 @@
 - Validate Rust/rendering changes with hidden muted mode (`cargo run --release -- --hidden --mute --auto-exit 0.5`) and inspect the run log for errors.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 - New Debug settings must use the declarative config or saved-field-bound custom controls; do not add App-only sliders or per-setting save hooks. See `docs/agents/gui-settings.md`. Temporary controls must explicitly declare and display why they are not saved.
+- Organize Debug Panel controls **adjustment-first, then affected game objects**: put all settings for a concern (e.g. pixel-model post-processing, wind response, lighting, growth) together, with object names on the individual controls or sublabels. Do not scatter the same concern across per-object panels. Presentation may collect controls from different saved config sections, but preserve their IDs, persistence, conditions and single ownership in the UI. Apply this rule when adding controls and when reorganizing existing Debug items.
 
 ## Visual Iteration Priorities
 
