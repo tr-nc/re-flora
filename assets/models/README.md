@@ -47,17 +47,44 @@ The list scrolls on short windows; the status-only backpack is hidden while Grow
 so it cannot cover plant choices. Existing species
 indices are preserved; model flowers occupy 4–11. **Debug → Flora → Ground Plants →
 Model Flowers** retains the saved pixel resolution, view count, head scale, stem height and
-overall size controls. **Stem Bottom Color** and **Stem Tip Color** are declarative saved
+overall size controls. The former height slider is now **Stem Height Multiplier Mean**
+(the saved `model_flower_height_scale` ID/value is preserved). **Stem Height Multiplier
+Variance** defaults to `0.01` and **Stem Voxel Edge Scale** defaults to `1`.
+
+Each species owns a base **integer layer count**, not a target height. A position/species
+seed supplies a fixed standard-normal sample `z` per plant (independent of time, draw slot
+and size controls). With mean `m` and variance `v`:
+
+```text
+maximum layers = max(1, round(base layers × (m + 3 × sqrt(v))))
+plant layers   = clamp(round(base layers × (m + sqrt(v) × z)), 1, maximum layers)
+voxel edge     = 0.05 × voxel edge scale
+stem height    = plant layers × voxel edge
+```
+
+Variance is **not standard deviation**. Rounding, the one-layer minimum and upper
+three-standard-deviation safety cap mean the final discrete/clamped heights are only
+approximately Gaussian. At variance zero, same-species plants have equal layer counts.
+Reducing voxel size never adds layers to compensate; the stem becomes shorter. Mean
+changes layer counts, never stretches cubes. Existing global size/growth still apply to
+the whole plant. The head follows the actual tip without being resized by these controls.
+
+GPU instances select a prefix of a bounded, closed-cell source mesh and re-bend its cell
+centers without stretching. At most 301 cells per plant are allocated under supported
+settings. Cache generations carry the matching distribution and draw counts; large
+variance increases vertex work, not per-instance flower-head baking.
+
+**Stem Bottom Color** and **Stem Tip Color** are declarative saved
 settings, independent of grass and calyx colors. The native stem interpolates between them
 along its undeformed height, so wind and overall scaling do not slide the gradient. There
 is no stem or whole-plant A/B switch.
 
-- Exactly one cube occupies each horizontal layer of the stalk. Its authored edge is `0.05`
+- Exactly one cube occupies each horizontal layer of the stalk. Its baseline edge is `0.05`
   (half a grass edge at full growth and overall scale 1). Adjacent cells share positive face
   area; no lateral filling or branches are generated. Global size/growth still scale the plant.
 - Native cells retain all six faces, including caps hidden at rest: wind may expose new
   parts of those caps. Internal faces stay occluded inside the opaque cell volumes.
-- Height edits regenerate complete layers rather than stretch cubes. The CPU source generation
+- Mean/variance edits regenerate the bounded layer bank rather than stretch cubes. The CPU source generation
   owns the resulting triangle ranges and draw counts; bounded index capacity covers the full
   saved height range. There are no stem leaflets or leaf-attachment transforms.
 - Wind uses the existing vegetation response, but translates whole cells in XZ

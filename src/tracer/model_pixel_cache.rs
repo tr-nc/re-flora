@@ -25,7 +25,7 @@ pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
 const KINDS: usize = 4; // leaves, shared attached/fallen apple, butterflies, flowers
 const SURFACE_BYTES: u64 = 32;
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 static SHAPES: LazyLock<[u32; KINDS]> = LazyLock::new(|| {
     [
         64,
@@ -81,6 +81,7 @@ struct FlowerPart {
     range: [u32; 4],
     center_radius: [f32; 4],
     stem: [f32; 4], // tip x/y, max bend fraction, non-pixel stem triangle count
+    distribution: [f32; 4], // base layers, edge, mean, standard deviation
 }
 pub(super) struct Source {
     pub(super) triangles: Vec<Triangle>,
@@ -168,7 +169,8 @@ pub(super) fn source(shape: Shape) -> Source {
         // Spawn translation is vertical and bounded separately, not a scale.
         for part in std::iter::once(&flower.whole).chain(&flower.heads) {
             flower_root_radius = flower_root_radius.max(
-                part.center.length()
+                flower.column.tip().length()
+                    + (part.center - flower.column.tip()).length()
                     + part.radius * std::f32::consts::SQRT_2
                     + flower.column.tip().y * models::MAX_BEND_FRACTION,
             );
@@ -188,6 +190,7 @@ pub(super) fn source(shape: Shape) -> Source {
                     flower.heads.len() as u32,
                 ],
                 center_radius: part.center.extend(part.radius).to_array(),
+                distribution: flower.distribution,
                 stem: [
                     flower.column.tip().x,
                     flower.column.tip().y,
@@ -732,6 +735,7 @@ mod tests {
                 Shape {
                     head_scale: 2.,
                     height_scale: 1.,
+                    ..Shape::default()
                 },
             ),
             (
@@ -740,6 +744,7 @@ mod tests {
                 Shape {
                     head_scale: 1.,
                     height_scale: 2.,
+                    ..Shape::default()
                 },
             ),
         ] {
@@ -767,13 +772,16 @@ mod tests {
         let base = source(Shape::default());
         for shape in [
             Shape::default(),
+            Shape::MAX,
             Shape {
                 head_scale: 0.25,
                 height_scale: 4.,
+                ..Shape::default()
             },
             Shape {
                 head_scale: 4.,
                 height_scale: 0.25,
+                ..Shape::default()
             },
         ] {
             let s = source(shape);
@@ -791,6 +799,26 @@ mod tests {
                 let flower = authored.transformed(shape);
                 let whole = &s.flower_parts[model * 4];
                 assert_eq!(whole.stem[3] as u32, flower.stem_triangles);
+                assert_eq!(whole.distribution, flower.distribution);
+                assert_eq!(whole.distribution[3], shape.height_variance.sqrt());
+                for z in [-8., -3., 0., 1., 3., 8.] {
+                    let layers = shape.layers_for_normal(authored.column.count(), z);
+                    let edge = whole.distribution[1];
+                    let tip = Vec3::new(
+                        whole.stem[0].min(edge * (layers - 1) as f32 * 0.25),
+                        layers as f32 * edge,
+                        0.,
+                    );
+                    for head in &flower.heads {
+                        let center = head.center + tip - flower.column.tip();
+                        assert!(
+                            center.length()
+                                + head.radius * std::f32::consts::SQRT_2
+                                + tip.y * models::MAX_BEND_FRACTION
+                                <= s.flower_root_radius
+                        );
+                    }
+                }
                 assert_eq!(
                     &whole.stem[..3],
                     &[
@@ -829,7 +857,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<FlowerPart>(), 48);
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 64);
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlowerPixel>(),
             48
@@ -840,13 +868,16 @@ mod tests {
     fn flower_culling_contains_grown_wind_rotated_display_quads_and_spawn_translation() {
         for shape in [
             Shape::default(),
+            Shape::MAX,
             Shape {
                 head_scale: 4.,
                 height_scale: 0.25,
+                ..Shape::default()
             },
             Shape {
                 head_scale: 0.25,
                 height_scale: 4.,
+                ..Shape::default()
             },
         ] {
             let source = source(shape);

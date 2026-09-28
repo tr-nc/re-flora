@@ -23,12 +23,20 @@ StemVertex main(VertexInput input) {
     FlowerPlantPose pose=flowerPlantPose(input.instance);
     ModelPixelFrame frame=pose.frame;
     StemVertex output;
+    uint layer=input.vertex/36u;
+    if(layer>=pose.layers) {
+        output.position=float4(2,2,2,1);output.world=float3(0);output.normal=float3(0,1,0);output.color=float3(0);
+        return output;
+    }
+    float sourceT=float(layer)/max(part.stem.w/12.0-1.0,1.0);
+    float plantT=float(layer)/max(float(pose.layers)-1.0,1.0);
+    local.x+=pose.bend*plantT*plantT*(3.0-2.0*plantT)-part.stem.x*sourceT*sourceT*(3.0-2.0*sourceT);
     output.world=flowerStemWorld(pose,local,tri.normal0.w);
     output.position=mul(camera_info.view_proj_mat,float4(output.world,1));
     if(frame.scale<=1e-7)output.position=float4(2,2,2,1);
     output.normal=flowerNormal(frame,tri.normal0.xyz);
     // Color is game-owned and evaluated along the undeformed stalk. Wind and
     // overall scale cannot move the gradient; the pixelated calyx is unaffected.
-    output.color=flowerStemColor(local.y);
+    output.color=flowerStemColor(local.y,pose.height);
     return output;
 }

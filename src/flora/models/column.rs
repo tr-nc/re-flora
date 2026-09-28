@@ -9,30 +9,29 @@ pub const MAX_BEND_FRACTION: f32 = 0.25;
 #[derive(Clone, Copy, Debug)]
 pub struct Column {
     pub edge: f32,
-    pub height: f32,
+    pub layers: u32,
     pub bend: f32,
     pub color: [u8; 3],
 }
 impl Column {
     pub fn for_flower(id: &str) -> anyhow::Result<Self> {
-        let height = match id {
-            "wild-geranium" | "corn-poppy" => 2.05,
-            "forget-me-not" => 1.95,
-            "oxeye-daisy" | "cosmos" | "bellflower" => 2.1,
-            "coneflower" => 2.15,
-            "tulip" => 1.85,
+        let layers = match id {
+            "wild-geranium" | "corn-poppy" => 41,
+            "forget-me-not" => 39,
+            "oxeye-daisy" | "cosmos" | "bellflower" => 42,
+            "coneflower" => 43,
+            "tulip" => 37,
             _ => anyhow::bail!("unknown flower assembly: {id}"),
         };
         Ok(Self {
             edge: 0.05,
-            height,
+            layers,
             bend: 0.08,
             color: [255; 3],
         })
     }
     pub fn count(self) -> u32 {
-        // Published heights are exact multiples before f32 conversion.
-        (self.height / self.edge - 1e-5).ceil().max(1.) as u32
+        self.layers
     }
     pub fn center(self, layer: u32) -> Vec3 {
         let t = layer as f32 / self.count().saturating_sub(1).max(1) as f32;
@@ -49,9 +48,14 @@ impl Column {
             0.,
         )
     }
-    pub fn scaled_height(self, scale: f32) -> Self {
+    pub fn with_shape(self, shape: super::Shape) -> Self {
+        let shape = shape.normalized();
+        let edge = self.edge * shape.voxel_scale;
+        let layers = shape.max_layers(self.layers);
         Self {
-            height: self.height * scale,
+            edge,
+            layers,
+            bend: self.bend.min(edge * layers.saturating_sub(1) as f32 * 0.25),
             ..self
         }
     }
@@ -87,6 +91,79 @@ mod tests {
     use crate::flora::models::{flowers, Shape};
 
     #[test]
+    fn voxel_edge_and_layer_distribution_are_independent() {
+        for flower in flowers() {
+            let base = flower.column;
+            for mean in [0.25, 0.46, 1., 4.] {
+                for variance in [0., 0.01, 0.09, 1.] {
+                    let shape = Shape {
+                        height_scale: mean,
+                        height_variance: variance,
+                        ..Shape::default()
+                    };
+                    for z in [-8., -3., -1., 0., 1., 3., 8.] {
+                        let layers = shape.layers_for_normal(base.layers, z);
+                        assert!((1..=shape.max_layers(base.layers)).contains(&layers));
+                        for size in [0.2, 0.9, 1., 4.] {
+                            let scaled = Shape {
+                                voxel_scale: size,
+                                ..shape
+                            };
+                            assert_eq!(scaled.layers_for_normal(base.layers, z), layers);
+                            let bank = base.with_shape(scaled);
+                            let edge = base.edge * size;
+                            assert_eq!(bank.edge, edge);
+                            assert_eq!(bank.layers, shape.max_layers(base.layers));
+                            let plant = Column {
+                                layers,
+                                bend: bank.bend.min(edge * (layers - 1) as f32 * 0.25),
+                                ..bank
+                            };
+                            assert_eq!(plant.tip().y, layers as f32 * edge);
+                            assert!(plant.layers <= bank.layers);
+                            // All wind directions are bounded by this axis-wise worst case.
+                            let offset = |i| {
+                                let p = plant.center(i);
+                                let t = p.y / plant.tip().y;
+                                t * t * (3. - 2. * t) * plant.tip().y * MAX_BEND_FRACTION
+                            };
+                            for i in 1..layers {
+                                let rest = (plant.center(i).x - plant.center(i - 1).x).abs();
+                                let wind = (offset(i) - offset(i - 1)).abs();
+                                assert!(
+                                    rest + wind < edge,
+                                    "disconnected {layers}-layer stem at size={size}"
+                                );
+                            }
+                        }
+                    }
+                    if variance == 0. {
+                        assert_eq!(
+                            shape.layers_for_normal(base.layers, -8.),
+                            shape.layers_for_normal(base.layers, 8.)
+                        );
+                    }
+                }
+            }
+            let shape = Shape {
+                height_variance: 0.09,
+                ..Shape::default()
+            };
+            assert_eq!(
+                shape.layers_for_normal(base.layers, 1.),
+                (base.layers as f32 * 1.3).round() as u32,
+                "variance must be square-rooted, not used as standard deviation"
+            );
+            let smaller = base.with_shape(Shape {
+                voxel_scale: 0.9,
+                ..Shape::default()
+            });
+            assert_eq!(smaller.layers, base.layers);
+            assert!((smaller.tip().y - base.tip().y * 0.9).abs() < 1e-5);
+        }
+    }
+
+    #[test]
     fn game_assembly_has_no_leaf_triangles() {
         for flower in flowers() {
             assert_eq!(flower.stem_triangles, flower.column.count() * 12);
@@ -102,7 +179,7 @@ mod tests {
             for height_scale in [0.25, 0.46, 1., 2., 4.] {
                 let transformed = flower.transformed(Shape {
                     height_scale,
-                    head_scale: 1.,
+                    ..Shape::default()
                 });
                 let column = transformed.column;
                 assert_eq!(

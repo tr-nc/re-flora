@@ -56,17 +56,42 @@ impl Settings {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shape {
     pub head_scale: f32,
+    /// Mean of the per-plant height multiplier, before integer layer rounding.
     pub height_scale: f32,
+    pub height_variance: f32,
+    pub voxel_scale: f32,
 }
 impl Default for Shape {
     fn default() -> Self {
         Self {
             head_scale: 1.,
             height_scale: 1.,
+            height_variance: 0.,
+            voxel_scale: 1.,
         }
     }
 }
 impl Shape {
+    pub const MAX: Self = Self {
+        head_scale: MAX_SHAPE_SCALE,
+        height_scale: MAX_SHAPE_SCALE,
+        height_variance: 1.,
+        voxel_scale: 4.,
+    };
+    pub fn max_layers(self, base: u32) -> u32 {
+        let s = self.normalized();
+        (base as f32 * (s.height_scale + 3. * s.height_variance.sqrt()))
+            .round()
+            .max(1.) as u32
+    }
+    /// CPU oracle for the shader's rounded, bounded per-instance count.
+    #[cfg(test)]
+    pub fn layers_for_normal(self, base: u32, normal: f32) -> u32 {
+        let s = self.normalized();
+        (base as f32 * (s.height_scale + s.height_variance.sqrt() * normal))
+            .round()
+            .clamp(1., s.max_layers(base) as f32) as u32
+    }
     pub fn normalized(self) -> Self {
         let scale = |v: f32| {
             if v.is_finite() {
@@ -78,6 +103,16 @@ impl Shape {
         Self {
             head_scale: scale(self.head_scale),
             height_scale: scale(self.height_scale),
+            height_variance: if self.height_variance.is_finite() {
+                self.height_variance.clamp(0., 1.)
+            } else {
+                0.
+            },
+            voxel_scale: if self.voxel_scale.is_finite() {
+                self.voxel_scale.clamp(0.2, Self::MAX.voxel_scale)
+            } else {
+                1.
+            },
         }
     }
 }
@@ -106,18 +141,26 @@ pub struct Flower {
     pub heads: Vec<Part>,
     pub stem_triangles: u32,
     pub column: Column,
+    /// Base layer count, edge, multiplier mean, standard deviation. Immutable with source geometry.
+    pub distribution: [f32; 4],
 }
 
 impl Flower {
-    /// Rebuild complete voxel layers for height edits; transport leaves and the
-    /// complete terminal head with their attachments. Never runs per instance.
+    /// Build a bounded layer bank; each GPU instance selects its own prefix and
+    /// transports the complete head. No per-instance surface baking.
     pub fn transformed(&self, shape: Shape) -> Self {
         let shape = shape.normalized();
         let mut result = self.clone();
         if shape == Shape::default() {
             return result;
         }
-        result.column = self.column.scaled_height(shape.height_scale);
+        result.column = self.column.with_shape(shape);
+        result.distribution = [
+            self.column.count() as f32,
+            result.column.edge,
+            shape.height_scale,
+            shape.height_variance.sqrt(),
+        ];
         result.triangles = result.column.triangles();
         result.stem_triangles = result.triangles.len() as u32;
         for (authored, part) in self.heads.iter().zip(&mut result.heads) {
@@ -141,7 +184,7 @@ impl Flower {
         // Height now advances in complete-cell increments, while head scale
         // remains continuous and does not change the selected pixel budget.
         result.whole.triangles = 0..result.triangles.len() as u32;
-        result.whole.center = self.whole.center * Vec3::new(1., shape.height_scale, 1.);
+        result.whole.center = Vec3::new(0., result.column.tip().y * 0.5, 0.);
         let vertex_radius = |triangles: &[Triangle], center: Vec3| {
             triangles
                 .iter()
@@ -289,6 +332,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 triangles,
                 heads,
                 stem_triangles,
+                distribution: [column.count() as f32, column.edge, 1., 0.],
                 column,
             })
         })
@@ -374,6 +418,7 @@ mod tests {
                     let shape = Shape {
                         head_scale,
                         height_scale,
+                        ..Shape::default()
                     };
                     let transformed = flower.transformed(shape);
                     for (index, new) in transformed.triangles.iter().enumerate() {
@@ -422,7 +467,9 @@ mod tests {
         assert_eq!(
             Shape {
                 head_scale: f32::NAN,
-                height_scale: f32::INFINITY
+                height_scale: f32::INFINITY,
+                height_variance: f32::NAN,
+                voxel_scale: f32::INFINITY,
             }
             .normalized(),
             Shape::default()

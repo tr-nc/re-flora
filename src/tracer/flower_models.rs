@@ -16,7 +16,7 @@ impl FlowerModelResources {
         let max_stem_vertices = models::flowers()
             .iter()
             // Twelve triangles per closed moving cube; no stem leaves.
-            .map(|f| f.column.scaled_height(models::MAX_SHAPE_SCALE).count() * 12 * 3)
+            .map(|f| f.column.with_shape(models::Shape::MAX).count() * 12 * 3)
             .max()
             .unwrap();
         let make = |bytes: &[u8], flags| {
@@ -41,7 +41,7 @@ impl FlowerModelResources {
             // Descriptor initializers only; every draw binds the same transformed
             // triangle allocation used by the current shared surface bake.
             flower_triangles: make(&[0; 128], vk::BufferUsageFlags::STORAGE_BUFFER),
-            flower_parts: make(&[0; 48], vk::BufferUsageFlags::STORAGE_BUFFER),
+            flower_parts: make(&[0; 64], vk::BufferUsageFlags::STORAGE_BUFFER),
             flower_stem_vertices: make(
                 bytemuck::cast_slice(&stem_indices),
                 vk::BufferUsageFlags::VERTEX_BUFFER,

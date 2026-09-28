@@ -64,6 +64,8 @@ const MODEL_FLOWERS: &[&str] = &[
     "model_flower_view_count",
     "model_flower_head_scale",
     "model_flower_height_scale",
+    "model_flower_height_variance",
+    "model_flower_voxel_scale",
     "model_flower_size_scale",
     "model_flower_stem_bottom_color",
     "model_flower_stem_tip_color",

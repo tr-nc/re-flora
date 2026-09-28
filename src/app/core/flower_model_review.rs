@@ -37,7 +37,7 @@ impl App {
         review.frame += 1;
         let controls = review.mode == "controls";
         let phase = if controls {
-            (frame / 24).min(20)
+            (frame / 24).min(26)
         } else if review.mode == "ab" {
             (frame / 24).min(8)
         } else {
@@ -74,6 +74,10 @@ impl App {
         } else {
             1.
         };
+        if controls {
+            settings.model_flower_height_variance.value = control.shape.height_variance;
+            settings.model_flower_voxel_scale.value = control.shape.voxel_scale;
+        }
         settings.model_flower_size_scale.value = if controls {
             control.size_scale
         } else if phase == 7 {
@@ -206,9 +210,9 @@ impl App {
                 .set_camera_pose_looking_at(target + Vec3::new(0., 0.24, 0.57), target);
             self.reset_camera_movement_input();
         }
-        if frame.is_multiple_of(24) && frame / 24 <= if controls { 17 } else { 8 } {
+        if frame.is_multiple_of(24) && frame / 24 <= if controls { 26 } else { 8 } {
             if controls {
-                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_scale={} size={} frame={frame} saved=false", control.views, control.shape.head_scale, control.shape.height_scale, control.size_scale);
+                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_mean={} height_variance={} voxel_scale={} size={} frame={frame} saved=false", control.views, control.shape.head_scale, control.shape.height_scale, control.shape.height_variance, control.shape.voxel_scale, control.size_scale);
             } else {
                 log::info!("[FLOWER_REVIEW_PHASE] phase={phase} heads_only={heads} resolution={resolution} frame={frame} saved=false");
             }
@@ -226,23 +230,44 @@ fn control_settings(phase: u32) -> crate::flora::models::Settings {
         1 | 2 => Shape {
             head_scale: 2.,
             height_scale: 1.,
+            ..Shape::default()
         },
         3 => Shape {
             head_scale: 2.,
             height_scale: 2.,
+            ..Shape::default()
         },
         4 | 5 => Shape {
             head_scale: 1.,
             height_scale: 2.,
+            ..Shape::default()
         },
         12 | 13 => Shape {
             head_scale: 0.25,
             height_scale: 4.,
+            ..Shape::default()
         },
         14 | 15 => Shape {
             head_scale: 4.,
             height_scale: 0.25,
+            ..Shape::default()
         },
+        21 => Shape {
+            voxel_scale: 0.9,
+            ..Shape::default()
+        },
+        23 => Shape {
+            voxel_scale: 0.9,
+            height_variance: 0.09,
+            ..Shape::default()
+        },
+        24 => Shape {
+            height_scale: 0.25,
+            height_variance: 1.,
+            voxel_scale: 0.2,
+            ..Shape::default()
+        },
+        25 => Shape::MAX,
         _ => Shape::default(),
     };
     s.resolution = match phase {

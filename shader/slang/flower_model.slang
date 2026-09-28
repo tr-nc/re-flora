@@ -16,6 +16,7 @@ public struct FlowerModelPart {
     public uint4 range; // first triangle, count, shared cache source, head count
     public float4 center_radius;
     public float4 stem; // tip x/y, max bend fraction, stem triangle count
+    public float4 distribution; // base layers, edge, mean, standard deviation
 };
 public struct PushConstantFlower {
     public uint3 chunk_world_offset;
@@ -50,15 +51,36 @@ public FlowerModelPart flowerTilePart(uint tile) {
 public struct FlowerPlantPose {
     public ModelPixelFrame frame;
     public float3 tip_offset;
+    public float3 attachment_offset;
+    public uint layers;
+    public float height;
+    public float bend;
 };
+// Independent salts; position/species seed, never frame/time or mutable draw slot.
+public float flowerNormalSample(uint seed) {
+    float u=max(constructFloat01(wellonsHash(seed^0x68bc21ebu)),1e-7);
+    float v=constructFloat01(wellonsHash(seed^0x02e5be93u));
+    return sqrt(-2.0*log(u))*cos(6.28318530718*v);
+}
+public uint flowerLayerCount(uint seed) {
+    FlowerModelPart part=flowerPart(0u);
+    float factor=part.distribution.z+part.distribution.w*flowerNormalSample(seed);
+    return uint(clamp(floor(part.distribution.x*factor+0.5),1.0,part.stem.w/12.0));
+}
 public FlowerPlantPose flowerPlantPose(uint plant) {
     Instance instance=flora_instances.data[floraSpeciesInstanceOffset(flower_pc.species)+plant];
     uint3 base=unpackInstanceLocalPosition(instance.packed_local_pos)+flower_pc.chunk_world_offset;
     uint3 root=base+uint3(0,1,0);
     uint seed=instanceSeed(root);
+    FlowerModelPart whole=flowerPart(0u);
+    uint layers=flowerLayerCount(seed^wellonsHash(flower_pc.species));
+    float height=layers*whole.distribution.y;
+    // A small layer count still needs positive-area contact after wind bending.
+    float bend=min(whole.stem.x,whole.distribution.y*float(layers-1u)*0.25);
+    float3 attachmentDelta=float3(bend-whole.stem.x,height-whole.stem.y,0);
     float moisture=1.0;
-    uint width,height,depth;chunk_atlas.GetDimensions(width,height,depth);
-    if(all(base<uint3(width,height,depth))) {
+    uint width,atlasHeight,depth;chunk_atlas.GetDimensions(width,atlasHeight,depth);
+    if(all(base<uint3(width,atlasHeight,depth))) {
         uint level=(chunk_atlas[base]>>4u)&3u;
         moisture=flora_growth_info.moisture_growth_factors[flower_pc.species][level];
     }
@@ -66,7 +88,7 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     float growth=min(float(unpackInstanceGrowthProgress(instance.packed_local_pos))/255.0,potential);
     float scale=flower_pc.world_scale*growth;
     float4 bounds=flowerPart(0u).center_radius;
-    float plantHeight=(bounds.y+bounds.w)*flower_pc.world_scale*256.0;
+    float plantHeight=max(whole.distribution.y,bounds.y+bounds.w+attachmentDelta.y)*flower_pc.world_scale*256.0;
     FloraSpawnAnimationPose spawn=sampleFloraSpawnAnimation(flora_growth_info,instance.spawn_start_ms,seed,plantHeight);
     float3 wind=vegetationResponseEnabled()
         ?sampleVegetationResponse(root,seed,flower_pc.species,plant,flower_pc.response_offset)
@@ -86,20 +108,23 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     // Bounded smooth bending preserves positive overlap between adjacent cells
     // throughout the saved height range. The uploaded bound is also consumed
     // by CPU culling; it must not be independently tuned here.
-    float limit=flowerPart(0u).stem.y*frame.scale*flowerPart(0u).stem.z;
+    float limit=height*frame.scale*whole.stem.z;
     displacement*=min(1.0,limit/max(length(displacement),1e-7));
-    frame.center+=displacement;
-    FlowerPlantPose pose;pose.frame=frame;pose.tip_offset=displacement;return pose;
+    float3 attachmentOffset=(frame.axisX*attachmentDelta.x+frame.axisY*attachmentDelta.y)*frame.scale;
+    frame.center+=displacement+attachmentOffset;
+    FlowerPlantPose pose;pose.frame=frame;pose.tip_offset=displacement;
+    pose.attachment_offset=attachmentOffset;pose.layers=layers;pose.height=height;pose.bend=bend;
+    return pose;
 }
 public ModelPixelFrame flowerPlantFrame(uint plant) { return flowerPlantPose(plant).frame; }
 public float3 flowerStemWorld(FlowerPlantPose pose,float3 local,float anchorHeight) {
-    float t=saturate(anchorHeight/max(flowerPart(0u).stem.y,1e-7));
+    float t=saturate(anchorHeight/max(pose.height,1e-7));
     float weight=t*t*(3.0-2.0*t);
-    return modelPixelWorld(pose.frame,local)+pose.tip_offset*(weight-1.0);
+    return modelPixelWorld(pose.frame,local)+pose.tip_offset*(weight-1.0)-pose.attachment_offset;
 }
-public float3 flowerStemColor(float height) {
+public float3 flowerStemColor(float height,float totalHeight) {
     return lerp(gui_input.flower_stem_bottom,gui_input.flower_stem_tip,
-        saturate(height/max(flowerPart(0u).stem.y,1e-7)));
+        saturate(height/max(totalHeight,1e-7)));
 }
 public float3 flowerNormal(ModelPixelFrame frame,float3 normal) {
     return normalize(frame.axisX*normal.x+frame.axisY*normal.y+frame.axisZ*normal.z);

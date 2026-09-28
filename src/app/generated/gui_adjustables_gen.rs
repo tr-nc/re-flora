@@ -616,7 +616,19 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Flora",
         id: "model_flower_height_scale",
         kind: "float",
-        label: "Model Flower Plant Height (Stems / Attachments)",
+        label: "Stem Height Multiplier Mean",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "model_flower_height_variance",
+        kind: "float",
+        label: "Stem Height Multiplier Variance",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "model_flower_voxel_scale",
+        kind: "float",
+        label: "Stem Voxel Edge Scale (1 = Half Grass Edge)",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
@@ -1525,6 +1537,8 @@ pub struct GuiAdjustables {
     pub model_flower_view_count: crate::gui_adjustables::UintParam,
     pub model_flower_head_scale: crate::gui_adjustables::FloatParam,
     pub model_flower_height_scale: crate::gui_adjustables::FloatParam,
+    pub model_flower_height_variance: crate::gui_adjustables::FloatParam,
+    pub model_flower_voxel_scale: crate::gui_adjustables::FloatParam,
     pub model_flower_stem_bottom_color: crate::gui_adjustables::ColorParam,
     pub model_flower_stem_tip_color: crate::gui_adjustables::ColorParam,
     pub model_flower_size_scale: crate::gui_adjustables::FloatParam,
@@ -1771,6 +1785,8 @@ impl GuiAdjustables {
         let mut model_flower_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_flower_head_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut model_flower_height_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut model_flower_height_variance_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut model_flower_voxel_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut model_flower_stem_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut model_flower_stem_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut model_flower_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2564,6 +2580,20 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             model_flower_height_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_flower_height_variance" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            model_flower_height_variance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "model_flower_voxel_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            model_flower_voxel_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "model_flower_stem_bottom_color" => {
@@ -3561,6 +3591,8 @@ impl GuiAdjustables {
             model_flower_view_count: model_flower_view_count_field.expect("Missing parameter: model_flower_view_count"),
             model_flower_head_scale: model_flower_head_scale_field.expect("Missing parameter: model_flower_head_scale"),
             model_flower_height_scale: model_flower_height_scale_field.expect("Missing parameter: model_flower_height_scale"),
+            model_flower_height_variance: model_flower_height_variance_field.expect("Missing parameter: model_flower_height_variance"),
+            model_flower_voxel_scale: model_flower_voxel_scale_field.expect("Missing parameter: model_flower_voxel_scale"),
             model_flower_stem_bottom_color: model_flower_stem_bottom_color_field.expect("Missing parameter: model_flower_stem_bottom_color"),
             model_flower_stem_tip_color: model_flower_stem_tip_color_field.expect("Missing parameter: model_flower_stem_tip_color"),
             model_flower_size_scale: model_flower_size_scale_field.expect("Missing parameter: model_flower_size_scale"),
@@ -3770,6 +3802,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "lens_flare_sun_pixel_scale" => Some(&adjustables.lens_flare_sun_pixel_scale),
         "model_flower_head_scale" => Some(&adjustables.model_flower_head_scale),
         "model_flower_height_scale" => Some(&adjustables.model_flower_height_scale),
+        "model_flower_height_variance" => Some(&adjustables.model_flower_height_variance),
+        "model_flower_voxel_scale" => Some(&adjustables.model_flower_voxel_scale),
         "model_flower_size_scale" => Some(&adjustables.model_flower_size_scale),
         "special_flora_cluster_radius_voxels" => Some(&adjustables.special_flora_cluster_radius_voxels),
         "special_flora_min_spacing_voxels" => Some(&adjustables.special_flora_min_spacing_voxels),
@@ -4050,6 +4084,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "lens_flare_sun_pixel_scale" => Some(&mut adjustables.lens_flare_sun_pixel_scale),
         "model_flower_head_scale" => Some(&mut adjustables.model_flower_head_scale),
         "model_flower_height_scale" => Some(&mut adjustables.model_flower_height_scale),
+        "model_flower_height_variance" => Some(&mut adjustables.model_flower_height_variance),
+        "model_flower_voxel_scale" => Some(&mut adjustables.model_flower_voxel_scale),
         "model_flower_size_scale" => Some(&mut adjustables.model_flower_size_scale),
         "special_flora_cluster_radius_voxels" => Some(&mut adjustables.special_flora_cluster_radius_voxels),
         "special_flora_min_spacing_voxels" => Some(&mut adjustables.special_flora_min_spacing_voxels),
