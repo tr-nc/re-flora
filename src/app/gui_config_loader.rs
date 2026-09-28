@@ -106,6 +106,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
         Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
+        Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
         // Old saves gain new flower controls from the declarations, without
@@ -150,7 +151,6 @@ impl GuiConfigLoader {
                         | "model_pixel_snap_views"
                         | "model_pixel_single_light"
                         | "model_pixel_screen_grid"
-                        | "model_pixel_view_count"
                         | "model_flower_view_count"
                 )
             });
@@ -1310,7 +1310,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_view_controls_are_retired_for_all_pixel_models() {
+    fn saved_global_view_count_survives_while_flower_override_is_retired() {
         use crate::app::gui_config_model::GuiParamValue;
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -1319,21 +1319,23 @@ mod tests {
             .iter_mut()
             .find(|s| s.name == "Debug")
             .unwrap();
-        let mut old = debug
+        let count = debug
             .param
-            .iter()
-            .find(|p| p.id == "apple_pixel_resolution")
-            .unwrap()
-            .clone();
-        old.id = "model_pixel_view_count".into();
-        old.value = GuiParamValue::Uint {
+            .iter_mut()
+            .find(|p| p.id == "model_pixel_view_count")
+            .unwrap();
+        count.value = GuiParamValue::Uint {
             value: 8,
             min: Some(8),
             max: Some(512),
         };
-        debug.param.push(old.clone());
+        let mut old = debug
+            .param
+            .iter()
+            .find(|p| p.id == "raster_tree_static")
+            .unwrap()
+            .clone();
         old.id = "model_pixel_snap_views".into();
-        old.kind = crate::app::gui_config_model::GuiParamKind::Bool;
         old.value = GuiParamValue::Bool { value: true };
         debug.param.push(old);
         let flora = config
@@ -1359,18 +1361,19 @@ mod tests {
         GuiConfigLoader::save_to_path(&config, &path).unwrap();
         let loaded = GuiConfigLoader::load_from_path(&path);
         assert!(!loaded.section.iter().flat_map(|s| &s.param).any(|p| [
-            "model_pixel_view_count",
             "model_flower_view_count",
             "model_pixel_snap_views"
         ]
         .contains(&p.id.as_str())));
+        assert!(loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "model_pixel_view_count"
+                && matches!(p.value, GuiParamValue::Uint { value: 8, .. })));
         GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
         let saved = std::fs::read_to_string(&path).unwrap();
-        for id in [
-            "model_pixel_view_count",
-            "model_flower_view_count",
-            "model_pixel_snap_views",
-        ] {
+        for id in ["model_flower_view_count", "model_pixel_snap_views"] {
             assert!(!saved.contains(id));
         }
     }

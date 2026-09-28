@@ -95,7 +95,7 @@ try {
   // deterministically in GpuPagedStorage and transient descriptor unit tests.
   if (readySlots.size > 1) assert.ok(sawPendingRetirement, 'Multi-slot run must retain pending generations');
   else assert.equal(readySlots.size, 1, 'Missing ready-slot evidence');
-  assert.deepEqual([...text.matchAll(/MODEL_CACHE_DIRECTIONS\] count=(\d+) bytes=(\d+)/g)].map(m => [+m[1], +m[2]]), [[512,8192]]);
+  assert.deepEqual([...text.matchAll(/MODEL_CACHE_DIRECTIONS\] count=(\d+) bytes=(\d+)/g)].map(m => [+m[1], +m[2]]), [[32,512]]);
   const resize = text.indexOf('FLOWER_REVIEW_RESIZE] after_submitted_frames=408');
   assert.ok(resize >= 0 && text.slice(resize).includes('RESIZE_LIFECYCLE] phase=published'), 'Missing post-switch resize');
   for (const m of text.matchAll(/frame_generation=(\d+) swapchain_generation=(\d+) tracer_generation=(\d+)/g)) {

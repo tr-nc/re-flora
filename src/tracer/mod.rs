@@ -46,7 +46,6 @@ mod model_pixel_tiles;
 use model_pixel_frame::{ModelPixelFrame, PixelPass, PreparedModelPixels};
 mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
-pub(crate) use model_pixel_views::VIEW_COUNT as MODEL_PIXEL_VIEW_COUNT;
 
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
@@ -1376,6 +1375,7 @@ pub struct TerrainFrameInput {
     pub ddgi_continuous_sampling: bool,
     pub ddgi_aggregate_history: bool,
     pub apple_pixel_resolution: u32,
+    pub model_pixel_view_count: u32,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -1657,6 +1657,7 @@ pub struct Tracer {
     ddgi_continuous_sampling: bool,
     ddgi_aggregate_history: bool,
     apple_pixel_resolution: u32,
+    model_pixel_view_count: u32,
     flower_model_settings: crate::flora::models::Settings,
     flower_spawn_overshoot_voxels: f32,
     // None means no effective display configuration has been published/logged yet.
@@ -2010,6 +2011,7 @@ impl Tracer {
             ddgi_continuous_sampling: false,
             ddgi_aggregate_history: false,
             apple_pixel_resolution: 32,
+            model_pixel_view_count: 0,
             flower_model_settings: crate::flora::models::Settings::default(),
             flower_spawn_overshoot_voxels: 0.,
             ddgi_sampling_progress: Default::default(),
@@ -3059,7 +3061,7 @@ impl Tracer {
                 true,
                 flowers.resolution,
                 flowers.size_scale,
-                model_pixel_views::VIEW_COUNT,
+                model_pixel_views::runtime_count(terrain.model_pixel_view_count),
                 flowers.shape.head_scale,
                 flowers.shape.height_scale
             );
@@ -3070,9 +3072,12 @@ impl Tracer {
             .spawn_overshoot_min_voxels
             .max(vegetation.growth.spawn_overshoot_max_voxels)
             .max(0.);
-        // Every pixel-model bank, including flower heads, uses the same fixed sphere.
-        static REPORT_PIXEL_VIEWS: std::sync::Once = std::sync::Once::new();
-        REPORT_PIXEL_VIEWS.call_once(|| log::info!("[MODEL_PIXEL_PREVIEW] single_light=true views={} orthographic=true rotating_pixels=true shared_surfaces=true tile_work=relighting", model_pixel_views::VIEW_COUNT));
+        // One runtime count drives every pixel-model bank, including flower heads.
+        let view_count = model_pixel_views::runtime_count(terrain.model_pixel_view_count);
+        if self.model_pixel_view_count != view_count {
+            log::info!("[MODEL_PIXEL_PREVIEW] single_light=true views={view_count} orthographic=true rotating_pixels=true shared_surfaces=true tile_work=relighting");
+        }
+        self.model_pixel_view_count = view_count;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3451,6 +3456,7 @@ impl Tracer {
                 self.model_pixel_frame.prepare_cache(
                     cmdbuf,
                     &self.pipeline_topology.compute().model_pixel_bake_ppl,
+                    self.model_pixel_view_count,
                     self.apple_pixel_resolution,
                     self.flower_model_settings,
                 )

@@ -271,7 +271,9 @@ impl BufferUpdater {
             model_pixel_cache_review: u32::from(
                 std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some(),
             ),
-            model_pixel_view_count: super::model_pixel_views::VIEW_COUNT,
+            model_pixel_view_count: super::model_pixel_views::runtime_count(
+                terrain.model_pixel_view_count,
+            ),
             apple_pixel_resolution: terrain
                 .apple_pixel_resolution
                 .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),

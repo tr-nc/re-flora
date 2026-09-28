@@ -57,6 +57,8 @@ impl App {
         };
         let settings = &mut self.debug_settings.adjustables;
         settings.model_flower_pixel_resolution.value = resolution;
+        // The shared slider is the only view-count control, including flower heads.
+        settings.model_pixel_view_count.value = 32;
         settings.model_flower_head_scale.value = if controls {
             control.shape.head_scale
         } else {
@@ -203,7 +205,7 @@ impl App {
         }
         if frame.is_multiple_of(24) && frame / 24 <= if controls { 26 } else { 8 } {
             if controls {
-                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_mean={} height_variance={} voxel_scale={} size={} frame={frame} saved=false", crate::tracer::MODEL_PIXEL_VIEW_COUNT, control.shape.head_scale, control.shape.height_scale, control.shape.height_variance, control.shape.voxel_scale, control.size_scale);
+                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_mean={} height_variance={} voxel_scale={} size={} frame={frame} saved=false", 32, control.shape.head_scale, control.shape.height_scale, control.shape.height_variance, control.shape.voxel_scale, control.size_scale);
             } else {
                 log::info!("[FLOWER_REVIEW_PHASE] phase={phase} heads_only={heads} resolution={resolution} frame={frame} saved=false");
             }
@@ -212,7 +214,7 @@ impl App {
     }
 }
 
-/// Bounded production-input sweep. Fixed 512 views use 8px in large phases;
+/// Bounded production-input sweep. The shared view count stays at 32;
 /// maximum simultaneous VRAM stress and visual/performance approval are separate.
 fn control_settings(phase: u32) -> crate::flora::models::Settings {
     use crate::flora::models::{Settings, Shape};

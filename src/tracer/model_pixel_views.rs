@@ -2,14 +2,17 @@
 //! Cache only golden-angle azimuths: latitude depends on N, so a prefix of a
 //! fixed sphere is NOT a uniformly distributed smaller sphere.
 pub const MIN_VIEWS: u32 = 8;
-pub const VIEW_COUNT: u32 = 512;
-pub const MAX_VIEWS: u32 = VIEW_COUNT;
+pub const MAX_VIEWS: u32 = 512;
+
+pub fn runtime_count(requested: u32) -> u32 {
+    requested.clamp(MIN_VIEWS, MAX_VIEWS)
+}
 
 pub fn azimuth(index: u32) -> [f32; 4] {
     let angle = index as f32 * (std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()));
     [angle.cos(), angle.sin(), 0., 0.]
 }
-/// Geometry-oracle helper; production banks all use `VIEW_COUNT`.
+/// Every bank uses the same runtime count; smaller counts need their own latitude spacing.
 pub fn azimuths(count: u32) -> Vec<[f32; 4]> {
     assert!((MIN_VIEWS..=MAX_VIEWS).contains(&count));
     (0..count).map(azimuth).collect()
@@ -18,6 +21,12 @@ pub fn azimuths(count: u32) -> Vec<[f32; 4]> {
 mod tests {
     use super::*;
     use glam::Vec3;
+    #[test]
+    fn global_count_is_clamped_to_supported_range() {
+        assert_eq!(runtime_count(0), MIN_VIEWS);
+        assert_eq!(runtime_count(32), 32);
+        assert_eq!(runtime_count(u32::MAX), MAX_VIEWS);
+    }
     #[test]
     fn sampled_counts_have_finite_unit_directions_and_balanced_latitudes() {
         for count in MIN_VIEWS..=MAX_VIEWS {

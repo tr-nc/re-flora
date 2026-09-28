@@ -5,8 +5,8 @@ use super::App;
 impl App {
     pub(super) fn prepare_shared_model_cache_review(&mut self, frame: u32) {
         let phase = (frame / 24).min(12);
-        // Exercise each bank at the production 512-view count without
-        // allocating multi-GiB 64px banks in the correctness fixture.
+        // Sweep the one shared view control at 8px without allocating
+        // multi-GiB high-resolution banks during the 512-view phase.
         let resolutions = match phase {
             0 | 1 | 11 | 12 => [8; 4],
             2 => [16, 8, 8, 8],
@@ -16,8 +16,9 @@ impl App {
             6..=10 => [8; 4],
             _ => unreachable!(),
         };
-        let views = crate::tracer::MODEL_PIXEL_VIEW_COUNT;
+        let views = if phase == 6 { 512 } else { 32 };
         let s = &mut self.debug_settings.adjustables;
+        s.model_pixel_view_count.value = views;
         s.model_flower_head_scale.value = 1.;
         s.model_flower_height_scale.value = 1.;
         s.falling_leaf_pixel_resolution.value = resolutions[0];

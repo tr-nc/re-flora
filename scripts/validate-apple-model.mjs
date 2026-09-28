@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
-const help='Usage: node scripts/validate-apple-model.mjs [--seconds 12] [--stage-one]\n--stage-one exercises rotating orthographic pixels at 512 views with fixed per-object lighting and 64 rotating leaves and 21 butterflies.\nRuns hidden/muted Release: attached and fallen pixel apples at 8/32/64px, plus native resize lifecycle.\nDoes not edit saved GUI settings. Artifacts: target/apple-model-review/. Requires Vulkan/display.';
+const help='Usage: node scripts/validate-apple-model.mjs [--seconds 12] [--stage-one]\n--stage-one exercises rotating orthographic pixels at 32 views with fixed per-object lighting and 64 rotating leaves and 21 butterflies.\nRuns hidden/muted Release: attached and fallen pixel apples at 8/32/64px, plus native resize lifecycle.\nDoes not edit saved GUI settings. Artifacts: target/apple-model-review/. Requires Vulkan/display.';
 const args=process.argv.slice(2);
 if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);process.exit(0);}
 const stageOne=args.includes('--stage-one');if(stageOne)args.splice(args.indexOf('--stage-one'),1);
@@ -39,10 +39,10 @@ assert.ok(resized.every(([,frame,swapchain,tracer])=>frame===swapchain&&frame===
 assert.ok((await readFile(`${dir}/scene.png`)).length>100);
 if(stageOne){
  assert.ok(text.includes(
-  '[MODEL_PIXEL_PREVIEW] single_light=true views=512 orthographic=true rotating_pixels=true shared_surfaces=true tile_work=relighting'),'Missing fixed 512-view rotating pixels or permanent per-object lighting');
+  '[MODEL_PIXEL_PREVIEW] single_light=true views=32 orthographic=true rotating_pixels=true shared_surfaces=true tile_work=relighting'),'Missing shared 32-view rotating pixels or permanent per-object lighting');
  assert.ok(text.includes('[MODEL_PIXEL_STRESS] leaves=64 butterflies=21'),'Missing animated particle fixture');
  for(const [leaf,butterfly] of [[8,64],[16,8],[64,16]])assert.ok(text.includes(
   `[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels=${leaf} butterfly_pixels=${butterfly}`),'Independent particle resolutions were not exercised');
- console.log('PASS: rotating orthographic pixels at 512 views with permanent per-object lighting, with rotating leaves and butterfly animation.');
+ console.log('PASS: rotating orthographic pixels at 32 views with permanent per-object lighting, with rotating leaves and butterfly animation.');
 }
 console.log(`PASS: attached/fallen pixel rendering and live 8/32/64px, actual fruit drops, no Vulkan errors or saved config changes.\nLog: ${dir}/validation.log\nScreenshot: ${dir}/scene.png`);

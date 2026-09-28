@@ -139,6 +139,7 @@ impl ModelPixelFrame {
         &mut self,
         cmd: &CommandBuffer,
         pipeline: &ComputePipeline,
+        views: u32,
         apple_resolution: u32,
         flowers: crate::flora::models::Settings,
     ) -> Result<()> {
@@ -146,7 +147,7 @@ impl ModelPixelFrame {
             self.storage.frame_slot(),
             cmd,
             pipeline,
-            [super::model_pixel_views::VIEW_COUNT; 4],
+            [views; 4],
             [
                 self.particle_resolutions[0],
                 apple_resolution,

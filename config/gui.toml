@@ -121,6 +121,17 @@ min = 8
 max = 64
 
 [[section.param]]
+id = "model_pixel_view_count"
+kind = "uint"
+label = "Global Pixel Model View Count"
+type = "Uint"
+
+[section.param.data]
+value = 32
+min = 8
+max = 512
+
+[[section.param]]
 id = "raster_tree_wind"
 kind = "bool"
 label = "Animate raster trees with wind"

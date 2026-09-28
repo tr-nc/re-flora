@@ -36,6 +36,13 @@ const GROUPS: &[ControlGroup] = &[
         params: &["apple_pixel_resolution"],
     },
     ControlGroup {
+        parent: None,
+        title: "Pixel Models — Global",
+        description: "One view count for apples, butterflies, 3D falling leaves and flower heads. Discrete Fibonacci-sphere views are shared without blending; pixel resolutions remain per object. Higher counts use more GPU cache memory.",
+        initially_open: true,
+        params: &["model_pixel_view_count"],
+    },
+    ControlGroup {
         parent: Some("Wind"),
         title: "Vegetation Wind Response",
         description: "How plants react to wind. Pose rate is separate from the world tick.",
@@ -179,6 +186,12 @@ mod tests {
 
     #[test]
     fn pixel_model_global_controls_exclude_object_resolutions() {
+        let global = GROUPS
+            .iter()
+            .find(|g| g.title == "Pixel Models — Global")
+            .unwrap();
+        assert_eq!(global.parent, None);
+        assert_eq!(global.params, &["model_pixel_view_count"]);
         let apples = GROUPS
             .iter()
             .find(|g| g.title == "Apple Appearance")
