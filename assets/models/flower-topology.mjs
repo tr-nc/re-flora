@@ -15,14 +15,14 @@ function leafComponents(part){
   }
   return [...groups.values()];
 }
-export function singleStemFlower(authored,settings,leafRootVertex=0){
+export function singleStemFlower(authored,settings,leafRootVertex=0,{closedStemCells=false}={}){
   const originalHead=authored.heads[0];
   if(!originalHead)throw new Error('Single-stem flower requires a terminal head');
   const column=stemColumn(originalHead.anchor[1],settings.bend??0);
-  const stemShape=voxelStemSurface(column);
+  const stemShape=voxelStemSurface(column,closedStemCells);
   const parts=[{name:'Single stem',material:'stemColor',head:null,...stemShape}],leafAttachments=[];
   for(const source of authored.parts.filter(part=>part.head===null&&part.material==='leafColor')){
-    const positions=source.positions.slice();
+    const positions=source.positions.slice(),vertexRoots=new Map();
     for(const component of leafComponents(source)){
       // Legacy blade recipes start each connected leaflet with its root vertex;
       // fan recipes explicitly declare the root offset at the preview boundary.
@@ -32,13 +32,17 @@ export function singleStemFlower(authored,settings,leafRootVertex=0){
       const t=Math.max(0,Math.min(1,(sourceRoot[1]-column.root[1])/(originalHead.anchor[1]-column.root[1])));
       const layer=Math.max(1,Math.min(column.cells.length-2,Math.round(t*(column.cells.length-1))));
       const root=column.cells[layer].center;
-      for(const i of component)for(let k=0;k<3;k++)positions[i*3+k]+=root[k]-sourceRoot[k];
+      for(const i of component){
+        vertexRoots.set(i,root);
+        for(let k=0;k<3;k++)positions[i*3+k]+=root[k]-sourceRoot[k];
+      }
       leafAttachments.push({root:[...root],sourceRoot,vertices:component,rootIndex});
     }
-    parts.push({...source,positions,indices:source.indices.slice()});
+    const anchors=Array.from({length:source.indices.length/3},(_,i)=>[...vertexRoots.get(source.indices[i*3])]);
+    parts.push({...source,positions,indices:source.indices.slice(),anchors});
   }
   for(const source of authored.parts.filter(part=>part.head===originalHead.id)){
-    parts.push({...source,head:0,positions:source.positions.map((n,i)=>n+column.tip[i%3]-originalHead.anchor[i%3]),indices:source.indices.slice()});
+    parts.push({...source,head:0,positions:source.positions.map((n,i)=>n+column.tip[i%3]-originalHead.anchor[i%3]),indices:source.indices.slice(),anchors:Array.from({length:source.indices.length/3},()=>[...column.tip])});
   }
   return {parts,heads:[{id:0,anchor:[...column.tip],label:'顶端花头'}],column,leafAttachments};
 }

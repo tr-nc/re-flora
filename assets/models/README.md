@@ -29,30 +29,42 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 ## Publish the flower bank
 
-The eight original flower recipes live in `flower-source.mjs`; the HTML preview imports
-that exact source. `node scripts/publish-flower-models.mjs` writes `flowers.json`, embedded
-by `src/flora/models.rs`. Commit source and derived output together. `cargo check` verifies
-the source/publisher fingerprint; Node tests compare complete deterministic output.
-The native adapter only shifts the authored root to zero and derives complete-head ranges
-and rotation-safe bounds. It does not reauthor petals or split petals into separate sprites.
+The eight original flower recipes live in `flower-source.mjs`. Both the HTML preview and
+native publisher apply `flower-topology.mjs` and `flower-stem.mjs`: one unbranched column,
+one complete terminal head, and original leaflets reattached directly to the main stem.
+`node scripts/publish-flower-models.mjs` writes `flowers.json`, embedded by `src/flora/models.rs`.
+Commit source and derived output together. `cargo check` verifies all three sources and the
+publisher fingerprint. Numbers publish at nine decimal places to remove cross-platform
+last-bit math noise; Node tests compare deterministic output and Rust tests compare the
+published voxel surfaces to runtime regeneration. The complete head retains its authored
+geometry (including calyx), never one tile per petal. White geranium and Gillenia remain
+browser-only candidates and are not added to the native species bank.
 
 All eight are now plantable from **item slot 2 / Grow → the right-side Plant Brush panel**.
 The list scrolls on short windows; the status-only backpack is hidden while Grow is active
 so it cannot cover plant choices. Existing species
-indices are preserved; model flowers occupy 4–11. Their original meshes total 3,582 triangles.
-**Debug → Flora → Ground Plants → Model Flowers (A/B)** owns three saved controls:
+indices are preserved; model flowers occupy 4–11. **Debug → Flora → Ground Plants →
+Model Flowers** retains the saved pixel resolution, view count, head scale, stem height and
+overall size controls. There is no stem or whole-plant A/B switch.
 
-- **Pixel Flower Heads + Mesh Stems**: checked/default B draws complete heads with pixel tiles
-  and stems/leaves with native meshes; unchecked A puts the entire plant in one tile.
-- **Pixels per Plant / Flower Head**: 8–64, default 32, independent of other model types.
-- **Model Flower Size**: 0.5×–2×, default 1×; one authoring unit is 10 world voxels at 1×.
-
-Both modes retain the same planted instances, geometry, growth, spawn translation and root
-wind pose. This is rigid shared-root motion, not a new flexible-stem solver. Complete heads
-include calyx and center, never one tile per petal. A/B have **different pixel budgets**.
+- Exactly one cube occupies each horizontal layer of the stalk. Its authored edge is `0.05`
+  (half a grass edge at full growth and overall scale 1). Adjacent cells share positive face
+  area; no lateral filling or branches are generated. Global size/growth still scale the plant.
+- Native cells retain all six faces, including caps hidden at rest: wind may expose new
+  parts of those caps. Internal faces stay occluded inside the opaque cell volumes. The
+  static browser view omits internal faces, but uses the same cell positions and extents.
+- Height edits regenerate complete layers rather than stretch cubes. The CPU source generation
+  owns the resulting triangle ranges and draw counts; bounded index capacity covers the full
+  saved height range. Leaflets move rigidly with their declared attachments, not stretched stems.
+- Wind uses the existing vegetation response, but translates whole cells/leaf attachments in XZ
+  instead of tilting the entire stack. Smoothstep displacement is bounded to one quarter of
+  stem height so the saved height range retains overlapping cell footprints. The terminal head
+  follows the same tip displacement. Culling includes that bound; this is not a new solver.
+- **The calyx belongs to the complete flower object**, together with petals and center, and is
+  pixelated with that head. It is never constrained by the stalk's one-voxel-per-layer rule.
 `flower_model.slang` adapts pose/materials to the existing sampling/projection/display modules;
 `ModelPixelFrame` owns compute/draw pairing and frame-slot storage, and `PipelineTopology`
-owns descriptor retirement. Native mesh stems and depth-bearing heads share the game depth
+owns descriptor retirement. Native voxel/leaf meshes and depth-bearing heads share the game depth
 attachment and environment lighting. These flowers add no dedicated collision or shadow-caster
 pass. Browser shape/color edits remain temporary until intentionally published.
 

@@ -20,9 +20,10 @@ StemVertex main(VertexInput input) {
     ButterflyMeshTriangle tri=flower_triangles[part.range.x+input.vertex/3u];
     uint corner=input.vertex%3u;
     float3 local=tri.a.xyz+(corner==1u?tri.e1.xyz:corner==2u?tri.e2.xyz:float3(0));
-    ModelPixelFrame frame=flowerPlantFrame(input.instance);
+    FlowerPlantPose pose=flowerPlantPose(input.instance);
+    ModelPixelFrame frame=pose.frame;
     StemVertex output;
-    output.world=modelPixelWorld(frame,local);
+    output.world=flowerStemWorld(pose,local,tri.normal0.w);
     output.position=mul(camera_info.view_proj_mat,float4(output.world,1));
     if(frame.scale<=1e-7)output.position=float4(2,2,2,1);
     output.normal=flowerNormal(frame,tri.normal0.xyz);

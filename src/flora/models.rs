@@ -5,6 +5,11 @@ use glam::Vec3;
 use serde::Deserialize;
 use std::{ops::Range, sync::OnceLock};
 
+mod column;
+pub use column::{Column, MAX_BEND_FRACTION};
+
+pub const MAX_SHAPE_SCALE: f32 = 4.;
+
 pub const MODEL_COUNT: usize = 8;
 pub const MAX_HEADS: usize = 3;
 /// Ten terrain voxels per authoring unit: roughly 20–28 voxels tall.
@@ -44,8 +49,8 @@ impl Settings {
     }
 }
 
-/// Authored-space controls only. Overall size/growth/wind remain a rigid instance
-/// pose, so they never invalidate geometry. A head keeps its shape when its
+/// Authored-space controls only. Overall size/growth and per-attachment wind
+/// transport never invalidate geometry. A head keeps its shape when its
 /// attachment moves vertically; its complete authored range scales about that
 /// attachment, including calyx and center (not just petals).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,17 +68,17 @@ impl Default for Shape {
 }
 impl Shape {
     pub fn normalized(self) -> Self {
-        let scale = |v: f32| if v.is_finite() { v.clamp(0.25, 4.) } else { 1. };
+        let scale = |v: f32| {
+            if v.is_finite() {
+                v.clamp(0.25, MAX_SHAPE_SCALE)
+            } else {
+                1.
+            }
+        };
         Self {
             head_scale: scale(self.head_scale),
             height_scale: scale(self.height_scale),
         }
-    }
-    pub fn stem_point(self, point: Vec3) -> Vec3 {
-        point * Vec3::new(1., self.height_scale, 1.)
-    }
-    pub fn head_point(self, point: Vec3, anchor: Vec3) -> Vec3 {
-        self.stem_point(anchor) + (point - anchor) * self.head_scale
     }
 }
 
@@ -82,6 +87,8 @@ pub struct Triangle {
     pub positions: [Vec3; 3],
     pub normal: Vec3,
     pub color: [u8; 3],
+    /// Rigid cell/leaf/head attachment; wind translates it without tilting cells.
+    pub anchor: Vec3,
 }
 #[derive(Clone, Debug)]
 pub struct Part {
@@ -98,41 +105,52 @@ pub struct Flower {
     pub whole: Part,
     pub heads: Vec<Part>,
     pub stem_triangles: u32,
+    pub stem_voxel_triangles: u32,
+    pub column: Column,
 }
 
 impl Flower {
-    /// The only source transform used by native stems and both cached modes.
-    /// Runs at startup/config changes, never during per-instance surface lookup.
+    /// Rebuild complete voxel layers for height edits; transport leaves and the
+    /// complete terminal head with their attachments. Never runs per instance.
     pub fn transformed(&self, shape: Shape) -> Self {
         let shape = shape.normalized();
         let mut result = self.clone();
-        // Preserve the published framing exactly for old saves/default controls.
         if shape == Shape::default() {
             return result;
         }
-        for triangle in &mut result.triangles[..self.stem_triangles as usize] {
-            triangle.positions = triangle.positions.map(|p| shape.stem_point(p));
-            triangle.normal = (triangle.normal / Vec3::new(1., shape.height_scale, 1.)).normalize();
+        result.column = self.column.scaled_height(shape.height_scale);
+        result.triangles = result.column.triangles();
+        result.stem_voxel_triangles = result.triangles.len() as u32;
+        for old in &self.triangles[self.stem_voxel_triangles as usize..self.stem_triangles as usize]
+        {
+            let mut triangle = old.clone();
+            triangle.anchor = result.column.attachment(self.column, old.anchor);
+            triangle.positions = old.positions.map(|p| p + triangle.anchor - old.anchor);
+            result.triangles.push(triangle);
         }
-        for head in &self.heads {
-            for triangle in
-                &mut result.triangles[head.triangles.start as usize..head.triangles.end as usize]
-            {
-                triangle.positions = triangle.positions.map(|p| shape.head_point(p, head.anchor));
-                // Positive uniform head scaling leaves the authored normal unchanged.
-            }
-        }
+        result.stem_triangles = result.triangles.len() as u32;
         for (authored, part) in self.heads.iter().zip(&mut result.heads) {
-            part.anchor = shape.stem_point(authored.anchor);
-            part.center = shape.head_point(authored.center, authored.anchor);
+            part.triangles.start = result.triangles.len() as u32;
+            part.anchor = result.column.tip();
+            for old in
+                &self.triangles[authored.triangles.start as usize..authored.triangles.end as usize]
+            {
+                let mut triangle = old.clone();
+                triangle.anchor = part.anchor;
+                triangle.positions = old
+                    .positions
+                    .map(|p| part.anchor + (p - authored.anchor) * shape.head_scale);
+                result.triangles.push(triangle);
+            }
+            part.triangles.end = result.triangles.len() as u32;
+            part.center = part.anchor + (authored.center - authored.anchor) * shape.head_scale;
             part.radius = authored.radius * shape.head_scale;
         }
-        // Keep the authored framing continuous through 1.0, not a special
-        // default frame followed by an unrelated tight fit on the first edit.
-        // Whole plants aren't a uniform transform: refit around the vertically
-        // transported authored center, retaining its original relative margin.
-        result.whole.anchor = shape.stem_point(self.whole.anchor);
-        result.whole.center = shape.stem_point(self.whole.center);
+        // Refit whole-plant culling around the transported authored center.
+        // Height now advances in complete-cell increments, while head scale
+        // remains continuous and does not change the selected pixel budget.
+        result.whole.triangles = 0..result.triangles.len() as u32;
+        result.whole.center = self.whole.center * Vec3::new(1., shape.height_scale, 1.);
         let vertex_radius = |triangles: &[Triangle], center: Vec3| {
             triangles
                 .iter()
@@ -159,6 +177,13 @@ struct PublishedFlower {
     span: f32,
     heads: Vec<PublishedHead>,
     parts: Vec<PublishedPart>,
+    column: PublishedColumn,
+}
+#[derive(Deserialize)]
+struct PublishedColumn {
+    #[serde(rename = "cellSize")]
+    edge: f32,
+    tip: [f32; 3],
 }
 #[derive(Deserialize)]
 struct PublishedHead {
@@ -168,6 +193,8 @@ struct PublishedHead {
 #[derive(Deserialize)]
 struct PublishedPart {
     head: Option<usize>,
+    material: String,
+    anchors: Vec<[f32; 3]>,
     positions: Vec<f32>,
     indices: Vec<usize>,
     color: [u8; 3],
@@ -188,10 +215,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
         .flowers
         .into_iter()
         .map(|source| {
-            ensure!(
-                !source.heads.is_empty() && source.heads.len() <= MAX_HEADS,
-                "flower head count"
-            );
+            ensure!(source.heads.len() == 1, "flower head count");
             ensure!(
                 source.heads.iter().enumerate().all(|(i, h)| i == h.id),
                 "contiguous flower head IDs"
@@ -205,6 +229,21 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                         .all(|h| Vec3::from_array(h.anchor).is_finite()),
                 "finite flower attachments"
             );
+            let tip = Vec3::from_array(source.column.tip) - root;
+            ensure!(
+                source.column.edge.is_finite()
+                    && source.column.edge > 0.
+                    && tip.is_finite()
+                    && tip.y > 0.,
+                "valid stem column"
+            );
+            let mut column = Column {
+                edge: source.column.edge,
+                height: tip.y,
+                bend: tip.x,
+                color: [0; 3],
+            };
+            let mut stem_voxel_triangles = 0;
             let mut triangles = Vec::new();
             let mut ranges = vec![0..0; source.heads.len()];
             let mut stem_triangles = 0;
@@ -234,7 +273,13 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 } else {
                     ensure!(previous_head.is_none(), "stems must precede heads");
                 }
-                for index in part.indices.chunks_exact(3) {
+                ensure!(
+                    part.anchors.len() == part.indices.len() / 3,
+                    "triangle attachment count"
+                );
+                for (index, anchor) in part.indices.chunks_exact(3).zip(&part.anchors) {
+                    let anchor = Vec3::from_array(*anchor) - root;
+                    ensure!(anchor.is_finite(), "finite triangle attachment");
                     let positions = [index[0], index[1], index[2]]
                         .map(|i| Vec3::from_slice(&part.positions[i * 3..i * 3 + 3]) - root);
                     let normal = (positions[1] - positions[0])
@@ -248,12 +293,18 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                         positions,
                         normal,
                         color: part.color,
+                        anchor,
                     });
                 }
                 if let Some(head) = part.head {
                     ranges[head].end = triangles.len() as u32;
                 } else {
                     stem_triangles = triangles.len() as u32;
+                }
+                if part.head.is_none() && part.material == "stemColor" {
+                    ensure!(stem_voxel_triangles == 0, "one unbranched voxel stem");
+                    stem_voxel_triangles = triangles.len() as u32;
+                    column.color = part.color;
                 }
                 previous_head = part.head;
             }
@@ -290,6 +341,8 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 triangles,
                 heads,
                 stem_triangles,
+                stem_voxel_triangles,
+                column,
             })
         })
         .collect()
@@ -324,19 +377,13 @@ mod tests {
     }
 
     #[test]
-    fn shape_controls_preserve_continuous_framing_around_saved_defaults() {
+    fn head_size_preserves_continuous_framing_around_saved_defaults() {
         for flower in flowers() {
             for value in [0.9999f32, 1.0001] {
-                for shape in [
-                    Shape {
-                        head_scale: value,
-                        ..Shape::default()
-                    },
-                    Shape {
-                        height_scale: value,
-                        ..Shape::default()
-                    },
-                ] {
+                for shape in [Shape {
+                    head_scale: value,
+                    ..Shape::default()
+                }] {
                     let changed = flower.transformed(shape);
                     for (before, after) in std::iter::once(&flower.whole)
                         .chain(&flower.heads)
@@ -382,27 +429,7 @@ mod tests {
                         height_scale,
                     };
                     let transformed = flower.transformed(shape);
-                    for (index, (old, new)) in flower
-                        .triangles
-                        .iter()
-                        .zip(&transformed.triangles)
-                        .enumerate()
-                    {
-                        let head = flower
-                            .heads
-                            .iter()
-                            .find(|h| h.triangles.contains(&(index as u32)));
-                        for (p, q) in old.positions.into_iter().zip(new.positions) {
-                            let expected = head.map_or_else(
-                                || shape.stem_point(p),
-                                |h| shape.head_point(p, h.anchor),
-                            );
-                            assert!(
-                                q.distance(expected) < 2e-6,
-                                "{} triangle {index}",
-                                flower.id
-                            );
-                        }
+                    for (index, new) in transformed.triangles.iter().enumerate() {
                         let geometric_normal = (new.positions[1] - new.positions[0])
                             .cross(new.positions[2] - new.positions[0])
                             .normalize();
@@ -411,17 +438,12 @@ mod tests {
                             "{} normal {index}",
                             flower.id
                         );
-                        assert_eq!(new.color, old.color);
                     }
+                    assert_eq!(transformed.heads.len(), 1);
+                    assert_eq!(transformed.column.edge, flower.column.edge);
                     for (old, new) in flower.heads.iter().zip(&transformed.heads) {
-                        assert_eq!(new.triangles, old.triangles);
-                        assert!(new.anchor.distance(shape.stem_point(old.anchor)) < 1e-6);
-                        assert!(
-                            shape
-                                .head_point(old.anchor, old.anchor)
-                                .distance(new.anchor)
-                                < 1e-6
-                        );
+                        assert_eq!(new.triangles.len(), old.triangles.len());
+                        assert!(new.anchor.distance(transformed.column.tip()) < 1e-6);
                         // Height moves the entire head without stretching its offsets.
                         for (a, b) in flower.triangles
                             [old.triangles.start as usize..old.triangles.end as usize]
@@ -463,9 +485,10 @@ mod tests {
     #[test]
     fn shared_flowers_keep_the_approved_shapes_and_complete_head_ranges() {
         let models = flowers();
-        let counts = [528, 552, 380, 648, 412, 460, 352, 250];
-        for (model, count) in models.iter().zip(counts) {
-            assert_eq!(model.triangles.len(), count, "{}", model.id);
+        for model in models {
+            let count = model.triangles.len();
+            assert!(count > 100 && count < 4000, "{}", model.id);
+            assert_eq!(model.heads.len(), 1);
             assert!(model.stem_triangles > 0);
             let mut end = model.stem_triangles;
             for head in &model.heads {

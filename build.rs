@@ -1515,6 +1515,8 @@ fn validate_shared_flower_assets() {
     let mut hash = crc32fast::Hasher::new();
     for source in [
         "assets/models/flower-source.mjs",
+        "assets/models/flower-stem.mjs",
+        "assets/models/flower-topology.mjs",
         "scripts/publish-flower-models.mjs",
     ] {
         println!("cargo:rerun-if-changed={source}");

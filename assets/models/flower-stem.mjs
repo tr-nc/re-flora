@@ -38,19 +38,23 @@ function subtract(a,b){
   if(ix0>=ix1||iz0>=iz1)return [a];
   return [[x0,z0,ix0,z1],[ix1,z0,x1,z1],[ix0,z0,ix1,iz0],[ix0,iz1,ix1,z1]].filter(([a,b,c,d])=>c>a&&d>b);
 }
-export function voxelStemSurface(column){
-  const mesh=surface(),half=column.cellSize/2;
+export function voxelStemSurface(column,closedCells=false){
+  const mesh={...surface(),anchors:[]},half=column.cellSize/2;
   const footprint=cell=>cell?[cell.center[2]-half,cell.center[0]-half,cell.center[2]+half,cell.center[0]+half]:null;
   for(const [i,cell]of column.cells.entries()){
-    const c=cell.center;
+    const c=cell.center,firstTriangle=mesh.indices.length/3;
     // The only four vertical faces at this height belong to this one cube.
     for(const axis of [0,2])for(const sign of [-1,1]){
       const u=(axis+1)%3,v=(axis+2)%3;
       face(mesh,axis,sign,c[axis]+sign*half,[c[u]-half,c[v]-half,c[u]+half,c[v]+half]);
     }
-    for(const sign of [-1,1])for(const strip of subtract(footprint(cell),footprint(column.cells[i+sign]))){
+    // Moving cells need complete caps: wind can expose an area hidden at rest.
+    // Their internal faces remain occluded inside the closed opaque cell volumes.
+    // Static browser meshes can omit those internal faces.
+    for(const sign of [-1,1])for(const strip of closedCells?[footprint(cell)]:subtract(footprint(cell),footprint(column.cells[i+sign]))){
       face(mesh,1,sign,c[1]+sign*half,strip);
     }
+    for(let triangle=firstTriangle;triangle<mesh.indices.length/3;triangle++)mesh.anchors.push([...c]);
   }
   return mesh;
 }

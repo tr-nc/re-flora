@@ -15,6 +15,7 @@ import tracer_types;
 public struct FlowerModelPart {
     public uint4 range; // first triangle, count, shared cache source, head count
     public float4 center_radius;
+    public float4 stem; // tip x/y, max bend fraction, stem/leaf triangle count
 };
 public struct PushConstantFlower {
     public uint3 chunk_world_offset;
@@ -46,7 +47,11 @@ public uint flowerPartCount() { return flowerPart(0u).range.w; }
 public FlowerModelPart flowerTilePart(uint tile) {
     return flowerPart(1u+tile%flowerPartCount());
 }
-public ModelPixelFrame flowerPlantFrame(uint plant) {
+public struct FlowerPlantPose {
+    public ModelPixelFrame frame;
+    public float3 tip_offset;
+};
+public FlowerPlantPose flowerPlantPose(uint plant) {
     Instance instance=flora_instances.data[floraSpeciesInstanceOffset(flower_pc.species)+plant];
     uint3 base=unpackInstanceLocalPosition(instance.packed_local_pos)+flower_pc.chunk_world_offset;
     uint3 root=base+uint3(0,1,0);
@@ -67,9 +72,9 @@ public ModelPixelFrame flowerPlantFrame(uint plant) {
         ?sampleVegetationResponse(root,seed,flower_pc.species,plant,flower_pc.response_offset)
         :sampleWindVolume(wind_volume_info,wind_volume_tex,float3(root)/256.0,seed);
     float3 rest=floraNaturalRestBend(gui_input,seed,1.0,plantHeight);
-    // One rigid root pose for the entire authored mesh, including every head.
-    // Wind changes orientation, never detaches a head or reauthors its petals.
-    float3 up=normalize(float3(0,plantHeight,0)+wind+rest);
+    // Keep horizontal voxel layers horizontal. Wind transports whole cells,
+    // leaf attachments and the terminal head; it never rotates/stretches cells.
+    float3 up=float3(0,1,0);
     float yaw=constructFloat01(wellonsHash(seed))*6.2831853;
     float3 sideways=float3(cos(yaw),0,sin(yaw));
     ModelPixelFrame frame;
@@ -77,7 +82,20 @@ public ModelPixelFrame flowerPlantFrame(uint plant) {
     frame.axisZ=normalize(cross(sideways,up));
     frame.axisX=normalize(cross(up,frame.axisZ));frame.axisY=up;
     frame.scale=spawn.visibility>0.0?scale:0.0;
-    return frame;
+    float3 displacement=float3(wind.x+rest.x,0,wind.z+rest.z)*growth/256.0;
+    // Bounded smooth bending preserves positive overlap between adjacent cells
+    // throughout the saved height range. The uploaded bound is also consumed
+    // by CPU culling; it must not be independently tuned here.
+    float limit=flowerPart(0u).stem.y*frame.scale*flowerPart(0u).stem.z;
+    displacement*=min(1.0,limit/max(length(displacement),1e-7));
+    frame.center+=displacement;
+    FlowerPlantPose pose;pose.frame=frame;pose.tip_offset=displacement;return pose;
+}
+public ModelPixelFrame flowerPlantFrame(uint plant) { return flowerPlantPose(plant).frame; }
+public float3 flowerStemWorld(FlowerPlantPose pose,float3 local,float anchorHeight) {
+    float t=saturate(anchorHeight/max(flowerPart(0u).stem.y,1e-7));
+    float weight=t*t*(3.0-2.0*t);
+    return modelPixelWorld(pose.frame,local)+pose.tip_offset*(weight-1.0);
 }
 public float3 flowerNormal(ModelPixelFrame frame,float3 normal) {
     return normalize(frame.axisX*normal.x+frame.axisY*normal.y+frame.axisZ*normal.z);

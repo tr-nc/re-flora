@@ -75,6 +75,11 @@ pub(super) struct PreparedFlowerModels {
 impl PreparedFlowerModels {
     pub fn record(&self, cmdbuf: &CommandBuffer, resources: &TracerResources) {
         if let Some(stems) = &self.stems {
+            assert!(
+                u64::from(self.stem_index_count) * 4
+                    <= resources.flower_models.flower_stem_indices.get_size_bytes(),
+                "flower stem draw exceeds bounded topology allocation"
+            );
             cmdbuf.bind_vertex_buffers(0, &[&resources.flower_models.flower_stem_vertices]);
             cmdbuf.bind_index_buffer_u32(&resources.flower_models.flower_stem_indices);
             stems.record(cmdbuf, self.stem_index_count);
@@ -444,7 +449,9 @@ impl ModelPixelFrame {
                 instance_indices: None,
             },
             stems,
-            stem_index_count: model.stem_triangles * 3,
+            stem_index_count: cache.flower_stem_index_count(
+                (species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize,
+            ),
         })
     }
 

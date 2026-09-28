@@ -99,6 +99,21 @@ test('all flowers use the fixed voxel stalk, one terminal head and directly atta
   }
 });
 
+test('native moving cells retain six complete faces, including caps exposed by wind',()=>{
+  const column=stemColumn(.85,.08),mesh=voxelStemSurface(column,true),s=column.cellSize;
+  assert.equal(mesh.indices.length,column.cells.length*12*3);
+  assert.equal(mesh.anchors.length,column.cells.length*12);
+  for(let layer=0;layer<column.cells.length;layer++){
+    let capArea=0;
+    for(let i=layer*36;i<(layer+1)*36;i+=3){
+      const [a,b,c]=mesh.indices.slice(i,i+3).map(index=>mesh.positions.slice(index*3,index*3+3));
+      assert.deepEqual(mesh.anchors[i/3],column.cells[layer].center);
+      if(Math.abs(a[1]-b[1])<1e-10&&Math.abs(a[1]-c[1])<1e-10)capArea+=Math.abs((b[0]-a[0])*(c[2]-a[2])-(b[2]-a[2])*(c[0]-a[0]))/2;
+    }
+    near(capArea,2*s*s);
+  }
+});
+
 test('invalid/disconnected column requests are rejected instead of adding lateral voxels',()=>{
   for(const top of [-2,NaN,Infinity])assert.throws(()=>stemColumn(top));
   assert.throws(()=>stemColumn(.5,100));

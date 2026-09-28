@@ -9,9 +9,9 @@ import {spawnSync} from 'node:child_process';
 
 const help = `Usage: node scripts/validate-flower-models.mjs [--seconds <positive-number>]
 
-Runs hidden, muted Release captures of A (whole plant) and B (complete heads
-plus mesh stems), then a live A/B, 8/32/64px, view, growth, lifetime and resize
-sweep. --seconds sets the sweep duration (default: 10); captures take 3s each.
+Runs hidden, muted Release captures of the fixed single-column voxel stem
+and complete terminal head, then an 8/32/64px, view, growth, lifetime and resize
+sweep. Legacy capture labels a/b are retained; both use the same selected renderer. --seconds sets the sweep duration (default: 10); captures take 3s each.
 Requires Cargo, Slang and a Vulkan-capable desktop session. Never saves settings.
 Artifacts: target/flower-native-review/{a,b}.png, logs and summary.json.
 
@@ -33,7 +33,7 @@ fs.mkdirSync(directory,{recursive:true});
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const config = () => hash(fs.readFileSync(path.join(root,'config/gui.toml')));
 const before = config();
-const summary = {configSha256:before,pixelBudgets:{A:'one N×N tile per plant',B:'one N×N tile per complete head + mesh stems'},runs:[]};
+const summary = {configSha256:before,pixelBudgets:{A:'one terminal head tile + single-column voxel stem (legacy label)',B:'one terminal head tile + single-column voxel stem (legacy label)'},runs:[]};
 try {
   for (const mode of ['a','b','ab']) {
     const image = path.join(directory,`${mode}.png`);
@@ -87,7 +87,7 @@ try {
   }
   summary.result = 'passed';
   fs.writeFileSync(path.join(directory,'summary.json'),JSON.stringify(summary,null,2)+'\n');
-  console.log(`PASS: 8 species, live A/B and 9 phases, lifetime/resize, clean Vulkan logs.\n${directory}/summary.json\nVisual approval and large-population performance acceptance remain separate.`);
+  console.log(`PASS: 8 single-column species, 9 phases, lifetime/resize, clean Vulkan logs.\n${directory}/summary.json\nVisual approval and large-population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${directory}/; native log: cargo run --release -- --latest-log`);
   process.exitCode = 1;

@@ -5,15 +5,18 @@ import {crc32} from 'node:zlib';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {flowerCatalog,flowerGeometry} from '../assets/models/flower-source.mjs';
+import {singleStemFlower} from '../assets/models/flower-topology.mjs';
 
 export async function publishedFlowers(){
-  const sources=await Promise.all(['../assets/models/flower-source.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
+  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-stem.mjs','../assets/models/flower-topology.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
   const flowers=flowerCatalog.map(spec=>{
-    const recipe=flowerGeometry(spec.id);
-    return {id:spec.id,root:[0,-1.2,0],center:[0,.2,0],span:3.7,heads:recipe.heads,
+    const recipe=singleStemFlower(flowerGeometry(spec.id),spec.defaults,0,{closedStemCells:true});
+    return {id:spec.id,root:[0,-1.2,0],center:[0,.2,0],span:3.7,heads:recipe.heads,column:recipe.column,
       parts:recipe.parts.map(part=>({...part,color:[1,3,5].map(i=>parseInt(spec.defaults[part.material].slice(i,i+2),16))}))};
   });
-  return JSON.stringify({source_crc32:crc32(Buffer.concat(sources)),flowers})+'\n';
+  // Canonical authoring precision avoids cross-platform libm last-bit noise
+  // while retaining much more precision than the runtime f32 representation.
+  return JSON.stringify({source_crc32:crc32(Buffer.concat(sources)),flowers},(_key,value)=>typeof value==='number'?Number(value.toFixed(9)):value)+'\n';
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   if(process.argv.length!==2){
@@ -21,6 +24,6 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
     if(process.argv[2]!=='--help')process.exitCode=2;
   }else{
     await writeFile(new URL('../assets/models/flowers.json',import.meta.url),await publishedFlowers());
-    console.log('Published assets/models/flowers.json (8 original flower meshes).');
+    console.log('Published assets/models/flowers.json (8 single-column flower meshes).');
   }
 }

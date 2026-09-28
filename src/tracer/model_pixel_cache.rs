@@ -25,7 +25,7 @@ pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
 const KINDS: usize = 4; // leaves, shared attached/fallen apple, butterflies, flowers
 const SURFACE_BYTES: u64 = 32;
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 static SHAPES: LazyLock<[u32; KINDS]> = LazyLock::new(|| {
     [
         64,
@@ -80,6 +80,7 @@ fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [Vec2; 3], material: u32) -> T
 struct FlowerPart {
     range: [u32; 4],
     center_radius: [f32; 4],
+    stem: [f32; 4], // tip x/y, max bend fraction, non-pixel stem/leaf triangle count
 }
 pub(super) struct Source {
     pub(super) triangles: Vec<Triangle>,
@@ -163,11 +164,14 @@ pub(super) fn source(shape: Shape) -> Source {
     for (model, authored) in models::flowers().iter().enumerate() {
         let flower = authored.transformed(shape);
         let first = triangles.len() as u32;
-        // Bound any rigid growth/wind pose, including the displayed quad corners.
+        // Bound growth/yaw and attachment wind transport, including quad corners.
         // Spawn translation is vertical and bounded separately, not a scale.
         for part in std::iter::once(&flower.whole).chain(&flower.heads) {
-            flower_root_radius = flower_root_radius
-                .max(part.center.length() + part.radius * std::f32::consts::SQRT_2);
+            flower_root_radius = flower_root_radius.max(
+                part.center.length()
+                    + part.radius * std::f32::consts::SQRT_2
+                    + flower.column.tip().y * models::MAX_BEND_FRACTION,
+            );
         }
         flower_spawn_height = flower_spawn_height.max(flower.whole.center.y + flower.whole.radius);
         for part_index in 0..=models::MAX_HEADS {
@@ -184,10 +188,17 @@ pub(super) fn source(shape: Shape) -> Source {
                     flower.heads.len() as u32,
                 ],
                 center_radius: part.center.extend(part.radius).to_array(),
+                stem: [
+                    flower.column.tip().x,
+                    flower.column.tip().y,
+                    models::MAX_BEND_FRACTION,
+                    flower.stem_triangles as f32,
+                ],
             }));
         }
         for t in &flower.triangles {
             let mut gpu = triangle(t.positions, [t.normal; 3], [Vec2::ZERO; 3], 0);
+            gpu.normals[0][3] = t.anchor.y;
             gpu.uv01 = [
                 f32::from(t.color[0]) / 255.,
                 f32::from(t.color[1]) / 255.,
@@ -434,6 +445,9 @@ impl CacheFrame {
             "flower_parts",
             DescriptorResource::Buffer(&self.source.parts),
         )
+    }
+    pub fn flower_stem_index_count(&self, model: usize) -> u32 {
+        self.source.cpu.flower_parts[model * (models::MAX_HEADS + 1)].stem[3] as u32 * 3
     }
     pub fn flower_triangles(&self) -> (&'static str, DescriptorResource<'_>) {
         (
@@ -749,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn transformed_native_stems_and_both_cached_modes_share_exact_source_and_bounds() {
+    fn transformed_voxel_stems_and_cached_heads_share_exact_source_and_bounds() {
         let base = source(Shape::default());
         for shape in [
             Shape::default(),
@@ -769,10 +783,22 @@ mod tests {
                 bytemuck::cast_slice::<_, u8>(&base.triangles[..first])
             );
             assert_eq!(s.palette, base.palette);
-            assert_eq!(s.ranges, base.ranges);
+            assert_eq!(
+                s.ranges[..FLOWER_SOURCE_BASE as usize],
+                base.ranges[..FLOWER_SOURCE_BASE as usize]
+            );
             for (model, authored) in models::flowers().iter().enumerate() {
                 let flower = authored.transformed(shape);
                 let whole = &s.flower_parts[model * 4];
+                assert_eq!(whole.stem[3] as u32, flower.stem_triangles);
+                assert_eq!(
+                    &whole.stem[..3],
+                    &[
+                        flower.column.tip().x,
+                        flower.column.tip().y,
+                        models::MAX_BEND_FRACTION
+                    ]
+                );
                 for (i, triangle) in flower.triangles.iter().enumerate() {
                     let stored = s.triangles[whole.range[0] as usize + i];
                     assert_eq!(stored.a, triangle.positions[0].extend(0.).to_array());
@@ -782,7 +808,10 @@ mod tests {
                             .extend(0.)
                             .to_array()
                     );
-                    assert_eq!(stored.normals[0], triangle.normal.extend(0.).to_array());
+                    assert_eq!(
+                        stored.normals[0],
+                        triangle.normal.extend(triangle.anchor.y).to_array()
+                    );
                     assert!(triangle
                         .positions
                         .iter()
@@ -800,7 +829,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<FlowerPart>(), 32);
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 48);
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlowerPixel>(),
             48
