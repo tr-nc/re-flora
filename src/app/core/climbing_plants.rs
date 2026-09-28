@@ -85,7 +85,7 @@ impl ClimbingPlants {
                 self.focus_requested = true;
             }
         });
-        ui.small("Grow → Climbing Vine plants one session vine at the clicked terrain face. Test terrain restarts the demo vine; search controls change live.");
+        ui.small("Climbing vines are demo-only, not in the Grow plant list. Create vine wall and focus starts a session vine; test terrain restarts it. Search controls change live.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
             ui.small(format!(

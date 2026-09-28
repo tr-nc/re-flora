@@ -248,7 +248,6 @@ pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &[
     FloraPaintSelection::GrassMix,
     FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX),
     FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX),
-    FloraPaintSelection::ClimbingVine,
     FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES),
     FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 1),
     FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + 2),
@@ -325,8 +324,8 @@ mod tests {
     }
 
     #[test]
-    fn climbing_vine_is_a_grow_tool_choice_not_a_shader_species() {
-        assert!(PLAYER_FLORA_PAINT_SELECTIONS.contains(&FloraPaintSelection::ClimbingVine));
+    fn climbing_vine_is_not_in_the_grow_tool_or_shader_species() {
+        assert!(!PLAYER_FLORA_PAINT_SELECTIONS.contains(&FloraPaintSelection::ClimbingVine));
         assert_eq!(
             flora_paint_selection_label(FloraPaintSelection::ClimbingVine),
             "Climbing Vine"
