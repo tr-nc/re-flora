@@ -16,7 +16,7 @@ export const flowerCatalog=[
     defaults:{...base,petalColor:'#e4a0c0',innerColor:'#b94880',centerColor:'#e9be4c',leafColor:'#689467',tilt:44},note:'八片缺口宽瓣 · 深粉内圈 · 羽状细叶'},
   {id:'bellflower',label:'桃叶风铃草',latin:'Campanula persicifolia',kind:'bell',leaf:'blade',
     heads:[[-.28,.89,0,.34,-28],[.4,.35,.05,.32,27]],
-    defaults:{...base,petalColor:'#9998df',innerColor:'#bbb8ed',centerColor:'#ead7a3',leafColor:'#608c66',tilt:-8},note:'五裂连体钟杯 · 可见内壁 · 两朵向外开的花'},
+    defaults:{...base,petalColor:'#9998df',innerColor:'#bbb8ed',centerColor:'#ead7a3',leafColor:'#608c66',tilt:22},note:'五裂连体钟杯 · 可见内壁 · 两朵向外开的花'},
   {id:'coneflower',label:'紫松果菊',latin:'Echinacea purpurea',kind:'radial',petals:12,width:.2,leaf:'blade',droop:.75,
     heads:[[0,.92,0,.65,0]],defaults:{...base,petalColor:'#d18bb4',innerColor:'#b36c98',centerColor:'#b77c3c',leafColor:'#65854f',tilt:55},note:'十二条下垂粉瓣 · 高起的橙褐锥盘'},
   {id:'tulip',label:'郁金香',latin:'Tulipa',kind:'tulip',leaf:'broad',

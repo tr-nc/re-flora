@@ -40,4 +40,21 @@ test('shared family publishes identical geometry but distinct species palettes',
   assert.deepEqual(forget.parts.map(({color,...part})=>part),cosmos.parts.map(({color,...part})=>part));
   assert.equal(flowers.some(f=>f.id==='corn-poppy'),false);
 });
+test('the published bellflower mouth faces slightly upward, not down or straight skyward',async()=>{
+  const {flowers}=JSON.parse(await publishedFlowers());
+  const bell=flowers.find(f=>f.id==='bellflower');
+  const petals=bell.parts.find(part=>part.material==='petalColor');
+  // The bell's fourth ring (vertices 30–39) is the lip. Sum its edges
+  // (Newell normal) to measure the real published opening, including lobes.
+  let [nx,ny,nz]=[0,0,0];
+  for(let i=0;i<10;i++){
+    const a=petals.positions.slice((30+i)*3,(30+i)*3+3);
+    const b=petals.positions.slice((30+(i+1)%10)*3,(30+(i+1)%10)*3+3);
+    nx+=(a[1]-b[1])*(a[2]+b[2]);
+    ny+=(a[2]-b[2])*(a[0]+b[0]);
+    nz+=(a[0]-b[0])*(a[1]+b[1]);
+  }
+  const elevation=Math.atan2(ny,Math.hypot(nx,nz))*180/Math.PI;
+  assert.ok(elevation>=15&&elevation<=30,`Bellflower mouth elevation: ${elevation.toFixed(1)}° (wanted slightly upward)`);
+});
 test('missing flower heads are rejected',()=>assert.throws(()=>completeFlowerHead({parts:[],heads:[]})));
