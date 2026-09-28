@@ -1,4 +1,4 @@
-// Preview-only A/B: authored low-poly stems versus half-grass-edge 3D cubes.
+// Preview-only A/B: one low-poly stalk versus one cube per horizontal layer.
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
@@ -35,20 +35,29 @@ const path=require('node:path');
         const asset=await definition.create();
         const snapshot=()=>({
           unchanged:asset.meshes.filter(mesh=>!mesh.userData.stem).map(mesh=>({name:mesh.name,positions:Array.from(mesh.geometry.attributes.position.array),indices:Array.from(mesh.geometry.index.array)})),
-          heads:asset.pixelParts.map(part=>({center:part.center.toArray(),span:part.span,anchor:part.anchor})),
+          heads:asset.pixelParts.map(part=>({center:part.center.toArray(),span:part.span,anchor:part.anchor,calyxCount:part.meshes.filter(mesh=>mesh.name.includes('calyx')&&!mesh.userData.stem).length})),
           stem:asset.meshes.find(mesh=>mesh.userData.stem).userData.stem,
         });
         try{
           for(const shape of [{},{height:1.15,bend:-.25,leafSize:1.35,flowerSize:1.3}]){
             const settings={...definition.defaults,...shape};asset.apply(settings);const a=snapshot();
             asset.apply({...settings,voxelStems:true});const b=snapshot();
-            results.push({id:definition.id,unchanged:JSON.stringify(a.unchanged)===JSON.stringify(b.unchanged),heads:JSON.stringify(a.heads)===JSON.stringify(b.heads),a:a.stem,b:b.stem});
+            results.push({id:definition.id,headCount:b.heads.length,calyxCount:b.heads[0].calyxCount,anchor:b.heads[0].anchor,unchanged:JSON.stringify(a.unchanged)===JSON.stringify(b.unchanged),heads:JSON.stringify(a.heads)===JSON.stringify(b.heads),a:a.stem,b:b.stem});
           }
         }finally{asset.dispose();}
       }
       return results;
     });
-    for(const item of geometry){assert.ok(item.unchanged&&item.heads,item.id);assert.equal(item.a.mode,'mesh');assert.equal(item.b.mode,'voxels');assert.equal(item.b.cellSize,.05);assert.ok(item.b.cells>0);}
+    for(const item of geometry){
+      assert.ok(item.unchanged&&item.heads,item.id);assert.equal(item.a.mode,'mesh');assert.equal(item.b.mode,'voxels');assert.equal(item.b.cellSize,.05);
+      assert.equal(item.headCount,1);assert.equal(item.calyxCount,1,'calyx stays in the pixelated head, not the voxel stalk');assert.deepEqual(item.anchor,item.b.tip);
+      assert.equal(item.b.cells,item.b.layerCenters.length);
+      for(let i=1;i<item.b.layerCenters.length;i++){
+        const a=item.b.layerCenters[i-1],b=item.b.layerCenters[i];
+        assert.ok(Math.abs(b[1]-a[1]-.05)<1e-8,'one cube per height');
+        assert.ok(Math.abs(b[0]-a[0])<.05&&Math.abs(b[2]-a[2])<.05,'no disconnected layers');
+      }
+    }
     const rows=[];
     for(const spec of flowerCatalog){
       await page.locator('#model').selectOption(spec.id);await stable();
@@ -59,6 +68,7 @@ const path=require('node:path');
       assert.notEqual(aSource,await image('source'));
       assert.deepEqual(await heads(),aHeads,'stem A/B never changes head tiles');
       assert.equal((await state()).stem.mode,'voxels');
+      assert.equal((await state()).pixelPartCount,1);
       assert.deepEqual((await state()).pixelBuffer,[512,512]);
       rows.push({label:spec.label,a,b});
       for(const projection of ['perspective','orthographic']){
@@ -81,9 +91,9 @@ const path=require('node:path');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     for(const id of ['leaf','butterfly','apple']){await page.locator('#model').selectOption(id);await stable();assert.equal(await page.locator('#model-voxelStems').count(),0);}
     const sheet=await browser.newPage({viewport:{width:1000,height:2800}});
-    await sheet.setContent(`<style>body{background:#293c36;color:#eee;font:16px system-ui}.row{display:grid;grid-template-columns:200px 360px 360px;align-items:center}img{width:340px;height:340px;image-rendering:pixelated}h1{font-size:22px}</style><h1>茎和分枝：A 原低模 / B 三维颗粒（草边长 1/2）</h1><p>叶片与花头不变；仅网页实验，非游戏光照或性能验收。</p>${rows.map(row=>`<div class="row"><strong>${row.label}</strong><img src="${row.a}"><img src="${row.b}"></div>`).join('')}`);
+    await sheet.setContent(`<style>body{background:#293c36;color:#eee;font:16px system-ui}.row{display:grid;grid-template-columns:200px 360px 360px;align-items:center}img{width:340px;height:340px;image-rendering:pixelated}h1{font-size:22px}</style><h1>单茎单花：A 低模 / B 每层一个方块（草边长 1/2）</h1><p>叶片直连主茎、无分枝；A/B 花头与叶片相同；仅网页实验，非游戏光照或性能验收。</p>${rows.map(row=>`<div class="row"><strong>${row.label}</strong><img src="${row.a}"><img src="${row.b}"></div>`).join('')}`);
     await sheet.screenshot({path:path.join(artifacts,'stem-ab.png'),fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log(`PASS: ${flowerCatalog.length} stem A/Bs; unchanged leaf/head geometry, head tiles and anchors; perspective/orthographic views, reset, GPU disposal, mobile. Screenshots: ${artifacts}`);
+    console.log(`PASS: ${flowerCatalog.length} single-stem A/Bs; one terminal flower, one cube per layer; unchanged leaf/head geometry, head tiles and anchors; perspective/orthographic views, reset, GPU disposal, mobile. Screenshots: ${artifacts}`);
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

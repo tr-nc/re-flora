@@ -1,54 +1,69 @@
-// Preview-only geometric candidate. Sample the authored stem triangles in 3D,
-// never their screen projection. Leaves and complete flower heads stay untouched.
-// Native grass cubes are 1/256 world units; flowers use 10/256 per recipe unit
-// (flora_vertex.slang / flora::models::WORLD_SCALE). Half a grass edge = .05 here.
+// Preview-only single-column stems. Native grass edge = 1/256 world units;
+// flower recipe scale = 10/256. Half a grass edge is .05 recipe units.
 export const STEM_CELL_SIZE=.05;
 export const STEM_GRID_ORIGIN=[0,-1.2,0];
 
-const sub=(a,b)=>a.map((v,i)=>v-b[i]);
-const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-const axes=[[1,0,0],[0,1,0],[0,0,1]];
-
-// Triangle/unit-box separating-axis test, including edge cross-products. An
-// AABB-only test would thicken diagonal branches into large rectangular slabs.
-function overlaps(triangle,center){
-  const points=triangle.map(p=>sub(p,center));
-  const edges=points.map((p,i)=>sub(points[(i+1)%3],p));
-  const candidates=[...axes,cross(edges[0],edges[1]),...edges.flatMap(edge=>axes.map(axis=>cross(edge,axis)))];
-  return candidates.every(axis=>{
-    const radius=axis.reduce((sum,v)=>sum+Math.abs(v),0)*(.5+1e-9);
-    const projections=points.map(p=>p.reduce((sum,v,i)=>sum+v*axis[i],0));
-    return Math.min(...projections)<=radius&&Math.max(...projections)>=-radius;
+export function stemColumn(topY,bend=0){
+  if(!Number.isFinite(topY)||topY<=STEM_GRID_ORIGIN[1]||!Number.isFinite(bend))throw new Error('Invalid single-stem extent');
+  const count=Math.ceil((topY-STEM_GRID_ORIGIN[1])/STEM_CELL_SIZE);
+  const cells=Array.from({length:count},(_,layer)=>{
+    const t=count===1?0:layer/(count-1),x=bend*t*t*(3-2*t);
+    return {layer,center:[x,STEM_GRID_ORIGIN[1]+(layer+.5)*STEM_CELL_SIZE,0]};
   });
+  // Translation only: rotating cubes would put two cells in the same horizontal
+  // cross-section. Neighbor footprints must overlap with positive area.
+  for(let i=1;i<cells.length;i++)for(const axis of [0,2]){
+    if(Math.abs(cells[i].center[axis]-cells[i-1].center[axis])>=STEM_CELL_SIZE)throw new Error('Stem bend disconnects adjacent layers');
+  }
+  return {cells,cellSize:STEM_CELL_SIZE,root:[...STEM_GRID_ORIGIN],tip:[cells.at(-1).center[0],STEM_GRID_ORIGIN[1]+count*STEM_CELL_SIZE,0]};
 }
-
-export function voxelizeStem(part){
-  const points=Array.from({length:part.positions.length/3},(_,i)=>
-    part.positions.slice(i*3,i*3+3).map((v,k)=>(v-STEM_GRID_ORIGIN[k])/STEM_CELL_SIZE));
-  const occupied=new Map(),key=p=>p.join(',');
-  for(let i=0;i<part.indices.length;i+=3){
-    const triangle=part.indices.slice(i,i+3).map(index=>points[index]);
-    const low=axes.map((_,k)=>Math.ceil(Math.min(...triangle.map(p=>p[k]))-.5-1e-9));
-    const high=axes.map((_,k)=>Math.floor(Math.max(...triangle.map(p=>p[k]))+.5+1e-9));
-    for(let x=low[0];x<=high[0];x++)for(let y=low[1];y<=high[1];y++)for(let z=low[2];z<=high[2];z++){
-      const cell=[x,y,z],id=key(cell);
-      if(!occupied.has(id)&&overlaps(triangle,cell))occupied.set(id,cell);
+function surface(){return {positions:[],indices:[]};}
+function quad(mesh,points){
+  const first=mesh.positions.length/3;mesh.positions.push(...points.flat());
+  mesh.indices.push(first,first+1,first+2,first,first+2,first+3);
+}
+function face(mesh,axis,sign,coordinate,rect){
+  const [loU,loV,hiU,hiV]=rect;if(hiU-loU<1e-12||hiV-loV<1e-12)return;
+  const u=(axis+1)%3,v=(axis+2)%3;
+  const points=[[loU,loV],[hiU,loV],[hiU,hiV],[loU,hiV]].map(([a,b])=>{
+    const p=[0,0,0];p[axis]=coordinate;p[u]=a;p[v]=b;return p;
+  });
+  quad(mesh,sign>0?points:points.reverse());
+}
+// Rectangle A minus its overlap with B; disjoint exposed strips. This removes
+// coincident internal caps without hiding the small ledges between shifted cubes.
+function subtract(a,b){
+  if(!b)return [a];
+  const [x0,z0,x1,z1]=a,ix0=Math.max(x0,b[0]),iz0=Math.max(z0,b[1]),ix1=Math.min(x1,b[2]),iz1=Math.min(z1,b[3]);
+  if(ix0>=ix1||iz0>=iz1)return [a];
+  return [[x0,z0,ix0,z1],[ix1,z0,x1,z1],[ix0,z0,ix1,iz0],[ix0,iz1,ix1,z1]].filter(([a,b,c,d])=>c>a&&d>b);
+}
+export function voxelStemSurface(column){
+  const mesh=surface(),half=column.cellSize/2;
+  const footprint=cell=>cell?[cell.center[2]-half,cell.center[0]-half,cell.center[2]+half,cell.center[0]+half]:null;
+  for(const [i,cell]of column.cells.entries()){
+    const c=cell.center;
+    // The only four vertical faces at this height belong to this one cube.
+    for(const axis of [0,2])for(const sign of [-1,1]){
+      const u=(axis+1)%3,v=(axis+2)%3;
+      face(mesh,axis,sign,c[axis]+sign*half,[c[u]-half,c[v]-half,c[u]+half,c[v]+half]);
+    }
+    for(const sign of [-1,1])for(const strip of subtract(footprint(cell),footprint(column.cells[i+sign]))){
+      face(mesh,1,sign,c[1]+sign*half,strip);
     }
   }
-  // Only exposed cube faces, with independent face vertices for crisp normals.
-  // All authored stems are thinner than one cell: conservative surface sampling
-  // covers their cross-section; this is not a general thick-solid voxelizer.
-  const positions=[],indices=[];
-  const cells=[...occupied.values()].sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]);
-  for(const cell of cells)for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){
-    const neighbor=cell.slice();neighbor[axis]+=sign;
-    if(occupied.has(key(neighbor)))continue;
-    const u=(axis+1)%3,v=(axis+2)%3,first=positions.length/3;
-    for(const [du,dv]of [[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]]){
-      const p=cell.slice();p[axis]+=sign*.5;p[u]+=du;p[v]+=dv;
-      positions.push(...p.map((n,k)=>STEM_GRID_ORIGIN[k]+n*STEM_CELL_SIZE));
-    }
-    indices.push(...(sign>0?[0,1,2,0,2,3]:[0,2,1,0,3,2]).map(n=>first+n));
+  return mesh;
+}
+export function smoothStemSurface(column){
+  const mesh=surface(),sides=6,radius=.018;
+  const centers=[column.root,...column.cells.map(cell=>cell.center),column.tip];
+  const rings=centers.map(center=>Array.from({length:sides},(_,i)=>[center[0]+radius*Math.cos(i*Math.PI*2/sides),center[1],center[2]+radius*Math.sin(i*Math.PI*2/sides)]));
+  for(let row=0;row<rings.length-1;row++)for(let i=0;i<sides;i++){
+    const next=(i+1)%sides;quad(mesh,[rings[row][i],rings[row+1][i],rings[row+1][next],rings[row][next]]);
   }
-  return {positions,indices,cells,cellSize:STEM_CELL_SIZE};
+  for(const [ring,reverse]of [[rings[0],false],[rings.at(-1),true]]){
+    const first=mesh.positions.length/3;mesh.positions.push(...ring.flat());
+    for(let i=1;i<sides-1;i++)mesh.indices.push(...(reverse?[first,first+i+1,first+i]:[first,first+i,first+i+1]));
+  }
+  return mesh;
 }

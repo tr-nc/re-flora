@@ -71,9 +71,9 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     for(const spec of flowerCatalog){
       await select(spec.id);assert.equal(await page.locator('#flower-heads-only').count(),0);
       assert.equal(await page.locator('#play').isDisabled(),true);
-      assert.equal((await state()).pixelPartCount,spec.heads.length);
+      assert.equal((await state()).pixelPartCount,1,'one terminal flower per unbranched stalk');
       const source=await image('source');
-      assert.deepEqual((await state()).pixelBuffer,[512,512]);assert.equal((await state()).partTiles.length,spec.heads.length);
+      assert.deepEqual((await state()).pixelBuffer,[512,512]);assert.equal((await state()).partTiles.length,1);
       const heads=await image('pixel');
       await verifyTiles();rows.push({name:spec.label,latin:spec.latin,source,heads,triangles:(await state()).triangles});
       await page.screenshot({path:path.join(artifacts,`${spec.id}-heads.png`),fullPage:true});
