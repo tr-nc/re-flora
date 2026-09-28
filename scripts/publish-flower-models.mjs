@@ -24,6 +24,6 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
     if(process.argv[2]!=='--help')process.exitCode=2;
   }else{
     await writeFile(new URL('../assets/models/flowers.json',import.meta.url),await publishedFlowers());
-    console.log('Published assets/models/flowers.json (8 complete flower-head meshes).');
+    console.log(`Published assets/models/flowers.json (${flowerCatalog.length} complete flower-head meshes).`);
   }
 }

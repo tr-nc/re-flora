@@ -1532,7 +1532,7 @@ fn validate_shared_flower_assets() {
         Some(u64::from(hash.finalize())),
         "Stale {path}. Run node scripts/publish-flower-models.mjs and commit the derived assets."
     );
-    assert_eq!(json["flowers"].as_array().map(Vec::len), Some(8));
+    assert_eq!(json["flowers"].as_array().map(Vec::len), Some(7));
 }
 
 fn main() {

@@ -24,14 +24,30 @@ struct SpeciesSnapshot {
 }
 
 impl FloraSnapshot {
-    /// Upgrade only the known pre-model-flower schemas: four original species,
-    /// optionally followed by retired Kochia. Preserve every retained instance,
-    /// growth value, spawn age and identity; new species start empty. Current
-    /// and unknown schemas are left alone for strict validation below.
+    /// Upgrade known older schemas, dropping retired Kochia or Corn Poppy.
+    /// Preserve every retained species' instances, growth and identities.
+    /// Unknown layouts remain untouched for strict validation below.
     pub fn migrate_species_schema(&mut self) -> usize {
         const LEGACY: [&str; 4] = ["tall_grass", "short_grass", "lavender", "ember_bloom"];
         let mut removed = 0;
         for chunk in &mut self.chunks {
+            // Previous eight-flower saves used the same stable keys in order,
+            // with Corn Poppy between Cosmos and Bellflower. Never shift an
+            // index without checking that entire layout first.
+            const RETIRED_POPPY_INDEX: usize = 8;
+            if chunk.species.len() == species::FLORA_SPECIES.len() + 1
+                && chunk.species[RETIRED_POPPY_INDEX].key == "corn-poppy"
+                && chunk.species.iter().enumerate().all(|(index, saved)| {
+                    index == RETIRED_POPPY_INDEX
+                        || saved.key
+                            == species::FLORA_SPECIES
+                                [index - usize::from(index > RETIRED_POPPY_INDEX)]
+                            .key
+                })
+            {
+                removed += chunk.species.remove(RETIRED_POPPY_INDEX).instances.len();
+                continue;
+            }
             let legacy_count = LEGACY.len();
             if !(chunk.species.len() == legacy_count || chunk.species.len() == legacy_count + 1)
                 || !chunk
@@ -318,6 +334,37 @@ mod tests {
     }
 
     #[test]
+    fn poppy_is_removed_from_old_gardens_without_shifting_other_flower_identities() {
+        let mut retained = fixture();
+        let bell = &mut retained.chunks[0].species[8];
+        bell.instances.push([0xff01_0203, 42]);
+        bell.authored.push([17, 99]);
+        let mut old = retained.clone();
+        old.chunks[0].species.insert(
+            8,
+            SpeciesSnapshot {
+                key: "corn-poppy".into(),
+                instances: vec![[0xff02_0304, 55]],
+                authored: vec![[18, 100]],
+            },
+        );
+        assert_eq!(old.migrate_species_schema(), 1);
+        old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(old, retained);
+        assert_eq!(old.migrate_species_schema(), 0);
+        old.chunks[0].species.insert(
+            8,
+            SpeciesSnapshot {
+                key: "unknown".into(),
+                instances: vec![],
+                authored: vec![],
+            },
+        );
+        assert_eq!(old.migrate_species_schema(), 0);
+        assert!(old.validate(UVec3::ONE, UVec3::splat(8)).is_err());
+    }
+
+    #[test]
     fn four_species_gardens_gain_empty_model_slots_without_changing_plants() {
         let mut saved: FloraSnapshot = serde_json::from_str(
             r#"{"chunks":[{"coordinate":[0,0,0],"species":[
@@ -355,7 +402,7 @@ mod tests {
         assert_eq!(decoded.migrate_species_schema(), 0);
         decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(saved, decoded);
-        assert_eq!(decoded.counts(), (8, 8));
+        assert_eq!(decoded.counts(), (7, 7));
     }
 
     #[test]

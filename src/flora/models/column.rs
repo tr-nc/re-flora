@@ -16,7 +16,7 @@ pub struct Column {
 impl Column {
     pub fn for_flower(id: &str) -> anyhow::Result<Self> {
         let layers = match id {
-            "wild-geranium" | "corn-poppy" => 41,
+            "wild-geranium" => 41,
             "forget-me-not" => 39,
             "oxeye-daisy" | "cosmos" | "bellflower" => 42,
             "coneflower" => 43,

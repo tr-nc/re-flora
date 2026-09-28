@@ -198,10 +198,9 @@ pub const FLORA_SPECIES: &[FloraSpeciesDesc] = &[
     model_flower("forget-me-not", "Forget-me-not", 1),
     model_flower("oxeye-daisy", "Oxeye Daisy", 2),
     model_flower("cosmos", "Cosmos", 3),
-    model_flower("corn-poppy", "Corn Poppy", 4),
-    model_flower("bellflower", "Bellflower", 5),
-    model_flower("coneflower", "Coneflower", 6),
-    model_flower("tulip", "Tulip", 7),
+    model_flower("bellflower", "Bellflower", 4),
+    model_flower("coneflower", "Coneflower", 5),
+    model_flower("tulip", "Tulip", 6),
 ];
 
 pub const TREE_LEAF_RENDER_SPECIES_INDEX: u32 = FLORA_SPECIES.len() as u32;

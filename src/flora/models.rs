@@ -10,7 +10,7 @@ pub use column::{Column, MAX_BEND_FRACTION};
 
 pub const MAX_SHAPE_SCALE: f32 = 4.;
 
-pub const MODEL_COUNT: usize = 8;
+pub const MODEL_COUNT: usize = 7;
 pub const MAX_HEADS: usize = 3;
 /// Ten terrain voxels per authoring unit: roughly 20–28 voxels tall.
 pub const WORLD_SCALE: f32 = 10.0 / 256.0;
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn authored_attachments_and_independent_transforms_cover_all_eight_flowers() {
+    fn authored_attachments_and_independent_transforms_cover_all_flowers() {
         let published: Published =
             serde_json::from_str(include_str!("../../assets/models/flowers.json")).unwrap();
         for (flower, authored) in flowers().iter().zip(&published.flowers) {
