@@ -21,7 +21,11 @@ const path=require('node:path');
     const toggle=async value=>{await page.locator('#model-voxelStems').setChecked(value);await stable();};
     const image=id=>page.locator('#'+id).evaluate(canvas=>canvas.toDataURL());
     const heads=()=>page.evaluate(()=>readModelPreview(true).partTiles.map(tile=>({rgba:tile.rgba,depth:tile.depth})));
-    await page.goto(`http://127.0.0.1:${server.address().port}/model-preview/?model=wild-geranium`);await stable();
+    await page.goto(`http://127.0.0.1:${server.address().port}/model-preview/?model=star-strawberry`);await stable();
+    assert.equal((await state()).model,'gillenia','old misidentified bookmark resolves to the corrected plant');
+    assert.equal(new URL(page.url()).searchParams.get('model'),'gillenia');
+    assert.equal(await page.locator('#model').inputValue(),'gillenia');
+    assert.equal(await page.locator('#model option[value="star-strawberry"]').count(),0);
     // Geometry-level contract: leaves, heads, head bounds and anchors are exactly
     // identical between modes, even after changing the shared authoring controls.
     const geometry=await page.evaluate(async()=>{

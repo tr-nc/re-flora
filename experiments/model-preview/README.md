@@ -16,7 +16,7 @@ node scripts/serve-model-preview.mjs
 - 蝴蝶：`?model=butterfly`
 - 苹果（网页红苹果／青苹果配色；红苹果造型可在游戏 Debug 中 A/B 切换）：`?model=apple`
 - 游戏共用花草（8 种）：`?model=wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`corn-poppy`、`bellflower`、`coneflower`、`tulip`；顶部下拉框均可选择。
-- **仅网页花草（2 种）**：白花老鹳草 `?model=white-geranium`、星草莓（白色草莓花）`?model=star-strawberry`。前者复用老鹳草造型、采用白瓣淡粉瓣根；后者有五片圆白瓣、黄色花心／雄蕊和三出锯齿叶。均支持花头像素化、造型参数和茎部 A/B，未加入游戏或正式资产。
+- **仅网页花草（2 种）**：白花老鹳草 `?model=white-geranium`、星草梅（*Gillenia trifoliata*）`?model=gillenia`。前者复用老鹳草造型、采用白瓣淡粉瓣根；后者按用户参考图制作：七朵疏落星花、五片细长白瓣、小花心、红褐色细枝与狭长三出锯齿叶。已替换先前误做的草莓花；旧 `?model=star-strawberry` 书签会规范化到星草梅。均支持花头像素化、造型参数和茎部 A/B，未加入游戏或正式资产。
 - 布局：`&variant=compare` / `model` / `pixel`
 
 原有游戏共用花草的名称、在线参考与设计见 [8 种花草调研](../../docs/research/stylized-flower-model-study.md)。它们使用原创参数化低模，不下载第三方模型；同一配方现已发布为游戏资产，8 种均可通过第二个物品栏 Grow／种植工具（快捷键 2）右侧可滚动的 Plant Brush 植物栏选择并种植。游戏集成的历史 A/B、实拍与验证见该调研文档的原生集成章节；当前已固定仅花头像素化。
@@ -68,7 +68,7 @@ node scripts/serve-model-preview.mjs
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度读取、补点深度与透明合成；不另建 renderer |
 | `stem-voxels.mjs` | 网页茎部三维三角形／方块相交与外露面生成；不修改制作源，不处理叶片或花头 |
 | `assets/models/flower-source.mjs` / `models/flowers.js` | 8 种游戏共用原创配方及所有花草的统一模型接口适配 |
-| `models/flower-catalog.mjs` / `models/strawberry-geometry.mjs` | 仅网页候选的目录与草莓花造型；不进入游戏发布目录 |
+| `models/flower-catalog.mjs` / `models/gillenia-geometry.mjs` | 仅网页候选的目录与星草梅造型；不进入游戏发布目录 |
 | `geometry.js` | 读取当前动画姿态，世界变换，齐次裁剪，投影到像素格 |
 | `connectivity.mjs` | 几何约束的八邻接连通判定与逐条最短补点路径 |
 | `postprocess.mjs` | 分组修复、缺失颜色重建 |

@@ -129,6 +129,7 @@ function syncControls(){
 }
 async function loadModel(id){
   const nextDefinition=definitionFor(id);if(!nextDefinition)throw new Error('未知模型');
+  id=nextDefinition.id;
   const token=++request;state.loading=true;setPlaying(false);syncControls();message(`正在加载${nextDefinition.label}…`);
   let next;
   try{
