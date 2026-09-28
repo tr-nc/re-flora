@@ -77,10 +77,7 @@ void main(uint3 id : SV_DispatchThreadID, uint localIndex : SV_GroupIndex)
     float confidence = 1.0;
     if (cell.w != 0u)
     {
-        if (gui_input.raster_tree_hybrid_lighting != 0u)
-        {
-            confidence = treeCellNormalConfidence(id.x);
-        }
+        confidence = treeCellNormalConfidence(id.x);
         if (confidence > 0.0)
         {
             float3 normal = unpackNormalOct16(treeCellNormalBits(cell.w));

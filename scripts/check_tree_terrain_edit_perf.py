@@ -131,15 +131,6 @@ def main():
             if data is not None:
                 (output / (p.name + ".before")).write_bytes(data)
         try:
-            gui, count = re.subn(
-                r'(id = "raster_tree_static"\n(?:(?!\[\[section).)*?value = )(true|false)',
-                lambda m: m[1] + "true",
-                paths[0].read_text(),
-                flags=re.DOTALL,
-            )
-            if count != 1:
-                raise ValueError("expected exactly one raster_tree_static control")
-            paths[0].write_text(gui)
             report["gui_sha256"] = hashlib.sha256(paths[0].read_bytes()).hexdigest()
             with (output / "run.log").open("w") as log:
                 result = subprocess.run(

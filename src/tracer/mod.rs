@@ -1470,7 +1470,6 @@ pub struct FloraGrowthFrameInput {
 /// Vegetation shader-facing facts, frozen together at the frame boundary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VegetationFrameInput {
-    pub tree_hybrid_lighting: bool,
     pub appearance: FloraAppearanceFrameInput,
     pub motion: FloraMotionFrameInput,
     pub leaf_lighting: LeafLightingFrameInput,

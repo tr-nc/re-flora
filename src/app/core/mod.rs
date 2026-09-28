@@ -3381,8 +3381,7 @@ ui.collapsing("Environment Probes", |ui| {
                     return;
                 }
                 if let Err(error) = self.sync_static_raster_trees() {
-                    log::error!("[TREE][RASTER_STATIC] preparation failed; restoring A: {error:#}");
-                    self.debug_settings.adjustables.raster_tree_static.value = false;
+                    log::error!("[TREE][RASTER_STATIC] preparation failed; raster surface unavailable: {error:#}");
                     self.tracer.raster_trees.enabled = false;
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }

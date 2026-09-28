@@ -56,21 +56,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "raster_tree_hybrid_lighting",
-        kind: "bool",
-        label: "Hybrid thin-branch lighting (B, requires raster trees)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "tree_stiffness",
         kind: "float",
         label: "Tree stiffness (soft <-> stiff)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "raster_tree_static",
-        kind: "bool",
-        label: "Raster whole trees (B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1431,9 +1419,7 @@ pub struct GuiAdjustables {
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
-    pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
-    pub raster_tree_static: crate::gui_adjustables::BoolParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -1677,9 +1663,7 @@ impl GuiAdjustables {
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut raster_tree_static_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1938,21 +1922,11 @@ impl GuiAdjustables {
                             raster_tree_wind_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "raster_tree_hybrid_lighting" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            raster_tree_hybrid_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "tree_stiffness" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_stiffness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "raster_tree_static" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            raster_tree_static_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "flora_growth_override_enabled" => {
@@ -3469,9 +3443,7 @@ impl GuiAdjustables {
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
-            raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
-            raster_tree_static: raster_tree_static_field.expect("Missing parameter: raster_tree_static"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -3933,8 +3905,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
-        "raster_tree_hybrid_lighting" => Some(&adjustables.raster_tree_hybrid_lighting),
-        "raster_tree_static" => Some(&adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
@@ -4213,8 +4183,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
-        "raster_tree_hybrid_lighting" => Some(&mut adjustables.raster_tree_hybrid_lighting),
-        "raster_tree_static" => Some(&mut adjustables.raster_tree_static),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),

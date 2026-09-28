@@ -152,6 +152,8 @@ impl GuiConfigLoader {
                         | "model_pixel_single_light"
                         | "model_pixel_screen_grid"
                         | "model_flower_view_count"
+                        | "raster_tree_hybrid_lighting"
+                        | "raster_tree_static"
                 )
             });
         }
@@ -195,11 +197,7 @@ impl GuiConfigLoader {
                 )
             });
         }
-        for id in [
-            "raster_tree_wind",
-            "raster_tree_static",
-            "raster_tree_hybrid_lighting",
-        ] {
+        for id in ["raster_tree_wind"] {
             Self::add_missing_param(config, "Debug", id);
         }
         Self::add_missing_param(config, "Falling Leaves", "falling_leaf_mesh");
@@ -905,7 +903,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_tree_displays_restore_voxels_and_preserve_wind_lifecycle_and_leaf_values() {
+    fn retired_tree_displays_preserve_wind_lifecycle_and_leaf_values() {
         use crate::app::gui_config_model::{
             GuiParamConditionValue, GuiParamEnabledIf, GuiParamValue,
         };
@@ -923,10 +921,8 @@ mod tests {
             old_wind.value = GuiParamValue::Bool { value: wind };
             for section in &mut config.section {
                 section.param.retain(|p| {
-                    !matches!(
-                        p.id.as_str(),
-                        "raster_tree_static" | "raster_tree_hybrid_lighting" | "falling_leaf_mesh"
-                    ) && (p.id != "raster_tree_wind" || canonical_wind.is_some())
+                    !matches!(p.id.as_str(), "falling_leaf_mesh")
+                        && (p.id != "raster_tree_wind" || canonical_wind.is_some())
                 });
                 for p in &mut section.param {
                     match p.id.as_str() {
@@ -1275,7 +1271,7 @@ mod tests {
                 .find(|s| s.name == "Debug")
                 .unwrap();
             for param in &mut debug.param {
-                if ["raster_tree_static", "raster_tree_wind"].contains(&param.id.as_str()) {
+                if param.id == "raster_tree_wind" {
                     param.value = GuiParamValue::Bool { value: enabled };
                 }
             }
@@ -1310,6 +1306,42 @@ mod tests {
     }
 
     #[test]
+    fn old_tree_raster_and_hybrid_switches_do_not_survive_loading() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let debug = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Debug")
+            .unwrap();
+        let mut old = debug
+            .param
+            .iter()
+            .find(|p| p.id == "raster_tree_wind")
+            .unwrap()
+            .clone();
+        old.value = GuiParamValue::Bool { value: false };
+        for id in ["raster_tree_static", "raster_tree_hybrid_lighting"] {
+            old.id = id.into();
+            debug.param.push(old.clone());
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert!(!loaded.section.iter().flat_map(|s| &s.param).any(|p| [
+            "raster_tree_static",
+            "raster_tree_hybrid_lighting"
+        ]
+        .contains(&p.id.as_str())));
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let saved = std::fs::read_to_string(path).unwrap();
+        assert!(!saved.contains("raster_tree_static"));
+        assert!(!saved.contains("raster_tree_hybrid_lighting"));
+    }
+
+    #[test]
     fn saved_global_view_count_survives_while_flower_override_is_retired() {
         use crate::app::gui_config_model::GuiParamValue;
         let mut config: GuiConfigFile =
@@ -1332,7 +1364,7 @@ mod tests {
         let mut old = debug
             .param
             .iter()
-            .find(|p| p.id == "raster_tree_static")
+            .find(|p| p.id == "raster_tree_wind")
             .unwrap()
             .clone();
         old.id = "model_pixel_snap_views".into();
@@ -1392,7 +1424,7 @@ mod tests {
             let mut retired = debug
                 .param
                 .iter()
-                .find(|p| p.id == "raster_tree_static")
+                .find(|p| p.id == "raster_tree_wind")
                 .unwrap()
                 .clone();
             retired.id = "model_pixel_screen_grid".into();

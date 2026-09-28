@@ -1609,7 +1609,7 @@ Options:
                               Rebuild probes once after rendering starts, for runtime validation
   --environment-probe-visualization
                               Visualize the environment probe grid (debug; default: off)
-  --raster-tree-smoke         Validate live tree A/B, age, removal and replacement, then exit
+  --raster-tree-smoke         Validate raster trees, hybrid lighting, age, removal and replacement, then exit
   --tree-bench                Run tree replacement benchmark and exit
   --tree-bench-samples <N>    Tree benchmark samples (default: 10)
   --authored-flora-bench      Run authored special-flora paint benchmark and exit

@@ -4891,15 +4891,6 @@ impl App {
     }
 
     pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {
-        let enabled = self.debug_settings.adjustables.raster_tree_static.value;
-        if !enabled {
-            if self.tracer.raster_trees.enabled {
-                log::info!("[TREE][RASTER_STATIC] mode=A");
-                self.tracer.invalidate_local_direct_sun_shadow_histories();
-            }
-            self.tracer.raster_trees.enabled = false;
-            return Ok(());
-        }
         if !self
             .tracer
             .raster_trees

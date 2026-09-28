@@ -1,4 +1,4 @@
-//! Explicit hidden-app acceptance of the same saved A/B field used by the Debug checkbox.
+//! Hidden-app acceptance of raster trees and their retained hybrid lighting.
 use super::App;
 use crate::lighting::{LightId, LocalLight, PointLight};
 use anyhow::{ensure, Result};
@@ -35,12 +35,7 @@ impl RasterTreeSmoke {
         self.frame += 1;
         match self.frame {
             1 | 30 => {
-                app.debug_settings.adjustables.raster_tree_static.value = false;
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
-                app.debug_settings
-                    .adjustables
-                    .raster_tree_hybrid_lighting
-                    .value = false;
             }
             21 => {
                 self.light = Some(
@@ -56,10 +51,6 @@ impl RasterTreeSmoke {
                     )),
                 );
                 log::info!("[TREE][HYBRID_LIGHTING] added point-light fixture");
-                app.debug_settings
-                    .adjustables
-                    .raster_tree_hybrid_lighting
-                    .value = true;
             }
             25 => {
                 app.tracer.validate_gpu_tree_lighting(true)?;
@@ -69,24 +60,14 @@ impl RasterTreeSmoke {
             }
             10 | 50 => {
                 app.debug_settings.adjustables.raster_tree_wind.value = self.frame == 50;
-                app.debug_settings
-                    .adjustables
-                    .raster_tree_hybrid_lighting
-                    .value = false;
                 self.initial_draws = app.tracer.raster_trees.color_draws;
-                app.debug_settings.adjustables.raster_tree_static.value = true;
             }
             20 | 60 | 85 | 125 => {
                 ensure!(app.tracer.raster_trees.enabled, "B is not enabled");
                 app.validate_tree_poses()?;
                 app.validate_tree_surface_pose()?;
                 app.tracer.validate_gpu_tree_surface()?;
-                app.tracer.validate_gpu_tree_lighting(
-                    app.debug_settings
-                        .adjustables
-                        .raster_tree_hybrid_lighting
-                        .value,
-                )?;
+                app.tracer.validate_gpu_tree_lighting(true)?;
                 if self.frame == 20 {
                     self.thin_fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
                 }
@@ -94,7 +75,7 @@ impl RasterTreeSmoke {
                     let mesh = &app.tracer.raster_trees.rest_mesh;
                     ensure!(
                         mesh.rest_fingerprint() == self.thin_fingerprint,
-                        "rendering A/B changed authored thin geometry"
+                        "raster-tree mode changed authored thin geometry"
                     );
                     ensure!(
                         mesh.single_voxel_cross_sections() > 0,
@@ -104,7 +85,7 @@ impl RasterTreeSmoke {
                         mesh.confidence_counts()[0] > 0,
                         "fixture has no degenerate normals"
                     );
-                    log::info!("[TREE][THIN_WOOD_SMOKE] original_lighting=true single_voxel_cross_sections={} rest_fingerprint={:016x}",
+                    log::info!("[TREE][THIN_WOOD_SMOKE] hybrid_lighting=true single_voxel_cross_sections={} rest_fingerprint={:016x}",
                         mesh.single_voxel_cross_sections(), self.thin_fingerprint);
                 }
                 if self.frame >= 60 {
@@ -133,15 +114,11 @@ impl RasterTreeSmoke {
             }
             40 => {
                 ensure!(
-                    !app.tracer.raster_trees.enabled,
-                    "A did not restore voxel rendering"
+                    app.tracer.raster_trees.enabled,
+                    "raster trees were disabled"
                 );
             }
             61 => {
-                app.debug_settings
-                    .adjustables
-                    .raster_tree_hybrid_lighting
-                    .value = true;
                 app.debug_settings.adjustables.tree_stiffness.value = 0.;
             }
             80 => {
@@ -155,10 +132,6 @@ impl RasterTreeSmoke {
                 }
                 log::info!("[TREE][HYBRID_LIGHTING] removed point-light fixture");
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
-                app.debug_settings
-                    .adjustables
-                    .raster_tree_hybrid_lighting
-                    .value = false;
             }
             87 => {
                 app.debug_settings.adjustables.raster_tree_wind.value = false;
@@ -176,7 +149,7 @@ impl RasterTreeSmoke {
             65 => {
                 ensure!(
                     app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.thin_fingerprint,
-                    "lighting A/B changed thin geometry"
+                    "tree pose changed thin geometry"
                 );
                 app.tracer.validate_gpu_tree_lighting(true)?;
                 log::info!("[TREE][THIN_WOOD_SMOKE] hybrid_lighting=true same_geometry=true rest_fingerprint={:016x}", self.thin_fingerprint);
@@ -213,7 +186,7 @@ impl RasterTreeSmoke {
                     "wind did not restore static surface"
                 );
                 app.tracer.validate_gpu_tree_surface()?;
-                app.tracer.validate_gpu_tree_lighting(false)?;
+                app.tracer.validate_gpu_tree_lighting(true)?;
             }
             140 => {
                 app.replace_single_tree(app.debug_settings.tree.desc.clone(), app.debug_tree_pos)?;
@@ -224,10 +197,10 @@ impl RasterTreeSmoke {
                     "replacement did not restore authored thin geometry"
                 );
                 app.tracer.validate_gpu_tree_surface()?;
-                app.tracer.validate_gpu_tree_lighting(false)?;
+                app.tracer.validate_gpu_tree_lighting(true)?;
             }
             160 => {
-                log::info!("[TREE][RASTER_SMOKE] passed A_B_A_B=true authored_thin_geometry=true same_geometry_lighting_ab=true authored_geometry_restored=true hybrid_lighting_roundtrip=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
+                log::info!("[TREE][RASTER_SMOKE] passed raster_trees=true authored_thin_geometry=true hybrid_lighting=true authored_geometry_restored=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
                 return Ok(true);
             }
             _ => {}

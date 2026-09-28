@@ -37,7 +37,7 @@ class HybridCaptureTests(unittest.TestCase):
                     '[TREE][NORMAL_CONFIDENCE] fallback=100 transition=200 reliable=300 '
                     f'single_voxel_cross_sections=123 rest_fingerprint={fingerprint}\n')
 
-            args = ['capture', '--hybrid-lighting', '--time-of-day', '0.3',
+            args = ['capture', '--time-of-day', '0.3',
                     '--output', str(root / 'out')]
             if thin:
                 args.append('--thin-branches')
@@ -48,7 +48,7 @@ class HybridCaptureTests(unittest.TestCase):
                     with self.assertRaises(subprocess.CalledProcessError):
                         capture.main()
                 elif changed_mesh:
-                    with self.assertRaisesRegex(ValueError, 'changed the thin geometry'):
+                    with self.assertRaisesRegex(ValueError, 'foliage changed the thin geometry'):
                         capture.main()
                 else:
                     capture.main()
@@ -58,13 +58,12 @@ class HybridCaptureTests(unittest.TestCase):
             self.assertEqual(camera.read_bytes(), b'original camera\n')
         return observed
 
-    def test_both_modes_keep_raster_geometry_and_only_b_enables_hybrid(self):
+    def test_wood_and_canopy_captures_use_retained_raster_mode(self):
         observed = self.run_capture()
-        self.assertEqual(len(observed), 4)
-        for index, source in enumerate(observed):
-            self.assertEqual(capture.setting(source, 'raster_tree_static', 'true'), source)
-            self.assertEqual(capture.setting(source, 'raster_tree_hybrid_lighting',
-                                            str(index % 2 == 1).lower()), source)
+        self.assertEqual(len(observed), 2)
+        for source in observed:
+            self.assertNotIn('id = "raster_tree_static"', source)
+            self.assertNotIn('id = "raster_tree_hybrid_lighting"', source)
             self.assertEqual(capture.setting(source, 'time_of_day', '0.3'), source)
 
     def test_thin_geometry_validation_does_not_restore_retired_settings(self):
@@ -84,10 +83,6 @@ class HybridCaptureTests(unittest.TestCase):
                 'single_voxel_cross_sections=2 rest_fingerprint=1234')
         with self.assertRaisesRegex(ValueError, 'does not exercise actual thin'):
             capture.thin_geometry_evidence(text)
-        with patch.object(sys, 'argv', ['capture', '--thin-branches']), \
-                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
-            capture.main()
-        self.assertEqual(error.exception.code, 2)
 
     def test_failed_capture_restores_configuration(self):
         self.assertEqual(len(self.run_capture(fail=True)), 1)

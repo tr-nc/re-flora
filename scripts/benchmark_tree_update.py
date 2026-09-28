@@ -121,7 +121,7 @@ def main():
         original_gui, original_camera = gui.read_bytes(), camera.read_bytes()
         try:
             source = original_gui.decode()
-            for name, value in [('raster_tree_static', 'true'), ('auto_daynight_cycle', 'false'), ('time_of_day', '0.47')]:
+            for name, value in [('auto_daynight_cycle', 'false'), ('time_of_day', '0.47')]:
                 source = setting(source, name, value)
             camera.write_text('''[[snapshots]]
 name = "tree-update-bench"

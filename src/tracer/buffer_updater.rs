@@ -277,7 +277,6 @@ impl BufferUpdater {
             apple_pixel_resolution: terrain
                 .apple_pixel_resolution
                 .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),
-            raster_tree_hybrid_lighting: vegetation.tree_hybrid_lighting as u32,
             raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),

@@ -9,7 +9,6 @@ public struct U_GuiInput
     public uint apple_pixel_resolution;
     public uint model_pixel_view_count; // shared 8..512; zero reserved for numerical oracle
     public uint model_pixel_cache_review; // explicit cache-consumption telemetry only; never a rendering mode
-    public uint raster_tree_hybrid_lighting;
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;
     public float3 path_tracing_ambient_light;

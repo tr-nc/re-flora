@@ -1,14 +1,12 @@
 # Hybrid lighting for thin raster-tree wood
 
-## Try-out
+## Current behavior
 
-`R → Debug → Whole Tree Rasterization → Hybrid thin-branch lighting (B, requires raster trees)`.
-Enable `Raster whole trees` first. The saved hybrid-lighting checkbox now defaults on after visual
-approval: unchecked retains the original wood response; checked blends continuously according to
-rest-occupancy normal confidence.
-Wind can be enabled or disabled in either mode. No visible window is launched by validation.
+Raster trees and hybrid thin-branch lighting are always enabled. Neither has a Debug checkbox;
+old saved values are ignored. `R → Debug → Tree Rendering` retains the independent tree-wind
+and stiffness controls. The historical A/B evidence below predates this decision.
 
-The lighting checkbox changes wood shading, not tree voxelisation, silhouette, skinning,
+The retained hybrid lighting changes wood shading, not tree voxelisation, silhouette, skinning,
 collisions, editing, leaf lighting, terrain shading, or DDGI transport's material model.
 It cannot recover branches that voxelisation omitted or guarantee coverage for subpixel geometry.
 
@@ -25,7 +23,7 @@ configuration keys are accepted but ignored and are no longer saved. `RE_FLORA_T
 was retired along with that geometry A/B. There was no minimum-radius slider: `Trunk Thickness`
 and `Thickness Reduction` remain ordinary authored-shape controls, not lighting safeguards.
 
-Use `Hybrid thin-branch lighting` to compare shading on the same authored geometry. Skeleton/leaf
+Hybrid thin-branch lighting is now the only wood shading mode on the same authored geometry. Skeleton/leaf
 attachment identities remain unchanged; subdivision jitter follows the true radius. Nonnegative
 radius validation is retained, but there is no positive radius floor. Extremely small radii can
 still miss voxel centres, producing sparse or absent voxels; coverage is not inflated to conceal
@@ -40,11 +38,11 @@ GUI settings were restored. Only the removed geometry keys and approved hybrid-o
 
 ```sh
 cargo build --release
-python3 scripts/check_raster_tree_static.py --hybrid-lighting --thin-branches --output target/tree-thin-visual
-python3 scripts/check_raster_tree_static.py --hybrid-lighting --thin-branches --wind --output target/tree-thin-wind
+python3 scripts/check_raster_tree_static.py --thin-branches --output target/tree-thin-visual
+python3 scripts/check_raster_tree_static.py --thin-branches --wind --output target/tree-thin-wind
 ```
 
-`--thin-branches` requires lighting A/B and now only requests evidence checks, not a geometry toggle.
+`--thin-branches` only requests evidence checks, not a geometry or lighting toggle.
 The capture script rejects missing/substitute evidence:
 it checks actual compiled cone radii below 0.5 voxel units, actual published one-voxel cross
 sections, zero-confidence cells, and identical **rest mesh + normal/confidence fingerprints** in
@@ -199,10 +197,10 @@ Reproducible visual captures (configuration is restored even on failure):
 
 ```sh
 cargo build --release
-python3 scripts/check_raster_tree_static.py --hybrid-lighting --output target/tree-hybrid-visual
-python3 scripts/check_raster_tree_static.py --hybrid-lighting --wind --output target/tree-hybrid-wind
+python3 scripts/check_raster_tree_static.py --output target/tree-hybrid-visual
+python3 scripts/check_raster_tree_static.py --wind --output target/tree-hybrid-wind
 # Change the same fixed sun time in both modes:
-python3 scripts/check_raster_tree_static.py --hybrid-lighting --time-of-day 0.3 --output target/tree-hybrid-low-sun
+python3 scripts/check_raster_tree_static.py --time-of-day 0.3 --output target/tree-hybrid-low-sun
 ```
 
 Unit tests cover degenerate neighbourhoods, broad/oblique half-spaces, axis symmetry, intermediate
