@@ -259,6 +259,17 @@ impl CameraControlRuntime {
         self.mode == CameraControlMode::OrbitEdit
     }
 
+    /// The edit camera orbits a world focus; the walking camera sits above
+    /// the player's feet. Temporary Debug orbit from free flight retains the
+    /// free-flight position rather than jumping back to an old edit focus.
+    pub(super) fn flora_showcase_center(&self, camera_position: Vec3) -> Vec3 {
+        if self.is_orbit_edit() && self.debug_return_mode.is_none() {
+            self.orbit_focus
+        } else {
+            camera_position - Vec3::Y * 0.08
+        }
+    }
+
     pub(super) fn cycle_mode(&mut self) -> bool {
         self.debug_return_mode = None;
         self.mode = self.mode.next();

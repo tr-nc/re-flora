@@ -37,19 +37,56 @@ impl AuthoredFloraPlacementBatch {
     }
 }
 
+/// One sector per ordinary flora species. Retry within the same sector when a
+/// column is occupied or has no plantable ground; never move another species'
+/// label/position around the ring. This does not include climbing vines.
+pub(super) const FLORA_SHOWCASE_ATTEMPTS: usize = 25;
+
+pub(super) fn flora_showcase_column(
+    center: Vec3,
+    index: usize,
+    count: usize,
+    attempt: usize,
+) -> Option<UVec2> {
+    if !center.is_finite() || count == 0 || index >= count || attempt >= FLORA_SHOWCASE_ATTEMPTS {
+        return None;
+    }
+    let angle = std::f32::consts::TAU * index as f32 / count as f32
+        + [0., -0.1, 0.1, -0.2, 0.2][attempt % 5];
+    let radius = 32.0 + [0., -4., 4., -8., 8.][attempt / 5];
+    let x = (center.x * 256.0 + angle.cos() * radius).round();
+    let z = (center.z * 256.0 + angle.sin() * radius).round();
+    let world = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+    (x >= 0. && x < world.x as f32 && z >= 0. && z < world.z as f32)
+        .then_some(UVec2::new(x as u32, z as u32))
+}
+
 impl App {
     pub(super) fn resolve_plantable_surface_column(
         &self,
         column_world_vox: UVec2,
     ) -> Result<PlantableSurfaceAnchor, PlantingRejection> {
+        self.resolve_plantable_surface_column_below(column_world_vox, CHUNK_DIM.y as f32 + 1.0)
+    }
+
+    /// Query near the player's feet instead of planting on roofs above them.
+    pub(super) fn resolve_plantable_surface_column_below(
+        &self,
+        column_world_vox: UVec2,
+        ceiling_ws: f32,
+    ) -> Result<PlantableSurfaceAnchor, PlantingRejection> {
         let world_dim_vox = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
-        if column_world_vox.x >= world_dim_vox.x || column_world_vox.y >= world_dim_vox.z {
+        if column_world_vox.x >= world_dim_vox.x
+            || column_world_vox.y >= world_dim_vox.z
+            || !ceiling_ws.is_finite()
+            || ceiling_ws <= 0.0
+        {
             return Err(PlantingRejection::OutsideWorld);
         }
 
         let position_ws = Vec3::new(
             (column_world_vox.x as f32 + 0.5) / VOXEL_DIM_PER_CHUNK.x as f32,
-            CHUNK_DIM.y as f32 + 1.0,
+            ceiling_ws.min(CHUNK_DIM.y as f32 + 1.0),
             (column_world_vox.y as f32 + 0.5) / VOXEL_DIM_PER_CHUNK.z as f32,
         );
         let hit = self
@@ -133,6 +170,28 @@ mod tests {
             position: Vec3::new(0.5, y, 0.5),
             voxel_type,
         }
+    }
+
+    #[test]
+    fn flower_and_grass_showcase_covers_distinct_sectors_near_the_player() {
+        let center = Vec3::new(1., 0.5, 1.);
+        let columns = (0..11)
+            .map(|i| flora_showcase_column(center, i, 11, 0).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            columns
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            11
+        );
+        for column in columns {
+            let delta = column.as_vec2() - glam::Vec2::splat(256.);
+            assert!((delta.length() - 32.).abs() < 1.);
+        }
+        assert!(flora_showcase_column(Vec3::ZERO, 0, 11, 0).is_some());
+        assert!(flora_showcase_column(Vec3::ZERO, 5, 11, 0).is_none());
+        assert!(flora_showcase_column(center, 11, 11, 0).is_none());
     }
 
     #[test]

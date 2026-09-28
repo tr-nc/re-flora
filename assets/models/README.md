@@ -42,7 +42,7 @@ native assembly, complete layers, wind bounds and independent height/head-size c
 geometry (including calyx), never one tile per petal. White geranium and Gillenia remain
 browser-only candidates and are not added to the native species bank.
 
-All seven are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**.
+All seven are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**. For visual debugging, **Debug Panel → Terrain & Plants → Plant all flowers & grasses around me** places the seven model flowers, Lavender, Ember Bloom, Tall Grass and Short Grass in separate positions around the walking player's feet (or the edit-camera focus). It excludes the session-only climbing vine. The one-shot action changes terrain flora and persists only when the terrain snapshot is saved.
 The list scrolls on short windows; the status-only backpack is hidden while Grow is active
 so it cannot cover plant choices. Existing species
 keys and identities are preserved when loading older gardens; model flowers occupy 4–10. **Debug → Flora → Ground Plants →

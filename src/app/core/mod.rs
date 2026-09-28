@@ -495,6 +495,8 @@ pub struct App {
 
     render_start_time: Option<Instant>,
     terrain_persistence: TerrainPersistenceRuntime,
+    flora_showcase_status: Option<String>,
+    flora_showcase_review_pending: bool,
     launch_owners: LaunchOwners,
     environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime,
     lighting_mode_acceptance: LightingModeAcceptanceRuntime,
@@ -1543,6 +1545,9 @@ impl App {
 
             render_start_time: None,
             terrain_persistence,
+            flora_showcase_status: None,
+            flora_showcase_review_pending: std::env::var_os("RE_FLORA_FLORA_SHOWCASE_REVIEW")
+                .is_some(),
             launch_owners,
             environment_irradiance_capture: EnvironmentIrradianceCaptureRuntime::new(
                 lighting.irradiance_capture_path.clone(),
@@ -2447,6 +2452,15 @@ impl App {
                 self.prepare_apple_pixel_review();
                 self.prepare_flower_model_bench()
                     .expect("flower model benchmark fixture");
+                if self.flora_showcase_review_pending
+                    && self.terrain_persistence.allows_world_updates()
+                {
+                    self.flora_showcase_review_pending = false;
+                    match self.plant_flora_showcase_at_player() {
+                        Ok(status) => self.flora_showcase_status = Some(status),
+                        Err(err) => log::error!("[FLORA_SHOWCASE] review failed: {err:#}"),
+                    }
+                }
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
@@ -2498,6 +2512,7 @@ impl App {
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
                 let mut terrain_snapshot_action = None;
+                let mut plant_flora_showcase_requested = false;
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
@@ -2712,6 +2727,13 @@ impl App {
                                     ui.collapsing("Terrain & Plants", |ui| {
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
+                                    if ui.button("Plant all flowers & grasses around me").clicked() {
+                                        plant_flora_showcase_requested = true;
+                                    }
+                                    ui.small("Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
+                                    if let Some(status) = &self.flora_showcase_status {
+                                        ui.small(status);
+                                    }
                                     });
 
                                     ui.add_space(4.0);
@@ -3205,6 +3227,18 @@ ui.collapsing("Environment Probes", |ui| {
                             self.terrain_persistence.delete_selected_snapshot()
                         }
                     }
+                    self.sync_cursor_with_panels();
+                    return;
+                }
+                if plant_flora_showcase_requested {
+                    let status = match self.plant_flora_showcase_at_player() {
+                        Ok(status) => status,
+                        Err(err) => {
+                            log::error!("Failed to plant flora showcase: {err:#}");
+                            format!("Could not plant around here: {err:#}")
+                        }
+                    };
+                    self.flora_showcase_status = Some(status);
                     self.sync_cursor_with_panels();
                     return;
                 }

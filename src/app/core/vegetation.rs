@@ -3061,6 +3061,102 @@ impl App {
         Ok(())
     }
 
+    /// Debug-only one-shot planting. Keep the ordinary authored and grass
+    /// occupancy pipelines (and terrain Save) authoritative; do not add a
+    /// second flora system or include session-only climbing vines.
+    pub(super) fn plant_flora_showcase_at_player(&mut self) -> Result<String> {
+        let mut center = self
+            .camera_control
+            .flora_showcase_center(self.tracer.camera_position());
+        if !self.camera_control.is_walk() {
+            // Edit/orbit focus is not guaranteed to lie exactly on terrain.
+            // Anchor its XZ to the real nearby surface before arranging sectors.
+            let column = UVec2::new((center.x * 256.0) as u32, (center.z * 256.0) as u32);
+            let ground = self
+                .resolve_plantable_surface_column_below(column, center.y + 8.0 / 256.0)
+                .or_else(|_| self.resolve_plantable_surface_column(column))
+                .map_err(|e| anyhow::anyhow!("No terrain under the edit-camera focus: {e:?}"))?;
+            center.y = ground.base_center_vox().y / 256.0;
+        }
+        let species_count = species::species_count();
+        let mut batch = AuthoredFloraPlacementBatch::new();
+        let mut grass = Vec::new();
+        let mut planted = 0;
+        for (index, plant) in species::species().iter().enumerate() {
+            for attempt in 0..super::planting::FLORA_SHOWCASE_ATTEMPTS {
+                let Some(column) =
+                    super::planting::flora_showcase_column(center, index, species_count, attempt)
+                else {
+                    continue;
+                };
+                let Ok(anchor) =
+                    self.resolve_plantable_surface_column_below(column, center.y + 12.0 / 256.0)
+                else {
+                    continue;
+                };
+                if (anchor.base_center_vox().y - center.y * 256.0).abs() > 12.0 {
+                    continue;
+                }
+                let selection = species::FloraPaintSelection::Species(index as u32);
+                if species::is_grass_species_index(index as u32) {
+                    grass.push((selection, anchor, index as u32));
+                } else if !self.try_place_authored_flora(
+                    &mut batch,
+                    index as u32,
+                    anchor,
+                    AUTHORED_FLORA_GROWTH_MATURE,
+                    0,
+                    31_337 + index as u32,
+                ) {
+                    continue;
+                }
+                log::info!(
+                    "[FLORA_SHOWCASE] species={} root={:?}",
+                    plant.key,
+                    anchor.base_world_vox()
+                );
+                planted += 1;
+                break;
+            }
+        }
+        self.finish_authored_flora_placement(batch)?;
+        for (selection, anchor, seed) in grass {
+            let point = anchor.base_center_vox() / 256.0;
+            let edit = TerrainBrushEdit {
+                start: point,
+                end: point,
+                radius: 5.0 / 256.0,
+            };
+            let compiled = TerrainSurfaceRemovalService::compile_surface_brush(edit)
+                .context("flora showcase grass footprint outside world")?;
+            world_ops::mesh_regenerate_flora_for_brush_edit(
+                &mut self.surface_builder,
+                super::VOXEL_DIM_PER_CHUNK,
+                compiled.rebuild_bound,
+                world_ops::FloraBrushEdit {
+                    start: point,
+                    end: point,
+                    radius: edit.radius,
+                    tick: self
+                        .world_clock
+                        .flora_tick()
+                        .wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+                    spawn_time_ms: 0,
+                },
+                selection,
+                seed,
+                species::flora_paint_brush_settings(selection),
+            )?;
+        }
+        anyhow::ensure!(
+            planted > 0,
+            "No plantable ground near the player/focus; move closer to soil and retry"
+        );
+        let status = format!("Planted {planted}/{species_count} flower/grass types around the player. Save Terrain & Plants to keep them.");
+        log::info!("[FLORA_SHOWCASE] {status}");
+        Ok(status)
+    }
+
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
         edit: TerrainBrushEdit,
