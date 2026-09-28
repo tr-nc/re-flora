@@ -5,25 +5,19 @@ use super::App;
 impl App {
     pub(super) fn prepare_shared_model_cache_review(&mut self, frame: u32) {
         let phase = (frame / 24).min(12);
-        // Exercise each independent bank before sweeping views. Large view counts
-        // use 8px intentionally: this is a correctness fixture, not a multi-GiB
-        // residency/performance stress test or a production resolution clamp.
-        let (views, resolutions) = match phase {
-            0 | 1 | 11 | 12 => (16, [16, 32, 16, 32]),
-            2 => (16, [64, 32, 16, 32]),
-            3 => (16, [64, 64, 16, 32]),
-            4 => (16, [64, 64, 64, 32]),
-            5 => (16, [64, 64, 64, 64]),
-            6 => (37, [8; 4]),
-            7 => (128, [8; 4]),
-            8 => (512, [8; 4]),
-            9 => (8, [8; 4]),
-            10 => (16, [8; 4]),
+        // Exercise each bank at the production 512-view count without
+        // allocating multi-GiB 64px banks in the correctness fixture.
+        let resolutions = match phase {
+            0 | 1 | 11 | 12 => [8; 4],
+            2 => [16, 8, 8, 8],
+            3 => [16, 16, 8, 8],
+            4 => [16, 16, 16, 8],
+            5 => [16; 4],
+            6..=10 => [8; 4],
             _ => unreachable!(),
         };
+        let views = crate::tracer::MODEL_PIXEL_VIEW_COUNT;
         let s = &mut self.debug_settings.adjustables;
-        s.model_pixel_view_count.value = views;
-        s.model_flower_view_count.value = views;
         s.model_flower_head_scale.value = 1.;
         s.model_flower_height_scale.value = 1.;
         s.falling_leaf_pixel_resolution.value = resolutions[0];

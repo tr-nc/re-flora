@@ -36,15 +36,15 @@ def main():
     assert result.returncode == 0, f'App/build failed; inspect {log}'
     assert not re.search(r'\bERROR\b|VUID-|panicked at', text), f'Runtime/validation error; inspect {log}'
     assert before == hashlib.sha256(config.read_bytes()).digest(), 'Diagnostic changed saved GUI settings'
-    for token in ['tile=8x8 fps=2', 'tile=22x22 fps=60', 'tile=64x64 fps=60',
+    for token in ['tile=8x8 fps=2', 'tile=22x22 fps=60', 'tile=24x24 fps=60',
                   'transmission=0.5', 'transmission=1', 'active=21', 'butterfly.tiles=', 'failures=0']:
         assert token in text, f'Missing {token!r}; inspect {log}; increase --seconds if sweep incomplete'
     assert not re.search(r'MODEL_CACHE_BAKE_CHECK[^\n]*mismatches=[1-9]', text)
     assert re.search(r'MODEL_CACHE_CONSUMED\] leaf=\d+ apple=\d+ butterfly=[1-9]\d*', text)
-    for n in [8, 22, 64]:
-        assert re.search(rf'MODEL_CACHE_GEOMETRY_CHECK\] kind=2 resolution={n} views=16 cases=64 checked_hits=[1-9]\d*', text), f'Missing independent bake geometry check for {n}px'
+    for n in [8, 22, 24]:
+        assert re.search(rf'MODEL_CACHE_GEOMETRY_CHECK\] kind=2 resolution={n} views=512 cases=64 checked_hits=[1-9]\d*', text), f'Missing independent bake geometry check for {n}px'
     assert 'rotating_pixels=true' in text, 'Missing rotating pixel display'
-    print(f'PASS: cache-only 8/22/64px, transmission sweeps, independent bake coverage/depth (64 cases per resolution), no saved-setting changes.\nLog: {log}\nScreenshot: {output / "renderer-validation.png"}')
+    print(f'PASS: cache-only 8/22/24px, transmission sweeps, independent bake coverage/depth (64 cases per resolution), no saved-setting changes.\nLog: {log}\nScreenshot: {output / "renderer-validation.png"}')
 
 
 

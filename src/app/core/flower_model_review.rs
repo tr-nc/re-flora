@@ -57,13 +57,6 @@ impl App {
         };
         let settings = &mut self.debug_settings.adjustables;
         settings.model_flower_pixel_resolution.value = resolution;
-        settings.model_flower_view_count.value = if controls {
-            control.views
-        } else if phase == 5 {
-            8
-        } else {
-            16
-        };
         settings.model_flower_head_scale.value = if controls {
             control.shape.head_scale
         } else {
@@ -103,7 +96,6 @@ impl App {
                 );
             }
         }
-        settings.model_pixel_view_count.value = if !controls && phase == 5 { 8 } else { 16 };
         settings.flora_growth_override_enabled.value = true;
         settings.flora_growth_override.value = if controls {
             if phase == 17 {
@@ -211,7 +203,7 @@ impl App {
         }
         if frame.is_multiple_of(24) && frame / 24 <= if controls { 26 } else { 8 } {
             if controls {
-                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_mean={} height_variance={} voxel_scale={} size={} frame={frame} saved=false", control.views, control.shape.head_scale, control.shape.height_scale, control.shape.height_variance, control.shape.voxel_scale, control.size_scale);
+                log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_mean={} height_variance={} voxel_scale={} size={} frame={frame} saved=false", crate::tracer::MODEL_PIXEL_VIEW_COUNT, control.shape.head_scale, control.shape.height_scale, control.shape.height_variance, control.shape.voxel_scale, control.size_scale);
             } else {
                 log::info!("[FLOWER_REVIEW_PHASE] phase={phase} heads_only={heads} resolution={resolution} frame={frame} saved=false");
             }
@@ -220,7 +212,7 @@ impl App {
     }
 }
 
-/// Bounded production-input sweep. Large view counts deliberately use 8px;
+/// Bounded production-input sweep. Fixed 512 views use 8px in large phases;
 /// maximum simultaneous VRAM stress and visual/performance approval are separate.
 fn control_settings(phase: u32) -> crate::flora::models::Settings {
     use crate::flora::models::{Settings, Shape};
@@ -273,12 +265,6 @@ fn control_settings(phase: u32) -> crate::flora::models::Settings {
         6..=9 => 8,
         10 => 64,
         _ => 32,
-    };
-    s.views = match phase {
-        7 => 512,
-        8 => 37,
-        9 | 10 => 8,
-        _ => 16,
     };
     s.size_scale = if phase == 17 { 2. } else { 1. };
     s

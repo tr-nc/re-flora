@@ -1,17 +1,15 @@
-//! Fibonacci-sphere directions, parameterized by the live view count.
+//! Fibonacci-sphere directions shared by all pixel models.
 //! Cache only golden-angle azimuths: latitude depends on N, so a prefix of a
 //! fixed sphere is NOT a uniformly distributed smaller sphere.
 pub const MIN_VIEWS: u32 = 8;
-pub const MAX_VIEWS: u32 = 512;
+pub const VIEW_COUNT: u32 = 512;
+pub const MAX_VIEWS: u32 = VIEW_COUNT;
 
-pub fn runtime_count(requested: u32) -> u32 {
-    requested.clamp(MIN_VIEWS, MAX_VIEWS)
-}
 pub fn azimuth(index: u32) -> [f32; 4] {
     let angle = index as f32 * (std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()));
     [angle.cos(), angle.sin(), 0., 0.]
 }
-/// Shared prefix sized to the largest *current* bank, never the slider maximum.
+/// Geometry-oracle helper; production banks all use `VIEW_COUNT`.
 pub fn azimuths(count: u32) -> Vec<[f32; 4]> {
     assert!((MIN_VIEWS..=MAX_VIEWS).contains(&count));
     (0..count).map(azimuth).collect()
@@ -21,14 +19,7 @@ mod tests {
     use super::*;
     use glam::Vec3;
     #[test]
-    fn zero_and_out_of_range_requests_remain_cache_only() {
-        assert_eq!(runtime_count(0), MIN_VIEWS);
-        assert_eq!(runtime_count(u32::MAX), MAX_VIEWS);
-        assert_eq!(runtime_count(37), 37);
-        assert_eq!(runtime_count(128), 128);
-    }
-    #[test]
-    fn every_slider_count_has_finite_unit_directions_and_balanced_latitudes() {
+    fn sampled_counts_have_finite_unit_directions_and_balanced_latitudes() {
         for count in MIN_VIEWS..=MAX_VIEWS {
             let azimuths = azimuths(count);
             assert_eq!(azimuths.len(), count as usize);

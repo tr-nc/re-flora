@@ -44,12 +44,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "model_pixel_view_count",
-        kind: "uint",
-        label: "Discrete View Count",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "raster_tree_wind",
         kind: "bool",
         label: "Animate raster trees with wind",
@@ -593,12 +587,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "model_flower_pixel_resolution",
         kind: "uint",
         label: "Pixels per Flower Head",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Flora",
-        id: "model_flower_view_count",
-        kind: "uint",
-        label: "Model Flower View Count",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
@@ -1435,7 +1423,6 @@ pub struct GuiAdjustables {
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
     pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
-    pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub raster_tree_hybrid_lighting: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
@@ -1527,7 +1514,6 @@ pub struct GuiAdjustables {
     pub lens_flare_intensity: crate::gui_adjustables::FloatParam,
     pub lens_flare_sun_pixel_scale: crate::gui_adjustables::FloatParam,
     pub model_flower_pixel_resolution: crate::gui_adjustables::UintParam,
-    pub model_flower_view_count: crate::gui_adjustables::UintParam,
     pub model_flower_head_scale: crate::gui_adjustables::FloatParam,
     pub model_flower_height_scale: crate::gui_adjustables::FloatParam,
     pub model_flower_height_variance: crate::gui_adjustables::FloatParam,
@@ -1682,7 +1668,6 @@ impl GuiAdjustables {
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_hybrid_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1774,7 +1759,6 @@ impl GuiAdjustables {
         let mut lens_flare_intensity_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut lens_flare_sun_pixel_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut model_flower_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut model_flower_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_flower_head_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut model_flower_height_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut model_flower_height_variance_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1932,13 +1916,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             apple_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "model_pixel_view_count" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            model_pixel_view_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "raster_tree_wind" => {
@@ -2546,13 +2523,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             model_flower_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "model_flower_view_count" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            model_flower_view_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "model_flower_head_scale" => {
@@ -3482,7 +3452,6 @@ impl GuiAdjustables {
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
             ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
-            model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             raster_tree_hybrid_lighting: raster_tree_hybrid_lighting_field.expect("Missing parameter: raster_tree_hybrid_lighting"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
@@ -3574,7 +3543,6 @@ impl GuiAdjustables {
             lens_flare_intensity: lens_flare_intensity_field.expect("Missing parameter: lens_flare_intensity"),
             lens_flare_sun_pixel_scale: lens_flare_sun_pixel_scale_field.expect("Missing parameter: lens_flare_sun_pixel_scale"),
             model_flower_pixel_resolution: model_flower_pixel_resolution_field.expect("Missing parameter: model_flower_pixel_resolution"),
-            model_flower_view_count: model_flower_view_count_field.expect("Missing parameter: model_flower_view_count"),
             model_flower_head_scale: model_flower_head_scale_field.expect("Missing parameter: model_flower_head_scale"),
             model_flower_height_scale: model_flower_height_scale_field.expect("Missing parameter: model_flower_height_scale"),
             model_flower_height_variance: model_flower_height_variance_field.expect("Missing parameter: model_flower_height_variance"),
@@ -3912,7 +3880,6 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
-        "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&adjustables.path_tracing_max_bounces),
         "canopy_audio_sample_budget" => Some(&adjustables.canopy_audio_sample_budget),
@@ -3921,7 +3888,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "vsm_blur_radius" => Some(&adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "model_flower_pixel_resolution" => Some(&adjustables.model_flower_pixel_resolution),
-        "model_flower_view_count" => Some(&adjustables.model_flower_view_count),
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
         "falling_leaf_pixel_resolution" => Some(&adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
@@ -4193,7 +4159,6 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
-        "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
         "path_tracing_max_bounces" => Some(&mut adjustables.path_tracing_max_bounces),
         "canopy_audio_sample_budget" => Some(&mut adjustables.canopy_audio_sample_budget),
@@ -4202,7 +4167,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "vsm_blur_radius" => Some(&mut adjustables.vsm_blur_radius),
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "model_flower_pixel_resolution" => Some(&mut adjustables.model_flower_pixel_resolution),
-        "model_flower_view_count" => Some(&mut adjustables.model_flower_view_count),
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
         "falling_leaf_pixel_resolution" => Some(&mut adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),

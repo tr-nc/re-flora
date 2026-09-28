@@ -76,7 +76,6 @@ impl App {
         let settings = &mut self.debug_settings.adjustables;
         settings.model_flower_pixel_resolution.value = parameters.resolution;
         settings.model_flower_size_scale.value = 1.;
-        settings.model_pixel_view_count.value = 16;
         settings.flora_growth_override_enabled.value = true;
         settings.flora_growth_override.value = 1.;
         settings.auto_daynight_cycle.value = false;

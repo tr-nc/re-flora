@@ -45,7 +45,6 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_continuous_sampling: gui.ddgi_continuous_sampling.value,
         ddgi_aggregate_history: gui.ddgi_aggregate_history.value,
         apple_pixel_resolution: gui.apple_pixel_resolution.value,
-        model_pixel_view_count: gui.model_pixel_view_count.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -84,7 +83,6 @@ pub(super) fn freeze_render_frame_inputs(
         appearance: FloraAppearanceFrameInput {
             model_flowers: crate::flora::models::Settings {
                 resolution: gui.model_flower_pixel_resolution.value,
-                views: gui.model_flower_view_count.value,
                 shape: crate::flora::models::Shape {
                     head_scale: gui.model_flower_head_scale.value,
                     height_scale: gui.model_flower_height_scale.value,
@@ -309,7 +307,6 @@ mod tests {
         }
 
         gui.model_flower_pixel_resolution.value = 24;
-        gui.model_flower_view_count.value = 37;
         gui.model_flower_head_scale.value = 1.5;
         gui.model_flower_height_scale.value = 0.75;
         gui.model_flower_height_variance.value = 0.09;
@@ -320,7 +317,6 @@ mod tests {
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
         gui.apple_pixel_resolution.value = 24;
-        gui.model_pixel_view_count.value = 37;
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
@@ -444,7 +440,6 @@ mod tests {
                 ddgi_continuous_sampling: true,
                 ddgi_aggregate_history: true,
                 apple_pixel_resolution: 24,
-                model_pixel_view_count: 37,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,
@@ -479,7 +474,6 @@ mod tests {
                 appearance: FloraAppearanceFrameInput {
                     model_flowers: crate::flora::models::Settings {
                         resolution: 24,
-                        views: 37,
                         shape: crate::flora::models::Shape {
                             head_scale: 1.5,
                             height_scale: 0.75,

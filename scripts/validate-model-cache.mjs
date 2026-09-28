@@ -45,20 +45,21 @@ async function main(){
  assert.equal([...text.matchAll(/FLOWER_REVIEW_PLANT\] species=/g)].length,8);
  assert.match(text,/\[COLLISION\]\[FRUIT\] dropped tree=/,'No actual fruit drop');
  assert.match(text,/MODEL_CACHE_RESIZE\] ready_banks=true replay_after_consumers=true/);
- const paged=text.match(/MODEL_CACHE_BUILD\] kind=0 views=16 resolution=64 shapes=64 bytes=134217728 blocks=(\d+)/);
- assert.ok(paged&&+paged[1]>=2,'64px leaves must exercise multi-page GPU cache addressing');
+ const paged=text.match(/MODEL_CACHE_BUILD\] kind=0 views=512 resolution=16 shapes=64 bytes=268435456 blocks=(\d+)/);
+ assert.ok(paged&&+paged[1]>=2,'512-view leaves must exercise multi-page GPU cache addressing');
  const generations=[...text.matchAll(/RESIZE_LIFECYCLE\] phase=frame frame_generation=(\d+) swapchain_generation=(\d+) tracer_generation=(\d+)/g)];
  assert.ok(generations.length>0&&generations.every(([,a,b,c])=>a===b&&b===c),'Inconsistent resize generation');
  assert.ok([...text.matchAll(/RESIZE_LIFECYCLE\] phase=requests_complete count=5/g)].length>=2,'Need startup and post-consumer resize sequences');
  const phases=[...text.matchAll(/\[MODEL_CACHE_PHASE\] phase=(\d+) views=(\d+) resolutions=(\d+)\/(\d+)\/(\d+)\/(\d+)/g)];
  assert.deepEqual(phases.map(m=>+m[1]),Array.from({length:13},(_,i)=>i),'Incomplete cache sweep; retry --seconds 30');
- const expectedBuilds=[[0,1,2,3],[],[0],[1],[2],[3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[]];
+ const expectedBuilds=[[0,1,2,3],[],[0],[1],[2],[3],[0,1,2,3],[],[],[],[],[],[]];
  const totals=[0,0,0,0],results=[];
  for(let i=0;i<phases.length;i++){
   const m=phases[i],segment=text.slice(m.index,phases[i+1]?.index);
   const builds=[...segment.matchAll(/MODEL_CACHE_BUILD\] kind=(\d+) views=(\d+) resolution=(\d+) shapes=(\d+)/g)];
   assert.deepEqual(builds.map(b=>+b[1]),expectedBuilds[i],`Phase ${i}: wrong bank rebuild set`);
-  for(const b of builds){assert.equal(+b[2],+m[2]);assert.equal(+b[3],+m[3+(+b[1])]);}
+  assert.equal(+m[2],512,'All banks must use the same fixed view count');
+  for(const b of builds){assert.equal(+b[2],512);assert.equal(+b[3],+m[3+(+b[1])]);}
   const counters=[0,0,0,0];
   const checks=[...segment.matchAll(/MODEL_CACHE_CONSUMED\] leaf=(\d+) apple=(\d+) butterfly=(\d+) flower=(\d+)/g)];
   const baked=[...segment.matchAll(/MODEL_CACHE_BAKE_CHECK\] kind=(\d+) checked=(\d+) mismatches=(\d+)/g)];

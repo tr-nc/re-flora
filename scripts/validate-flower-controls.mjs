@@ -44,7 +44,7 @@ try {
   assert.equal([...text.matchAll(/FLOWER_REVIEW_PLANT\] species=/g)].length, 8);
   const phases = [...text.matchAll(/FLOWER_CONTROLS_PHASE\] phase=(\d+) heads_only=(true|false) resolution=(\d+) views=(\d+) head_scale=([\d.]+) height_scale=([\d.]+) size=([\d.]+)/g)];
   assert.deepEqual(phases.map(p => +p[1]), Array.from({length: 18}, (_, i) => i), 'Incomplete sweep: retry --seconds 60');
-  const expected = [[0,1,2,3],[3],[],[3],[3],[],[3],[3],[3],[3],[3],[3],[3],[],[3],[],[3],[]];
+  const expected = [[0,1,2,3],[3],[],[3],[3],[],[3],[],[],[],[3],[3],[3],[],[3],[],[3],[]];
   const results = [];
   let sawPendingRetirement = false;
   for (let i = 0; i < phases.length; i++) {
@@ -95,7 +95,7 @@ try {
   // deterministically in GpuPagedStorage and transient descriptor unit tests.
   if (readySlots.size > 1) assert.ok(sawPendingRetirement, 'Multi-slot run must retain pending generations');
   else assert.equal(readySlots.size, 1, 'Missing ready-slot evidence');
-  assert.deepEqual([...text.matchAll(/MODEL_CACHE_DIRECTIONS\] count=(\d+) bytes=(\d+)/g)].map(m => [+m[1], +m[2]]), [[16,256],[512,8192],[37,592],[16,256]]);
+  assert.deepEqual([...text.matchAll(/MODEL_CACHE_DIRECTIONS\] count=(\d+) bytes=(\d+)/g)].map(m => [+m[1], +m[2]]), [[512,8192]]);
   const resize = text.indexOf('FLOWER_REVIEW_RESIZE] after_submitted_frames=408');
   assert.ok(resize >= 0 && text.slice(resize).includes('RESIZE_LIFECYCLE] phase=published'), 'Missing post-switch resize');
   for (const m of text.matchAll(/frame_generation=(\d+) swapchain_generation=(\d+) tracer_generation=(\d+)/g)) {

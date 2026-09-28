@@ -700,8 +700,6 @@ impl App {
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
-            let stage = (frame / 8) % 10;
-            settings.model_pixel_view_count.value = [8, 16, 37, 128, 512][stage as usize / 2];
             settings.butterfly_mesh_preview.value = true;
             settings.falling_leaf_mesh.value = true;
             settings.falling_leaf_size_scale.value = 1.;
@@ -816,7 +814,6 @@ impl App {
             let settings = &mut self.debug_settings.adjustables;
             settings.butterfly_mesh_preview.value = true;
             if mode == "sweep" {
-                settings.model_pixel_view_count.value = 16;
                 let stage = (frame / 60).min(6);
                 settings.butterfly_wing_transmission.value = match stage {
                     5 => 0.5,
@@ -825,7 +822,7 @@ impl App {
                 };
                 settings.butterfly_pixel_resolution.value = match stage {
                     1 => 8,
-                    2 => 64,
+                    2 => 24,
                     _ => 22,
                 };
                 // The former self-shadow phase now tests live display rotation.

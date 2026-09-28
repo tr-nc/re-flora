@@ -65,7 +65,7 @@ try {
         assert.equal(species.length,index === 7 ? 7 : 8,`phase ${index} actual draw coverage`);
         return {phase:index,species};
       });
-      assert.match(log,/single_light=true views=8.*shared_surfaces=true/);
+      assert.match(log,/single_light=true views=512.*shared_surfaces=true/);
       assert.match(log,/orthographic=true rotating_pixels=true/);
       assert.match(log,/\[FLOWER_REVIEW_LIFETIME\] removed=1/);
       assert.match(log,/\[FLOWER_REVIEW_LIFETIME\] replanted=1/);

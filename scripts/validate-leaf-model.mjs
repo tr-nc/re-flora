@@ -28,9 +28,9 @@ if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);}else i
  assert.ok(shapeReviews.some(([,active,unique,ids])=>Number(active)===8&&Number(unique)>=4&&new Set(ids.split(',').map(Number)).size===Number(unique)),
    'Fixture falling leaves did not keep diverse per-life shape variants');
  const modes=Array.from(text.matchAll(/LEAF-MODEL\] mode=([AB]) pixels=(\d+)x/g),m=>`${m[1]}${m[2]}`);
- assert.deepEqual(modes.slice(0,6),['A16','B8','B16','B64','A16','B16'],`Incomplete live sweep; rerun with a larger --seconds. ${log}`);
+ assert.deepEqual(modes.slice(0,6),['A16','B8','B16','B24','A16','B16'],`Incomplete live sweep; rerun with a larger --seconds. ${log}`);
  for(const [mode,scale] of [['A','2'],['B','0.25'],['B','4']])assert.match(text,new RegExp(`LEAF-MODEL\\] mode=${mode}[^\\n]* render_scale=${scale.replace('.','\\.')}\\b`),`Missing ${mode} size ${scale}; increase --seconds`);
- for(const n of [8,16,64])assert.match(text,new RegExp('MODEL_CACHE_GEOMETRY_CHECK\\] kind=0 resolution='+n+' views=16 cases=128 checked_hits=[1-9]\\d*'));
+ for(const n of [8,16,24])assert.match(text,new RegExp('MODEL_CACHE_GEOMETRY_CHECK\\] kind=0 resolution='+n+' views=512 cases=128 checked_hits=[1-9]\\d*'));
  assert.ok((await readFile(path.join(output,'scene.png'))).length>100);
- console.log(`PASS: live A/B, diverse stable leaf shapes, 8/16/64px, rotating published flight poses, cache-only consumption, bake-time independent coverage/depth (128 cases per resolution), no per-frame geometry, no Vulkan errors or saved-setting changes.\nLog: ${log}\nScreenshot: ${output}/scene.png`);
+ console.log(`PASS: live A/B, diverse stable leaf shapes, 8/16/24px, rotating published flight poses, cache-only consumption, bake-time independent coverage/depth (128 cases per resolution), no per-frame geometry, no Vulkan errors or saved-setting changes.\nLog: ${log}\nScreenshot: ${output}/scene.png`);
 }

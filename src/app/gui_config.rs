@@ -1278,12 +1278,7 @@ mod tests {
         settings.sync_config();
         for section in &mut settings.config.section {
             section.param.retain(|p| {
-                ![
-                    "model_flower_head_scale",
-                    "model_flower_height_scale",
-                    "model_flower_view_count",
-                ]
-                .contains(&p.id.as_str())
+                !["model_flower_head_scale", "model_flower_height_scale"].contains(&p.id.as_str())
             });
         }
         let directory = tempfile::tempdir().unwrap();
@@ -1302,18 +1297,12 @@ mod tests {
             loaded.adjustables.model_flower_height_scale.value,
             settings.adjustables.model_flower_height_scale.value
         );
-        assert_eq!(
-            loaded.adjustables.model_flower_view_count.value,
-            settings.adjustables.model_flower_view_count.value
-        );
         loaded.adjustables.model_flower_head_scale.value = 2.5;
         loaded.adjustables.model_flower_height_scale.value = 0.5;
-        loaded.adjustables.model_flower_view_count.value = 37;
         loaded.save_to_path(&path).unwrap();
         let saved = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(saved.adjustables.model_flower_head_scale.value, 2.5);
         assert_eq!(saved.adjustables.model_flower_height_scale.value, 0.5);
-        assert_eq!(saved.adjustables.model_flower_view_count.value, 37);
         assert_eq!(saved.adjustables.model_flower_size_scale.value, 1.75);
         assert_eq!(saved.adjustables.model_flower_pixel_resolution.value, 24);
     }
