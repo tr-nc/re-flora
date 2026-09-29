@@ -737,7 +737,38 @@ fn write_atomic_artifact(path: &Path, manifest: &[u8], payload: &[u8]) -> Result
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+    use std::ffi::OsString;
     use std::process::Command;
+
+    fn analyzer_python() -> OsString {
+        if let Some(python) = std::env::var_os("REFLORA_PYTHON") {
+            assert!(
+                Command::new(&python)
+                    .args(["-c", "import tomllib"])
+                    .output()
+                    .is_ok_and(|output| output.status.success()),
+                "REFLORA_PYTHON must point to Python 3.11+ with tomllib"
+            );
+            return python;
+        }
+        for candidate in [
+            "python3",
+            "python3.15",
+            "python3.14",
+            "python3.13",
+            "python3.12",
+            "python3.11",
+        ] {
+            if Command::new(candidate)
+                .args(["-c", "import tomllib"])
+                .output()
+                .is_ok_and(|output| output.status.success())
+            {
+                return candidate.into();
+            }
+        }
+        panic!("lighting analyzer requires Python 3.11+; set REFLORA_PYTHON to its executable");
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct FrameInputs {
@@ -1212,7 +1243,7 @@ mod tests {
 
         let analyzer = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/analyze_lighting_mode_acceptance.py");
-        let output = Command::new("python3")
+        let output = Command::new(analyzer_python())
             .arg(analyzer)
             .arg(&artifact)
             .output()
