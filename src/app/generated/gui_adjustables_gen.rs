@@ -895,30 +895,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Terrain Tangent Damping (/s)",
     },
     GeneratedGuiParamDescriptor {
-        section: "Purple Allium",
-        id: "ember_bloom_bottom_color",
-        kind: "color",
-        label: "Stem Bottom Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Purple Allium",
-        id: "ember_bloom_stem_tip_color",
-        kind: "color",
-        label: "Stem Top Color",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Purple Allium",
-        id: "ember_bloom_flower_purple_color",
-        kind: "color",
-        label: "Flower Color A",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Purple Allium",
-        id: "ember_bloom_flower_secondary_color",
-        kind: "color",
-        label: "Flower Color B",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Flora Spawn Animation",
         id: "flora_spawn_duration_seconds",
         kind: "float",
@@ -1565,10 +1541,6 @@ pub struct GuiAdjustables {
     pub water_j_min: crate::gui_adjustables::FloatParam,
     pub water_wall_damping: crate::gui_adjustables::FloatParam,
     pub water_terrain_tangent_damping: crate::gui_adjustables::FloatParam,
-    pub ember_bloom_bottom_color: crate::gui_adjustables::ColorParam,
-    pub ember_bloom_stem_tip_color: crate::gui_adjustables::ColorParam,
-    pub ember_bloom_flower_purple_color: crate::gui_adjustables::ColorParam,
-    pub ember_bloom_flower_secondary_color: crate::gui_adjustables::ColorParam,
     pub flora_spawn_duration_seconds: crate::gui_adjustables::FloatParam,
     pub flora_spawn_rise_fraction: crate::gui_adjustables::FloatParam,
     pub flora_spawn_overshoot_min_voxels: crate::gui_adjustables::FloatParam,
@@ -1810,10 +1782,6 @@ impl GuiAdjustables {
         let mut water_j_min_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_wall_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut water_terrain_tangent_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ember_bloom_bottom_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ember_bloom_stem_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ember_bloom_flower_purple_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ember_bloom_flower_secondary_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut flora_spawn_duration_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_rise_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_overshoot_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2874,26 +2842,6 @@ impl GuiAdjustables {
                             water_terrain_tangent_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "ember_bloom_bottom_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ember_bloom_bottom_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ember_bloom_stem_tip_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ember_bloom_stem_tip_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ember_bloom_flower_purple_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ember_bloom_flower_purple_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
-                    "ember_bloom_flower_secondary_color" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            ember_bloom_flower_secondary_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
-                        }
-                    }
                     "flora_spawn_duration_seconds" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3598,10 +3546,6 @@ impl GuiAdjustables {
             water_j_min: water_j_min_field.expect("Missing parameter: water_j_min"),
             water_wall_damping: water_wall_damping_field.expect("Missing parameter: water_wall_damping"),
             water_terrain_tangent_damping: water_terrain_tangent_damping_field.expect("Missing parameter: water_terrain_tangent_damping"),
-            ember_bloom_bottom_color: ember_bloom_bottom_color_field.expect("Missing parameter: ember_bloom_bottom_color"),
-            ember_bloom_stem_tip_color: ember_bloom_stem_tip_color_field.expect("Missing parameter: ember_bloom_stem_tip_color"),
-            ember_bloom_flower_purple_color: ember_bloom_flower_purple_color_field.expect("Missing parameter: ember_bloom_flower_purple_color"),
-            ember_bloom_flower_secondary_color: ember_bloom_flower_secondary_color_field.expect("Missing parameter: ember_bloom_flower_secondary_color"),
             flora_spawn_duration_seconds: flora_spawn_duration_seconds_field.expect("Missing parameter: flora_spawn_duration_seconds"),
             flora_spawn_rise_fraction: flora_spawn_rise_fraction_field.expect("Missing parameter: flora_spawn_rise_fraction"),
             flora_spawn_overshoot_min_voxels: flora_spawn_overshoot_min_voxels_field.expect("Missing parameter: flora_spawn_overshoot_min_voxels"),
@@ -3953,10 +3897,6 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_bottom_light_color" => Some(&adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&adjustables.grass_tip_dark_color),
         "grass_tip_light_color" => Some(&adjustables.grass_tip_light_color),
-        "ember_bloom_bottom_color" => Some(&adjustables.ember_bloom_bottom_color),
-        "ember_bloom_stem_tip_color" => Some(&adjustables.ember_bloom_stem_tip_color),
-        "ember_bloom_flower_purple_color" => Some(&adjustables.ember_bloom_flower_purple_color),
-        "ember_bloom_flower_secondary_color" => Some(&adjustables.ember_bloom_flower_secondary_color),
         "leaves_bottom_color" => Some(&adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&adjustables.voxel_dirt_color),
@@ -4232,10 +4172,6 @@ pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_bottom_light_color" => Some(&mut adjustables.grass_bottom_light_color),
         "grass_tip_dark_color" => Some(&mut adjustables.grass_tip_dark_color),
         "grass_tip_light_color" => Some(&mut adjustables.grass_tip_light_color),
-        "ember_bloom_bottom_color" => Some(&mut adjustables.ember_bloom_bottom_color),
-        "ember_bloom_stem_tip_color" => Some(&mut adjustables.ember_bloom_stem_tip_color),
-        "ember_bloom_flower_purple_color" => Some(&mut adjustables.ember_bloom_flower_purple_color),
-        "ember_bloom_flower_secondary_color" => Some(&mut adjustables.ember_bloom_flower_secondary_color),
         "leaves_bottom_color" => Some(&mut adjustables.leaves_bottom_color),
         "leaves_tip_color" => Some(&mut adjustables.leaves_tip_color),
         "voxel_dirt_color" => Some(&mut adjustables.voxel_dirt_color),

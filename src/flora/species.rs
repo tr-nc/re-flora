@@ -1,14 +1,12 @@
-use crate::flora::construct::{gen_ember_bloom, gen_lavender, gen_short_grass, gen_tall_grass};
+use crate::flora::construct::{gen_short_grass, gen_tall_grass};
 use crate::tracer::voxel_encoding::FloraMeshData;
 use anyhow::Result;
 
-pub const MODEL_FLOWER_FIRST_SPECIES: u32 = 4;
+pub const MODEL_FLOWER_FIRST_SPECIES: u32 = 2;
 pub const MAX_FLORA_SPECIES: usize =
     MODEL_FLOWER_FIRST_SPECIES as usize + super::models::MODEL_COUNT;
 pub const TALL_GRASS_SPECIES_INDEX: u32 = 0;
 pub const SHORT_GRASS_SPECIES_INDEX: u32 = 1;
-pub const LAVENDER_SPECIES_INDEX: u32 = 2;
-pub const EMBER_BLOOM_SPECIES_INDEX: u32 = 3;
 pub const FLORA_OCCUPANCY_SELECTION_GRASS_MIX: u32 = 254;
 
 /// Growth expression for the four soil-moisture levels stored in the terrain atlas.
@@ -61,14 +59,7 @@ const SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS: u64 = 50;
 const SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS: u64 = 100;
 const SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS: u32 = 20;
 
-pub const LAVENDER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
-    SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
-    SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
-    1,
-);
-
-pub const EMBER_BLOOM_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
+const MODEL_FLOWER_PAINT_BRUSH_SETTINGS: FloraPaintBrushSettings = FloraPaintBrushSettings::new(
     SPECIAL_FLORA_PAINT_DAB_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_RELEASE_INTERVAL_MS,
     SPECIAL_FLORA_PAINT_SOFT_SPACING_VOXELS,
@@ -137,7 +128,7 @@ const fn model_flower(
         mesh_generator: None,
         default_bottom_color: [99, 141, 83],
         default_tip_color: [214, 149, 197],
-        paint_brush: LAVENDER_PAINT_BRUSH_SETTINGS,
+        paint_brush: MODEL_FLOWER_PAINT_BRUSH_SETTINGS,
         placement_mode: FloraPlacementMode::Authored,
         grass_growth_influence_radius_voxels: 8,
         grass_growth_influence_min_level: 6,
@@ -168,30 +159,6 @@ const BASE_SPECIES: [FloraSpeciesDesc; MODEL_FLOWER_FIRST_SPECIES as usize] = [
         FloraPlacementMode::Occupancy,
         0,
         15,
-        DEFAULT_MOISTURE_GROWTH_FACTORS,
-    ),
-    FloraSpeciesDesc::new(
-        "lavender",
-        "Lavender",
-        [74, 165, 0],
-        [85, 0, 207],
-        gen_lavender,
-        LAVENDER_PAINT_BRUSH_SETTINGS,
-        FloraPlacementMode::Authored,
-        8,
-        6,
-        DEFAULT_MOISTURE_GROWTH_FACTORS,
-    ),
-    FloraSpeciesDesc::new(
-        "ember_bloom",
-        "Purple Allium",
-        [43, 130, 65],
-        [211, 107, 174],
-        gen_ember_bloom,
-        EMBER_BLOOM_PAINT_BRUSH_SETTINGS,
-        FloraPlacementMode::Authored,
-        8,
-        6,
         DEFAULT_MOISTURE_GROWTH_FACTORS,
     ),
 ];
@@ -255,13 +222,11 @@ impl FloraPaintSelection {
     }
 }
 
-const fn player_flora_paint_selections() -> [FloraPaintSelection; super::models::MODEL_COUNT + 3] {
-    let mut result = [FloraPaintSelection::GrassMix; super::models::MODEL_COUNT + 3];
-    result[1] = FloraPaintSelection::Species(LAVENDER_SPECIES_INDEX);
-    result[2] = FloraPaintSelection::Species(EMBER_BLOOM_SPECIES_INDEX);
+const fn player_flora_paint_selections() -> [FloraPaintSelection; super::models::MODEL_COUNT + 1] {
+    let mut result = [FloraPaintSelection::GrassMix; super::models::MODEL_COUNT + 1];
     let mut i = 0;
     while i < super::models::MODEL_COUNT {
-        result[i + 3] = FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + i as u32);
+        result[i + 1] = FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + i as u32);
         i += 1;
     }
     result
@@ -348,6 +313,15 @@ mod tests {
     }
 
     #[test]
+    fn retired_voxel_flowers_are_not_registered_or_plantable() {
+        for key in ["lavender", "ember_bloom"] {
+            assert!(!species().iter().any(|desc| desc.key == key));
+        }
+        assert_eq!(species_count(), super::super::models::MODEL_COUNT + 2);
+        assert_eq!(PLAYER_FLORA_PAINT_SELECTIONS.len(), species_count() - 1);
+    }
+
+    #[test]
     fn carrot_species_is_not_registered() {
         assert!(!species().iter().any(|species| species.key == "carrot"));
         assert!(!PLAYER_FLORA_PAINT_SELECTIONS.iter().any(|selection| {
@@ -366,11 +340,11 @@ mod tests {
         assert!(!species().iter().any(|desc| desc.key == "bellflower"));
         assert_eq!(
             PLAYER_FLORA_PAINT_SELECTIONS.len(),
-            super::super::models::MODEL_COUNT + 3
+            super::super::models::MODEL_COUNT + 1
         );
         for index in 0..super::super::models::MODEL_COUNT {
             assert_eq!(
-                PLAYER_FLORA_PAINT_SELECTIONS[index + 3],
+                PLAYER_FLORA_PAINT_SELECTIONS[index + 1],
                 FloraPaintSelection::Species(MODEL_FLOWER_FIRST_SPECIES + index as u32)
             );
         }
@@ -394,7 +368,7 @@ mod tests {
     fn authored_species_are_derived_from_registry_metadata() {
         assert_eq!(
             authored_plant_species_indices().collect::<Vec<_>>(),
-            (LAVENDER_SPECIES_INDEX..MAX_FLORA_SPECIES as u32).collect::<Vec<_>>()
+            (MODEL_FLOWER_FIRST_SPECIES..MAX_FLORA_SPECIES as u32).collect::<Vec<_>>()
         );
         assert!(!is_authored_plant_species_index(0));
         assert!(!is_authored_plant_species_index(species_count() as u32));
@@ -404,8 +378,7 @@ mod tests {
     fn butterfly_source_classification_excludes_only_grass_species() {
         assert!(is_grass_species_index(TALL_GRASS_SPECIES_INDEX));
         assert!(is_grass_species_index(SHORT_GRASS_SPECIES_INDEX));
-        assert!(!is_grass_species_index(LAVENDER_SPECIES_INDEX));
-        assert!(!is_grass_species_index(EMBER_BLOOM_SPECIES_INDEX));
+        assert!(!is_grass_species_index(MODEL_FLOWER_FIRST_SPECIES));
     }
 
     #[test]

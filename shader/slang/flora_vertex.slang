@@ -375,32 +375,8 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
                             int3 voxelLocalPosition, uint3 instancePositionVoxels,
                             float colorGradient, uint voxelInfo)
 {
-    uint materialId = floraVoxelMaterialId(voxelInfo);
     uint colorRow = floraHeightColorRow(colorGradient);
-    uint darkPackedColor = pc.height_dark_color_rgb10[colorRow];
-    if (instanceType == FLORA_SPECIES_LAVENDER)
-    {
-        darkPackedColor = sampleLavenderHeightPaletteRgb10(seed, colorRow);
-    }
-    float3 darkHeightColor = unpackLinearRgb10(darkPackedColor);
-
-    if (instanceType == FLORA_SPECIES_EMBER_BLOOM &&
-        materialId == FLORA_VOXEL_MATERIAL_ALLIUM_CORE)
-    {
-        const uint flowerColorRow = 8u;
-        float3 flowerA = unpackLinearRgb10(pc.height_dark_color_rgb10[flowerColorRow]);
-        float3 flowerB = unpackLinearRgb10(pc.height_light_color_rgb10[flowerColorRow]);
-        if (constructFloat01(wellonsHash(seed ^ 0x63D83595u)) >= 0.5)
-        {
-            flowerA = srgbToLinear(float3(0.89, 0.72, 0.29));
-            flowerB = srgbToLinear(float3(0.98, 0.96, 0.86));
-        }
-        float instanceOffset = constructFloat01(wellonsHash(seed ^ 0xA511E9B3u));
-        float blendFactor = frac(dot(float3(voxelLocalPosition),
-                                     float3(0.754877666, 0.569840296, 0.438289173)) +
-                                 instanceOffset);
-        return lerp(flowerA, flowerB, blendFactor);
-    }
+    float3 darkHeightColor = unpackLinearRgb10(pc.height_dark_color_rgb10[colorRow]);
 
     if (isGrass)
     {

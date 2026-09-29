@@ -377,7 +377,6 @@ mod tests {
             "Grass Frequency Response",
             "Grass Colors",
             "Color Variation",
-            "Purple Allium",
             "Leaves",
             "Appearance & Lighting",
             "Leaf Amplitude Response",

@@ -26,38 +26,12 @@ bool selectFloraBiome(int3 worldPosition, out uint floraType)
     float biomeValue = seededClassicGradientNoise2D(
         float2(float(worldPosition.x), float(worldPosition.z)) * 0.02,
         1337u);
-    float speciesRandom = floraSparseSpeciesRandom(worldPosition);
     floraType = FLORA_SPECIES_TALL_GRASS;
-
-    if (biomeValue > 0.3)
+    if (abs(biomeValue) > 0.3)
     {
-        if (speciesRandom < FLORA_LAVENDER_SPARSE_THRESHOLD)
-        {
-            floraType = FLORA_SPECIES_LAVENDER;
-        }
-        else if (speciesRandom < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD)
-        {
-            floraType = FLORA_SPECIES_TALL_GRASS;
-        }
-        else
-        {
-            return false;
-        }
-    }
-    else if (biomeValue < -0.3)
-    {
-        if (speciesRandom < FLORA_EMBER_BLOOM_SPARSE_THRESHOLD)
-        {
-            floraType = FLORA_SPECIES_EMBER_BLOOM;
-        }
-        else if (speciesRandom < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD)
-        {
-            floraType = FLORA_SPECIES_TALL_GRASS;
-        }
-        else
-        {
-            return false;
-        }
+        float speciesRandom = floraLegacyHash(
+            float2(worldPosition.x + 42.0, worldPosition.z - 15.0));
+        return speciesRandom < FLORA_GRASS_DECREASED_SPARSE_THRESHOLD;
     }
     return true;
 }
@@ -99,12 +73,6 @@ public bool selectFloraType(int3 worldBasePosition,
         return false;
     }
 
-    if (biomeFloraType == FLORA_SPECIES_LAVENDER ||
-        biomeFloraType == FLORA_SPECIES_EMBER_BLOOM)
-    {
-        floraType = biomeFloraType;
-        return true;
-    }
     if (allowTallGrass)
     {
         floraType = FLORA_SPECIES_TALL_GRASS;

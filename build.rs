@@ -1563,12 +1563,12 @@ fn validate_shared_flower_assets() {
     let shader = fs::read_to_string(shader_path).expect("flora shader registry");
     let expected = format!(
         "public static const uint FLORA_SPECIES_COUNT = {}u;",
-        flowers.len() + 4
+        flowers.len() + 2
     );
     assert!(
         shader.lines().any(|line| line == expected),
         "Update FLORA_SPECIES_COUNT in {shader_path} to {} after changing the flower catalog",
-        flowers.len() + 4
+        flowers.len() + 2
     );
 }
 

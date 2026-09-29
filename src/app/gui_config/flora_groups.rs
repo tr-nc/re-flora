@@ -184,14 +184,6 @@ pub(super) fn render(
             adjustables,
             after_section,
         );
-        stored_section(
-            ui,
-            config,
-            "Purple Allium",
-            "Purple Allium",
-            adjustables,
-            after_section,
-        );
     });
     // The existing Tree editor is supplied by DebugSettings, not duplicated here.
     after_section("Flora", ui);

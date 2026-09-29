@@ -340,8 +340,8 @@ pub(in crate::tracer) fn validate_gpu(
     harness.wind.wind_field_info.fill_uniform(&source)?;
     let validation_species = [
         species::TALL_GRASS_SPECIES_INDEX,
-        species::LAVENDER_SPECIES_INDEX,
-        species::EMBER_BLOOM_SPECIES_INDEX,
+        species::MODEL_FLOWER_FIRST_SPECIES,
+        species::MODEL_FLOWER_FIRST_SPECIES + 1,
         species::TREE_LEAF_RENDER_SPECIES_INDEX,
         species::APPLE_RENDER_SPECIES_INDEX,
     ];

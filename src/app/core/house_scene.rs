@@ -1,4 +1,3 @@
-use super::planting::AuthoredFloraPlacementBatch;
 use super::App;
 use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
 use crate::builder::{
@@ -6,10 +5,9 @@ use crate::builder::{
     VOXEL_TYPE_EMPTY, VOXEL_TYPE_IVY, VOXEL_TYPE_LIMESTONE, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_PETAL,
     VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
-use crate::flora::species::{EMBER_BLOOM_SPECIES_INDEX, LAVENDER_SPECIES_INDEX};
 use crate::geom::{build_bvh, Cuboid, Sphere, Torus};
 use anyhow::{Context, Result};
-use glam::{Quat, UVec2, UVec3, Vec3};
+use glam::{Quat, UVec3, Vec3};
 
 // Terrain voxels: 256 voxels per world unit. All decorative solids go through the
 // same loading transaction, visible publication, DDGI and collision paths as walls.
@@ -530,48 +528,6 @@ impl App {
             )?;
         }
         log::info!("[HOUSE_SCENE][ROOF] living_grass=true brushes=3 surface_pipeline=occupancy");
-        let mut batch = AuthoredFloraPlacementBatch::new();
-        let mut planted = 0;
-        let mut seed = 0;
-        for z in (219..354).step_by(16) {
-            for x in (99..255).step_by(14) {
-                seed += 1;
-                if seed % 3 == 0 {
-                    continue;
-                }
-                let Ok(anchor) = self.resolve_plantable_surface_column(UVec2::new(
-                    x + seed % 5 - 2,
-                    z + seed % 7 - 3,
-                )) else {
-                    continue;
-                };
-                let species = if seed % 4 == 0 {
-                    EMBER_BLOOM_SPECIES_INDEX
-                } else {
-                    LAVENDER_SPECIES_INDEX
-                };
-                planted += usize::from(
-                    self.try_place_authored_flora(&mut batch, species, anchor, 255, 0, seed),
-                );
-            }
-        }
-        for x in [116, 128, 140, 212, 224, 236] {
-            if let Ok(anchor) = self.resolve_plantable_surface_column(UVec2::new(x, 360)) {
-                planted += usize::from(self.try_place_authored_flora(
-                    &mut batch,
-                    EMBER_BLOOM_SPECIES_INDEX,
-                    anchor,
-                    255,
-                    0,
-                    x,
-                ));
-            }
-        }
-        self.finish_authored_flora_placement(batch)?;
-        anyhow::ensure!(planted >= 50, "cottage roof planting incomplete: {planted}");
-        log::info!(
-            "[HOUSE_SCENE][GARDEN] authored_flowers={planted} substrate_validated=true growth=255"
-        );
         self.verify_house_passage()?;
         Ok(())
     }

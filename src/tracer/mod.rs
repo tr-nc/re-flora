@@ -1073,34 +1073,6 @@ pub fn solid_flora_height_color_tables(
     [table, table]
 }
 
-pub fn allium_height_color_tables(
-    stem_bottom_srgb: Vec3,
-    stem_top_srgb: Vec3,
-    flower_a_srgb: Vec3,
-    flower_b_srgb: Vec3,
-) -> FloraHeightColorTables {
-    let stem_bottom = srgb_to_linear_color(stem_bottom_srgb);
-    let stem_top = srgb_to_linear_color(stem_top_srgb);
-    let flower_a = srgb_to_linear_color(flower_a_srgb);
-    let flower_b = srgb_to_linear_color(flower_b_srgb);
-    let mut table_a = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
-    let mut table_b = [0; FLORA_HEIGHT_COLOR_TABLE_LEN];
-
-    for row in 0..FLORA_HEIGHT_COLOR_TABLE_LEN {
-        let height_t = row as f32 / (FLORA_HEIGHT_COLOR_TABLE_LEN - 1) as f32;
-        if height_t < 0.64 {
-            let stem_color = stem_bottom.lerp(stem_top, height_t / 0.64);
-            table_a[row] = pack_linear_rgb10(stem_color);
-            table_b[row] = pack_linear_rgb10(stem_color);
-        } else {
-            table_a[row] = pack_linear_rgb10(flower_a);
-            table_b[row] = pack_linear_rgb10(flower_b);
-        }
-    }
-
-    [table_a, table_b]
-}
-
 #[cfg(test)]
 mod default_camera_tests {
     use super::*;

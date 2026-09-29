@@ -560,7 +560,6 @@ fn render_gui_param_control(
 const SECTION_PARENTS: &[(&str, &str)] = &[
     ("GodRay", "Sky"),
     ("Starlight", "Sky"),
-    ("Purple Allium", "Flora"),
     ("Flora Spawn Animation", "Flora"),
     ("FloraVariation", "Flora"),
     ("Leaves", "Flora"),

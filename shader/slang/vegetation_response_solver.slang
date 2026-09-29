@@ -31,8 +31,6 @@ public void advanceGrassSway(inout float4 motion, inout float2 phase, inout uint
 public float2 vegetationMechanicalProfile(uint species)
 {
     if (species < 2u) return float2(1.0, 0.24);
-    if (species == FLORA_SPECIES_LAVENDER) return float2(0.65, 0.30);
-    if (species == FLORA_SPECIES_EMBER_BLOOM) return float2(0.52, 0.34);
     if (species == FLORA_SPECIES_TREE_LEAF) return float2(1.4, 0.28); // attached leaf tissue
     return float2(0.75, 0.45); // heavier hanging fruit
 }

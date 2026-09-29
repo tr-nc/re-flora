@@ -1,5 +1,4 @@
 import flora_occupancy;
-import flora_placement;
 import flora_surface_planting;
 import flora_types;
 import grass_growth_potential;
@@ -23,7 +22,6 @@ struct U_EditOccupancyInfo
     uint flora_tick;
     uint target_age;
     uint paint_selection;
-    uint4 paint_config;
 };
 
 [[vk::binding(0, 0)]]
@@ -36,28 +34,6 @@ RWTexture3D<uint> occupancy_data;
 [[vk::binding(2, 0)]]
 [[vk::image_format("r32ui")]]
 readonly RWTexture3D<uint> surface;
-
-uint floraPaintPriority(uint selection)
-{
-    if (selection == FLORA_SPECIES_LAVENDER ||
-        selection == FLORA_SPECIES_EMBER_BLOOM)
-    {
-        return 1u;
-    }
-    return 0u;
-}
-
-bool floraPaintCanReplaceCurrent(uint paintSelection, uint currentOccupancy)
-{
-    if (currentOccupancy == 0u)
-    {
-        return true;
-    }
-    uint currentSelection =
-        unpackFloraOccupancySelection(currentOccupancy);
-    return floraPaintPriority(paintSelection) >
-           floraPaintPriority(currentSelection);
-}
 
 float distanceSquaredToEditSegment(float3 point)
 {
@@ -134,29 +110,13 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
         if (isFloraSurfacePlantable(voxelTypeFromData(surfaceData)))
         {
             uint currentOccupancy = occupancy_data[baseLocal];
-            if (!floraPaintCanReplaceCurrent(
-                    edit_occupancy_info.paint_selection, currentOccupancy))
+            if (currentOccupancy != 0u)
             {
                 return;
             }
 
-            int3 worldBasePosition = int3(
-                edit_occupancy_info.chunk_world_offset + baseLocal);
-            if (!floraSparsePaintSelectionAllows(
-                    edit_occupancy_info.paint_selection,
-                    worldBasePosition,
-                    edit_occupancy_info.paint_config))
-            {
-                return;
-            }
-
-            uint growthProgress = INSTANCE_GROWTH_PROGRESS_MATURE;
-            if (floraPaintPriority(
-                    edit_occupancy_info.paint_selection) == 0u)
-            {
-                growthProgress = grassGrowthProgressLimit(
-                    baseLocal, edit_occupancy_info.chunk_dim);
-            }
+            uint growthProgress = grassGrowthProgressLimit(
+                baseLocal, edit_occupancy_info.chunk_dim);
             uint occupancyValue = packFloraOccupancyWithSpawnAge(
                 edit_occupancy_info.paint_selection, growthProgress, 0u);
             occupancy_data[baseLocal] = occupancyValue;

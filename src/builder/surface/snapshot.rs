@@ -29,8 +29,14 @@ impl FloraSnapshot {
     /// all retained growth, spawn ages and authored identities move intact.
     /// Unknown/duplicate/out-of-order layouts remain for strict validation.
     pub fn migrate_species_schema(&mut self) -> usize {
-        const BASE: [&str; 4] = ["tall_grass", "short_grass", "lavender", "ember_bloom"];
-        const RETIRED: [&str; 3] = ["kochia", "corn-poppy", "bellflower"];
+        const BASE: [&str; 2] = ["tall_grass", "short_grass"];
+        const RETIRED: [&str; 5] = [
+            "lavender",
+            "ember_bloom",
+            "kochia",
+            "corn-poppy",
+            "bellflower",
+        ];
         let current = species::FLORA_SPECIES;
         let mut removed = 0;
         for chunk in &mut self.chunks {
@@ -336,17 +342,33 @@ mod tests {
             .push([0xff02_0304, u32::MAX]);
         retained.chunks[0].species[2].authored.push([17, 99]);
         let mut legacy = retained.clone();
-        // Freeze the historical schema; deriving it from today's registry would
-        // hide an append-only species compatibility regression.
-        legacy.chunks[0].species.truncate(4);
-        legacy.chunks[0].species.push(SpeciesSnapshot {
-            key: "kochia".to_owned(),
-            instances: vec![[0xff01_0203, 42]],
-            authored: vec![[18, 55]],
-        });
+        legacy.chunks[0].species.insert(
+            2,
+            SpeciesSnapshot {
+                key: "lavender".to_owned(),
+                instances: vec![[0xff01_0203, u32::MAX]],
+                authored: vec![[18, 55]],
+            },
+        );
+        legacy.chunks[0].species.insert(
+            3,
+            SpeciesSnapshot {
+                key: "ember_bloom".to_owned(),
+                instances: vec![],
+                authored: vec![],
+            },
+        );
+        legacy.chunks[0].species.insert(
+            4,
+            SpeciesSnapshot {
+                key: "kochia".to_owned(),
+                instances: vec![[0xff01_0203, 42]],
+                authored: vec![[19, 56]],
+            },
+        );
         let encoded = serde_json::to_vec(&legacy).unwrap();
         let mut decoded: FloraSnapshot = serde_json::from_slice(&encoded).unwrap();
-        assert_eq!(decoded.migrate_species_schema(), 1);
+        assert_eq!(decoded.migrate_species_schema(), 2);
         decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(decoded, retained);
         assert_eq!(decoded.migrate_species_schema(), 0);
@@ -358,7 +380,7 @@ mod tests {
     #[test]
     fn retired_poppy_and_bellflower_are_removed_without_shifting_other_flower_identities() {
         let mut retained = fixture();
-        let coneflower = &mut retained.chunks[0].species[8];
+        let coneflower = &mut retained.chunks[0].species[6];
         coneflower.instances.push([0xff01_0203, 42]);
         coneflower.authored.push([17, 99]);
         let mut old = retained.clone();
@@ -401,16 +423,16 @@ mod tests {
     #[test]
     fn a_new_flower_slot_is_inserted_without_shifting_later_saved_identities() {
         let mut current = fixture();
-        current.chunks[0].species[7]
+        current.chunks[0].species[5]
             .instances
             .push([0xff01_0203, 42]);
-        current.chunks[0].species[7].authored.push([17, 99]);
+        current.chunks[0].species[5].authored.push([17, 99]);
         let mut old = current.clone();
-        old.chunks[0].species.remove(6);
+        old.chunks[0].species.remove(4);
         assert_eq!(old.migrate_species_schema(), 0);
         old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
-        current.chunks[0].species[6].instances.clear();
-        current.chunks[0].species[6].authored.clear();
+        current.chunks[0].species[4].instances.clear();
+        current.chunks[0].species[4].authored.clear();
         assert_eq!(old, current);
     }
 
@@ -426,10 +448,10 @@ mod tests {
         )
         .unwrap();
         let original = saved.chunks[0].species.clone();
-        assert_eq!(saved.migrate_species_schema(), 0);
+        assert_eq!(saved.migrate_species_schema(), 1);
         saved.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
-        assert_eq!(&saved.chunks[0].species[..4], original.as_slice());
-        assert!(saved.chunks[0].species[4..]
+        assert_eq!(&saved.chunks[0].species[..2], &original[..2]);
+        assert!(saved.chunks[0].species[2..]
             .iter()
             .all(|s| s.instances.is_empty() && s.authored.is_empty()));
         let migrated = saved.clone();
@@ -440,7 +462,7 @@ mod tests {
     #[test]
     fn current_flower_gardens_round_trip_all_new_species_and_identities() {
         let mut saved = fixture();
-        for (index, plant) in saved.chunks[0].species.iter_mut().enumerate().skip(4) {
+        for (index, plant) in saved.chunks[0].species.iter_mut().enumerate().skip(2) {
             plant.instances.push([
                 pack_flora_instance(UVec3::new(3, 2, 1), index as u32 * 16, 0).packed_local_pos,
                 index as u32 * 100,

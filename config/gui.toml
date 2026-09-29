@@ -1687,45 +1687,6 @@ min = 0
 max = 20
 
 [[section]]
-name = "Purple Allium"
-
-[[section.param]]
-id = "ember_bloom_bottom_color"
-kind = "color"
-label = "Stem Bottom Color"
-type = "Color"
-
-[section.param.data]
-value = "#3D7A38"
-
-[[section.param]]
-id = "ember_bloom_stem_tip_color"
-kind = "color"
-label = "Stem Top Color"
-type = "Color"
-
-[section.param.data]
-value = "#72A84A"
-
-[[section.param]]
-id = "ember_bloom_flower_purple_color"
-kind = "color"
-label = "Flower Color A"
-type = "Color"
-
-[section.param.data]
-value = "#A85AC4"
-
-[[section.param]]
-id = "ember_bloom_flower_secondary_color"
-kind = "color"
-label = "Flower Color B"
-type = "Color"
-
-[section.param.data]
-value = "#D36BAE"
-
-[[section]]
 name = "Flora Spawn Animation"
 
 [[section.param]]

@@ -117,8 +117,8 @@ use crate::particles::{
 };
 use crate::tracer::tree_preview_mesh::build_tree_preview_mesh;
 use crate::tracer::{
-    allium_height_color_tables, grass_flora_height_color_tables, solid_flora_height_color_tables,
-    RenderFramePlan, TerrainRayQuery, Tracer, TracerDesc, DIRECT_SUN_SHADOW_SOURCE_ALL,
+    grass_flora_height_color_tables, solid_flora_height_color_tables, RenderFramePlan,
+    TerrainRayQuery, Tracer, TracerDesc, DIRECT_SUN_SHADOW_SOURCE_ALL,
 };
 use crate::tree_gen::TreeDesc;
 use crate::util::get_sun_dir;
@@ -3639,32 +3639,6 @@ ui.collapsing("Environment Probes", |ui| {
                             ),
                             color_to_vec3(
                                 self.debug_settings.adjustables.grass_tip_light_color.value,
-                            ),
-                        ),
-                        "ember_bloom" => allium_height_color_tables(
-                            color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .ember_bloom_bottom_color
-                                    .value,
-                            ),
-                            color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .ember_bloom_stem_tip_color
-                                    .value,
-                            ),
-                            color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .ember_bloom_flower_purple_color
-                                    .value,
-                            ),
-                            color_to_vec3(
-                                self.debug_settings
-                                    .adjustables
-                                    .ember_bloom_flower_secondary_color
-                                    .value,
                             ),
                         ),
                         _ => {

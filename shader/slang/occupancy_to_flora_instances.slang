@@ -110,9 +110,7 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
     calculateFloraDensityPlacement(worldBasePosition, allowAnyFlora,
                                    allowTallGrass, allowShortGrass);
 
-    if (paintSelection != FLORA_SPECIES_LAVENDER &&
-        paintSelection != FLORA_SPECIES_EMBER_BLOOM &&
-        !(allowAnyFlora || allowTallGrass || allowShortGrass))
+    if (!(allowAnyFlora || allowTallGrass || allowShortGrass))
     {
         return;
     }

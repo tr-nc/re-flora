@@ -1426,7 +1426,7 @@ impl SurfaceBuilder {
         for (species_idx, species) in species_len
             .iter_mut()
             .enumerate()
-            .take(self.flora_species_count.min(4))
+            .take(species::MODEL_FLOWER_FIRST_SPECIES as usize)
         {
             let len = self.resources.instances.chunk_flora_instances[chunk_idx]
                 .1
@@ -1634,7 +1634,7 @@ impl SurfaceBuilder {
         for (species_idx, species) in species_len
             .iter_mut()
             .enumerate()
-            .take(self.flora_species_count.min(4))
+            .take(species::MODEL_FLOWER_FIRST_SPECIES as usize)
         {
             let len = self.resources.instances.chunk_flora_instances[chunk_idx]
                 .1
@@ -1908,8 +1908,8 @@ fn update_edit_occupancy_info(
     flora_tick: u32,
     target_age: u32,
     paint_selection: species::FloraPaintSelection,
-    paint_dab_serial: u32,
-    paint_brush: species::FloraPaintBrushSettings,
+    _paint_dab_serial: u32,
+    _paint_brush: species::FloraPaintBrushSettings,
 ) -> Result<()> {
     edit_occupancy_info.fill_uniform(&EditOccupancyInfo {
         edit_segment_start_radius_vox: [
@@ -1930,12 +1930,6 @@ fn update_edit_occupancy_info(
         flora_tick,
         target_age,
         paint_selection: paint_selection.shader_selection(),
-        paint_config: [
-            paint_dab_serial,
-            paint_brush.soft_spacing_voxels,
-            0,
-            paint_brush.plants_per_release,
-        ],
         ..EditOccupancyInfo::zeroed()
     })
 }
