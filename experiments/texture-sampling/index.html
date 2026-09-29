@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>纹素采样实验室 · Nearest / Bilinear / Bicubic</title>
+<style>
+:root{color-scheme:dark;--bg:#10151c;--panel:#19222d;--muted:#b2bfcc;--line:#354457;--accent:#b9f17b}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#eef3f9;font:15px/1.65 system-ui,sans-serif}main{max-width:1220px;margin:auto;padding:32px 24px 64px}h1{font-size:32px;line-height:1.3;margin:8px 0}h2{font-size:21px;margin:0 0 12px}h3{margin:0;font-size:17px}p{margin:8px 0 16px}.muted,small{color:var(--muted)}.eyebrow{color:var(--accent);letter-spacing:.14em;font-size:12px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;margin-top:22px}.inspect{display:grid;grid-template-columns:minmax(260px,420px) 1fr;gap:28px}.source{width:100%;height:auto;display:block;touch-action:none;cursor:crosshair;border-radius:8px}.controls{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:12px 0}label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}input[type=range]{accent-color:var(--accent);width:150px}select,button{font:inherit;color:inherit;background:#253447;border:1px solid #53657b;padding:7px 12px;border-radius:8px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:focus-visible,select:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--accent);outline-offset:3px}output{font-variant-numeric:tabular-nums;color:var(--accent)}.weights{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.weight{border:1px solid var(--line);border-radius:10px;padding:10px}.swatch{display:inline-block;width:18px;height:18px;vertical-align:middle;border:1px solid #a4b0bd;border-radius:3px;margin-right:8px}.bar{height:5px;margin-top:8px;background:#344152}.bar i{display:block;height:100%;background:var(--accent)}.formula{font:13px/1.8 ui-monospace,monospace;background:#10171f;padding:12px;border-radius:8px;overflow-wrap:anywhere}.results{display:flex;gap:14px;flex-wrap:wrap}.result{display:flex;align-items:center;gap:8px}.chip{height:36px;width:48px;border:1px solid #8a99ac;border-radius:6px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card{min-width:0;background:#111a23;border:1px solid var(--line);padding:12px;border-radius:12px}.preview{width:100%;aspect-ratio:1;display:block;image-rendering:pixelated;margin:10px 0;background:#0b1017}.card p{font-size:13px;color:var(--muted);margin-bottom:0}.note{border-left:3px solid var(--accent);padding-left:14px}.presets button{font-size:13px}a{color:var(--accent)}@media(max-width:900px){.cards{grid-template-columns:1fr 1fr}.inspect{grid-template-columns:1fr 1fr}}@media(max-width:620px){main{padding:20px 14px}.inspect{grid-template-columns:1fr}.panel{padding:16px}h1{font-size:25px}.cards{gap:8px}.card{padding:8px}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">RE-FLORA / INTERACTIVE EXPLAINER</div>
+<h1>一个屏幕像素，应该取什么颜色？</h1>
+<p class="muted">先拖动采样点，拆开看 Bilinear 的四个权重；再让同一张纹理移动、旋转、缩小，对照四种采样。</p>
+<div class="controls"><label for="texture">纹理 <select id="texture"><option value="colors">四色交界 · 看混色</option><option value="stem">一纹素分叉 · 看细枝</option><option value="checker">棋盘格 · 看缩小混叠</option></select></label><button id="reset">重置全部</button></div>
+<section class="panel" aria-labelledby="inspect-title"><h2 id="inspect-title">01 / 拖动白色十字：Bilinear 怎么算？</h2>
+<div class="inspect"><div><canvas id="source" class="source" width="480" height="480" tabindex="0" aria-label="纹理采样点，可拖动或用方向键移动"></canvas><small>圆点是纹素中心。A/B/C/D 是参与插值的四个邻居。也可用方向键或右侧滑块调整。</small></div>
+<div>
+<label for="sample-x">x <input id="sample-x" type="range" min="0" max="15" step="0.01" value="7.35"><output id="x-value" for="sample-x"></output></label>
+<label for="sample-y">y <input id="sample-y" type="range" min="0" max="15" step="0.01" value="7.65"><output id="y-value" for="sample-y"></output></label>
+<p id="coordinates" class="muted"></p><div id="weights" class="weights"></div>
+<div id="formula" class="formula"></div>
+<div class="results" style="margin-top:16px"><div class="result"><div id="nearest-chip" class="chip"></div>Nearest</div><div class="result"><div id="bilinear-chip" class="chip"></div>Bilinear</div></div>
+<p class="muted">不是四格一律取平均：越靠近某个中心，它的权重越大。先横向混合两行，再纵向混合，就是双线性插值。</p>
+<small>这里用纹素中心坐标：整数就是中心。GPU 常用 UV 时，x = u × 宽度 − 0.5，y = v × 高度 − 0.5。</small>
+</div></div></section>
+<section class="panel" aria-labelledby="compare-title"><h2 id="compare-title">02 / 同一张纹理，四种取样方式</h2>
+<div class="controls presets"><button id="preset-mix">① 放大看混色</button><button id="preset-stem">② 移动看细枝</button><button id="preset-mini">③ 缩小看闪烁</button></div>
+<div class="controls">
+<label for="scale">缩放 <input id="scale" type="range" min="0.3" max="8" step="0.01" value="4"><output id="scale-value"></output></label>
+<label for="angle">旋转 <input id="angle" type="range" min="-180" max="180" step="1" value="0"><output id="angle-value"></output></label>
+<label for="shift">平移 <input id="shift" type="range" min="-2" max="2" step="0.01" value="0"><output id="shift-value"></output></label>
+<button id="play" aria-pressed="false">▶ 自动慢移</button>
+<label><input id="magnify" type="checkbox">放大中心 24×24 像素</label>
+</div>
+<p id="footprint" class="muted"></p>
+<div class="cards">
+<article class="card"><h3>Nearest / 最近邻</h3><canvas id="nearest" class="preview" width="96" height="96" aria-label="最近邻采样对照"></canvas><p>选最近的 1 个纹素。保留原色和硬边，但跨过边界时会突然换色。</p></article>
+<article class="card"><h3>Bilinear / 双线性</h3><canvas id="bilinear" class="preview" width="96" height="96" aria-label="双线性采样对照"></canvas><p>附近 2×2 共 4 个纹素加权。过渡连续，但边缘变软；缩小时仍可能闪。</p></article>
+<article class="card"><h3>Bicubic / 双三次</h3><canvas id="bicubic" class="preview" width="96" height="96" aria-label="Catmull–Rom 双三次采样对照"></canvas><p>这里用 Catmull–Rom，附近 4×4 共 16 个纹素。有负权重，可能更锐，也可能出现亮边/暗边（过冲）。</p></article>
+<article class="card"><h3>面积采样 / 8×8</h3><canvas id="area" class="preview" width="96" height="96" aria-label="64点近似面积采样对照"></canvas><p>在每个输出像素覆盖的纹理区域内取 64 个点求平均。缩小时更稳，但细枝会变淡；这是近似抗混叠，不是另一种点插值。</p></article>
+</div>
+<p class="note">重点试第③项：一个输出像素覆盖很多纹素时，Bilinear 依然只看附近四个，不会自动统计整个覆盖区域。实际 GPU 通常还需要 mipmap；斜视时常结合各向异性过滤。</p>
+</section>
+<section class="panel"><h2>它回答什么，不回答什么？</h2><p>这是 <strong>CPU 数学实现的二维纹理重采样</strong>，不是 GPU 性能测试，也不是茎的 3D 稳定性方案。这里的旋转是纹理平面旋转，不是相机原地转头。让表面颜色更平滑，不等于保证细茎几何轮廓不会消失。</p><p class="muted">所有方法共用同一坐标变换和 96×96 输出，再用最近邻放大展示，避免浏览器二次平滑掩盖差异。“放大中心”仅裁出中心 24×24 输出像素，不改变采样计算。纹理为不透明线性 RGB，在线性空间计算后编码为 sRGB 显示；边界使用 clamp-to-edge。Bicubic 的过冲只在最终显示时截断。面积采样不是精确积分，也没有实现 mipmap / 各向异性过滤。</p><small>零第三方依赖 · 离线本地 HTTP 可运行 · <a href="README.md">实现与验证说明</a></small></section>
+</main><script type="module" src="./app.mjs"></script></body></html>
