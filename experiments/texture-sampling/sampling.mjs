@@ -21,6 +21,42 @@ export function bilinear(t, x, y) {
   }
   return out;
 }
+// Demo textures have power-of-two dimensions. Generate each mip in linear RGB.
+export function makeMipmaps(base) {
+  const powerOfTwo = n => Number.isInteger(n) && n > 0 && Number.isInteger(Math.log2(n));
+  if (!powerOfTwo(base.width) || !powerOfTwo(base.height)) throw new Error('Mip demo requires power-of-two dimensions');
+  const levels = [base];
+  while (levels.at(-1).width > 1 || levels.at(-1).height > 1) {
+    const previous = levels.at(-1);
+    const width = Math.max(1, previous.width / 2), height = Math.max(1, previous.height / 2), data = [];
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const color = [0, 0, 0];
+      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
+        const c = texel(previous, x * 2 + i, y * 2 + j);
+        for (let k = 0; k < 3; k++) color[k] += c[k] / 4;
+      }
+      data.push(color);
+    }
+    levels.push({ width, height, data });
+  }
+  return levels;
+}
+export function mipSelection(levels, lod) {
+  const value = clamp(lod, 0, levels.length - 1), lower = Math.floor(value);
+  return { lod: value, lower, upper: Math.min(lower + 1, levels.length - 1), blend: value - lower };
+}
+// The same normalized UV must be sampled at both mip levels, not the same texel index.
+export function sampleMip(levels, level, x, y) {
+  const base = levels[0], t = levels[level];
+  return bilinear(t, (x + 0.5) * t.width / base.width - 0.5, (y + 0.5) * t.height / base.height - 0.5);
+}
+export function trilinear(levels, x, y, lod) {
+  const { lower, upper, blend } = mipSelection(levels, lod);
+  const a = sampleMip(levels, lower, x, y), b = sampleMip(levels, upper, x, y);
+  return a.map((v, k) => v * (1 - blend) + b[k] * blend);
+}
+// For this demo's uniform scale + rotation, footprint length is 1 / scale.
+export function lodForScale(scale) { return Math.max(0, Math.log2(1 / scale)); }
 export function cubicWeight(x) {
   const a = Math.abs(x);
   return a < 1 ? 1.5 * a ** 3 - 2.5 * a ** 2 + 1 : a < 2 ? -0.5 * a ** 3 + 2.5 * a ** 2 - 4 * a + 2 : 0;

@@ -16,9 +16,11 @@ python3 -m http.server 8793 --bind 127.0.0.1 --directory experiments/texture-sam
 
 - 拖动纹理中的白十字，或用 x/y 滑块、聚焦画布后的方向键，观察四个纹素、权重、坐标和混色结果。
 - 三张纹理：四色交界、一纹素宽分叉、棋盘格。
-- 四路同步输出：Nearest、Bilinear、Bicubic（Catmull–Rom）、8×8 近似面积采样。
+- 五路同步输出：Nearest、Bilinear、Trilinear、Bicubic（Catmull–Rom）、8×8 近似面积采样。
 - 调整缩放、二维旋转、亚纹素平移；自动慢移可暂停。
-- 三个预设分别检查放大混色、细枝移动和缩小混叠。缩小预设自动放大中心 24×24 输出像素以便观察，不改变实际采样。
+- 前三个预设分别检查放大混色、细枝移动和缩小混叠。缩小预设自动放大中心 24×24 输出像素以便观察，不改变实际采样。
+- 第④个预设展示 Trilinear 拆解：16×16 → 8×8 → 4×4 → 2×2 → 1×1 mip 链，两层的 Bilinear 颜色、层权重和混合结果。十字共享第①区采样点的 UV。
+- LOD 默认跟随缩放；手动拖动 LOD 会取消自动模式，只改变 Trilinear，其他方法继续采样 L0。重置和常规预设恢复自动模式。
 
 ## 数学约定与边界
 
@@ -32,7 +34,9 @@ python3 -m http.server 8793 --bind 127.0.0.1 --directory experiments/texture-sam
 - 不透明线性 RGB 输入，所有混合在线性空间，最终 sRGB 编码到 Canvas ImageData。
 - 共用 96×96 输出并最近邻放大；白框是叠加的纹理范围标记，不是插值结果。勾选放大后只展示中心 24×24。
 - 本演示是二维 CPU 重采样，不是 GPU sampler 精度/速度的测试。平面旋转不能代替 3D 相机转头验证，纹理插值也不能直接证明细茎几何覆盖稳定。
-- 没有实现 Lanczos、mipmap、trilinear、各向异性过滤或时间滤波。特别是 trilinear 通常涉及相邻 mip 层之间的插值，不能用第三种平面核冒充。
+- Mipmap 在线性 RGB 下逐层做 2×2 box 平均，只接受正的 2 次幂尺寸；支持矩形以及单行/列，非幂次尺寸显式拒绝。Trilinear 在相邻 mip 上以相同 UV 做 Bilinear，再根据 LOD 小数部分线性混合；层坐标必须包含半纹素偏移。
+- 自动 LOD 为 `clamp(log2(1 / scale), 0, maxLevel)`，适用于本页均匀缩放与旋转，不冒充透视或各向异性 LOD 算法。放大时取 L0，最末层边界不访问越界 mip。
+- 没有实现 Lanczos、各向异性过滤或时间滤波；Trilinear 的第三个插值方向是 mip 层级，不是时间。
 
 ## 验证
 
@@ -41,13 +45,14 @@ node --test experiments/texture-sampling/sampling.test.mjs
 node --check experiments/texture-sampling/app.mjs
 ```
 
-5 个测试通过：权重与中点混色、中心/边界/最近邻切换、常值保持与 cubic 过冲、旋转面积 footprint、显示截断与输入范围。
+8 个测试通过：原有权重与中点混色、中心/边界/最近邻切换、常值保持与 cubic 过冲、旋转面积 footprint、显示截断与输入范围；新增 mip 尺寸与线性平均、跨层 UV/半纹素坐标、Trilinear 整数/小数/越界 LOD 和层边界连续性。
 
 本次用隔离的 agent-browser 浏览器会话检查了：
 
-- 页面加载与四路画布输出；放大、缩小预设截图人工检查。
+- 页面加载与原四路画布输出；放大、缩小预设截图人工检查。新增五路与 mip 链截图人工检查。
 - 点击源画布、键盘移动、四权重在交点为 25%。
 - 自动慢移、暂停保持、预设与重置（包含放大开关）。
+- 新增浏览器断言：LOD=0 时 Trilinear/Bilinear 画布完全一致；手动 LOD 不影响 Bilinear；两层权重、末层 100%、缩放自动 LOD、采样点联动、纹理切换重建、重置回自动模式均通过。
 - 390×844 移动视口无横向溢出；浏览器未报告 JS 错误。
 
 这是网页功能检查，不是游戏集成或 release 性能验收；未改 Rust/shader，未启动游戏构建。

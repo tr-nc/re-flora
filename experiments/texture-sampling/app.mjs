@@ -1,13 +1,52 @@
-import { clamp, texel, neighbors, nearest, bilinear, bicubic, area, srgbEncode, makeTexture } from './sampling.mjs';
+import { clamp, texel, neighbors, nearest, bilinear, bicubic, area, srgbEncode, makeTexture, makeMipmaps, mipSelection, sampleMip, trilinear, lodForScale } from './sampling.mjs';
 const $ = id => document.getElementById(id);
 const names = ['A', 'B', 'C', 'D'];
 let texture = makeTexture('colors'), playing = false, lastTime = 0, dirty = true;
+let mipmaps = makeMipmaps(texture);
 const source = $('source'), ctx = source.getContext('2d');
-const views = ['nearest', 'bilinear', 'bicubic', 'area'].map(id => {
+const views = ['nearest', 'bilinear', 'trilinear', 'bicubic', 'area'].map(id => {
   const canvas = $(id), context = canvas.getContext('2d');
   return { id, context, image: context.createImageData(96, 96) };
 });
 const rgb = c => `rgb(${c.map(v => Math.round(srgbEncode(v))).join(',')})`;
+function currentLod() {
+  return mipSelection(mipmaps, $('auto-lod').checked ? lodForScale(+$('scale').value) : +$('lod').value);
+}
+function buildMipPreviews() {
+  $('mip-levels').innerHTML = mipmaps.map((t, i) => `<div class="mip-level" id="mip-level-${i}"><strong>L${i} · ${t.width}×${t.height}</strong><canvas width="128" height="128" id="mip-canvas-${i}" aria-label="Mip 层 ${i}"></canvas><small id="mip-weight-${i}"></small></div>`).join('');
+}
+function drawMips() {
+  const selection = currentLod(), { lod, lower, upper, blend } = selection;
+  const x = +$('sample-x').value, y = +$('sample-y').value;
+  $('lod').value = lod; $('lod-value').textContent = lod.toFixed(2);
+  const description = `L${lower} × ${((1 - blend) * 100).toFixed(1)}% + L${upper} × ${(blend * 100).toFixed(1)}%`;
+  $('tri-status').textContent = ` 当前：${description}`;
+  $('lod-explanation').textContent = `${$('auto-lod').checked ? '自动：由缩放估算' : '手动：仅覆盖 Trilinear 的层级选择'} · LOD = ${lod.toFixed(2)} · ${description}`;
+  mipmaps.forEach((t, level) => {
+    const c = $(`mip-canvas-${level}`).getContext('2d'), size = 128 / t.width;
+    for (let j = 0; j < t.height; j++) for (let i = 0; i < t.width; i++) {
+      c.fillStyle = rgb(texel(t, i, j)); c.fillRect(i * size, j * size, size, size);
+    }
+    const weight = (level === lower ? 1 - blend : 0) + (level === upper ? blend : 0);
+    $(`mip-level-${level}`).classList.toggle('active', weight > 0);
+    $(`mip-weight-${level}`).textContent = `层权重 ${(weight * 100).toFixed(1)}%`;
+    const mx = (x + 0.5) * t.width / texture.width - 0.5, my = (y + 0.5) * t.height / texture.height - 0.5;
+    if (level === lower || level === upper) for (const p of neighbors(mx, my)) {
+      c.strokeStyle = '#e6ffaf'; c.lineWidth = 1;
+      c.strokeRect(clamp(p.x, 0, t.width - 1) * size + 1, clamp(p.y, 0, t.height - 1) * size + 1, size - 2, size - 2);
+    }
+    const sx = (mx + 0.5) * size, sy = (my + 0.5) * size;
+    for (const [color, width] of [['#000', 4], ['#fff', 1.5]]) {
+      c.strokeStyle = color; c.lineWidth = width; c.beginPath(); c.moveTo(sx - 6, sy); c.lineTo(sx + 6, sy); c.moveTo(sx, sy - 6); c.lineTo(sx, sy + 6); c.stroke();
+    }
+  });
+  $('mip-lower-chip').style.background = rgb(sampleMip(mipmaps, lower, x, y));
+  $('mip-upper-chip').style.background = rgb(sampleMip(mipmaps, upper, x, y));
+  $('mip-result-chip').style.background = rgb(trilinear(mipmaps, x, y, lod));
+  $('mip-lower-label').textContent = `L${lower} 的 Bilinear`;
+  $('mip-upper-label').textContent = `L${upper} 的 Bilinear`;
+  $('mip-formula').textContent = `t = LOD − floor(LOD) = ${blend.toFixed(2)}；结果 = Bilinear(L${lower}, UV) × ${(1 - blend).toFixed(2)} + Bilinear(L${upper}, UV) × ${blend.toFixed(2)}。${lower === upper ? '已到最末层，实际只需这一层。' : '概念上是 4 + 4 个纹素贡献，不是原图上 8 个最近邻。'}`;
+}
 function drawInspector() {
   const x = +$('sample-x').value, y = +$('sample-y').value;
   $('x-value').textContent = x.toFixed(2); $('y-value').textContent = y.toFixed(2);
@@ -37,11 +76,14 @@ function drawInspector() {
   $('formula').style.whiteSpace = 'pre-line';
   $('nearest-chip').style.background = rgb(nearest(texture, x, y));
   $('bilinear-chip').style.background = rgb(bilinear(texture, x, y));
+  drawMips();
 }
 function drawComparison() {
   const scale = +$('scale').value, radians = +$('angle').value * Math.PI / 180, shift = +$('shift').value;
   const cos = Math.cos(radians), sin = Math.sin(radians);
   const dx = [cos / scale, -sin / scale], dy = [sin / scale, cos / scale];
+  const { lod } = currentLod();
+  drawMips();
   $('scale-value').textContent = `${scale.toFixed(2)} px/texel`;
   $('angle-value').textContent = `${$('angle').value}°`;
   $('shift-value').textContent = `${shift.toFixed(2)} texel`;
@@ -51,7 +93,8 @@ function drawComparison() {
       const px = i + 0.5 - 48, py = j + 0.5 - 48;
       const x = 7.5 + px * dx[0] + py * dy[0] - shift;
       const y = 7.5 + px * dx[1] + py * dy[1];
-      const color = view.id === 'area' ? area(texture, x, y, dx, dy) : ({ nearest, bilinear, bicubic }[view.id])(texture, x, y);
+      const color = view.id === 'trilinear' ? trilinear(mipmaps, x, y, lod)
+        : view.id === 'area' ? area(texture, x, y, dx, dy) : ({ nearest, bilinear, bicubic }[view.id])(texture, x, y);
       const offset = (j * 96 + i) * 4;
       for (let k = 0; k < 3; k++) view.image.data[offset + k] = Math.round(srgbEncode(color[k]));
       view.image.data[offset + 3] = 255;
@@ -68,15 +111,18 @@ function drawComparison() {
   }
 }
 function setPlaying(value) { playing = value; $('play').textContent = value ? '⏸ 暂停慢移' : '▶ 自动慢移'; $('play').setAttribute('aria-pressed', String(value)); }
-function updateTexture() { texture = makeTexture($('texture').value); drawInspector(); dirty = true; }
+function updateTexture() { texture = makeTexture($('texture').value); mipmaps = makeMipmaps(texture); buildMipPreviews(); drawInspector(); dirty = true; }
 $('texture').addEventListener('change', updateTexture);
 for (const id of ['sample-x', 'sample-y']) $(id).addEventListener('input', drawInspector);
 for (const id of ['scale', 'angle', 'shift']) $(id).addEventListener('input', () => { dirty = true; if (id === 'shift') setPlaying(false); });
 $('play').addEventListener('click', () => setPlaying(!playing));
 $('magnify').addEventListener('change', () => { dirty = true; });
+$('auto-lod').addEventListener('change', () => { dirty = true; drawMips(); });
+$('lod').addEventListener('input', () => { $('auto-lod').checked = false; dirty = true; drawMips(); });
 function preset(kind, scale, angle, play) {
   $('texture').value = kind; $('scale').value = scale; $('angle').value = angle; $('shift').value = 0;
   $('magnify').checked = scale < 1;
+  $('auto-lod').checked = true;
   phase = 0;
   $('sample-x').value = 7.35; $('sample-y').value = 7.65;
   setPlaying(play); updateTexture();
@@ -85,6 +131,11 @@ $('reset').addEventListener('click', () => preset('colors', 4, 0, false));
 $('preset-mix').addEventListener('click', () => preset('colors', 5, 0, false));
 $('preset-stem').addEventListener('click', () => preset('stem', 2, 18, true));
 $('preset-mini').addEventListener('click', () => preset('checker', 0.65, 12, true));
+$('preset-mip').addEventListener('click', () => {
+  preset('stem', 2, 0, false);
+  $('auto-lod').checked = false; $('lod').value = 1.5; drawMips();
+  $('mip-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 function point(event) {
   const rect = source.getBoundingClientRect();
   $('sample-x').value = clamp((event.clientX - rect.left) / rect.width * 16 - 0.5, 0, 15);
@@ -107,4 +158,4 @@ function frame(time) {
   if (dirty) { drawComparison(); dirty = false; }
   requestAnimationFrame(frame);
 }
-drawInspector(); requestAnimationFrame(frame);
+buildMipPreviews(); drawInspector(); requestAnimationFrame(frame);
