@@ -901,6 +901,8 @@ pub struct GuiInput {
     pub _pad4: [u8; 4],
     pub flower_stem_tip: [f32; 3],
     pub _pad5: [u8; 4],
+    pub flower_stem_sampling: [u32; 4],
+    pub flower_stem_shape: [f32; 4],
     pub grass_bottom_dark: [f32; 3],
     pub _pad6: [u8; 4],
     pub grass_bottom_light: [f32; 3],

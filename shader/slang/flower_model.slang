@@ -94,6 +94,11 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
         ?sampleVegetationResponse(root,seed,flower_pc.species,plant,flower_pc.response_offset)
         :sampleWindVolume(wind_volume_info,wind_volume_tex,float3(root)/256.0,seed);
     float3 rest=floraNaturalRestBend(gui_input,seed,1.0,plantHeight);
+    // The experiment freezes both consumers of this pose, so the terminal head
+    // never detaches from a frozen stem. Off restores the untouched original pose.
+    if(gui_input.flower_stem_sampling.x!=0u&&gui_input.flower_stem_shape.z>0.5) {
+        wind=float3(0);rest=float3(0);
+    }
     // Keep horizontal voxel layers horizontal. Wind transports whole cells,
     // and the terminal head; it never rotates/stretches cells.
     float3 up=float3(0,1,0);
@@ -122,6 +127,8 @@ public float3 flowerStemWorld(FlowerPlantPose pose,float3 local,float anchorHeig
     float weight=t*t*(3.0-2.0*t);
     return modelPixelWorld(pose.frame,local)+pose.tip_offset*(weight-1.0)-pose.attachment_offset;
 }
+public uint4 flowerStemSamplingSettings() { return gui_input.flower_stem_sampling; }
+public float4 flowerStemShapeSettings() { return gui_input.flower_stem_shape; }
 public float3 flowerStemColor(float height,float totalHeight) {
     return lerp(gui_input.flower_stem_bottom,gui_input.flower_stem_tip,
         saturate(height/max(totalHeight,1e-7)));

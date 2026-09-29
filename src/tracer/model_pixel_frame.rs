@@ -355,6 +355,7 @@ impl ModelPixelFrame {
         cmdbuf: &CommandBuffer,
         pass: PixelPass<'_>,
         stem_pipeline: &GraphicsPipeline,
+        experimental_stems: bool,
         count: u32,
         mut push: crate::generated::gpu_structs::PushConstantFlowerPixel,
         pose_resources: &[(&str, DescriptorResource<'_>)],
@@ -423,7 +424,9 @@ impl ModelPixelFrame {
         }
         let stems = if count > 0 {
             let mut stem_resources = pose_resources.to_vec();
-            stem_resources.push(cache.flower_triangles());
+            if !experimental_stems {
+                stem_resources.push(cache.flower_triangles());
+            }
             Some(PreparedModelPixels {
                 pipeline: stem_pipeline.clone(),
                 draws: vec![PixelDraw {
@@ -449,9 +452,15 @@ impl ModelPixelFrame {
                 instance_indices: None,
             },
             stems,
-            stem_index_count: cache.flower_stem_index_count(
-                (species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize,
-            ),
+            stem_index_count: if experimental_stems {
+                // One conservative analytic-surface proxy, using indices 0..6
+                // from the existing bounded sequential stem buffer.
+                6
+            } else {
+                cache.flower_stem_index_count(
+                    (species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize,
+                )
+            },
         })
     }
 

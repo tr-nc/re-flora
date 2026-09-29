@@ -263,6 +263,7 @@ impl BufferUpdater {
         let appearance = vegetation.appearance;
         let motion = vegetation.motion;
         let leaf_lighting = vegetation.leaf_lighting;
+        let stems = appearance.stem_experiment.normalized();
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
@@ -287,6 +288,18 @@ impl BufferUpdater {
             flora_voxel_hsv_offset_max: appearance.voxel_hsv_offset_max.to_array(),
             flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
             flower_stem_tip: appearance.flower_stem_tip.to_array(),
+            flower_stem_sampling: [
+                stems.enabled as u32,
+                stems.sampling,
+                stems.direction_resolution,
+                stems.branches as u32,
+            ],
+            flower_stem_shape: [
+                stems.radius_scale,
+                stems.surface_cell_scale,
+                stems.freeze_motion as u32 as f32,
+                0.,
+            ],
             grass_bottom_dark: appearance.grass_bottom_dark.to_array(),
             grass_bottom_light: appearance.grass_bottom_light.to_array(),
             grass_tip_dark: appearance.grass_tip_dark.to_array(),

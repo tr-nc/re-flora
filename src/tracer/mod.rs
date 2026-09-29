@@ -1371,6 +1371,7 @@ pub struct MaterialFrameInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
     pub model_flowers: crate::flora::models::Settings,
+    pub stem_experiment: crate::flora::models::StemExperiment,
     pub growth_override_enabled: bool,
     pub growth_override: f32,
     pub instance_hsv_offset_max: Vec3,
@@ -1630,6 +1631,7 @@ pub struct Tracer {
     apple_pixel_resolution: u32,
     model_pixel_view_count: u32,
     flower_model_settings: crate::flora::models::Settings,
+    flower_stem_experiment: crate::flora::models::StemExperiment,
     flower_spawn_overshoot_voxels: f32,
     // None means no effective display configuration has been published/logged yet.
     ddgi_sampling_progress: crate::ddgi::DdgiSamplingProgress,
@@ -1984,6 +1986,7 @@ impl Tracer {
             apple_pixel_resolution: 32,
             model_pixel_view_count: 0,
             flower_model_settings: crate::flora::models::Settings::default(),
+            flower_stem_experiment: crate::flora::models::StemExperiment::default(),
             flower_spawn_overshoot_voxels: 0.,
             ddgi_sampling_progress: Default::default(),
             ddgi_experiment_latch: Default::default(),
@@ -3038,6 +3041,11 @@ impl Tracer {
             );
         }
         self.flower_model_settings = flowers;
+        let stems = vegetation.appearance.stem_experiment.normalized();
+        if stems != self.flower_stem_experiment {
+            log::info!("[FLOWER_STEM_SAMPLING] enabled={} method={} direction_resolution={} surface_cell_scale={} radius_scale={} branches={} freeze_motion={} head_cache_unchanged=true", stems.enabled, stems.sampling, stems.direction_resolution, stems.surface_cell_scale, stems.radius_scale, stems.branches, stems.freeze_motion);
+        }
+        self.flower_stem_experiment = stems;
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
             .spawn_overshoot_min_voxels
@@ -4618,6 +4626,12 @@ impl Tracer {
                     self.flower_spawn_overshoot_voxels,
                 );
                 let bounds = crate::geom::Aabb3::new(bounds.min() - below, bounds.max() + above);
+                let angular = Vec3::splat(self.flower_stem_experiment.angular_padding(
+                    self.camera.position().distance(bounds.center())
+                        + (bounds.max() - bounds.min()).length(),
+                ));
+                let bounds =
+                    crate::geom::Aabb3::new(bounds.min() - angular, bounds.max() + angular);
                 if !bounds.is_inside_frustum(self.current_view_proj_mat)
                     || self.camera.position().distance(bounds.center()) > flora_draw_distance
                 {
@@ -4672,7 +4686,15 @@ impl Tracer {
                                             .graphics()
                                             .flower_pixel_ppl,
                                     },
-                                    &self.pipeline_topology.graphics().flower_stem_ppl,
+                                    if self.flower_stem_experiment.enabled {
+                                        &self
+                                            .pipeline_topology
+                                            .graphics()
+                                            .flower_stem_experiment_ppl
+                                    } else {
+                                        &self.pipeline_topology.graphics().flower_stem_ppl
+                                    },
+                                    self.flower_stem_experiment.enabled,
                                     count,
                                     push,
                                     &descriptors,
@@ -4831,6 +4853,7 @@ impl Tracer {
                 &self.pipeline_topology.graphics().apple_pixel_tree_ppl,
                 &self.pipeline_topology.graphics().flower_pixel_ppl,
                 &self.pipeline_topology.graphics().flower_stem_ppl,
+                &self.pipeline_topology.graphics().flower_stem_experiment_ppl,
             ] {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }

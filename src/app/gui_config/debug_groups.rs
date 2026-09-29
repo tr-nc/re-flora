@@ -13,6 +13,21 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Pixel Sampling — Flower Stems",
+        description: "Live A/B; off restores the original cube stems. All three candidates use the same tapered skeleton. Direction cells tilt with the view: fixed-position rotation preserves source rays, walking does not. Surface cells follow the plant but keep a continuous silhouette. Thin direction-sampled branches can disappear; no minimum-width or temporal filter is hidden here. Test forks are bare branches, not new flower heads. Direction density and surface cell size affect only their respective modes.",
+        initially_open: true,
+        params: &[
+            "flower_stem_experiment",
+            "flower_stem_sampling",
+            "flower_stem_direction_resolution",
+            "flower_stem_surface_cell_scale",
+            "flower_stem_radius_scale",
+            "flower_stem_test_branches",
+            "flower_stem_freeze_motion",
+        ],
+    },
+    ControlGroup {
+        parent: None,
         title: "Growth & Fruiting",
         description: "Plant growth, tree age and the independent fruiting cycle.",
         initially_open: false,

@@ -7,6 +7,8 @@ use super::{
 use anyhow::{ensure, Result};
 use glam::{UVec2, Vec3};
 
+mod stems;
+
 pub(super) struct FlowerModelReview {
     mode: String,
     frame: u32,
@@ -18,8 +20,8 @@ impl FlowerModelReview {
         let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
             return Ok(None);
         };
-        ensure!(["a", "b", "ab", "controls"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, or controls (saved-field shape/view/allocation sweep)");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-original", "stem-continuous", "stem-direction", "stem-surface"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (live sampling/camera sweep), or stem-original/continuous/direction/surface (fixed captures)");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -36,7 +38,11 @@ impl App {
         let frame = review.frame;
         review.frame += 1;
         let controls = review.mode == "controls";
-        let phase = if controls {
+        let stems = review.mode.starts_with("stem");
+        let stem_mode = review.mode.clone();
+        let phase = if stem_mode == "stems" {
+            (frame / 24).min(15)
+        } else if controls {
             (frame / 24).min(26)
         } else if review.mode == "ab" {
             (frame / 24).min(8)
@@ -46,7 +52,9 @@ impl App {
         let control = control_settings(phase);
         // Legacy a/b/ab inputs now exercise the selected heads-only renderer.
         let heads = true;
-        let resolution = if controls {
+        let resolution = if stems {
+            32
+        } else if controls {
             control.resolution
         } else {
             match phase {
@@ -74,11 +82,15 @@ impl App {
             settings.model_flower_height_variance.value = control.shape.height_variance;
             settings.model_flower_voxel_scale.value = control.shape.voxel_scale;
         }
+        if stems {
+            settings.model_flower_height_variance.value = 0.;
+            settings.model_flower_voxel_scale.value = 1.;
+        }
         settings.model_flower_size_scale.value = if controls {
             control.size_scale
-        } else if phase == 7 {
+        } else if !stems && phase == 7 {
             0.5
-        } else if phase == 8 {
+        } else if !stems && phase == 8 {
             2.0
         } else {
             1.0
@@ -106,7 +118,7 @@ impl App {
             } else {
                 1.
             }
-        } else if phase == 7 {
+        } else if !stems && phase == 7 {
             0.25
         } else {
             1.0
@@ -165,7 +177,7 @@ impl App {
                 log::info!("[FLOWER_REVIEW_RESIZE] after_submitted_frames={frame}");
             }
         }
-        if !controls && phase >= 7 && frame == phase * 24 {
+        if !controls && !stems && phase >= 7 && frame == phase * 24 {
             let anchor = self
                 .flower_model_review
                 .as_ref()
@@ -204,7 +216,10 @@ impl App {
                 .set_camera_pose_looking_at(target + Vec3::new(0., 0.24, 0.57), target);
             self.reset_camera_movement_input();
         }
-        if frame.is_multiple_of(24) && frame / 24 <= if controls { 26 } else { 8 } {
+        if stems {
+            self.prepare_flower_stem_review(&stem_mode, frame, phase)?;
+        }
+        if !stems && frame.is_multiple_of(24) && frame / 24 <= if controls { 26 } else { 8 } {
             if controls {
                 log::info!("[FLOWER_CONTROLS_PHASE] phase={phase} heads_only={heads} resolution={resolution} views={} head_scale={} height_mean={} height_variance={} voxel_scale={} size={} frame={frame} saved=false", 256, control.shape.head_scale, control.shape.height_scale, control.shape.height_variance, control.shape.voxel_scale, control.size_scale);
             } else {

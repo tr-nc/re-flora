@@ -6,7 +6,9 @@ use serde::Deserialize;
 use std::{ops::Range, sync::OnceLock};
 
 mod column;
+mod stem_experiment;
 pub use column::{Column, MAX_BEND_FRACTION};
+pub use stem_experiment::StemExperiment;
 
 pub const MAX_SHAPE_SCALE: f32 = 4.;
 

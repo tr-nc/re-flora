@@ -92,6 +92,15 @@ pub(super) fn freeze_render_frame_inputs(
                 },
                 size_scale: gui.model_flower_size_scale.value,
             },
+            stem_experiment: crate::flora::models::StemExperiment {
+                enabled: gui.flower_stem_experiment.value,
+                sampling: gui.flower_stem_sampling.value,
+                direction_resolution: gui.flower_stem_direction_resolution.value,
+                surface_cell_scale: gui.flower_stem_surface_cell_scale.value,
+                radius_scale: gui.flower_stem_radius_scale.value,
+                branches: gui.flower_stem_test_branches.value,
+                freeze_motion: gui.flower_stem_freeze_motion.value,
+            },
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
             instance_hsv_offset_max: Vec3::new(
@@ -314,6 +323,13 @@ mod tests {
         gui.model_flower_height_variance.value = 0.09;
         gui.model_flower_voxel_scale.value = 0.9;
         gui.model_flower_size_scale.value = 1.25;
+        gui.flower_stem_experiment.value = true;
+        gui.flower_stem_sampling.value = 2;
+        gui.flower_stem_direction_resolution.value = 768;
+        gui.flower_stem_surface_cell_scale.value = 1.5;
+        gui.flower_stem_radius_scale.value = 0.8;
+        gui.flower_stem_test_branches.value = false;
+        gui.flower_stem_freeze_motion.value = true;
         gui.flora_growth_override_enabled.value = true;
         gui.ddgi_continuous_sampling.value = true;
         gui.ddgi_aggregate_history.value = true;
@@ -499,6 +515,15 @@ mod tests {
                     ),
                     flower_stem_bottom,
                     flower_stem_tip,
+                    stem_experiment: crate::flora::models::StemExperiment {
+                        enabled: true,
+                        sampling: 2,
+                        direction_resolution: 768,
+                        surface_cell_scale: 1.5,
+                        radius_scale: 0.8,
+                        branches: false,
+                        freeze_motion: true,
+                    },
                     grass_bottom_dark,
                     grass_bottom_light,
                     grass_tip_dark,

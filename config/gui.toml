@@ -92,6 +92,104 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "flower_stem_experiment"
+kind = "bool"
+label = "Flower stems: experimental sampling (off = original)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "flower_stem_sampling"
+kind = "choice"
+label = "Flower stems: sampling method"
+type = "Choice"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = 1
+options = [
+    "Continuous silhouette (reference)",
+    "World-direction pixels (rotation-stable source)",
+    "Surface-attached cells (continuous silhouette)",
+]
+
+[[section.param]]
+id = "flower_stem_direction_resolution"
+kind = "uint"
+label = "Flower stems: direction cells per cube face"
+type = "Uint"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = 512
+min = 128
+max = 2048
+
+[[section.param]]
+id = "flower_stem_surface_cell_scale"
+kind = "float"
+label = "Flower stems: surface cell size / stem edge"
+type = "Float"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = 1
+min = 0.25
+max = 4
+
+[[section.param]]
+id = "flower_stem_radius_scale"
+kind = "float"
+label = "Flower stems: continuous radius scale"
+type = "Float"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = 0.7
+min = 0.25
+max = 2
+
+[[section.param]]
+id = "flower_stem_test_branches"
+kind = "bool"
+label = "Flower stems: two tapered test branches"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "flower_stem_freeze_motion"
+kind = "bool"
+label = "Flower stems + heads: disable wind / rest bend"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "ddgi_aggregate_history"
 kind = "bool"
 label = "DDGI geometry-qualified aggregate history (experimental A/B)"
