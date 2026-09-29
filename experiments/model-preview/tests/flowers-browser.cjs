@@ -24,7 +24,8 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     const input=async(id,value)=>{await page.locator('#'+id).fill(String(value));await stable();};
     const select=async id=>{await page.locator('#model').selectOption(id);await stable();assert.equal((await state()).model,id);};
     await page.goto(base+'/model-preview/?model=wild-geranium');await stable();
-    assert.equal(await page.locator('#model option').count(),flowerCatalog.length+3);
+    const registered=await page.evaluate(async()=>{const {modelDefinitions}=await import('/model-preview/models/index.js');return modelDefinitions.length;});
+    assert.equal(await page.locator('#model option').count(),registered);
     let poses=0,maxDepthError=0,depthSamples=0;
     async function verifyTiles(){
       const report=await page.evaluate(()=>{

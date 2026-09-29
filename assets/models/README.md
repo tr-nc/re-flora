@@ -1,6 +1,9 @@
 # Shared model assets
 
-This directory is the **one published model/animation source** for the game and the model preview.
+This directory is the **one published model/animation source** for models shared by the game and preview.
+The web-only parametric flowers and bee/bird studies under `experiments/model-preview/models/` are
+unpublished candidates, not parallel game implementations. They must cross an explicit asset/format
+approval boundary before any native integration.
 `butterfly.glb` is read directly by Three.js `GLTFLoader` and embedded/read by
 `src/model_assets.rs`. Do not export a separate game mesh or a separate table of animation angles.
 The old `assets/butterfly/wing-mesh.json` pipeline has been removed.
@@ -35,7 +38,7 @@ The web studio now previews a unified parametric head family and palette-weight 
 `experiments/model-preview/models/`; existing flower names are migrated web presets, not identical native vertices.
 These candidates do not change this published bank. See [the studio report](../../docs/evidence/parametric-flower-studio.md)
 for the explicit art/texture-format approval boundary before any future native publication.
-The web displays only this model and its postprocessing; it does not generate or assemble stems.
+The flower web studio displays complete heads and their postprocessing; it does not generate or assemble stems.
 Game assembly lives in `src/flora/models.rs` and `src/flora/models/column.rs`. Neither consumer
 renders stem leaves; published meshes contain only petals, centers and calyces.
 `node scripts/publish-flower-models.mjs` writes `flowers.json`, embedded by `src/flora/models.rs`.

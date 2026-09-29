@@ -14,6 +14,7 @@ node scripts/serve-model-preview.mjs
 - 原有：`?model=leaf`、`butterfly`、`apple`。
 - 参数化花型：`wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`coneflower`、`tulip`、`white-geranium`、`gillenia`。
 - 新候选：`four-petal`（四瓣蓝白）、`five-star`（五瓣尖星）、`custom-flower`（自定义花朵）。顶部下拉框也可选择。
+- 仅网页动物：`bee`（蜜蜂）、`sparrow`（圆身麻雀风格）、`swallow`（长尾燕子风格）。
 - `?model=star-strawberry` 旧书签仍规范化为 `gillenia`。
 - `&variant=compare` / `model` / `pixel` 切换布局。
 
@@ -54,6 +55,18 @@ node scripts/serve-model-preview.mjs
 
 落叶／蝴蝶仍读取正式 GLB，苹果仍读取共用 `apple-source.mjs`；修改正式配方需遵守 [资产发布规则](../../assets/models/README.md)。网页灯光和尺寸不是游戏最终效果，也不是 Release 性能证据。
 
+## 仅网页动物
+
+新增一只蜜蜂和两种小鸟；**小狗已取消**。均为本仓库原创程序化低模，无下载模型／贴图，无游戏注册或行为逻辑。
+
+- 蜜蜂：七段交替条纹腹部、六足、双触角、两对翅。翅膀故意使用不透明浅色几何，不假装支持 alpha 透明覆盖。
+- 麻雀风格：短喙、圆胸、棕色翼斑、短扇尾；燕子风格：较细深蓝身体、浅胸赤褐喉、尖翼、分叉长尾，不只是同一个鸟换色。
+- 两种时间轴片段：静止姿态／拍翼展示。共用暂停、播放、相位、逐帧；同一时刻绝对采样，不累计旋转、不在模型里再开时钟。拍翼不是物理飞行，足仍保持示意姿态。
+- 调整模型大小、翅长、拍翼幅度与 palette；固定取景包含最大参数下的拍翼包围，不随姿态缩放。身体／左翅／右翅三个修复组。
+- 默认 48²，可切 8–256²。极低分辨率的燕子可能完全错过中心采样，需保守覆盖保留轮廓；细足／眼高光／尾叉会变粗、丢失或合并，没有模型专用例外。
+
+报告：[动物网页验证](../../docs/evidence/web-preview-animals.md)。
+
 ## 模块与接口
 
 | 文件 | 职责 |
@@ -64,6 +77,7 @@ node scripts/serve-model-preview.mjs
 | `models/parametric-flower.mjs` | 无 DOM / Three.js 的确定性几何、UV、参数边界 |
 | `models/palette-mask.mjs` | 纯函数权重模板、绘制、验证、线性 palette 混色 |
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
+| `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度与透明合成，不另建 renderer |
 | `geometry.js` / `connectivity.mjs` / `postprocess.mjs` | 当前姿态几何投影、分组连通与通用修复 |
@@ -86,8 +100,9 @@ node --test experiments/model-preview/tests/*.test.mjs
 node experiments/model-preview/tests/browser.cjs
 node experiments/model-preview/tests/flowers-browser.cjs
 node experiments/model-preview/tests/head-platform-browser.cjs
+node experiments/model-preview/tests/animals-browser.cjs
 ```
 
 支持 `CHROME_EXECUTABLE` / `PREVIEW_ARTIFACT_DIR`。脚本自行创建／关闭服务与 headless Chrome；不启动游戏，不保存 GUI 设置。
 
-新花型验证：32 个纯函数／资产回归测试；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；贴纸真实绘制／撤销／PNG 往返／透明拒绝、palette/贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`，不提交二进制截图。游戏的性能和美术接受需另行验证。
+完整 Node 套件：34 个纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；贴纸真实绘制／撤销／PNG 往返／透明拒绝、palette/贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。不提交二进制截图。游戏的性能和美术接受需另行验证。

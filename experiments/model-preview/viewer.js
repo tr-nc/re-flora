@@ -178,7 +178,7 @@ function render(){
     repairMessage=`${outcome}${preserved?`（其中 ${preserved} 个几何覆盖像素）`:''} · ${groups.map(group=>`${asset.repairGroups.find(g=>g.id===group.id).label} ${group.before}→${group.after}`).join(' · ')}`;
   }
   if($('repair-info').textContent!==repairMessage)$('repair-info').textContent=repairMessage;
-  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定${asset.pixelParts?'花头':'游戏'}取景`;
+  $('camera-info').textContent=`方向同步 · 左侧 ${camera.zoom.toFixed(2)}× · 右侧固定${asset.pixelParts?'花头':'模型'}取景`;
   state.dirty=false;
 }
 function tick(now){

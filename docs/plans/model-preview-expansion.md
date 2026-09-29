@@ -21,13 +21,15 @@
 - 报告：`docs/evidence/parametric-flower-studio.md`；调研：`docs/research/palette-weight-flower-textures.md`。
 - 已发布游戏花资产不改，网页迁移例外／边界已记录。
 
-## 2. 额外动物模型 — 待完成
+## 2. 额外动物模型 — 已完成
 
 - 蜜蜂一种。
 - 小鸟两种，形态可辨识。
 - 只做网页 demo，复用成熟后处理链路，不添加游戏控制逻辑。
 - 小狗：用户取消，不做。
-- 模型与网页验证、报告、独立 commit。
+- 统一网页中新增 `bee`、`sparrow`、`swallow`；无新增 native 资产或行为逻辑。
+- 共用时间轴的静止／拍翼片段、几何／颜色控件；34 个 Node 测试、75 个浏览器姿态、PNG／资源释放／移动布局通过。
+- 报告：`docs/evidence/web-preview-animals.md`。
 
 ## 收尾 — 待完成
 
