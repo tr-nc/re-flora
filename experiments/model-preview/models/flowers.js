@@ -1,58 +1,72 @@
 import * as THREE from 'three';
 import {flowerCatalog,flowerGeometry} from './flower-catalog.mjs';
+import {normalizeFlowerShape} from './parametric-flower.mjs';
+import {maskValue,resolvePalette} from './palette-mask.mjs';
 import {disposeScene} from './resources.js';
-import {completeFlowerHead} from '../../../assets/models/flower-head.mjs';
 
-const colorKeys=['petalColor','innerColor','centerColor','stemColor'];
+const paletteKeys=['paletteA','paletteB','paletteC','paletteD'];
 export const flowerDefinitions=flowerCatalog.map(spec=>({
-  id:spec.id,label:spec.label,defaults:Object.fromEntries(Object.entries({...spec.defaults,tilt:(flowerCatalog.find(item=>item.id===spec.cacheTemplate)?.defaults.tilt??spec.defaults.tilt)}).filter(([key])=>!['height','bend','leafSize','leafColor'].includes(key))),
+  id:spec.id,label:spec.label,defaults:{...spec.defaults},
   controls:[
-    {type:'note',label:'仅展示完整花头（花瓣、花心、花萼）及后处理；茎生成、整株拼装和风动由游戏负责。网页参数不保存。'},
+    {type:'note',label:'共用可调花头：所有花型都是同一机制的预设。正向聚拢、0 平展、负向下垂。仅网页候选，不改游戏资产；参数不自动保存。'},
+    {key:'petalCount',label:'花瓣数量',min:3,max:24,step:1},
     {key:'flowerSize',label:'花头大小',min:.65,max:1.3,step:.01},
-    {key:'opening',label:spec.id==='coneflower'?'花瓣下垂':spec.kind==='radial'?'花瓣起伏':'花冠张开',min:.6,max:1.35,step:.01},
+    {key:'petalLength',label:'花瓣长度',min:.6,max:1.4,step:.01},
+    {key:'petalWidth',label:'花瓣宽度',min:.08,max:.65,step:.01},
+    {key:'tipSharpness',label:'瓣尖 · 0 圆 / 1 尖',min:0,max:1,step:.01},
+    {key:'notch',label:'瓣尖缺口',min:0,max:.25,step:.01},
+    {key:'opening',label:'花瓣姿态 · 下垂 ↔ 聚拢',min:-1,max:1,step:.01},
+    {key:'centerShape',type:'select',label:'花心形状',options:[['flat','平花盘'],['dome','圆球凸起'],['cone','锥状凸起']]},
+    {key:'centerRadius',label:'花心宽度',min:.04,max:.35,step:.01},
+    {key:'centerHeight',label:'花心高度（凸起时）',min:0,max:.55,step:.01},
     {key:'tilt',label:'花头仰角',min:-15,max:85,step:1},
-    ...colorKeys.map((key,i)=>({key,type:'color',label:['花瓣颜色','瓣根 / 喉部颜色','花心颜色','花萼颜色'][i]})),
+    {type:'note',label:'贴纸只决定 A/B/C/D 的混合权重，实际颜色由下方 palette 决定。四槽没有固定部位含义；蓝白渐变不需要新颜色分区参数。'},
+    ...paletteKeys.map((key,i)=>({key,type:'color',label:`调色板 ${'ABCD'[i]}`})),
+    {key:'weightMap',type:'weight-map',label:'调色板权重贴纸',paletteKeys},
+  ],
+  colorPresets:[
+    {name:'蓝白',colors:{paletteA:'#488cdf',paletteB:'#fbfcff',paletteC:'#f4ce67',paletteD:'#5c864d'}},
+    {name:'莓粉',colors:{paletteA:'#a53d85',paletteB:'#ffd8e5',paletteC:'#eeb34d',paletteD:'#597d43'}},
+    {name:'暮紫',colors:{paletteA:'#604ca2',paletteB:'#c8bdff',paletteC:'#f7dfb1',paletteD:'#46695c'}},
   ],
   preview:{resolution:32,background:'#293c36'},
   async create(){
     const scene=new THREE.Scene(),meshes=[],repairGroups=[],pixelParts=[];
-    const materials=Object.fromEntries(colorKeys.map(key=>[key,new THREE.MeshStandardMaterial({side:THREE.DoubleSide,roughness:.95,flatShading:true})]));
+    const texture=new THREE.DataTexture(new Uint8Array(4),1,1);texture.colorSpace=THREE.SRGBColorSpace;
+    texture.minFilter=texture.magFilter=THREE.LinearFilter;texture.generateMipmaps=false;
+    const material=new THREE.MeshStandardMaterial({map:texture,side:THREE.DoubleSide,roughness:.95});
     const light=new THREE.DirectionalLight('#fff5df',2.2);light.position.set(-3,5,6);
     scene.add(light,new THREE.AmbientLight('#f1f5ff',.85));
-    let shapeKey='';
+    let shapeKey='',paletteKey='',previousMask;
     return {
-      scene,meshes,repairGroups,pixelParts,clips:[],
-      view:{span:2,target:[0,0,0],offset:[.65,1,6],near:.1,far:40},
-      description:`${spec.latin} · 完整花头模型与后处理预览`,
+      scene,meshes,repairGroups,pixelParts,clips:[],view:{span:2,target:[0,0,0],offset:[.65,1,6],near:.1,far:40},
+      description:`${spec.latin} · 共用参数化花头 / palette 权重贴纸 · 仅网页`,
       apply(settings){
-        for(const key of colorKeys)materials[key].color.set(settings[key]);
-        const nextKey=JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([key])=>!colorKeys.includes(key))));
+        const nextPalette=JSON.stringify(paletteKeys.map(key=>settings[key]));
+        if(previousMask!==settings.weightMap||paletteKey!==nextPalette){
+          const mask=maskValue(settings.weightMap);
+          texture.image={data:resolvePalette(mask,paletteKeys.map(key=>settings[key])),width:mask.width,height:mask.height};texture.needsUpdate=true;
+          previousMask=settings.weightMap;paletteKey=nextPalette;
+        }
+        const nextKey=JSON.stringify(normalizeFlowerShape(settings));
         if(nextKey!==shapeKey){
           for(const mesh of meshes){scene.remove(mesh);mesh.geometry.dispose();}
           meshes.length=repairGroups.length=pixelParts.length=0;
-          const recipe=completeFlowerHead(flowerGeometry(spec.cacheTemplate??spec.id,settings));
-          for(const part of recipe.parts){
+          for(const part of flowerGeometry(spec.id,settings).parts){
             const geometry=new THREE.BufferGeometry();
-            geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.positions,3));geometry.setIndex(part.indices);geometry.computeVertexNormals();
-            const mesh=new THREE.Mesh(geometry,materials[part.material]);mesh.name=part.name;mesh.userData.head=part.head;
-            scene.add(mesh);meshes.push(mesh);
+            geometry.setAttribute('position',new THREE.Float32BufferAttribute(part.positions,3));
+            geometry.setAttribute('uv',new THREE.Float32BufferAttribute(part.uvs,2));geometry.setIndex(part.indices);geometry.computeVertexNormals();
+            const mesh=new THREE.Mesh(geometry,material);mesh.name=part.name;mesh.userData.head=0;scene.add(mesh);meshes.push(mesh);
           }
-          for(const head of recipe.heads){
-            const members=meshes.filter(mesh=>mesh.userData.head===head.id);
-            const box=new THREE.Box3();for(const mesh of members)box.expandByObject(mesh);
-            const sphere=box.getBoundingSphere(new THREE.Sphere());
-            pixelParts.push({id:head.id+2,label:head.label,meshes:members,center:sphere.center,span:sphere.radius*2.12,anchor:head.anchor});
-            repairGroups.push({id:head.id+2,label:head.label,meshes:members});
-          }
-          shapeKey=nextKey;
+          const box=new THREE.Box3();for(const mesh of meshes)box.expandByObject(mesh);
+          const sphere=box.getBoundingSphere(new THREE.Sphere());
+          pixelParts.push({id:2,label:'完整花头',meshes:[...meshes],center:sphere.center,span:sphere.radius*2.12,anchor:[0,0,0]});
+          repairGroups.push({id:2,label:'完整花头',meshes:[...meshes]});shapeKey=nextKey;
         }
-        for(const group of repairGroups){
-          const hex=settings.petalColor;
-          group.fallbackColor=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
-        }
+        repairGroups[0].fallbackColor=[1,3,5].map(i=>parseInt(settings.paletteA.slice(i,i+2),16));
       },
       sample(){},preparePass(){},get shadows(){return false;},
-      dispose(){disposeScene(scene);for(const material of Object.values(materials))material.dispose();},
+      dispose(){disposeScene(scene);material.dispose();texture.dispose();},
     };
   },
 }));

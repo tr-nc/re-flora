@@ -49,10 +49,37 @@ const assert=require('node:assert/strict');
     const memory=(await state()).rendererMemory;
     for(let i=0;i<8;i++)for(const size of ['0.75','1']){await page.locator('#model-flowerSize').fill(size);await stable();}
     assert.deepEqual((await state()).rendererMemory,memory);
+    await page.locator('#model').selectOption('custom-flower');await stable();
+    assert.equal(await page.locator('palette-mask-editor canvas').count(),1,'custom element must construct, not silently fall back to HTMLElement');
+    const initial=await image(),initialSettings=(await state()).modelSettings;
+    await page.getByRole('button',{name:'画 C',exact:true}).click();
+    await page.locator('palette-mask-editor canvas').click({position:{x:80,y:90}});await stable();
+    assert.equal(typeof (await state()).modelSettings.weightMap,'object');
+    assert.notEqual(await image(),initial,'painted weights must reach both render passes');
+    await page.getByRole('button',{name:'撤销',exact:true}).click();await stable();assert.equal(await image(),initial);
+    await page.getByRole('combobox',{name:'权重模板',exact:true}).selectOption('veins');await stable();
+    assert.equal((await state()).modelSettings.weightMap,'veins');
+    const exportWait=page.waitForEvent('download');await page.getByRole('button',{name:'导出权重 PNG',exact:true}).click();
+    const exported=await exportWait,exportPath=await exported.path();
+    const beforeImport=await image();await page.locator('palette-mask-editor input[type=file]').setInputFiles(exportPath);
+    await page.waitForFunction(()=>typeof readModelPreview().modelSettings.weightMap==='object');await stable();assert.equal(await image(),beforeImport,'PNG weight round trip');
+    const rejected=Buffer.from(await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=32;return c.toDataURL().split(',')[1];}),'base64');
+    await page.locator('palette-mask-editor input[type=file]').setInputFiles({name:'transparent.png',mimeType:'image/png',buffer:rejected});
+    await page.waitForFunction(()=>document.querySelector('palette-mask-editor').shadowRoot.querySelector('output').textContent.includes('不透明'));
+    assert.equal(await image(),beforeImport,'invalid map must preserve current material');
+    const reuse=await page.evaluate(async()=>{
+      const {flowerDefinitions}=await import('/model-preview/models/flowers.js'),definition=flowerDefinitions.find(d=>d.id==='custom-flower');
+      const asset=await definition.create();try{
+        const values={...definition.defaults};asset.apply(values);const geometries=asset.meshes.map(m=>m.geometry.uuid),texture=asset.meshes[0].material.map;
+        values.paletteA='#ff0088';values.weightMap='veins';asset.apply(values);
+        return {sameGeometry:JSON.stringify(geometries)===JSON.stringify(asset.meshes.map(m=>m.geometry.uuid)),sameTexture:texture===asset.meshes[0].material.map,hasUV:asset.meshes.every(m=>!!m.geometry.attributes.uv)};
+      }finally{asset.dispose();}
+    });assert.deepEqual(reuse,{sameGeometry:true,sameTexture:true,hasUV:true});
+    await page.locator('#reset-all').click();await stable();assert.deepEqual((await state()).modelSettings,initialSettings);assert.equal(await image(),initial);
     await page.setViewportSize({width:390,height:844});await stable();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.equal(requests.some(url=>/flower-(stem|topology)\.mjs/.test(url)),false);
     assert.deepEqual(errors,[]);
-    console.log(`PASS: ${flowerCatalog.length} head-only models, calyx preservation, no assembly controls/imports, reset, projections, GPU disposal, mobile.`);
+    console.log(`PASS: ${flowerCatalog.length} head-only models, calyx preservation, no assembly controls/imports, reset, projections, GPU disposal, palette weights paint/undo/PNG round-trip/rejection, geometry reuse, mobile.`);
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

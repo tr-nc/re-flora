@@ -2,64 +2,55 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {flowerCatalog as nativeCatalog,flowerGeometry as nativeGeometry} from '../../../assets/models/flower-source.mjs';
 import {flowerCatalog,flowerGeometry,previewOnlyFlowers} from '../models/flower-catalog.mjs';
+import {parametricFlower,normalizeFlowerShape,flowerUV} from '../models/parametric-flower.mjs';
 
-test('two browser-only white flowers leave all native definitions and geometry unchanged',()=>{
-  assert.equal(nativeCatalog.length,8);
-  assert.equal(flowerCatalog.length,10);
-  assert.equal(new Set(flowerCatalog.map(spec=>spec.id)).size,10);
-  assert.deepEqual(previewOnlyFlowers.map(spec=>spec.id),['white-geranium','gillenia']);
-  for(const native of nativeCatalog){
-    assert.equal(flowerCatalog.find(spec=>spec.id===native.id),native);
-    assert.deepEqual(flowerGeometry(native.id),nativeGeometry(native.id));
+function valid(model){
+  assert.deepEqual(model.heads,[{id:0,anchor:[0,0,0],label:'完整花头'}]);
+  let count=0;
+  for(const part of model.parts){
+    assert.equal(part.head,0);assert.equal(part.material,'palette');
+    assert.ok(part.positions.every(Number.isFinite));assert.equal(part.positions.length%3,0);
+    assert.equal(part.uvs.length,part.positions.length/3*2);assert.ok(part.uvs.every(v=>v>=0&&v<=1));
+    assert.ok(part.indices.length>0);assert.equal(part.indices.length%3,0);
+    assert.ok(part.indices.every(v=>Number.isInteger(v)&&v>=0&&v<part.positions.length/3));
+    for(let i=0;i<part.indices.length;i+=3){
+      const [a,b,c]=part.indices.slice(i,i+3).map(index=>part.positions.slice(index*3,index*3+3));
+      const u=b.map((v,i)=>v-a[i]),v=c.map((n,i)=>n-a[i]);
+      assert.ok(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])>1e-10);
+    }
+    count+=part.indices.length/3;
   }
-  assert.deepEqual(flowerGeometry('white-geranium'),nativeGeometry('wild-geranium'));
-  assert.notDeepEqual(flowerGeometry('gillenia').parts,flowerGeometry('white-geranium').parts);
-});
-test('Gillenia has separated narrow petals, small centers and a loose multi-flower silhouette',()=>{
-  const spec=previewOnlyFlowers.find(spec=>spec.id==='gillenia'),recipe=flowerGeometry(spec.id);
-  assert.equal(spec.label,'星草梅');assert.equal(spec.latin,'Gillenia trifoliata');
-  assert.equal(recipe.heads.length,7);
-  for(const head of recipe.heads){
-    const petals=recipe.parts.find(part=>part.head===head.id&&part.material==='petalColor');
-    assert.equal(petals.positions.length,5*9*3,'five independent eight-sided petal rims');
-    const radius=spec.heads[head.id][3];
-    for(let petal=0;petal<5;petal++){
-      const points=Array.from({length:9},(_,i)=>petals.positions.slice((petal*9+i)*3,(petal*9+i+1)*3).map((n,k)=>n-head.anchor[k]));
-      const tip=points.reduce((a,b)=>Math.hypot(...a)>Math.hypot(...b)?a:b),length=Math.hypot(...tip),axis=tip.map(n=>n/length);
-      assert.ok(length>.85*radius,'long pointed petal');
-      for(const point of points){
-        const along=point.reduce((sum,n,k)=>sum+n*axis[k],0);
-        assert.ok(Math.hypot(...point.map((n,k)=>n-along*axis[k]))<length*.24,'narrow, not rounded strawberry lobes');
-      }
-    }
-    const center=recipe.parts.find(part=>part.head===head.id&&part.material==='centerColor');
-    for(let i=0;i<center.positions.length;i+=3){
-      assert.ok(Math.hypot(...center.positions.slice(i,i+3).map((n,k)=>n-head.anchor[k]))<radius*.1,'small cream center, no large golden disk');
-    }
+  assert.ok(count<3000);
+}
+test('all old web identities and new four/five/custom studies use one head generator; game recipes stay unchanged',()=>{
+  const nativeBefore=nativeCatalog.map(spec=>nativeGeometry(spec.id));
+  assert.equal(new Set(flowerCatalog.map(spec=>spec.id)).size,flowerCatalog.length);
+  assert.deepEqual(previewOnlyFlowers.map(spec=>spec.id),['white-geranium','gillenia','four-petal','five-star','custom-flower']);
+  for(const spec of flowerCatalog){
+    assert.deepEqual(flowerGeometry(spec.id),parametricFlower(spec.defaults));valid(flowerGeometry(spec.id));
   }
+  assert.deepEqual(nativeCatalog.map(spec=>nativeGeometry(spec.id)),nativeBefore);
+  assert.equal(flowerCatalog.find(s=>s.id==='four-petal').defaults.petalCount,4);
+  assert.equal(flowerCatalog.find(s=>s.id==='five-star').defaults.petalCount,5);
+  assert.equal(flowerCatalog.find(s=>s.id==='forget-me-not').defaults.petalCount,5,'web no longer inherits cosmos eight-petal cache template');
 });
-
-test('preview-only flowers preserve complete head groups and working shape controls',()=>{
-  for(const spec of previewOnlyFlowers){
-    const original=flowerGeometry(spec.id);
-    assert.deepEqual(flowerGeometry(spec.id),original);
-    assert.equal(original.heads.length,spec.heads.length);
-    assert.equal(original.parts.filter(part=>part.head===null).length,2);
-    for(const head of original.heads){
-      assert.deepEqual(original.parts.filter(part=>part.head===head.id).map(part=>part.material),['petalColor','innerColor','centerColor','stemColor']);
-      assert.ok(head.anchor.every(Number.isFinite));
-    }
-    for(const recipe of [original,...Object.entries({height:.75,flowerSize:1.3,opening:.6,tilt:85,leafSize:1.35,bend:-.25}).map(([key,value])=>{
-      const altered=flowerGeometry(spec.id,{[key]:value});
-      assert.notDeepEqual(altered,original,`${spec.id}: ${key}`);return altered;
-    })])for(const part of recipe.parts){
-      assert.ok(part.positions.length>0&&part.positions.every(Number.isFinite));
-      assert.equal(part.positions.length%3,0);assert.equal(part.indices.length%3,0);
-      assert.ok(part.indices.length>0&&part.indices.every(i=>Number.isInteger(i)&&i>=0&&i<part.positions.length/3));
-      assert.match(spec.defaults[part.material],/^#[a-f0-9]{6}$/i);
-    }
-    assert.deepEqual(flowerGeometry(spec.id,{petalColor:'#ffffff'}),original);
-    const rgb=spec.defaults.petalColor.slice(1).match(/../g).map(n=>parseInt(n,16));
-    assert.ok(rgb.every(n=>n>=230),'warm white petals');
+test('shape extremes remain finite and nondegenerate; changing palette never changes geometry',()=>{
+  const original=parametricFlower();
+  for(const [key,values]of Object.entries({petalCount:[3,24],flowerSize:[.65,1.3],petalWidth:[.08,.65],petalLength:[.6,1.4],tipSharpness:[0,1],notch:[.1,.25],opening:[-1,1],centerShape:['flat','cone'],centerRadius:[.04,.35],centerHeight:[0,.55],tilt:[-15,85]})){
+    for(const value of values){const changed=parametricFlower({[key]:value});valid(changed);assert.notDeepEqual(changed,original,key);}
+  }
+  valid(parametricFlower({petalCount:24,petalWidth:.65,opening:1,notch:.25,tipSharpness:1,centerRadius:.04}));
+  assert.deepEqual(parametricFlower({paletteA:'#ffffff',weightMap:'veins'}),original);
+  assert.deepEqual(normalizeFlowerShape({petalCount:NaN,opening:Infinity}),normalizeFlowerShape());
+});
+test('flat, cupped and hanging petals differ independently of tip sharpness; center shapes and UV islands are explicit',()=>{
+  const z=opening=>parametricFlower({opening,tilt:0}).parts[0].positions.filter((_,i)=>i%3===2);
+  assert.ok(Math.max(...z(1))>.4);assert.ok(Math.min(...z(-1))<-.4);
+  assert.ok(Math.max(...z(0))<.04);
+  for(const island of ['petal','center','calyx'])for(const u of [0,1])for(const v of [0,1]){
+    const [x,y]=flowerUV(island,u,v);
+    assert.ok(x>0&&x<1&&y>0&&y<1);
+    assert.equal(x<.75,island==='petal');
+    if(island!=='petal')assert.equal(y<.5,island==='center');
   }
 });

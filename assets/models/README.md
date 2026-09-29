@@ -29,8 +29,12 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 ## Publish the flower bank
 
-The six current flower recipes live in `flower-source.mjs` (Corn Poppy and Bellflower have been retired). Both the HTML preview and
-native publisher apply `flower-head.mjs`: one complete head in attachment-local coordinates.
+The six approved native flower recipes live in `flower-source.mjs` (Corn Poppy and Bellflower have been retired). The
+native publisher applies `flower-head.mjs`: one complete head in attachment-local coordinates.
+The web studio now previews a unified parametric head family and palette-weight stickers under
+`experiments/model-preview/models/`; existing flower names are migrated web presets, not identical native vertices.
+These candidates do not change this published bank. See [the studio report](../../docs/evidence/parametric-flower-studio.md)
+for the explicit art/texture-format approval boundary before any future native publication.
 The web displays only this model and its postprocessing; it does not generate or assemble stems.
 Game assembly lives in `src/flora/models.rs` and `src/flora/models/column.rs`. Neither consumer
 renders stem leaves; published meshes contain only petals, centers and calyces.
@@ -79,7 +83,9 @@ variance increases vertex work, not per-instance flower-head baking.
 **Stem Bottom Color** and **Stem Tip Color** are declarative saved
 settings, independent of grass and calyx colors. The native stem interpolates between them
 along its undeformed height, so wind and overall scaling do not slide the gradient. There
-is no stem or whole-plant A/B switch.
+is no whole-plant pixelization switch. The opt-in **Pixel Sampling — Flower Stems** experiment adds a separate
+original/continuous/direction/surface comparison; unchecked preserves the voxel-stem rules below.
+See [stem sampling evidence](../../docs/evidence/stem-sampling-experiment.md).
 
 - Exactly one cube occupies each horizontal layer of the stalk. Its baseline edge is `0.05`
   (half a grass edge at full growth and overall scale 1). Adjacent cells share positive face

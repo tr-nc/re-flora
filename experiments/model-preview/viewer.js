@@ -6,6 +6,7 @@ import {modelDefinitions,definitionFor} from './models/index.js';
 import {sampleTime,advanceTime} from './timeline.mjs';
 import {projectGroups} from './geometry.js';
 import './color-picker.js';
+import './weight-map-editor.js';
 
 const $=id=>document.getElementById(id);
 const sourceCanvas=$('source'),pixelCanvas=$('pixel'),target=new THREE.Vector3();
@@ -64,6 +65,11 @@ function setVariant(value){
 function updateURL(){const url=new URL(location.href);url.searchParams.set('model',state.model);url.searchParams.set('variant',state.variant);history.replaceState(null,'',url);}
 function cycleVariant(direction){const options=['compare','model','pixel'];setVariant(options[(options.indexOf(state.variant)+direction+3)%3]);}
 function updateBackground(){document.documentElement.style.setProperty('--stage',state.background);document.body.classList.toggle('checker',state.checker);}
+function syncPaletteEditors(){
+  for(const schema of definition.controls.filter(control=>control.type==='weight-map')){
+    $(`model-${schema.key}`).palette=schema.paletteKeys.map(key=>modelSettings[key]);
+  }
+}
 function buildModelControls(){
   $('model-controls').replaceChildren();
   for(const schema of definition.controls){
@@ -72,8 +78,13 @@ function buildModelControls(){
       $('model-controls').append(note);continue;
     }
     const label=document.createElement('label');label.className=schema.type==='checkbox'?'check-row':'slider-label';
-    const input=document.createElement(schema.type==='color'?'debug-color-picker':'input');input.id=`model-${schema.key}`;
-    if(schema.type==='color'){
+    const input=document.createElement(schema.type==='color'?'debug-color-picker':schema.type==='select'?'select':schema.type==='weight-map'?'palette-mask-editor':'input');input.id=`model-${schema.key}`;
+    if(schema.type==='select'){
+      label.htmlFor=input.id;label.textContent=schema.label;
+      for(const [value,name]of schema.options)input.add(new Option(name,value));input.value=modelSettings[schema.key];
+    }else if(schema.type==='weight-map'){
+      label.htmlFor=input.id;label.textContent=schema.label;input.value=modelSettings[schema.key];
+    }else if(schema.type==='color'){
       label.textContent=schema.label;input.setAttribute('label',schema.label);input.setAttribute('value',modelSettings[schema.key]);
     }else if(schema.type==='checkbox'){
       input.type='checkbox';input.checked=modelSettings[schema.key];label.append(input,document.createTextNode(` ${schema.label}`));
@@ -84,8 +95,8 @@ function buildModelControls(){
     }
     $('model-controls').append(label);if(schema.type!=='checkbox')$('model-controls').append(input);
     input.addEventListener('input',()=>{
-      modelSettings[schema.key]=schema.type==='color'?input.value:schema.type==='checkbox'?input.checked:Number(input.value);
-      const output=$(`model-${schema.key}-value`);if(output)output.textContent=modelSettings[schema.key];asset.apply(modelSettings);dirty();
+      modelSettings[schema.key]=['color','select','weight-map'].includes(schema.type)?input.value:schema.type==='checkbox'?input.checked:Number(input.value);
+      const output=$(`model-${schema.key}-value`);if(output)output.textContent=modelSettings[schema.key];syncPaletteEditors();asset.apply(modelSettings);dirty();
     });
   }
   if(definition.colorPresets){
@@ -98,12 +109,13 @@ function buildModelControls(){
       button.addEventListener('click',()=>{
         Object.assign(modelSettings,preset.colors);
         for(const [key,color] of Object.entries(preset.colors))$(`model-${key}`).value=color;
-        asset.apply(modelSettings);dirty();
+        syncPaletteEditors();asset.apply(modelSettings);dirty();
       });
       buttons.append(button);
     }
     $('model-controls').append(section);
   }
+  syncPaletteEditors();
 }
 function syncControls(){
   for(const key of ['resolution','fps','speed','projection'])$(key).value=state[key];
@@ -227,7 +239,7 @@ function init(){
     pixelCanvas.toBlob(blob=>{if(blob)downloadBlob(blob,`${state.model}-${scope}${mode}-${state.resolution}px-${time}s.png`);},'image/png');
   });
   $('previous').addEventListener('click',()=>cycleVariant(-1));$('next').addEventListener('click',()=>cycleVariant(1));
-  document.addEventListener('keydown',event=>{if(event.target.closest('input,select,textarea,canvas,debug-color-picker,[contenteditable]'))return;if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();cycleVariant(event.key==='ArrowLeft'?-1:1);}});
+  document.addEventListener('keydown',event=>{if(event.target.closest('input,select,textarea,canvas,debug-color-picker,palette-mask-editor,[contenteditable]'))return;if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();cycleVariant(event.key==='ArrowLeft'?-1:1);}});
   document.addEventListener('visibilitychange',()=>{last=performance.now();});
   const observer=new ResizeObserver(resize);document.querySelectorAll('.stage').forEach(stage=>observer.observe(stage));window.addEventListener('resize',resize);
   const params=new URLSearchParams(location.search);setVariant(params.get('variant'));
