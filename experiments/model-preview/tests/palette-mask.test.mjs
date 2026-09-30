@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {weightsFromRGB,createMask,maskPresets,resolvePalette,paintMask,validateMask} from '../../../assets/models/palette-mask.mjs';
+import {weightsFromRGB,createMask,maskPresets,resolvePalette,validateMask} from '../../../assets/models/palette-mask.mjs';
 
 test('weights represent palette slots, not interpolated numeric indices',()=>{
   assert.deepEqual(weightsFromRGB([255,0,0]),[1,0,0,0]);
@@ -20,13 +20,9 @@ test('palette blends in linear light and slots can be swapped without editing we
   assert.deepEqual(resolvePalette(mask,[palette[1],palette[0],palette[2],palette[3]]),color);
   assert.deepEqual(mask.pixels,before);
 });
-test('templates, soft brush, black fourth slot and validation are deterministic',()=>{
+test('templates and opaque weight validation are deterministic',()=>{
   for(const [id]of maskPresets){const m=createMask(id);assert.deepEqual(createMask(id),m);validateMask(m);}
-  const mask=createMask('solid',32),before=mask.pixels.slice();
-  const painted=paintMask(mask,8.5,8.5,3,4);
-  assert.deepEqual([...painted.pixels.slice((8*32+8)*4,(8*32+8)*4+4)],[0,0,0,255]);
-  assert.deepEqual(mask.pixels,before);
-  assert.ok(painted.pixels.some((v,i)=>i%4===0&&v>0&&v<255));
+  const mask=createMask('solid',32);
   assert.throws(()=>validateMask({...mask,pixels:new Uint8Array(mask.pixels.length)}),/不透明/);
   assert.throws(()=>createMask('unknown'));
   assert.throws(()=>validateMask({...mask,width:100000}));

@@ -44,17 +44,3 @@ export function resolvePalette(mask,palette=defaultPalette){
   }
   return pixels;
 }
-// Pure paint operation: callers own history/undo. Soft edges blend weights, not
-// palette indices or encoded colors. A new map is returned; defaults stay immutable.
-export function paintMask(mask,x,y,slot,radius,strength=1){
-  validateMask(mask);
-  if(!Number.isInteger(slot)||slot<0||slot>3||![x,y,radius,strength].every(Number.isFinite)||radius<=0)throw new Error('无效画笔');
-  const pixels=new Uint8Array(mask.pixels),target=[0,0,0];if(slot<3)target[slot]=255;
-  for(let yy=Math.max(0,Math.floor(y-radius));yy<Math.min(mask.height,Math.ceil(y+radius));yy++)for(let xx=Math.max(0,Math.floor(x-radius));xx<Math.min(mask.width,Math.ceil(x+radius));xx++){
-    const distance=Math.hypot(xx+.5-x,yy+.5-y)/radius;
-    if(distance>=1)continue;
-    const a=clamp(strength)*(1-distance*distance),i=(yy*mask.width+xx)*4;
-    for(let c=0;c<3;c++)pixels[i+c]=Math.round(pixels[i+c]*(1-a)+target[c]*a);
-  }
-  return {width:mask.width,height:mask.height,pixels};
-}
