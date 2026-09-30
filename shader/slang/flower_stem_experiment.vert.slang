@@ -13,9 +13,12 @@ StemProxyVertex main(VertexInput input) {
     output.root_scale=float4(pose.frame.center-pose.tip_offset-pose.attachment_offset,pose.frame.scale);
     output.yaw_height_bend=float4(pose.frame.axisX.x,pose.frame.axisX.z,pose.height,pose.bend);
     output.motion_edge=float4(0,0,0,flowerPart(0u).distribution.y);
+    output.socket=flowerPart(1u).socket;
     if(pose.frame.scale<=1e-7)return output;
     output.motion_edge.xyz=stemToLocalVector(output,pose.tip_offset)/pose.frame.scale;
     StemGeometry s=stemGeometry(output);
+    // Exact same live tip as the head attachment, including height and wind.
+    output.socket.w=dot(output.socket.xyz,stemCenter(s,0u,1.0));
     float3 lo,hi;stemBounds(s,lo,hi);
     if(flowerStemSamplingSettings().y==1u) {
         float distance=length(camera_info.pos.xyz-output.root_scale.xyz)+

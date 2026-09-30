@@ -9,7 +9,11 @@ public struct StemGeometry {
     public float radius;
     public float3 motion;
     public uint branches;
+    public float4 socket; // outward normal xyz, dot(normal, live attachment) w
 };
+public bool stemInsideSocket(StemGeometry s,float3 point) {
+    return dot(s.socket.xyz,point)<=s.socket.w+1e-6;
+}
 public uint stemSegmentCount(uint branch) { return branch==0u?12u:4u; }
 public float3 stemCenter(StemGeometry s,uint branch,float t) {
     float h=branch==0u?t:(branch==1u?4.0/12.0:7.0/12.0)+0.23*t;
@@ -51,15 +55,15 @@ float2 stemRoots(float a,float b,float c) {
     return float2(min(roots.x,roots.y),max(roots.x,roots.y));
 }
 void stemAccept(inout StemHit hit,float distance,float3 ro,float3 rd,
-    float3 center,uint branch,float parameter) {
-    if(distance>1e-5&&distance<hit.distance) {
+    float3 center,uint branch,float parameter,float4 socket) {
+    if(distance>1e-5&&distance<hit.distance&&dot(socket.xyz,ro+rd*distance)<=socket.w+1e-6) {
         hit.distance=distance;hit.point=ro+rd*distance;
         hit.normal=normalize(hit.point-center);
         hit.branch=branch;hit.parameter=parameter;
     }
 }
 void stemSphereCap(inout StemHit hit,float3 ro,float3 rd,float3 center,
-    float radius,float3 axis,float cut,bool upper,uint branch,float parameter) {
+    float radius,float3 axis,float cut,bool upper,uint branch,float parameter,float4 socket) {
     float3 oc=ro-center;
     float b=dot(oc,rd);
     // Closest-approach form avoids subtracting two large squared distances.
@@ -70,17 +74,17 @@ void stemSphereCap(inout StemHit hit,float3 ro,float3 rd,float3 center,
     for(uint i=0u;i<2u;i++) {
         float y=dot(oc+rd*roots[i],axis);
         if(upper?y>=cut:y<=cut)
-            stemAccept(hit,roots[i],ro,rd,center,branch,parameter);
+            stemAccept(hit,roots[i],ro,rd,center,branch,parameter,socket);
     }
 }
 void stemRoundCone(inout StemHit hit,float3 ro,float3 rd,float3 a,float3 b,
-    float ra,float rb,uint branch,float t0,float t1) {
+    float ra,float rb,uint branch,float t0,float t1,float4 socket) {
     float3 ab=b-a;
     float h=length(ab);
     if(h<=abs(rb-ra)+1e-6) {
         bool last=rb>ra;
         stemSphereCap(hit,ro,rd,last?b:a,max(ra,rb),float3(0,1,0),
-            max(ra,rb),false,branch,last?t1:t0);
+            max(ra,rb),false,branch,last?t1:t0,socket);
         return;
     }
     float3 axis=ab/h;
@@ -97,11 +101,28 @@ void stemRoundCone(inout StemHit hit,float3 ro,float3 rd,float3 a,float3 b,
         float centerY=(y+k*ra)/k2;
         if(centerY>=0.0&&centerY<=h) {
             stemAccept(hit,roots[i],ro,rd,a+axis*centerY,branch,
-                lerp(t0,t1,centerY/h));
+                lerp(t0,t1,centerY/h),socket);
         }
     }
-    stemSphereCap(hit,ro,rd,a,ra,axis,-k*ra,false,branch,t0);
-    stemSphereCap(hit,ro,rd,b,rb,axis,-k*rb,true,branch,t1);
+    stemSphereCap(hit,ro,rd,a,ra,axis,-k*ra,false,branch,t0,socket);
+    stemSphereCap(hit,ro,rd,b,rb,axis,-k*rb,true,branch,t1,socket);
+}
+// Membership of the union of endpoint-sphere hulls, for closing the socket
+// cut with a real geometric cap instead of hiding/clamping an existing hit.
+public bool stemContains(StemGeometry s,float3 point) {
+    for(uint branch=0u;branch<(s.branches!=0u?3u:1u);branch++) {
+        uint count=stemSegmentCount(branch);
+        for(uint segment=0u;segment<count;segment++) {
+            float t0=float(segment)/float(count),t1=float(segment+1u)/float(count);
+            float3 a=stemCenter(s,branch,t0),b=stemCenter(s,branch,t1),ab=b-a;
+            float ra=stemRadius(s,branch,t0),rb=stemRadius(s,branch,t1),dr=rb-ra;
+            float denominator=dot(ab,ab)-dr*dr;
+            float t=denominator>1e-12?saturate((dot(point-a,ab)+ra*dr)/denominator):(rb>ra?1.0:0.0);
+            float3 delta=point-(a+ab*t);float radius=ra+dr*t;
+            if(dot(delta,delta)<=radius*radius)return true;
+        }
+    }
+    return false;
 }
 public StemHit traceStem(StemGeometry s,float3 ro,float3 rd) {
     StemHit hit;hit.distance=1e20;hit.point=float3(0);hit.normal=float3(0,1,0);
@@ -114,8 +135,17 @@ public StemHit traceStem(StemGeometry s,float3 ro,float3 rd) {
             float t0=float(segment)/float(count),t1=float(segment+1u)/float(count);
             float3 b=stemCenter(s,branch,t1);
             float rb=stemRadius(s,branch,t1);
-            stemRoundCone(hit,ro,rd,a,b,ra,rb,branch,t0,t1);
+            stemRoundCone(hit,ro,rd,a,b,ra,rb,branch,t0,t1,s.socket);
             a=b;ra=rb;
+        }
+    }
+    float direction=dot(s.socket.xyz,rd);
+    if(abs(direction)>1e-8) {
+        float distance=(s.socket.w-dot(s.socket.xyz,ro))/direction;
+        float3 point=ro+rd*distance;
+        if(distance>1e-5&&distance<hit.distance&&stemContains(s,point)) {
+            hit.distance=distance;hit.point=point;hit.normal=normalize(s.socket.xyz);
+            hit.branch=0u;hit.parameter=1.0;
         }
     }
     return hit;
@@ -125,6 +155,10 @@ public StemHit traceStem(StemGeometry s,float3 ro,float3 rd) {
 // of cubemap sample rays, not a screen-space grid and not a six-face cache.
 // Camera translation changes the ray origin; rotation does not change the set
 // of source rays. Face edges and final display resampling remain visible risks.
+public float3 stemDirectionDisplayPoint(float3 origin,float3 displayRay,float3 sampleRay,float3 samplePoint) {
+    float distance=dot(samplePoint-origin,sampleRay)/max(dot(displayRay,sampleRay),1e-6);
+    return origin+displayRay*distance;
+}
 public float3 stemDirectionCell(float3 direction,uint resolution) {
     float3 magnitude=abs(direction);
     uint axis=magnitude.x>=magnitude.y&&magnitude.x>=magnitude.z?0u:

@@ -147,6 +147,8 @@ pub struct Flower {
     pub cache_family: String,
     pub palette: [[u8; 3]; HEAD_PALETTE_SIZE],
     pub color_texture: ColorTexture,
+    /// Outward head normal; the analytic stem stops at this attachment plane.
+    pub socket_normal: Vec3,
     pub triangles: Vec<Triangle>,
     pub whole: Part,
     pub heads: Vec<Part>,
@@ -230,6 +232,7 @@ struct PublishedFlower {
     cache_family: String,
     palette: [[u8; 3]; HEAD_PALETTE_SIZE],
     color_texture: ColorTexture,
+    socket_normal: [f32; 3],
     heads: Vec<PublishedHead>,
     parts: Vec<PublishedPart>,
 }
@@ -279,6 +282,11 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                     .iter()
                     .all(|h| Vec3::from_array(h.anchor) == Vec3::ZERO),
                 "attachment-local flower model"
+            );
+            let socket_normal = Vec3::from_array(source.socket_normal);
+            ensure!(
+                socket_normal.is_finite() && (socket_normal.length() - 1.).abs() < 1e-5,
+                "invalid flower stem socket normal"
             );
             // Game-owned assembly: authored assets contain only attachment-local heads.
             let column = Column::for_layers(source.stem_layers)?;
@@ -376,6 +384,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 cache_family: source.cache_family,
                 palette,
                 color_texture: source.color_texture,
+                socket_normal,
                 whole: Part {
                     triangles: 0..triangles.len() as u32,
                     anchor: Vec3::ZERO,
@@ -398,12 +407,13 @@ mod tests {
     #[test]
     fn invalid_atlas_or_uv_data_is_rejected_before_gpu_upload() {
         let original = include_str!("../../assets/models/flowers.json");
-        for field in ["texture", "uv", "material"] {
+        for field in ["texture", "uv", "material", "socket"] {
             let mut data: serde_json::Value = serde_json::from_str(original).unwrap();
             let flower = &mut data["flowers"][0];
             match field {
                 "texture" => flower["color_texture"]["width"] = 0.into(),
                 "uv" => flower["parts"][0]["uvs"][0] = 2.into(),
+                "socket" => flower["socket_normal"][1] = 2.into(),
                 _ => flower["parts"][0]["material"] = "petalColor".into(),
             }
             assert!(load(&data.to_string()).is_err(), "{field}");

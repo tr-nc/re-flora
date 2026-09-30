@@ -6,5 +6,5 @@ export function completeFlowerHead(authored){
   const parts=authored.parts.filter(part=>part.head===head.id).map(part=>({
     ...part,head:0,positions:part.positions.map((value,i)=>value-head.anchor[i%3]),indices:part.indices.slice(),
   }));
-  return {parts,heads:[{id:0,anchor:[0,0,0],label:'完整花头'}]};
+  return {parts,heads:[{id:0,anchor:[0,0,0],label:'完整花头'}],socketNormal:authored.socketNormal};
 }

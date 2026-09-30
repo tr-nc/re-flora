@@ -19,7 +19,7 @@ export async function publishedFlowers(){
     // linear texels and bilinearly filters them after sampling cached head UVs.
     const rgb=[];for(let i=0;i<rgba.length;i+=4)rgb.push(...rgba.slice(i,i+3));
     return {id:spec.id,display_name:spec.displayName,stem_layers:spec.stemLayers,cache_family:spec.cacheFamily,palette,
-      color_texture:{width:mask.width,height:mask.height,rgb},heads:recipe.heads,parts:recipe.parts};
+      color_texture:{width:mask.width,height:mask.height,rgb},socket_normal:recipe.socketNormal,heads:recipe.heads,parts:recipe.parts};
   });
   // Canonical authoring precision avoids cross-platform libm last-bit noise
   // while retaining much more precision than the runtime f32 representation.

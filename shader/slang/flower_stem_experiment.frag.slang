@@ -30,9 +30,14 @@ StemFragment main(StemProxyVertex input) {
     // display ray before writing scene depth: never paste RGBA over terrain or
     // petals, and never use a stale offscreen/cubemap depth convention.
     if(mode==1u) {
-        float distance=dot(world-camera_info.pos.xyz,sampleRay)/max(dot(displayRay,sampleRay),1e-6);
-        world=camera_info.pos.xyz+displayRay*distance;
+        world=stemDirectionDisplayPoint(camera_info.pos.xyz,displayRay,sampleRay,world);
     }
+    // Quantized source-ray texels are finite planes: their display footprint
+    // can cross the socket even when the sampled point does not. Restrict the
+    // actual displayed/depth point too; never paint stem on the outward head
+    // side or force its depth behind petals to conceal a geometric mismatch.
+    float3 displayedLocal=stemToLocalVector(input,world-input.root_scale.xyz)/input.root_scale.w;
+    if(!stemInsideSocket(s,displayedLocal)) { output.color=float4(0);output.depth=1.0;return output; }
     float4 clip=mul(camera_info.view_proj_mat,float4(world,1));
     output.depth=clip.z/clip.w;
     if(clip.w<=0.0||output.depth<0.0||output.depth>1.0) {

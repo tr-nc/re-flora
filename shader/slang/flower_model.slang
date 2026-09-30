@@ -17,6 +17,7 @@ public struct FlowerModelPart {
     public float4 center_radius;
     public float4 stem; // tip x/y, max bend fraction, stem triangle count
     public float4 distribution; // base layers, edge, mean, standard deviation
+    public float4 socket; // outward head normal; live plane offset computed at stem tip
 };
 public struct PushConstantFlower {
     public uint3 chunk_world_offset;

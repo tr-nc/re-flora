@@ -33,7 +33,11 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 ## Publish the flower bank
 
 The six published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).
-Both the native publisher and web studio call the one `parametric-flower.mjs` generator; the old
+Both the native publisher and web studio call the one `parametric-flower.mjs` generator; it also
+publishes the head's `socket_normal` for the analytic stem's closed attachment-plane cut. Source
+hits and world-direction texel display points must remain on the inward side, rather than relying
+on a thin flower center to hide an overflowing rounded stem end. See [socket evidence](../../docs/evidence/stem-flower-socket.md).
+The old
 radial/tulip/whole-plant geometry recipes have been removed. `flower-head.mjs` preserves the complete
 attachment-local head, not one tile per petal. All preset geometry, UVs and palette-weight decoding
 are shared; runtime placement/lighting/sampling remain consumer-owned.

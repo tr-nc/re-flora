@@ -102,6 +102,7 @@ struct FlowerPart {
     center_radius: [f32; 4],
     stem: [f32; 4], // tip x/y, max bend fraction, non-pixel stem triangle count
     distribution: [f32; 4], // base layers, edge, mean, standard deviation
+    socket: [f32; 4], // outward attachment-plane normal; offset set by live stem pose
 }
 pub(super) struct Source {
     pub(super) triangles: Vec<Triangle>,
@@ -224,6 +225,7 @@ pub(super) fn source(shape: Shape) -> Source {
                 ],
                 center_radius: part.center.extend(part.radius).to_array(),
                 distribution: flower.distribution,
+                socket: flower.socket_normal.extend(0.).to_array(),
                 stem: [
                     flower.column.tip().x,
                     flower.column.tip().y,
@@ -748,6 +750,7 @@ mod tests {
     fn all_consumers_have_shared_canonical_sources() {
         let s = source(Shape::default());
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 80);
         assert_eq!(model_assets::LEAF_VARIANT_COUNT, SHAPES[0] as usize);
         assert_eq!(s.ranges.len(), SHAPES.iter().sum::<u32>() as usize);
         assert_eq!(s.frames.len(), s.ranges.len());
@@ -805,6 +808,11 @@ mod tests {
             s.palette[3 * models::HEAD_PALETTE_SIZE]
         );
         for (model, f) in crate::flora::models::flowers().iter().enumerate() {
+            for part in &s.flower_parts
+                [model * (models::MAX_HEADS + 1)..model * (models::MAX_HEADS + 1) + 2]
+            {
+                assert_eq!(part.socket, f.socket_normal.extend(0.).to_array());
+            }
             for (part_index, p) in std::iter::once(&f.whole).chain(&f.heads).enumerate() {
                 let id = flower_source(model, part_index) as usize;
                 assert_eq!(s.frames[id], p.center.extend(p.radius).to_array());
@@ -946,7 +954,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(std::mem::size_of::<FlowerPart>(), 64);
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 80);
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlowerPixel>(),
             48

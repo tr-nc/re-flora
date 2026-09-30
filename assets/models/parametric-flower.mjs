@@ -76,5 +76,8 @@ export function parametricFlower(input={}){
   disk(mesh('Flower center','center'),p.centerRadius,p.centerHeight,p.centerShape,.015);
   const calyx=mesh('Flower calyx','calyx');
   disk(calyx,p.centerRadius*1.22,-.12,'dome',-.025);
-  return {parts,heads:[{id:0,anchor:[0,0,0],label:'完整花头'}]};
+  // Stem socket: the head's outward normal at its attachment origin. Native
+  // stems must stay in the inward half-space, independently of camera/view
+  // sampling. Derive it from the same tilt transform, not a species heuristic.
+  return {parts,heads:[{id:0,anchor:[0,0,0],label:'完整花头'}],socketNormal:[0,Math.sin(tilt),Math.cos(tilt)]};
 }
