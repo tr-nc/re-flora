@@ -26,6 +26,7 @@ pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
 mod model_cache_review;
+mod rooftop_scene;
 mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
@@ -422,6 +423,7 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     wind_prototype: wind_prototype::WindPrototype,
     cottage_base_y: Option<f32>,
+    rooftop_scene: Option<rooftop_scene::RooftopScene>,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -1092,6 +1094,8 @@ impl App {
         );
         let water_experience =
             launch_owners.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
+        let rooftop_poc =
+            launch_owners.loading_directive() == launch_owners::LoadingDirective::Rooftop;
         let hybrid_transparency =
             launch_owners.test_scene_frame_plan().kind() == TestSceneKind::Hybrid;
         let foliage_shadow_bench = launch_owners.is_foliage_shadow();
@@ -1109,6 +1113,10 @@ impl App {
 
         let mut terrain_persistence =
             TerrainPersistenceRuntime::from_plan(terrain, glass_experiment_enabled)?;
+        if rooftop_poc {
+            terrain_persistence
+                .disable_for_experiment("Rooftop PoC is unsaved; restart opens a bare roof.");
+        }
         let terrain_snapshot_reader = terrain_persistence.take_startup_reader();
 
         let swapchain = Swapchain::new(
@@ -1236,7 +1244,7 @@ impl App {
             plain_builder.get_resources(),
             lighting_mode_acceptance::initial_raster_lighting_state(),
             TracerDesc {
-                scaling_factor: 0.5,
+                scaling_factor: if rooftop_poc { 0.33 } else { 0.5 },
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: lighting.probe_spacing_voxels,
@@ -1399,13 +1407,20 @@ impl App {
         let particle_snapshots = Vec::with_capacity(particle_system.capacity());
         let world_extent = CHUNK_DIM.as_vec3();
         let cells_per_unit = 32.0;
-        let water = water::WaterRuntime::launch(water::WaterLaunchRequest::from_plan(
+        let mut water_request = water::WaterLaunchRequest::from_plan(
             water_plan,
             water_experience,
             &debug_settings.adjustables,
             world_extent,
             cells_per_unit,
-        ));
+        );
+        if rooftop_poc {
+            water_request = water_request.with_fixed_container(
+                rooftop_scene::SOIL_MIN.as_vec3() / 256.,
+                rooftop_scene::SOIL_MAX.as_vec3() / 256.,
+            );
+        }
+        let water = water::WaterRuntime::launch(water_request);
         if water_experience {
             launch_owners.activate_water_experience(water.config().particle_count);
         }
@@ -1435,6 +1450,7 @@ impl App {
 
         let mut app = Self {
             cottage_base_y: None,
+            rooftop_scene: None,
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -2474,9 +2490,16 @@ impl App {
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
                     self.player_tools.selected_item_panel_display_slot();
-                let voxel_palette_entries: Vec<VoxelPaletteEntry> = self
-                    .voxel_backpack
-                    .snapshot()
+                let rooftop_material = self.rooftop_scene.as_ref().map(|s| s.material);
+                let voxel_entries = if rooftop_material.is_some() {
+                    voxel_backpack::BackpackVoxel::ALL
+                        .into_iter()
+                        .map(|voxel| voxel_backpack::VoxelBackpackEntry { voxel, count: 0 })
+                        .collect()
+                } else {
+                    self.voxel_backpack.snapshot()
+                };
+                let voxel_palette_entries: Vec<VoxelPaletteEntry> = voxel_entries
                     .into_iter()
                     .map(|entry| {
                         let voxel = entry.voxel;
@@ -2486,7 +2509,8 @@ impl App {
                             label: voxel.label(),
                             count: entry.count,
                             color: Color32::from_rgb(red, green, blue),
-                            selected: false,
+                            selected: rooftop_material == Some(voxel),
+                            unlimited: rooftop_material.is_some(),
                         }
                     })
                     .collect();
@@ -2511,6 +2535,7 @@ impl App {
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
+                let mut clicked_rooftop_material = None;
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
@@ -2968,7 +2993,7 @@ ui.collapsing("Environment Probes", |ui| {
                             },
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
-                                label: "Dig",
+                                label: if rooftop_material.is_some() { "Edit" } else { "Dig" },
                                 key_hint: "3",
                                 category: Some("TOOLS"),
                                 icon: item_panel_shovel_icon.as_ref(),
@@ -3071,8 +3096,21 @@ ui.collapsing("Environment Probes", |ui| {
                         let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Staff {
                             Default::default()
                         } else {
-                            draw_voxel_palette(ctx, &voxel_palette_entries, false)
+                            draw_voxel_palette(ctx, &voxel_palette_entries, rooftop_material.is_some() && self.window_state.is_cursor_visible())
                         };
+                        clicked_rooftop_material = voxel_palette_response.clicked_voxel;
+                        if rooftop_material.is_some() {
+                            egui::Area::new("rooftop_poc_notice".into())
+                                .anchor(egui::Align2::LEFT_TOP, egui::vec2(16., 16.))
+                                .show(ctx, |ui| {
+                                    egui::Frame::default().fill(PANEL_DARK).inner_margin(12).show(ui, |ui| {
+                                        ui.label(RichText::new("ROOFTOP PoC · Unlimited · Unsaved").color(SAGE_ACCENT));
+                                        ui.small("3 Edit: LMB remove / RMB add · 2 Grow · Shift + wheel: brush");
+                                        ui.small("Alt + RMB: orbit · MMB: pan · Wheel: zoom");
+                                        ui.small("Fixed roof. Restart clears this experiment; old saves are untouched.");
+                                    });
+                                });
+                        }
                         self.player_tools.backpack_summary_panel_screen_pos =
                             voxel_palette_response
                                 .panel_center
@@ -3251,6 +3289,11 @@ ui.collapsing("Environment Probes", |ui| {
                 self.sync_cursor_with_panels();
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
+                }
+                if let (Some(material), Some(scene)) =
+                    (clicked_rooftop_material, self.rooftop_scene.as_mut())
+                {
+                    scene.material = material;
                 }
                 if let Some(selection_idx) = clicked_flora_paint_selection_index {
                     self.select_flora_paint_selection_index(selection_idx);

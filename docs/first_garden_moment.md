@@ -22,6 +22,8 @@ The original video/demo framework below is retained as longer-term context, not 
 to implement or package all its gates now. Sustainable Return remains the eventual player promise;
 the current experimental scene must be honestly labeled unsaved. See the
 [Chinese discussion and confirmed decisions](discussions/rooftop-restaurant-gamify.html).
+The implemented basic candidate, captures, validation results and remaining manual-review limits are
+recorded in [Rooftop PoC](rooftop_poc.md); this is not completion of the full milestone below.
 
 ## Problem Statement
 

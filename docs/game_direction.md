@@ -44,7 +44,9 @@ mowers and restaurant renovation remain future plans. Do not automatically launc
 
 The Chinese decision record, original brief, references and stage boundaries are in
 [the rooftop restaurant discussion](discussions/rooftop-restaurant-gamify.html). This section records
-product decisions and authorization, not a claim that the proof has been implemented or validated.
+product decisions and authorization. Implementation status, actual captures and reproducible
+validation are recorded separately in [Rooftop PoC](rooftop_poc.md): the basic candidate is available
+on `agent/gamify`; manual interaction/appearance review and performance acceptance are still open.
 
 ## North Star
 

@@ -72,7 +72,9 @@ public float terrainSmoothMboBrushFalloff(U_TerrainSmoothMboInfo info,
 public bool terrainSmoothMboIsCandidateVoxel(U_TerrainSmoothMboInfo info,
                                               uint3 local, uint voxelType)
 {
-    return terrainSmoothMboIsMutableVoxel(voxelType) &&
+    uint3 world = info.offset.xyz + local;
+    return all(world >= info.write_min.xyz) && all(world < info.write_max.xyz) &&
+           terrainSmoothMboIsMutableVoxel(voxelType) &&
            terrainSmoothMboBrushFalloff(info, local) > 0.0;
 }
 

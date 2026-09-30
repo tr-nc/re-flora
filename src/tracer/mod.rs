@@ -21,6 +21,9 @@ pub use butterfly_palette::*;
 
 mod leaf_particle_pose;
 
+mod static_scene;
+pub use static_scene::StaticSceneMesh;
+use static_scene::StaticSceneResources;
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
 
@@ -1600,6 +1603,7 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
     particle_resources: ParticleRendererResources,
+    static_scene: Option<StaticSceneResources>,
     sprinkler_resources: SprinklerRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
@@ -1956,6 +1960,7 @@ impl Tracer {
             allocator,
             resources,
             particle_resources,
+            static_scene: None,
             sprinkler_resources,
             geometry_preview_resources,
             dynamic_fruit_resources,
@@ -3777,6 +3782,9 @@ impl Tracer {
             &self.resources.apple_pixel.apple_pixel_quad_vertices,
             BufferUse::VertexRead,
         );
+        if let Some(scene) = &self.static_scene {
+            record_mesh(&scene.indices, &scene.vertices, scene.index_count);
+        }
         record_mesh(
             &self.sprinkler_resources.indices,
             &self.sprinkler_resources.vertices,
@@ -3934,6 +3942,7 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
+            || self.static_scene.is_some()
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
@@ -4212,6 +4221,7 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
+            || self.static_scene.is_some()
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
@@ -4864,6 +4874,12 @@ impl Tracer {
                 .sprinkler_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
+        if self.static_scene.is_some() {
+            self.pipeline_topology
+                .graphics()
+                .static_scene_ppl
+                .prepare_descriptor_resources(cmdbuf);
+        }
         if self.geometry_preview_resources.has_visible_mesh() {
             self.pipeline_topology
                 .graphics()
@@ -5267,6 +5283,15 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 );
             }
+        }
+
+        if let Some(scene) = &self.static_scene {
+            let pipeline = &self.pipeline_topology.graphics().static_scene_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&scene.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&scene.vertices]);
+            pipeline.record_indexed(cmdbuf, scene.index_count, 1, 0, 0, 0, None);
         }
 
         if self.geometry_preview_resources.has_visible_mesh() {
@@ -6481,6 +6506,17 @@ impl Tracer {
 
     pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
         self.camera.take_footstep_events()
+    }
+
+    /// Scene replacement is an infrequent setup operation, never an in-flight buffer mutation.
+    pub fn upload_static_scene(&mut self, mesh: &StaticSceneMesh) -> Result<()> {
+        self.vulkan_ctx.device().wait_idle();
+        self.static_scene = Some(StaticSceneResources::new(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            mesh,
+        )?);
+        Ok(())
     }
 
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {

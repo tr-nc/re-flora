@@ -230,6 +230,8 @@ struct TerrainSmoothMboInfoGpu {
     center_radius: [f32; 4],
     params: [f32; 4],
     threshold: [u32; 4],
+    write_min: [u32; 4],
+    write_max: [u32; 4],
 }
 
 #[repr(C)]
@@ -1488,6 +1490,25 @@ impl PlainBuilder {
         max_delta_world: f32,
         deadband_world: f32,
     ) -> Result<Option<UAabb3>> {
+        self.smooth_terrain_dirt_in_bounds(
+            center,
+            brush_radius_world,
+            strength,
+            max_delta_world,
+            deadband_world,
+            None,
+        )
+    }
+
+    pub fn smooth_terrain_dirt_in_bounds(
+        &mut self,
+        center: Vec3,
+        brush_radius_world: f32,
+        strength: f32,
+        max_delta_world: f32,
+        deadband_world: f32,
+        write_bound: Option<UAabb3>,
+    ) -> Result<Option<UAabb3>> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let center_vox = center * 256.0;
         let brush_radius_vox = (brush_radius_world * 256.0).max(0.0);
@@ -1517,6 +1538,7 @@ impl PlainBuilder {
                 strength,
                 max_delta_world,
                 deadband_world,
+                write_bound,
             );
         }
 
@@ -1526,6 +1548,7 @@ impl PlainBuilder {
             strength,
             max_delta_world,
             deadband_world,
+            write_bound,
         )
     }
 
@@ -1536,6 +1559,7 @@ impl PlainBuilder {
         strength: f32,
         max_delta_world: f32,
         deadband_world: f32,
+        write_bound: Option<UAabb3>,
     ) -> Result<Option<UAabb3>> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
@@ -1578,6 +1602,14 @@ impl PlainBuilder {
             center_radius: [center_vox.x, center_vox.y, center_vox.z, brush_radius_vox],
             params: [strength, deadband_vox, 0.0, 0.0],
             threshold: [0, 0, 0, 0],
+            write_min: write_bound
+                .map_or(UVec3::ZERO, |b| b.min())
+                .extend(0)
+                .to_array(),
+            write_max: write_bound
+                .map_or(atlas_dim, |b| b.max())
+                .extend(0)
+                .to_array(),
         };
 
         let prepare_start = Instant::now();
@@ -1784,6 +1816,7 @@ impl PlainBuilder {
         strength: f32,
         max_delta_world: f32,
         deadband_world: f32,
+        write_bound: Option<UAabb3>,
     ) -> Result<Option<UAabb3>> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
@@ -1821,8 +1854,12 @@ impl PlainBuilder {
             .collect();
         let mutable: Vec<bool> = atlas_data
             .iter()
-            .map(|voxel_data| {
+            .enumerate()
+            .map(|(idx, voxel_data)| {
+                let world = offset + volume_local_pos(idx, dim);
                 is_terrain_smooth_mutable_voxel(voxel_type_from_atlas_byte(*voxel_data) as u32)
+                    && write_bound
+                        .is_none_or(|b| world.cmpge(b.min()).all() && world.cmplt(b.max()).all())
             })
             .collect();
 
@@ -2223,11 +2260,67 @@ impl PlainBuilder {
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
+        self.modify_spheres_with_readback(
+            bvh_nodes,
+            spheres,
+            fill_voxel_type,
+            target_voxel_type,
+            max_write_count,
+            max_removed_counts,
+            true,
+            None,
+        )
+    }
+
+    /// Full-volume brush in an explicit legal layer. Unlike surface-only placement, this can
+    /// establish the first voxel on a non-voxel support; the dispatch cannot cross its bounds.
+    pub fn chunk_modify_bounded_spheres(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        fill_voxel_type: u32,
+        bound: UAabb3,
+    ) -> Result<ChunkModifyReadback> {
+        let target = (fill_voxel_type != crate::builder::VOXEL_TYPE_EMPTY)
+            .then_some(crate::builder::VOXEL_TYPE_EMPTY);
+        self.modify_spheres_with_readback(
+            bvh_nodes,
+            spheres,
+            fill_voxel_type,
+            target,
+            None,
+            None,
+            false,
+            Some(bound),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn modify_spheres_with_readback(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        fill_voxel_type: u32,
+        target_voxel_type: Option<u32>,
+        max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
+        surface_only: bool,
+        bound: Option<UAabb3>,
+    ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
-        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+        let Some((mut offset, mut dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim)
+        else {
             return Ok(ChunkModifyReadback::default());
         };
+        if let Some(bound) = bound {
+            let max = (offset + dim).min(bound.max());
+            offset = offset.max(bound.min());
+            if offset.cmpge(max).any() {
+                return Ok(ChunkModifyReadback::default());
+            }
+            dim = max - offset;
+        }
         let prep_start = Instant::now();
         clear_edit_stats(&self.resources)?;
         clear_edit_removal_candidates(&self.resources)?;
@@ -2238,7 +2331,7 @@ impl PlainBuilder {
             fill_voxel_type,
             target_voxel_type,
             PRIMITIVE_KIND_SPHERE,
-            true,
+            surface_only,
             false,
             max_write_count,
             max_removed_counts,

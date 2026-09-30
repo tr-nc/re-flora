@@ -215,6 +215,20 @@ pub(super) struct TerrainPhysics {
 }
 
 impl TerrainPhysics {
+    pub(super) fn publish_fixed_scene(
+        &mut self,
+        mesh: &crate::tracer::StaticSceneMesh,
+    ) -> anyhow::Result<()> {
+        let (positions, triangles) = mesh.collision_geometry();
+        let positions: Vec<_> = positions
+            .into_iter()
+            .map(|p| p * VOXELS_PER_WORLD_UNIT)
+            .collect();
+        self.collision_world
+            .set_fixed_scene_surface(&positions, &triangles)
+            .map_err(anyhow::Error::msg)
+    }
+
     pub(super) fn tree_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
         self.collision_world
             .deforming_ray_candidates(origin * 256., direction)

@@ -390,7 +390,11 @@ impl App {
                 true
             }
             ElementState::Pressed
-                if self.orbit_mouse_drag_available() && button == MouseButton::Right =>
+                if self.orbit_mouse_drag_available()
+                    && button == MouseButton::Right
+                    && (self.rooftop_scene.is_none()
+                        || self.modifiers.alt_key()
+                        || !self.player_tools.has_secondary_pointer_action()) =>
             {
                 self.player_tools
                     .set_pointer_button_state(MouseButton::Right, ElementState::Released);
@@ -726,7 +730,19 @@ impl App {
         Ok(self
             .query_terrain_ray_cpu(origin, direction)
             .map(|hit| hit.position)
-            .filter(|hit| (*hit - origin).length() <= max_distance))
+            .filter(|hit| (*hit - origin).length() <= max_distance)
+            .filter(|hit| {
+                self.rooftop_scene.is_none()
+                    || super::rooftop_scene::RooftopScene::allows_soil(*hit)
+            })
+            .filter(|hit| {
+                // A bare model surface is an Edit support, not a plantable voxel substrate.
+                self.is_shovel_selected()
+                    || self.rooftop_scene.as_ref().is_none_or(|s| {
+                        s.ray_hit(origin, direction)
+                            .is_none_or(|p| p.distance(*hit) > 1e-5)
+                    })
+            }))
     }
 
     pub(super) fn query_terrain_ray_cpu(
@@ -741,6 +757,18 @@ impl App {
         let mut terrain = self
             .contree_builder
             .query_terrain_ray_cpu(origin, direction);
+        if let Some(position) = self
+            .rooftop_scene
+            .as_ref()
+            .and_then(|s| s.ray_hit(origin, direction))
+        {
+            if terrain.is_none_or(|hit| position.distance(origin) < hit.position.distance(origin)) {
+                terrain = Some(crate::builder::ContreeCpuRayHit {
+                    position,
+                    voxel_type: crate::builder::VOXEL_TYPE_ROCK,
+                });
+            }
+        }
         if self.tracer.raster_trees.posed_surface.is_none() {
             return terrain;
         }
@@ -854,8 +882,10 @@ impl App {
                         }
 
                         let material_mode = self.voxel_material_mode();
-                        self.voxel_backpack
-                            .deposit_removed(&readback.stats, material_mode);
+                        if self.rooftop_scene.is_none() {
+                            self.voxel_backpack
+                                .deposit_removed(&readback.stats, material_mode);
+                        }
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,
@@ -1099,6 +1129,8 @@ impl App {
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {
         terrain_edit_endpoint_within_editable_chunk(center)
+            && (self.rooftop_scene.is_none()
+                || super::rooftop_scene::RooftopScene::allows_soil(center))
     }
 
     pub(super) fn try_shovel_place(&mut self, now: Instant) {
@@ -1108,8 +1140,14 @@ impl App {
         }
         let action = ContinuousTerrainToolAction::ShovelPlace;
 
-        // Placement ignores material selection and uses the first stored voxel type.
-        let Some((place_voxel, place_voxel_count)) = self.voxel_backpack.first_available() else {
+        // The unsaved proof selects a semantic material without manufacturing inventory.
+        // Normal garden placement retains its original first-stored-material behavior.
+        let available = self
+            .rooftop_scene
+            .as_ref()
+            .map(|s| (s.material, u32::MAX))
+            .or_else(|| self.voxel_backpack.first_available());
+        let Some((place_voxel, place_voxel_count)) = available else {
             self.stop_terrain_edit_loop_sound();
             return;
         };
@@ -1142,8 +1180,12 @@ impl App {
                         place_voxel_count,
                     )
                     .map(|readback| {
-                        self.voxel_backpack
-                            .withdraw(place_voxel, readback.stats.count_added(place_voxel_type_id));
+                        if self.rooftop_scene.is_none() {
+                            self.voxel_backpack.withdraw(
+                                place_voxel,
+                                readback.stats.count_added(place_voxel_type_id),
+                            );
+                        }
                     })
                 {
                     log::error!("Failed to apply terrain placement: {}", err);

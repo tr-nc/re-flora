@@ -946,6 +946,7 @@ pub(crate) struct VoxelPaletteEntry {
     pub count: u32,
     pub color: Color32,
     pub selected: bool,
+    pub unlimited: bool,
 }
 
 #[derive(Default)]
@@ -991,15 +992,23 @@ pub(crate) fn draw_voxel_palette(
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(
-                            egui::RichText::new("Backpack")
-                                .color(GOLD_ACCENT)
-                                .size(12.0)
-                                .strong(),
+                            egui::RichText::new(if entries.iter().any(|e| e.unlimited) {
+                                "Unlimited materials"
+                            } else {
+                                "Backpack"
+                            })
+                            .color(GOLD_ACCENT)
+                            .size(12.0)
+                            .strong(),
                         );
                         ui.label(
-                            egui::RichText::new("status only · no material filter")
-                                .color(TEXT_COLOR.linear_multiply(0.78))
-                                .size(10.0),
+                            egui::RichText::new(if entries.iter().any(|e| e.unlimited) {
+                                "developer PoC · choose Edit material"
+                            } else {
+                                "status only · no material filter"
+                            })
+                            .color(TEXT_COLOR.linear_multiply(0.78))
+                            .size(10.0),
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1096,7 +1105,11 @@ fn draw_voxel_palette_entry(
     painter.text(
         egui::pos2(rect.right() - 10.0, rect.center().y),
         egui::Align2::RIGHT_CENTER,
-        format!("{:>6}", entry.count),
+        if entry.unlimited {
+            "∞".to_owned()
+        } else {
+            format!("{:>6}", entry.count)
+        },
         egui::TextStyle::Monospace.resolve(ui.style()),
         TEXT_COLOR,
     );

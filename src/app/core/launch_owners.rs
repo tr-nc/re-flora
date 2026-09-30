@@ -64,6 +64,7 @@ pub(super) struct HouseSceneOwner;
 pub(super) enum WorldScenarioOwner {
     Garden,
     House(HouseSceneOwner),
+    Rooftop,
 }
 
 pub(super) enum WaterScenarioOwner {
@@ -93,6 +94,7 @@ pub(super) enum LoadingDirective {
     Garden,
     WaterExperience,
     House,
+    Rooftop,
     Glass,
 }
 
@@ -145,6 +147,9 @@ impl ScenarioOwner {
             }
             Self::Standard(StandardScenarioOwner::World(WorldScenarioOwner::House(_))) => {
                 LoadingDirective::House
+            }
+            Self::Standard(StandardScenarioOwner::World(WorldScenarioOwner::Rooftop)) => {
+                LoadingDirective::Rooftop
             }
             Self::Standard(StandardScenarioOwner::Water(WaterScenarioOwner::Experience(_))) => {
                 LoadingDirective::WaterExperience
@@ -703,6 +708,12 @@ pub(in crate::app) fn prepare_startup_owners(
                 WorldScenarioOwner::House(HouseSceneOwner),
             )),
         },
+        Scenario::Rooftop => LaunchMode::General {
+            camera,
+            scenario: ScenarioOwner::Standard(StandardScenarioOwner::World(
+                WorldScenarioOwner::Rooftop,
+            )),
+        },
         Scenario::TerrainConnectivityBenchmark(options) => LaunchMode::General {
             camera,
             scenario: ScenarioOwner::Connectivity(TerrainConnectivityBench::new(options)),
@@ -742,6 +753,7 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq)]
     enum OwnerKind {
+        Rooftop,
         Garden,
         House,
         WaterExperience,
@@ -760,6 +772,7 @@ mod tests {
                 ScenarioOwner::Standard(StandardScenarioOwner::World(world)) => match world {
                     WorldScenarioOwner::Garden => OwnerKind::Garden,
                     WorldScenarioOwner::House(_) => OwnerKind::House,
+                    WorldScenarioOwner::Rooftop => OwnerKind::Rooftop,
                 },
                 ScenarioOwner::Standard(StandardScenarioOwner::Water(water)) => match water {
                     WaterScenarioOwner::Experience(_) => OwnerKind::WaterExperience,

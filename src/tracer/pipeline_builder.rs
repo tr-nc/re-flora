@@ -441,6 +441,18 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let static_scene_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/static_scene.vert",
+            "main",
+        )
+        .unwrap();
+        let static_scene_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/static_scene.frag",
+            "main",
+        )
+        .unwrap();
         let geometry_preview_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/preview/geometry_preview.vert",
@@ -689,6 +701,8 @@ impl PipelineBuilder {
             leaves_shadow_vert_sm,
             leaves_shadow_frag_sm,
             sprinkler_vert_sm,
+            static_scene_vert_sm,
+            static_scene_frag_sm,
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
             environment_probe_visualization_vert_sm,
@@ -1377,6 +1391,21 @@ impl PipelineBuilder {
             &environment_lighting_resources,
         );
 
+        let static_scene_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.static_scene_vert_sm,
+            &shader_modules.static_scene_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let geometry_preview_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.geometry_preview_vert_sm,
@@ -1592,6 +1621,7 @@ impl PipelineBuilder {
             leaves_lod_ppl,
             leaves_shadow_lod_ppl,
             sprinkler_ppl,
+            static_scene_ppl,
             geometry_preview_ppl,
             environment_probe_visualization_depth_ppl,
             environment_probe_visualization_overlay_ppl,
@@ -2204,6 +2234,11 @@ impl PipelineTopology {
             );
         }
         retire_graphics(
+            &self.graphics.static_scene_ppl,
+            DescriptorUpdate::All(&tracer_resources),
+            "static scene descriptor update failed during extent publication",
+        );
+        retire_graphics(
             &self.graphics.geometry_preview_ppl,
             DescriptorUpdate::All(&tracer_resources),
             "graphics descriptor update failed during extent publication",
@@ -2669,6 +2704,8 @@ pub struct ShaderModules {
     pub leaves_shadow_vert_sm: ShaderModule,
     pub leaves_shadow_frag_sm: ShaderModule,
     pub sprinkler_vert_sm: ShaderModule,
+    pub static_scene_vert_sm: ShaderModule,
+    pub static_scene_frag_sm: ShaderModule,
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
     pub environment_probe_visualization_vert_sm: ShaderModule,
@@ -2766,6 +2803,7 @@ pub struct GraphicsPipelines {
     pub leaves_lod_ppl: GraphicsPipeline,
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
     pub sprinkler_ppl: GraphicsPipeline,
+    pub static_scene_ppl: GraphicsPipeline,
     pub geometry_preview_ppl: GraphicsPipeline,
     pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,

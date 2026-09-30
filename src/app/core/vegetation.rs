@@ -2859,6 +2859,9 @@ impl App {
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
+        if self.rooftop_scene.is_some() && target_voxel_type.is_none() {
+            return self.apply_rooftop_soil(edit, crate::builder::VOXEL_TYPE_EMPTY);
+        }
         let total_start = Instant::now();
         if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
             let rebuild_bound = compiled.rebuild_bound;
@@ -2912,6 +2915,9 @@ impl App {
         voxel_type: u32,
         max_write_count: u32,
     ) -> Result<ChunkModifyReadback> {
+        if self.rooftop_scene.is_some() {
+            return self.apply_rooftop_soil(edit, voxel_type);
+        }
         let total_start = Instant::now();
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
@@ -3032,9 +3038,22 @@ impl App {
             spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
         };
 
-        let terrain_rebuild_bound = self
-            .plain_builder
-            .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?;
+        let terrain_rebuild_bound = if self.rooftop_scene.is_some() {
+            self.plain_builder.smooth_terrain_dirt_in_bounds(
+                center,
+                radius,
+                strength,
+                max_delta,
+                deadband,
+                Some(UAabb3::new(
+                    super::rooftop_scene::SOIL_MIN,
+                    super::rooftop_scene::SOIL_MAX,
+                )),
+            )?
+        } else {
+            self.plain_builder
+                .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?
+        };
 
         if let Some(flora_rebuild_bound) = flora_rebuild_bound {
             world_ops::mesh_remove_flora_for_brush_edit(

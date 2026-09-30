@@ -120,6 +120,10 @@ impl TerrainPersistenceRuntime {
         })
     }
 
+    pub(super) fn disable_for_experiment(&mut self, reason: &'static str) {
+        self.disabled_reason = Some(reason);
+    }
+
     pub(super) fn take_startup_reader(&mut self) -> Option<TerrainSnapshotReader> {
         self.startup_reader.take()
     }

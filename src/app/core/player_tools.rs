@@ -563,6 +563,10 @@ impl PlayerToolRuntime {
         active
     }
 
+    pub(super) fn has_secondary_pointer_action(&self) -> bool {
+        self.pointer_action_for_button(MouseButton::Right).is_some()
+    }
+
     fn pointer_action_for_button(&self, button: MouseButton) -> Option<PlayerToolPointerAction> {
         if let Some(action) = self.continuous_action_for_button(button) {
             return Some(PlayerToolPointerAction::Continuous(action));

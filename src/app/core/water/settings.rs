@@ -12,12 +12,16 @@ pub(in crate::app::core) const EXPERIENCE_INITIAL_FLUID_MAX_WS: Vec3 = Vec3::new
 pub(super) struct WaterRuntimeOverrides {
     baseline: Option<PondWaterConfig>,
     plan: WaterPlan,
+    fixed_container: Option<(Vec3, Vec3)>,
 }
 
 impl WaterRuntimeOverrides {
     pub(super) fn apply(&self, config: &mut PondWaterConfig) {
         if let Some(baseline) = &self.baseline {
             *config = baseline.clone();
+        }
+        if let Some((min, max)) = self.fixed_container {
+            config.collider = re_flora_water::collider::WaterBoxCollider::new(min, max);
         }
         if let Some(particle_count) = self.plan.particles {
             *config = config.clone().with_particle_count(particle_count);
@@ -88,6 +92,7 @@ impl WaterLaunchRequest {
         let overrides = WaterRuntimeOverrides {
             baseline: None,
             plan,
+            fixed_container: None,
         };
         let world_grid_dim = UVec3::new(
             (world_extent.x * cells_per_unit).ceil() as u32,
@@ -107,6 +112,13 @@ impl WaterLaunchRequest {
             cells_per_unit,
             overrides,
         }
+    }
+
+    /// Fixed scene container is replayed after GUI updates so a model roof cannot disappear
+    /// from water's simulation boundaries. This does not change terrain SDF ownership.
+    pub(in crate::app::core) fn with_fixed_container(mut self, min: Vec3, max: Vec3) -> Self {
+        self.overrides.fixed_container = Some((min, max));
+        self
     }
 
     pub(super) fn resolve(mut self) -> ResolvedWaterLaunch {
@@ -265,6 +277,31 @@ mod tests {
 
     fn request(plan: WaterPlan, experience: bool, gui: GuiAdjustables) -> WaterLaunchRequest {
         WaterLaunchRequest::from_plan(plan, experience, &gui, Vec3::splat(2.0), 32.0)
+    }
+
+    #[test]
+    fn fixed_scene_container_survives_gui_reconfiguration_without_changing_saved_settings() {
+        let min = Vec3::new(0.28, 0.75, 0.33);
+        let max = Vec3::new(1.7, 1.5, 1.59);
+        let mut resolved = request(WaterPlan::default(), false, GuiAdjustables::default())
+            .with_fixed_container(min, max)
+            .resolve();
+        assert_eq!(resolved.effective.collider.min_ws, min);
+        assert_eq!(resolved.effective.collider.max_ws, max);
+        let gui = GuiAdjustables::default();
+        resolved.effective.collider = WaterBoxCollider::new(Vec3::ZERO, Vec3::splat(2.0));
+        apply_water_gui_adjustables_to_config(&mut resolved.effective, &gui);
+        resolved.runtime_overrides.apply(&mut resolved.effective);
+        assert_eq!(resolved.effective.collider.min_ws, min);
+        assert_eq!(resolved.effective.collider.max_ws, max);
+        assert_eq!(
+            request(WaterPlan::default(), false, gui)
+                .resolve()
+                .effective
+                .collider
+                .min_ws,
+            Vec3::ZERO
+        );
     }
 
     #[test]

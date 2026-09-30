@@ -33,6 +33,11 @@ The order above supersedes conflicting flower-first, near-ground-camera and pack
 assumptions below. The longer-term video/demo and sustainable-return goals remain aspirations;
 they are not acceptance gates or packaging authorization for the rooftop proof.
 
+**Candidate status — 2026-10-01:** the basic unsaved rooftop proof is implemented on `agent/gamify`.
+See [Rooftop PoC](docs/rooftop_poc.md) for startup controls, actual captures, validation and lighting
+limits. This completes the technical sample, not user approval of its feel or performance acceptance;
+it does not authorize starting the restaurant supply stage.
+
 ## Longer-Term Milestone: First Garden Moment
 
 Work is ordered by its contribution to one 30-45 second video and one 10-15 minute playable slice.

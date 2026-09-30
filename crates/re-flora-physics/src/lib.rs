@@ -371,6 +371,7 @@ pub struct CollisionWorld {
     source_occupancies: HashMap<StaticVoxelBrickId, BrickOccupancy>,
     deforming_exclusions: HashMap<StaticVoxelBrickId, Vec<UVec3>>,
     deforming_surface: Option<ColliderHandle>,
+    fixed_scene_surface: Option<ColliderHandle>,
     dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
     next_dynamic_body_id: u64,
     fixed_step_seconds: f32,
@@ -401,6 +402,7 @@ impl CollisionWorld {
             source_occupancies: HashMap::new(),
             deforming_exclusions: HashMap::new(),
             deforming_surface: None,
+            fixed_scene_surface: None,
             dynamic_bodies: HashMap::new(),
             next_dynamic_body_id: 1,
             fixed_step_seconds: DEFAULT_FIXED_STEP_SECONDS,
@@ -792,6 +794,37 @@ impl CollisionWorld {
                 self.insert_new_brick(id, occupancy);
             }
         }
+    }
+
+    /// Fixed scene models share the player/rigid-body world without occupying the animated-tree slot.
+    /// Inputs are physics voxel units. Invalid replacements leave the current scene unchanged.
+    pub fn set_fixed_scene_surface(&mut self, positions: &[Vec3], indices: &[[u32; 3]]) -> Result<(), String> {
+        if positions.iter().any(|p| !p.is_finite()) || indices.iter().flatten().any(|&i| i as usize >= positions.len()) {
+            return Err("invalid fixed scene triangle geometry".to_owned());
+        }
+        let shape = if indices.is_empty() {
+            None
+        } else {
+            Some(SharedShape::trimesh_with_flags(
+                positions.iter().copied().map(to_rapier_vec).collect(),
+                indices.to_vec(),
+                rapier3d::parry::shape::TriMeshFlags::FIX_INTERNAL_EDGES
+                    | rapier3d::parry::shape::TriMeshFlags::MERGE_DUPLICATE_VERTICES,
+            ).map_err(|err| format!("fixed scene mesh: {err}"))?)
+        };
+        if let Some(handle) = self.fixed_scene_surface.take() {
+            self.physics.remove_collider(handle);
+            self.capsule_character_modified_colliders.remove(&handle);
+            self.capsule_character_removed_colliders.insert(handle);
+        }
+        if let Some(shape) = shape {
+            let handle = self.physics.insert_collider(
+                ColliderBuilder::new(shape).collision_groups(static_terrain_collision_groups()), None,
+            );
+            self.fixed_scene_surface = Some(handle);
+            self.capsule_character_modified_colliders.insert(handle);
+        }
+        Ok(())
     }
 
     /// The animated mesh participates in the same player and rigid-body queries
@@ -1414,6 +1447,27 @@ mod tests {
             .voxel_state(id, local)
             .expect("test voxel must exist")
             .free_faces()
+    }
+
+    #[test]
+    fn fixed_scene_is_independent_of_tree_surface_and_invalid_replacement_is_atomic() {
+        let mut world = CollisionWorld::new();
+        let positions = [Vec3::new(-40., 0., -40.), Vec3::new(-40., 0., 40.), Vec3::new(40., 0., 40.), Vec3::new(40., 0., -40.)];
+        world.set_fixed_scene_surface(&positions, &[[0, 1, 2], [0, 2, 3]]).unwrap();
+        let handle = world.fixed_scene_surface.unwrap();
+        assert!(world.set_fixed_scene_surface(&positions, &[[0, 1, 99]]).is_err());
+        assert_eq!(world.fixed_scene_surface, Some(handle));
+        world.set_deforming_surface(&[], &[]).unwrap();
+        assert_eq!(world.fixed_scene_surface, Some(handle));
+        let result = world.move_capsule_character(CapsuleCharacterMove {
+            center: Vec3::new(0., 2.1, 0.), radius: 1., half_height: 1.,
+            desired_translation: Vec3::new(0.25, -0.5, 0.), dt: 1. / 60.,
+        }).unwrap();
+        assert!(result.grounded);
+        assert!(result.translation.y > -0.2);
+        world.set_fixed_scene_surface(&[], &[]).unwrap();
+        assert!(world.fixed_scene_surface.is_none());
+        assert!(world.physics.colliders.get(handle).is_none());
     }
 
     #[test]

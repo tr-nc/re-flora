@@ -170,6 +170,8 @@ public struct U_TerrainSmoothMboInfo
     public float4 center_radius;
     public float4 params;
     public uint4 threshold;
+    public uint4 write_min;
+    public uint4 write_max;
 };
 
 public struct B_TerrainSmoothMboDensityA
