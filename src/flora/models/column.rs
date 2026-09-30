@@ -259,7 +259,7 @@ fn face(
             positions: ids.map(|i| points[i]),
             normal,
             color,
-            material: 0,
+            uvs: [glam::Vec2::ZERO; 3],
             anchor,
         });
     }

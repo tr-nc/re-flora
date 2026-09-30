@@ -1516,6 +1516,8 @@ fn validate_shared_flower_assets() {
     for source in [
         "assets/models/flower-source.mjs",
         "assets/models/flower-head.mjs",
+        "assets/models/parametric-flower.mjs",
+        "assets/models/palette-mask.mjs",
         "scripts/publish-flower-models.mjs",
     ] {
         println!("cargo:rerun-if-changed={source}");

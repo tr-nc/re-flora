@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {weightsFromRGB,createMask,maskPresets,resolvePalette,paintMask,validateMask} from '../models/palette-mask.mjs';
+import {weightsFromRGB,createMask,maskPresets,resolvePalette,paintMask,validateMask} from '../../../assets/models/palette-mask.mjs';
 
 test('weights represent palette slots, not interpolated numeric indices',()=>{
   assert.deepEqual(weightsFromRGB([255,0,0]),[1,0,0,0]);

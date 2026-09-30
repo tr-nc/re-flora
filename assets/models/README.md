@@ -1,9 +1,9 @@
 # Shared model assets
 
 This directory is the **one published model/animation source** for models shared by the game and preview.
-The web-only parametric flowers and bee/bird studies under `experiments/model-preview/models/` are
-unpublished candidates, not parallel game implementations. They must cross an explicit asset/format
-approval boundary before any native integration.
+Flowers now share `parametric-flower.mjs`, `palette-mask.mjs` and the six presets in `flower-source.mjs`
+between the game and web. Extra flower studies and bee/bird models remain web-only; they are not
+parallel game implementations or automatically published assets.
 `butterfly.glb` is read directly by Three.js `GLTFLoader` and embedded/read by
 `src/model_assets.rs`. Do not export a separate game mesh or a separate table of animation angles.
 The old `assets/butterfly/wing-mesh.json` pipeline has been removed.
@@ -32,12 +32,12 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 ## Publish the flower bank
 
-The six approved native flower recipes live in `flower-source.mjs` (Corn Poppy and Bellflower have been retired). The
-native publisher applies `flower-head.mjs`: one complete head in attachment-local coordinates.
-The web studio now previews a unified parametric head family and palette-weight stickers under
-`experiments/model-preview/models/`; existing flower names are migrated web presets, not identical native vertices.
-These candidates do not change this published bank. See [the studio report](../../docs/evidence/parametric-flower-studio.md)
-for the explicit art/texture-format approval boundary before any future native publication.
+The six published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).
+Both the native publisher and web studio call the one `parametric-flower.mjs` generator; the old
+radial/tulip/whole-plant geometry recipes have been removed. `flower-head.mjs` preserves the complete
+attachment-local head, not one tile per petal. All preset geometry, UVs and palette-weight decoding
+are shared; runtime placement/lighting/sampling remain consumer-owned.
+See [native unification evidence](../../docs/evidence/unified-native-flowers.md).
 The flower web studio displays complete heads and their postprocessing; it does not generate or assemble stems.
 Game assembly lives in `src/flora/models.rs` and `src/flora/models/column.rs`. Neither consumer
 renders stem leaves; published meshes contain only petals, centers and calyces.
@@ -46,10 +46,14 @@ Each catalog entry owns its stable `id`, English `displayName` and integer `stem
 publisher fingerprint. Numbers publish at nine decimal places to remove cross-platform
 last-bit math noise; Node tests compare deterministic head output and Rust tests verify
 native assembly, complete layers, wind bounds and independent height/head-size controls. The complete head retains its authored
-geometry (including calyx), never one tile per petal. White geranium and Gillenia remain
-browser-only candidates and are not added to the native species bank.
+geometry (including calyx), never one tile per petal. White geranium, Gillenia, the four-/five-petal
+studies and custom flower remain browser-only presets, not added to the native species bank.
+`palette-mask.mjs` resolves four-slot weights in Linear-sRGB to the exact sRGB8 atlas used by the web.
+The published bank includes that generated atlas and vertex UVs; native caches store interpolated
+UNORM12 UVs in the existing surface record and filter decoded linear texels at runtime. Do not
+hand-edit the atlas/mesh JSON; change the shared preset/generator and republish.
 
-To add a flower, give its recipe an `id`, `displayName` and `stemLayers`, publish the bank, and update `FLORA_SPECIES_COUNT` in `shader/slang/flora_types.slang`. To retire one, delete its recipe, add its stable key to `RETIRED` in `src/builder/surface/snapshot.rs`, publish, and update that same shader count. `build.rs` derives the Rust registry and count; Grow choices, stem assembly and cache shape counts follow automatically. This is a small catalog operation for a new species using the existing radial/tulip head geometry; inventing a genuinely new head topology still needs a geometry authoring function and visual review. Validate historical save schemas and shader-generated layouts with `cargo check`, tests and a hidden Release run. Older research/evidence captures may still mention retired flowers; they are not live assets.
+To add a flower, give its recipe an `id`, `displayName` and `stemLayers`, publish the bank, and update `FLORA_SPECIES_COUNT` in `shader/slang/flora_types.slang`. To retire one, delete its recipe, add its stable key to `RETIRED` in `src/builder/surface/snapshot.rs`, publish, and update that same shader count. `build.rs` derives the Rust registry and count; Grow choices, stem assembly and cache shape counts follow automatically. A flower within the current single-whorl radial family is a preset operation; unsupported layered/fused/bilateral structures are explicitly accepted limitations, not a reason to add species-specific geometry. A future topology extension needs separate design and visual review. Validate historical save schemas and shader-generated layouts with `cargo check`, tests and a hidden Release run. Older research/evidence captures may still mention retired flowers; they are not live assets.
 
 All six are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**. For visual debugging, **Debug Panel → Terrain & Plants → Plant all flowers & grasses around me** places the six model flowers, Tall Grass and Short Grass in separate positions around the walking player's feet (or the edit-camera focus). It excludes the session-only climbing vine. The one-shot action changes terrain flora and persists only when the terrain snapshot is saved.
 The list scrolls on short windows; the status-only backpack is hidden while Grow is active
@@ -58,7 +62,12 @@ keys and identities are preserved when loading older gardens; model flowers occu
 (the saved `model_flower_height_scale` ID/value is preserved). **Stem Height Multiplier
 Variance** defaults to `0.01` and **Stem Voxel Edge Scale** defaults to `1`.
 
-Forget-me-not and Cosmos use the same eight-petal head template and 42-layer column geometry, but retain separate palettes and plant identities. `cacheFamily` and `cacheTemplate` in the source specify this reusable topology; published `cache_family` and per-species palettes allow one geometry bake per family while runtime tile shading resolves the species' colors. Sharing is checked byte-for-byte across all shapes, not inferred from color or name. Future flowers may join a family only if their transformed native geometry is identical. The native pixel caches use separate view sliders: dynamic leaves/apples/butterflies default to 32; static flowers default to 256.
+Forget-me-not now uses its own five-petal preset; Cosmos retains eight petals. Sharing a **generator**
+does not mean these different shapes can share a geometry bake. Each of the six current presets owns
+a distinct cache family (12 whole/head sources rather than the previous 10). The cache can still share
+truly identical future geometry, checked byte-for-byte including UVs, independently of palette.
+The native pixel caches use separate view sliders: dynamic leaves/apples/butterflies default to 32;
+static flowers default to 256. The 32-byte surface ABI is unchanged; cache format version is now 7.
 
 Each species owns a base **integer layer count**, not a target height. A position/species
 seed supplies a fixed standard-normal sample `z` per plant (independent of time, draw slot
@@ -108,7 +117,11 @@ See [stem sampling evidence](../../docs/evidence/stem-sampling-experiment.md).
 `ModelPixelFrame` owns compute/draw pairing and frame-slot storage, and `PipelineTopology`
 owns descriptor retirement. Native voxel stems and depth-bearing heads share the game depth
 attachment and environment lighting. These flowers add no dedicated collision or shadow-caster
-pass. Browser shape/color edits remain temporary until intentionally published.
+pass. Browser shape/color/weight-map edits remain temporary until intentionally copied to the shared preset and published.
+The shared model deliberately supports a single radial whorl with identical petals and a simple
+center. Tulips are cup approximations; layered roses, fused bell corollas and orchid-specific organ
+roles are not supported. Limits are documented in the generator comments; do not resurrect old
+species branches to disguise them.
 
 See [the study and native screenshots](../../docs/research/stylized-flower-model-study.md)
 and `node scripts/validate-flower-models.mjs --help` for the bounded real-game checks.

@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import {flowerCatalog,flowerGeometry} from './flower-catalog.mjs';
-import {normalizeFlowerShape} from './parametric-flower.mjs';
-import {maskValue,resolvePalette} from './palette-mask.mjs';
+import {normalizeFlowerShape} from '../../../assets/models/parametric-flower.mjs';
+import {maskValue,resolvePalette} from '../../../assets/models/palette-mask.mjs';
 import {disposeScene} from './resources.js';
 
 const paletteKeys=['paletteA','paletteB','paletteC','paletteD'];
 export const flowerDefinitions=flowerCatalog.map(spec=>({
   id:spec.id,label:spec.label,defaults:{...spec.defaults},
   controls:[
-    {type:'note',label:'共用可调花头：所有花型都是同一机制的预设。正向聚拢、0 平展、负向下垂。仅网页候选，不改游戏资产；参数不自动保存。'},
+    {type:'note',label:'共用可调花头：所有花型都是同一机制的预设。正向聚拢、0 平展、负向下垂。六种正式花与游戏共用配方；网页编辑不自动发布或保存。'},
     {key:'petalCount',label:'花瓣数量',min:3,max:24,step:1},
     {key:'flowerSize',label:'花头大小',min:.65,max:1.3,step:.01},
     {key:'petalLength',label:'花瓣长度',min:.6,max:1.4,step:.01},

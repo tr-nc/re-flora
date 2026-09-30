@@ -25,7 +25,7 @@ pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
 pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
 const KINDS: usize = 4; // leaves, shared attached/fallen apple, butterflies, flowers
 const SURFACE_BYTES: u64 = 32;
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 7; // Flower normalMaterial.w now carries packed atlas UVs.
 static SHAPES: LazyLock<[u32; KINDS]> = LazyLock::new(|| {
     [
         64,
@@ -233,12 +233,10 @@ pub(super) fn source(shape: Shape) -> Source {
             }));
         }
         for (index, t) in flower.triangles.iter().enumerate() {
-            let mut gpu = triangle(t.positions, [t.normal; 3], [Vec2::ZERO; 3], 0);
+            let mut gpu = triangle(t.positions, [t.normal; 3], t.uvs, 0);
             gpu.normals[0][3] = t.anchor.y;
-            // Geometry carries a material role; color is resolved per species
-            // after sampling so identical structures can share the same tiles.
-            gpu.uv01 = [0.; 4];
-            gpu.uv2[3] = t.material as f32;
+            // Cache stores atlas UVs, never species color. The shared palette
+            // decoder publishes the same sRGB8 atlas used by the web.
             if shared {
                 assert_eq!(
                     bytemuck::bytes_of(&gpu),
@@ -267,6 +265,27 @@ pub(super) fn source(shape: Shape) -> Source {
             ]);
             frames.push(part.center.extend(part.radius).to_array());
         }
+    }
+    // Keep the four palette entries/species at their stable prefix. Their w
+    // components describe a resolved atlas in the same buffer, avoiding a new
+    // descriptor or any change to the 32-byte baked-surface storage ABI.
+    for (model, flower) in models::flowers().iter().enumerate() {
+        let texture = &flower.color_texture;
+        let base = model * models::HEAD_PALETTE_SIZE;
+        palette[base][3] = palette.len() as f32;
+        palette[base + 1][3] = texture.width as f32;
+        palette[base + 2][3] = texture.height as f32;
+        palette.extend(texture.rgb.chunks_exact(3).map(|rgb| {
+            let linear = |v: u8| {
+                let v = f32::from(v) / 255.;
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            [linear(rgb[0]), linear(rgb[1]), linear(rgb[2]), 0.]
+        }));
     }
     Source {
         triangles,
@@ -749,6 +768,10 @@ mod tests {
         assert_eq!(
             s.palette.len(),
             models::MODEL_COUNT * models::HEAD_PALETTE_SIZE
+                + models::flowers()
+                    .iter()
+                    .map(|f| f.color_texture.width * f.color_texture.height)
+                    .sum::<usize>()
         );
         for (model, flower) in models::flowers().iter().enumerate() {
             for (role, rgb) in flower.palette.iter().enumerate() {
@@ -758,7 +781,25 @@ mod tests {
                 );
             }
         }
-        assert_eq!(flower_source(1, 0), flower_source(3, 0));
+        for (model, flower) in models::flowers().iter().enumerate() {
+            let base = model * models::HEAD_PALETTE_SIZE;
+            let offset = s.palette[base][3] as usize;
+            assert_eq!(s.palette[base + 1][3], flower.color_texture.width as f32);
+            assert_eq!(s.palette[base + 2][3], flower.color_texture.height as f32);
+            assert!(offset >= models::MODEL_COUNT * models::HEAD_PALETTE_SIZE);
+            for (texel, rgb) in flower.color_texture.rgb.chunks_exact(3).enumerate() {
+                for channel in 0..3 {
+                    let v = f32::from(rgb[channel]) / 255.;
+                    let expected = if v <= 0.04045 {
+                        v / 12.92
+                    } else {
+                        ((v + 0.055) / 1.055).powf(2.4)
+                    };
+                    assert!((s.palette[offset + texel][channel] - expected).abs() < 1e-7);
+                }
+            }
+        }
+        assert_ne!(flower_source(1, 0), flower_source(3, 0));
         assert_ne!(
             s.palette[models::HEAD_PALETTE_SIZE],
             s.palette[3 * models::HEAD_PALETTE_SIZE]

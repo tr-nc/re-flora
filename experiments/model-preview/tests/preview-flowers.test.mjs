@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {flowerCatalog as nativeCatalog,flowerGeometry as nativeGeometry} from '../../../assets/models/flower-source.mjs';
 import {flowerCatalog,flowerGeometry,previewOnlyFlowers} from '../models/flower-catalog.mjs';
-import {parametricFlower,normalizeFlowerShape,flowerUV} from '../models/parametric-flower.mjs';
+import {parametricFlower,normalizeFlowerShape,flowerUV} from '../../../assets/models/parametric-flower.mjs';
 
 function valid(model){
   assert.deepEqual(model.heads,[{id:0,anchor:[0,0,0],label:'完整花头'}]);
@@ -22,17 +22,19 @@ function valid(model){
   }
   assert.ok(count<3000);
 }
-test('all old web identities and new four/five/custom studies use one head generator; game recipes stay unchanged',()=>{
-  const nativeBefore=nativeCatalog.map(spec=>nativeGeometry(spec.id));
+test('all native and web presets use the same head generator and identical shared defaults',()=>{
   assert.equal(new Set(flowerCatalog.map(spec=>spec.id)).size,flowerCatalog.length);
   assert.deepEqual(previewOnlyFlowers.map(spec=>spec.id),['white-geranium','gillenia','four-petal','five-star','custom-flower']);
   for(const spec of flowerCatalog){
     assert.deepEqual(flowerGeometry(spec.id),parametricFlower(spec.defaults));valid(flowerGeometry(spec.id));
   }
-  assert.deepEqual(nativeCatalog.map(spec=>nativeGeometry(spec.id)),nativeBefore);
+  for(const spec of nativeCatalog){
+    assert.deepEqual(flowerGeometry(spec.id),nativeGeometry(spec.id));
+    assert.deepEqual(flowerCatalog.find(s=>s.id===spec.id).defaults,spec.defaults);
+  }
   assert.equal(flowerCatalog.find(s=>s.id==='four-petal').defaults.petalCount,4);
   assert.equal(flowerCatalog.find(s=>s.id==='five-star').defaults.petalCount,5);
-  assert.equal(flowerCatalog.find(s=>s.id==='forget-me-not').defaults.petalCount,5,'web no longer inherits cosmos eight-petal cache template');
+  assert.equal(flowerCatalog.find(s=>s.id==='forget-me-not').defaults.petalCount,5,'neither consumer inherits cosmos eight-petal cache template');
 });
 test('shape extremes remain finite and nondegenerate; changing palette never changes geometry',()=>{
   const original=parametricFlower();

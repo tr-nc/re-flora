@@ -50,7 +50,11 @@ export function parametricFlower(input={}){
       for(let j=0;j<=across;j++){
         const w=j/across*2-1,et=t-p.notch*Math.pow(t,8)*(1-Math.abs(w));
         const [radius,z]=path(et);
-        const width=p.petalWidth*Math.pow(Math.max(0,Math.sin(Math.PI*t*(1-p.notch*.35))),.45+p.tipSharpness*1.6);
+        // An unnotched tip is exactly closed. sin(PI)'s residual raised to
+        // a fractional power made tiny sliver triangles that collapsed after
+        // native f32 attachment translation; do not author those fake widths.
+        const taper=t===1&&p.notch===0?0:Math.max(0,Math.sin(Math.PI*t*(1-p.notch*.35)));
+        const width=p.petalWidth*Math.pow(taper,.45+p.tipSharpness*1.6);
         const lateral=w*width;
         row.push(petals.vertex([radius*Math.cos(angle)-lateral*Math.sin(angle),radius*Math.sin(angle)+lateral*Math.cos(angle),z+.06*Math.abs(w)*Math.sin(Math.PI*t)],[(w+1)/2,t]));
       }rows.push(row);

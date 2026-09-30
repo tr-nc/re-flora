@@ -1,4 +1,4 @@
-import {maskPresets,maskValue,resolvePalette,paintMask,validateMask,defaultPalette} from './models/palette-mask.mjs';
+import {maskPresets,maskValue,resolvePalette,paintMask,validateMask,defaultPalette} from '../../assets/models/palette-mask.mjs';
 
 class PaletteMaskEditor extends HTMLElement{
   constructor(){

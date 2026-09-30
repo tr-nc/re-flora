@@ -1,51 +1,53 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {flowerCatalog,flowerGeometry} from '../../../assets/models/flower-source.mjs';
+import {maskValue,resolvePalette} from '../../../assets/models/palette-mask.mjs';
 import {readFile} from 'node:fs/promises';
 import {publishedFlowers} from '../../../scripts/publish-flower-models.mjs';
 
-test('native flower publication regenerates byte-for-byte from the browser recipe',async()=>{
-  assert.equal(await readFile(new URL('../../../assets/models/flowers.json',import.meta.url),'utf8'),await publishedFlowers());
+test('native flower publication regenerates byte-for-byte from shared geometry and palette texture',async()=>{
+  const json=await publishedFlowers();
+  assert.equal(await readFile(new URL('../../../assets/models/flowers.json',import.meta.url),'utf8'),json);
+  const {flowers}=JSON.parse(json);
+  assert.deepEqual(flowers.map(f=>[f.id,f.stem_layers]),[['wild-geranium',41],['forget-me-not',42],['oxeye-daisy',42],['cosmos',42],['coneflower',43],['tulip',37]]);
+  for(const [i,f]of flowers.entries()){
+    const spec=flowerCatalog[i],recipe=flowerGeometry(spec.id);
+    for(const [j,part]of f.parts.entries()){
+      assert.deepEqual(part.indices,recipe.parts[j].indices);
+      assert.deepEqual(part.positions,recipe.parts[j].positions.map(v=>Number(v.toFixed(9))||0));
+      assert.deepEqual(part.uvs,recipe.parts[j].uvs.map(v=>Number(v.toFixed(9))||0));
+    }
+    const mask=maskValue(spec.defaults.weightMap),rgba=resolvePalette(mask,['A','B','C','D'].map(k=>spec.defaults['palette'+k]));
+    assert.equal(f.color_texture.width,mask.width);assert.equal(f.color_texture.height,mask.height);
+    assert.deepEqual(f.color_texture.rgb,Array.from(rgba).filter((_,i)=>i%4!==3));
+  }
 });
-
-test('catalog flowers have distinct finite, low-poly geometry and complete head groups',()=>{
-  assert.ok(flowerCatalog.length>0);
+test('published species are distinct presets with one complete head and no legacy plant branches',()=>{
   const shapes=new Set();
   for(const spec of flowerCatalog){
-    const recipe=flowerGeometry(spec.id);
-    assert.deepEqual(flowerGeometry(spec.id),recipe,'deterministic authoring');
-    shapes.add(JSON.stringify(recipe.parts.map(part=>part.positions)));
-    let triangles=0;
+    const recipe=flowerGeometry(spec.id);assert.deepEqual(flowerGeometry(spec.id),recipe);
+    shapes.add(JSON.stringify(recipe.parts.map(p=>p.positions)));
+    let count=0;
     for(const part of recipe.parts){
-      assert.ok(part.positions.every(Number.isFinite));
+      assert.equal(part.material,'palette');assert.equal(part.head,0);
+      assert.ok(part.positions.every(Number.isFinite));assert.equal(part.uvs.length,part.positions.length/3*2);
       assert.ok(part.indices.every(i=>Number.isInteger(i)&&i>=0&&i<part.positions.length/3));
-      assert.equal(part.indices.length%3,0);
-      assert.match(spec.defaults[part.material],/^#[a-f0-9]{6}$/i);
-      triangles+=part.indices.length/3;
+      count+=part.indices.length/3;
     }
-    assert.ok(triangles>100&&triangles<1600,`${spec.id}: ${triangles} triangles`);
-    assert.equal(recipe.heads.length,spec.heads.length);
-    for(const head of recipe.heads){
-      const parts=recipe.parts.filter(part=>part.head===head.id);
-      assert.deepEqual(parts.map(part=>part.material),['petalColor','innerColor','centerColor','stemColor']);
-      assert.ok(parts.every(part=>part.indices.length>0));
-      assert.ok(head.anchor.every(Number.isFinite));
-    }
-    assert.equal(recipe.parts.filter(part=>part.head===null).length,2,'stems and leaves stay outside flower tiles');
+    assert.ok(count>100&&count<3000);assert.equal(recipe.heads.length,1);
+    assert.deepEqual(recipe.parts.map(p=>p.name),['Flower petals','Flower center','Flower calyx']);
+    assert.equal(spec.kind,undefined);assert.equal(spec.cacheTemplate,undefined);
+    assert.equal(spec.heads,undefined,'old whole-plant flower recipes removed');
   }
-  assert.equal(shapes.size,flowerCatalog.length,'source recipes remain individually authored');
+  assert.equal(shapes.size,flowerCatalog.length);
 });
-
-test('all shape sliders change geometry without invalid vertices, color-only edits do not',()=>{
+test('shared geometry responds only to shape settings, never palette or weight-map edits',()=>{
   for(const spec of flowerCatalog){
     const original=flowerGeometry(spec.id);
-    for(const [key,values]of Object.entries({height:[.75,1.15],flowerSize:[.65,1.3],opening:[.6,1.35],tilt:[-15,85],leafSize:[.6,1.35],bend:[-.25,.25]})){
-      for(const value of values){
-        const altered=flowerGeometry(spec.id,{[key]:value});
-        assert.notDeepEqual(altered.parts,original.parts,`${spec.id} ${key} has an effect`);
-        assert.ok(altered.parts.every(part=>part.positions.every(Number.isFinite)));
-      }
+    for(const [key,value]of Object.entries({petalCount:3,flowerSize:.65,opening:-1,tilt:-15,petalLength:1.4,petalWidth:.08})){
+      const changed=flowerGeometry(spec.id,{[key]:value});assert.notDeepEqual(changed,original);
+      assert.ok(changed.parts.every(part=>part.positions.every(Number.isFinite)));
     }
-    assert.deepEqual(flowerGeometry(spec.id,{petalColor:'#ffffff'}),original);
+    assert.deepEqual(flowerGeometry(spec.id,{paletteA:'#ffffff',weightMap:'blue-white'}),original);
   }
 });

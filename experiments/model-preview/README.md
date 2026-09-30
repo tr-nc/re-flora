@@ -24,7 +24,7 @@ node scripts/serve-model-preview.mjs
 
 ## 统一花朵工作台
 
-所有网页花型现在都是 `parametric-flower.mjs` 的数据预设，不再分别写 radial / tulip / Gillenia 造型分支。完整花头包含花瓣、花心、花萼，没有茎叶。
+所有网页花型和六种游戏花现在都是 `assets/models/parametric-flower.mjs` 的数据预设，不再分别写 radial / tulip / Gillenia 造型分支。完整花头包含花瓣、花心、花萼，没有茎叶。
 
 - 3–24 瓣；花头大小、瓣长、瓣宽。
 - 瓣尖从圆到尖，以及瓣尖缺口。
@@ -49,9 +49,9 @@ node scripts/serve-model-preview.mjs
 
 ### 与游戏的关系
 
-这轮统一花型和贴纸是**网页候选**。六种已发布游戏花的 `assets/models/flower-source.mjs` / `flowers.json` 未改，也未把新贴图编码偷偷塞进只支持四种固定材质角色的 native cache。原网页预设保留名字／颜色风格，但不是旧几何的逐顶点复刻；勿忘草网页恢复五瓣，而游戏仍保留之前批准的共用八瓣缓存形状。
+**六种游戏花现已迁移到同一来源**：`assets/models/flower-source.mjs` 保存正式预设，网页直接引用，不再另存一份相同形态。生成器和 palette 权重工具也已移入 `assets/models/`。`flowers.json` 发布同样的几何、UV 和生成颜色贴图；游戏保留自己的茎、种植、风、光照与像素缓存。勿忘草两端都用五瓣，不再借波斯菊八瓣形状。网页控件仍是会话内编辑，不自动覆盖游戏资产。新增四瓣／五瓣示例和白花／Gillenia 等仍仅网页，不扩游戏物种数。
 
-郁金香是单轮聚拢花瓣的杯形近似，不等价于真实双轮交错花被／闭合花苞；重瓣、融合钟形花冠、兰科唇瓣等不硬塞进本轮径向单轮模型。以后可以在统一头模型接口下增加别的拓扑族，不必为颜色再开分支。迁移表、权重取舍与限制见 [花朵工作台报告](../../docs/evidence/parametric-flower-studio.md) 和 [权重贴图调研](../../docs/research/palette-weight-flower-textures.md)。
+郁金香是单轮聚拢花瓣的杯形近似，不等价于真实双轮交错花被／闭合花苞；重瓣、融合钟形花冠、兰科唇瓣等不硬塞进本轮径向单轮模型。以后可以在统一头模型接口下增加别的拓扑族，不必为颜色再开分支。当前游戏迁移与验证见 [共用花型报告](../../docs/evidence/unified-native-flowers.md)；此前网页阶段的迁移表见 [花朵工作台报告](../../docs/evidence/parametric-flower-studio.md)，权重取舍见 [贴图调研](../../docs/research/palette-weight-flower-textures.md)。
 
 落叶／蝴蝶仍读取正式 GLB，苹果仍读取共用 `apple-source.mjs`；修改正式配方需遵守 [资产发布规则](../../assets/models/README.md)。网页灯光和尺寸不是游戏最终效果，也不是 Release 性能证据。
 
@@ -73,9 +73,10 @@ node scripts/serve-model-preview.mjs
 | --- | --- |
 | `viewer.js` / HTML / CSS | 唯一模型切换、声明式控件、相机、时钟、导出入口 |
 | `weight-map-editor.js` | 通用权重贴纸控件，绘制／撤销／有界 PNG I/O，不参与渲染 |
-| `models/flower-catalog.mjs` | 统一花型预设数据；不发布游戏资产 |
-| `models/parametric-flower.mjs` | 无 DOM / Three.js 的确定性几何、UV、参数边界 |
-| `models/palette-mask.mjs` | 纯函数权重模板、绘制、验证、线性 palette 混色 |
+| `models/flower-catalog.mjs` | 直接引用游戏预设，补充仅网页的研究预设 |
+| `assets/models/flower-source.mjs` | 六种正式花的共用形态／palette／贴纸预设 |
+| `assets/models/parametric-flower.mjs` | 无 DOM / Three.js 的确定性几何、UV、参数边界 |
+| `assets/models/palette-mask.mjs` | 两端共用的权重模板、绘制、验证、线性 palette 混色 |
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
 | `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |

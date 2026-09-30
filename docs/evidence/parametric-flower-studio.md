@@ -1,5 +1,8 @@
 # 统一花朵工作台交付
 
+> 此文记录最初仅网页阶段。用户随后批准迁移游戏；当前共用来源、发布协议和验证见
+> [游戏统一花型报告](unified-native-flowers.md)。下文“游戏资产未改”等是当时的范围，不是当前状态。
+
 ## 范围
 
 在原 `experiments/model-preview/` 后处理 demo 中实现，不新建网页、不改游戏模型资产。用户要求的四瓣／五瓣示例、可调形态、中心形状、贴纸式 palette 着色均可在同一页面调整。入口：`?model=custom-flower`、`four-petal`、`five-star`。

@@ -7,6 +7,7 @@ import flora_shadow;
 import model_pixel_object;
 import model_pixel_cache;
 import model_cache_types;
+import flower_palette;
 [[vk::binding(3,1)]] RWStructuredBuffer<float4> model_pixel_tiles;
 [numthreads(8,8,1)]
 [shader("compute")]
@@ -30,9 +31,9 @@ void main(uint3 id:SV_DispatchThreadID) {
         float3 position=modelPixelWorld(frame,surface.positionDepth.xyz);
         float3 normal=flowerNormal(frame,surface.normalMaterial.xyz);
         if(dot(normal,position-camera_info.pos.xyz)>0.0)normal=-normal;
-        float3 srgb=model_cache_palette[(flower_pc.species-MODEL_FLOWER_FIRST_SPECIES)*4u+uint(surface.normalMaterial.w)].xyz;
+        float3 linear=flowerPaletteColor(flower_pc.species-MODEL_FLOWER_FIRST_SPECIES,surface.normalMaterial.w);
         float4 light=model_object_samples[tile*4u];
-        float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,srgbToLinear(srgb),
+        float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,linear,
             light.w*directionWeight(normal,sun_info.sun_dir),light.rgb);
         model_pixel_tiles[outputIndex]=float4(color,surface.positionDepth.w);
         return;

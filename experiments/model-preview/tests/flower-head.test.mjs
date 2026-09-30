@@ -33,12 +33,12 @@ test('native publication contains one head per catalog flower, without assembly,
     assert.ok(flower.parts.every(part=>part.head===0&&part.material!=='leafColor'));
   }
 });
-test('shared family publishes identical geometry but distinct species palettes',async()=>{
+test('shared generator preserves species-specific presets rather than forcing unrelated cache geometry',async()=>{
   const {flowers}=JSON.parse(await publishedFlowers());
   const forget=flowers.find(f=>f.id==='forget-me-not'),cosmos=flowers.find(f=>f.id==='cosmos');
-  assert.equal(forget.cache_family,cosmos.cache_family);
+  assert.notEqual(forget.cache_family,cosmos.cache_family);
   assert.notDeepEqual(forget.palette,cosmos.palette);
-  assert.deepEqual(forget.parts.map(({color,...part})=>part),cosmos.parts.map(({color,...part})=>part));
+  assert.notDeepEqual(forget.parts,cosmos.parts);
   assert.equal(flowers.some(f=>['corn-poppy','bellflower'].includes(f.id)),false);
 });
 test('missing flower heads are rejected',()=>assert.throws(()=>completeFlowerHead({parts:[],heads:[]})));

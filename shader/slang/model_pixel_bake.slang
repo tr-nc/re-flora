@@ -25,9 +25,9 @@ public ModelBakedSurface bakeModelSurface<T : IModelPixelProjectionObserver>(uin
     result.normalMaterial.xyz=kind==2u?normalize(cross(tri.e1.xyz,tri.e2.xyz)):
         kind==3u?tri.normal0.xyz:normalize(tri.normal0.xyz*bary.x+tri.normal1.xyz*bary.y+tri.normal2.xyz*bary.z);
     float2 uv=tri.uv01.xy*bary.x+tri.uv01.zw*bary.y+tri.uv2.xy*bary.z;
-    // Flower surfaces store material roles, not species colors. Runtime shading
-    // resolves the current species' palette so a family can share one bake.
-    result.normalMaterial.w=kind==3u?tri.uv2.w:kind==1u?tri.uv2.z:kind==0u&&uv.x>1.5?1.0:0.0;
+    // Flowers store interpolated shared-atlas UVs, not fixed anatomical roles
+    // or species colors. Other consumers retain their existing material ABI.
+    result.normalMaterial.w=kind==3u?encodeFlowerUV(uv):kind==1u?tri.uv2.z:kind==0u&&uv.x>1.5?1.0:0.0;
     return result;
 }
 

@@ -6,14 +6,20 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {flowerCatalog,flowerGeometry} from '../assets/models/flower-source.mjs';
 import {completeFlowerHead} from '../assets/models/flower-head.mjs';
+import {maskValue,resolvePalette} from '../assets/models/palette-mask.mjs';
 
 export async function publishedFlowers(){
-  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
+  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/palette-mask.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
   const flowers=flowerCatalog.map(spec=>{
-    const recipe=completeFlowerHead(flowerGeometry(spec.cacheTemplate??spec.id));
-    const palette=['petalColor','innerColor','centerColor','stemColor'].map(key=>[1,3,5].map(i=>parseInt(spec.defaults[key].slice(i,i+2),16)));
-    return {id:spec.id,display_name:spec.displayName,stem_layers:spec.stemLayers,cache_family:spec.cacheFamily??spec.id,palette,heads:recipe.heads,
-      parts:recipe.parts.map(part=>({...part,color:[1,3,5].map(i=>parseInt(spec.defaults[part.material].slice(i,i+2),16))}))};
+    const recipe=completeFlowerHead(flowerGeometry(spec.id));
+    const colors=['paletteA','paletteB','paletteC','paletteD'].map(key=>spec.defaults[key]);
+    const palette=colors.map(color=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)));
+    const mask=maskValue(spec.defaults.weightMap),rgba=resolvePalette(mask,colors);
+    // Exact same resolved sRGB8 texture as the web DataTexture. Native uploads
+    // linear texels and bilinearly filters them after sampling cached head UVs.
+    const rgb=[];for(let i=0;i<rgba.length;i+=4)rgb.push(...rgba.slice(i,i+3));
+    return {id:spec.id,display_name:spec.displayName,stem_layers:spec.stemLayers,cache_family:spec.cacheFamily,palette,
+      color_texture:{width:mask.width,height:mask.height,rgb},heads:recipe.heads,parts:recipe.parts};
   });
   // Canonical authoring precision avoids cross-platform libm last-bit noise
   // while retaining much more precision than the runtime f32 representation.

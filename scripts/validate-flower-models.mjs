@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
+import {flowerCatalog} from '../assets/models/flower-source.mjs';
 
 const help = `Usage: node scripts/validate-flower-models.mjs [--seconds <positive-number>]
 
@@ -52,7 +53,7 @@ try {
     const knownPlatformWarnings = diagnostics.filter(line => line.includes('sctk_adwaita::config') && line.includes('XDG Settings Portal'));
     assert.deepEqual(diagnostics.filter(line => !knownPlatformWarnings.includes(line)),[],`render errors: ${logPath}`);
     assert.ok(log.includes('[SHUTDOWN] phase=complete failures=0'),logPath);
-    assert.equal((log.match(/\[FLOWER_REVIEW_PLANT\]/g)||[]).length,8,logPath);
+    assert.equal((log.match(/\[FLOWER_REVIEW_PLANT\]/g)||[]).length,flowerCatalog.length,logPath);
     assert.ok(log.includes('held_pose=passed lifetime_remap=passed'),logPath);
     const run = {mode,log:path.relative(root,logPath),knownPlatformWarnings};
     if (mode === 'ab') {
@@ -62,7 +63,7 @@ try {
       run.phases = phases.map((m,index)=> {
         const segment = log.slice(m.index,phases[index+1]?.index);
         const species = [...new Set([...segment.matchAll(/\[FLOWER_DRAW\] species=([\w-]+)/g)].map(m=>m[1]))];
-        assert.equal(species.length,index === 7 ? 7 : 8,`phase ${index} actual draw coverage`);
+        assert.equal(species.length,flowerCatalog.length - (index === 7 ? 1 : 0),`phase ${index} actual draw coverage`);
         return {phase:index,species};
       });
       assert.match(log,/single_light=true views=32.*shared_surfaces=true/);
@@ -87,7 +88,7 @@ try {
   }
   summary.result = 'passed';
   fs.writeFileSync(path.join(directory,'summary.json'),JSON.stringify(summary,null,2)+'\n');
-  console.log(`PASS: 8 single-column species, 9 phases, lifetime/resize, clean Vulkan logs.\n${directory}/summary.json\nVisual approval and large-population performance acceptance remain separate.`);
+  console.log(`PASS: ${flowerCatalog.length} single-column species, 9 phases, lifetime/resize, clean Vulkan logs.\n${directory}/summary.json\nVisual approval and large-population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${directory}/; native log: cargo run --release -- --latest-log`);
   process.exitCode = 1;
