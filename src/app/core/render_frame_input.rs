@@ -96,6 +96,8 @@ pub(super) fn freeze_render_frame_inputs(
                 enabled: gui.flower_stem_experiment.value,
                 sampling: gui.flower_stem_sampling.value,
                 direction_resolution: gui.flower_stem_direction_resolution.value,
+                object_sampling: gui.flower_stem_object_sampling.value,
+                object_resolution: gui.flower_stem_object_resolution.value,
                 surface_cell_scale: gui.flower_stem_surface_cell_scale.value,
                 radius_scale: gui.flower_stem_radius_scale.value,
                 branches: gui.flower_stem_test_branches.value,
@@ -326,6 +328,8 @@ mod tests {
         gui.flower_stem_experiment.value = true;
         gui.flower_stem_sampling.value = 2;
         gui.flower_stem_direction_resolution.value = 768;
+        gui.flower_stem_object_sampling.value = true;
+        gui.flower_stem_object_resolution.value = 192;
         gui.flower_stem_surface_cell_scale.value = 1.5;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_test_branches.value = false;
@@ -519,6 +523,8 @@ mod tests {
                         enabled: true,
                         sampling: 2,
                         direction_resolution: 768,
+                        object_sampling: true,
+                        object_resolution: 192,
                         surface_cell_scale: 1.5,
                         radius_scale: 0.8,
                         branches: false,

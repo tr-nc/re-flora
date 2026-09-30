@@ -4626,10 +4626,14 @@ impl Tracer {
                     self.flower_spawn_overshoot_voxels,
                 );
                 let bounds = crate::geom::Aabb3::new(bounds.min() - below, bounds.max() + above);
-                let angular = Vec3::splat(self.flower_stem_experiment.angular_padding(
-                    self.camera.position().distance(bounds.center())
-                        + (bounds.max() - bounds.min()).length(),
-                ));
+                let angular = Vec3::splat(
+                    self.flower_stem_experiment.angular_padding(
+                        self.camera.position().distance(bounds.center())
+                            + (bounds.max() - bounds.min()).length(),
+                    ) + self
+                        .flower_stem_experiment
+                        .object_padding(below.max_element().max(above.max_element())),
+                );
                 let bounds =
                     crate::geom::Aabb3::new(bounds.min() - angular, bounds.max() + angular);
                 if !bounds.is_inside_frustum(self.current_view_proj_mat)

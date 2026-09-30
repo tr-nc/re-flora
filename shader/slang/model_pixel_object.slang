@@ -17,11 +17,6 @@ import model_pixel_cache;
 public ModelPixelView modelObjectView(uint index) {
     return modelPixelView(model_object_samples[index*4u+1u],model_object_samples[index*4u+2u],model_object_samples[index*4u+3u]);
 }
-float3 rotateBetween(float3 a,float3 b,float3 v) {
-    // Nearest of the distributed directions is never antipodal to the input.
-    float3 c=cross(a,b);
-    return v+cross(c,v)+cross(c,cross(c,v))/max(1.0+dot(a,b),1e-6);
-}
 public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientation,bool apple,uint source) {
     float4 light=float4(0.);
     {
@@ -45,10 +40,7 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
     float3 z=orientation.axisX*chosen.x+orientation.axisY*chosen.y+orientation.axisZ*chosen.z;
     // Same shortest-arc correction drives roll and view selection. Transport to
     // the camera's forward plane before extracting roll (no off-axis skew).
-    float3 right=rotateBetween(z,view,x);
-    float3 cameraBack=normalize(mul(camera_info.view_mat_inv,float4(0,0,1,0)).xyz);
-    right=rotateBetween(view,cameraBack,right);
-    float2 roll=normalize(mul(camera_info.view_mat,float4(right,0)).xy);
+    float2 roll=modelObjectRoll(x,z,pivot,camera_info);
     model_object_samples[index*4u+1u]=float4(x,roll.x);
     model_object_samples[index*4u+2u]=float4(y,roll.y);
     model_object_samples[index*4u+3u]=float4(z,float(viewIndex));

@@ -121,7 +121,7 @@ options = [
 [[section.param]]
 id = "flower_stem_direction_resolution"
 kind = "uint"
-label = "Flower stems: direction cells per cube face"
+label = "Flower stems A: direction cells per cube face"
 type = "Uint"
 
 [section.param.enabled_if]
@@ -188,6 +188,34 @@ equals = true
 
 [section.param.data]
 value = false
+
+[[section.param]]
+id = "flower_stem_object_sampling"
+kind = "bool"
+label = "World-direction stems: fixed object pixels (B; off = angular A)"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "flower_stem_object_resolution"
+kind = "uint"
+label = "Flower stems B: pixels per complete stem (fixed object grid)"
+type = "Uint"
+
+[section.param.enabled_if]
+param = "flower_stem_object_sampling"
+equals = true
+
+[section.param.data]
+value = 256
+min = 32
+max = 512
 
 [[section.param]]
 id = "ddgi_aggregate_history"

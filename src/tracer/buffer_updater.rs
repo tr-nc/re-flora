@@ -298,7 +298,11 @@ impl BufferUpdater {
                 stems.radius_scale,
                 stems.surface_cell_scale,
                 stems.freeze_motion as u32 as f32,
-                0.,
+                if stems.object_grid_active() {
+                    stems.object_resolution as f32
+                } else {
+                    0.
+                },
             ],
             grass_bottom_dark: appearance.grass_bottom_dark.to_array(),
             grass_bottom_light: appearance.grass_bottom_light.to_array(),

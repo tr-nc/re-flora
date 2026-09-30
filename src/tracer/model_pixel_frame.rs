@@ -426,6 +426,10 @@ impl ModelPixelFrame {
             let mut stem_resources = pose_resources.to_vec();
             if !experimental_stems {
                 stem_resources.push(cache.flower_triangles());
+            } else {
+                // B uses the head pipeline's canonical view directions/count,
+                // not a second view atlas or camera-dependent resolution.
+                stem_resources.extend(cache.bindings());
             }
             Some(PreparedModelPixels {
                 pipeline: stem_pipeline.clone(),

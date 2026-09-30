@@ -6,6 +6,20 @@ public struct ModelPixelView { public float3 x,y,z; public float2 roll; };
 public ModelPixelView modelPixelView(float4 x,float4 y,float4 z) {
     ModelPixelView view;view.x=x.xyz;view.y=y.xyz;view.z=z.xyz;view.roll=float2(x.w,y.w);return view;
 }
+public float3 modelRotateBetween(float3 a,float3 b,float3 v) {
+    float3 c=cross(a,b);
+    return v+cross(c,v)+cross(c,cross(c,v))/max(1.0+dot(a,b),1e-6);
+}
+// Shared head/stem object-image roll. Camera orientation affects display only,
+// not the fixed orthographic source grid or its resolution.
+public float2 modelObjectRoll(float3 x,float3 z,float3 pivot,U_CameraInfo camera) {
+    float3 delta=camera.pos.xyz-pivot;
+    float3 view=length(delta)>1e-8?normalize(delta):z;
+    float3 right=modelRotateBetween(z,view,x);
+    float3 cameraBack=normalize(mul(camera.view_mat_inv,float4(0,0,1,0)).xyz);
+    right=modelRotateBetween(view,cameraBack,right);
+    return normalize(mul(camera.view_mat,float4(right,0)).xy);
+}
 public float3 modelBakeVector(ModelPixelView view,float3 v) {
     return float3(dot(v,view.x),dot(v,view.y),dot(v,view.z));
 }

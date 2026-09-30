@@ -2,6 +2,8 @@
 
 基于 [`stem_pixel_rotation_stability.md`](../research/stem_pixel_rotation_stability.md) 的第一轮视觉候选。用户已确认接受像素倾斜／变形，并要求同时比较原地转头与绕行。**已实现运行时对照，不是最终美术、无闪烁或性能验收。** 未保留二维教学 HTML。
 
+后续固定物体网格 A/B 见 [`stem-object-sampling-ab.md`](stem-object-sampling-ab.md)。下述 World-direction 描述仍对应原角度采样 A；新复选框默认关闭，保留该比较基线。
+
 ## 使用
 
 普通游戏按 **R** 打开 Debug 面板 → **Pixel Sampling — Flower Stems**。需要测试植物时，可用同面板 **Terrain & Plants → Plant all flowers & grasses around me**。
