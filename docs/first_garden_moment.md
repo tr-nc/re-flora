@@ -1,8 +1,27 @@
 # First Garden Moment
 
-Status: current product milestone  
+Status: longer-term product milestone; current rooftop proof takes precedence
 Authority: subordinate to [Re: Flora Game Direction](./game_direction.md)  
-Last updated: 2026-08-10
+Last updated: 2026-09-30
+
+## Rooftop Proof Override — 2026-09-30
+
+The confirmed [Game Direction](game_direction.md#confirmed-rooftop-restaurant-direction--2026-09-30)
+and [Roadmap](../ROADMAP.md#current-authorized-step-rooftop-proof-of-concept--2026-09-30) now prioritize
+an independent, unsaved rooftop proof: fixed raster-model restaurant/roof, no initial soil, editable
+voxel soil, existing orbit/editing view and tools, and unlimited developer resources from entry.
+No old-save migration or preservation work is required; existing save files must not be deleted.
+
+This explicitly supersedes the near-ground main camera, Purple Allium → Lavender default and
+finite-resource/demo-delivery prerequisites below. The next eventual supply loop uses existing
+apples and optional, pressure-free restaurant invitations; it is not authorized as part of the
+current space/planting proof. Full purchases, additional crops, new tools, soil-bag animation, vent
+heat, mowers, restaurant upgrades, avatar animation and high-fidelity GI expansion remain deferred.
+
+The original video/demo framework below is retained as longer-term context, not as an instruction
+to implement or package all its gates now. Sustainable Return remains the eventual player promise;
+the current experimental scene must be honestly labeled unsaved. See the
+[Chinese discussion and confirmed decisions](discussions/rooftop-restaurant-gamify.html).
 
 ## Problem Statement
 
