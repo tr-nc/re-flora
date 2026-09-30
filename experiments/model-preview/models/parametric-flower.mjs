@@ -1,4 +1,13 @@
 // One head-only surface family. Presets are data, never per-species mesh code.
+// Deliberately scoped for demos, not a universal botanical model: one radial
+// whorl repeats the same petal shape/pose, with a simple disk/dome/cone center.
+// Tulips are open-cup approximations, not interleaved whorls or closed buds.
+// More petals still share one whorl; this does not model layered double flowers
+// or tightly wrapped rose centers. Separate petals cannot form a fused bell/
+// tube corolla, and identical radial repeats cannot express orchid lip/column
+// roles or bilateral structure. Wide/cupped petals may intersect; palette maps
+// change color only, not these structural limits. Accept these limits for the
+// current demos rather than adding more topology families or species branches.
 const TAU=Math.PI*2;
 export const flowerShapeDefaults={flowerSize:1,petalCount:5,petalLength:1,petalWidth:.42,tipSharpness:.15,notch:0,opening:.12,centerRadius:.19,centerHeight:.12,centerShape:'dome',tilt:35};
 export function normalizeFlowerShape(input={}){
