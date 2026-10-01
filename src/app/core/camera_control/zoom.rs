@@ -4,6 +4,14 @@ use glam::{Quat, Vec3};
 const LAND_SECONDS: f32 = 0.45;
 const LIFT_SECONDS: f32 = 0.7;
 const WALK_EXIT_ORBIT_DISTANCE: f32 = 0.6;
+const POSE_ARC_SEGMENTS: usize = 128;
+// Convert radians to scene distance when timing translation and rotation together.
+const ROTATION_DISTANCE_WEIGHT: f32 = WALK_EXIT_ORBIT_DISTANCE * 0.25;
+
+fn smootherstep(t: f32) -> f32 {
+    let t = t.clamp(0., 1.);
+    t * t * t * (t * (t * 6. - 15.) + 10.)
+}
 
 fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0., 1.);
@@ -30,17 +38,49 @@ pub(super) struct ZoomTransition {
     start: CameraPose,
     end: CameraPose,
     elapsed: f32,
+    pose_arc: [f32; POSE_ARC_SEGMENTS + 1],
     pub(super) walking: bool,
 }
 impl ZoomTransition {
     pub(super) fn new(start: CameraPose, end: CameraPose, walking: bool) -> Self {
-        Self {
+        let mut transition = Self {
             start,
             end,
             elapsed: 0.,
+            pose_arc: [0.; POSE_ARC_SEGMENTS + 1],
             walking,
+        };
+        let mut previous = transition.pose_at(0.);
+        for i in 1..=POSE_ARC_SEGMENTS {
+            let pose = transition.pose_at(i as f32 / POSE_ARC_SEGMENTS as f32);
+            transition.pose_arc[i] = transition.pose_arc[i - 1]
+                + previous.position.distance(pose.position)
+                + ROTATION_DISTANCE_WEIGHT * orientation(previous).angle_between(orientation(pose));
+            previous = pose;
         }
+        transition
     }
+
+    fn parameter_for_progress(&self, progress: f32) -> f32 {
+        let total = self.pose_arc[POSE_ARC_SEGMENTS];
+        if total <= f32::EPSILON {
+            return progress;
+        }
+        let distance = progress.clamp(0., 1.) * total;
+        let upper = self
+            .pose_arc
+            .partition_point(|arc| *arc < distance)
+            .clamp(1, POSE_ARC_SEGMENTS);
+        let lower = upper - 1;
+        let span = self.pose_arc[upper] - self.pose_arc[lower];
+        let fraction = if span > f32::EPSILON {
+            (distance - self.pose_arc[lower]) / span
+        } else {
+            0.
+        };
+        (lower as f32 + fraction) / POSE_ARC_SEGMENTS as f32
+    }
+
     fn lift_curve(&self, u: f32) -> (Vec3, Vec3) {
         let length = self.start.position.distance(self.end.position);
         let backward = orientation(self.start) * Vec3::Z;
@@ -77,15 +117,24 @@ impl ZoomTransition {
         if t >= 1. {
             return (self.end, true);
         }
-        let u = smoothstep(t);
+        // Ease the full pose's travelled distance, not just the raw path parameter.
+        // Otherwise the early alignment turn can be fast despite a slow position.
+        let u = self.parameter_for_progress(smootherstep(t));
+        (self.pose_at(u), false)
+    }
+
+    fn pose_at(&self, u: f32) -> CameraPose {
+        if u <= 0. {
+            return self.start;
+        }
+        if u >= 1. {
+            return self.end;
+        }
         if self.walking {
-            return (
-                oriented_pose(
-                    self.start.position.lerp(self.end.position, u),
-                    orientation(self.start).slerp(orientation(self.end), u),
-                    self.start.fov_deg,
-                ),
-                false,
+            return oriented_pose(
+                self.start.position.lerp(self.end.position, u),
+                orientation(self.start).slerp(orientation(self.end), u),
+                self.start.fov_deg,
             );
         }
         let (position, tangent) = self.lift_curve(u);
@@ -100,7 +149,7 @@ impl ZoomTransition {
         };
         let aligned = smoothstep(u / 0.25);
         let q = orientation(self.start).slerp(orientation(tangent_pose), aligned);
-        (oriented_pose(position, q, self.start.fov_deg), false)
+        oriented_pose(position, q, self.start.fov_deg)
     }
 }
 
@@ -159,7 +208,7 @@ mod tests {
                 let (p, _) = transition.advance(LIFT_SECONDS / 100.);
                 assert!(p.position.is_finite());
                 assert!(p.position.y >= last.y - 1e-6);
-                let u = smoothstep(i as f32 / 100.);
+                let u = transition.parameter_for_progress(smootherstep(i as f32 / 100.));
                 if u > 0.25 {
                     let (_, tangent) = transition.lift_curve(u);
                     assert!((orientation(p) * Vec3::Z).dot(tangent.normalize()) > 0.9999);
@@ -172,6 +221,43 @@ mod tests {
             assert_eq!(p, end);
         }
     }
+    #[test]
+    fn whole_pose_speed_eases_at_both_ends_and_peaks_near_the_middle() {
+        for pitch in [-89., 0., 80.] {
+            let start = pose(pitch);
+            let mut transition = ZoomTransition::new(start, edit_pose_from_walk(start), false);
+            let mut last = start;
+            let mut speeds = Vec::new();
+            for _ in 0..100 {
+                let p = transition.advance(LIFT_SECONDS / 100.).0;
+                speeds.push(
+                    last.position.distance(p.position)
+                        + 0.15 * orientation(last).angle_between(orientation(p)),
+                );
+                last = p;
+            }
+            let peak = speeds
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .unwrap()
+                .0;
+            eprintln!(
+                "pitch={pitch} peak_time={} start_step={} end_step={} peak_step={}",
+                peak as f32 / 100.,
+                speeds[0],
+                speeds[99],
+                speeds[peak]
+            );
+            assert!(
+                (35..=65).contains(&peak),
+                "whole-pose speed peak={peak} pitch={pitch}"
+            );
+            assert!(speeds[0] < speeds[peak] * 0.03);
+            assert!(speeds[99] < speeds[peak] * 0.03);
+        }
+    }
+
     #[test]
     fn transition_is_bounded_time_based_and_takes_short_yaw_path() {
         let start = CameraPose {
