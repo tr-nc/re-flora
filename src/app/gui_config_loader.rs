@@ -193,7 +193,10 @@ impl GuiConfigLoader {
             section.param.retain(|p| {
                 !matches!(
                     p.id.as_str(),
-                    "flower_stem_experiment" | "flower_stem_surface_cell_scale"
+                    "flower_stem_experiment"
+                        | "flower_stem_surface_cell_scale"
+                        | "flower_stem_surface_geometry"
+                        | "flower_stem_geometry_cell_scale"
                 )
             });
         }
@@ -203,7 +206,7 @@ impl GuiConfigLoader {
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .filter(|p| p.id.starts_with("flower_stem_"))
+            .filter(|p| p.id.starts_with("flower_stem_") || p.id == "model_flower_voxel_scale")
         {
             if !config
                 .section
@@ -211,7 +214,15 @@ impl GuiConfigLoader {
                 .flat_map(|s| &s.param)
                 .any(|p| p.id == schema.id)
             {
-                Self::add_missing_param(config, "Debug", &schema.id);
+                Self::add_missing_param(
+                    config,
+                    if schema.id == "model_flower_voxel_scale" {
+                        "Flora"
+                    } else {
+                        "Debug"
+                    },
+                    &schema.id,
+                );
             }
             for param in config
                 .section
@@ -926,10 +937,27 @@ mod tests {
                 let mut material = debug
                     .param
                     .iter()
-                    .find(|p| p.id == "flower_stem_geometry_cell_scale")
+                    .find(|p| p.id == "flower_stem_radius_scale")
                     .unwrap()
                     .clone();
                 material.id = "flower_stem_surface_cell_scale".into();
+                let mut geometry = material.clone();
+                geometry.id = "flower_stem_geometry_cell_scale".into();
+                geometry.value = Value::Float {
+                    value: 4.,
+                    min: Some(0.25),
+                    max: Some(4.),
+                };
+                debug.param.push(geometry);
+                let mut blocks = debug
+                    .param
+                    .iter()
+                    .find(|p| p.id == "flower_stem_test_branches")
+                    .unwrap()
+                    .clone();
+                blocks.id = "flower_stem_surface_geometry".into();
+                blocks.value = Value::Bool { value: true };
+                debug.param.push(blocks);
                 debug.param.push(material);
                 let selector = debug
                     .param
@@ -981,7 +1009,10 @@ mod tests {
                     .collect::<Vec<_>>();
                 assert!(!params.iter().any(|p| matches!(
                     p.id.as_str(),
-                    "flower_stem_experiment" | "flower_stem_surface_cell_scale"
+                    "flower_stem_experiment"
+                        | "flower_stem_surface_cell_scale"
+                        | "flower_stem_surface_geometry"
+                        | "flower_stem_geometry_cell_scale"
                 )));
                 let selector = params
                     .iter()

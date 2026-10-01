@@ -21,8 +21,6 @@ const GROUPS: &[ControlGroup] = &[
             "flower_stem_object_sampling",
             "flower_stem_direction_resolution",
             "flower_stem_object_resolution",
-            "flower_stem_surface_geometry",
-            "flower_stem_geometry_cell_scale",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
             "flower_stem_freeze_motion",
@@ -117,25 +115,22 @@ fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }
 
-fn stem_control_visible(id: &str, mode: u32, object_b: bool, geometry_b: bool) -> bool {
+fn stem_control_visible(id: &str, mode: u32, object_b: bool) -> bool {
     match id {
         "flower_stem_sampling" => true,
         "flower_stem_object_sampling" => mode == 1,
         "flower_stem_direction_resolution" => mode == 1 && !object_b,
         "flower_stem_object_resolution" => mode == 1 && object_b,
-        "flower_stem_surface_geometry" => mode == 2,
-        "flower_stem_geometry_cell_scale" => mode == 2 && geometry_b,
         _ => mode != 0,
     }
 }
 
-fn stem_description(mode: u32, object_b: bool, geometry_b: bool) -> &'static str {
+fn stem_description(mode: u32, object_b: bool) -> &'static str {
     match mode {
         1 if object_b => "World-direction B: fixed object pixels; distance changes display size, not source resolution.",
         1 => "World-direction A: angular source cells. Thin stems can lose samples with distance.",
-        2 if geometry_b => "Surface-attached B: real block geometry follows the plant. Larger cells are blockier and can change thickness.",
-        2 => "Surface-attached A: continuous geometry with fixed material cells. Enable B to adjust geometric pixelization.",
-        _ => "Original cube stems; no experimental parameters apply.",
+        2 => "Surface-attached: continuous geometry with fixed material cells; no block geometry or cell-size setting.",
+        _ => "Original cube stems: adjust the saved voxel edge scale. Default 2 matches grass at full growth and overall size 1. Edge scale also changes the shared stalk's height; overall size and growth still scale the plant.",
     }
 }
 
@@ -171,8 +166,21 @@ pub(super) fn render(
                     ui.weak(stem_description(
                         adjustables.flower_stem_sampling.value,
                         adjustables.flower_stem_object_sampling.value,
-                        adjustables.flower_stem_surface_geometry.value,
                     ));
+                    if adjustables.flower_stem_sampling.value == 0 {
+                        if let Some(owner) = config.iter().find(|s| s.name == "Flora") {
+                            for id in super::flora_groups::ORIGINAL_STEM_CONTROLS {
+                                if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
+                                    render_gui_param_from_config(
+                                        ui,
+                                        param,
+                                        &owner.name,
+                                        adjustables,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     for id in group
                         .params
                         .iter()
@@ -182,7 +190,6 @@ pub(super) fn render(
                             id,
                             adjustables.flower_stem_sampling.value,
                             adjustables.flower_stem_object_sampling.value,
-                            adjustables.flower_stem_surface_geometry.value,
                         ) {
                             if let Some(param) = section.param.iter().find(|p| p.id == *id) {
                                 render_gui_param_from_config(ui, param, &section.name, adjustables);
@@ -247,19 +254,12 @@ mod tests {
             .iter()
             .find(|g| g.title == "Pixel Sampling — Flower Stems")
             .unwrap();
-        for (mode, object_b, geometry_b) in [
-            (0, true, true),
-            (1, false, true),
-            (1, true, true),
-            (2, true, false),
-            (2, true, true),
-        ] {
+        for (mode, object_b) in [(0, true), (1, false), (1, true), (2, true)] {
             let mut settings = DebugSettings::load();
             settings.adjustables.flower_stem_sampling.value = mode;
             settings.adjustables.flower_stem_object_sampling.value = object_b;
-            settings.adjustables.flower_stem_surface_geometry.value = geometry_b;
             settings.adjustables.flower_stem_object_resolution.value = 192;
-            settings.adjustables.flower_stem_geometry_cell_scale.value = 2.5;
+            settings.adjustables.model_flower_voxel_scale.value = 1.8;
             settings.sync_config();
             let before = serde_json::to_value(&settings.config).unwrap();
             let context = egui::Context::default();
@@ -285,12 +285,6 @@ mod tests {
                         "flower_stem_direction_resolution"
                     });
                 }
-                2 => {
-                    expected.push("flower_stem_surface_geometry");
-                    if geometry_b {
-                        expected.push("flower_stem_geometry_cell_scale");
-                    }
-                }
                 _ => {}
             }
             for id in group.params {
@@ -305,9 +299,24 @@ mod tests {
                 assert_eq!(
                     text.contains(label),
                     expected.contains(id),
-                    "mode={mode} object={object_b} geometry={geometry_b} id={id}"
+                    "mode={mode} object={object_b} id={id}"
                 );
             }
+            let voxel_label = &settings
+                .config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "model_flower_voxel_scale")
+                .unwrap()
+                .label;
+            assert_eq!(
+                text.matches(voxel_label).count(),
+                usize::from(mode == 0),
+                "Original voxel slider must have one owner and only appear in Original"
+            );
+            assert!(!text.contains("block geometry B"));
+            assert!(!text.contains("geometry cell size"));
             settings.sync_config();
             assert_eq!(serde_json::to_value(&settings.config).unwrap(), before);
         }

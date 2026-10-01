@@ -9,8 +9,6 @@ pub struct StemExperiment {
     /// B affects direction mode only; A keeps camera-origin angular cells.
     pub object_sampling: bool,
     pub object_resolution: u32,
-    pub surface_geometry: bool,
-    pub geometry_cell_scale: f32,
     pub radius_scale: f32,
     pub branches: bool,
     pub freeze_motion: bool,
@@ -23,8 +21,6 @@ impl Default for StemExperiment {
             direction_resolution: 512,
             object_sampling: false,
             object_resolution: 256,
-            surface_geometry: false,
-            geometry_cell_scale: 1.,
             radius_scale: 0.7,
             branches: true,
             freeze_motion: false,
@@ -45,7 +41,6 @@ impl StemExperiment {
             sampling: self.sampling.min(2),
             direction_resolution: self.direction_resolution.clamp(128, 2048),
             object_resolution: self.object_resolution.clamp(32, 512),
-            geometry_cell_scale: finite(self.geometry_cell_scale, 1., 0.25, 4.),
             radius_scale: finite(self.radius_scale, 0.7, 0.25, 2.),
             ..self
         }
@@ -53,18 +48,6 @@ impl StemExperiment {
 
     pub fn enabled(self) -> bool {
         self.sampling != 0
-    }
-
-    pub fn surface_geometry_active(self) -> bool {
-        self.sampling == 2 && self.surface_geometry
-    }
-
-    pub fn geometry_padding(self, maximum_edge_world: f32) -> f32 {
-        if self.surface_geometry_active() {
-            maximum_edge_world.max(0.) * self.normalized().geometry_cell_scale * 2.
-        } else {
-            0.
-        }
     }
 
     pub fn object_grid_active(self) -> bool {
@@ -99,40 +82,6 @@ impl StemExperiment {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn surface_geometry_ab_is_live_bounded_and_surface_only() {
-        let b = StemExperiment {
-            sampling: 2,
-            surface_geometry: true,
-            geometry_cell_scale: f32::NAN,
-            ..StemExperiment::default()
-        }
-        .normalized();
-        assert!(b.surface_geometry_active());
-        assert_eq!(b.geometry_cell_scale, 1.);
-        assert_eq!(b.geometry_padding(0.05), 0.1);
-        for method in [0, 1] {
-            let p = StemExperiment {
-                sampling: method,
-                ..b
-            };
-            assert!(!p.surface_geometry_active());
-            assert_eq!(p.geometry_padding(1.), 0.);
-        }
-        for (input, expected) in [(-1., 0.25), (10., 4.)] {
-            assert_eq!(
-                StemExperiment {
-                    geometry_cell_scale: input,
-                    ..b
-                }
-                .normalized()
-                .geometry_cell_scale,
-                expected
-            );
-        }
-        assert!(!StemExperiment::default().surface_geometry);
-    }
 
     #[test]
     fn object_ab_only_changes_direction_contract_and_uses_spatial_padding() {

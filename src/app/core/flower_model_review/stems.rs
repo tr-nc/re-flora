@@ -8,10 +8,9 @@ use glam::{Quat, Vec3};
 fn policy(mode: &str, phase: u32) -> StemExperiment {
     // The saved selector is the only authority: 0 original, 1 direction, 2 surface.
     let method = match mode {
-        "stem-original" => 0,
+        "stem-original" | "stem-original-size" => 0,
         "stem-direction" => 1,
         "stem-surface" => 2,
-        mode if mode.starts_with("stem-blocks") => 2,
         mode if mode.starts_with("stem-contract") => 1,
         "stems" => [0, 1, 2, 0, 0, 1, 2, 0, 1, 2, 2, 1, 1, 2, 1, 0][phase.min(15) as usize],
         _ => unreachable!("validated stem review mode"),
@@ -38,21 +37,6 @@ fn policy(mode: &str, phase: u32) -> StemExperiment {
         } else {
             256
         },
-        surface_geometry: if mode == "stem-blocks" {
-            (1..=6).contains(&phase)
-        } else {
-            mode.starts_with("stem-blocks-") && mode != "stem-blocks-a"
-        },
-        geometry_cell_scale: if mode == "stem-blocks-fine"
-            || (mode == "stem-blocks" && matches!(phase, 1 | 5))
-        {
-            0.25
-        } else if mode == "stem-blocks-coarse" || (mode == "stem-blocks" && matches!(phase, 3 | 6))
-        {
-            4.
-        } else {
-            1.
-        },
         radius_scale: if sweep && phase == 10 {
             0.25
         } else if sweep && phase == 13 {
@@ -62,8 +46,7 @@ fn policy(mode: &str, phase: u32) -> StemExperiment {
         },
         branches: !(sweep && phase == 13),
         freeze_motion: !(sweep && (8..=9).contains(&phase))
-            && !(mode == "stem-contract" && phase == 8)
-            && !(mode == "stem-blocks" && phase == 4),
+            && !(mode == "stem-contract" && phase == 8),
     }
 }
 
@@ -80,8 +63,6 @@ impl App {
         s.flower_stem_direction_resolution.value = p.direction_resolution;
         s.flower_stem_object_sampling.value = p.object_sampling;
         s.flower_stem_object_resolution.value = p.object_resolution;
-        s.flower_stem_surface_geometry.value = p.surface_geometry;
-        s.flower_stem_geometry_cell_scale.value = p.geometry_cell_scale;
         s.flower_stem_radius_scale.value = p.radius_scale;
         s.flower_stem_test_branches.value = p.branches;
         s.flower_stem_freeze_motion.value = p.freeze_motion;
@@ -116,13 +97,13 @@ impl App {
             } else {
                 (eye, target, "dolly")
             }
-        } else if (sweep && (4..=9).contains(&phase)) || (mode == "stem-blocks" && phase == 5) {
+        } else if sweep && (4..=9).contains(&phase) {
             (
                 target + Quat::from_rotation_y((step - 0.5) * 0.8) * offset,
                 target,
                 "orbit",
             )
-        } else if (sweep && phase == 14) || (mode == "stem-blocks" && phase == 6) {
+        } else if sweep && phase == 14 {
             // Cross the front of the fixture to exercise near-plane proxies.
             (
                 target + offset * (0.8 - step * 0.9),
@@ -145,15 +126,21 @@ impl App {
             12
         } else if sweep {
             16
-        } else if mode == "stem-blocks" {
-            8
+        } else if mode == "stem-original-size" {
+            3
         } else {
             1
         };
         if (phase_count > 1 && frame.is_multiple_of(24) && frame < phase_count * 24)
             || (phase_count == 1 && frame == 0)
         {
-            log::info!("[STEM_REVIEW_PHASE] phase={phase} enabled={} method={} motion={motion} resolution={} branches={} freeze={} object={} object_pixels={} geometry={} geometry_cells={} saved=false", p.enabled(), p.sampling, p.direction_resolution, p.branches, p.freeze_motion, p.object_sampling, p.object_resolution, p.surface_geometry, p.geometry_cell_scale);
+            log::info!("[STEM_REVIEW_PHASE] phase={phase} enabled={} method={} motion={motion} resolution={} branches={} freeze={} object={} object_pixels={} saved=false", p.enabled(), p.sampling, p.direction_resolution, p.branches, p.freeze_motion, p.object_sampling, p.object_resolution);
+        }
+        if mode == "stem-original-size" && frame.is_multiple_of(24) && frame < 3 * 24 {
+            let edge = crate::flora::models::flowers()[0].column.edge
+                * s.model_flower_voxel_scale.value
+                * crate::flora::models::WORLD_SCALE;
+            log::info!("[STEM_ORIGINAL_VOXEL_PHASE] phase={phase} mode={} voxel_scale={} nominal_world_edge={edge} saved=false", p.sampling, s.model_flower_voxel_scale.value);
         }
         if contract && frame.is_multiple_of(24) && frame <= 11 * 24 {
             log::info!("[STEM_CONTRACT_PHASE] phase={phase} object={} pixels={} direction={} views={} distance={} saved=false",p.object_sampling,p.object_resolution,p.direction_resolution,s.model_flower_view_count.value,(camera-target).length());
@@ -172,18 +159,6 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn block_review_covers_saved_slider_endpoints_wind_and_return() {
-        assert!(!policy("stem-blocks", 0).surface_geometry);
-        assert_eq!(policy("stem-blocks", 1).geometry_cell_scale, 0.25);
-        assert_eq!(policy("stem-blocks", 3).geometry_cell_scale, 4.);
-        assert!(!policy("stem-blocks", 4).freeze_motion);
-        for phase in 1..=6 {
-            assert!(policy("stem-blocks", phase).surface_geometry_active());
-        }
-        assert!(!policy("stem-blocks", 7).surface_geometry);
-    }
 
     #[test]
     fn contract_review_pairs_three_distances_and_exercises_live_b() {

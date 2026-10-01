@@ -1,6 +1,6 @@
 # Surface-attached 茎：几何格大小 A/B
 
-当前统一 selector／动态控件见 [`stem-selector-controls.md`](stem-selector-controls.md)：experimental checkbox 和 A material slider 已退休；下文记录原实现和验证。
+**历史实验记录，现已退休：**用户随后请求删除 Surface-attached block geometry B，shader／Rust path／checkbox／geometry slider／review script／测试均已删除。当前 Surface-attached 仅保留固定材质格的连续几何；Original 模式复用已有 voxel edge slider。当前入口与验证见 [`stem-selector-controls.md`](stem-selector-controls.md)。下文的使用方式、文件与命令只描述当时的实现，不再可用。
 
 ## 使用
 

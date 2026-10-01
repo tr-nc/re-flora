@@ -20,8 +20,8 @@ impl FlowerModelReview {
         let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
             return Ok(None);
         };
-        ensure!(["a", "b", "ab", "controls", "stems", "stem-original", "stem-direction", "stem-surface", "stem-contract", "stem-contract-a-near", "stem-contract-a-far", "stem-contract-b-near", "stem-contract-b-far", "stem-blocks", "stem-blocks-a", "stem-blocks-b", "stem-blocks-fine", "stem-blocks-coarse"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (live sampling/camera sweep), stem-contract (sampling A/B with dolly), stem-blocks (geometry A/B sweep), stem-blocks-a/b/fine/coarse (fixed captures), or stem-original/direction/surface and stem-contract-a/b-near/far (fixed captures)");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-original", "stem-original-size", "stem-direction", "stem-surface", "stem-contract", "stem-contract-a-near", "stem-contract-a-far", "stem-contract-b-near", "stem-contract-b-far"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (live sampling/camera sweep), stem-contract (sampling A/B with dolly), stem-original-size (saved voxel edge sweep), or stem-original/direction/surface and stem-contract-a/b-near/far (fixed captures)");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -42,8 +42,8 @@ impl App {
         let stem_mode = review.mode.clone();
         let phase = if stem_mode == "stem-contract" {
             (frame / 24).min(11)
-        } else if stem_mode == "stem-blocks" {
-            (frame / 24).min(7)
+        } else if stem_mode == "stem-original-size" {
+            (frame / 24).min(2)
         } else if stem_mode == "stems" {
             (frame / 24).min(15)
         } else if controls {
@@ -83,12 +83,18 @@ impl App {
             1.
         };
         if controls {
+            // The authored stem voxel-size sweep must exercise Original cubes.
+            settings.flower_stem_sampling.value = 0;
             settings.model_flower_height_variance.value = control.shape.height_variance;
             settings.model_flower_voxel_scale.value = control.shape.voxel_scale;
         }
         if stems {
             settings.model_flower_height_variance.value = 0.;
-            settings.model_flower_voxel_scale.value = 1.;
+            settings.model_flower_voxel_scale.value = if stem_mode == "stem-original-size" {
+                [0.2, 2., 4.][phase as usize]
+            } else {
+                1.
+            };
         }
         settings.model_flower_size_scale.value = if controls {
             control.size_scale

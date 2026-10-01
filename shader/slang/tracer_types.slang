@@ -19,7 +19,7 @@ public struct U_GuiInput
     public float3 flower_stem_bottom;
     public float3 flower_stem_tip;
     public uint4 flower_stem_sampling; // enabled, method, direction resolution, branches
-    public float4 flower_stem_shape; // radius, reserved, freeze; w: +object N / -surface geometry cells / 0=A
+    public float4 flower_stem_shape; // radius, reserved, freeze; w: direction B object N / 0=A
     public float3 grass_bottom_dark;
     public float3 grass_bottom_light;
     public float3 grass_tip_dark;

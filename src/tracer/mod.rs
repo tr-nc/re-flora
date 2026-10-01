@@ -4615,14 +4615,6 @@ impl Tracer {
         let mut planned_flower_tiles = 0u64;
         if enable_flora {
             let settings = self.flower_model_settings;
-            let block_padding = self.flower_stem_experiment.geometry_padding(
-                crate::flora::models::flowers()
-                    .iter()
-                    .map(|flower| flower.distribution[1])
-                    .fold(0., f32::max)
-                    * crate::flora::models::WORLD_SCALE
-                    * settings.size_scale,
-            );
             for (chunk_index, (bounds, instances)) in surface_resources
                 .instances
                 .chunk_flora_instances
@@ -4640,8 +4632,7 @@ impl Tracer {
                             + (bounds.max() - bounds.min()).length(),
                     ) + self
                         .flower_stem_experiment
-                        .object_padding(below.max_element().max(above.max_element()))
-                        + block_padding,
+                        .object_padding(below.max_element().max(above.max_element())),
                 );
                 let bounds =
                     crate::geom::Aabb3::new(bounds.min() - angular, bounds.max() + angular);

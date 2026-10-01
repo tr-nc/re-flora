@@ -87,6 +87,31 @@ mod tests {
     use crate::flora::models::{flowers, Shape};
 
     #[test]
+    fn original_voxel_slider_uses_saved_scale_and_default_matches_grass() {
+        let global_voxel_edge = 1.0 / 256.0;
+        for flower in flowers() {
+            let default = flower.column.with_shape(Shape {
+                voxel_scale: 2.,
+                ..Shape::default()
+            });
+            assert_eq!(default.edge * super::super::WORLD_SCALE, global_voxel_edge);
+            for size in [0.2, 1., 2., 4.] {
+                let column = flower.column.with_shape(Shape {
+                    voxel_scale: size,
+                    ..Shape::default()
+                });
+                assert_eq!(column.layers, flower.column.layers);
+                assert!(
+                    (column.edge * super::super::WORLD_SCALE - global_voxel_edge * size * 0.5)
+                        .abs()
+                        < 1e-8
+                );
+                assert!(!column.triangles().is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn voxel_edge_and_layer_distribution_are_independent() {
         for flower in flowers() {
             let base = flower.column;

@@ -102,7 +102,7 @@ value = 0
 options = [
     "Original cube stems",
     "World-direction pixels (rotation-stable source)",
-    "Surface-attached cells (material A / block geometry B)",
+    "Surface-attached cells (continuous geometry)",
 ]
 
 [[section.param]]
@@ -148,34 +148,6 @@ type = "Bool"
 
 [section.param.data]
 value = false
-
-[[section.param]]
-id = "flower_stem_surface_geometry"
-kind = "bool"
-label = "Surface-attached stems: block geometry B (off = continuous A)"
-type = "Bool"
-
-[section.param.enabled_if]
-param = "flower_stem_sampling"
-equals = 2
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "flower_stem_geometry_cell_scale"
-kind = "float"
-label = "Surface-attached stems B: geometry cell size (larger = blockier)"
-type = "Float"
-
-[section.param.enabled_if]
-param = "flower_stem_surface_geometry"
-equals = true
-
-[section.param.data]
-value = 1
-min = 0.25
-max = 4
 
 [[section.param]]
 id = "flower_stem_object_sampling"
@@ -1284,7 +1256,7 @@ max = 1
 [[section.param]]
 id = "model_flower_voxel_scale"
 kind = "float"
-label = "Stem Voxel Edge Scale (1 = Half Grass Edge)"
+label = "Original cube stems: voxel edge scale (2 = grass edge at full growth / size 1)"
 type = "Float"
 
 [section.param.data]
