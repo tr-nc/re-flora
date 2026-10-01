@@ -3410,11 +3410,14 @@ impl App {
     }
 
     pub(super) fn apply_flora_trim(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
-        let brush_edit = TerrainBrushEdit {
+        self.apply_flora_trim_path(TerrainBrushEdit {
             start: edit.center,
             end: edit.center,
             radius: edit.radius,
-        };
+        })
+    }
+
+    pub(super) fn apply_flora_trim_path(&mut self, brush_edit: TerrainBrushEdit) -> Result<()> {
         if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(brush_edit) {
             let target_age = super::FLORA_TRIM_MAX_GROWTH_PROGRESS;
             let growing_chunks = world_ops::mesh_trim_flora_for_brush_edit(

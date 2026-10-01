@@ -26,6 +26,7 @@ pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
 mod model_cache_review;
+mod mower;
 mod rooftop_scene;
 mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
@@ -464,6 +465,7 @@ pub struct App {
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
+    mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
@@ -1526,6 +1528,7 @@ impl App {
             item_panel_sprinkler_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_tiller_icon: None,
+            mower: mower::MowerRuntime::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -2048,6 +2051,12 @@ impl App {
         }
         if matches!(
             &event,
+            WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. }
+        ) {
+            self.mower.cancel_drag();
+        }
+        if matches!(
+            &event,
             WindowEvent::KeyboardInput { .. } | WindowEvent::Focused(false)
         ) && self.handle_wind_prototype_event(&event)
         {
@@ -2133,6 +2142,7 @@ impl App {
                     }
                 ) {
                     self.wind_prototype.cancel();
+                    self.mower.cancel_drag();
                 }
                 if let WindowEvent::CursorMoved { position, .. } = &event {
                     self.sync_orbit_mouse_drag_position(Vec2::new(
@@ -2231,6 +2241,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
                         PhysicalKey::Code(KeyCode::Digit8) => Some(7),
                         PhysicalKey::Code(KeyCode::Digit9) => Some(ui_style::WIND_SLOT_INDEX),
+                        PhysicalKey::Code(KeyCode::KeyL) => Some(ui_style::MOWER_SLOT_INDEX),
                         _ => None,
                     };
 
@@ -2256,8 +2267,12 @@ impl App {
                 self.handle_orbit_mouse_drag(Vec2::new(position.x as f32, position.y as f32));
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if self.handle_mower_pointer(button, state) {
+                    return;
+                }
                 let captured = self.set_orbit_mouse_drag_state(button, state);
                 if captured {
+                    self.mower.cancel_drag();
                     return;
                 }
 
@@ -2660,6 +2675,7 @@ impl App {
                 let prototype_extent = self.window_state.window_extent();
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 let egui_start = Instant::now();
+                let mower_mode_available = self.mower_mode_available();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
@@ -3064,6 +3080,15 @@ ui.collapsing("Environment Probes", |ui| {
                                 enabled: true,
                             },
                             ItemPanelSlot {
+                                index: ui_style::MOWER_SLOT_INDEX,
+                                label: "Mower",
+                                key_hint: "L",
+                                category: Some("ITEMS"),
+                                icon: None,
+                                accent: SAGE_ACCENT,
+                                enabled: mower_mode_available,
+                            },
+                            ItemPanelSlot {
                                 index: ui_style::WIND_SLOT_INDEX,
                                 label: "Wind",
                                 key_hint: "9",
@@ -3419,6 +3444,9 @@ ui.collapsing("Environment Probes", |ui| {
                     self.debug_settings.adjustables.auto_daynight_cycle.value,
                 );
 
+                if let Err(error) = self.update_mower(frame_delta_time) {
+                    log::error!("[MOWER] update failed: {error:#}");
+                }
                 self.sync_leaf_lifecycle_mode();
                 if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
                     log::warn!("[ECOLOGY] update failed: {error:#}");

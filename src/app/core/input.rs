@@ -699,7 +699,7 @@ impl App {
         }
     }
 
-    fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
+    pub(super) fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
         if self.is_orbit_edit_camera_mode() {
             let extent = self.window_state.window_extent();
             let cursor_pos = self.cursor_position_physical.unwrap_or_else(|| {

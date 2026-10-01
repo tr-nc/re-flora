@@ -441,6 +441,9 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let mower_vert_sm =
+            ShaderModule::from_precompiled(vulkan_ctx.device(), "shader/props/mower.vert", "main")
+                .unwrap();
         let static_scene_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/props/static_scene.vert",
@@ -702,6 +705,7 @@ impl PipelineBuilder {
             leaves_shadow_frag_sm,
             sprinkler_vert_sm,
             static_scene_vert_sm,
+            mower_vert_sm,
             static_scene_frag_sm,
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
@@ -1406,6 +1410,21 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
+        let mower_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.mower_vert_sm,
+            &shader_modules.static_scene_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(3),
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let static_scene_glass_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.static_scene_vert_sm,
@@ -1638,6 +1657,7 @@ impl PipelineBuilder {
             sprinkler_ppl,
             static_scene_ppl,
             static_scene_glass_ppl,
+            mower_ppl,
             geometry_preview_ppl,
             environment_probe_visualization_depth_ppl,
             environment_probe_visualization_overlay_ppl,
@@ -2255,6 +2275,11 @@ impl PipelineTopology {
             "static scene descriptor update failed during extent publication",
         );
         retire_graphics(
+            &self.graphics.mower_ppl,
+            DescriptorUpdate::All(&tracer_resources),
+            "mower descriptor update failed during extent publication",
+        );
+        retire_graphics(
             &self.graphics.static_scene_glass_ppl,
             DescriptorUpdate::All(&tracer_resources),
             "static scene glass descriptor update failed during extent publication",
@@ -2726,6 +2751,7 @@ pub struct ShaderModules {
     pub leaves_shadow_frag_sm: ShaderModule,
     pub sprinkler_vert_sm: ShaderModule,
     pub static_scene_vert_sm: ShaderModule,
+    pub mower_vert_sm: ShaderModule,
     pub static_scene_frag_sm: ShaderModule,
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
@@ -2826,6 +2852,7 @@ pub struct GraphicsPipelines {
     pub sprinkler_ppl: GraphicsPipeline,
     pub static_scene_ppl: GraphicsPipeline,
     pub static_scene_glass_ppl: GraphicsPipeline,
+    pub mower_ppl: GraphicsPipeline,
     pub geometry_preview_ppl: GraphicsPipeline,
     pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,

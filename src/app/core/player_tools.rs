@@ -15,6 +15,7 @@ use super::ui_style::{
 pub(super) enum PlayerTool {
     #[default]
     Hand,
+    Mower,
     Staff,
     Shovel,
     Smooth,
@@ -30,6 +31,7 @@ impl PlayerTool {
     fn from_item_panel_slot(slot_idx: usize) -> Option<Self> {
         match slot_idx {
             HAND_SLOT_INDEX => Some(Self::Hand),
+            super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
             STAFF_SLOT_INDEX => Some(Self::Staff),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
             SMOOTH_SLOT_INDEX => Some(Self::Smooth),
@@ -46,6 +48,7 @@ impl PlayerTool {
     fn item_panel_slot(self) -> usize {
         match self {
             Self::Hand => HAND_SLOT_INDEX,
+            Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
             Self::Staff => STAFF_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
             Self::Smooth => SMOOTH_SLOT_INDEX,
@@ -59,7 +62,7 @@ impl PlayerTool {
     }
 
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
-        !matches!(self, Self::Hand | Self::Wind)
+        !matches!(self, Self::Hand | Self::Wind | Self::Mower)
     }
 }
 

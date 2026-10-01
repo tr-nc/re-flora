@@ -1377,6 +1377,10 @@ impl SurfaceBuilder {
         spawn_time_ms: u32,
         target_age: u32,
     ) -> Result<FloraRegenStats> {
+        if let Some(instances) = self.authored_flora.instances_by_chunk.get_mut(&chunk_id) {
+            trim_authored_flora_instances(instances, edit_start, edit_end, edit_radius, target_age);
+        }
+        // run_occupancy_edit republishes authored instances too, preserving their identities.
         self.run_occupancy_edit(
             chunk_id,
             edit_start,
@@ -1829,6 +1833,30 @@ fn grass_growth_potential_level(words: &[u32], chunk_dim: UVec3, local: UVec3) -
     packed_grass_growth_potential_level(words, linear)
 }
 
+fn trim_authored_flora_instances(
+    instances: &mut [AuthoredFloraInstance],
+    start: Vec3,
+    end: Vec3,
+    radius: f32,
+    target_growth: u32,
+) {
+    if !start.is_finite() || !end.is_finite() || !radius.is_finite() || radius <= 0. {
+        return;
+    }
+    let start = start * 256.;
+    let end = end * 256.;
+    let radius_squared = (radius * 256.).powi(2);
+    // Retain a live plant, its lifetime ID, roots, seed and spawn animation. Never grow
+    // already-short plants as a side effect of cutting them again.
+    let target_growth = target_growth.clamp(1, 255);
+    for instance in instances {
+        let center = instance.base_world_vox.as_vec3() + Vec3::splat(0.5);
+        if distance_sq_to_segment(center, start, end) <= radius_squared {
+            instance.growth_progress = instance.growth_progress.min(target_growth);
+        }
+    }
+}
+
 fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
     let segment = end - start;
     let segment_len_sq = segment.length_squared().max(1.0e-4);
@@ -1986,6 +2014,35 @@ fn get_occupancy_to_instances_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_trim_shrinks_swept_plants_without_removing_or_regrowing_them() {
+        let plant = |x, growth_progress| AuthoredFloraInstance {
+            response_id: x as u64 + 1,
+            species_index: 4,
+            base_world_vox: UVec3::new(x, 100, 100),
+            growth_progress,
+            spawn_start_ms: 123,
+            seed: 42,
+        };
+        let mut instances = [plant(100, 255), plant(110, 80), plant(140, 255)];
+        let original = instances;
+        trim_authored_flora_instances(
+            &mut instances,
+            Vec3::new(99., 100., 100.) / 256.,
+            Vec3::new(112., 100., 100.) / 256.,
+            4. / 256.,
+            160,
+        );
+        assert_eq!(instances.map(|p| p.growth_progress), [160, 80, 255]);
+        for (before, after) in original.iter().zip(&instances) {
+            assert_eq!(before.response_id, after.response_id);
+            assert_eq!(before.base_world_vox, after.base_world_vox);
+            assert_eq!(before.species_index, after.species_index);
+            assert_eq!(before.spawn_start_ms, after.spawn_start_ms);
+            assert_eq!(before.seed, after.seed);
+        }
+    }
 
     fn influence(x: u32) -> GrassGrowthInfluence {
         GrassGrowthInfluence {

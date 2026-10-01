@@ -21,7 +21,9 @@ pub use butterfly_palette::*;
 
 mod leaf_particle_pose;
 
+mod mower_resources;
 mod static_scene;
+use mower_resources::MowerRendererResources;
 pub use static_scene::StaticSceneMesh;
 use static_scene::StaticSceneResources;
 mod sprinkler_resources;
@@ -1605,6 +1607,7 @@ pub struct Tracer {
     particle_resources: ParticleRendererResources,
     static_scene: Option<StaticSceneResources>,
     sprinkler_resources: SprinklerRendererResources,
+    mower_resources: MowerRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
     climbing_plant_resources: DynamicFruitRendererResources,
@@ -1947,6 +1950,8 @@ impl Tracer {
         });
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
+        let mower_resources =
+            MowerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let model_pixel_frame = ModelPixelFrame::new(&vulkan_ctx, allocator.clone());
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
@@ -1962,6 +1967,7 @@ impl Tracer {
             particle_resources,
             static_scene: None,
             sprinkler_resources,
+            mower_resources,
             geometry_preview_resources,
             dynamic_fruit_resources,
             climbing_plant_resources,
@@ -3276,6 +3282,8 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        self.mower_resources
+            .prepare_frame(gpu_profiler_frame_slot)?;
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
@@ -3786,6 +3794,14 @@ impl Tracer {
             record_mesh(&scene.indices, &scene.vertices, scene.index_count);
         }
         record_mesh(
+            &self.mower_resources.indices,
+            &self.mower_resources.vertices,
+            self.mower_resources.index_count,
+        );
+        if self.mower_resources.visible {
+            record_instance(self.mower_resources.instances());
+        }
+        record_mesh(
             &self.sprinkler_resources.indices,
             &self.sprinkler_resources.vertices,
             self.sprinkler_resources.indices_len,
@@ -3943,6 +3959,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.static_scene.is_some()
+            || self.mower_resources.visible
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
@@ -4222,6 +4239,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.static_scene.is_some()
+            || self.mower_resources.visible
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
@@ -4868,6 +4886,12 @@ impl Tracer {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }
         }
+        if self.mower_resources.visible {
+            self.pipeline_topology
+                .graphics()
+                .mower_ppl
+                .prepare_descriptor_resources(cmdbuf);
+        }
         if self.sprinkler_resources.instance_count > 0 {
             self.pipeline_topology
                 .graphics()
@@ -5289,6 +5313,15 @@ impl Tracer {
             }
         }
 
+        if self.mower_resources.visible {
+            let resources = &self.mower_resources;
+            let pipeline = &self.pipeline_topology.graphics().mower_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, resources.instances()]);
+            pipeline.record_indexed(cmdbuf, resources.index_count, 1, 0, 0, 0, None);
+        }
         if let Some(scene) = &self.static_scene {
             let pipeline = &self.pipeline_topology.graphics().static_scene_ppl;
             pipeline.record_bind(cmdbuf);
@@ -6532,6 +6565,10 @@ impl Tracer {
             mesh,
         )?);
         Ok(())
+    }
+
+    pub(crate) fn show_mower(&mut self, position: Option<Vec3>, yaw: f32) -> Result<()> {
+        self.mower_resources.show(position, yaw)
     }
 
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {
