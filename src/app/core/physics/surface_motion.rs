@@ -1,6 +1,6 @@
 //! One character-world movement seam for the player and cursor-guided ground props.
 //! Actor dimensions differ; terrain/model collision, stepping, sliding and snapping do not.
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use re_flora_physics::{CapsuleCharacterMove, CapsuleCharacterMoveError, CollisionWorld};
 
 const VOXELS_PER_UNIT: f32 = 256.;
@@ -81,6 +81,49 @@ impl SurfaceMover {
     }
 }
 
+pub(super) struct MowerSupport {
+    pub position: Vec3,
+    pub normal: Vec3,
+}
+
+/// Fit the wheel footprint, not a single voxel face normal. Voxel stairs then read as
+/// a continuous slope, and model triangles use the same character collision source.
+pub(super) fn mower_support(
+    world: &mut CollisionWorld,
+    feet: Vec3,
+    rotation: Quat,
+) -> Option<MowerSupport> {
+    let wheels = [
+        Vec3::new(-8., 0., -9.),
+        Vec3::new(8., 0., -9.),
+        Vec3::new(-8., 0., 9.),
+        Vec3::new(8., 0., 9.),
+    ];
+    let mut points = [Vec3::ZERO; 4];
+    let mut root_y = f32::NEG_INFINITY;
+    for (i, wheel) in wheels.into_iter().enumerate() {
+        let offset = rotation * wheel;
+        let origin = feet * VOXELS_PER_UNIT + Vec3::new(offset.x, 16.25, offset.z);
+        let hit = world.cast_character_surface_ray(origin, Vec3::NEG_Y, 32.5)?;
+        if hit.normal.y < 0.5 {
+            return None;
+        }
+        points[i] = hit.position;
+        root_y = root_y
+            .max(hit.position.y - offset.y + re_flora_physics::CAPSULE_CHARACTER_COLLISION_OFFSET);
+    }
+    let right = (points[1] + points[3] - points[0] - points[2]) * 0.5;
+    let forward = (points[2] + points[3] - points[0] - points[1]) * 0.5;
+    let normal = forward.cross(right).normalize_or_zero();
+    if normal.y < 0.5 || !normal.is_finite() {
+        return None;
+    }
+    Some(MowerSupport {
+        position: Vec3::new(feet.x, root_y / VOXELS_PER_UNIT, feet.z),
+        normal,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +156,46 @@ mod tests {
         }
         feet
     }
+    #[test]
+    fn wheel_support_recovers_sloped_model_normal_and_stair_slope() {
+        // y = x/4 + z/5: both pitch and roll must be present.
+        let positions = [(-50., -50.), (-50., 50.), (50., 50.), (50., -50.)]
+            .map(|(x, z)| Vec3::new(x, x / 4. + z / 5., z));
+        let mut world = CollisionWorld::new();
+        world
+            .set_fixed_scene_surface(&positions, &[[0, 1, 2], [0, 2, 3]])
+            .unwrap();
+        let frame = mower_support(&mut world, Vec3::ZERO, Quat::IDENTITY).unwrap();
+        assert!(
+            frame
+                .normal
+                .distance(Vec3::new(-0.25, 1., -0.2).normalize())
+                < 1e-5
+        );
+        assert!(
+            frame.position.y > 0.,
+            "upright model should clear raised wheel contacts"
+        );
+        let rotation = Quat::from_rotation_arc(Vec3::Y, frame.normal);
+        let tilted = mower_support(&mut world, Vec3::ZERO, rotation).unwrap();
+        assert!(
+            (tilted.position.y * 256. - re_flora_physics::CAPSULE_CHARACTER_COLLISION_OFFSET).abs()
+                < 1e-4,
+            "tilted wheel contacts must sit on the plane: {:?}",
+            tilted.position
+        );
+        let mut boxes = vec![floor()];
+        for i in 0..24 {
+            boxes.push((
+                Vec3::new(-36. + i as f32 * 3., 0., -40.),
+                Vec3::new(100., i as f32 + 1., 40.),
+            ));
+        }
+        let mut world = model_world(&boxes);
+        let frame = mower_support(&mut world, Vec3::Y * (13. / 256.), Quat::IDENTITY).unwrap();
+        assert!(frame.normal.x < -0.2 && frame.normal.y > 0.8);
+    }
+
     #[test]
     fn mower_places_and_drives_on_bare_fixed_roof_and_road() {
         for height in [192., 64.] {

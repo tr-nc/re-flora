@@ -1,5 +1,5 @@
 //! Cursor-guided mower: the pointer supplies a destination, never a teleport or a speed.
-use glam::{Vec2, Vec3};
+use glam::{Mat3, Quat, Vec2, Vec3};
 use winit::event::{ElementState, MouseButton};
 
 use super::{player_tools::PlayerTool, App};
@@ -9,11 +9,14 @@ pub(super) const MOWER_MAX_SPEED: f32 = 30.0 / 256.0;
 pub(super) const MOWER_CUT_RADIUS: f32 = 11.0 / 256.0;
 const MIN_CAMERA_DISTANCE: f32 = 0.7;
 const MAX_FRAME_STEP: f32 = 0.1;
+const MOWER_MAX_TURN_SPEED: f32 = 120. * std::f32::consts::PI / 180.;
 
 #[derive(Debug, Default)]
 pub(super) struct MowerRuntime {
     pub(super) position: Option<Vec3>,
     pub(super) yaw: f32,
+    rotation: Quat,
+    visual_position: Option<Vec3>,
     dragging: bool,
     validation_complete: bool,
 }
@@ -28,6 +31,38 @@ fn follow_step(position: Vec3, target: Vec3, dt: f32) -> Vec3 {
     position + Vec3::new(step.x, 0.0, step.y)
 }
 
+fn slope_orientation(normal: Vec3, yaw: f32) -> Quat {
+    let up = normal.normalize_or_zero();
+    let up = if up.y >= 0.5 { up } else { Vec3::Y };
+    let heading = Vec3::new(yaw.sin(), 0., yaw.cos());
+    let forward = (heading - up * heading.dot(up)).normalize();
+    Quat::from_mat3(&Mat3::from_cols(up.cross(forward), up, forward)).normalize()
+}
+
+fn turn_step(current: Quat, target: Quat, dt: f32) -> Quat {
+    if !dt.is_finite() || dt <= 0. {
+        return current;
+    }
+    let angle = 2. * current.dot(target).abs().clamp(0., 1.).acos();
+    if angle < 1e-6 {
+        return target;
+    }
+    current
+        .slerp(
+            target,
+            (MOWER_MAX_TURN_SPEED * dt.min(MAX_FRAME_STEP) / angle).min(1.),
+        )
+        .normalize()
+}
+
+fn steered_step(position: Vec3, target: Vec3, rotation: Quat, dt: f32) -> Vec3 {
+    let desired = follow_step(position, target, dt) - position;
+    let forward = rotation * Vec3::Z;
+    let forward = Vec3::new(forward.x, 0., forward.z).normalize_or_zero();
+    let alignment = desired.normalize_or_zero().dot(forward).max(0.);
+    position + forward * desired.length() * alignment
+}
+
 fn mode_allows_mower(orbit: bool, cursor_visible: bool, distance: f32) -> bool {
     orbit && cursor_visible && distance.is_finite() && distance >= MIN_CAMERA_DISTANCE
 }
@@ -35,6 +70,10 @@ fn mode_allows_mower(orbit: bool, cursor_visible: bool, distance: f32) -> bool {
 impl MowerRuntime {
     pub(super) fn cancel_drag(&mut self) {
         self.dragging = false;
+        self.position = None;
+        self.visual_position = None;
+        self.rotation = Quat::IDENTITY;
+        self.yaw = 0.;
     }
 }
 
@@ -60,7 +99,10 @@ impl App {
     ) -> bool {
         if button == MouseButton::Left && state == ElementState::Released {
             let was_dragging = self.mower.dragging;
-            self.mower.dragging = false;
+            self.mower.cancel_drag();
+            self.tracer
+                .show_mower(None, Quat::IDENTITY)
+                .expect("hiding mower requires no GPU upload");
             if was_dragging {
                 return true;
             }
@@ -74,32 +116,25 @@ impl App {
         if state != ElementState::Pressed {
             return true;
         }
+        self.mower.cancel_drag();
         if !self.mower_controls_available() {
             return true;
         }
         let Some(hit) = self.mower_cursor_surface() else {
             return true;
         };
-        match self.mower.position {
-            None => {
-                let hit = match self.terrain_physics.place_mower_on_surface(hit) {
-                    Ok(Some(position)) => position,
-                    Ok(None) => return true,
-                    Err(error) => {
-                        log::error!("[MOWER] placement failed: {error:#}");
-                        return true;
-                    }
-                };
-                self.mower.position = Some(hit);
-                self.mower.dragging = true;
-                log::info!("[MOWER] placed position={hit:?} max_speed={MOWER_MAX_SPEED:.4} cut_radius={MOWER_CUT_RADIUS:.4} persistence=session");
+        let hit = match self.terrain_physics.place_mower_on_surface(hit) {
+            Ok(Some(position)) => position,
+            Ok(None) => return true,
+            Err(error) => {
+                log::error!("[MOWER] placement failed: {error:#}");
+                return true;
             }
-            Some(position) => {
-                // Grab the machine, not an arbitrary point elsewhere in the world.
-                self.mower.dragging =
-                    Vec2::new(hit.x - position.x, hit.z - position.z).length() <= 20.0 / 256.0;
-            }
-        }
+        };
+        self.mower.position = Some(hit);
+        self.mower.visual_position = Some(hit);
+        self.mower.dragging = true;
+        log::info!("[MOWER] spawned position={hit:?} max_speed={MOWER_MAX_SPEED:.4} cut_radius={MOWER_CUT_RADIUS:.4} lifetime=pointer_hold");
         true
     }
 
@@ -123,46 +158,69 @@ impl App {
             || !self.mower_controls_available()
             || !self.terrain_persistence.allows_world_updates()
         {
-            self.mower.dragging = false;
+            self.mower.cancel_drag();
         }
-        if self.mower.dragging {
-            if let (Some(previous), Some(target)) =
-                (self.mower.position, self.mower_cursor_surface())
-            {
-                let candidate = follow_step(previous, target, dt);
-                if candidate.distance_squared(previous) > 1e-12 {
-                    if let Some(position) = self.terrain_physics.move_mower_on_surface(
-                        previous,
-                        candidate - previous,
-                        dt.min(MAX_FRAME_STEP),
-                    )? {
-                        let direction = position - previous;
-                        if Vec2::new(direction.x, direction.z).length_squared() > 1e-12 {
-                            self.mower.yaw = direction.x.atan2(direction.z);
-                            // Model floors are traversable, but they are not flora substrates.
-                            let near_terrain = self
-                                .contree_builder
-                                .query_terrain_ray_cpu(
-                                    position + Vec3::Y * MOWER_CUT_RADIUS,
-                                    Vec3::NEG_Y,
-                                )
-                                .is_some_and(|hit| {
-                                    hit.position.distance(position) <= MOWER_CUT_RADIUS
-                                });
-                            if near_terrain {
-                                self.apply_flora_trim_path(TerrainBrushEdit {
-                                    start: previous,
-                                    end: position,
-                                    radius: MOWER_CUT_RADIUS,
-                                })?;
-                            }
-                        }
-                        self.mower.position = Some(position);
+        let target = if self.mower.dragging {
+            self.mower_cursor_surface()
+        } else {
+            None
+        };
+        if let (Some(previous), Some(target)) = (self.mower.position, target) {
+            let desired = target - previous;
+            if Vec2::new(desired.x, desired.z).length_squared() > 1e-12 {
+                self.mower.yaw = desired.x.atan2(desired.z);
+            }
+        }
+        self.update_mower_orientation(dt);
+        if let (Some(previous), Some(target)) = (self.mower.position, target) {
+            // Travel follows the turning chassis. Reversing the pointer first turns the
+            // machine, rather than sliding it backwards with an unrelated visual heading.
+            let candidate = steered_step(previous, target, self.mower.rotation, dt);
+            if candidate.distance_squared(previous) > 1e-12 {
+                if let Some(position) = self.terrain_physics.move_mower_on_surface(
+                    previous,
+                    candidate - previous,
+                    dt.min(MAX_FRAME_STEP),
+                )? {
+                    let near_terrain = self
+                        .contree_builder
+                        .query_terrain_ray_cpu(position + Vec3::Y * MOWER_CUT_RADIUS, Vec3::NEG_Y)
+                        .is_some_and(|hit| hit.position.distance(position) <= MOWER_CUT_RADIUS);
+                    if near_terrain {
+                        self.apply_flora_trim_path(TerrainBrushEdit {
+                            start: previous,
+                            end: position,
+                            radius: MOWER_CUT_RADIUS,
+                        })?;
                     }
+                    self.mower.position = Some(position);
+                    self.refresh_mower_contact();
                 }
             }
         }
-        self.tracer.show_mower(self.mower.position, self.mower.yaw)
+        self.tracer
+            .show_mower(self.mower.visual_position, self.mower.rotation)
+    }
+
+    fn update_mower_orientation(&mut self, dt: f32) {
+        let Some(feet) = self.mower.position else {
+            return;
+        };
+        let normal = self
+            .terrain_physics
+            .mower_support_frame(feet, self.mower.rotation)
+            .map_or(self.mower.rotation * Vec3::Y, |(_, normal)| normal);
+        let target = slope_orientation(normal, self.mower.yaw);
+        self.mower.rotation = turn_step(self.mower.rotation, target, dt);
+        self.refresh_mower_contact();
+    }
+
+    fn refresh_mower_contact(&mut self) {
+        self.mower.visual_position = self.mower.position.map(|feet| {
+            self.terrain_physics
+                .mower_support_frame(feet, self.mower.rotation)
+                .map_or(feet, |(position, _)| position)
+        });
     }
 
     fn validate_mower_model_surfaces(&mut self) -> anyhow::Result<()> {
@@ -201,7 +259,7 @@ impl App {
                 (ndc.x + 1.) * extent.width as f32 * 0.5,
                 (ndc.y + 1.) * extent.height as f32 * 0.5,
             ));
-            for _ in 0..12 {
+            for _ in 0..24 {
                 self.update_mower(0.1)?;
             }
             let finish = self.mower.position.unwrap();
@@ -214,6 +272,10 @@ impl App {
                 "mower lost model grounding"
             );
             self.handle_mower_pointer(MouseButton::Left, ElementState::Released);
+            ensure!(
+                self.mower.position.is_none() && self.mower.visual_position.is_none(),
+                "release did not destroy mower"
+            );
         }
         log::info!("[MOWER][SURFACE_CHECK] bare_roof_placement=true bare_roof_driving=true road_placement=true road_driving=true outside_voxel_bounds=true grounded=true shared_player_controller=true");
         Ok(())
@@ -326,7 +388,13 @@ impl App {
         ));
         for _ in 0..4 {
             let previous = self.mower.position.unwrap();
+            let previous_rotation = self.mower.rotation;
             self.update_mower(0.1)?;
+            ensure!(
+                previous_rotation.angle_between(self.mower.rotation)
+                    <= MOWER_MAX_TURN_SPEED * 0.1 + 1e-4,
+                "mower exceeded turn speed"
+            );
             let position = self.mower.position.unwrap();
             let distance = Vec2::new(position.x - previous.x, position.z - previous.z).length();
             ensure!(
@@ -355,8 +423,8 @@ impl App {
         self.handle_mower_pointer(MouseButton::Left, ElementState::Released);
         self.update_mower(0.1)?;
         ensure!(
-            self.mower.position == Some(finish),
-            "mower moved after release"
+            self.mower.position.is_none() && self.mower.visual_position.is_none(),
+            "mower survived release"
         );
         self.tracer
             .set_camera_pose_looking_at(finish + Vec3::Y * 0.2, finish);
@@ -375,9 +443,19 @@ impl App {
         let mut pose = self.tracer.camera_pose();
         pose.fov_deg = 20.;
         self.tracer.apply_camera_pose(pose);
-        self.tracer
-            .show_mower(self.mower.position, self.mower.yaw)?;
-        log::info!("[MOWER][CHECK] pointer_placement=true speed_limited=true grounded=true trim_growth=true plants_preserved=true terrain_unchanged=true release_stops=true close_camera_blocked=true raster_postprocess=true position={finish:?}");
+        // Hold a fresh mower for the diagnostic screenshot, using the real pointer lifecycle.
+        let projected = self.tracer.camera_view_projection() * finish.extend(1.);
+        let ndc = projected.truncate() / projected.w;
+        self.cursor_position_physical = Some(Vec2::new(
+            (ndc.x + 1.) * extent.width as f32 * 0.5,
+            (ndc.y + 1.) * extent.height as f32 * 0.5,
+        ));
+        self.handle_mower_pointer(MouseButton::Left, ElementState::Pressed);
+        ensure!(
+            self.mower.position.is_some(),
+            "fresh diagnostic pointer press failed to spawn mower"
+        );
+        log::info!("[MOWER][CHECK] pointer_placement=true speed_limited=true turn_speed_limited=true grounded=true trim_growth=true plants_preserved=true terrain_unchanged=true release_destroyed=true fresh_press_respawn=true close_camera_blocked=true raster_postprocess=true position={finish:?}");
         Ok(())
     }
 }
@@ -385,6 +463,60 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn model_up_and_forward_follow_pitch_and_roll() {
+        let normal = Vec3::new(-0.3, 1., 0.2).normalize();
+        let rotation = slope_orientation(normal, 1.2);
+        assert!((rotation * Vec3::Y).distance(normal) < 1e-6);
+        assert!((rotation * Vec3::Z).dot(normal).abs() < 1e-6);
+        assert!(rotation.is_normalized());
+    }
+
+    #[test]
+    fn sudden_reversal_has_bounded_rotation_and_no_backward_slide() {
+        let target = slope_orientation(Vec3::Y, std::f32::consts::PI);
+        let next = turn_step(Quat::IDENTITY, target, 1. / 60.);
+        assert!(Quat::IDENTITY.angle_between(next) <= MOWER_MAX_TURN_SPEED / 60. + 1e-4);
+        assert!(next.angle_between(target) > 2.);
+        assert_eq!(
+            steered_step(Vec3::ZERO, Vec3::NEG_Z, next, 1. / 60.),
+            Vec3::ZERO
+        );
+        let forward = steered_step(Vec3::ZERO, Vec3::Z * 0.001, Quat::IDENTITY, 1. / 60.);
+        assert_eq!(forward, Vec3::Z * 0.001);
+    }
+
+    #[test]
+    fn turning_uses_shortest_arc_and_is_frame_rate_independent() {
+        let start = Quat::from_rotation_y(170_f32.to_radians());
+        let target = Quat::from_rotation_y(-170_f32.to_radians());
+        assert!(turn_step(start, target, 0.1).angle_between(target) < start.angle_between(target));
+        let simulate = |dt, count| {
+            let mut q = Quat::IDENTITY;
+            for _ in 0..count {
+                q = turn_step(q, target, dt);
+            }
+            q
+        };
+        assert!(simulate(1. / 30., 15).angle_between(simulate(1. / 120., 60)) < 0.001);
+        assert_eq!(turn_step(start, target, f32::NAN), start);
+    }
+
+    #[test]
+    fn cancellation_destroys_the_temporary_machine() {
+        let mut mower = MowerRuntime {
+            position: Some(Vec3::ONE),
+            visual_position: Some(Vec3::ONE),
+            dragging: true,
+            validation_complete: true,
+            ..Default::default()
+        };
+        mower.cancel_drag();
+        assert!(mower.position.is_none() && mower.visual_position.is_none() && !mower.dragging);
+        assert_eq!(mower.rotation, Quat::IDENTITY);
+        assert!(mower.validation_complete);
+    }
+
     #[test]
     fn only_zoomed_out_visible_cursor_orbit_can_operate_mower() {
         assert!(mode_allows_mower(true, true, MIN_CAMERA_DISTANCE));

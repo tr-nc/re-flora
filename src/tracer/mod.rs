@@ -6567,8 +6567,12 @@ impl Tracer {
         Ok(())
     }
 
-    pub(crate) fn show_mower(&mut self, position: Option<Vec3>, yaw: f32) -> Result<()> {
-        self.mower_resources.show(position, yaw)
+    pub(crate) fn show_mower(
+        &mut self,
+        position: Option<Vec3>,
+        rotation: glam::Quat,
+    ) -> Result<()> {
+        self.mower_resources.show(position, rotation)
     }
 
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {

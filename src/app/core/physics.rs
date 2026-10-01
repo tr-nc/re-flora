@@ -345,6 +345,15 @@ impl TerrainPhysics {
             .context("moving mower through the character collision world")
     }
 
+    pub(super) fn mower_support_frame(
+        &mut self,
+        feet: Vec3,
+        rotation: glam::Quat,
+    ) -> Option<(Vec3, Vec3)> {
+        surface_motion::mower_support(&mut self.collision_world, feet, rotation)
+            .map(|frame| (frame.position, frame.normal))
+    }
+
     pub(super) fn advance_dynamic_bodies(
         &mut self,
         frame_delta_time: f32,

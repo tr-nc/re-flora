@@ -2,22 +2,24 @@
 
 - Select **Mower** in the bottom toolbar or press **L**.
 - Operate in Orbit Edit (visible/free cursor) mode, at least 0.7 world units from the orbit focus. Free-fly, walking and close-up orbit views cannot place or drive it; the toolbar icon dims outside the allowed view.
-- Left-click a supported walkable surface (voxel terrain, an empty model roof, sidewalk or road) to place the session's mower. Hold the button and drag to guide it. After release, grab it near the deck and drag again. Clicking elsewhere does not teleport it.
-- The pointer is a destination. Planar travel is capped at 30 voxels/second (0.1171875 world units/second). Slow pointer movement is followed without overshooting. Long frames are capped to avoid jumps.
-- Release, change tools/modes, enter UI, rotate/pan the camera, or lose window focus to stop. The mower remains visible where it stopped.
+- Each left-button press spawns a fresh temporary mower at the pointed walkable surface (voxel terrain, an empty model roof, sidewalk or road). Hold and drag to guide it. Release destroys it immediately; the next press starts a new mower at the new pointer position. There is no persistent mower to grab or relocate.
+- The pointer is a destination. Planar travel is capped at 30 voxels/second (0.1171875 world units/second). Rotation is capped at 120°/second along the shortest quaternion arc, including heading, pitch and roll. Travel follows the chassis heading and slows while turning; sudden reversals turn the machine before it can drive the other way. Once aligned, it follows slow pointer motion without overshooting. Long frames are capped to avoid jumps.
+- Release, change tools/modes, enter UI, rotate/pan the camera, leave the window or lose window focus to cancel and destroy the temporary mower.
 - Movement and picking use the player's static collision world, including fixed triangle models. The shared capsule solver handles slopes, sliding, small steps and ground snapping. The mower has its own body dimensions, but the same single-step limit (16 voxels) and maximum climb angle (60°) as walking. Tall walls and unsupported drops remain blocked. No soil is required to drive on a bare roof or road.
 - The 22-voxel-wide cutting sweep follows the **actual machine path**, not the pointer path. It uses the shared flora trim operation, reducing grass growth and clamping authored flower/plant growth to at most 160/255. Already-short plants are never enlarged. Plant roots, lifetime identities and seeds survive; terrain, trees and climbing vines are untouched.
-- There is one mower per session. Its position is not saved. Plant growth changes use the existing flora/world save behavior.
+- There is at most one mower, only for the duration of a pointer hold. Plant growth changes use the existing flora/world save behavior.
 
 ## Shared movement
 
 `src/app/core/physics/surface_motion.rs` owns world/voxel unit conversion and capsule profiles. Player walking and mower movement both call Rapier's existing character solver through this seam; player velocity, gravity and camera behavior remain unchanged. The mower uses its own capsule dimensions and keeps planar cursor pursuit speed-limited. Its picking ray uses the same static query broad-phase as movement, not the editable-soil bounds or Contree-only terrain picking. Dynamic fruit and sensors are excluded.
 
+The four wheel contacts query this same collision world to fit a support plane. This produces a stable slope normal over voxel stairs rather than snapping to each vertical/horizontal voxel face. The render quaternion tilts model geometry and shading normals together. Wheel clearance controls the render origin independently of the upright collision capsule, so the model follows slopes without changing the proven player collision solver. Missing/steep support retains the previous tilt instead of inventing an unstable normal.
+
 Flora cutting remains a separate concern: empty model floors do not trigger flora rebuilds, and actual voxel planting/growth rules are unchanged.
 
 ## Rendering
 
-The immutable conventional triangle model and a 16-byte position/yaw instance are rasterized into the existing color/depth pass, then use the existing scene composition and final post-processing. The mower does not use terrain stamps, voxel occupancy, a UI image or a separate post-processing effect. Like the restaurant fixed-model shading, this initial prop uses authored stepped sun/sky lighting; it does not add a new DDGI/shadow occluder.
+The immutable conventional triangle model and a 28-byte position/quaternion instance are rasterized into the existing color/depth pass, then use the existing scene composition and final post-processing. The mower does not use terrain stamps, voxel occupancy, a UI image or a separate post-processing effect. Like the restaurant fixed-model shading, this initial prop uses authored stepped sun/sky lighting; it does not add a new DDGI/shadow occluder.
 
 ## Validation
 
@@ -36,6 +38,6 @@ RE_FLORA_MOWER_SURFACE_VALIDATE=1 cargo run --release -- --rooftop-poc \
 cargo run --release -- --tail-latest-log 200
 ```
 
-The opt-in fixture runs on default generated terrain, prepares a grass patch, drives through real pointer-placement/update methods, reads flora/terrain back and checks speed, shortened growth, unchanged plant counts/terrain, release stopping and close-view rejection. It leaves the model in a diagnostic crop for the screenshot. Look for `[MOWER][CHECK]` and inspect the run log for errors. Do not combine this fixture with a saved world or another fixed scene.
+The opt-in fixture runs on default generated terrain, prepares a grass patch, drives through real pointer-placement/update methods, reads flora/terrain back and checks travel/turn speed, shortened growth, unchanged plant counts/terrain, release destruction, fresh-press respawning and close-view rejection. After checking release/destruction, it spawns and holds a fresh mower in a diagnostic crop for the screenshot. Look for `[MOWER][CHECK]` and inspect the run log for errors. Do not combine this fixture with a saved world or another fixed scene.
 
 The separate `RE_FLORA_MOWER_SURFACE_VALIDATE` fixture requires `--rooftop-poc` with no soil. It uses actual pointer placement and per-frame pursuit to drive on the bare roof and the road outside the voxel-editing bounds. Look for `[MOWER][SURFACE_CHECK]` and absence of errors. Before the shared-movement fix, this fixture failed with `bare fixed-model roof rejected mower placement`.

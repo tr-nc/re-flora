@@ -820,7 +820,7 @@ fn draw_tool_panel_slot(
     };
     let (rect, response) = ui.allocate_exact_size(theme.slot_size, sense);
     let response = if slot.index == MOWER_SLOT_INDEX && slot.label == "Mower" {
-        response.on_hover_text("Mower [L]\nZoomed-out orbit/cursor mode only.\nLMB: place on terrain, then hold and drag the mower to guide it.\nRelease: stop. Fixed top speed; slow pointer movement is followed directly.\nCuts plants shorter without removing them. Mower position lasts this session.")
+        response.on_hover_text("Mower [L]\nZoomed-out orbit/cursor mode only.\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
     } else {
         response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint))
     };

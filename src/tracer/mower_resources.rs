@@ -3,14 +3,14 @@ use super::static_scene::{StaticSceneMesh, StaticSceneVertex};
 use crate::resource::Resource;
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Vec3, Vec4};
+use glam::{Quat, Vec3, Vec4};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct MowerInstance {
     position: [f32; 3],
-    yaw: f32,
+    rotation: [f32; 4],
 }
 
 pub(super) struct MowerRendererResources {
@@ -21,9 +21,9 @@ pub(super) struct MowerRendererResources {
     device: Device,
     allocator: Allocator,
     frame_instances: Vec<Resource<Buffer>>,
-    frame_poses: Vec<Option<(Vec3, f32)>>,
+    frame_poses: Vec<Option<(Vec3, Quat)>>,
     frame_slot: usize,
-    pending_pose: Option<(Vec3, f32)>,
+    pending_pose: Option<(Vec3, Quat)>,
 }
 
 impl MowerRendererResources {
@@ -62,17 +62,17 @@ impl MowerRendererResources {
         }
     }
 
-    pub fn show(&mut self, position: Option<Vec3>, yaw: f32) -> Result<()> {
+    pub fn show(&mut self, position: Option<Vec3>, rotation: Quat) -> Result<()> {
         let Some(position) = position else {
             self.visible = false;
             self.pending_pose = None;
             return Ok(());
         };
         ensure!(
-            position.is_finite() && yaw.is_finite(),
+            position.is_finite() && rotation.is_finite() && rotation.is_normalized(),
             "nonfinite mower pose"
         );
-        self.pending_pose = Some((position, yaw));
+        self.pending_pose = Some((position, rotation));
         self.visible = true;
         Ok(())
     }
@@ -81,7 +81,7 @@ impl MowerRendererResources {
     /// Never overwrite a transform buffer still read by another in-flight frame.
     pub fn prepare_frame(&mut self, slot: usize) -> Result<()> {
         self.frame_slot = slot;
-        let Some((position, yaw)) = self.pending_pose else {
+        let Some((position, rotation)) = self.pending_pose else {
             return Ok(());
         };
         while self.frame_instances.len() <= slot {
@@ -97,7 +97,7 @@ impl MowerRendererResources {
         if self.frame_poses[slot] != self.pending_pose {
             self.frame_instances[slot].fill(&[MowerInstance {
                 position: position.to_array(),
-                yaw,
+                rotation: rotation.to_array(),
             }])?;
             self.frame_poses[slot] = self.pending_pose;
         }
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn model_is_grounded_finite_and_outward_wound() {
         let mesh = mower_mesh();
-        assert_eq!(std::mem::size_of::<MowerInstance>(), 16);
+        assert_eq!(std::mem::size_of::<MowerInstance>(), 28);
         let min_y = mesh
             .vertices
             .iter()
