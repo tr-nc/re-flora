@@ -115,7 +115,7 @@ value = 1
 options = [
     "Continuous silhouette (reference)",
     "World-direction pixels (rotation-stable source)",
-    "Surface-attached cells (continuous silhouette)",
+    "Surface-attached cells (material A / block geometry B)",
 ]
 
 [[section.param]]
@@ -136,7 +136,7 @@ max = 2048
 [[section.param]]
 id = "flower_stem_surface_cell_scale"
 kind = "float"
-label = "Flower stems: surface cell size / stem edge"
+label = "Surface-attached stems A: material cell size (continuous silhouette)"
 type = "Float"
 
 [section.param.enabled_if]
@@ -188,6 +188,34 @@ equals = true
 
 [section.param.data]
 value = false
+
+[[section.param]]
+id = "flower_stem_surface_geometry"
+kind = "bool"
+label = "Surface-attached stems: block geometry B (off = continuous A)"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "flower_stem_experiment"
+equals = true
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "flower_stem_geometry_cell_scale"
+kind = "float"
+label = "Surface-attached stems B: geometry cell size (larger = blockier)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "flower_stem_surface_geometry"
+equals = true
+
+[section.param.data]
+value = 1
+min = 0.25
+max = 4
 
 [[section.param]]
 id = "flower_stem_object_sampling"

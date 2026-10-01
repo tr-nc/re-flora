@@ -20,8 +20,8 @@ impl FlowerModelReview {
         let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
             return Ok(None);
         };
-        ensure!(["a", "b", "ab", "controls", "stems", "stem-original", "stem-continuous", "stem-direction", "stem-surface", "stem-contract", "stem-contract-a-near", "stem-contract-a-far", "stem-contract-b-near", "stem-contract-b-far"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (live sampling/camera sweep), stem-contract (sampling A/B with dolly), or stem-original/continuous/direction/surface and stem-contract-a/b-near/far (fixed captures)");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-original", "stem-continuous", "stem-direction", "stem-surface", "stem-contract", "stem-contract-a-near", "stem-contract-a-far", "stem-contract-b-near", "stem-contract-b-far", "stem-blocks", "stem-blocks-a", "stem-blocks-b", "stem-blocks-fine", "stem-blocks-coarse"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (live sampling/camera sweep), stem-contract (sampling A/B with dolly), stem-blocks (geometry A/B sweep), stem-blocks-a/b/fine/coarse (fixed captures), or stem-original/continuous/direction/surface and stem-contract-a/b-near/far (fixed captures)");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -42,6 +42,8 @@ impl App {
         let stem_mode = review.mode.clone();
         let phase = if stem_mode == "stem-contract" {
             (frame / 24).min(11)
+        } else if stem_mode == "stem-blocks" {
+            (frame / 24).min(7)
         } else if stem_mode == "stems" {
             (frame / 24).min(15)
         } else if controls {

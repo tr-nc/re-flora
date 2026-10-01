@@ -1,5 +1,6 @@
 import flower_model;
 import flower_stem_geometry;
+import flower_stem_blocks;
 import flower_stem_experiment;
 import model_pixel_projection;
 struct StemFragment {
@@ -22,7 +23,8 @@ StemFragment main(StemProxyVertex input) {
     float3 ro=stemToLocalVector(input,sampleOrigin-input.root_scale.xyz)/input.root_scale.w;
     float3 rd=stemToLocalVector(input,sampleRay);
     StemGeometry s=stemGeometry(input);
-    StemHit hit=traceStem(s,ro,rd);
+    bool blockGeometry=mode==2u&&flowerStemShapeSettings().w<0.0;
+    StemHit hit=blockGeometry?traceStemBlocks(s,ro,rd,input.motion_edge.w*-flowerStemShapeSettings().w):traceStem(s,ro,rd);
     // Same transparent/far-depth miss convention as model_pixel_display.
     // The pipeline uses LESS depth: a miss cannot overwrite any scene depth.
     // Avoid discard, which requires an unenabled Vulkan demote capability on
@@ -31,7 +33,8 @@ StemFragment main(StemProxyVertex input) {
     if(hit.distance>=1e19)return output;
     float3 world=stemWorldPoint(input,hit.point);
     float3 shadePoint=hit.point,shadeNormal=hit.normal;
-    if(mode==2u)stemSurfaceCell(s,hit,input.motion_edge.w*flowerStemShapeSettings().y,shadePoint,shadeNormal);
+    if(blockGeometry)shadePoint=stemCenter(s,hit.branch,hit.parameter);
+    else if(mode==2u)stemSurfaceCell(s,hit,input.motion_edge.w*flowerStemShapeSettings().y,shadePoint,shadeNormal);
     float3 color=flowerStemColor(shadePoint.y,s.height);
     output.color=float4(shadeFlower(color,stemWorldPoint(input,shadePoint),stemToWorldVector(input,shadeNormal)),1);
     // A direction texel is a little plane perpendicular to its fixed source

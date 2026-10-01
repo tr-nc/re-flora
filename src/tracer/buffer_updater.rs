@@ -300,6 +300,8 @@ impl BufferUpdater {
                 stems.freeze_motion as u32 as f32,
                 if stems.object_grid_active() {
                     stems.object_resolution as f32
+                } else if stems.surface_geometry_active() {
+                    -stems.geometry_cell_scale
                 } else {
                     0.
                 },

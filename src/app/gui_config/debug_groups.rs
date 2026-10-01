@@ -23,6 +23,8 @@ const GROUPS: &[ControlGroup] = &[
             "flower_stem_object_sampling",
             "flower_stem_object_resolution",
             "flower_stem_surface_cell_scale",
+            "flower_stem_surface_geometry",
+            "flower_stem_geometry_cell_scale",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
             "flower_stem_freeze_motion",

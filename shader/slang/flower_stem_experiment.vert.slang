@@ -43,6 +43,10 @@ StemProxyVertex main(VertexInput input) {
     } else {
         // Unchanged A/continuous/surface conservative analytic proxy.
         float3 lo,hi;stemBounds(s,lo,hi);
+        if(flowerStemShapeSettings().w<0.0) {
+            float margin=2.0*output.motion_edge.w*-flowerStemShapeSettings().w;
+            lo-=margin;hi+=margin;
+        }
         if(flowerStemSamplingSettings().y==1u) {
             float distance=length(camera_info.pos.xyz-output.root_scale.xyz)+
                 max(length(lo),length(hi))*pose.frame.scale;
