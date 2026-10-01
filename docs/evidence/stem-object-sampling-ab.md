@@ -1,5 +1,7 @@
 # 花茎采样契约：角度 A / 固定物体 B
 
+当前入口见 [`stem-selector-controls.md`](stem-selector-controls.md)：World-direction 从统一 Flower stems selector 选择，不再使用总 experimental checkbox；下面保留原始实现记录。
+
 ## 玩家入口
 
 **R → Debug → Pixel Sampling — Flower Stems**，启用 experimental，选择 **World-direction pixels**。

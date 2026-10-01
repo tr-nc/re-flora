@@ -3,14 +3,12 @@
 //! flower_stem_geometry.slang; switching never rebuilds the flower surface bank.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StemExperiment {
-    pub enabled: bool,
-    /// 0: continuous reference, 1: world-direction cells, 2: surface cells.
+    /// 0: original cube stems, 1: world-direction, 2: surface-attached.
     pub sampling: u32,
     pub direction_resolution: u32,
     /// B affects direction mode only; A keeps camera-origin angular cells.
     pub object_sampling: bool,
     pub object_resolution: u32,
-    pub surface_cell_scale: f32,
     pub surface_geometry: bool,
     pub geometry_cell_scale: f32,
     pub radius_scale: f32,
@@ -21,12 +19,10 @@ pub struct StemExperiment {
 impl Default for StemExperiment {
     fn default() -> Self {
         Self {
-            enabled: false,
-            sampling: 1,
+            sampling: 0,
             direction_resolution: 512,
             object_sampling: false,
             object_resolution: 256,
-            surface_cell_scale: 1.,
             surface_geometry: false,
             geometry_cell_scale: 1.,
             radius_scale: 0.7,
@@ -49,15 +45,18 @@ impl StemExperiment {
             sampling: self.sampling.min(2),
             direction_resolution: self.direction_resolution.clamp(128, 2048),
             object_resolution: self.object_resolution.clamp(32, 512),
-            surface_cell_scale: finite(self.surface_cell_scale, 1., 0.25, 4.),
             geometry_cell_scale: finite(self.geometry_cell_scale, 1., 0.25, 4.),
             radius_scale: finite(self.radius_scale, 0.7, 0.25, 2.),
             ..self
         }
     }
 
+    pub fn enabled(self) -> bool {
+        self.sampling != 0
+    }
+
     pub fn surface_geometry_active(self) -> bool {
-        self.enabled && self.sampling == 2 && self.surface_geometry
+        self.sampling == 2 && self.surface_geometry
     }
 
     pub fn geometry_padding(self, maximum_edge_world: f32) -> f32 {
@@ -69,7 +68,7 @@ impl StemExperiment {
     }
 
     pub fn object_grid_active(self) -> bool {
-        self.enabled && self.sampling == 1 && self.object_sampling
+        self.sampling == 1 && self.object_sampling
     }
 
     /// Source-cell fringe for conservative frustum culling; unlike A this never
@@ -89,7 +88,7 @@ impl StemExperiment {
     /// even when the displayed fragment lies just outside its geometric bound.
     pub fn angular_padding(self, maximum_distance: f32) -> f32 {
         let s = self.normalized();
-        if s.enabled && s.sampling == 1 && !s.object_sampling {
+        if s.sampling == 1 && !s.object_sampling {
             maximum_distance.max(0.) * 4. / s.direction_resolution as f32
         } else {
             0.
@@ -104,7 +103,6 @@ mod tests {
     #[test]
     fn surface_geometry_ab_is_live_bounded_and_surface_only() {
         let b = StemExperiment {
-            enabled: true,
             sampling: 2,
             surface_geometry: true,
             geometry_cell_scale: f32::NAN,
@@ -139,7 +137,7 @@ mod tests {
     #[test]
     fn object_ab_only_changes_direction_contract_and_uses_spatial_padding() {
         let b = StemExperiment {
-            enabled: true,
+            sampling: 1,
             object_sampling: true,
             object_resolution: 0,
             ..StemExperiment::default()
@@ -173,24 +171,21 @@ mod tests {
     #[test]
     fn live_policy_is_bounded_and_off_means_original() {
         let original = StemExperiment::default();
-        assert!(!original.enabled);
+        assert!(!original.enabled());
         assert_eq!(original.angular_padding(100.), 0.);
         let bad = StemExperiment {
-            enabled: true,
             sampling: u32::MAX,
             direction_resolution: 0,
-            surface_cell_scale: f32::NAN,
             radius_scale: f32::INFINITY,
             ..original
         }
         .normalized();
         assert_eq!(bad.sampling, 2);
         assert_eq!(bad.direction_resolution, 128);
-        assert_eq!(bad.surface_cell_scale, 1.);
         assert_eq!(bad.radius_scale, 0.7);
         assert_eq!(bad.angular_padding(100.), 0.);
         let direction = StemExperiment {
-            enabled: true,
+            sampling: 1,
             ..original
         };
         assert_eq!(direction.angular_padding(100.), 100. * 4. / 512.);

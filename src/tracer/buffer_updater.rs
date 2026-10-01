@@ -289,14 +289,14 @@ impl BufferUpdater {
             flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
             flower_stem_tip: appearance.flower_stem_tip.to_array(),
             flower_stem_sampling: [
-                stems.enabled as u32,
+                stems.enabled() as u32,
                 stems.sampling,
                 stems.direction_resolution,
                 stems.branches as u32,
             ],
             flower_stem_shape: [
                 stems.radius_scale,
-                stems.surface_cell_scale,
+                0., // retired material-cell control; A uses authored stem edge
                 stems.freeze_motion as u32 as f32,
                 if stems.object_grid_active() {
                     stems.object_resolution as f32

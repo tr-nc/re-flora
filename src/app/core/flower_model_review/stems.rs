@@ -6,21 +6,19 @@ use anyhow::{ensure, Result};
 use glam::{Quat, Vec3};
 
 fn policy(mode: &str, phase: u32) -> StemExperiment {
-    // -1 is the original pipeline, including a return after experimental draws.
+    // The saved selector is the only authority: 0 original, 1 direction, 2 surface.
     let method = match mode {
-        "stem-original" => -1,
-        "stem-continuous" => 0,
+        "stem-original" => 0,
         "stem-direction" => 1,
         "stem-surface" => 2,
         mode if mode.starts_with("stem-blocks") => 2,
         mode if mode.starts_with("stem-contract") => 1,
-        "stems" => [-1, 0, 1, 2, -1, 0, 1, 2, 1, 2, 0, 1, 1, 2, 1, -1][phase.min(15) as usize],
+        "stems" => [0, 1, 2, 0, 0, 1, 2, 0, 1, 2, 2, 1, 1, 2, 1, 0][phase.min(15) as usize],
         _ => unreachable!("validated stem review mode"),
     };
     let sweep = mode == "stems";
     StemExperiment {
-        enabled: method >= 0,
-        sampling: method.max(0) as u32,
+        sampling: method,
         direction_resolution: if sweep && phase == 11 {
             128
         } else if sweep && phase == 12 {
@@ -40,7 +38,6 @@ fn policy(mode: &str, phase: u32) -> StemExperiment {
         } else {
             256
         },
-        surface_cell_scale: if sweep && phase == 13 { 4. } else { 1. },
         surface_geometry: if mode == "stem-blocks" {
             (1..=6).contains(&phase)
         } else {
@@ -79,12 +76,10 @@ impl App {
     ) -> Result<()> {
         let p = policy(mode, phase);
         let s = &mut self.debug_settings.adjustables;
-        s.flower_stem_experiment.value = p.enabled;
         s.flower_stem_sampling.value = p.sampling;
         s.flower_stem_direction_resolution.value = p.direction_resolution;
         s.flower_stem_object_sampling.value = p.object_sampling;
         s.flower_stem_object_resolution.value = p.object_resolution;
-        s.flower_stem_surface_cell_scale.value = p.surface_cell_scale;
         s.flower_stem_surface_geometry.value = p.surface_geometry;
         s.flower_stem_geometry_cell_scale.value = p.geometry_cell_scale;
         s.flower_stem_radius_scale.value = p.radius_scale;
@@ -158,7 +153,7 @@ impl App {
         if (phase_count > 1 && frame.is_multiple_of(24) && frame < phase_count * 24)
             || (phase_count == 1 && frame == 0)
         {
-            log::info!("[STEM_REVIEW_PHASE] phase={phase} enabled={} method={} motion={motion} resolution={} branches={} freeze={} object={} object_pixels={} geometry={} geometry_cells={} saved=false", p.enabled, p.sampling, p.direction_resolution, p.branches, p.freeze_motion, p.object_sampling, p.object_resolution, p.surface_geometry, p.geometry_cell_scale);
+            log::info!("[STEM_REVIEW_PHASE] phase={phase} enabled={} method={} motion={motion} resolution={} branches={} freeze={} object={} object_pixels={} geometry={} geometry_cells={} saved=false", p.enabled(), p.sampling, p.direction_resolution, p.branches, p.freeze_motion, p.object_sampling, p.object_resolution, p.surface_geometry, p.geometry_cell_scale);
         }
         if contract && frame.is_multiple_of(24) && frame <= 11 * 24 {
             log::info!("[STEM_CONTRACT_PHASE] phase={phase} object={} pixels={} direction={} views={} distance={} saved=false",p.object_sampling,p.object_resolution,p.direction_resolution,s.model_flower_view_count.value,(camera-target).length());
@@ -209,7 +204,7 @@ mod tests {
     #[test]
     fn review_covers_both_cameras_every_mode_and_returns_to_original() {
         for phase in 0..4 {
-            assert_eq!(policy("stems", phase).enabled, phase != 0);
+            assert_eq!(policy("stems", phase).enabled(), matches!(phase, 1 | 2));
             assert_eq!(policy("stems", phase + 4), policy("stems", phase));
         }
         assert!(!policy("stems", 8).freeze_motion);
@@ -217,6 +212,6 @@ mod tests {
         assert_eq!(policy("stems", 11).direction_resolution, 128);
         assert_eq!(policy("stems", 12).direction_resolution, 2048);
         assert!(!policy("stems", 13).branches);
-        assert!(!policy("stems", 15).enabled);
+        assert!(!policy("stems", 15).enabled());
     }
 }

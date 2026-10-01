@@ -93,12 +93,10 @@ pub(super) fn freeze_render_frame_inputs(
                 size_scale: gui.model_flower_size_scale.value,
             },
             stem_experiment: crate::flora::models::StemExperiment {
-                enabled: gui.flower_stem_experiment.value,
                 sampling: gui.flower_stem_sampling.value,
                 direction_resolution: gui.flower_stem_direction_resolution.value,
                 object_sampling: gui.flower_stem_object_sampling.value,
                 object_resolution: gui.flower_stem_object_resolution.value,
-                surface_cell_scale: gui.flower_stem_surface_cell_scale.value,
                 surface_geometry: gui.flower_stem_surface_geometry.value,
                 geometry_cell_scale: gui.flower_stem_geometry_cell_scale.value,
                 radius_scale: gui.flower_stem_radius_scale.value,
@@ -327,12 +325,10 @@ mod tests {
         gui.model_flower_height_variance.value = 0.09;
         gui.model_flower_voxel_scale.value = 0.9;
         gui.model_flower_size_scale.value = 1.25;
-        gui.flower_stem_experiment.value = true;
         gui.flower_stem_sampling.value = 2;
         gui.flower_stem_direction_resolution.value = 768;
         gui.flower_stem_object_sampling.value = true;
         gui.flower_stem_object_resolution.value = 192;
-        gui.flower_stem_surface_cell_scale.value = 1.5;
         gui.flower_stem_surface_geometry.value = true;
         gui.flower_stem_geometry_cell_scale.value = 2.5;
         gui.flower_stem_radius_scale.value = 0.8;
@@ -524,12 +520,10 @@ mod tests {
                     flower_stem_bottom,
                     flower_stem_tip,
                     stem_experiment: crate::flora::models::StemExperiment {
-                        enabled: true,
                         sampling: 2,
                         direction_resolution: 768,
                         object_sampling: true,
                         object_resolution: 192,
-                        surface_cell_scale: 1.5,
                         surface_geometry: true,
                         geometry_cell_scale: 2.5,
                         radius_scale: 0.8,

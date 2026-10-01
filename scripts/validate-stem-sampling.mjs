@@ -9,7 +9,7 @@ import {spawnSync} from 'node:child_process';
 
 const help = `Usage: node scripts/validate-stem-sampling.mjs [--seconds <positive-number>]
 
-Capture original, continuous, world-direction and surface-attached flower stems
+Capture original, world-direction and surface-attached flower stems
 in hidden muted Release mode, then exercise all modes with fixed-position yaw /
 pitch and orbit, wind, density/radius extremes, near-plane clipping and resize.
 Requires Cargo, Slang, Vulkan and a desktop display. GUI settings are never saved.
@@ -39,7 +39,7 @@ const before = configHash();
 const speciesCount = JSON.parse(fs.readFileSync(path.join(root, 'assets/models/flowers.json'))).flowers.length;
 const summary = {configSha256: before, speciesCount, runs: []};
 try {
-  for (const mode of ['stem-original', 'stem-continuous', 'stem-direction', 'stem-surface', 'stems']) {
+  for (const mode of ['stem-original', 'stem-direction', 'stem-surface', 'stems']) {
     const sweep = mode === 'stems';
     const image = path.join(output, `${mode}.png`);
     if (!sweep) fs.rmSync(image, {force: true});
@@ -77,7 +77,7 @@ try {
         if (i >= 4 && i <= 9) assert.ok(new Set(cameras.map(m => m[1])).size > 1, 'orbit must move camera');
         return {phase: i, enabled: m[2] === 'true', method: +m[3], motion: m[4], species: [...draws]};
       });
-      assert.deepEqual(run.phases.slice(0, 4).map(p => [p.enabled, p.method]), [[false, 0], [true, 0], [true, 1], [true, 2]]);
+      assert.deepEqual(run.phases.slice(0, 4).map(p => [p.enabled, p.method]), [[false, 0], [true, 1], [true, 2], [false, 0]]);
       assert.equal(run.phases[15].enabled, false, 'must return to original after all candidates');
       const resize = log.indexOf('[FLOWER_REVIEW_RESIZE] after_submitted_frames=72');
       assert.ok(resize >= 0 && log.slice(resize).includes('[RESIZE_LIFECYCLE] phase=published'), 'resize after experimental draws');
@@ -95,7 +95,7 @@ try {
     assert.equal(configHash(), before, 'review changed saved GUI settings');
   }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
-  console.log(`PASS: four captures, 16 live phases, both camera motions and clean Vulkan logs.\n${output}/summary.json\nVisual approval and release performance acceptance remain separate.`);
+  console.log(`PASS: three captures, 16 live phases, both camera motions and clean Vulkan logs.\n${output}/summary.json\nVisual approval and release performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/; native log: cargo run --release -- --latest-log`);
   process.exitCode = 1;

@@ -68,6 +68,7 @@ impl GuiConfigLoader {
 
         Self::retire_cloud_settings(&mut config);
         Self::retire_tree_display_experiments(&mut config);
+        Self::migrate_flower_stem_selector(&mut config);
         for id in [
             "real_leaf_lifecycle",
             "leaf_connection_strength",
@@ -166,6 +167,76 @@ impl GuiConfigLoader {
         );
 
         config
+    }
+
+    // Keep retained mode indices: 0 now means original, 1/2 retain their meaning.
+    // Refresh only presentation metadata; hidden settings keep their saved values.
+    fn migrate_flower_stem_selector(config: &mut GuiConfigFile) {
+        let old_enabled = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "flower_stem_experiment")
+            .and_then(|p| {
+                if let GuiParamValue::Bool { value } = p.value {
+                    Some(value)
+                } else {
+                    None
+                }
+            });
+        let had_selector = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "flower_stem_sampling");
+        for section in &mut config.section {
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "flower_stem_experiment" | "flower_stem_surface_cell_scale"
+                )
+            });
+        }
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        for schema in defaults
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .filter(|p| p.id.starts_with("flower_stem_"))
+        {
+            if !config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == schema.id)
+            {
+                Self::add_missing_param(config, "Debug", &schema.id);
+            }
+            for param in config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .filter(|p| p.id == schema.id)
+            {
+                param.label.clone_from(&schema.label);
+                param.enabled_if.clone_from(&schema.enabled_if);
+                if param.id == "flower_stem_sampling" {
+                    if let (
+                        GuiParamValue::Choice { value, options },
+                        GuiParamValue::Choice { options: fresh, .. },
+                    ) = (&mut param.value, &schema.value)
+                    {
+                        *value = if old_enabled == Some(false) || !had_selector {
+                            0
+                        } else {
+                            (*value).min(2)
+                        };
+                        options.clone_from(fresh);
+                    }
+                }
+            }
+        }
     }
 
     // Return saved experimental files to main's voxel-derived tree/leaf display.
@@ -829,6 +900,125 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn flower_stem_selector_migrates_old_enablement_and_retires_controls_without_saving() {
+        use crate::app::gui_config_model::{
+            GuiParamConditionValue, GuiParamEnabledIf, GuiParamValue as Value,
+        };
+        for enabled in [false, true] {
+            for mode in 0..=2 {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let debug = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                let mut flag = debug
+                    .param
+                    .iter()
+                    .find(|p| p.id == "flower_stem_test_branches")
+                    .unwrap()
+                    .clone();
+                flag.id = "flower_stem_experiment".into();
+                flag.value = Value::Bool { value: enabled };
+                debug.param.push(flag);
+                let mut material = debug
+                    .param
+                    .iter()
+                    .find(|p| p.id == "flower_stem_geometry_cell_scale")
+                    .unwrap()
+                    .clone();
+                material.id = "flower_stem_surface_cell_scale".into();
+                debug.param.push(material);
+                let selector = debug
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "flower_stem_sampling")
+                    .unwrap();
+                selector.enabled_if = Some(GuiParamEnabledIf {
+                    param: "flower_stem_experiment".into(),
+                    equals: GuiParamConditionValue::Bool(true),
+                });
+                selector.value = Value::Choice {
+                    value: mode,
+                    options: vec![
+                        "Continuous silhouette (reference)".into(),
+                        "World-direction".into(),
+                        "Surface-attached".into(),
+                    ],
+                };
+                let radius = debug
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "flower_stem_radius_scale")
+                    .unwrap();
+                radius.enabled_if = selector_condition();
+                if let Value::Float { value, .. } = &mut radius.value {
+                    *value = 1.27;
+                }
+                if let Value::Uint { value, .. } = &mut debug
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "flower_stem_direction_resolution")
+                    .unwrap()
+                    .value
+                {
+                    *value = 771;
+                }
+                let file = std::env::temp_dir().join(format!(
+                    "re-flora-stem-selector-{}-{enabled}-{mode}.toml",
+                    std::process::id()
+                ));
+                GuiConfigLoader::save_to_path(&config, &file).unwrap();
+                let before = std::fs::read(&file).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&file);
+                assert_eq!(std::fs::read(&file).unwrap(), before);
+                let params = loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .collect::<Vec<_>>();
+                assert!(!params.iter().any(|p| matches!(
+                    p.id.as_str(),
+                    "flower_stem_experiment" | "flower_stem_surface_cell_scale"
+                )));
+                let selector = params
+                    .iter()
+                    .find(|p| p.id == "flower_stem_sampling")
+                    .unwrap();
+                assert!(selector.enabled_if.is_none());
+                assert!(
+                    matches!(&selector.value, Value::Choice { value, options } if *value == if enabled { mode } else { 0 } && options[0] == "Original cube stems")
+                );
+                assert!(
+                    matches!(params.iter().find(|p| p.id == "flower_stem_radius_scale").unwrap().value, Value::Float { value, .. } if value == 1.27)
+                );
+                assert!(matches!(
+                    params
+                        .iter()
+                        .find(|p| p.id == "flower_stem_direction_resolution")
+                        .unwrap()
+                        .value,
+                    Value::Uint { value: 771, .. }
+                ));
+                GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
+                let once = toml::to_string(&loaded).unwrap();
+                assert_eq!(
+                    once,
+                    toml::to_string(&GuiConfigLoader::load_from_path(&file)).unwrap()
+                );
+                std::fs::remove_file(file).unwrap();
+            }
+        }
+        fn selector_condition() -> Option<GuiParamEnabledIf> {
+            Some(GuiParamEnabledIf {
+                param: "flower_stem_experiment".into(),
+                equals: GuiParamConditionValue::Bool(true),
+            })
+        }
+    }
+
     #[test]
     fn main_saves_gain_lifecycle_controls_without_changing_authored_display() {
         let mut config: GuiConfigFile =

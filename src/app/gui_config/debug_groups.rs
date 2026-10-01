@@ -14,15 +14,13 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Sampling — Flower Stems",
-        description: "Live A/B; off restores the original cube stems. All three candidates use the same tapered skeleton. Direction cells tilt with the view: fixed-position rotation preserves source rays, walking does not. Surface cells follow the plant but keep a continuous silhouette. Thin direction-sampled branches can disappear; no minimum-width or temporal filter is hidden here. Test forks are bare branches, not new flower heads. Direction density and surface cell size affect only their respective modes.",
+        description: "Select a stem renderer; only its active controls are shown.",
         initially_open: true,
         params: &[
-            "flower_stem_experiment",
             "flower_stem_sampling",
-            "flower_stem_direction_resolution",
             "flower_stem_object_sampling",
+            "flower_stem_direction_resolution",
             "flower_stem_object_resolution",
-            "flower_stem_surface_cell_scale",
             "flower_stem_surface_geometry",
             "flower_stem_geometry_cell_scale",
             "flower_stem_radius_scale",
@@ -119,6 +117,28 @@ fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }
 
+fn stem_control_visible(id: &str, mode: u32, object_b: bool, geometry_b: bool) -> bool {
+    match id {
+        "flower_stem_sampling" => true,
+        "flower_stem_object_sampling" => mode == 1,
+        "flower_stem_direction_resolution" => mode == 1 && !object_b,
+        "flower_stem_object_resolution" => mode == 1 && object_b,
+        "flower_stem_surface_geometry" => mode == 2,
+        "flower_stem_geometry_cell_scale" => mode == 2 && geometry_b,
+        _ => mode != 0,
+    }
+}
+
+fn stem_description(mode: u32, object_b: bool, geometry_b: bool) -> &'static str {
+    match mode {
+        1 if object_b => "World-direction B: fixed object pixels; distance changes display size, not source resolution.",
+        1 => "World-direction A: angular source cells. Thin stems can lose samples with distance.",
+        2 if geometry_b => "Surface-attached B: real block geometry follows the plant. Larger cells are blockier and can change thickness.",
+        2 => "Surface-attached A: continuous geometry with fixed material cells. Enable B to adjust geometric pixelization.",
+        _ => "Original cube stems; no experimental parameters apply.",
+    }
+}
+
 pub(super) fn render(
     ui: &mut egui::Ui,
     section: &GuiSection,
@@ -140,6 +160,37 @@ pub(super) fn render(
             .id_salt(("debug_controls", group.title))
             .default_open(group.initially_open)
             .show(ui, |ui| {
+                if group.title == "Pixel Sampling — Flower Stems" {
+                    if let Some(param) = section
+                        .param
+                        .iter()
+                        .find(|p| p.id == "flower_stem_sampling")
+                    {
+                        render_gui_param_from_config(ui, param, &section.name, adjustables);
+                    }
+                    ui.weak(stem_description(
+                        adjustables.flower_stem_sampling.value,
+                        adjustables.flower_stem_object_sampling.value,
+                        adjustables.flower_stem_surface_geometry.value,
+                    ));
+                    for id in group
+                        .params
+                        .iter()
+                        .filter(|id| **id != "flower_stem_sampling")
+                    {
+                        if stem_control_visible(
+                            id,
+                            adjustables.flower_stem_sampling.value,
+                            adjustables.flower_stem_object_sampling.value,
+                            adjustables.flower_stem_surface_geometry.value,
+                        ) {
+                            if let Some(param) = section.param.iter().find(|p| p.id == *id) {
+                                render_gui_param_from_config(ui, param, &section.name, adjustables);
+                            }
+                        }
+                    }
+                    return;
+                }
                 ui.weak(group.description);
                 ui.add_space(4.0);
                 if group.title == "Pixel Models — Global" {
@@ -189,6 +240,78 @@ mod tests {
     use super::*;
     use crate::app::gui_config::{DebugSettings, GuiConfigLoader};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn stem_dropdown_renders_only_relevant_controls_without_resetting_hidden_values() {
+        let group = GROUPS
+            .iter()
+            .find(|g| g.title == "Pixel Sampling — Flower Stems")
+            .unwrap();
+        for (mode, object_b, geometry_b) in [
+            (0, true, true),
+            (1, false, true),
+            (1, true, true),
+            (2, true, false),
+            (2, true, true),
+        ] {
+            let mut settings = DebugSettings::load();
+            settings.adjustables.flower_stem_sampling.value = mode;
+            settings.adjustables.flower_stem_object_sampling.value = object_b;
+            settings.adjustables.flower_stem_surface_geometry.value = geometry_b;
+            settings.adjustables.flower_stem_object_resolution.value = 192;
+            settings.adjustables.flower_stem_geometry_cell_scale.value = 2.5;
+            settings.sync_config();
+            let before = serde_json::to_value(&settings.config).unwrap();
+            let context = egui::Context::default();
+            context.memory_mut(|memory| memory.set_everything_is_visible(true));
+            let output = context.run_ui(egui::RawInput::default(), |ui| {
+                settings.draw(ui, |_, _| {});
+            });
+            let text = format!("{:?}", output.shapes);
+            let mut expected = vec!["flower_stem_sampling"];
+            if mode != 0 {
+                expected.extend([
+                    "flower_stem_radius_scale",
+                    "flower_stem_test_branches",
+                    "flower_stem_freeze_motion",
+                ]);
+            }
+            match mode {
+                1 => {
+                    expected.push("flower_stem_object_sampling");
+                    expected.push(if object_b {
+                        "flower_stem_object_resolution"
+                    } else {
+                        "flower_stem_direction_resolution"
+                    });
+                }
+                2 => {
+                    expected.push("flower_stem_surface_geometry");
+                    if geometry_b {
+                        expected.push("flower_stem_geometry_cell_scale");
+                    }
+                }
+                _ => {}
+            }
+            for id in group.params {
+                let label = &settings
+                    .config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == *id)
+                    .unwrap()
+                    .label;
+                assert_eq!(
+                    text.contains(label),
+                    expected.contains(id),
+                    "mode={mode} object={object_b} geometry={geometry_b} id={id}"
+                );
+            }
+            settings.sync_config();
+            assert_eq!(serde_json::to_value(&settings.config).unwrap(), before);
+        }
+    }
 
     #[test]
     fn optional_ddgi_candidates_are_isolated_in_a_collapsed_experiment_group() {

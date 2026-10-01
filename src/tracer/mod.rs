@@ -3043,7 +3043,7 @@ impl Tracer {
         self.flower_model_settings = flowers;
         let stems = vegetation.appearance.stem_experiment.normalized();
         if stems != self.flower_stem_experiment {
-            log::info!("[FLOWER_STEM_SAMPLING] enabled={} method={} direction_resolution={} surface_cell_scale={} radius_scale={} branches={} freeze_motion={} head_cache_unchanged=true", stems.enabled, stems.sampling, stems.direction_resolution, stems.surface_cell_scale, stems.radius_scale, stems.branches, stems.freeze_motion);
+            log::info!("[FLOWER_STEM_SAMPLING] enabled={} method={} direction_resolution={} radius_scale={} branches={} freeze_motion={} head_cache_unchanged=true", stems.enabled(), stems.sampling, stems.direction_resolution, stems.radius_scale, stems.branches, stems.freeze_motion);
         }
         self.flower_stem_experiment = stems;
         self.flower_spawn_overshoot_voxels = vegetation
@@ -4699,7 +4699,7 @@ impl Tracer {
                                             .graphics()
                                             .flower_pixel_ppl,
                                     },
-                                    if self.flower_stem_experiment.enabled {
+                                    if self.flower_stem_experiment.enabled() {
                                         &self
                                             .pipeline_topology
                                             .graphics()
@@ -4707,7 +4707,7 @@ impl Tracer {
                                     } else {
                                         &self.pipeline_topology.graphics().flower_stem_ppl
                                     },
-                                    self.flower_stem_experiment.enabled,
+                                    self.flower_stem_experiment.enabled(),
                                     count,
                                     push,
                                     &descriptors,

@@ -34,7 +34,7 @@ StemFragment main(StemProxyVertex input) {
     float3 world=stemWorldPoint(input,hit.point);
     float3 shadePoint=hit.point,shadeNormal=hit.normal;
     if(blockGeometry)shadePoint=stemCenter(s,hit.branch,hit.parameter);
-    else if(mode==2u)stemSurfaceCell(s,hit,input.motion_edge.w*flowerStemShapeSettings().y,shadePoint,shadeNormal);
+    else if(mode==2u)stemSurfaceCell(s,hit,input.motion_edge.w,shadePoint,shadeNormal);
     float3 color=flowerStemColor(shadePoint.y,s.height);
     output.color=float4(shadeFlower(color,stemWorldPoint(input,shadePoint),stemToWorldVector(input,shadeNormal)),1);
     // A direction texel is a little plane perpendicular to its fixed source

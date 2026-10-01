@@ -1,5 +1,7 @@
 # Surface-attached 茎：几何格大小 A/B
 
+当前统一 selector／动态控件见 [`stem-selector-controls.md`](stem-selector-controls.md)：experimental checkbox 和 A material slider 已退休；下文记录原实现和验证。
+
 ## 使用
 
 R → Debug → **Pixel Sampling — Flower Stems**，启用实验，选择 **Surface-attached cells (material A / block geometry B)**。

@@ -92,28 +92,15 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
-id = "flower_stem_experiment"
-kind = "bool"
-label = "Flower stems: experimental sampling (off = original)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "flower_stem_sampling"
 kind = "choice"
-label = "Flower stems: sampling method"
+label = "Flower stems"
 type = "Choice"
 
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
 [section.param.data]
-value = 1
+value = 0
 options = [
-    "Continuous silhouette (reference)",
+    "Original cube stems",
     "World-direction pixels (rotation-stable source)",
     "Surface-attached cells (material A / block geometry B)",
 ]
@@ -125,8 +112,8 @@ label = "Flower stems A: direction cells per cube face"
 type = "Uint"
 
 [section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
+param = "flower_stem_object_sampling"
+equals = false
 
 [section.param.data]
 value = 512
@@ -134,29 +121,10 @@ min = 128
 max = 2048
 
 [[section.param]]
-id = "flower_stem_surface_cell_scale"
-kind = "float"
-label = "Surface-attached stems A: material cell size (continuous silhouette)"
-type = "Float"
-
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
-[section.param.data]
-value = 1
-min = 0.25
-max = 4
-
-[[section.param]]
 id = "flower_stem_radius_scale"
 kind = "float"
-label = "Flower stems: continuous radius scale"
+label = "Flower stems: radius scale"
 type = "Float"
-
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
 
 [section.param.data]
 value = 0.7
@@ -169,10 +137,6 @@ kind = "bool"
 label = "Flower stems: two tapered test branches"
 type = "Bool"
 
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
 [section.param.data]
 value = true
 
@@ -181,10 +145,6 @@ id = "flower_stem_freeze_motion"
 kind = "bool"
 label = "Flower stems + heads: disable wind / rest bend"
 type = "Bool"
-
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
 
 [section.param.data]
 value = false
@@ -196,8 +156,8 @@ label = "Surface-attached stems: block geometry B (off = continuous A)"
 type = "Bool"
 
 [section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
+param = "flower_stem_sampling"
+equals = 2
 
 [section.param.data]
 value = false
@@ -224,8 +184,8 @@ label = "World-direction stems: fixed object pixels (B; off = angular A)"
 type = "Bool"
 
 [section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
+param = "flower_stem_sampling"
+equals = 1
 
 [section.param.data]
 value = false
