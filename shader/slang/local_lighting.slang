@@ -9,6 +9,7 @@ import terrain_ray_origin;
 public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 2u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
 public static const uint LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS = 1u << 0u;
+public static const uint LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS = 1u << 1u;
 
 // Versioned record shared by live direct consumers and immutable DDGI transport snapshots.
 // Position, range, and source_radius are authoritative world units in the same space as terrain
@@ -296,7 +297,7 @@ public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLightAtIndex(
         float endpointStart = max(0.0, segmentLength - light.source_radius);
         SceneStraightTransport transport = traceVoxelStraightTransport(
             nodeData, leafData, sceneTexture, chunkAtlas,
-            shadowOrigin, shadowDirection, endpointStart, true,
+            shadowOrigin, shadowDirection, endpointStart, (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS) != 0u,
             localInvocationIndex);
         float3 transmittance = transport.exhausted != 0u ||
             transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE

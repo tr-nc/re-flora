@@ -69,10 +69,11 @@ public struct U_ChunkModifyInfo
     // Zero disables model support; otherwise the floor's voxel Y plus one.
     public uint surface_support_y_plus_one;
     public uint max_write_count;
-    public uint clear_fill_voxel_state;
+    public uint fill_policy;
     public uint4 max_removed_counts_0_3;
     public uint4 max_removed_counts_4_7;
     public uint4 max_removed_counts_8_11;
+    public uint4 max_removed_counts_12_15;
 };
 
 public struct B_BvhNodes

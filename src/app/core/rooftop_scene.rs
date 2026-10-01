@@ -1,13 +1,19 @@
-//! The unsaved rooftop proof: fixed triangle models and a bounded, initially empty soil layer.
+//! Unsaved rooftop proof: immutable scene shell, A/B raster/real Contree voxels, editable soil.
 use super::vegetation::SurfaceOccupantClearPath;
 use super::*;
 use crate::app::world_edits::{TerrainBrushEdit, TerrainRemovalEdit};
 use crate::builder::ChunkModifyReadback;
-use crate::geom::{build_bvh, Aabb3, Sphere};
+use crate::builder::*;
+use crate::geom::{build_bvh, Aabb3, Cuboid, Sphere};
 use crate::tracer::StaticSceneMesh;
 
-pub(super) const SOIL_MIN: UVec3 = UVec3::new(72, 192, 84);
-pub(super) const SOIL_MAX: UVec3 = UVec3::new(436, 384, 408);
+// Translate, never scale or crop: the complete neighbourhood fits a 1024 x 512 x 1024 atlas.
+const SCENE_OFFSET: Vec3 = Vec3::new(180., 24., 160.);
+pub(super) const SOIL_MIN: UVec3 = UVec3::new(252, 216, 244);
+pub(super) const SOIL_MAX: UVec3 = UVec3::new(616, 408, 568);
+pub(super) fn scene_world(p: Vec3) -> Vec3 {
+    (p + SCENE_OFFSET) / 256.
+}
 
 #[derive(Clone, Copy, Debug)]
 struct SceneBox {
@@ -19,6 +25,7 @@ struct SceneBox {
 pub(super) struct RooftopScene {
     boxes: Vec<SceneBox>,
     pub(super) material: voxel_backpack::BackpackVoxel,
+    voxel_mode: bool,
 }
 
 impl RooftopScene {
@@ -297,10 +304,49 @@ impl RooftopScene {
             max: Vec3::new(280., 144., 431.) / 256.,
             color: Vec4::new(0.64, 0.82, 0.78, 0.16),
         });
+        for b in &mut boxes {
+            b.min += SCENE_OFFSET / 256.;
+            b.max += SCENE_OFFSET / 256.;
+        }
         Self {
             boxes,
             material: voxel_backpack::BackpackVoxel::Dirt,
+            voxel_mode: false,
         }
+    }
+
+    fn voxel_type(b: &SceneBox) -> u32 {
+        if b.color.w < 1. {
+            return VOXEL_TYPE_GLASS;
+        }
+        // Keep existing materials stable. New architectural pigments occupy only free IDs.
+        if b.color.truncate() == Vec3::new(0.40, 0.29, 0.19) {
+            return VOXEL_TYPE_OAK_WOOD;
+        }
+        let palette = [
+            (VOXEL_TYPE_ASPHALT, [0.28, 0.31, 0.32]),
+            (VOXEL_TYPE_PAINTED_METAL, [0.22, 0.34, 0.29]),
+            (VOXEL_TYPE_TERRACOTTA, [0.68, 0.40, 0.25]),
+            (VOXEL_TYPE_CANOPY, [0.40, 0.55, 0.32]),
+            (VOXEL_TYPE_LIMESTONE, [0.88, 0.87, 0.80]),
+            (VOXEL_TYPE_STUCCO, [0.82, 0.74, 0.50]),
+            (VOXEL_TYPE_ROCK, [0.48, 0.49, 0.50]),
+            (VOXEL_TYPE_OAK_WOOD, [0.65, 0.56, 0.29]),
+        ];
+        palette
+            .into_iter()
+            .min_by(|a, c| {
+                b.color
+                    .truncate()
+                    .distance_squared(Vec3::from_array(a.1))
+                    .total_cmp(&b.color.truncate().distance_squared(Vec3::from_array(c.1)))
+            })
+            .unwrap()
+            .0
+    }
+
+    fn voxel_bounds(b: &SceneBox) -> (Vec3, Vec3) {
+        ((b.min * 256.).floor(), (b.max * 256.).ceil())
     }
 
     pub(super) fn mesh(&self) -> StaticSceneMesh {
@@ -368,10 +414,10 @@ impl App {
         self.player_tools.select_item_panel_slot(SHOVEL_SLOT_INDEX);
         self.player_tools.terrain_edit_radius = 0.045;
         if self.launch_owners.snapshot_name().is_none() {
-            let focus = Vec3::new(254., 192., 246.) / 256.;
+            let focus = scene_world(Vec3::new(254., 192., 246.));
             // Lower three-quarter view shows the glazed facade and surrounding streets,
             // while the center ray still lands on the editable rooftop.
-            let position = Vec3::new(900., 510., 960.) / 256.;
+            let position = scene_world(Vec3::new(900., 510., 960.));
             self.tracer.set_camera_pose_looking_at(position, focus);
             let mut pose = self.tracer.camera_pose();
             pose.fov_deg = 60.0;
@@ -386,10 +432,84 @@ impl App {
                 "opening camera must frame the roof work area"
             );
         }
+        if std::env::var_os("RE_FLORA_ROOFTOP_VOXELS").is_some() {
+            self.debug_settings.adjustables.rooftop_voxel_scene.value = true;
+        }
+        self.sync_rooftop_voxel_mode()?;
         log::info!("[ROOFTOP] ready initial_soil=0 fixed_model_triangles={} unlimited=true persistence=disabled soil_bounds={:?}..{:?} lighting=stepped_sun_sky pixelization=existing_nearest_postprocess", mesh.indices.len() / 3, SOIL_MIN, SOIL_MAX);
         if std::env::var_os("RE_FLORA_ROOFTOP_VALIDATE").is_some() {
             self.validate_rooftop_edits()?;
         }
+        Ok(())
+    }
+
+    pub(super) fn sync_rooftop_voxel_mode(&mut self) -> Result<()> {
+        let enabled = self.debug_settings.adjustables.rooftop_voxel_scene.value;
+        let Some(scene) = &self.rooftop_scene else {
+            return Ok(());
+        };
+        if scene.voxel_mode == enabled {
+            return Ok(());
+        }
+        let boxes = scene.boxes.clone();
+        // Preserve authored overlay ordering (markings, trim, glass). Only adjacent equal
+        // materials batch together, so an earlier wall never overwrites later detailing.
+        let mut start = 0;
+        while start < boxes.len() {
+            let material = if enabled {
+                RooftopScene::voxel_type(&boxes[start])
+            } else {
+                VOXEL_TYPE_EMPTY
+            };
+            let mut end = start + 1;
+            while end < boxes.len()
+                && (!enabled || RooftopScene::voxel_type(&boxes[end]) == material)
+            {
+                end += 1;
+            }
+            let cuboids: Vec<_> = boxes[start..end]
+                .iter()
+                .map(|b| {
+                    let (min, max) = RooftopScene::voxel_bounds(b);
+                    Cuboid::from_min_max(min, max)
+                })
+                .collect();
+            let bounds: Vec<_> = boxes[start..end]
+                .iter()
+                .map(|b| {
+                    let (min, max) = RooftopScene::voxel_bounds(b);
+                    Aabb3::new(min, max)
+                })
+                .collect();
+            let ids: Vec<_> = (0..bounds.len() as u32).collect();
+            let bvh = build_bvh(&bounds, &ids).map_err(anyhow::Error::msg)?;
+            self.plain_builder
+                .chunk_modify_fixed_scene_cuboids(&bvh, &cuboids, material)?;
+            start = end;
+        }
+        if enabled {
+            self.tracer.clear_static_scene();
+        } else {
+            self.tracer
+                .upload_static_scene(&self.rooftop_scene.as_ref().unwrap().mesh())?;
+        }
+        self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
+            UAabb3::new(
+                UVec3::ZERO,
+                self.world_chunk_dim * VOXEL_DIM_PER_CHUNK - UVec3::ONE,
+            ),
+            world_ops::FloraBrushEdit {
+                start: Vec3::ZERO,
+                end: Vec3::ZERO,
+                radius: 0.,
+                tick: self.world_clock.flora_tick(),
+                spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
+            },
+            true,
+        ))?;
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        self.rooftop_scene.as_mut().unwrap().voxel_mode = enabled;
+        log::info!("[ROOFTOP][VOXEL_AB] enabled={} boxes={} atlas={:?} protected_soil=true immutable_shell=true dedicated_glass=true material_bits=4", enabled, boxes.len(), self.world_chunk_dim * VOXEL_DIM_PER_CHUNK);
         Ok(())
     }
 
@@ -458,6 +578,87 @@ impl App {
         Ok(stats)
     }
 
+    fn validate_rooftop_voxel_ab(&mut self) -> Result<()> {
+        let initial = self.rooftop_scene.as_ref().unwrap().voxel_mode;
+        let soil = self
+            .plain_builder
+            .read_chunk_atlas_region(SOIL_MIN, SOIL_MAX - SOIL_MIN)?;
+        let species_index = species::PLAYER_FLORA_PAINT_SELECTIONS
+            .iter()
+            .find_map(|s| {
+                if let species::FloraPaintSelection::Species(sp) = s {
+                    species::is_authored_plant_species_index(*sp).then_some(*sp)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let plants = self
+            .surface_builder
+            .authored_flora_base_positions_for_species(species_index)
+            .to_vec();
+        for enabled in [!initial, initial] {
+            self.debug_settings.adjustables.rooftop_voxel_scene.value = enabled;
+            self.sync_rooftop_voxel_mode()?;
+            anyhow::ensure!(
+                self.plain_builder
+                    .read_chunk_atlas_region(SOIL_MIN, SOIL_MAX - SOIL_MIN)?
+                    == soil,
+                "A/B switch modified editable soil or its state"
+            );
+            anyhow::ensure!(
+                self.surface_builder
+                    .authored_flora_base_positions_for_species(species_index)
+                    == plants.as_slice(),
+                "A/B switch changed plants"
+            );
+            let glass_cell = (scene_world(Vec3::new(110., 130., 430.)) * 256.).as_uvec3();
+            let glass_data = self
+                .plain_builder
+                .read_chunk_atlas_region(glass_cell, UVec3::ONE)?[0];
+            let glass = glass_data & VOXEL_TYPE_MASK;
+            if enabled {
+                anyhow::ensure!(
+                    voxel_is_fixed_scene(glass_data),
+                    "glass lacks fixed-scene ownership"
+                );
+                let min = glass_cell.as_vec3();
+                let max = min + Vec3::ONE;
+                let bvh =
+                    build_bvh(&[Aabb3::new(min, max)], &[0u32]).map_err(anyhow::Error::msg)?;
+                let cuboids = [Cuboid::from_min_max(min, max)];
+                // Exercise the production primitive writer, not merely UI hit filtering.
+                self.plain_builder.chunk_modify_cuboids_with_voxel_type(
+                    &bvh,
+                    &cuboids,
+                    VOXEL_TYPE_EMPTY,
+                )?;
+                self.plain_builder.chunk_modify_cuboids_with_voxel_type(
+                    &bvh,
+                    &cuboids,
+                    VOXEL_TYPE_CHERRY_WOOD,
+                )?;
+                anyhow::ensure!(
+                    self.plain_builder
+                        .read_chunk_atlas_region(glass_cell, UVec3::ONE)?[0]
+                        == glass_data,
+                    "ordinary edits or tree writes modified immutable glass"
+                );
+            }
+            anyhow::ensure!(
+                u32::from(glass)
+                    == if enabled {
+                        VOXEL_TYPE_GLASS
+                    } else {
+                        VOXEL_TYPE_EMPTY
+                    },
+                "A/B glass occupancy mismatch"
+            );
+        }
+        log::info!("[ROOFTOP][CHECK] ab_roundtrip=true soil_bytes={} plants_preserved={} glass_verified=true primitive_write_protection=true initial_mode_restored={}", soil.len(), plants.len(), initial);
+        Ok(())
+    }
+
     fn validate_rooftop_edits(&mut self) -> Result<()> {
         anyhow::ensure!(
             !self.set_orbit_mouse_drag_state(MouseButton::Right, ElementState::Pressed,),
@@ -470,13 +671,15 @@ impl App {
         );
         self.set_orbit_mouse_drag_state(MouseButton::Right, ElementState::Released);
         self.modifiers = ModifiersState::empty();
-        let center = Vec3::new(240., 192., 244.) / 256.;
+        // Deliberately beyond the old 512-voxel X/Z limits; exercise the expanded edit domain.
+        let center = scene_world(Vec3::new(380., 192., 370.));
         // The roof is not a terrain stamp: no initial atlas/Contree soil to hit.
         anyhow::ensure!(
             self.contree_builder
                 .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
+                .filter(|hit| hit.voxel_type == VOXEL_TYPE_DIRT)
                 .is_none(),
-            "roof must start with zero voxel terrain"
+            "roof must start with zero editable soil"
         );
         let ray_hit = self
             .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
@@ -511,7 +714,10 @@ impl App {
         let below = self
             .contree_builder
             .query_terrain_ray_cpu(center - Vec3::Y / 256., Vec3::NEG_Y);
-        anyhow::ensure!(below.is_none(), "soil crossed the model roof floor");
+        anyhow::ensure!(
+            below.is_none_or(|hit| hit.voxel_type != VOXEL_TYPE_DIRT),
+            "soil crossed the model roof floor"
+        );
         let hit = self
             .contree_builder
             .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
@@ -549,11 +755,14 @@ impl App {
             super::TERRAIN_SMOOTH_MAX_DELTA,
             super::TERRAIN_SMOOTH_DEADBAND,
         )?;
-        let forbidden_slab = self
-            .plain_builder
-            .read_chunk_atlas_region(UVec3::new(215, 191, 219), UVec3::new(50, 1, 50))?;
+        let forbidden_slab = self.plain_builder.read_chunk_atlas_region(
+            (center * 256.).as_uvec3() - UVec3::new(25, 1, 25),
+            UVec3::new(50, 1, 50),
+        )?;
         anyhow::ensure!(
-            forbidden_slab.iter().all(|&v| v == 0),
+            forbidden_slab
+                .iter()
+                .all(|&v| u32::from(v & VOXEL_TYPE_MASK) != VOXEL_TYPE_DIRT),
             "smoothing wrote beneath fixed roof"
         );
         let remove = self.apply_surface_terrain_removal(edit, None, None, None)?;
@@ -565,7 +774,7 @@ impl App {
         anyhow::ensure!(
             self.contree_builder
                 .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
-                .is_some(),
+                .is_some_and(|hit| hit.voxel_type == VOXEL_TYPE_DIRT),
             "first removal dab cleared the entire thick patch instead of its surface"
         );
         let mut removed_total = remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT);
@@ -573,6 +782,7 @@ impl App {
             if self
                 .contree_builder
                 .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
+                .filter(|hit| hit.voxel_type == VOXEL_TYPE_DIRT)
                 .is_none()
             {
                 break;
@@ -584,6 +794,7 @@ impl App {
         anyhow::ensure!(
             self.contree_builder
                 .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
+                .filter(|hit| hit.voxel_type == VOXEL_TYPE_DIRT)
                 .is_none(),
             "repeated removal did not clear soil"
         );
@@ -666,6 +877,7 @@ impl App {
             true,
         )?;
         log::info!("[ROOFTOP][CHECK] production_rmb_placement=true backpack_preserved=true");
+        self.validate_rooftop_voxel_ab()?;
         Ok(())
     }
 }
@@ -676,8 +888,10 @@ mod tests {
     #[test]
     fn bare_roof_has_real_model_hit_and_bounded_edit_area() {
         let scene = RooftopScene::new();
-        let hit = scene.ray_hit(Vec3::new(1., 1.5, 1.), Vec3::NEG_Y).unwrap();
-        assert!((hit.y - 192. / 256.).abs() < 1e-6);
+        let hit = scene
+            .ray_hit(scene_world(Vec3::new(256., 384., 256.)), Vec3::NEG_Y)
+            .unwrap();
+        assert!((hit.y - SOIL_MIN.y as f32 / 256.).abs() < 1e-6);
         assert!(RooftopScene::allows_soil(hit));
         assert!(!RooftopScene::allows_soil(Vec3::new(0., hit.y, 0.)));
         assert!(!RooftopScene::allows_soil(hit - Vec3::Y / 256.));
@@ -744,16 +958,16 @@ mod tests {
     fn street_is_grounded_and_windows_reveal_real_interior() {
         let scene = RooftopScene::new();
         let street = scene
-            .ray_hit(Vec3::new(270., 300., 570.) / 256., Vec3::NEG_Y)
+            .ray_hit(scene_world(Vec3::new(270., 300., 570.)), Vec3::NEG_Y)
             .unwrap();
-        assert!((street.y - 64.5 / 256.).abs() < 1e-6);
+        assert!((street.y - scene_world(Vec3::new(0., 64.5, 0.)).y).abs() < 1e-6);
         assert!(scene
             .boxes
             .iter()
-            .any(|b| b.min.y < 0. && b.max.y == 60. / 256.));
-        let origin = Vec3::new(110., 130., 500.) / 256.;
+            .any(|b| b.min.y == 0. && b.max.y == 84. / 256.));
+        let origin = scene_world(Vec3::new(110., 130., 500.));
         let glass = scene.ray_hit(origin, Vec3::NEG_Z).unwrap();
-        assert!((glass.z - 431. / 256.).abs() < 1e-6);
+        assert!((glass.z - scene_world(Vec3::new(0., 0., 431.)).z).abs() < 1e-6);
         // Removing only translucent panes from this query exposes the room, not a fake wall.
         let opaque_hit = scene
             .boxes
@@ -763,6 +977,27 @@ mod tests {
             .min_by(f32::total_cmp)
             .unwrap();
         assert!(opaque_hit > (500. - 424.) / 256.);
+    }
+
+    #[test]
+    fn voxel_shell_fits_world_and_never_touches_editable_soil() {
+        let scene = RooftopScene::new();
+        let mut materials = std::collections::HashSet::new();
+        for b in &scene.boxes {
+            let (min, max) = RooftopScene::voxel_bounds(b);
+            assert!(min.cmpge(Vec3::ZERO).all());
+            assert!(max.cmple(Vec3::new(1024., 512., 1024.)).all());
+            assert!(max.cmpgt(min).all());
+            assert!(!max.cmpgt(SOIL_MIN.as_vec3()).all() || !min.cmplt(SOIL_MAX.as_vec3()).all());
+            let material = RooftopScene::voxel_type(b);
+            assert!(material <= u32::from(VOXEL_TYPE_MASK));
+            assert!((material as usize) < EDIT_STATS_VOXEL_TYPE_COUNT);
+            materials.insert(material);
+        }
+        assert!(materials.contains(&VOXEL_TYPE_GLASS));
+        assert!(materials.contains(&VOXEL_TYPE_OAK_WOOD));
+        assert!(!materials.contains(&VOXEL_TYPE_DIRT));
+        assert!(!materials.contains(&VOXEL_TYPE_SAND));
     }
 
     #[test]

@@ -104,7 +104,7 @@ MarchingResult ddgiTraceGlassScene(float3 origin, float3 direction,
 {
     SceneStraightTransport transport = traceVoxelStraightTransport(
         contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
-        origin, direction, pc.far_distance_world, true,
+        origin, direction, pc.far_distance_world, ddgi_transport_query_info.glass_experiment_enabled != 0u,
         localInvocationIndex);
     transmittance = transport.transmittance;
     transportExhausted = transport.exhausted;
@@ -123,7 +123,7 @@ float ddgiExactTerrainSunVisibility(MarchingResult receiver,
     {
         SceneStraightTransport transport = traceVoxelStraightTransport(
             contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
-            origin, sunDirection, pc.far_distance_world, true,
+            origin, sunDirection, pc.far_distance_world, ddgi_transport_query_info.glass_experiment_enabled != 0u,
             localInvocationIndex);
         return transport.exhausted == 0u &&
             transport.terminal.kind != SCENE_QUERY_EVENT_OPAQUE ? 1.0 : 0.0;

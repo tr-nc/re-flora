@@ -1331,6 +1331,7 @@ pub struct TracerDesc {
     pub ddgi_terrain_moments: bool,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
     pub glass_experiment_enabled: bool,
+    pub dedicated_glass_enabled: bool,
     pub glass_debug_view: u32,
 }
 
@@ -1854,7 +1855,10 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let pipeline_builder = PipelineBuilder::new(&vulkan_ctx, desc.glass_experiment_enabled)?;
+        let pipeline_builder = PipelineBuilder::new(
+            &vulkan_ctx,
+            desc.glass_experiment_enabled || desc.dedicated_glass_enabled,
+        )?;
         let shader_modules = pipeline_builder.shader_modules();
 
         let resources = TracerResources::new(
@@ -1872,7 +1876,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             desc.environment_irradiance_capture_enabled,
-            desc.glass_experiment_enabled,
+            desc.glass_experiment_enabled || desc.dedicated_glass_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
             Extent2D::new(
                 LEAF_SHADOW_OPACITY_RESOLUTION,
@@ -2874,11 +2878,17 @@ impl Tracer {
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
             0,
         )
-        .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
-            LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
-        } else {
-            0
-        });
+        .with_flags(
+            (if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+                LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
+            } else {
+                0
+            }) | if self.desc.glass_experiment_enabled {
+                crate::lighting::LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS
+            } else {
+                0
+            },
+        );
         let local_lighting = &self.resources.local_lighting;
         let local_light_payload =
             self.local_light_live_publication
@@ -2973,10 +2983,11 @@ impl Tracer {
             let shadow_map_resolution = shadow_map_extent.width.min(shadow_map_extent.height);
             let (shadow_view_mat, shadow_proj_mat) =
                 calculate_directional_light_matrices(world_bound, sun_dir, shadow_map_resolution);
-            BufferUpdater::update_camera_info(
+            BufferUpdater::update_shadow_camera_info(
                 &mut self.resources.shadow.shadow_camera_info,
                 shadow_view_mat,
                 shadow_proj_mat,
+                self.desc.glass_experiment_enabled,
             )?;
             self.direct_sun_shadows.mark_camera_updated();
         }
@@ -4155,7 +4166,7 @@ impl Tracer {
             "composition.pass",
             || self.record_composition_pass(cmdbuf),
         );
-        if self.desc.glass_experiment_enabled {
+        if self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -6565,6 +6576,11 @@ impl Tracer {
             mesh,
         )?);
         Ok(())
+    }
+
+    pub(crate) fn clear_static_scene(&mut self) {
+        self.vulkan_ctx.device().wait_idle();
+        self.static_scene = None;
     }
 
     pub(crate) fn show_mower(

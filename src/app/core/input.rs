@@ -20,12 +20,22 @@ fn scroll_delta_lines(delta: MouseScrollDelta) -> f32 {
     }
 }
 
-fn terrain_edit_endpoint_within_editable_chunk(center: Vec3) -> bool {
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(center)
-}
+impl App {
+    fn terrain_edit_endpoint_within_editable_chunk(&self, center: Vec3) -> bool {
+        if self.rooftop_scene.is_some() {
+            super::rooftop_scene::RooftopScene::allows_soil(center)
+        } else {
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(center)
+        }
+    }
 
-fn terrain_brush_endpoint_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(edit)
+    fn terrain_brush_endpoint_within_editable_chunk(&self, edit: TerrainBrushEdit) -> bool {
+        if self.rooftop_scene.is_some() {
+            self.terrain_edit_endpoint_within_editable_chunk(edit.end)
+        } else {
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(edit)
+        }
+    }
 }
 
 const TERRAIN_EDIT_PREVIEW_VALID_COLOR: Vec3 = Vec3::new(0.45, 0.86, 1.0);
@@ -848,7 +858,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -917,7 +927,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -966,7 +976,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1007,7 +1017,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1047,7 +1057,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1066,7 +1076,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1128,7 +1138,7 @@ impl App {
     }
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {
-        terrain_edit_endpoint_within_editable_chunk(center)
+        self.terrain_edit_endpoint_within_editable_chunk(center)
             && (self.rooftop_scene.is_none()
                 || super::rooftop_scene::RooftopScene::allows_soil(center))
     }
@@ -1156,7 +1166,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1212,7 +1222,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1255,7 +1265,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1274,7 +1284,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1310,7 +1320,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1329,7 +1339,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1363,7 +1373,7 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     return;
                 }
                 match placeable_kind {

@@ -1,4 +1,4 @@
-use super::super::{CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+use super::super::VOXEL_DIM_PER_CHUNK;
 use super::runtime::AsyncWaterSim;
 use crate::builder::{
     ChunkSolidSampleJob, ContreeBuilder, ContreeCpuVoxelSourceDependency, PlainBuilder,
@@ -1218,7 +1218,10 @@ impl WaterTerrainRuntime {
         plain_builder: &mut PlainBuilder,
         chunk_id: UVec3,
     ) -> anyhow::Result<Option<ChunkSolidSampleJob>> {
-        if chunk_id.cmpge(CHUNK_DIM).any() {
+        if chunk_id
+            .cmpge(plain_builder.voxel_dimensions() / VOXEL_DIM_PER_CHUNK)
+            .any()
+        {
             return Ok(None);
         }
 

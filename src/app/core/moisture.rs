@@ -23,15 +23,28 @@ const TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS: u32 = 1;
 const TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT: u32 = 2;
 const TERRAIN_MOISTURE_SPREAD_CHUNKS_PER_FRAME: usize = 1;
 
-#[derive(Default)]
 pub(super) struct TerrainMoistureRuntime {
     dry_chunk_cursor: u32,
     spread_task_cursor: u32,
+    chunk_dim: UVec3,
+}
+
+impl Default for TerrainMoistureRuntime {
+    fn default() -> Self {
+        Self::new(CHUNK_DIM)
+    }
 }
 
 impl TerrainMoistureRuntime {
+    pub(super) fn new(chunk_dim: UVec3) -> Self {
+        Self {
+            dry_chunk_cursor: 0,
+            spread_task_cursor: 0,
+            chunk_dim,
+        }
+    }
     pub(super) fn has_chunks(&self) -> bool {
-        Self::chunk_count() > 0
+        self.chunk_count() > 0
     }
 
     pub(super) fn record_spread(
@@ -152,18 +165,18 @@ impl TerrainMoistureRuntime {
     }
 
     fn next_dry_chunk(&mut self) -> Option<UVec3> {
-        let chunk_count = Self::chunk_count();
+        let chunk_count = self.chunk_count();
         if chunk_count == 0 {
             return None;
         }
 
         let chunk_index = self.dry_chunk_cursor % chunk_count;
         self.dry_chunk_cursor = (chunk_index + 1) % chunk_count;
-        Some(Self::chunk_from_index(chunk_index))
+        Some(self.chunk_from_index(chunk_index))
     }
 
     fn next_spread_task(&mut self) -> Option<(UVec3, u32, u32)> {
-        let chunk_count = Self::chunk_count();
+        let chunk_count = self.chunk_count();
         let task_count = chunk_count.saturating_mul(TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT);
         if task_count == 0 {
             return None;
@@ -175,21 +188,21 @@ impl TerrainMoistureRuntime {
         let pair_phase = task_index / chunk_count;
         let axis = TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS;
         let pair_parity = pair_phase % TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT;
-        Some((Self::chunk_from_index(chunk_index), axis, pair_parity))
+        Some((self.chunk_from_index(chunk_index), axis, pair_parity))
     }
 
-    fn chunk_count() -> u32 {
-        CHUNK_DIM
+    fn chunk_count(&self) -> u32 {
+        self.chunk_dim
             .x
-            .saturating_mul(CHUNK_DIM.y)
-            .saturating_mul(CHUNK_DIM.z)
+            .saturating_mul(self.chunk_dim.y)
+            .saturating_mul(self.chunk_dim.z)
     }
 
-    fn chunk_from_index(mut chunk_index: u32) -> UVec3 {
-        let z = chunk_index % CHUNK_DIM.z;
-        chunk_index /= CHUNK_DIM.z;
-        let y = chunk_index % CHUNK_DIM.y;
-        let x = chunk_index / CHUNK_DIM.y;
+    fn chunk_from_index(&self, mut chunk_index: u32) -> UVec3 {
+        let z = chunk_index % self.chunk_dim.z;
+        chunk_index /= self.chunk_dim.z;
+        let y = chunk_index % self.chunk_dim.y;
+        let x = chunk_index / self.chunk_dim.y;
         UVec3::new(x, y, z)
     }
 }
@@ -271,8 +284,8 @@ mod tests {
 
     #[test]
     fn dry_schedule_visits_each_chunk_once_before_wrapping() {
-        let mut runtime = TerrainMoistureRuntime::default();
-        let chunk_count = TerrainMoistureRuntime::chunk_count();
+        let mut runtime = TerrainMoistureRuntime::new(glam::UVec3::new(4, 2, 4));
+        let chunk_count = runtime.chunk_count();
 
         let first_cycle = (0..chunk_count)
             .map(|_| runtime.next_dry_chunk().unwrap())
@@ -288,7 +301,7 @@ mod tests {
     #[test]
     fn spread_schedule_visits_both_pair_phases_before_wrapping() {
         let mut runtime = TerrainMoistureRuntime::default();
-        let chunk_count = TerrainMoistureRuntime::chunk_count();
+        let chunk_count = runtime.chunk_count();
         let task_count = chunk_count * TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT;
 
         let first_cycle = (0..task_count)

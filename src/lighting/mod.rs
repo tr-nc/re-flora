@@ -15,6 +15,7 @@ pub(crate) use voxel_emissive::*;
 
 pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 2;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
+pub(crate) const LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS: u32 = 1 << 1;
 /// First production small-N budget. CPU providers and the registry remain unbounded; selection is
 /// explicit and can be replaced by a clustered/tiled policy without changing provider APIs.
 pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 8;
@@ -951,7 +952,8 @@ mod tests {
         let shadow = include_str!("../../shader/slang/tracer_shadow.slang");
         assert!(shadow.contains("tracePrimaryVoxelSurfaces("));
         assert!(shadow.contains("#if RE_FLORA_GLASS_TRANSPORT"));
-        assert!(!shadow.contains("glass_experiment_enabled"));
+        assert!(shadow.contains("shadow_camera_info.glass_experiment_enabled != 0u"));
+        assert!(local.contains("LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS"));
 
         let pipelines = include_str!("../tracer/pipeline_builder.rs");
         for specialized_path in [

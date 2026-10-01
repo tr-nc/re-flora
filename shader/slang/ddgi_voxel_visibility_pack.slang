@@ -41,7 +41,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
             : 0u;
 #if RE_FLORA_GLASS_TRANSPORT
         VoxelMaterial material = voxelMaterial(
-            voxelType, true);
+            voxelType, info.glass_experiment_enabled != 0u);
         if ((material.flags & VOXEL_MATERIAL_FLAG_BLOCKS_DDGI_VISIBILITY) != 0u)
 #else
         if (voxelType != VOXEL_TYPE_EMPTY)

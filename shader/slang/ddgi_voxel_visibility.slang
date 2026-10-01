@@ -3,7 +3,7 @@ module ddgi_voxel_visibility;
 import ddgi_types;
 import tree_scene;
 
-public static const uint DDGI_VOXEL_VISIBILITY_MAX_STEPS = 2048u;
+public static const uint DDGI_VOXEL_VISIBILITY_MAX_STEPS = 3072u;
 static const float DDGI_VOXEL_ENDPOINT_CLIP_GRACE = 0.5;
 static const float DDGI_VOXEL_OPEN_SEGMENT_EPSILON = 1.0e-4;
 

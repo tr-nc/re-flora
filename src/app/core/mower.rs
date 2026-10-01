@@ -271,16 +271,25 @@ impl App {
 
     fn validate_mower_model_surfaces(&mut self) -> anyhow::Result<()> {
         use anyhow::{ensure, Context};
-        self.mower.validation_complete = true;
         ensure!(
             self.rooftop_scene.is_some(),
             "model surface fixture requires --rooftop-poc"
         );
-        self.select_item_panel_slot(super::ui_style::MOWER_SLOT_INDEX);
         let extent = self.window_state.window_extent();
+        let previous_cursor = self.cursor_position_physical;
+        self.cursor_position_physical =
+            Some(Vec2::new(extent.width as f32, extent.height as f32) * 0.5);
+        // The first Ready frame can still contain the foreground loading overlay. Drive the
+        // real pointer path only after that UI owner relinquishes the fixture's center pixel.
+        if self.gui_blocks_world_pointer() {
+            self.cursor_position_physical = previous_cursor;
+            return Ok(());
+        }
+        self.select_item_panel_slot(super::ui_style::MOWER_SLOT_INDEX);
+        self.mower.validation_complete = true;
         for focus in [
-            Vec3::new(254., 192., 246.) / 256.,
-            Vec3::new(-60., 64., 570.) / 256.,
+            super::rooftop_scene::scene_world(Vec3::new(254., 192., 246.)),
+            super::rooftop_scene::scene_world(Vec3::new(-60., 64., 570.)),
         ] {
             self.mower.position = None;
             self.mower.cancel_drag();
@@ -324,7 +333,7 @@ impl App {
             );
         }
         self.validate_mower_stationary_hold()?;
-        log::info!("[MOWER][SURFACE_CHECK] bare_roof_placement=true bare_roof_driving=true road_placement=true road_driving=true outside_voxel_bounds=true grounded=true shared_player_controller=true");
+        log::info!("[MOWER][SURFACE_CHECK] bare_roof_placement=true bare_roof_driving=true road_placement=true road_driving=true beyond_original_garden_bounds=true grounded=true shared_player_controller=true");
         Ok(())
     }
 

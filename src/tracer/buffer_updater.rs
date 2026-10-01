@@ -37,6 +37,27 @@ impl BufferUpdater {
         camera_info.fill_uniform(&data)
     }
 
+    pub fn update_shadow_camera_info(
+        buffer: &mut re_flora_vkn::Buffer,
+        view_mat: Mat4,
+        proj_mat: Mat4,
+        glass_experiment_enabled: bool,
+    ) -> Result<()> {
+        use crate::generated::gpu_structs::ShadowCameraInfo;
+        let view_proj_mat = proj_mat * view_mat;
+        buffer.fill_uniform(&ShadowCameraInfo {
+            glass_experiment_enabled: u32::from(glass_experiment_enabled),
+            pos: view_mat.inverse().w_axis.to_array(),
+            view_mat: view_mat.to_cols_array_2d(),
+            view_mat_inv: view_mat.inverse().to_cols_array_2d(),
+            proj_mat: proj_mat.to_cols_array_2d(),
+            proj_mat_inv: proj_mat.inverse().to_cols_array_2d(),
+            view_proj_mat: view_proj_mat.to_cols_array_2d(),
+            view_proj_mat_inv: view_proj_mat.inverse().to_cols_array_2d(),
+            ..ShadowCameraInfo::zeroed()
+        })
+    }
+
     pub fn update_env_info(resources: &TracerResources, frame_serial_idx: u32) -> Result<()> {
         resources.uniforms.env_info.fill_uniform(&EnvInfo {
             frame_serial_idx,

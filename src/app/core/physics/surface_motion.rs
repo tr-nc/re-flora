@@ -197,6 +197,25 @@ mod tests {
     }
 
     #[test]
+    fn mower_places_on_the_complete_rooftop_shell_after_translation() {
+        let scene = crate::app::core::rooftop_scene::RooftopScene::new();
+        let (positions, triangles) = scene.mesh().collision_geometry();
+        for offset in [Vec3::ZERO, Vec3::new(-180., -24., -160.)] {
+            let mut world = CollisionWorld::new();
+            let positions: Vec<_> = positions.iter().map(|p| *p * 256. + offset).collect();
+            world
+                .set_fixed_scene_surface(&positions, &triangles)
+                .unwrap();
+            world.advance(1. / 60.);
+            let surface = (Vec3::new(434., 216., 406.) + offset) / 256.;
+            assert!(
+                MOWER.place(&mut world, surface).unwrap().is_some(),
+                "mower rejected full scene offset={offset:?}"
+            );
+        }
+    }
+
+    #[test]
     fn mower_places_and_drives_on_bare_fixed_roof_and_road() {
         for height in [192., 64.] {
             let mut world = model_world(&[(

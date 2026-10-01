@@ -425,6 +425,7 @@ pub struct App {
     wind_prototype: wind_prototype::WindPrototype,
     cottage_base_y: Option<f32>,
     rooftop_scene: Option<rooftop_scene::RooftopScene>,
+    world_chunk_dim: UVec3,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -1105,7 +1106,12 @@ impl App {
             .take_lighting_mode_acceptance_options()
             .context("take lighting-mode acceptance options")?;
         let lighting_mode_acceptance_requested = lighting_mode_acceptance_options.is_some();
-        let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
+        let world_chunk_dim = if rooftop_poc {
+            UVec3::new(4, 2, 4)
+        } else {
+            CHUNK_DIM
+        };
+        let chunk_bound = UAabb3::new(UVec3::ZERO, world_chunk_dim);
         let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
 
@@ -1165,7 +1171,7 @@ impl App {
         let plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
-            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+            world_chunk_dim * VOXEL_DIM_PER_CHUNK,
             FREE_ATLAS_DIM,
         );
 
@@ -1181,12 +1187,12 @@ impl App {
         }
 
         let contree_pool_sizes =
-            ContreeBuilder::pool_sizes_for_chunk_dim(CHUNK_DIM, VOXEL_DIM_PER_CHUNK);
+            ContreeBuilder::pool_sizes_for_chunk_dim(world_chunk_dim, VOXEL_DIM_PER_CHUNK);
         log::info!(
             "Contree pool sizes: node={:.2} MiB leaf={:.2} MiB chunk_dim={:?} per_chunk_node={} bytes per_chunk_leaf={} MiB",
             contree_pool_sizes.node_pool_size_in_bytes as f64 / (1024.0 * 1024.0),
             contree_pool_sizes.leaf_pool_size_in_bytes as f64 / (1024.0 * 1024.0),
-            CHUNK_DIM,
+            world_chunk_dim,
             contree_pool_sizes.node_chunk_size_in_bytes,
             contree_pool_sizes.leaf_chunk_size_in_bytes / (1024 * 1024),
         );
@@ -1194,7 +1200,7 @@ impl App {
             vulkan_ctx.clone(),
             allocator.clone(),
             surface_builder.get_resources(),
-            CHUNK_DIM,
+            world_chunk_dim,
             VOXEL_DIM_PER_CHUNK,
             contree_pool_sizes.node_pool_size_in_bytes,
             contree_pool_sizes.leaf_pool_size_in_bytes,
@@ -1210,9 +1216,9 @@ impl App {
 
         let chunk_indices = {
             let mut indices = Vec::new();
-            for x in 0..CHUNK_DIM.x {
-                for y in 0..CHUNK_DIM.y {
-                    for z in 0..CHUNK_DIM.z {
+            for x in 0..world_chunk_dim.x {
+                for y in 0..world_chunk_dim.y {
+                    for z in 0..world_chunk_dim.z {
                         indices.push(UVec3::new(x, y, z));
                     }
                 }
@@ -1267,6 +1273,7 @@ impl App {
                     )
                 ),
                 glass_experiment_enabled,
+                dedicated_glass_enabled: rooftop_poc,
                 glass_debug_view: glass_debug_view.as_u32(),
             },
         )?;
@@ -1407,7 +1414,7 @@ impl App {
             butterfly_flight_tuning,
         );
         let particle_snapshots = Vec::with_capacity(particle_system.capacity());
-        let world_extent = CHUNK_DIM.as_vec3();
+        let world_extent = world_chunk_dim.as_vec3();
         let cells_per_unit = 32.0;
         let mut water_request = water::WaterLaunchRequest::from_plan(
             water_plan,
@@ -1444,7 +1451,7 @@ impl App {
         ))
         .then(|| {
             emissive_voxel_lighting::EmissiveVoxelLightingRuntime::new(
-                CHUNK_DIM,
+                world_chunk_dim,
                 VOXEL_DIM_PER_CHUNK,
             )
         })
@@ -1453,6 +1460,7 @@ impl App {
         let mut app = Self {
             cottage_base_y: None,
             rooftop_scene: None,
+            world_chunk_dim,
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -1539,7 +1547,7 @@ impl App {
             },
             voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
-            terrain_moisture: TerrainMoistureRuntime::default(),
+            terrain_moisture: TerrainMoistureRuntime::new(world_chunk_dim),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
 
@@ -2014,7 +2022,7 @@ impl App {
         let revision = self.visible_terrain_revision;
         self.tracer.observe_published_environment_probe_terrain(
             revision,
-            UAabb3::new(UVec3::ZERO, CHUNK_DIM * VOXEL_DIM_PER_CHUNK),
+            UAabb3::new(UVec3::ZERO, self.world_chunk_dim * VOXEL_DIM_PER_CHUNK),
         )?;
         Ok(revision)
     }
@@ -2435,7 +2443,7 @@ impl App {
                 if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let extent = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+                let extent = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
                 self.wind_prototype
                     .field
                     .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
@@ -2556,7 +2564,7 @@ impl App {
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
-                    CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+                    self.world_chunk_dim * VOXEL_DIM_PER_CHUNK,
                     DdgiProbeSpacing::try_from(self.environment_probe_spacing_draft)
                         .expect("environment probe UI only exposes supported spacings"),
                 )
@@ -3419,6 +3427,11 @@ ui.collapsing("Environment Probes", |ui| {
                     }
                 }
 
+                if let Err(error) = self.sync_rooftop_voxel_mode() {
+                    log::error!("[ROOFTOP][VOXEL_AB] switch failed: {error:#}");
+                    event_loop.exit();
+                    return;
+                }
                 let time_of_day_changed_by_gui =
                     self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =

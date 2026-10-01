@@ -2381,6 +2381,15 @@ max = 2
 name = "Voxel"
 
 [[section.param]]
+id = "rooftop_voxel_scene"
+kind = "bool"
+label = "Restaurant scene: true voxels (A/B; off = original models)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "voxel_dirt_color"
 kind = "color"
 label = "Dirt Color"

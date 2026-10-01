@@ -171,13 +171,15 @@ impl CubePlacementService {
 struct TerrainSurfaceRemovalService;
 
 impl TerrainSurfaceRemovalService {
+    #[cfg(test)]
     fn compile(edit: TerrainRemovalEdit) -> Option<CompiledTerrainSurfaceRemoval> {
-        Self::compile_with_voxel_type(edit, crate::builder::VOXEL_TYPE_EMPTY)
+        Self::compile_with_voxel_type(edit, crate::builder::VOXEL_TYPE_EMPTY, super::CHUNK_DIM)
     }
 
     fn compile_with_voxel_type(
         edit: TerrainRemovalEdit,
         voxel_type: u32,
+        chunk_dim: UVec3,
     ) -> Option<CompiledTerrainSurfaceRemoval> {
         if edit.radius <= 0.0 {
             return None;
@@ -186,7 +188,7 @@ impl TerrainSurfaceRemovalService {
         let center_voxel = edit.center * 256.0;
         let radius_voxel = edit.radius * 256.0;
         let sphere = Sphere::new(center_voxel, radius_voxel);
-        let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
+        let world_dim = super::VOXEL_DIM_PER_CHUNK * chunk_dim;
         let max_inclusive = world_dim - UVec3::ONE;
         let sphere_aabb = sphere.aabb();
         let min_f = sphere_aabb.min();
@@ -243,7 +245,15 @@ impl TerrainSurfaceRemovalService {
         })
     }
 
+    #[cfg(test)]
     fn compile_surface_brush(edit: TerrainBrushEdit) -> Option<CompiledTerrainBrushSurfaceEdit> {
+        Self::compile_surface_brush_in_world(edit, super::CHUNK_DIM)
+    }
+
+    fn compile_surface_brush_in_world(
+        edit: TerrainBrushEdit,
+        chunk_dim: UVec3,
+    ) -> Option<CompiledTerrainBrushSurfaceEdit> {
         if edit.radius <= 0.0 {
             return None;
         }
@@ -253,7 +263,7 @@ impl TerrainSurfaceRemovalService {
         let radius_voxel = edit.radius * 256.0;
         let min_f = start_voxel.min(end_voxel) - Vec3::splat(radius_voxel);
         let max_f = start_voxel.max(end_voxel) + Vec3::splat(radius_voxel);
-        let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
+        let world_dim = super::VOXEL_DIM_PER_CHUNK * chunk_dim;
         let max_inclusive = world_dim - UVec3::ONE;
         if max_f.x < 0.0
             || max_f.y < 0.0
@@ -2229,7 +2239,7 @@ impl App {
             ))?;
         }
 
-        let world_size = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+        let world_size = self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK;
         let map_padding = 50.0;
         let map_dimensions = Vec2::new(
             world_size.x as f32 - map_padding * 2.0,
@@ -2773,7 +2783,7 @@ impl App {
         const BORDER_PADDING: f32 = 0.2;
         const EDGE_INTERIOR_COLUMNS: u32 = 30;
 
-        let map_size = super::CHUNK_DIM.as_vec3();
+        let map_size = self.world_chunk_dim.as_vec3();
         let min_x = BORDER_PADDING;
         let max_x = map_size.x - BORDER_PADDING;
         let min_z = BORDER_PADDING;
@@ -2863,7 +2873,11 @@ impl App {
             return self.apply_rooftop_soil(edit, crate::builder::VOXEL_TYPE_EMPTY);
         }
         let total_start = Instant::now();
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile(edit) {
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_with_voxel_type(
+            edit,
+            crate::builder::VOXEL_TYPE_EMPTY,
+            self.world_chunk_dim,
+        ) {
             let rebuild_bound = compiled.rebuild_bound;
             let stats = match compiled.voxel_edit {
                 VoxelEdit::StampSurfaceSpheres {
@@ -2919,9 +2933,11 @@ impl App {
             return self.apply_rooftop_soil(edit, voxel_type);
         }
         let total_start = Instant::now();
-        if let Some(compiled) =
-            TerrainSurfaceRemovalService::compile_with_voxel_type(edit, voxel_type)
-        {
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_with_voxel_type(
+            edit,
+            voxel_type,
+            self.world_chunk_dim,
+        ) {
             let rebuild_bound = compiled.rebuild_bound;
             let modify_start = Instant::now();
             let stats = match compiled.voxel_edit {
@@ -2987,8 +3003,10 @@ impl App {
 
         match clear_path {
             SurfaceOccupantClearPath::Standalone => {
-                let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit)
-                else {
+                let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+                    edit,
+                    self.world_chunk_dim,
+                ) else {
                     return Ok(());
                 };
                 world_ops::mesh_remove_flora_for_brush_edit(
@@ -3027,9 +3045,11 @@ impl App {
             end: center,
             radius,
         };
-        let flora_rebuild_bound =
-            TerrainSurfaceRemovalService::compile_surface_brush(flora_brush_edit)
-                .map(|compiled| compiled.rebuild_bound);
+        let flora_rebuild_bound = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+            flora_brush_edit,
+            self.world_chunk_dim,
+        )
+        .map(|compiled| compiled.rebuild_bound);
         let flora_edit = world_ops::FloraBrushEdit {
             start: center,
             end: center,
@@ -3103,9 +3123,13 @@ impl App {
         let mut planted = 0;
         for (index, plant) in species::species().iter().enumerate() {
             for attempt in 0..super::planting::FLORA_SHOWCASE_ATTEMPTS {
-                let Some(column) =
-                    super::planting::flora_showcase_column(center, index, species_count, attempt)
-                else {
+                let Some(column) = super::planting::flora_showcase_column_in_world(
+                    center,
+                    index,
+                    species_count,
+                    attempt,
+                    self.world_chunk_dim,
+                ) else {
                     continue;
                 };
                 let Ok(anchor) =
@@ -3146,8 +3170,11 @@ impl App {
                 end: point,
                 radius: 5.0 / 256.0,
             };
-            let compiled = TerrainSurfaceRemovalService::compile_surface_brush(edit)
-                .context("flora showcase grass footprint outside world")?;
+            let compiled = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+                edit,
+                self.world_chunk_dim,
+            )
+            .context("flora showcase grass footprint outside world")?;
             world_ops::mesh_regenerate_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
@@ -3182,7 +3209,9 @@ impl App {
         paint_dab_serial: u32,
         is_release_step: bool,
     ) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
+        if let Some(compiled) =
+            TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
+        {
             let spawn_time_ms = self.time_info.time_since_start_duration().as_millis() as u32;
             let paint_selection = self.current_flora_paint_selection();
             anyhow::ensure!(
@@ -3281,7 +3310,7 @@ impl App {
         let radius_sq = radius_vox * radius_vox;
         let start_vox = edit.start * 256.0;
         let end_vox = edit.end * 256.0;
-        let world_dim = super::VOXEL_DIM_PER_CHUNK * super::CHUNK_DIM;
+        let world_dim = super::VOXEL_DIM_PER_CHUNK * self.world_chunk_dim;
         let min = rebuild_bound
             .min()
             .min(world_dim.saturating_sub(UVec3::ONE));
@@ -3385,7 +3414,9 @@ impl App {
     }
 
     pub(super) fn apply_surface_flora_removal(&mut self, edit: TerrainBrushEdit) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(edit) {
+        if let Some(compiled) =
+            TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
+        {
             world_ops::mesh_remove_flora_for_brush_edit(
                 &mut self.surface_builder,
                 super::VOXEL_DIM_PER_CHUNK,
@@ -3418,7 +3449,10 @@ impl App {
     }
 
     pub(super) fn apply_flora_trim_path(&mut self, brush_edit: TerrainBrushEdit) -> Result<()> {
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush(brush_edit) {
+        if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+            brush_edit,
+            self.world_chunk_dim,
+        ) {
             let target_age = super::FLORA_TRIM_MAX_GROWTH_PROGRESS;
             let growing_chunks = world_ops::mesh_trim_flora_for_brush_edit(
                 &mut self.surface_builder,
@@ -5025,7 +5059,7 @@ impl App {
             let mut read_ms = 0.0;
             let mut append_ms = 0.0;
             let mut mesh = crate::tracer::RasterTreeMesh::default();
-            let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+            let world_dim = self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK;
             let mut read_bounds = Vec::with_capacity(self.trees.records.len());
             for record in self.trees.records.values() {
                 let bound = crate::tracer::tree_surface_cache::tree_surface_read_bound(

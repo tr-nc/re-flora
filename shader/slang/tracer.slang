@@ -306,7 +306,7 @@ float3 pathTracingDirectIrradiance(MarchingResult receiver, int3 seed,
             {
                 SceneStraightTransport transport = traceVoxelStraightTransport(
                     contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
-                    shadowRay.origin, shadowRay.direction, 256.0, true,
+                    shadowRay.origin, shadowRay.direction, 256.0, shading_info.glass_experiment_enabled != 0u,
                     localInvocationIndex);
                 visibility = transport.exhausted != 0u ||
                     transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
@@ -403,7 +403,7 @@ float depthFromWorldPosition(float3 worldPosition)
 #if RE_FLORA_GLASS_PRIMARY
 int3 glassEventVoxelCell(SceneQueryEvent event)
 {
-    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, shading_info.glass_experiment_enabled != 0u);
     return toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
         ? event.to_cell
         : event.from_cell;
@@ -708,15 +708,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
         uint originVoxelType = sceneQueryVoxelTypeAtWorld(
             chunk_atlas, ray.origin, 256.0);
         bool cameraInsideGlass = voxelMaterial(
-            originVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+            originVoxelType, shading_info.glass_experiment_enabled != 0u).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
         bool acceleratedHitGlass = acceleratedPrimary.is_hit && voxelMaterial(
-            acceleratedPrimary.voxel_type, true).surface_class ==
+            acceleratedPrimary.voxel_type, shading_info.glass_experiment_enabled != 0u).surface_class ==
                 VOXEL_SURFACE_CLASS_DIELECTRIC;
         if (cameraInsideGlass || acceleratedHitGlass)
         {
             glassPrimary = tracePrimaryVoxelSurfaces(
                 contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
-                ray.origin, ray.direction, 256.0, true, acceleratedPrimary,
+                ray.origin, ray.direction, 256.0, shading_info.glass_experiment_enabled != 0u, acceleratedPrimary,
                 cameraInsideGlass, localInvocationIndex);
             primaryResult = sceneQueryMarchingResultFromOpaqueEvent(
                 glassPrimary.opaque_hit, ray.origin);

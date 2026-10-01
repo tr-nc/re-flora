@@ -1,4 +1,4 @@
-use super::super::{App, CHUNK_DIM};
+use super::super::App;
 use super::runtime::{AsyncWaterSim, WaterParticleFrame, WATER_SIM_THREAD_DEFAULT_MAX_SUBSTEPS};
 use super::settings::{WaterLaunchRequest, WaterRuntimeOverrides};
 use super::terrain::{
@@ -373,7 +373,7 @@ impl Drop for WaterRuntime {
 /// runtime retains water phase, worker, and ordering ownership.
 impl App {
     pub(in crate::app::core) fn enqueue_startup_water_terrain_collider_rebuilds(&mut self) {
-        self.water.observe_visible_terrain(CHUNK_DIM);
+        self.water.observe_visible_terrain(self.world_chunk_dim);
     }
 
     pub(in crate::app::core) fn advance_water_terrain(

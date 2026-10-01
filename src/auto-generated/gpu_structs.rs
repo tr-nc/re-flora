@@ -707,11 +707,12 @@ pub struct ChunkModifyInfo {
     pub surface_only: u32,
     pub surface_support_y_plus_one: u32,
     pub max_write_count: u32,
-    pub clear_fill_voxel_state: u32,
+    pub fill_policy: u32,
     pub _pad1: [u8; 8],
     pub max_removed_counts_0_3: [u32; 4],
     pub max_removed_counts_4_7: [u32; 4],
     pub max_removed_counts_8_11: [u32; 4],
+    pub max_removed_counts_12_15: [u32; 4],
 }
 
 /// Auto-generated from `U_ChunkSolidSampleInfo` (native Slang source of truth).
@@ -1127,6 +1128,8 @@ pub struct ShadingInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShadowCameraInfo {
+    pub glass_experiment_enabled: u32,
+    pub _pad0: [u8; 12],
     pub pos: [f32; 4],
     pub view_mat: [[f32; 4]; 4],
     pub view_mat_inv: [[f32; 4]; 4],

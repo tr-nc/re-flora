@@ -128,7 +128,12 @@ uint loadVoxelType(int3 position)
 
 uint atlasDataForFill(uint oldVoxelData, uint fillVoxelType)
 {
-    if (chunk_modify_info.clear_fill_voxel_state != 0u)
+    if (chunk_modify_info.fill_policy == 2u)
+    {
+        return packVoxelAtlasData(fillVoxelType, 0u) |
+            (fillVoxelType != VOXEL_TYPE_EMPTY ? VOXEL_FIXED_SCENE_BIT : 0u);
+    }
+    if (chunk_modify_info.fill_policy == 1u)
     {
         return packVoxelAtlasData(fillVoxelType, 0u);
     }
@@ -152,9 +157,13 @@ uint maxRemovedCountForType(uint voxelType)
     {
         return chunk_modify_info.max_removed_counts_4_7[voxelType - 4u];
     }
-    if (voxelType < EDIT_STATS_VOXEL_TYPE_COUNT)
+    if (voxelType < 12u)
     {
         return chunk_modify_info.max_removed_counts_8_11[voxelType - 8u];
+    }
+    if (voxelType < EDIT_STATS_VOXEL_TYPE_COUNT)
+    {
+        return chunk_modify_info.max_removed_counts_12_15[voxelType - 12u];
     }
     return 0u;
 }
@@ -354,6 +363,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
                 }
 
                 uint oldVoxelData = chunk_atlas[worldVoxelPosition];
+                // Every primitive writer (including tree growth/carving) respects ownership.
+                // Only the explicit scene-authoring capability may replace fixed cells.
+                if (voxelIsFixedScene(oldVoxelData) && chunk_modify_info.fill_policy != 2u)
+                    return;
                 uint oldVoxelType = voxelTypeFromAtlasData(oldVoxelData);
                 if (chunk_modify_info.target_voxel_type != VOXEL_TYPE_ANY &&
                     oldVoxelType != chunk_modify_info.target_voxel_type)
