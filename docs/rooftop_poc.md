@@ -89,7 +89,7 @@ than adding a synchronous wait to ordinary editing.
 
 Results:
 
-- Root tests: 1,268 passed, 4 ignored; library tests: 4 passed. After the final input-policy change,
+- Root tests: 1,269 passed, 4 ignored; library tests: 4 passed. After the final input-policy change,
   rooftop tests (6) and player-tool tests (12) were rerun successfully.
 - Physics crate unit/integration tests passed, including fixed-scene independence, atomic invalid
   replacement and capsule grounding.
@@ -113,3 +113,17 @@ placement predicate is reused, with optional fixed-floor adjacency only for the 
 Cadence and normal-garden behavior are unchanged. The hidden fixture now asserts that a second dab
 at the same position can still add soil, preventing regression to a one-shot filled sphere. The
 planted preview has been refreshed for this corrected behavior.
+
+A later manual report identified moving stripes at the brown floor/exterior-wall joint. The slab
+originally extended to the exterior wall planes, producing exposed, same-facing coplanar surfaces.
+The floor now terminates halfway through the wall thickness, leaving its side faces enclosed; no
+shader depth bias or camera-dependent workaround is used. A deterministic test on the actual authored
+boxes and their ray visibility failed before the fix and passes afterward:
+
+```bash
+cargo test exposed_model_side_faces_do_not_overlap_on_the_same_plane
+```
+
+Full tests, `cargo check`, default and rooftop Release hidden runs passed again. The exterior seam
+was inspected in the refreshed hidden captures; continuous manual camera-motion review remains with
+the user. Both previews now show the corrected geometry.

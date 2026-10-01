@@ -37,7 +37,9 @@ impl RooftopScene {
         add([60., 72., 424.], [448., 176., 432.], [0.89, 0.83, 0.68]);
         add([60., 72., 80.], [68., 176., 424.], [0.87, 0.80, 0.64]);
         add([440., 72., 80.], [448., 176., 424.], [0.83, 0.76, 0.61]);
-        add([60., 72., 72.], [448., 78., 432.], [0.52, 0.43, 0.32]);
+        // Terminate the floor slab halfway through the 8-voxel wall thickness.
+        // Its sides are enclosed by the walls, not duplicate exterior wall faces.
+        add([64., 72., 76.], [444., 78., 428.], [0.52, 0.43, 0.32]);
         add([52., 176., 64.], [456., 192., 440.], [0.67, 0.69, 0.58]);
         add([52., 192., 64.], [72., 205., 440.], [0.84, 0.83, 0.70]);
         add([436., 192., 64.], [456., 205., 440.], [0.84, 0.83, 0.70]);
@@ -433,6 +435,40 @@ mod tests {
                 !b.max.cmpgt(min).all() || !b.min.cmplt(max).all(),
                 "fixed model overlaps editable soil region: {b:?}"
             );
+        }
+    }
+
+    #[test]
+    fn exposed_model_side_faces_do_not_overlap_on_the_same_plane() {
+        let scene = RooftopScene::new();
+        // Test the authored boxes used by BOTH the raster mesh and collision mesh.
+        // Same-facing, externally visible coplanar rectangles compete for depth.
+        for (i, a) in scene.boxes.iter().enumerate() {
+            for (j, b) in scene.boxes.iter().enumerate().skip(i + 1) {
+                for axis in [0, 2] {
+                    let tangents = if axis == 0 { [1, 2] } else { [0, 1] };
+                    for positive in [false, true] {
+                        let plane_a = if positive { a.max[axis] } else { a.min[axis] };
+                        let plane_b = if positive { b.max[axis] } else { b.min[axis] };
+                        if plane_a != plane_b {
+                            continue;
+                        }
+                        let lo = a.min.max(b.min);
+                        let hi = a.max.min(b.max);
+                        if tangents.iter().any(|&t| lo[t] >= hi[t]) {
+                            continue;
+                        }
+                        let mut sample = (lo + hi) * 0.5;
+                        sample[axis] = plane_a;
+                        let mut normal = Vec3::ZERO;
+                        normal[axis] = if positive { 1. } else { -1. };
+                        let exposed = scene
+                            .ray_hit(sample + normal * 3., -normal)
+                            .is_some_and(|hit| hit.distance(sample) < 1e-5);
+                        assert!(!exposed, "exposed coplanar side faces: boxes {i}/{j}, axis={axis}, positive={positive}, sample={sample:?}");
+                    }
+                }
+            }
         }
     }
 
