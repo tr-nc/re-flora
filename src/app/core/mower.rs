@@ -10,6 +10,9 @@ pub(super) const MOWER_CUT_RADIUS: f32 = 11.0 / 256.0;
 const MIN_CAMERA_DISTANCE: f32 = 0.7;
 const MAX_FRAME_STEP: f32 = 0.1;
 const MOWER_MAX_TURN_SPEED: f32 = 120. * std::f32::consts::PI / 180.;
+const MOWER_APPROACH_RATE: f32 = 3.;
+const MOWER_ARRIVAL_DISTANCE: f32 = 0.25 / 256.;
+const MOWER_RESUME_DISTANCE: f32 = 0.5 / 256.;
 
 #[derive(Debug, Default)]
 pub(super) struct MowerRuntime {
@@ -18,6 +21,8 @@ pub(super) struct MowerRuntime {
     rotation: Quat,
     visual_position: Option<Vec3>,
     dragging: bool,
+    settled_target: Option<Vec2>,
+    settled_rotation: Option<Quat>,
     validation_complete: bool,
 }
 
@@ -60,7 +65,12 @@ fn steered_step(position: Vec3, target: Vec3, rotation: Quat, dt: f32) -> Vec3 {
     let forward = rotation * Vec3::Z;
     let forward = Vec3::new(forward.x, 0., forward.z).normalize_or_zero();
     let alignment = desired.normalize_or_zero().dot(forward).max(0.);
-    position + forward * desired.length() * alignment
+    // A full one-frame projection onto the heading turns the remaining error
+    // perpendicular to the chassis. Near targets then orbit as fast as steering
+    // can turn. Approach over time instead, keeping the target bearing catchable.
+    let distance = Vec2::new(target.x - position.x, target.z - position.z).length();
+    let approach = 1. - (-MOWER_APPROACH_RATE * dt.min(MAX_FRAME_STEP).max(0.)).exp();
+    position + forward * desired.length().min(distance * approach) * alignment
 }
 
 fn mode_allows_mower(orbit: bool, cursor_visible: bool, distance: f32) -> bool {
@@ -68,12 +78,37 @@ fn mode_allows_mower(orbit: bool, cursor_visible: bool, distance: f32) -> bool {
 }
 
 impl MowerRuntime {
+    /// Once reached, hold both motion and heading until the pointer meaningfully
+    /// moves. Separate enter/exit distances reject picking/physics roundoff noise.
+    fn guidance_target(&mut self, target: Vec3) -> Option<Vec3> {
+        let position = self.position?;
+        let target_xz = Vec2::new(target.x, target.z);
+        if let Some(settled) = self.settled_target {
+            if target_xz.distance(settled) <= MOWER_RESUME_DISTANCE {
+                return None;
+            }
+            self.settled_target = None;
+            self.settled_rotation = None;
+        }
+        if target_xz.distance(Vec2::new(position.x, position.z)) <= MOWER_ARRIVAL_DISTANCE {
+            self.settled_target = Some(target_xz);
+            // Keep the arrived heading; slope alignment may finish, but it must
+            // not keep chasing the bearing of a tiny remaining position error.
+            let forward = self.rotation * Vec3::Z;
+            self.yaw = forward.x.atan2(forward.z);
+            return None;
+        }
+        Some(target)
+    }
+
     pub(super) fn cancel_drag(&mut self) {
         self.dragging = false;
         self.position = None;
         self.visual_position = None;
         self.rotation = Quat::IDENTITY;
         self.yaw = 0.;
+        self.settled_target = None;
+        self.settled_rotation = None;
     }
 }
 
@@ -162,6 +197,7 @@ impl App {
         }
         let target = if self.mower.dragging {
             self.mower_cursor_surface()
+                .and_then(|target| self.mower.guidance_target(target))
         } else {
             None
         };
@@ -206,11 +242,21 @@ impl App {
         let Some(feet) = self.mower.position else {
             return;
         };
-        let normal = self
-            .terrain_physics
-            .mower_support_frame(feet, self.mower.rotation)
-            .map_or(self.mower.rotation * Vec3::Y, |(_, normal)| normal);
-        let target = slope_orientation(normal, self.mower.yaw);
+        let target = if let Some(settled) = self.mower.settled_rotation {
+            settled
+        } else {
+            let normal = self
+                .terrain_physics
+                .mower_support_frame(feet, self.mower.rotation)
+                .map_or(self.mower.rotation * Vec3::Y, |(_, normal)| normal);
+            let target = slope_orientation(normal, self.mower.yaw);
+            if self.mower.settled_target.is_some() {
+                // Cache the arrived support frame so wheel-sampling roundoff
+                // cannot feed an endless idle orientation loop.
+                self.mower.settled_rotation = Some(target);
+            }
+            target
+        };
         self.mower.rotation = turn_step(self.mower.rotation, target, dt);
         self.refresh_mower_contact();
     }
@@ -259,7 +305,7 @@ impl App {
                 (ndc.x + 1.) * extent.width as f32 * 0.5,
                 (ndc.y + 1.) * extent.height as f32 * 0.5,
             ));
-            for _ in 0..24 {
+            for _ in 0..60 {
                 self.update_mower(0.1)?;
             }
             let finish = self.mower.position.unwrap();
@@ -277,7 +323,77 @@ impl App {
                 "release did not destroy mower"
             );
         }
+        self.validate_mower_stationary_hold()?;
         log::info!("[MOWER][SURFACE_CHECK] bare_roof_placement=true bare_roof_driving=true road_placement=true road_driving=true outside_voxel_bounds=true grounded=true shared_player_controller=true");
+        Ok(())
+    }
+
+    /// Real pointer + collision + render-pose regression for a tiny drag followed by a hold.
+    fn validate_mower_stationary_hold(&mut self) -> anyhow::Result<()> {
+        use anyhow::{ensure, Context};
+        let extent = self.window_state.window_extent();
+        self.cursor_position_physical =
+            Some(Vec2::new(extent.width as f32, extent.height as f32) * 0.5);
+        self.handle_mower_pointer(MouseButton::Left, ElementState::Pressed);
+        let start = self
+            .mower
+            .position
+            .context("hold fixture failed to spawn mower")?;
+        let project = |matrix: glam::Mat4, target: Vec3| {
+            let projected = matrix * target.extend(1.);
+            let ndc = projected.truncate() / projected.w;
+            Vec2::new(
+                (ndc.x + 1.) * extent.width as f32 * 0.5,
+                (ndc.y + 1.) * extent.height as f32 * 0.5,
+            )
+        };
+        let target = start + Vec3::X * 0.002;
+        self.cursor_position_physical = Some(project(self.tracer.camera_view_projection(), target));
+        for _ in 0..180 {
+            self.update_mower(1. / 60.)?;
+        }
+        ensure!(
+            self.mower.settled_target.is_some(),
+            "tiny stationary held target never settled"
+        );
+        let stopped_position = self.mower.position;
+        let stopped_rotation = self.mower.rotation;
+        let stopped_visual_position = self.mower.visual_position;
+        for _ in 0..120 {
+            self.update_mower(1. / 60.)?;
+        }
+        ensure!(
+            self.mower.position == stopped_position
+                && self.mower.rotation == stopped_rotation
+                && self.mower.visual_position == stopped_visual_position,
+            "stationary hold kept moving/turning after arrival"
+        );
+        self.cursor_position_physical = Some(project(
+            self.tracer.camera_view_projection(),
+            target + Vec3::X * 0.02,
+        ));
+        self.update_mower(1. / 60.)?;
+        ensure!(
+            self.mower.settled_target.is_none(),
+            "moving the held pointer failed to resume guidance"
+        );
+        for _ in 0..30 {
+            self.update_mower(1. / 60.)?;
+        }
+        ensure!(
+            self.mower
+                .position
+                .unwrap()
+                .distance(stopped_position.unwrap())
+                > 0.001,
+            "resumed guidance failed to move mower"
+        );
+        self.handle_mower_pointer(MouseButton::Left, ElementState::Released);
+        ensure!(
+            self.mower.position.is_none(),
+            "hold fixture failed to destroy mower on release"
+        );
+        log::info!("[MOWER][HOLD_CHECK] short_drag=true stationary_hold_stops=true stationary_heading_stops=true pointer_move_resumes=true release_destroyed=true");
         Ok(())
     }
 
@@ -464,6 +580,93 @@ impl App {
 mod tests {
     use super::*;
     #[test]
+    fn short_drag_then_stationary_hold_settles_without_endless_turning() {
+        let mut position = Vec3::ZERO;
+        let mut rotation = Quat::IDENTITY;
+        let mut yaw = 0.;
+        let target = Vec3::new(0.002, 0., 0.);
+        let mut tail_turn = 0.;
+        for frame in 0..1200 {
+            let desired = target - position;
+            if Vec2::new(desired.x, desired.z).length_squared() > 1e-12 {
+                yaw = desired.x.atan2(desired.z);
+            }
+            let next_rotation = turn_step(rotation, slope_orientation(Vec3::Y, yaw), 1. / 60.);
+            if frame >= 1080 {
+                tail_turn += rotation.angle_between(next_rotation);
+            }
+            rotation = next_rotation;
+            position = steered_step(position, target, rotation, 1. / 60.);
+        }
+        assert!(
+            position.distance(target) < 0.0001,
+            "failed to reach short-drag destination: {position:?}"
+        );
+        assert!(
+            tail_turn < 0.001,
+            "still turning with a stationary held pointer: {tail_turn}"
+        );
+    }
+
+    #[test]
+    fn stationary_hold_stops_motion_and_heading_and_resumes_after_pointer_moves() {
+        for distance in [0.002, 0.01, 0.04] {
+            let target = Vec3::X * distance;
+            let mut mower = MowerRuntime {
+                position: Some(Vec3::ZERO),
+                dragging: true,
+                ..Default::default()
+            };
+            let mut tail_motion = 0.;
+            let mut tail_turn = 0.;
+            let mut settled_frame = None;
+            for frame in 0..1200 {
+                let previous_position = mower.position.unwrap();
+                let previous_rotation = mower.rotation;
+                if let Some(active_target) = mower.guidance_target(target) {
+                    let delta = active_target - previous_position;
+                    mower.yaw = delta.x.atan2(delta.z);
+                    mower.rotation = turn_step(
+                        mower.rotation,
+                        slope_orientation(Vec3::Y, mower.yaw),
+                        1. / 60.,
+                    );
+                    mower.position = Some(steered_step(
+                        previous_position,
+                        active_target,
+                        mower.rotation,
+                        1. / 60.,
+                    ));
+                }
+                if mower.settled_target.is_some() && settled_frame.is_none() {
+                    settled_frame = Some(frame);
+                }
+                if frame >= 1080 {
+                    tail_motion += mower.position.unwrap().distance(previous_position);
+                    tail_turn += mower.rotation.angle_between(previous_rotation);
+                }
+            }
+            assert!(mower.position.unwrap().distance(target) <= MOWER_ARRIVAL_DISTANCE);
+            assert!(mower.settled_target.is_some());
+            assert!(
+                settled_frame.unwrap() <= 180,
+                "short target should settle within three seconds, not merely stop eventually"
+            );
+            assert_eq!(tail_motion, 0.);
+            assert_eq!(tail_turn, 0.);
+            assert!(mower
+                .guidance_target(target + Vec3::X * (MOWER_RESUME_DISTANCE * 0.9))
+                .is_none());
+            assert!(mower
+                .guidance_target(target + Vec3::X * (MOWER_RESUME_DISTANCE * 1.1))
+                .is_some());
+            assert!(mower.settled_target.is_none());
+            mower.cancel_drag();
+            assert!(mower.settled_target.is_none());
+        }
+    }
+
+    #[test]
     fn model_up_and_forward_follow_pitch_and_roll() {
         let normal = Vec3::new(-0.3, 1., 0.2).normalize();
         let rotation = slope_orientation(normal, 1.2);
@@ -483,7 +686,8 @@ mod tests {
             Vec3::ZERO
         );
         let forward = steered_step(Vec3::ZERO, Vec3::Z * 0.001, Quat::IDENTITY, 1. / 60.);
-        assert_eq!(forward, Vec3::Z * 0.001);
+        assert!(forward.z > 0. && forward.z < 0.001);
+        assert!(forward.x == 0. && forward.y == 0.);
     }
 
     #[test]
