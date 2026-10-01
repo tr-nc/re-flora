@@ -31,12 +31,56 @@ impl RooftopScene {
                 color: Vec3::from_array(rgb).extend(1.0),
             });
         };
-        // Modelled stage, single-storey shell, flat roof and parapets. No atlas stamps.
-        add([16., 66., 20.], [492., 72., 492.], [0.61, 0.64, 0.52]);
+        // A grounded neighbourhood plinth, with a continuous level street and raised sidewalks.
+        add([-180., -24., -160.], [692., 60., 700.], [0.34, 0.37, 0.31]);
+        add([-180., 60., -160.], [692., 64., 700.], [0.28, 0.31, 0.32]);
+        add([-36., 64., 8.], [544., 72., 506.], [0.68, 0.67, 0.60]);
+        add([-180., 64., -160.], [-100., 70., 700.], [0.54, 0.59, 0.46]);
+        add([612., 64., -160.], [692., 70., 700.], [0.54, 0.59, 0.46]);
+        // Paving joints, crossing and lane markings are raised clear of the road surface.
+        for x in (-20..540).step_by(40) {
+            add(
+                [x as f32, 72., 450.],
+                [x as f32 + 1., 72.5, 504.],
+                [0.51, 0.53, 0.49],
+            );
+        }
+        for x in (180..340).step_by(28) {
+            add(
+                [x as f32, 64., 530.],
+                [x as f32 + 14., 64.5, 602.],
+                [0.87, 0.85, 0.72],
+            );
+        }
+        for x in (-140..660).step_by(100) {
+            add(
+                [x as f32, 64., 652.],
+                [x as f32 + 46., 64.5, 656.],
+                [0.86, 0.80, 0.56],
+            );
+        }
         add([60., 72., 72.], [448., 176., 80.], [0.79, 0.72, 0.57]);
-        add([60., 72., 424.], [448., 176., 432.], [0.89, 0.83, 0.68]);
+        // Front wall is built around real openings, not an opaque wall behind fake glass.
+        add([60., 72., 424.], [238., 98., 432.], [0.89, 0.83, 0.68]);
+        add([284., 72., 424.], [448., 98., 432.], [0.89, 0.83, 0.68]);
+        add([60., 160., 424.], [448., 176., 432.], [0.89, 0.83, 0.68]);
+        for (lo, hi) in [
+            (60., 82.),
+            (146., 164.),
+            (228., 238.),
+            (284., 296.),
+            (360., 378.),
+            (442., 448.),
+        ] {
+            add([lo, 98., 424.], [hi, 160., 432.], [0.89, 0.83, 0.68]);
+        }
+        add([238., 148., 424.], [284., 160., 432.], [0.89, 0.83, 0.68]);
         add([60., 72., 80.], [68., 176., 424.], [0.87, 0.80, 0.64]);
-        add([440., 72., 80.], [448., 176., 424.], [0.83, 0.76, 0.61]);
+        add([440., 72., 80.], [448., 98., 424.], [0.83, 0.76, 0.61]);
+        add([440., 160., 80.], [448., 176., 424.], [0.83, 0.76, 0.61]);
+        for (lo, hi) in [(80., 112.), (192., 214.), (294., 316.), (396., 424.)] {
+            add([440., 98., lo], [448., 160., hi], [0.83, 0.76, 0.61]);
+        }
         // Terminate the floor slab halfway through the 8-voxel wall thickness.
         // Its sides are enclosed by the walls, not duplicate exterior wall faces.
         add([64., 72., 76.], [444., 78., 428.], [0.52, 0.43, 0.32]);
@@ -45,25 +89,214 @@ impl RooftopScene {
         add([436., 192., 64.], [456., 205., 440.], [0.84, 0.83, 0.70]);
         add([72., 192., 64.], [436., 205., 84.], [0.84, 0.83, 0.70]);
         add([72., 192., 408.], [436., 205., 440.], [0.84, 0.83, 0.70]);
-        // Recess-looking warm windows, frames and a modest cafe sign; no transparent-pane promise.
-        for x in [88., 170., 302., 384.] {
-            add([x, 104., 432.], [x + 52., 158., 436.], [0.26, 0.39, 0.30]);
+        // Slender green frames leave the interior visible through glazed openings.
+        for x in [82., 164., 296., 378.] {
+            add([x, 98., 432.], [x + 64., 102., 436.], [0.22, 0.34, 0.29]);
+            add([x, 156., 432.], [x + 64., 160., 436.], [0.22, 0.34, 0.29]);
+            for dx in [0., 30., 60.] {
+                add(
+                    [x + dx, 102., 432.],
+                    [x + dx + 4., 156., 436.],
+                    [0.22, 0.34, 0.29],
+                );
+            }
+        }
+        for z in [112., 214., 316.] {
+            for y in [98., 156.] {
+                add([448., y, z], [452., y + 4., z + 80.], [0.22, 0.34, 0.29]);
+            }
+            for dz in [0., 38., 76.] {
+                add(
+                    [448., 102., z + dz],
+                    [452., 156., z + dz + 4.],
+                    [0.22, 0.34, 0.29],
+                );
+            }
+        }
+        for x in [238., 280.] {
+            add([x, 78., 432.], [x + 4., 148., 436.], [0.22, 0.34, 0.29]);
+        }
+        add([242., 144., 432.], [280., 148., 436.], [0.22, 0.34, 0.29]);
+        add([274., 106., 436.], [277., 119., 440.], [0.80, 0.69, 0.40]);
+        add([231., 154., 436.], [291., 170., 440.], [0.66, 0.32, 0.20]);
+        // Cafe sign lettering, striped awnings and a welcoming entrance step.
+        for x in [239., 252., 265., 278.] {
+            add([x, 158., 440.], [x + 6., 166., 441.], [0.96, 0.89, 0.67]);
+        }
+        for x in (82..442).step_by(12) {
             add(
-                [x + 5., 109., 436.],
-                [x + 47., 153., 437.],
-                [0.75, 0.61, 0.36],
-            );
-            add(
-                [x + 24., 109., 437.],
-                [x + 28., 153., 439.],
-                [0.26, 0.39, 0.30],
+                [x as f32, 165., 441.],
+                [x as f32 + 12., 168., 456.],
+                if (x / 12) % 2 == 0 {
+                    [0.84, 0.76, 0.55]
+                } else {
+                    [0.25, 0.40, 0.33]
+                },
             );
         }
-        add([238., 78., 432.], [284., 148., 438.], [0.26, 0.35, 0.26]);
-        add([233., 151., 436.], [289., 166., 440.], [0.66, 0.32, 0.20]);
+        add([234., 72., 436.], [288., 78., 448.], [0.73, 0.70, 0.61]);
+        // Dining tables, chair seats/backs, plates and pendant fixtures.
+        for x in [112., 194., 330., 404.] {
+            for z in [280., 374.] {
+                add(
+                    [x - 2., 78., z - 2.],
+                    [x + 2., 106., z + 2.],
+                    [0.28, 0.30, 0.25],
+                );
+                add(
+                    [x - 20., 106., z - 14.],
+                    [x + 20., 110., z + 14.],
+                    [0.68, 0.43, 0.25],
+                );
+                for dx in [-28., 22.] {
+                    add(
+                        [x + dx, 78., z - 6.],
+                        [x + dx + 6., 92., z + 6.],
+                        [0.36, 0.44, 0.32],
+                    );
+                    add(
+                        [x + dx, 92., z - 9.],
+                        [x + dx + 10., 95., z + 9.],
+                        [0.72, 0.40, 0.25],
+                    );
+                    add(
+                        [x + dx, 95., z + 7.],
+                        [x + dx + 10., 111., z + 10.],
+                        [0.72, 0.40, 0.25],
+                    );
+                }
+                add(
+                    [x - 12., 110., z - 5.],
+                    [x - 3., 111., z + 5.],
+                    [0.92, 0.88, 0.74],
+                );
+                add(
+                    [x + 7., 110., z - 3.],
+                    [x + 11., 116., z + 1.],
+                    [0.92, 0.88, 0.74],
+                );
+                add(
+                    [x - 1., 157., z - 1.],
+                    [x + 1., 176., z + 1.],
+                    [0.27, 0.29, 0.23],
+                );
+                add(
+                    [x - 9., 153., z - 7.],
+                    [x + 9., 157., z + 7.],
+                    [0.90, 0.70, 0.36],
+                );
+            }
+        }
+        // Order counter / till / pastry display; open kitchen behind it.
+        add([96., 78., 202.], [398., 112., 224.], [0.35, 0.46, 0.37]);
+        add([92., 112., 198.], [402., 117., 228.], [0.82, 0.75, 0.60]);
+        add([350., 117., 205.], [371., 127., 218.], [0.20, 0.25, 0.25]);
+        add([354., 127., 208.], [370., 137., 212.], [0.25, 0.52, 0.48]);
+        for x in [112., 138., 164.] {
+            add([x, 117., 208.], [x + 16., 121., 218.], [0.86, 0.60, 0.27]);
+        }
+        add([86., 78., 88.], [318., 110., 120.], [0.61, 0.64, 0.61]);
+        add([82., 110., 84.], [322., 115., 124.], [0.79, 0.81, 0.75]);
+        for x in [104., 138., 172., 206.] {
+            add([x, 115., 92.], [x + 22., 117., 114.], [0.22, 0.25, 0.25]);
+        }
+        add([96., 146., 84.], [230., 158., 126.], [0.61, 0.65, 0.63]);
+        add([354., 78., 90.], [418., 163., 124.], [0.72, 0.76, 0.71]);
+        add([383., 83., 124.], [386., 158., 125.], [0.34, 0.40, 0.37]);
+        add([392., 118., 125.], [396., 140., 127.], [0.30, 0.34, 0.31]);
+        // Street trees occupy the perimeter, keeping the roof and storefront the focal point.
+        for (x, z) in [
+            (-68., 32.),
+            (-68., 208.),
+            (-68., 416.),
+            (570., 32.),
+            (570., 222.),
+            (570., 438.),
+            (92., -64.),
+            (380., -64.),
+        ] {
+            add(
+                [x - 22., 64., z - 22.],
+                [x + 22., 78., z + 22.],
+                [0.55, 0.53, 0.43],
+            );
+            add(
+                [x - 18., 78., z - 18.],
+                [x + 18., 79., z + 18.],
+                [0.30, 0.36, 0.23],
+            );
+            add(
+                [x - 5., 79., z - 5.],
+                [x + 5., 172., z + 5.],
+                [0.40, 0.29, 0.19],
+            );
+            add(
+                [x - 33., 144., z - 29.],
+                [x + 33., 192., z + 29.],
+                [0.30, 0.46, 0.29],
+            );
+            add(
+                [x - 25., 192., z - 23.],
+                [x + 25., 218., z + 23.],
+                [0.40, 0.55, 0.32],
+            );
+            add(
+                [x - 17., 218., z - 15.],
+                [x + 17., 230., z + 15.],
+                [0.48, 0.60, 0.36],
+            );
+        }
+        for x in [28., 480.] {
+            add(
+                [x - 4., 72., 476.],
+                [x + 4., 178., 484.],
+                [0.25, 0.31, 0.29],
+            );
+            add(
+                [x - 12., 178., 468.],
+                [x + 12., 193., 492.],
+                [0.87, 0.78, 0.53],
+            );
+            add(
+                [x - 14., 193., 466.],
+                [x + 14., 197., 494.],
+                [0.25, 0.31, 0.29],
+            );
+        }
+        for x in [110., 370.] {
+            add([x, 80., 470.], [x + 52., 85., 487.], [0.57, 0.37, 0.24]);
+            add([x, 85., 485.], [x + 52., 103., 489.], [0.57, 0.37, 0.24]);
+            for dx in [4., 42.] {
+                add(
+                    [x + dx, 72., 472.],
+                    [x + dx + 5., 80., 484.],
+                    [0.25, 0.31, 0.29],
+                );
+            }
+        }
         // A fixed vent on the parapet, deliberately outside the plantable area.
         add([439., 205., 90.], [451., 238., 102.], [0.38, 0.48, 0.39]);
         add([436., 230., 86.], [455., 241., 106.], [0.47, 0.58, 0.47]);
+        // Glass is part of the same physical shell, rendered in a sorted translucent pass.
+        for x in [82., 164., 296., 378.] {
+            boxes.push(SceneBox {
+                min: Vec3::new(x + 4., 102., 430.) / 256.,
+                max: Vec3::new(x + 60., 156., 431.) / 256.,
+                color: Vec4::new(0.64, 0.82, 0.78, 0.16),
+            });
+        }
+        for z in [112., 214., 316.] {
+            boxes.push(SceneBox {
+                min: Vec3::new(446., 102., z + 4.) / 256.,
+                max: Vec3::new(447., 156., z + 76.) / 256.,
+                color: Vec4::new(0.64, 0.82, 0.78, 0.16),
+            });
+        }
+        boxes.push(SceneBox {
+            min: Vec3::new(242., 78., 430.) / 256.,
+            max: Vec3::new(280., 144., 431.) / 256.,
+            color: Vec4::new(0.64, 0.82, 0.78, 0.16),
+        });
         Self {
             boxes,
             material: voxel_backpack::BackpackVoxel::Dirt,
@@ -136,7 +369,9 @@ impl App {
         self.player_tools.terrain_edit_radius = 0.045;
         if self.launch_owners.snapshot_name().is_none() {
             let focus = Vec3::new(254., 192., 246.) / 256.;
-            let position = Vec3::new(665., 650., 710.) / 256.;
+            // Lower three-quarter view shows the glazed facade and surrounding streets,
+            // while the center ray still lands on the editable rooftop.
+            let position = Vec3::new(900., 510., 960.) / 256.;
             self.tracer.set_camera_pose_looking_at(position, focus);
             let mut pose = self.tracer.camera_pose();
             pose.fov_deg = 60.0;
@@ -505,6 +740,31 @@ mod tests {
         assert_eq!(points.len(), mesh.vertices.len());
         assert_eq!(tris.len(), mesh.indices.len() / 3);
     }
+    #[test]
+    fn street_is_grounded_and_windows_reveal_real_interior() {
+        let scene = RooftopScene::new();
+        let street = scene
+            .ray_hit(Vec3::new(270., 300., 570.) / 256., Vec3::NEG_Y)
+            .unwrap();
+        assert!((street.y - 64.5 / 256.).abs() < 1e-6);
+        assert!(scene
+            .boxes
+            .iter()
+            .any(|b| b.min.y < 0. && b.max.y == 60. / 256.));
+        let origin = Vec3::new(110., 130., 500.) / 256.;
+        let glass = scene.ray_hit(origin, Vec3::NEG_Z).unwrap();
+        assert!((glass.z - 431. / 256.).abs() < 1e-6);
+        // Removing only translucent panes from this query exposes the room, not a fake wall.
+        let opaque_hit = scene
+            .boxes
+            .iter()
+            .filter(|b| b.color.w == 1.)
+            .filter_map(|b| ray_box_distance(origin, Vec3::NEG_Z, b.min, b.max))
+            .min_by(f32::total_cmp)
+            .unwrap();
+        assert!(opaque_hit > (500. - 424.) / 256.);
+    }
+
     #[test]
     fn ray_box_rejects_parallel_outside_and_nonfinite_inputs() {
         assert_eq!(

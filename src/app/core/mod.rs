@@ -3099,18 +3099,6 @@ ui.collapsing("Environment Probes", |ui| {
                             draw_voxel_palette(ctx, &voxel_palette_entries, rooftop_material.is_some() && self.window_state.is_cursor_visible())
                         };
                         clicked_rooftop_material = voxel_palette_response.clicked_voxel;
-                        if rooftop_material.is_some() {
-                            egui::Area::new("rooftop_poc_notice".into())
-                                .anchor(egui::Align2::LEFT_TOP, egui::vec2(16., 16.))
-                                .show(ctx, |ui| {
-                                    egui::Frame::default().fill(PANEL_DARK).inner_margin(12).show(ui, |ui| {
-                                        ui.label(RichText::new("ROOFTOP PoC · Unlimited · Unsaved").color(SAGE_ACCENT));
-                                        ui.small("3 Edit: LMB remove / RMB add · 2 Grow · Shift + wheel: brush");
-                                        ui.small("Alt + RMB: orbit · MMB: pan · Wheel: zoom");
-                                        ui.small("Fixed roof. Restart clears this experiment; old saves are untouched.");
-                                    });
-                                });
-                        }
                         self.player_tools.backpack_summary_panel_screen_pos =
                             voxel_palette_response
                                 .panel_center

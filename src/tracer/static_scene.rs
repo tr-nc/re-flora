@@ -69,6 +69,8 @@ pub(super) struct StaticSceneResources {
     pub vertices: Buffer,
     pub indices: Buffer,
     pub index_count: u32,
+    /// First index and centroid for translucent triangles, sorted per view at draw time.
+    pub translucent_triangles: Vec<(u32, Vec3)>,
 }
 
 impl StaticSceneResources {
@@ -95,6 +97,30 @@ impl StaticSceneResources {
                     && Vec4::from_array(v.color).is_finite()),
             "non-finite static scene vertex"
         );
+        // Keep opaque depth-writing geometry first; glass must blend after it.
+        let mut sorted_indices = Vec::with_capacity(mesh.indices.len());
+        let mut glass = Vec::new();
+        for triangle in mesh.indices.chunks_exact(3) {
+            if triangle
+                .iter()
+                .any(|&i| mesh.vertices[i as usize].color[3] < 1.0)
+            {
+                glass.push(triangle);
+            } else {
+                sorted_indices.extend_from_slice(triangle);
+            }
+        }
+        let index_count = sorted_indices.len() as u32;
+        let mut translucent_triangles = Vec::with_capacity(glass.len());
+        for triangle in glass {
+            let center = triangle
+                .iter()
+                .map(|&i| Vec3::from_array(mesh.vertices[i as usize].position))
+                .sum::<Vec3>()
+                / 3.0;
+            translucent_triangles.push((sorted_indices.len() as u32, center));
+            sorted_indices.extend_from_slice(triangle);
+        }
         let vertices = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -110,11 +136,12 @@ impl StaticSceneResources {
             std::mem::size_of_val(mesh.indices.as_slice()) as u64,
         );
         vertices.fill(&mesh.vertices)?;
-        indices.fill(&mesh.indices)?;
+        indices.fill(&sorted_indices)?;
         Ok(Self {
             vertices,
             indices,
-            index_count: mesh.indices.len() as u32,
+            index_count,
+            translucent_triangles,
         })
     }
 }

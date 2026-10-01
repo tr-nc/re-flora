@@ -16,5 +16,8 @@ float4 main(FragmentInput input) : SV_Target0
     float band = floor(diffuse * 3.0 + 0.5) / 3.0;
     float daylight = saturate(sun_info.sun_dir.y * 4.0);
     float light = lerp(0.14, 0.52 + band * 0.48, daylight);
-    return float4(srgbToLinear(input.color.rgb) * light, 1.0);
+    // Both passes use premultiplied alpha. Opaque geometry writes depth;
+    // sorted glass blends over the interior without obscuring its depth.
+    float alpha = saturate(input.color.a);
+    return float4(srgbToLinear(input.color.rgb) * light * alpha, alpha);
 }

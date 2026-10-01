@@ -353,10 +353,7 @@ impl CameraControlRuntime {
     pub(super) fn orbit_pose(&self, azimuth: f32, elevation: f32, distance: f32) -> (Vec3, Vec3) {
         let azimuth = if azimuth.is_finite() { azimuth } else { 0.0 };
         let elevation = if elevation.is_finite() {
-            elevation.clamp(
-                -ORBIT_CAMERA_MAX_ELEVATION_RAD,
-                ORBIT_CAMERA_MAX_ELEVATION_RAD,
-            )
+            elevation.clamp(0.0, ORBIT_CAMERA_MAX_ELEVATION_RAD)
         } else {
             0.0
         };
@@ -586,10 +583,9 @@ fn orbit_offset_to_spherical(mut offset: Vec3) -> (f32, f32, f32) {
     let distance = offset
         .length()
         .clamp(ORBIT_CAMERA_MIN_DISTANCE, ORBIT_CAMERA_MAX_DISTANCE);
-    let mut elevation = (offset.y / distance).asin().clamp(
-        -ORBIT_CAMERA_MAX_ELEVATION_RAD,
-        ORBIT_CAMERA_MAX_ELEVATION_RAD,
-    );
+    let mut elevation = (offset.y / distance)
+        .asin()
+        .clamp(0.0, ORBIT_CAMERA_MAX_ELEVATION_RAD);
     if !elevation.is_finite() {
         elevation = 0.0;
     }
@@ -628,10 +624,8 @@ fn clamp_orbit_elevation_delta(
     requested_elevation_delta: f32,
 ) -> f32 {
     let target_elevation =
-        (current_elevation + pending_elevation_delta + requested_elevation_delta).clamp(
-            -ORBIT_CAMERA_MAX_ELEVATION_RAD,
-            ORBIT_CAMERA_MAX_ELEVATION_RAD,
-        );
+        (current_elevation + pending_elevation_delta + requested_elevation_delta)
+            .clamp(0.0, ORBIT_CAMERA_MAX_ELEVATION_RAD);
     target_elevation - current_elevation - pending_elevation_delta
 }
 
@@ -814,10 +808,25 @@ mod tests {
     }
 
     #[test]
+    fn orbit_pose_and_dolly_never_enter_lower_hemisphere() {
+        let camera = CameraControlRuntime::default();
+        for elevation in [-1.5, -0.1, 0.0, 0.7, 2.0] {
+            let (position, focus) = camera.orbit_pose(0.6, elevation, 2.0);
+            assert!(position.y >= focus.y);
+            let (_, recovered, _) = camera.orbit_spherical(position);
+            assert!(recovered >= 0.0 && recovered <= ORBIT_CAMERA_MAX_ELEVATION_RAD);
+        }
+        let (_, recovered, _) = camera.orbit_spherical(camera.orbit_focus - Vec3::Y);
+        assert_near(recovered, 0.0);
+    }
+
+    #[test]
     fn orbit_rotation_smoothing_respects_elevation_limits() {
         let max = ORBIT_CAMERA_MAX_ELEVATION_RAD;
         assert_near(clamp_orbit_elevation_delta(max - 0.1, 0.0, 0.3), 0.1);
-        assert_near(clamp_orbit_elevation_delta(-max + 0.1, 0.0, -0.3), -0.1);
+        assert_near(clamp_orbit_elevation_delta(0.1, 0.0, -0.3), -0.1);
+        assert_near(clamp_orbit_elevation_delta(0.0, 0.0, -0.3), 0.0);
+        assert_near(clamp_orbit_elevation_delta(0.2, -0.1, -0.3), -0.1);
         assert_near(clamp_orbit_elevation_delta(max - 0.2, 0.1, 0.3), 0.1);
     }
 

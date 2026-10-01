@@ -4879,6 +4879,10 @@ impl Tracer {
                 .graphics()
                 .static_scene_ppl
                 .prepare_descriptor_resources(cmdbuf);
+            self.pipeline_topology
+                .graphics()
+                .static_scene_glass_ppl
+                .prepare_descriptor_resources(cmdbuf);
         }
         if self.geometry_preview_resources.has_visible_mesh() {
             self.pipeline_topology
@@ -5292,6 +5296,17 @@ impl Tracer {
             cmdbuf.bind_index_buffer_u32(&scene.indices);
             cmdbuf.bind_vertex_buffers(0, &[&scene.vertices]);
             pipeline.record_indexed(cmdbuf, scene.index_count, 1, 0, 0, 0, None);
+            if !scene.translucent_triangles.is_empty() {
+                let mut triangles = scene.translucent_triangles.clone();
+                let front = self.camera_front();
+                triangles.sort_by(|a, b| b.1.dot(front).total_cmp(&a.1.dot(front)));
+                let glass_pipeline = &self.pipeline_topology.graphics().static_scene_glass_ppl;
+                glass_pipeline.record_bind(cmdbuf);
+                glass_pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                for (first_index, _) in triangles {
+                    glass_pipeline.record_indexed(cmdbuf, 3, 1, first_index, 0, 0, None);
+                }
+            }
         }
 
         if self.geometry_preview_resources.has_visible_mesh() {
