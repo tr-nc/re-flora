@@ -6,7 +6,7 @@ use rapier3d::prelude::{AxisMask, VoxelState};
 use rapier3d::prelude::{
     BroadPhaseBvh, ColliderBuilder, ColliderHandle, Group, IVector, InteractionGroups,
     InteractionTestMode, PhysicsWorld, Pose, QueryFilter, QueryPipeline, RigidBodyBuilder,
-    RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels,
+    RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels, Ray,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -139,6 +139,13 @@ pub struct CapsuleCharacterCollision {
     pub translation_remaining: Vec3,
     /// The distance traveled along the cast direction before impact.
     pub time_of_impact: f32,
+}
+
+/// Nearest static walking-surface hit in physics voxel units. Uses the same world as characters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CharacterSurfaceRayHit {
+    pub position: Vec3,
+    pub normal: Vec3,
 }
 
 /// Input for one kinematic capsule movement query, in physics voxel units.
@@ -563,7 +570,7 @@ impl CollisionWorld {
         }
     }
 
-    /// Resolves a classic upright capsule character movement against static voxel terrain.
+    /// Resolves upright capsule movement against static voxel terrain and fixed model surfaces.
     ///
     /// This is a query-only kinematic controller: callers own character position and velocity and
     /// apply the returned translation themselves. Dynamic bodies are deliberately absent from the
@@ -681,6 +688,27 @@ impl CollisionWorld {
             grounded,
             is_sliding_down_slope,
             collisions,
+        })
+    }
+
+    /// Pick voxel terrain and fixed model surfaces from the character controller's static world.
+    /// Dynamic fruit and sensors are excluded just as they are for character movement.
+    pub fn cast_character_surface_ray(&mut self, origin: Vec3, direction: Vec3, max_distance: f32) -> Option<CharacterSurfaceRayHit> {
+        if !origin.is_finite() || !direction.is_finite() || !max_distance.is_finite() || max_distance <= 0. {
+            return None;
+        }
+        let direction = direction.normalize_or_zero();
+        if direction == Vec3::ZERO { return None; }
+        self.sync_capsule_character_broad_phase();
+        let queries = self.capsule_character_broad_phase.as_query_pipeline(
+            self.physics.narrow_phase.query_dispatcher(), &self.physics.bodies,
+            &self.physics.colliders, QueryFilter::default().exclude_sensors(),
+        );
+        let ray = Ray::new(to_rapier_vec(origin), to_rapier_vec(direction));
+        let (_, hit) = queries.cast_ray_and_get_normal(&ray, max_distance, true)?;
+        Some(CharacterSurfaceRayHit {
+            position: origin + direction * hit.time_of_impact,
+            normal: from_rapier_vec(hit.normal),
         })
     }
 
@@ -1465,9 +1493,14 @@ mod tests {
         }).unwrap();
         assert!(result.grounded);
         assert!(result.translation.y > -0.2);
+        let hit = world.cast_character_surface_ray(Vec3::Y * 10., Vec3::NEG_Y, 20.).unwrap();
+        assert!(hit.position.length() < 1e-5 && hit.normal.y > 0.99);
+        assert!(world.cast_character_surface_ray(Vec3::Y * 10., Vec3::ZERO, 20.).is_none());
+        assert!(world.cast_character_surface_ray(Vec3::splat(f32::NAN), Vec3::NEG_Y, 20.).is_none());
         world.set_fixed_scene_surface(&[], &[]).unwrap();
         assert!(world.fixed_scene_surface.is_none());
         assert!(world.physics.colliders.get(handle).is_none());
+        assert!(world.cast_character_surface_ray(Vec3::Y * 10., Vec3::NEG_Y, 20.).is_none());
     }
 
     #[test]

@@ -690,6 +690,7 @@ fn dynamic_bodies_do_not_block_the_terrain_only_capsule_query() {
 
     assert_eq!(result.translation, movement);
     assert!(result.collisions.is_empty());
+    assert!(world.cast_character_surface_ray(Vec3::new(4., 10., 0.), Vec3::NEG_Y, 20.).is_none());
 }
 
 #[test]

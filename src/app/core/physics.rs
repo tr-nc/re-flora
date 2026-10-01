@@ -7,18 +7,21 @@ use crate::tracer::{
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_physics::{
-    BrickOccupancy, CapsuleCharacterMove, CollisionWorld, DynamicBodyDesc, DynamicBodyId,
-    DynamicColliderShape, StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
+    BrickOccupancy, CollisionWorld, DynamicBodyDesc, DynamicBodyId, DynamicColliderShape,
+    StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 mod fruit_ground_trace;
+mod surface_motion;
 use fruit_ground_trace::FruitGroundTrace;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
-const PLAYER_CAPSULE_RADIUS_VOXELS: f32 = 4.0;
-const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = 8.0;
+#[cfg(test)]
+const PLAYER_CAPSULE_RADIUS_VOXELS: f32 = surface_motion::PLAYER.radius_voxels;
+#[cfg(test)]
+const PLAYER_CAPSULE_HALF_HEIGHT_VOXELS: f32 = surface_motion::PLAYER.half_height_voxels;
 const DYNAMIC_FRUIT_GRAVITY_VOXELS: Vec3 = Vec3::new(0.0, -9.8 * VOXELS_PER_WORLD_UNIT, 0.0);
 const APPLE_CONTACT_SKIN_VOXELS: f32 = 0.15;
 const APPLE_FRICTION: f32 = 0.82;
@@ -34,15 +37,9 @@ const TERRAIN_COLLIDER_UPDATE_BUDGET: Duration = Duration::from_millis(1);
 const MAX_TERRAIN_COLLIDER_BRICKS_PER_FRAME: usize = 8;
 const WORLD_TERRAIN_COLLIDER_IMPORT_BUDGET: Duration = Duration::from_millis(25);
 
+#[cfg(test)]
 fn player_capsule_center_voxels(camera_position: Vec3, camera_height: f32) -> Vec3 {
-    let foot_y = camera_position.y - camera_height;
-    Vec3::new(
-        camera_position.x,
-        foot_y
-            + (PLAYER_CAPSULE_HALF_HEIGHT_VOXELS + PLAYER_CAPSULE_RADIUS_VOXELS)
-                / VOXELS_PER_WORLD_UNIT,
-        camera_position.z,
-    ) * VOXELS_PER_WORLD_UNIT
+    surface_motion::PLAYER.center_voxels(camera_position - Vec3::Y * camera_height)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -302,23 +299,50 @@ impl TerrainPhysics {
         request: PlayerWalkMovementRequest,
         frame_delta_time: f32,
     ) -> anyhow::Result<PlayerWalkMovementResult> {
-        let capsule_center =
-            player_capsule_center_voxels(request.camera_position, request.camera_height);
-        let movement = self
-            .collision_world
-            .move_capsule_character(CapsuleCharacterMove {
-                center: capsule_center,
-                radius: PLAYER_CAPSULE_RADIUS_VOXELS,
-                half_height: PLAYER_CAPSULE_HALF_HEIGHT_VOXELS,
-                desired_translation: request.desired_translation * VOXELS_PER_WORLD_UNIT,
-                dt: frame_delta_time,
-            })
+        let movement = surface_motion::PLAYER
+            .move_by(
+                &mut self.collision_world,
+                request.camera_position - Vec3::Y * request.camera_height,
+                request.desired_translation,
+                frame_delta_time,
+            )
             .context("moving the player capsule through terrain")?;
-
         Ok(PlayerWalkMovementResult {
-            translation: movement.translation / VOXELS_PER_WORLD_UNIT,
+            translation: movement.translation,
             grounded: movement.grounded,
         })
+    }
+
+    pub(super) fn pick_walkable_surface(
+        &mut self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+    ) -> Option<Vec3> {
+        let hit = self.collision_world.cast_character_surface_ray(
+            origin * VOXELS_PER_WORLD_UNIT,
+            direction,
+            max_distance * VOXELS_PER_WORLD_UNIT,
+        )?;
+        (hit.normal.y >= re_flora_physics::CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT)
+            .then_some(hit.position / VOXELS_PER_WORLD_UNIT)
+    }
+
+    pub(super) fn place_mower_on_surface(&mut self, surface: Vec3) -> anyhow::Result<Option<Vec3>> {
+        surface_motion::MOWER
+            .place(&mut self.collision_world, surface)
+            .context("placing mower on the character collision world")
+    }
+
+    pub(super) fn move_mower_on_surface(
+        &mut self,
+        feet: Vec3,
+        translation: Vec3,
+        dt: f32,
+    ) -> anyhow::Result<Option<Vec3>> {
+        surface_motion::MOWER
+            .follow(&mut self.collision_world, feet, translation, dt)
+            .context("moving mower through the character collision world")
     }
 
     pub(super) fn advance_dynamic_bodies(

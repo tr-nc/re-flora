@@ -9,7 +9,6 @@ pub(super) const MOWER_MAX_SPEED: f32 = 30.0 / 256.0;
 pub(super) const MOWER_CUT_RADIUS: f32 = 11.0 / 256.0;
 const MIN_CAMERA_DISTANCE: f32 = 0.7;
 const MAX_FRAME_STEP: f32 = 0.1;
-const MAX_SURFACE_STEP: f32 = 4.0 / 256.0;
 
 #[derive(Debug, Default)]
 pub(super) struct MowerRuntime {
@@ -83,8 +82,13 @@ impl App {
         };
         match self.mower.position {
             None => {
-                let Some(hit) = self.mower_supported_position(hit, hit) else {
-                    return true;
+                let hit = match self.terrain_physics.place_mower_on_surface(hit) {
+                    Ok(Some(position)) => position,
+                    Ok(None) => return true,
+                    Err(error) => {
+                        log::error!("[MOWER] placement failed: {error:#}");
+                        return true;
+                    }
                 };
                 self.mower.position = Some(hit);
                 self.mower.dragging = true;
@@ -99,49 +103,18 @@ impl App {
         true
     }
 
-    fn mower_cursor_surface(&self) -> Option<Vec3> {
+    fn mower_cursor_surface(&mut self) -> Option<Vec3> {
         let (origin, direction) = self.terrain_edit_ray()?;
-        self.query_terrain_ray_cpu(origin, direction)
-            .map(|hit| hit.position)
-            .filter(|hit| {
-                crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS
-                    .contains_point_xz(*hit)
-            })
-            .filter(|hit| {
-                self.rooftop_scene.is_none()
-                    || super::rooftop_scene::RooftopScene::allows_soil(*hit)
-            })
-    }
-
-    /// Wheels require voxel terrain underneath the whole deck; do not cross gaps or climb walls.
-    fn mower_supported_position(&self, candidate: Vec3, previous: Vec3) -> Option<Vec3> {
-        let mut heights = Vec::new();
-        for (x, z) in [(0., 0.), (-8., -9.), (8., -9.), (-8., 9.), (8., 9.)] {
-            let origin = Vec3::new(
-                candidate.x + x / 256.,
-                previous.y + MAX_SURFACE_STEP + 0.001,
-                candidate.z + z / 256.,
-            );
-            let hit = self
-                .contree_builder
-                .query_terrain_ray_cpu(origin, Vec3::NEG_Y)?;
-            if (hit.position.y - previous.y).abs() > MAX_SURFACE_STEP {
-                return None;
-            }
-            heights.push(hit.position.y);
-        }
-        let min = heights.iter().copied().fold(f32::INFINITY, f32::min);
-        let max = heights.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        if max - min > MAX_SURFACE_STEP {
-            return None;
-        }
-        let grounded = Vec3::new(candidate.x, max, candidate.z);
-        crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS
-            .contains_point_xz(grounded)
-            .then_some(grounded)
+        self.terrain_physics
+            .pick_walkable_surface(origin, direction, 10.)
     }
 
     pub(super) fn update_mower(&mut self, dt: f32) -> anyhow::Result<()> {
+        if std::env::var_os("RE_FLORA_MOWER_SURFACE_VALIDATE").is_some()
+            && !self.mower.validation_complete
+        {
+            self.validate_mower_model_surfaces()?;
+        }
         if std::env::var_os("RE_FLORA_MOWER_VALIDATE").is_some() && !self.mower.validation_complete
         {
             self.validate_mower()?;
@@ -158,20 +131,92 @@ impl App {
             {
                 let candidate = follow_step(previous, target, dt);
                 if candidate.distance_squared(previous) > 1e-12 {
-                    if let Some(position) = self.mower_supported_position(candidate, previous) {
+                    if let Some(position) = self.terrain_physics.move_mower_on_surface(
+                        previous,
+                        candidate - previous,
+                        dt.min(MAX_FRAME_STEP),
+                    )? {
                         let direction = position - previous;
-                        self.mower.yaw = direction.x.atan2(direction.z);
-                        self.apply_flora_trim_path(TerrainBrushEdit {
-                            start: previous,
-                            end: position,
-                            radius: MOWER_CUT_RADIUS,
-                        })?;
+                        if Vec2::new(direction.x, direction.z).length_squared() > 1e-12 {
+                            self.mower.yaw = direction.x.atan2(direction.z);
+                            // Model floors are traversable, but they are not flora substrates.
+                            let near_terrain = self
+                                .contree_builder
+                                .query_terrain_ray_cpu(
+                                    position + Vec3::Y * MOWER_CUT_RADIUS,
+                                    Vec3::NEG_Y,
+                                )
+                                .is_some_and(|hit| {
+                                    hit.position.distance(position) <= MOWER_CUT_RADIUS
+                                });
+                            if near_terrain {
+                                self.apply_flora_trim_path(TerrainBrushEdit {
+                                    start: previous,
+                                    end: position,
+                                    radius: MOWER_CUT_RADIUS,
+                                })?;
+                            }
+                        }
                         self.mower.position = Some(position);
                     }
                 }
             }
         }
         self.tracer.show_mower(self.mower.position, self.mower.yaw)
+    }
+
+    fn validate_mower_model_surfaces(&mut self) -> anyhow::Result<()> {
+        use anyhow::{ensure, Context};
+        self.mower.validation_complete = true;
+        ensure!(
+            self.rooftop_scene.is_some(),
+            "model surface fixture requires --rooftop-poc"
+        );
+        self.select_item_panel_slot(super::ui_style::MOWER_SLOT_INDEX);
+        let extent = self.window_state.window_extent();
+        for focus in [
+            Vec3::new(254., 192., 246.) / 256.,
+            Vec3::new(-60., 64., 570.) / 256.,
+        ] {
+            self.mower.position = None;
+            self.mower.cancel_drag();
+            self.tracer
+                .set_camera_pose_looking_at(focus + Vec3::new(0.7, 0.55, 0.7), focus);
+            self.camera_control.set_orbit_focus(focus);
+            self.cursor_position_physical =
+                Some(Vec2::new(extent.width as f32, extent.height as f32) * 0.5);
+            self.handle_mower_pointer(MouseButton::Left, ElementState::Pressed);
+            let start = self
+                .mower
+                .position
+                .context("bare fixed-model roof/road rejected mower placement")?;
+            ensure!(
+                (start.y - focus.y).abs() < 1. / 256.,
+                "wrong fixed surface height: {start:?}"
+            );
+            let target = start + Vec3::new(0.07, 0., 0.02);
+            let projected = self.tracer.camera_view_projection() * target.extend(1.);
+            let ndc = projected.truncate() / projected.w;
+            self.cursor_position_physical = Some(Vec2::new(
+                (ndc.x + 1.) * extent.width as f32 * 0.5,
+                (ndc.y + 1.) * extent.height as f32 * 0.5,
+            ));
+            for _ in 0..12 {
+                self.update_mower(0.1)?;
+            }
+            let finish = self.mower.position.unwrap();
+            ensure!(
+                finish.distance(start) > 0.05,
+                "mower failed to drive on model surface: {start:?} -> {finish:?}"
+            );
+            ensure!(
+                (finish.y - focus.y).abs() < 1. / 256.,
+                "mower lost model grounding"
+            );
+            self.handle_mower_pointer(MouseButton::Left, ElementState::Released);
+        }
+        log::info!("[MOWER][SURFACE_CHECK] bare_roof_placement=true bare_roof_driving=true road_placement=true road_driving=true outside_voxel_bounds=true grounded=true shared_player_controller=true");
+        Ok(())
     }
 
     /// Opt-in real-app fixture: exercises pointer placement/pursuit, GPU flora trim and raster draw.
@@ -198,11 +243,12 @@ impl App {
                 if hit.voxel_type != crate::builder::VOXEL_TYPE_DIRT {
                     continue;
                 }
-                let Some(start) = self.mower_supported_position(hit.position, hit.position) else {
+                let Some(start) = self.terrain_physics.place_mower_on_surface(hit.position)? else {
                     continue;
                 };
                 if self
-                    .mower_supported_position(start + Vec3::X * 0.04, start)
+                    .terrain_physics
+                    .place_mower_on_surface(start + Vec3::X * 0.04)?
                     .is_some()
                 {
                     patch = Some(start);
