@@ -16,8 +16,9 @@ cargo run --release -- --rooftop-poc
 ```
 
 - Starts with a bare model roof, no terrain soil, and unlimited developer materials.
-- **3 Edit:** left mouse removes player terrain; right mouse gradually adds the selected material
-  using the original surface brush, not a filled sphere. The bare roof supplies first-layer support.
+- **3 Edit:** left mouse gradually removes the terrain surface; right mouse gradually adds the
+  selected material. Both retain the original surface brush, not full-sphere edits. The model roof
+  supplies solid floor adjacency without becoming editable terrain.
 - Click the material palette to select a material. No artificial inventory is manufactured.
 - **2 Grow:** use existing planting controls on added soil; **Tab** changes flora.
 - **4 Smooth:** uses the existing smoothing tool, constrained to the legal soil layer.
@@ -95,8 +96,9 @@ Results:
   replacement and capsule grounding.
 - Default garden and rooftop Release hidden/muted runs exited successfully; inspected logs showed
   no error, panic or Vulkan validation diagnostic and shutdown reported `failures=0`.
-- Rooftop fixture after restoring gradual placement: 872 first-dab soil voxels, another 872 on the
-  second dab at the same position, 2 actual planted instances, 1,744 removed voxels;
+- Rooftop fixture after restoring both surface operations: 872 first-dab soil voxels, another 872
+  on the second dab, then two more dabs to build a thick patch. First removal removed only 1,112
+  voxels and left soil; repeated removal cleared 3,416 in total. 2 actual plants were placed;
   floor/smoothing clipping, unsupported-plant cleanup, retained roof picking and capsule grounding
   passed. It also drove the production RMB → semantic tool action → placement path and confirmed
   the normal backpack was unchanged. Both `[ROOFTOP][CHECK]` records must appear.
@@ -127,3 +129,10 @@ cargo test exposed_model_side_faces_do_not_overlap_on_the_same_plane
 Full tests, `cargo check`, default and rooftop Release hidden runs passed again. The exterior seam
 was inspected in the refreshed hidden captures; continuous manual camera-motion review remains with
 the user. Both previews now show the corrected geometry.
+
+Manual feedback also caught the remaining full-volume removal path. Both addition and removal now
+use the original surface predicates. Their shared neighbour query treats the fixed roof floor as
+solid support; this also prevents bottom-layer soil from being treated as exposed through the model
+roof. Normal garden edits have this optional support disabled. Cadence is unchanged. A thick-patch
+hidden fixture failed with one-shot removal before the fix, and now verifies that the first removal
+leaves soil and repeated removal completes it, with roof picking/collision and planting still valid.

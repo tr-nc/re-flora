@@ -2274,8 +2274,8 @@ impl PlainBuilder {
         )
     }
 
-    /// Original surface brush constrained to a legal layer, with its floor acting as model
-    /// support for the first voxel layer. Subsequent additions use normal voxel adjacency.
+    /// Original addition/removal surface brush constrained to a legal layer. Its model floor
+    /// supplies solid adjacency without stamping voxels into the editable atlas.
     pub fn chunk_modify_bounded_spheres(
         &mut self,
         bvh_nodes: &[BvhNode],
@@ -2292,7 +2292,7 @@ impl PlainBuilder {
             target,
             None,
             None,
-            fill_voxel_type != crate::builder::VOXEL_TYPE_EMPTY,
+            true,
             Some(bound),
         )
     }
@@ -3172,7 +3172,7 @@ fn update_chunk_modify_info(
     clear_fill_voxel_state: bool,
     max_write_count: Option<u32>,
     max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
-    placement_support_y: Option<u32>,
+    surface_support_y: Option<u32>,
 ) -> Result<()> {
     let max_removed_counts = max_removed_counts.unwrap_or([u32::MAX; EDIT_STATS_VOXEL_TYPE_COUNT]);
     resources.chunk_modify_info.fill_uniform(&ChunkModifyInfo {
@@ -3182,7 +3182,7 @@ fn update_chunk_modify_info(
         target_voxel_type: target_voxel_type.unwrap_or(u32::MAX),
         primitive_kind,
         surface_only: if surface_only { 1 } else { 0 },
-        placement_support_y_plus_one: placement_support_y.map_or(0, |y| y + 1),
+        surface_support_y_plus_one: surface_support_y.map_or(0, |y| y + 1),
         max_write_count: max_write_count.unwrap_or(0),
         clear_fill_voxel_state: if clear_fill_voxel_state { 1 } else { 0 },
         max_removed_counts_0_3: max_removed_counts[..4].try_into().unwrap(),

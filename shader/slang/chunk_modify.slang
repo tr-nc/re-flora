@@ -111,6 +111,14 @@ bool inAtlasBound(int3 position)
 
 uint loadVoxelType(int3 position)
 {
+    // A model floor is solid adjacency for BOTH original surface predicates.
+    // It seeds the first added layer and prevents carving from below through the roof.
+    // This does not write model voxels into the terrain atlas.
+    if (chunk_modify_info.surface_support_y_plus_one != 0u &&
+        position.y == int(chunk_modify_info.surface_support_y_plus_one) - 2)
+    {
+        return VOXEL_TYPE_ROCK;
+    }
     if (!inAtlasBound(position))
     {
         return VOXEL_TYPE_EMPTY;
@@ -230,13 +238,6 @@ bool isSurfacePlacementVoxel(int3 position)
     if (isSolid(loadVoxelType(position)))
     {
         return false;
-    }
-    // A fixed model floor supplies the same adjacency as a solid voxel below.
-    // Only its first voxel layer is eligible, not the entire brush volume.
-    if (chunk_modify_info.placement_support_y_plus_one != 0u &&
-        uint(position.y) + 1u == chunk_modify_info.placement_support_y_plus_one)
-    {
-        return true;
     }
     for (int i = 0; i < 6; ++i)
     {

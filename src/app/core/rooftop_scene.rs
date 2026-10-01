@@ -266,6 +266,10 @@ impl App {
             second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT) > 0,
             "first dab filled the entire brush instead of gradual surface placement"
         );
+        // A thick patch distinguishes gradual removal from one-shot volume clearing.
+        for _ in 0..2 {
+            self.apply_surface_terrain_placement(edit, crate::builder::VOXEL_TYPE_DIRT, u32::MAX)?;
+        }
         // Production queries publish asynchronously. This opt-in end-to-end fixture
         // must settle the real CPU source before inspecting the result of each edit.
         self.contree_builder.flush_cpu_chunk_cache_jobs();
@@ -326,8 +330,27 @@ impl App {
         anyhow::ensure!(
             self.contree_builder
                 .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
+                .is_some(),
+            "first removal dab cleared the entire thick patch instead of its surface"
+        );
+        let mut removed_total = remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT);
+        for _ in 0..32 {
+            if self
+                .contree_builder
+                .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
+                .is_none()
+            {
+                break;
+            }
+            let next = self.apply_surface_terrain_removal(edit, None, None, None)?;
+            removed_total += next.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT);
+            self.contree_builder.flush_cpu_chunk_cache_jobs();
+        }
+        anyhow::ensure!(
+            self.contree_builder
+                .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
                 .is_none(),
-            "deleted soil still visible in Contree"
+            "repeated removal did not clear soil"
         );
         anyhow::ensure!(
             self.surface_builder
@@ -352,7 +375,7 @@ impl App {
             movement.grounded && movement.translation.y > -0.005,
             "fixed roof character collision failed: {movement:?}"
         );
-        log::info!("[ROOFTOP][CHECK] first_soil={} second_soil={} removed={} planted={} bare_pick=true floor_clip=true smooth_clip=true grow_path=true roof_preserved=true grounded=true edit_pointer=true alt_orbit=true", add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), planted);
+        log::info!("[ROOFTOP][CHECK] first_soil={} second_soil={} first_removed={} removed_total={} planted={} bare_pick=true floor_clip=true smooth_clip=true grow_path=true roof_preserved=true grounded=true edit_pointer=true alt_orbit=true gradual_remove=true", add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), removed_total, planted);
         // Drive the production pointer → semantic action → shovel placement path, too.
         // Leave its planted patch only for this opt-in fixture, never the normal opening.
         let opening_pose = self.tracer.camera_pose();
