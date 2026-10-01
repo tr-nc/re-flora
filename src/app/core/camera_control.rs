@@ -2,7 +2,7 @@ mod zoom;
 
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
 use crate::gameplay::camera::CameraPose;
-use zoom::{edit_pose_from_walk, ZoomTransition};
+use zoom::{edit_pose_from_walk, PreviewStep, ZoomPreview, ZoomTransition};
 
 pub(super) enum OrbitDollyAction {
     Pose(Vec3, Vec3),
@@ -221,6 +221,7 @@ pub(super) struct OrbitMotion {
 pub(super) struct CameraControlRuntime {
     mode: CameraControlMode,
     zoom_transition: Option<ZoomTransition>,
+    zoom_preview: Option<ZoomPreview>,
     // Opt-in native input/physics diagnostic; never a persisted setting.
     pub(super) zoom_review: Option<(u8, u32)>,
     debug_return_mode: Option<CameraControlMode>,
@@ -239,6 +240,7 @@ impl Default for CameraControlRuntime {
         Self {
             mode: CameraControlMode::default(),
             zoom_transition: None,
+            zoom_preview: None,
             zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1"))
                 .then_some((0, 0)),
             debug_return_mode: None,
@@ -286,6 +288,7 @@ impl CameraControlRuntime {
     }
 
     pub(super) fn cycle_mode(&mut self) -> bool {
+        self.zoom_preview = None;
         self.zoom_transition = None;
         self.debug_return_mode = None;
         self.mode = self.mode.next();
@@ -293,6 +296,7 @@ impl CameraControlRuntime {
     }
 
     pub(super) fn apply_snapshot_mode(&mut self, fly_mode: bool) {
+        self.zoom_preview = None;
         self.zoom_transition = None;
         self.debug_return_mode = None;
         self.mode = if fly_mode {
@@ -570,10 +574,51 @@ impl CameraControlRuntime {
     }
 
     pub(super) fn zoom_in_progress(&self) -> bool {
+        self.zoom_transition.is_some() || self.zoom_preview.is_some()
+    }
+
+    pub(super) fn zoom_committed(&self) -> bool {
         self.zoom_transition.is_some()
     }
 
+    pub(super) fn queue_walk_zoom(&mut self, lines: f32, pose: CameraPose) -> bool {
+        if !self.is_walk() || self.zoom_committed() || !lines.is_finite() || lines == 0. {
+            return false;
+        }
+        let started = self.zoom_preview.is_none() && lines < 0.;
+        if started {
+            self.zoom_preview = Some(ZoomPreview::new(pose));
+        }
+        if let Some(preview) = &mut self.zoom_preview {
+            preview.scroll(lines);
+        }
+        started
+    }
+
+    pub(super) fn advance_zoom_preview(
+        &mut self,
+        dt: f32,
+        look: CameraPose,
+    ) -> Option<(CameraPose, bool)> {
+        let preview = self.zoom_preview.as_mut()?;
+        match preview.advance(dt, look) {
+            PreviewStep::Active(pose) => Some((pose, false)),
+            PreviewStep::Recovered(pose) => {
+                self.zoom_preview = None;
+                log::info!("[CAMERA_ZOOM] preview=recovered walking=true");
+                Some((pose, true))
+            }
+            PreviewStep::Commit { start, anchor } => {
+                self.zoom_preview = None;
+                self.begin_zoom_to_edit_from(start, anchor);
+                log::info!("[CAMERA_ZOOM] preview=confirmed destination=orbit-edit");
+                Some((start, false))
+            }
+        }
+    }
+
     pub(super) fn begin_zoom_to_walk(&mut self, start: CameraPose, eye: Vec3) {
+        self.zoom_preview = None;
         self.reset_motion();
         self.debug_return_mode = None;
         self.zoom_transition = Some(ZoomTransition::new(
@@ -587,14 +632,19 @@ impl CameraControlRuntime {
         ));
     }
 
+    #[cfg(test)]
     pub(super) fn begin_zoom_to_edit(&mut self, start: CameraPose) {
+        self.begin_zoom_to_edit_from(start, start);
+    }
+
+    fn begin_zoom_to_edit_from(&mut self, start: CameraPose, anchor: CameraPose) {
         self.reset_motion();
         self.debug_return_mode = None;
         self.mode = CameraControlMode::OrbitEdit;
-        self.orbit_focus = start.position;
+        self.orbit_focus = anchor.position;
         self.zoom_transition = Some(ZoomTransition::new(
             start,
-            edit_pose_from_walk(start),
+            edit_pose_from_walk(anchor),
             false,
         ));
     }
@@ -999,6 +1049,36 @@ mod tests {
         assert!(runtime.zoom_in_progress());
         runtime.advance_zoom_transition(1.);
         assert!(runtime.is_orbit_edit());
+    }
+
+    #[test]
+    fn preview_keeps_walk_authority_until_confirmed_and_ignores_invalid_input() {
+        let mut runtime = CameraControlRuntime::default();
+        runtime.apply_snapshot_mode(false);
+        let pose = CameraPose {
+            position: Vec3::Y * 0.08,
+            yaw_deg: 20.,
+            pitch_deg: 80.,
+            fov_deg: 60.,
+        };
+        assert!(!runtime.queue_walk_zoom(f32::NAN, pose));
+        assert!(!runtime.queue_walk_zoom(1., pose));
+        assert!(!runtime.zoom_in_progress());
+        assert!(runtime.queue_walk_zoom(-1., pose));
+        assert!(runtime.is_walk());
+        assert!(!runtime.zoom_committed());
+        assert!(!runtime.advance_zoom_preview(0.1, pose).unwrap().1);
+        assert!(runtime.advance_zoom_preview(3., pose).unwrap().1);
+        assert!(runtime.is_walk());
+        assert!(!runtime.zoom_in_progress());
+        for _ in 0..5 {
+            runtime.queue_walk_zoom(-1., pose);
+        }
+        runtime.advance_zoom_preview(0.3, pose);
+        assert!(runtime.is_orbit_edit());
+        assert!(runtime.zoom_committed());
+        runtime.advance_zoom_transition(1.);
+        assert!(!runtime.zoom_in_progress());
     }
 
     #[test]

@@ -274,10 +274,15 @@ impl App {
         self.review_camera_zoom();
         if self.camera_control.zoom_in_progress() {
             if !self.blocking_panel_open() {
-                if let Some((pose, done)) = self
+                let was_walk = self.is_walk_camera_mode();
+                let preview = self
                     .camera_control
-                    .advance_zoom_transition(frame_delta_time)
-                {
+                    .advance_zoom_preview(frame_delta_time, self.tracer.camera_pose());
+                let step = preview.or_else(|| {
+                    self.camera_control
+                        .advance_zoom_transition(frame_delta_time)
+                });
+                if let Some((pose, done)) = step {
                     let yaw = pose.yaw_deg.to_radians();
                     let pitch = pose.pitch_deg.to_radians();
                     let front = Vec3::new(
@@ -287,6 +292,10 @@ impl App {
                     );
                     self.tracer
                         .set_camera_pose_looking_at(pose.position, pose.position + front);
+                    if was_walk && self.is_orbit_edit_camera_mode() {
+                        self.tracer.reset_camera_input();
+                        self.sync_cursor_with_panels();
+                    }
                     if done {
                         self.tracer.reset_camera_velocity();
                         self.sync_cursor_with_panels();
@@ -473,12 +482,16 @@ impl App {
 
         if self.camera_scroll_available() {
             if self.is_walk_camera_mode() {
-                if scroll_lines.is_finite() && scroll_lines < 0. {
-                    self.prepare_camera_zoom_switch();
-                    self.camera_control
-                        .begin_zoom_to_edit(self.tracer.camera_pose());
-                    self.sync_cursor_with_panels();
-                    log::info!("[CAMERA_ZOOM] started destination=orbit-edit pitch=-45");
+                if self
+                    .camera_control
+                    .queue_walk_zoom(scroll_lines, self.tracer.camera_pose())
+                {
+                    self.player_tools.cancel_continuous_hold();
+                    self.stop_terrain_edit_loop_sound();
+                    self.camera_control.reset_motion();
+                    self.tracer.reset_camera_velocity();
+                    // Keep held walk keys so recovery does not require re-pressing W.
+                    log::info!("[CAMERA_ZOOM] preview=started walking=true cursor=locked");
                 }
             } else {
                 self.camera_control.queue_mouse_wheel_dolly(scroll_lines);
@@ -492,7 +505,10 @@ impl App {
             return;
         };
         self.camera_control.zoom_review = Some((phase, frames + 1));
-        if self.camera_control.zoom_in_progress() || frames < 90 {
+        if phase == 2 && frames.is_multiple_of(8) && frames <= 48 && self.is_walk_camera_mode() {
+            self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0., -1.));
+        }
+        if self.camera_control.zoom_in_progress() || frames < 120 {
             return;
         }
         match phase {
@@ -515,20 +531,30 @@ impl App {
                 self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0., -1.));
                 assert!(
                     self.camera_control.zoom_in_progress(),
-                    "walk wheel must start edit zoom"
+                    "walk wheel must start reversible preview"
                 );
                 self.camera_control.zoom_review = Some((1, 0));
             }
             1 => {
+                assert!(
+                    self.is_walk_camera_mode(),
+                    "one notch must recover, not switch"
+                );
+                assert!(!self.window_state.is_cursor_visible());
+                assert!((self.tracer.camera_pose().pitch_deg - 80.).abs() < 0.01);
+                log::info!("[CAMERA_ZOOM_REVIEW] single_notch=recovered pitch=80 cursor=locked");
+                self.camera_control.zoom_review = Some((2, 0));
+            }
+            2 => {
                 assert!(self.is_orbit_edit_camera_mode());
                 let pose = self.tracer.camera_pose();
                 assert!((pose.pitch_deg + 45.).abs() < 0.01);
                 assert!((pose.yaw_deg - 36.).abs() < 0.01);
                 assert!(self.window_state.is_cursor_visible());
                 self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0., 12.));
-                self.camera_control.zoom_review = Some((2, 0));
+                self.camera_control.zoom_review = Some((3, 0));
             }
-            2 => {
+            3 => {
                 assert!(
                     self.is_walk_camera_mode(),
                     "zoom must land using capsule, not remain in orbit"
@@ -538,7 +564,7 @@ impl App {
                 assert!(pose.position.is_finite());
                 assert!(pose.pitch_deg.abs() < 0.01);
                 assert!((pose.yaw_deg - 36.).abs() < 0.01);
-                log::info!("[CAMERA_ZOOM_REVIEW] passed wheel_roundtrip=true yaw_preserved=true edit_pitch=-45 landing_capsule=true cursor=true");
+                log::info!("[CAMERA_ZOOM_REVIEW] passed preview_recovery=true deliberate_scroll=true wheel_roundtrip=true yaw_preserved=true edit_pitch=-45 landing_capsule=true cursor=true");
                 self.camera_control.zoom_review = None;
             }
             _ => unreachable!("native zoom review phase"),
@@ -554,7 +580,7 @@ impl App {
 
     fn camera_scroll_available(&self) -> bool {
         (self.is_orbit_edit_camera_mode() || self.is_walk_camera_mode())
-            && !self.camera_control.zoom_in_progress()
+            && !self.camera_control.zoom_committed()
             && !self.blocking_panel_open()
             && !self.gui_blocks_world_pointer()
     }

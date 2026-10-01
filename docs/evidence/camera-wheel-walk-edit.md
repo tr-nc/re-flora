@@ -1,32 +1,44 @@
-# 滚轮连接步行与 OrbitEdit
+# 滚轮连接步行与 OrbitEdit：可恢复试探版
 
-## 操作
+本页更新 44d7d4a0 的一格自动切换实现。设计讨论／第一手参考见 [`../research/camera-zoom-intent-and-trajectory.md`](../research/camera-zoom-intent-and-trajectory.md)。
 
-- **OrbitEdit 编辑模式**继续用原来的旋转／平移和自由鼠标笔刷。向上滚轮拉近，达到最近距离 .2 后，在 orbit 焦点 XZ 下查询地形，并用生产玩家 capsule 扫落地；安全落点存在才进入步行。
-- **步行模式**向下滚轮，围绕当前位置的 eye anchor 拉起编辑镜头。只保留 yaw，不沿当前视线后退：无论原来仰视／平视／俯视，终点均为向下 **45°**、距离 **.6**。鼠标释放出来，完成过渡后可继续笔刷编辑、旋转或缩放。
-- 两方向都有 **.45 秒、时间驱动 smoothstep** 的位置和 pitch 过渡；yaw 使用最短角度路径。落地后朝向水平，随后恢复原有步行碰撞／重力／脚步。
-- **Shift+滚轮调笔刷半径**保持优先；GUI 接管鼠标或阻挡面板时不触发相机缩放。过渡期间不接受新缩放／orbit 拖动，也不执行笔刷，防止连滚抖动或误涂；完成后继续操作。
-- 没有地形／capsule 无安全 grounded 结果则留在编辑模式；不会因射线没命中而直接掉进空世界。
+## 体验方法
 
-不再需要 G 完成编辑↔步行往返。此次保留旧 G 三模式切换和 WASD FreeFly 作为后备；移除飞行模式留待用户确认本轮交互。Debug 临时借用 FreeFly 的 orbit 不自动落地，关闭 Debug 仍能恢复原飞行模式。
+- 编辑模式滚轮拉近到最近距离 .2，检查实际地形及玩家 capsule 安全落点后，平滑进入步行；落地后朝向水平。
+- 步行中轻微向外滚动，镜头只小幅浮起。身份仍为 Walk、鼠标保持抓取、笔刷不执行；停止滚动后恢复原位，不切模式。
+- 继续向外滚动，逐步确认意图；达到阈值才进入 OrbitEdit、释放鼠标，再沿协调曲线升空到保留 yaw、向下 45° 的编辑终点。
+- 试探中反向滚动减少进度。鼠标观察仍有效，恢复保留用户最新的 yaw／pitch，不突然扭回旧视角。
+- 试探期间角色位移暂时暂停，胶囊锚点不跟随渲染镜头浮起；持有的步行按键不被清掉，恢复后无需松开／重按 W。确认升空时才清除步行输入。
+- Shift+滚轮半径和 GUI 指针归属保持原逻辑。已确认的短暂升空／落地接管期间不执行笔刷或接受新的镜头拖动。
 
-## 实现边界
+## 当前候选参数（不是最终体验定值）
 
-`camera_control/zoom.rs` 负责纯镜头目标与插值；CameraControlRuntime 负责过渡／模式权威；App input 负责滚轮归属、实际地形和 capsule 查询、停止旧笔刷 hold／运动惯性、同步 cursor grab。参数是固定交互常量，没有添加不可保存的 Debug slider。过渡是临时运行状态，不保存进 GUI 或 camera snapshots。
+- 每 line 增加 .22 目标进度；单个大／合并事件最多增加 .35，不能一次确认；连续普通滚动约五格达到目标阈值。
+- .65 秒没有输入后目标回到 0；用频率 18/s 的解析临界阻尼弹簧跟随目标，不播放不可撤回的固定预览动画。
+- 实际弹簧进度达到 .8 且目标达到 1 才确认。连续慢滚也能进入，不按瞬时速度判断。
+- 最大试探浮高 .025 世界单位；一格约 .0055。落地 .45 秒，确认升空 .7 秒，最终编辑半径 .6。
+- 单事件限制不是可靠的触控板惯性识别器；长尾惯性仍需真实设备手感反馈，不宣称已经解决所有误触。
 
-落点由 capsule 碰撞决定，可能高于中心地形射线命中的高度（角色宽度覆盖邻近台阶），而非强制使用一个点的高度。插值阶段是编辑镜头运动，不是沿全段执行物理角色行走；编辑镜头的原有穿墙／穿地限制没有在本轮重做。此轮不更改 FOV，也不自动找鼠标下的另一个目标点。
+## 位置／朝向耦合
 
-## 参考
+`camera_control/zoom.rs` 的升空使用 Hermite 安全曲线。起点后轴若指向地下，初段允许安全上升方向与后轴不完全一致；四元数平滑对齐，无 roll。曲线进度 .25 后后轴直接匹配轨迹切线，终点切线对应保留 yaw 的 -45° pitch。不是直线 lerp 位置并独立转 pitch，也不是声称 quaternion slerp 自动保证位置约束。
 
-- [Planet Coaster 官方建造说明](https://www.planetcoaster.com/en-US/planet-coaster-1/news/console/crea-il-tuo-parco-tema) 提到用第一人称视角从游客角度检查建造结果，参考的是“编辑与亲身体验互补”，不是声称它有相同滚轮绑定。
-- [Google Earth 社区的 ground-level zoom 导航说明](https://support.google.com/earth/thread/84855703/can-you-temporarily-disable-street-level-view?hl=en) 提到自动倾斜／进入地面层级。它不是游戏；本项目借鉴距离跨层级的导航概念，45° 和 yaw-only 出场规则来自本次用户要求。
+预览只作少量 world-up 平移，不扭头；恢复沿相同高度通道回去。严格后轴约束只适用于确认升空的对齐之后，不适用于恢复向前移动或仰视起步。
+
+地形落点由 capsule 而非单点射线决定，宽度可能覆盖更高的邻近台阶。没有安全 grounded 结果则不落地。编辑镜头全段碰撞／狭窄房间轨迹仍不是本轮重做范围，需实际体验；不改变 FOV。
+
+## 权威与保存
+
+ZoomPreview／ZoomTransition 是 CameraControlRuntime 的临时状态，不保存进 GUI／snapshots。模式在 Preview 中仍为 Walk，只在确认时进入 OrbitEdit；cursor、旧笔刷 hold、输入接管在 App input 统一处理。没有 App-only Debug slider 或额外保存分支。
+
+旧 G 三模式切换与 FreeFly 后备保留；编辑／步行滚轮往返不需要 G。Debug 临时借用 FreeFly 的 orbit 不自动落地。
 
 ## 验证
 
-- `cargo fmt --check`、`cargo check`、Rust **1269 passed / 4 ignored**。
-- 纯测试覆盖仰视／水平／俯视（±89°）、yaw／FOV 保留、45° 终点、短 yaw 路径、不同帧步长、非法 dt、完成前不进入 Walk、GUI scroll 不落地、Debug 临时 orbit 不丢失 FreeFly 返回状态。
-- 真实 Release/Vulkan：`env -u WAYLAND_DISPLAY RE_FLORA_CAMERA_ZOOM_REVIEW=1 cargo run --release -- --hidden --mute --auto-exit 30`。诊断等待初始化，模拟 80° 仰视步行 → 负滚轮 → 45° OrbitEdit → 正滚轮 → 生产 capsule 落地 → Walk；断言 yaw=36°、cursor 释放／抓取和实际模式，输出 `[CAMERA_ZOOM_REVIEW] passed`。
-- `target/camera-zoom-native.log` 中两次过渡均完成，capsule 落地成功，无 ERROR/panic/VUID，shutdown failures=0。该 opt-in 诊断不保存参数，正常启动不执行它。
-- 常规 hidden muted Release smoke 与同工作树 latest-log 检查通过。没有自动启动可见游戏；镜头舒适度、用户编辑体验和狭窄地形的视觉表现仍需手动反馈。
+- `cargo fmt --check`、`cargo check`，Rust **1274 passed / 4 ignored**。
+- 纯测试：单格／单个巨幅事件不确认而恢复、慢滚／快滚确认、反向撤回、恢复跟随最新 mouse look、不同 dt、跨 ±180° yaw、±89° 仰俯视、单调升高、对齐段后轴与路径切线 dot > .9999、无 roll、阈值前 Walk 权威、非法输入及 Debug／GUI 隔离。
+- `env -u WAYLAND_DISPLAY RE_FLORA_CAMERA_ZOOM_REVIEW=1 cargo run --release -- --hidden --mute --auto-exit 40`：生产输入／Vulkan／物理路径实际驱动 80° 仰视单格试探恢复（cursor locked）、连续滚动确认（cursor released）、45° 编辑终点、正滚轮 capsule 落地、Walk；yaw 保留。输出 `single_notch=recovered` 和 `passed preview_recovery=true deliberate_scroll=true ...`。
+- 常规 hidden muted Release smoke、同工作树 `--tail-latest-log 120`；无 ERROR/panic/VUID，shutdown failures=0。
+- 日志：`target/camera-preview-{fmt,check,unit,tests,native,smoke,run-tail}.log`。用户私人 GUI 数值不提交；shader／生成字段无变化。
 
-产物：`target/camera-zoom-{fmt,check,unit,tests,native,smoke,run-tail}.log`。用户现有 `config/gui.toml` 私人值不修改／提交。
+视觉手感待用户体验，不把测试通过等同于舒适度或性能验收。验证后从同工作树启动可见 Release，无 `--perf`。
