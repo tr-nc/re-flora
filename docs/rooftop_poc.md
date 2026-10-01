@@ -16,7 +16,8 @@ cargo run --release -- --rooftop-poc
 ```
 
 - Starts with a bare model roof, no terrain soil, and unlimited developer materials.
-- **3 Edit:** left mouse removes player terrain; right mouse adds the selected material.
+- **3 Edit:** left mouse removes player terrain; right mouse gradually adds the selected material
+  using the original surface brush, not a filled sphere. The bare roof supplies first-layer support.
 - Click the material palette to select a material. No artificial inventory is manufactured.
 - **2 Grow:** use existing planting controls on added soil; **Tab** changes flora.
 - **4 Smooth:** uses the existing smoothing tool, constrained to the legal soil layer.
@@ -62,8 +63,8 @@ The normal opening has no planted patch; the second image uses the opt-in verifi
 - Fixed models do **not** become DDGI occluders or shadow casters in this step. Existing GI is not
   removed. Architectural lighting, pixel stability during camera motion, user interaction feel and
   performance acceptance remain separate work; no benchmark or visual approval is claimed.
-- No generated files were hand-edited; `cargo check` regenerated shader-derived output without a
-  tracked generated-file diff. Runtime GUI configuration changes were restored after app runs.
+- No generated files were hand-edited; `cargo check` regenerated the tracked shader-derived
+  `ChunkModifyInfo` layout for the optional model-floor support field. Runtime GUI configuration changes were restored after app runs.
 
 ## Reproduce validation
 
@@ -94,7 +95,8 @@ Results:
   replacement and capsule grounding.
 - Default garden and rooftop Release hidden/muted runs exited successfully; inspected logs showed
   no error, panic or Vulkan validation diagnostic and shutdown reported `failures=0`.
-- Rooftop fixture: 9,700 first soil voxels, 2 actual planted instances, 9,700 removed voxels;
+- Rooftop fixture after restoring gradual placement: 872 first-dab soil voxels, another 872 on the
+  second dab at the same position, 2 actual planted instances, 1,744 removed voxels;
   floor/smoothing clipping, unsupported-plant cleanup, retained roof picking and capsule grounding
   passed. It also drove the production RMB → semantic tool action → placement path and confirmed
   the normal backpack was unchanged. Both `[ROOFTOP][CHECK]` records must appear.
@@ -105,3 +107,9 @@ Results:
 Two failures caught during development are retained as regression guards: immediate CPU picking
 before asynchronous source publication, and orbit rotation swallowing the Edit placement button.
 The latter is corrected only in the rooftop interaction context, with explicit Alt+RMB orbit.
+
+Following manual feedback, full-volume sphere placement was removed. The original surface-only
+placement predicate is reused, with optional fixed-floor adjacency only for the first roof layer.
+Cadence and normal-garden behavior are unchanged. The hidden fixture now asserts that a second dab
+at the same position can still add soil, preventing regression to a one-shot filled sphere. The
+planted preview has been refreshed for this corrected behavior.

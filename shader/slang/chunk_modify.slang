@@ -231,6 +231,13 @@ bool isSurfacePlacementVoxel(int3 position)
     {
         return false;
     }
+    // A fixed model floor supplies the same adjacency as a solid voxel below.
+    // Only its first voxel layer is eligible, not the entire brush volume.
+    if (chunk_modify_info.placement_support_y_plus_one != 0u &&
+        uint(position.y) + 1u == chunk_modify_info.placement_support_y_plus_one)
+    {
+        return true;
+    }
     for (int i = 0; i < 6; ++i)
     {
         if (isSolid(loadVoxelType(position + VOXEL_NEIGHBOURS[i])))

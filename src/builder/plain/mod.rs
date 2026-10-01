@@ -2178,6 +2178,7 @@ impl PlainBuilder {
             false,
             None,
             None,
+            None,
         )?;
         update_spheres(&self.resources, spheres)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
@@ -2223,6 +2224,7 @@ impl PlainBuilder {
             PRIMITIVE_KIND_TORUS,
             false,
             false,
+            None,
             None,
             None,
         )?;
@@ -2272,8 +2274,8 @@ impl PlainBuilder {
         )
     }
 
-    /// Full-volume brush in an explicit legal layer. Unlike surface-only placement, this can
-    /// establish the first voxel on a non-voxel support; the dispatch cannot cross its bounds.
+    /// Original surface brush constrained to a legal layer, with its floor acting as model
+    /// support for the first voxel layer. Subsequent additions use normal voxel adjacency.
     pub fn chunk_modify_bounded_spheres(
         &mut self,
         bvh_nodes: &[BvhNode],
@@ -2290,7 +2292,7 @@ impl PlainBuilder {
             target,
             None,
             None,
-            false,
+            fill_voxel_type != crate::builder::VOXEL_TYPE_EMPTY,
             Some(bound),
         )
     }
@@ -2335,6 +2337,7 @@ impl PlainBuilder {
             false,
             max_write_count,
             max_removed_counts,
+            bound.map(|b| b.min().y),
         )?;
         update_spheres(&self.resources, spheres)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
@@ -2511,6 +2514,7 @@ impl PlainBuilder {
             false,
             None,
             None,
+            None,
         )?;
         update_round_cones(&self.resources, round_cones)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
@@ -2564,6 +2568,7 @@ impl PlainBuilder {
             PRIMITIVE_KIND_CUBOID,
             false,
             clear_fill_voxel_state,
+            None,
             None,
             None,
         )?;
@@ -3167,6 +3172,7 @@ fn update_chunk_modify_info(
     clear_fill_voxel_state: bool,
     max_write_count: Option<u32>,
     max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
+    placement_support_y: Option<u32>,
 ) -> Result<()> {
     let max_removed_counts = max_removed_counts.unwrap_or([u32::MAX; EDIT_STATS_VOXEL_TYPE_COUNT]);
     resources.chunk_modify_info.fill_uniform(&ChunkModifyInfo {
@@ -3176,6 +3182,7 @@ fn update_chunk_modify_info(
         target_voxel_type: target_voxel_type.unwrap_or(u32::MAX),
         primitive_kind,
         surface_only: if surface_only { 1 } else { 0 },
+        placement_support_y_plus_one: placement_support_y.map_or(0, |y| y + 1),
         max_write_count: max_write_count.unwrap_or(0),
         clear_fill_voxel_state: if clear_fill_voxel_state { 1 } else { 0 },
         max_removed_counts_0_3: max_removed_counts[..4].try_into().unwrap(),

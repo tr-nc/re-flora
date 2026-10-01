@@ -258,6 +258,12 @@ impl App {
             add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT) > 0,
             "first soil placement wrote nothing"
         );
+        let second =
+            self.apply_surface_terrain_placement(edit, crate::builder::VOXEL_TYPE_DIRT, u32::MAX)?;
+        anyhow::ensure!(
+            second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT) > 0,
+            "first dab filled the entire brush instead of gradual surface placement"
+        );
         // Production queries publish asynchronously. This opt-in end-to-end fixture
         // must settle the real CPU source before inspecting the result of each edit.
         self.contree_builder.flush_cpu_chunk_cache_jobs();
@@ -344,7 +350,7 @@ impl App {
             movement.grounded && movement.translation.y > -0.005,
             "fixed roof character collision failed: {movement:?}"
         );
-        log::info!("[ROOFTOP][CHECK] first_soil={} removed={} planted={} bare_pick=true floor_clip=true smooth_clip=true grow_path=true roof_preserved=true grounded=true edit_pointer=true alt_orbit=true", add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), planted);
+        log::info!("[ROOFTOP][CHECK] first_soil={} second_soil={} removed={} planted={} bare_pick=true floor_clip=true smooth_clip=true grow_path=true roof_preserved=true grounded=true edit_pointer=true alt_orbit=true", add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), planted);
         // Drive the production pointer → semantic action → shovel placement path, too.
         // Leave its planted patch only for this opt-in fixture, never the normal opening.
         let opening_pose = self.tracer.camera_pose();

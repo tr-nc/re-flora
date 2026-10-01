@@ -66,6 +66,8 @@ public struct U_ChunkModifyInfo
     public uint target_voxel_type;
     public uint primitive_kind;
     public uint surface_only;
+    // Zero disables model support; otherwise the floor's voxel Y plus one.
+    public uint placement_support_y_plus_one;
     public uint max_write_count;
     public uint clear_fill_voxel_state;
     public uint4 max_removed_counts_0_3;
