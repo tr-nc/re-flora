@@ -155,10 +155,16 @@ impl ZoomTransition {
 
 pub(super) fn edit_pose_from_walk(pose: CameraPose) -> CameraPose {
     let yaw = pose.yaw_deg.to_radians();
-    let radius = WALK_EXIT_ORBIT_DISTANCE * std::f32::consts::FRAC_1_SQRT_2;
+    let elevation = 35_f32.to_radians();
+    let horizontal = WALK_EXIT_ORBIT_DISTANCE * elevation.cos();
     CameraPose {
-        position: pose.position + Vec3::new(-yaw.sin(), 1., yaw.cos()) * radius,
-        pitch_deg: -45.,
+        position: pose.position
+            + Vec3::new(
+                -yaw.sin() * horizontal,
+                WALK_EXIT_ORBIT_DISTANCE * elevation.sin(),
+                yaw.cos() * horizontal,
+            ),
+        pitch_deg: -35.,
         ..pose
     }
 }
@@ -180,7 +186,9 @@ mod tests {
         for pitch in [-89., -45., 0., 45., 89.] {
             assert_eq!(edit_pose_from_walk(pose(pitch)), target);
             let offset = target.position - pose(pitch).position;
-            assert!((offset.y - glam::Vec2::new(offset.x, offset.z).length()).abs() < 1e-6);
+            let elevation = offset.y.atan2(glam::Vec2::new(offset.x, offset.z).length());
+            assert!((elevation.to_degrees() - 35.).abs() < 1e-5);
+            assert_eq!(target.pitch_deg, -35.);
             assert!((offset.length() - WALK_EXIT_ORBIT_DISTANCE).abs() < 1e-6);
         }
     }
