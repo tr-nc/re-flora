@@ -98,8 +98,9 @@ pub(crate) fn material_for(voxel_type: u32, mode: VoxelMaterialMode) -> VoxelMat
         };
     }
 
-    let glass_experiment = mode == VoxelMaterialMode::GlassExperiment
-        && voxel_type == generated::GLASS_EXPERIMENT_VOXEL_TYPE;
+    let glass_experiment = voxel_type == crate::builder::VOXEL_TYPE_GLASS
+        || (mode == VoxelMaterialMode::GlassExperiment
+            && voxel_type == generated::GLASS_EXPERIMENT_VOXEL_TYPE);
     let flags = if glass_experiment {
         generated::GLASS_EXPERIMENT_MATERIAL_FLAGS
     } else {
@@ -161,6 +162,26 @@ pub(crate) fn canonicalize_atlas_data(voxel_data: u8, mode: VoxelMaterialMode) -
 mod tests {
     use super::*;
     use crate::builder::{VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND};
+
+    #[test]
+    fn dedicated_glass_preserves_soil_and_tree_ids() {
+        use crate::builder::*;
+        assert_eq!(VOXEL_TYPE_DIRT, 2);
+        assert_eq!(VOXEL_TYPE_SAND, 3);
+        assert_eq!(VOXEL_TYPE_CHERRY_WOOD, 5);
+        assert_eq!(VOXEL_TYPE_OAK_WOOD, 6);
+        for mode in [
+            VoxelMaterialMode::Standard,
+            VoxelMaterialMode::GlassExperiment,
+        ] {
+            let glass = material_for(VOXEL_TYPE_GLASS, mode);
+            assert_eq!(glass.surface_class, VoxelSurfaceClass::Dielectric);
+            assert!(!glass.soil_state_allowed);
+            assert!(glass.collision_solid);
+        }
+        assert!(material_for(VOXEL_TYPE_SAND, VoxelMaterialMode::Standard).soil_state_allowed);
+        assert!(VOXEL_TYPE_CANOPY <= u32::from(VOXEL_TYPE_MASK));
+    }
 
     #[test]
     fn glass_experiment_reinterprets_only_sand_as_a_dielectric() {

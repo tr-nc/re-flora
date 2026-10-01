@@ -7,8 +7,20 @@ import terrain_material;
 import voxel_data;
 import voxel_types;
 
+float3 buildingColorByType(uint voxelType)
+{
+    if (voxelType == VOXEL_TYPE_GLASS) return float3(0.64, 0.82, 0.78);
+    if (voxelType == VOXEL_TYPE_ASPHALT) return float3(0.28, 0.31, 0.32);
+    if (voxelType == VOXEL_TYPE_PAINTED_METAL) return float3(0.22, 0.34, 0.29);
+    if (voxelType == VOXEL_TYPE_TERRACOTTA) return float3(0.68, 0.40, 0.25);
+    if (voxelType == VOXEL_TYPE_CANOPY) return float3(0.40, 0.55, 0.32);
+    return float3(0.0);
+}
+
 float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
 {
+    if (voxelType == VOXEL_TYPE_GLASS || voxelType >= VOXEL_TYPE_ASPHALT)
+        return buildingColorByType(voxelType);
     if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
     if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
     if (voxelType == VOXEL_TYPE_STUCCO) return VOXEL_STUCCO_COLOR_SRGB;
@@ -45,6 +57,8 @@ public float3 voxelSurfaceEmission(U_VoxelColors colors, uint voxelType)
 float3 ddgiVoxelColorByTypeSrgb(U_DdgiRadianceVoxelPalette colors,
                                 uint voxelType)
 {
+    if (voxelType == VOXEL_TYPE_GLASS || voxelType >= VOXEL_TYPE_ASPHALT)
+        return buildingColorByType(voxelType);
     if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
     if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
     if (voxelType == VOXEL_TYPE_STUCCO) return VOXEL_STUCCO_COLOR_SRGB;

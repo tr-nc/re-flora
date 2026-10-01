@@ -38,6 +38,11 @@ use std::convert::TryInto;
 use std::time::{Duration, Instant};
 pub use terrain_hill::*;
 
+pub const VOXEL_TYPE_GLASS: u32 = 1;
+pub const VOXEL_TYPE_ASPHALT: u32 = 12;
+pub const VOXEL_TYPE_PAINTED_METAL: u32 = 13;
+pub const VOXEL_TYPE_TERRACOTTA: u32 = 14;
+pub const VOXEL_TYPE_CANOPY: u32 = 15;
 pub const VOXEL_TYPE_CHERRY_WOOD: u32 = 5;
 pub const VOXEL_TYPE_OAK_WOOD: u32 = 6;
 pub const VOXEL_TYPE_ROCK: u32 = 7;
@@ -60,7 +65,7 @@ const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
 const PRIMITIVE_KIND_TORUS: u32 = 3;
-pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 12;
+pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 16;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -3087,7 +3092,7 @@ mod tests {
     #[test]
     fn emissive_material_fits_the_existing_four_bit_schema_and_edit_stats() {
         assert!(VOXEL_TYPE_EMISSIVE <= u32::from(VOXEL_TYPE_MASK));
-        assert_eq!(EDIT_STATS_VOXEL_TYPE_COUNT, VOXEL_TYPE_PETAL as usize + 1);
+        assert_eq!(EDIT_STATS_VOXEL_TYPE_COUNT, VOXEL_TYPE_MASK as usize + 1);
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::EditStats>(),
             EDIT_STATS_VOXEL_TYPE_COUNT * 2 * std::mem::size_of::<u32>()
@@ -3095,7 +3100,7 @@ mod tests {
         let modify = crate::generated::gpu_structs::ChunkModifyInfo::zeroed();
         assert_eq!(modify.max_removed_counts_8_11.len(), 4);
         let writer_types = include_str!("../../../shader/slang/chunk_writer_types.slang");
-        assert!(writer_types.contains("EDIT_STATS_VOXEL_TYPE_COUNT = 12u"));
+        assert!(writer_types.contains("EDIT_STATS_VOXEL_TYPE_COUNT = 16u"));
         assert!(writer_types.contains("max_removed_counts_8_11"));
         let packed = pack_voxel_atlas_byte(VOXEL_TYPE_EMISSIVE as u8, 0);
         assert_eq!(

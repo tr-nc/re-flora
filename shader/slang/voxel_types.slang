@@ -1,6 +1,12 @@
 module voxel_types;
 
 public static const uint VOXEL_TYPE_EMPTY = 0u;
+// Previously unused slots; all existing soil, tree and POC IDs remain stable.
+public static const uint VOXEL_TYPE_GLASS = 1u;
+public static const uint VOXEL_TYPE_ASPHALT = 12u;
+public static const uint VOXEL_TYPE_PAINTED_METAL = 13u;
+public static const uint VOXEL_TYPE_TERRACOTTA = 14u;
+public static const uint VOXEL_TYPE_CANOPY = 15u;
 public static const uint VOXEL_TYPE_DIRT = 2u;
 public static const uint VOXEL_TYPE_SAND = 3u;
 public static const uint VOXEL_TYPE_STUCCO = 4u;
