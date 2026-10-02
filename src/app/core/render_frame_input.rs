@@ -95,7 +95,7 @@ pub(super) fn freeze_render_frame_inputs(
             stem_experiment: crate::flora::models::StemExperiment {
                 pixelized: gui.flower_stem_pixelized.value,
                 surface_cells: gui.flower_stem_surface_cells.value,
-                direction_resolution: gui.flower_stem_direction_resolution.value,
+                model_resolution: gui.flower_stem_model_resolution.value,
                 radius_scale: gui.flower_stem_radius_scale.value,
                 branches: gui.flower_stem_test_branches.value,
             },
@@ -323,7 +323,7 @@ mod tests {
         gui.model_flower_size_scale.value = 1.25;
         gui.flower_stem_pixelized.value = true;
         gui.flower_stem_surface_cells.value = true;
-        gui.flower_stem_direction_resolution.value = 768;
+        gui.flower_stem_model_resolution.value = 192;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_test_branches.value = false;
         gui.flora_growth_override_enabled.value = true;
@@ -514,7 +514,7 @@ mod tests {
                     stem_experiment: crate::flora::models::StemExperiment {
                         pixelized: true,
                         surface_cells: true,
-                        direction_resolution: 768,
+                        model_resolution: 192,
                         radius_scale: 0.8,
                         branches: false,
                     },

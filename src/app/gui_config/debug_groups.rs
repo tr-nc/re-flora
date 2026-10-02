@@ -19,7 +19,7 @@ const GROUPS: &[ControlGroup] = &[
         params: &[
             "flower_stem_pixelized",
             "flower_stem_surface_cells",
-            "flower_stem_direction_resolution",
+            "flower_stem_model_resolution",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
         ],
@@ -163,11 +163,11 @@ pub(super) fn render(
                     for (title, ids) in [
                         ("Geometry", &["model_flower_voxel_scale", "flower_stem_radius_scale", "flower_stem_test_branches"][..]),
                         ("Shading", &["flower_stem_surface_cells", "model_flower_stem_bottom_color", "model_flower_stem_tip_color"][..]),
-                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_direction_resolution"][..]),
+                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_model_resolution"][..]),
                     ] {
                         ui.label(title);
                         for id in ids {
-                            if *id == "flower_stem_direction_resolution" && !adjustables.flower_stem_pixelized.value {
+                            if *id == "flower_stem_model_resolution" && !adjustables.flower_stem_pixelized.value {
                                 continue;
                             }
                             for owner in config {
@@ -179,7 +179,7 @@ pub(super) fn render(
                         if title == "Shading" {
                             ui.weak("Off: continuous shading. On: branch-attached material cells.");
                         } else if title == "Pixelization" {
-                            ui.weak("Quantizes world-direction sample rays, not screen-space post-processing. Combines with either shading style.");
+                            ui.weak("Model-sized cells with continuous perspective views, no discrete angle switching. Combines with either shading style.");
                         }
                     }
                     return;
@@ -246,7 +246,7 @@ mod tests {
             let mut settings = DebugSettings::load();
             settings.adjustables.flower_stem_pixelized.value = pixelized;
             settings.adjustables.flower_stem_surface_cells.value = surface_cells;
-            settings.adjustables.flower_stem_direction_resolution.value = 768;
+            settings.adjustables.flower_stem_model_resolution.value = 192;
             settings.adjustables.model_flower_voxel_scale.value = 1.8;
             settings.sync_config();
             let before = serde_json::to_value(&settings.config).unwrap();
@@ -263,7 +263,7 @@ mod tests {
                 "flower_stem_test_branches",
             ];
             if pixelized {
-                expected.push("flower_stem_direction_resolution");
+                expected.push("flower_stem_model_resolution");
             }
             assert!(text.contains("Geometry"));
             assert!(text.contains("Shading"));
@@ -296,6 +296,8 @@ mod tests {
                 1,
                 "Stem dimensions must have one owner"
             );
+            assert!(!text.contains("world-direction"));
+            assert!(!text.contains("direction cells per cube face"));
             assert!(!text.contains("block geometry B"));
             assert!(!text.contains("geometry cell size"));
             settings.sync_config();

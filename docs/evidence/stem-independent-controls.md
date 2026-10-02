@@ -1,5 +1,7 @@
 # Flower stems：独立几何、着色、像素化
 
+> 历史记录：三类组织和独立着色开关仍保留；像素化现已统一为模型空间采样，旧 World-direction 模式已删除。当前入口见 [模型尺寸采样](stem-model-space-sampling.md)。
+
 ## 当前 UI
 
 **R → Debug → Pixel Sampling — Flower Stems**：

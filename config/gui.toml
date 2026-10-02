@@ -94,7 +94,7 @@ name = "Debug"
 [[section.param]]
 id = "flower_stem_pixelized"
 kind = "bool"
-label = "Flower stems: world-direction pixel sampling"
+label = "Flower stems: model-space pixelization"
 type = "Bool"
 
 [section.param.data]
@@ -110,9 +110,9 @@ type = "Bool"
 value = false
 
 [[section.param]]
-id = "flower_stem_direction_resolution"
+id = "flower_stem_model_resolution"
 kind = "uint"
-label = "Flower stems: direction cells per cube face"
+label = "Flower stems: samples per stem height"
 type = "Uint"
 
 [section.param.enabled_if]
@@ -120,9 +120,9 @@ param = "flower_stem_pixelized"
 equals = true
 
 [section.param.data]
-value = 550
-min = 128
-max = 2048
+value = 128
+min = 32
+max = 512
 
 [[section.param]]
 id = "flower_stem_radius_scale"

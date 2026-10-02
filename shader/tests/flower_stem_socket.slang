@@ -1,6 +1,7 @@
 // Actual production trace/socket/display math: no stem on the flower's outward
-// side, including a direction texel whose plane footprint crosses the socket.
+// side, including a model texel whose plane footprint crosses the socket.
 import flower_stem_geometry;
+import flower_stem_model_sampling;
 export __extern_cpp int main() {
     float tilts[6]={38,28,42,44,55,70};
     for(uint species=0u;species<6u;species++)for(uint variant=0u;variant<4u;variant++) {
@@ -25,8 +26,9 @@ export __extern_cpp int main() {
             float a=float(view)*6.28318530718/24.0;
             float3 ro=tip+float3(cos(a),.3,sin(a));
             float3 displayRay=normalize(tip-normal*.015-ro);
-            for(uint n=128u;n<=2048u;n*=2u) {
-                float3 ray=stemDirectionCell(displayRay,n);
+            for(uint n=32u;n<=512u;n*=2u) {
+                StemModelGrid grid=stemModelGrid(tip,3.0,s.height,n,ro,float3(sin(a),0,-cos(a)));
+                float3 ray=stemModelSampleRay(grid,ro,displayRay);
                 StemHit hit=traceStem(s,ro,ray);
                 if(hit.distance<1e19&&!stemInsideSocket(s,hit.point))return 5;
             }
@@ -34,9 +36,10 @@ export __extern_cpp int main() {
         // A source cap sample alone is insufficient: display rays offset from
         // it reach the outward half-space. Production uses this predicate on
         // the remapped actual displayed point, rejecting rather than biasing Z.
-        float3 ro=tip+float3(0,0,1),sourceRay=float3(0,0,-1);
+        float3 ro=tip+float3(0,0,1);
         float3 displayRay=normalize(tip+normal*.002-ro);
-        float3 remapped=stemDirectionDisplayPoint(ro,displayRay,sourceRay,tip);
+        StemModelGrid grid=stemModelGrid(tip,3.0,s.height,128u,ro,float3(1,0,0));
+        float3 remapped=stemModelDisplayPoint(grid,ro,displayRay,tip);
         if(stemInsideSocket(s,remapped))return 6;
     }
     return 0;

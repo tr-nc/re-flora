@@ -1,6 +1,7 @@
 import flower_model;
 import flower_stem_geometry;
 import flower_stem_experiment;
+import flower_stem_model_sampling;
 struct StemFragment {
     float4 color:SV_Target0;
     float depth:SV_Depth;
@@ -9,7 +10,8 @@ struct StemFragment {
 StemFragment main(StemProxyVertex input) {
     float3 displayRay=normalize(input.ray);
     bool pixelized=flowerStemSamplingSettings().y!=0u;
-    float3 sampleRay=pixelized?stemDirectionCell(displayRay,flowerStemSamplingSettings().z):displayRay;
+    StemModelGrid grid=stemProxyGrid(input);
+    float3 sampleRay=pixelized?stemModelSampleRay(grid,camera_info.pos.xyz,displayRay):displayRay;
     float3 sampleOrigin=camera_info.pos.xyz;
     float3 ro=stemToLocalVector(input,sampleOrigin-input.root_scale.xyz)/input.root_scale.w;
     float3 rd=stemToLocalVector(input,sampleRay);
@@ -26,12 +28,10 @@ StemFragment main(StemProxyVertex input) {
     if(flowerStemSamplingSettings().x!=0u)stemSurfaceCell(s,hit,input.motion_edge.w,shadePoint,shadeNormal);
     float3 color=flowerStemColor(shadePoint.y,s.height);
     output.color=float4(shadeFlower(color,stemWorldPoint(input,shadePoint),stemToWorldVector(input,shadeNormal)),1);
-    // A direction texel is a little plane perpendicular to its fixed source
-    // ray, through the sampled surface. Intersect that plane with the actual
-    // display ray before writing scene depth: never paste RGBA over terrain or
-    // petals, and never use a stale offscreen/cubemap depth convention.
+    // Each model texel carries the sampled surface's perspective depth.
+    // Intersect its plane with the display ray; never paste RGBA over terrain.
     if(pixelized) {
-        world=stemDirectionDisplayPoint(camera_info.pos.xyz,displayRay,sampleRay,world);
+        world=stemModelDisplayPoint(grid,camera_info.pos.xyz,displayRay,world);
     }
     // Quantized source-ray texels are finite planes: their display footprint
     // can cross the socket even when the sampled point does not. Restrict the

@@ -3065,7 +3065,7 @@ impl Tracer {
         self.flower_model_settings = flowers;
         let stems = vegetation.appearance.stem_experiment.normalized();
         if stems != self.flower_stem_experiment {
-            log::info!("[FLOWER_STEM_SAMPLING] pixelized={} surface_cells={} direction_resolution={} radius_scale={} branches={} wind=live head_cache_unchanged=true", stems.pixelized, stems.surface_cells, stems.direction_resolution, stems.radius_scale, stems.branches);
+            log::info!("[FLOWER_STEM_SAMPLING] pixelized={} surface_cells={} radius_scale={} branches={} model_resolution={} wind=live head_cache_unchanged=true", stems.pixelized, stems.surface_cells, stems.radius_scale, stems.branches, stems.model_resolution);
         }
         self.flower_stem_experiment = stems;
         self.flower_spawn_overshoot_voxels = vegetation
@@ -4665,12 +4665,14 @@ impl Tracer {
                     self.flower_spawn_overshoot_voxels,
                 );
                 let bounds = crate::geom::Aabb3::new(bounds.min() - below, bounds.max() + above);
-                let angular = Vec3::splat(self.flower_stem_experiment.angular_padding(
-                    self.camera.position().distance(bounds.center())
-                        + (bounds.max() - bounds.min()).length(),
-                ));
-                let bounds =
-                    crate::geom::Aabb3::new(bounds.min() - angular, bounds.max() + angular);
+                let sampling_fringe = Vec3::splat(
+                    self.flower_stem_experiment
+                        .model_padding(below.max_element().max(above.max_element())),
+                );
+                let bounds = crate::geom::Aabb3::new(
+                    bounds.min() - sampling_fringe,
+                    bounds.max() + sampling_fringe,
+                );
                 if !bounds.is_inside_frustum(self.current_view_proj_mat)
                     || self.camera.position().distance(bounds.center()) > flora_draw_distance
                 {

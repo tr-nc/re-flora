@@ -20,8 +20,8 @@ impl FlowerModelReview {
         let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
             return Ok(None);
         };
-        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-direction", "stem-surface", "stem-combined"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/sampling combinations with live wind and camera sweep), or stem-continuous/direction/surface/combined (fixed camera)");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/model-pixelization combinations with live wind and camera sweep), or stem-continuous/surface/combined/model/model-far (fixed camera)");
         Ok(Some(Self {
             mode,
             frame: 0,

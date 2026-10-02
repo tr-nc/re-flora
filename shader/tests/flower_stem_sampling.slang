@@ -36,25 +36,6 @@ export __extern_cpp int main() {
         if(length(tip-(float3(s.bend,s.height,0)+s.motion))>1e-6)return 10;
     }
 
-    // World-axis cubemap cells: finite, idempotent, six faces, deterministic
-    // seams. The angular proxy/culling margin must dominate actual ray error.
-    for(uint n=128u;n<=2048u;n*=2u) {
-        for(uint axis=0u;axis<3u;axis++)for(int sign=-1;sign<=1;sign+=2) {
-            for(int i=-16;i<=16;i++)for(int j=-16;j<=16;j++) {
-                float3 ray=float3(0);ray[axis]=float(sign);
-                ray[(axis+1u)%3u]=float(i)/16.0;ray[(axis+2u)%3u]=float(j)/16.0;
-                ray=normalize(ray);
-                float3 cell=stemDirectionCell(ray,n);
-                if(!close(length(cell),1.0)||length(cell-ray)>4.0/float(n))return 11;
-                if(length(stemDirectionCell(cell,n)-cell)>1e-6)return 12;
-            }
-        }
-        // Two nearby display rays sample the same source regardless of where
-        // a camera rotation would place those rays on the screen.
-        float3 a=stemDirectionCell(normalize(float3(0.00001,0.00001,1)),n);
-        float3 b=stemDirectionCell(normalize(float3(0.00002,0.00002,1)),n);
-        if(any(a!=b))return 13;
-    }
     s.height=2;s.bend=0;s.radius=0.1;s.motion=float3(0);s.branches=0u;
     float3 point,normal;
     StemHit interior=side;interior.parameter=0.523;

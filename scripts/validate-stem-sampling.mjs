@@ -9,14 +9,14 @@ import {spawnSync} from 'node:child_process';
 
 const help = `Usage: node scripts/validate-stem-sampling.mjs [--seconds <positive-number>]
 
-Capture all four combinations of continuous/surface-cell shading and direction
-pixel sampling in hidden muted Release mode, then exercise fixed/orbit/dolly/near
-cameras, live wind and resize.
+Capture continuous/surface shading with model-space pixelization off/on,
+including a near/far pixelized pair, in hidden muted Release mode. A 16-phase
+sweep exercises fixed/orbit/dolly/near cameras, live wind and resize.
 Requires Cargo, Slang, Vulkan and a desktop display. GUI settings are never saved.
 --seconds controls sweep duration (default 12); fixed captures take 4 seconds each.
 Artifacts: target/stem-sampling-review/{*.png,*.log,summary.json}
 This checks runtime correctness and supplies visual evidence, not performance or
-flicker acceptance. Thin direction-sampled branches may still disappear.
+flicker acceptance. Very distant stems remain subject to screen subpixel aliasing.
 
 Example: env -u WAYLAND_DISPLAY node scripts/validate-stem-sampling.mjs --seconds 20
 Exit codes: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
@@ -39,7 +39,7 @@ const before = configHash();
 const speciesCount = JSON.parse(fs.readFileSync(path.join(root, 'assets/models/flowers.json'))).flowers.length;
 const summary = {configSha256: before, speciesCount, runs: []};
 try {
-  for (const mode of ['stem-continuous', 'stem-direction', 'stem-surface', 'stem-combined', 'stems']) {
+  for (const mode of ['stem-continuous', 'stem-surface', 'stem-model', 'stem-combined', 'stem-model-far', 'stems']) {
     const sweep = mode === 'stems';
     const image = path.join(output, `${mode}.png`);
     if (!sweep) fs.rmSync(image, {force: true});
@@ -59,7 +59,7 @@ try {
     assert.equal((log.match(/\[FLOWER_REVIEW_PLANT\]/g) || []).length, speciesCount);
     const run = {mode, log: path.relative(root, logPath)};
     if (sweep) {
-      const phases = [...log.matchAll(/\[STEM_REVIEW_PHASE\] phase=(\d+) pixelized=(\w+) surface_cells=(\w+)/g)];
+      const phases = [...log.matchAll(/\[STEM_REVIEW_PHASE\] phase=(\d+) pixelized=(\w+) surface_cells=(\w+).*model_resolution=(\d+)/g)];
       assert.deepEqual(phases.map(m => +m[1]), Array.from({length: 16}, (_, i) => i),
         `Incomplete sweep; retry --seconds ${Math.max(20, seconds * 2)}; inspect ${logPath}`);
       run.phases = phases.map((m, i) => {
@@ -70,7 +70,11 @@ try {
         if (i < 12) assert.equal(draws.size, speciesCount, `phase ${i}: missing draws`);
         assert.equal(m[2] === 'true', i % 4 >= 2);
         assert.equal(m[3] === 'true', i % 2 === 1);
+        assert.equal(+m[4], 128);
         assert.match(section, /wind=live/);
+        const cameras = [...section.matchAll(/\[STEM_REVIEW_CAMERA\].*eye=(\[[^\]]+\])/g)];
+        assert.ok(cameras.length >= 3, `phase ${i}: missing camera observations`);
+        if (i >= 4) assert.ok(new Set(cameras.map(m => m[1])).size > 1, `phase ${i}: camera did not move`);
         return {phase: i, pixelized: m[2] === 'true', surfaceCells: m[3] === 'true', species: [...draws]};
       });
       const resize = log.indexOf('[FLOWER_REVIEW_RESIZE] after_submitted_frames=72');
@@ -89,7 +93,7 @@ try {
     assert.equal(configHash(), before, 'review changed saved GUI settings');
   }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
-  console.log(`PASS: four captures, 16 live phases, independent effects, live wind and clean Vulkan logs.\n${output}/summary.json\nVisual approval and release performance acceptance remain separate.`);
+  console.log(`PASS: five captures, 16 live phases, model-space pixelization, live wind and clean Vulkan logs.\n${output}/summary.json\nVisual approval and release performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/; native log: cargo run --release -- --latest-log`);
   process.exitCode = 1;
