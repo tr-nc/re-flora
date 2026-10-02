@@ -106,6 +106,10 @@ impl Splash {
     }
 
     pub(super) fn show(&mut self, ctx: &Context, progress: f32) {
+        self.paint(ctx, progress, LayerId::background(), Opacity::at(0.0));
+    }
+
+    fn paint(&mut self, ctx: &Context, progress: f32, layer: LayerId, opacity: Opacity) {
         if self.started.is_none() {
             log::info!("[LOADING][SPLASH] layout=B palette={} local_pixels=16 title_cells=4x1 motion=sway poses=-10,0,10,0 step_seconds=1.2", self.palette.name);
         }
@@ -118,9 +122,8 @@ impl Splash {
         let layout = Layout::new(viewport);
         let scale = layout.cell / CELL;
         let [background, grid, cream, yellow, _] = self.palette.colors.map(rgb);
-        let painter = ctx
-            .layer_painter(LayerId::background())
-            .with_clip_rect(viewport);
+        let mut painter = ctx.layer_painter(layer).with_clip_rect(viewport);
+        painter.set_opacity(opacity.background);
         painter.rect_filled(viewport, 0.0, background);
         let first = (viewport.min - layout.origin) / layout.cell;
         let last = (viewport.max - layout.origin) / layout.cell;
@@ -143,9 +146,8 @@ impl Splash {
                         (Vec2::new(46.0, 47.0), Vec2::new(4.0, 2.0)),
                         (Vec2::new(48.0, 44.0), Vec2::new(2.0, 3.0)),
                     ] {
-                        painter.rect_filled(
+                        field.add_colored_rect(
                             Rect::from_min_size(tile.min + offset * scale, size * scale),
-                            0.0,
                             grid,
                         );
                     }
@@ -161,8 +163,6 @@ impl Splash {
                 );
             }
         }
-        painter.add(egui::Shape::mesh(field));
-
         // The title is part of the grid: no white backing and no interior lines.
         painter.rect_stroke(
             layout.title.shrink(0.5 * scale),
@@ -170,6 +170,8 @@ impl Splash {
             egui::Stroke::new(scale, grid),
             egui::StrokeKind::Middle,
         );
+        painter.set_opacity(opacity.foreground);
+        painter.add(egui::Shape::mesh(field));
         let title = painter.layout_no_wrap(
             "re: flora".to_owned(),
             FontId::proportional(64.0 * scale),
@@ -189,6 +191,80 @@ impl Splash {
             0.0,
             yellow,
         );
+    }
+}
+
+/// Two staged alpha fades: background/grid during [0, 1] seconds, then
+/// flowers/leaves/title/underline during [1, 2]. No position or scale changes.
+#[derive(Clone, Copy, Debug)]
+struct Opacity {
+    background: f32,
+    foreground: f32,
+}
+
+impl Opacity {
+    fn at(seconds: f64) -> Self {
+        fn fade(t: f64) -> f32 {
+            let t = t.clamp(0.0, 1.0) as f32;
+            1.0 - t * t * (3.0 - 2.0 * t)
+        }
+        Self {
+            background: fade(seconds),
+            foreground: fade(seconds - 1.0),
+        }
+    }
+}
+
+/// Moves the same splash above the real game render after loading completes.
+/// Start the clock only after the first game frame has successfully presented,
+/// so expensive first-frame GPU initialization cannot consume the whole fade.
+pub(crate) struct Transition {
+    splash: Splash,
+    first_presented: Option<Instant>,
+    clear_frame_drawn: bool,
+}
+
+impl Transition {
+    pub(crate) fn new(splash: Splash) -> Self {
+        Self {
+            splash,
+            first_presented: None,
+            clear_frame_drawn: false,
+        }
+    }
+
+    pub(crate) fn show(&mut self, ctx: &Context, visible: bool) {
+        let seconds = self
+            .first_presented
+            .map_or(0.0, |start| start.elapsed().as_secs_f64());
+        let opacity = Opacity::at(seconds);
+        self.clear_frame_drawn = opacity.foreground == 0.0;
+        // Automated scene captures must keep receiving the scene, not an intro.
+        if visible && !self.clear_frame_drawn {
+            self.splash.paint(
+                ctx,
+                1.0,
+                LayerId::new(egui::Order::Tooltip, egui::Id::new("splash_transition")),
+                opacity,
+            );
+        }
+    }
+
+    pub(crate) fn needs_first_frame_completion(&self) -> bool {
+        self.first_presented.is_none()
+    }
+
+    /// The first callback requires its GPU frame fence to have completed.
+    /// Return true only after a fully transparent overlay frame was presented.
+    pub(crate) fn presented(&mut self) -> bool {
+        if self.first_presented.is_none() {
+            self.first_presented = Some(Instant::now());
+            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s foreground=1..2s");
+        }
+        if self.clear_frame_drawn {
+            log::info!("[LOADING][SPLASH_TRANSITION] complete");
+        }
+        self.clear_frame_drawn
     }
 }
 
@@ -275,6 +351,54 @@ fn flower_mesh(kind: usize, palette: Palette) -> Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transition_fades_background_before_foreground() {
+        for (time, background, foreground) in [
+            (0.0, 1.0, 1.0),
+            (0.5, 0.5, 1.0),
+            (1.0, 0.0, 1.0),
+            (1.5, 0.0, 0.5),
+            (2.0, 0.0, 0.0),
+            (10.0, 0.0, 0.0),
+        ] {
+            let opacity = Opacity::at(time);
+            assert!((opacity.background - background).abs() < 0.00001);
+            assert!((opacity.foreground - foreground).abs() < 0.00001);
+        }
+        let mut previous = Opacity::at(0.0);
+        for frame in 1..=120 {
+            let current = Opacity::at(frame as f64 / 60.0);
+            assert!(current.background <= previous.background);
+            assert!(current.foreground <= previous.foreground);
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn transition_retains_palette_and_waits_for_presented_frames() {
+        let ctx = Context::default();
+        let mut transition = Transition::new(Splash::new(PALETTES[1]));
+        let draw = |transition: &mut Transition| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0))),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| transition.show(ctx, true));
+        };
+        draw(&mut transition);
+        assert!(transition.first_presented.is_none());
+        assert!(!transition.clear_frame_drawn);
+        assert!(!transition.presented());
+        assert!(transition.first_presented.is_some());
+        assert_eq!(transition.splash.palette.name, "moss");
+        transition.first_presented = Some(Instant::now() - std::time::Duration::from_secs(3));
+        // Time alone does not end the transition before a clear frame is drawn.
+        assert!(!transition.presented());
+        draw(&mut transition);
+        assert!(transition.clear_frame_drawn);
+        assert!(transition.presented());
+    }
 
     #[test]
     fn denser_grid_shrinks_cells_without_changing_title_alignment() {

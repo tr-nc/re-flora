@@ -31,4 +31,13 @@ The approved research-board direction replaces the initial checkerboard/white-ti
 - `cargo fmt --check`, `cargo check`, and all 7 loading tests passed. The new size guardrail checks 76.8-point cells at 960×576; title-centering tolerance accounts for f32 viewport-coordinate rounding.
 - Hidden muted Release smoke passed: `target/re-flora-logs/re-flora-20261003-032712.307-498732.log`, no ERROR/VUID, shutdown `failures=0`.
 
+## Layered transition follow-up
+
+- Same splash instance retained after loading, with background/grid fading over seconds 0–1 and flowers/leaves/title/underline fading over seconds 1–2 using smoothstep alpha.
+- Clock starts after the first game frame's GPU completion; retirement waits for a clear overlay frame to be submitted successfully. Automated scene/denoiser captures suppress the overlay.
+- `cargo fmt --check`, `cargo check`, full `cargo test`: passed (4 + 1279 passed, 4 ignored). New tests cover phase ordering, opacity endpoints/monotonicity, palette retention and presentation-driven lifetime.
+- Required hidden muted 0.5-second Release smoke passed with clean early shutdown: `target/re-flora-logs/re-flora-20261003-034405.193-504561.log`.
+- Additional 6-second hidden muted Release run exercised the entire transition: `target/re-flora-logs/re-flora-20261003-034410.003-504870.log`. Start logged at `03:44:14.260`, completion at `03:44:16.269`; no ERROR/VUID, shutdown `failures=0`.
+- User GUI settings remained byte-for-byte identical in the before/after diff. No generated files changed.
+
 The native hidden run validates startup/rendering correctness, not a new human visual review or a performance claim. No visible game was automatically launched. Temporary HTML/JavaScript and cached reference images were removed; source links, visual reasoning and final parameters remain in the design document.
