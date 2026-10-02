@@ -107,7 +107,7 @@ label = "Flower stems: surface-attached cell shading"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "flower_stem_model_resolution"
@@ -120,7 +120,7 @@ param = "flower_stem_pixelized"
 equals = true
 
 [section.param.data]
-value = 128
+value = 103
 min = 32
 max = 512
 
@@ -142,7 +142,7 @@ label = "Flower stems: two tapered test branches"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "ddgi_aggregate_history"
@@ -1238,7 +1238,7 @@ label = "Stem Bottom Color"
 type = "Color"
 
 [section.param.data]
-value = "#007D01"
+value = "#005B47"
 
 [[section.param]]
 id = "model_flower_stem_tip_color"
@@ -1247,7 +1247,7 @@ label = "Stem Tip Color"
 type = "Color"
 
 [section.param.data]
-value = "#71B700"
+value = "#8CB700"
 
 [[section.param]]
 id = "model_flower_size_scale"
