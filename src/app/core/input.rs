@@ -522,7 +522,7 @@ impl App {
             1 => {
                 assert!(self.is_orbit_edit_camera_mode());
                 let pose = self.tracer.camera_pose();
-                assert!((pose.pitch_deg + 35.).abs() < 0.01);
+                assert!((pose.pitch_deg + 25.).abs() < 0.01);
                 assert!((pose.yaw_deg - 36.).abs() < 0.01);
                 assert!(self.window_state.is_cursor_visible());
                 self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0., 12.));
@@ -538,7 +538,7 @@ impl App {
                 assert!(pose.position.is_finite());
                 assert!(pose.pitch_deg.abs() < 0.01);
                 assert!((pose.yaw_deg - 36.).abs() < 0.01);
-                log::info!("[CAMERA_ZOOM_REVIEW] passed preview=false wheel_roundtrip=true yaw_preserved=true edit_pitch=-35 landing_capsule=true cursor=true");
+                log::info!("[CAMERA_ZOOM_REVIEW] passed preview=false wheel_roundtrip=true yaw_preserved=true edit_pitch=-25 landing_capsule=true cursor=true");
                 self.camera_control.zoom_review = None;
             }
             _ => unreachable!("native zoom review phase"),

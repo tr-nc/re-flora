@@ -5,7 +5,7 @@
 ## 体验
 
 - 步行中向外滚轮直接开始连续后退→编辑镜头过渡，没有垂直浮起预览、意图积累、等待或回弹阶段。
-- 水平或仰视起步时，初始位置切线是沿 yaw 的平面后退，不再强加至少 .25 的向上方向；随后沿曲线自然接入保留 yaw 的向下 35° 编辑终点（后续按用户反馈由 45° 调低，半径 .6 不变，位置与朝向同步调整）。
+- 水平或仰视起步时，初始位置切线是沿 yaw 的平面后退，不再强加至少 .25 的向上方向；随后沿曲线自然接入保留 yaw 的向下 25° 编辑终点（后续按用户反馈由 45°→35°→25° 调低，半径 .6 不变，位置与朝向同步调整）。
 - 确认后的 Hermite 曲线和 quaternion 朝向协调保留：短初始对齐区后，后轴匹配运动路径切线，无 roll。不退回到直线位置／独立 pitch lerp。
 - 编辑模式滚轮拉近到 .2，真实 capsule 安全落地检查通过后回步行。空地形／不安全落点不切换。
 - Shift+滚轮笔刷半径、GUI 归属、过渡期间不误涂、cursor 释放／抓取保持原逻辑。G／FreeFly 后备暂留。
@@ -26,8 +26,9 @@
 
 - `cargo fmt --check`、`cargo check`，Rust **1271 passed / 4 ignored**。
 - 新纯测试覆盖水平／45°／89° 仰视的初始切线 y=0、平面后退方向；保留 ±89° 的单调升高、后轴／切线 dot > .9999、无 roll、yaw/FOV 和帧率／非法 dt 测试。
-- `env -u WAYLAND_DISPLAY RE_FLORA_CAMERA_ZOOM_REVIEW=1 cargo run --release -- --hidden --mute --auto-exit 25`：实际 80° 仰视单格直接开始，无 preview；编辑终点（原 45°，现 35°）、yaw 保留、鼠标释放、正滚轮生产 capsule 落地、Walk 抓取鼠标。日志 `[CAMERA_ZOOM_REVIEW] passed preview=false wheel_roundtrip=true ...`。
+- `env -u WAYLAND_DISPLAY RE_FLORA_CAMERA_ZOOM_REVIEW=1 cargo run --release -- --hidden --mute --auto-exit 25`：实际 80° 仰视单格直接开始，无 preview；编辑终点（原 45°，现 25°）、yaw 保留、鼠标释放、正滚轮生产 capsule 落地、Walk 抓取鼠标。日志 `[CAMERA_ZOOM_REVIEW] passed preview=false wheel_roundtrip=true ...`。
 - 普通 hidden muted Release smoke 与同工作树 latest-log tail；无 ERROR/panic/VUID，shutdown failures=0。日志 `target/camera-withdraw-{fmt,check,unit,tests,native,smoke,run-tail}.log`。
 - smoothing 迭代：`cargo fmt --check`、`cargo check`，Rust **1272 passed / 4 ignored**；新增整段速度峰值／起止速度回归测试，先在旧算法失败（peak=27），修改后通过。Release 25 秒实际往返和 smoke／latest-log 检查通过，无错误，shutdown failures=0。日志 `target/camera-smoothing-{before,after,check,unit,tests,native,smoke,run-tail}.log`。
 - 35° 调整：23 项 camera_control 测试及 Release 实际往返／smoke／latest-log 检查通过，日志确认 `edit_pitch=-35`；半径和 smoothing 参数不变。产物 `target/camera-35-{check,unit,native,smoke,run-tail}.log`。
+- 25° 调整：23 项 camera_control 测试及 Release 实际往返／smoke／latest-log 检查通过，日志确认 `edit_pitch=-25`；半径和 smoothing 参数不变。产物 `target/camera-25-{check,unit,native,smoke,run-tail}.log`。
 - 验证／提交后启动同工作树可见 Release，无 `--perf`，让用户继续反馈。私人 `config/gui.toml` 不提交；无 shader／生成字段变更。
