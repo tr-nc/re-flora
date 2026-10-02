@@ -7,7 +7,6 @@ use crate::app::world_edits::TerrainBrushEdit;
 
 pub(super) const MOWER_MAX_SPEED: f32 = 30.0 / 256.0;
 pub(super) const MOWER_CUT_RADIUS: f32 = 11.0 / 256.0;
-const MIN_CAMERA_DISTANCE: f32 = 0.7;
 const MAX_FRAME_STEP: f32 = 0.1;
 const MOWER_MAX_TURN_SPEED: f32 = 120. * std::f32::consts::PI / 180.;
 const MOWER_APPROACH_RATE: f32 = 3.;
@@ -73,8 +72,8 @@ fn steered_step(position: Vec3, target: Vec3, rotation: Quat, dt: f32) -> Vec3 {
     position + forward * desired.length().min(distance * approach) * alignment
 }
 
-fn mode_allows_mower(orbit: bool, cursor_visible: bool, distance: f32) -> bool {
-    orbit && cursor_visible && distance.is_finite() && distance >= MIN_CAMERA_DISTANCE
+fn mode_allows_mower(orbit: bool, cursor_visible: bool, transitioning: bool) -> bool {
+    orbit && cursor_visible && !transitioning
 }
 
 impl MowerRuntime {
@@ -117,9 +116,7 @@ impl App {
         mode_allows_mower(
             self.is_orbit_edit_camera_mode(),
             self.window_state.is_cursor_visible(),
-            self.camera_control
-                .orbit_spherical(self.tracer.camera_position())
-                .2,
+            self.camera_control.zoom_in_progress(),
         )
     }
 
@@ -554,13 +551,42 @@ impl App {
         self.tracer
             .set_camera_pose_looking_at(finish + Vec3::Y * 0.2, finish);
         self.camera_control.set_orbit_focus(finish);
+        self.camera_control
+            .begin_zoom_to_walk(self.tracer.camera_pose(), finish);
         ensure!(
             !self.mower_mode_available(),
-            "close camera must block mower controls"
+            "camera transition must block mower controls"
         );
         self.handle_mower_pointer(MouseButton::Left, ElementState::Pressed);
-        ensure!(!self.mower.dragging, "close camera started mower dragging");
-        // A diagnostic close crop at an allowed distance makes the small raster model inspectable.
+        ensure!(
+            !self.mower.dragging,
+            "camera transition started mower dragging"
+        );
+        let (walk_pose, _) = self.camera_control.advance_zoom_transition(10.).unwrap();
+        ensure!(
+            !self.mower_mode_available(),
+            "walking allowed mower controls"
+        );
+        self.camera_control.begin_zoom_to_edit(walk_pose);
+        let (edit_pose, _) = self.camera_control.advance_zoom_transition(10.).unwrap();
+        self.tracer.apply_camera_pose(edit_pose);
+        ensure!(
+            self.mower_mode_available(),
+            "completed edit transition blocked mower"
+        );
+        let projected = self.tracer.camera_view_projection() * finish.extend(1.);
+        let ndc = projected.truncate() / projected.w;
+        self.cursor_position_physical = Some(Vec2::new(
+            (ndc.x + 1.) * extent.width as f32 * 0.5,
+            (ndc.y + 1.) * extent.height as f32 * 0.5,
+        ));
+        self.handle_mower_pointer(MouseButton::Left, ElementState::Pressed);
+        ensure!(
+            self.mower.dragging,
+            "returned edit camera failed to spawn mower"
+        );
+        self.handle_mower_pointer(MouseButton::Left, ElementState::Released);
+        // A diagnostic close crop makes the small raster model inspectable.
         let focus = finish + Vec3::Y * 0.035;
         self.tracer
             .set_camera_pose_looking_at(focus + Vec3::new(0.5, 0.45, 0.5), focus);
@@ -580,7 +606,7 @@ impl App {
             self.mower.position.is_some(),
             "fresh diagnostic pointer press failed to spawn mower"
         );
-        log::info!("[MOWER][CHECK] pointer_placement=true speed_limited=true turn_speed_limited=true grounded=true trim_growth=true plants_preserved=true terrain_unchanged=true release_destroyed=true fresh_press_respawn=true close_camera_blocked=true raster_postprocess=true position={finish:?}");
+        log::info!("[MOWER][CHECK] pointer_placement=true speed_limited=true turn_speed_limited=true grounded=true trim_growth=true plants_preserved=true terrain_unchanged=true release_destroyed=true fresh_press_respawn=true walking_blocked=true camera_transition_blocked=true edit_transition_enabled=true raster_postprocess=true position={finish:?}");
         Ok(())
     }
 }
@@ -731,12 +757,30 @@ mod tests {
     }
 
     #[test]
-    fn only_zoomed_out_visible_cursor_orbit_can_operate_mower() {
-        assert!(mode_allows_mower(true, true, MIN_CAMERA_DISTANCE));
-        assert!(!mode_allows_mower(true, true, MIN_CAMERA_DISTANCE - 0.001));
-        assert!(!mode_allows_mower(false, true, 2.));
-        assert!(!mode_allows_mower(true, false, 2.));
-        assert!(!mode_allows_mower(true, true, f32::NAN));
+    fn completed_walk_to_edit_transition_can_operate_mower() {
+        let mut camera = super::super::camera_control::CameraControlRuntime::default();
+        let start = crate::gameplay::camera::CameraPose {
+            position: Vec3::new(1., 0.5, 1.),
+            yaw_deg: 0.,
+            pitch_deg: 0.,
+            fov_deg: 60.,
+        };
+        camera.begin_zoom_to_edit(start);
+        let (end, done) = camera.advance_zoom_transition(10.).unwrap();
+        assert!(done);
+        let distance = camera.orbit_spherical(end.position).2;
+        assert!(
+            mode_allows_mower(true, true, camera.zoom_in_progress()),
+            "completed edit camera rejected mower at distance {distance}"
+        );
+    }
+
+    #[test]
+    fn only_settled_visible_cursor_edit_mode_can_operate_mower() {
+        assert!(mode_allows_mower(true, true, false));
+        assert!(!mode_allows_mower(true, true, true));
+        assert!(!mode_allows_mower(false, true, false));
+        assert!(!mode_allows_mower(true, false, false));
     }
 
     #[test]
