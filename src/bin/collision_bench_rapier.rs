@@ -823,7 +823,7 @@ fn resident_set_kib() -> Option<u64> {
     {
         let status = fs::read_to_string("/proc/self/status").ok()?;
         let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
-        return line.split_whitespace().nth(1)?.parse().ok();
+        line.split_whitespace().nth(1)?.parse().ok()
     }
     #[cfg(not(target_os = "linux"))]
     {

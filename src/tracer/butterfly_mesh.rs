@@ -529,18 +529,20 @@ mod tests {
 
     #[test]
     fn publication_contains_complete_sorted_offsets_and_skips_empty_uploads() {
-        let mut renderer = ButterflyMeshRenderer::default();
-        renderer.instances = (0..1100)
-            .map(|_| Instance {
-                position_size: [0.; 4],
-                color: [1.; 4],
-                metadata: [0, 0, 64, LEAF_MODEL_FLAG],
-                lighting: [0., 0., 0., 1.],
-                view_orientation: [0., 0., 0., 1.],
-                tile: [0, 1, 0, 0],
-            })
-            .collect();
-        renderer.draw_order = (0..1100u32).rev().collect();
+        let mut renderer = ButterflyMeshRenderer {
+            instances: (0..1100)
+                .map(|_| Instance {
+                    position_size: [0.; 4],
+                    color: [1.; 4],
+                    metadata: [0, 0, 64, LEAF_MODEL_FLAG],
+                    lighting: [0., 0., 0., 1.],
+                    view_orientation: [0., 0., 0., 1.],
+                    tile: [0, 1, 0, 0],
+                })
+                .collect(),
+            draw_order: (0..1100u32).rev().collect(),
+            ..Default::default()
+        };
         let mut publications = 0;
         renderer
             .publish_pixel_frame(|instances, order| {

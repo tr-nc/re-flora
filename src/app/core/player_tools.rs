@@ -111,7 +111,7 @@ impl ContinuousTerrainToolAction {
 
 use crate::app::brush_stroke::BrushStroke as TerrainStroke;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TerrainStrokeRuntime {
     shovel_dig: TerrainStroke,
     shovel_place: TerrainStroke,
@@ -124,24 +124,6 @@ struct TerrainStrokeRuntime {
     next_flora_paint_dab_serial: u32,
     active_flora_paint_dab_serial: Option<u32>,
     last_flora_paint_release_time: Option<Instant>,
-}
-
-impl Default for TerrainStrokeRuntime {
-    fn default() -> Self {
-        Self {
-            shovel_dig: TerrainStroke::default(),
-            shovel_place: TerrainStroke::default(),
-            smooth: TerrainStroke::default(),
-            staff_regenerate: TerrainStroke::default(),
-            staff_remove: TerrainStroke::default(),
-            hoe_trim: TerrainStroke::default(),
-            water: TerrainStroke::default(),
-            till: TerrainStroke::default(),
-            next_flora_paint_dab_serial: 0,
-            active_flora_paint_dab_serial: None,
-            last_flora_paint_release_time: None,
-        }
-    }
 }
 
 impl TerrainStrokeRuntime {
@@ -216,12 +198,9 @@ impl TerrainStrokeRuntime {
     }
 
     fn clear_action_metadata(&mut self, action: ContinuousTerrainToolAction) {
-        match action {
-            ContinuousTerrainToolAction::StaffRegenerate => {
-                self.active_flora_paint_dab_serial = None;
-                self.last_flora_paint_release_time = None;
-            }
-            _ => {}
+        if action == ContinuousTerrainToolAction::StaffRegenerate {
+            self.active_flora_paint_dab_serial = None;
+            self.last_flora_paint_release_time = None;
         }
     }
 

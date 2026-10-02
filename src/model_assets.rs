@@ -147,7 +147,7 @@ impl Model {
                     .map(|v| v.into_u32().collect())
                     .unwrap_or_else(|| (0..positions.len() as u32).collect());
                 ensure!(
-                    indices.len() % 3 == 0
+                    indices.len().is_multiple_of(3)
                         && normals.len() == positions.len()
                         && uvs.len() == positions.len(),
                     "invalid vertex attributes"

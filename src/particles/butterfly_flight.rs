@@ -357,6 +357,10 @@ impl DartingFlightState {
         self.rhythm.position
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Flight integration keeps kinematics, timing, tuning and world samplers explicit"
+    )]
     pub(super) fn advance(
         &mut self,
         position: Vec3,
@@ -437,13 +441,13 @@ impl DartingFlightState {
             let near_high = ((position[axis] - world_max[axis] + 0.10) / 0.10).clamp(0.0, 1.0);
             recovery[axis] += (near_low - near_high) * 2.5;
         }
-        if !emerging && velocity.length_squared() > 1e-6 {
-            if terrain_distance(position, velocity.normalize())
+        if !emerging
+            && velocity.length_squared() > 1e-6
+            && terrain_distance(position, velocity.normalize())
                 .is_some_and(|distance| distance < 0.07)
-            {
-                // Brake and climb before contact. Terrain remains the existing CPU authority.
-                recovery += Vec3::Y * 1.5 - velocity * 8.0;
-            }
+        {
+            // Brake and climb before contact. Terrain remains the existing CPU authority.
+            recovery += Vec3::Y * 1.5 - velocity * 8.0;
         }
         self.wingbeat.advance(
             self.wingbeat_phase,

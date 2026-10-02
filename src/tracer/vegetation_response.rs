@@ -507,8 +507,13 @@ fn append_chunk_plants(
     next: &mut HashMap<u64, u32>,
 ) -> [u32; species::MAX_FLORA_SPECIES] {
     let mut offsets = [0; species::MAX_FLORA_SPECIES];
-    for species in 2..species::species_count() {
-        offsets[species] = inputs.len() as u32;
+    for (species, offset) in offsets
+        .iter_mut()
+        .enumerate()
+        .take(species::species_count())
+        .skip(2)
+    {
+        *offset = inputs.len() as u32;
         for plant in plants
             .iter()
             .filter(|plant| plant.species_index == species as u32)

@@ -12,59 +12,6 @@ pub struct Transport {
     pub extent: Vec2,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn boundary_change_arrives_near_before_far_and_never_rewrites_interior() {
-        let mut field = Transport::default();
-        field.extent = Vec2::splat(128.);
-        field.step(1. / 60., 30., |_| Vec2::X, |_| Vec2::ZERO);
-        assert!(field.sample(Vec2::new(0., 64.)).x > 0.);
-        assert_eq!(field.sample(Vec2::splat(64.)), Vec2::ZERO);
-        for _ in 0..180 {
-            field.step(1. / 60., 30., |_| Vec2::X, |_| Vec2::ZERO);
-        }
-        assert!(field.sample(Vec2::new(16., 64.)).x > field.sample(Vec2::new(112., 64.)).x + 0.1);
-        let before = field.sample(Vec2::splat(64.));
-        field.step(1. / 60., 30., |_| Vec2::Y, |_| Vec2::ZERO);
-        assert_eq!(field.sample(Vec2::splat(64.)).y, before.y);
-        for _ in 0..360 {
-            field.step(1. / 60., 30., |_| Vec2::Y, |_| Vec2::ZERO);
-        }
-        assert!(field.sample(Vec2::new(64., 16.)).y > 0.1);
-        assert!(field.values.iter().all(|v| v.is_finite()));
-    }
-
-    #[test]
-    fn local_input_uses_the_same_field_and_decays_without_an_emitter() {
-        let mut field = Transport::default();
-        let p = Vec2::splat(256.);
-        for _ in 0..30 {
-            field.step(
-                1. / 60.,
-                0.,
-                |_| Vec2::ZERO,
-                |q| {
-                    if q.distance(p) < 40. {
-                        Vec2::X
-                    } else {
-                        Vec2::ZERO
-                    }
-                },
-            );
-        }
-        let peak = field.sample(p).x;
-        assert!(peak > 0.1);
-        assert_eq!(field.sample(Vec2::ZERO), Vec2::ZERO);
-        for _ in 0..120 {
-            field.step(1. / 60., 0., |_| Vec2::ZERO, |_| Vec2::ZERO);
-        }
-        assert!(field.sample(p).x < peak);
-    }
-}
-
 impl Default for Transport {
     fn default() -> Self {
         Self {
@@ -171,4 +118,59 @@ pub(super) fn sample_grid(extent: Vec2, p: Vec2, value: impl Fn(usize) -> Vec2) 
         value((z + 1) * SIDE + x).lerp(value((z + 1) * SIDE + x + 1), f.x),
         f.y,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boundary_change_arrives_near_before_far_and_never_rewrites_interior() {
+        let mut field = Transport {
+            extent: Vec2::splat(128.),
+            ..Default::default()
+        };
+        field.step(1. / 60., 30., |_| Vec2::X, |_| Vec2::ZERO);
+        assert!(field.sample(Vec2::new(0., 64.)).x > 0.);
+        assert_eq!(field.sample(Vec2::splat(64.)), Vec2::ZERO);
+        for _ in 0..180 {
+            field.step(1. / 60., 30., |_| Vec2::X, |_| Vec2::ZERO);
+        }
+        assert!(field.sample(Vec2::new(16., 64.)).x > field.sample(Vec2::new(112., 64.)).x + 0.1);
+        let before = field.sample(Vec2::splat(64.));
+        field.step(1. / 60., 30., |_| Vec2::Y, |_| Vec2::ZERO);
+        assert_eq!(field.sample(Vec2::splat(64.)).y, before.y);
+        for _ in 0..360 {
+            field.step(1. / 60., 30., |_| Vec2::Y, |_| Vec2::ZERO);
+        }
+        assert!(field.sample(Vec2::new(64., 16.)).y > 0.1);
+        assert!(field.values.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn local_input_uses_the_same_field_and_decays_without_an_emitter() {
+        let mut field = Transport::default();
+        let p = Vec2::splat(256.);
+        for _ in 0..30 {
+            field.step(
+                1. / 60.,
+                0.,
+                |_| Vec2::ZERO,
+                |q| {
+                    if q.distance(p) < 40. {
+                        Vec2::X
+                    } else {
+                        Vec2::ZERO
+                    }
+                },
+            );
+        }
+        let peak = field.sample(p).x;
+        assert!(peak > 0.1);
+        assert_eq!(field.sample(Vec2::ZERO), Vec2::ZERO);
+        for _ in 0..120 {
+            field.step(1. / 60., 0., |_| Vec2::ZERO, |_| Vec2::ZERO);
+        }
+        assert!(field.sample(p).x < peak);
+    }
 }

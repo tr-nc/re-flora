@@ -464,7 +464,7 @@ mod tests {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0))),
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| transition.show(ctx, true));
+            let _ = ctx.run_ui(input, |ui| transition.show(ui.ctx(), true));
         };
         draw(&mut transition);
         assert!(transition.first_presented.is_none());
@@ -606,7 +606,7 @@ mod tests {
                     screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0))),
                     ..Default::default()
                 };
-                let output = ctx.run(input, |ctx| splash.show(ctx, progress));
+                let output = ctx.run_ui(input, |ui| splash.show(ui.ctx(), progress));
                 assert!(!output.shapes.is_empty());
                 assert_eq!(splash.palette.colors, palette.colors);
                 assert_eq!(splash.flowers[0][0].vertices[0].pos, vertex.pos);

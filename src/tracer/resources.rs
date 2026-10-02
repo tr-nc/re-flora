@@ -1501,7 +1501,7 @@ pub struct TracerResources {
     #[resource(nested)]
     pub local_lighting: LocalLightingResources,
     #[resource(nested)]
-    pub ddgi_response: super::ddgi_response_sample::DdgiResponseResources,
+    pub(super) ddgi_response: super::ddgi_response_sample::DdgiResponseResources,
     #[resource(nested)]
     pub textures: TracerTextureResources,
     pub meshes: TracerMeshResources,

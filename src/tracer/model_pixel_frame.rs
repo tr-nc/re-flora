@@ -426,7 +426,7 @@ impl ModelPixelFrame {
             Some(PreparedModelPixels {
                 pipeline: stem_pipeline.clone(),
                 draws: vec![PixelDraw {
-                    descriptors: stem_pipeline.prepare_draw_descriptors(cmdbuf, &stem_resources)?,
+                    descriptors: stem_pipeline.prepare_draw_descriptors(cmdbuf, stem_resources)?,
                     first: 0,
                     count,
                     push: None,

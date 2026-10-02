@@ -118,9 +118,11 @@ mod tests {
 
     #[test]
     fn larger_strengthening_regions_do_not_enlarge_the_continuous_breeze() {
-        let mut small = NaturalInflow::default();
-        small.surge = 0.;
-        small.strengthening_range_voxels = 48.;
+        let small = NaturalInflow {
+            surge: 0.,
+            strengthening_range_voxels: 48.,
+            ..Default::default()
+        };
         let mut large = small;
         large.strengthening_range_voxels = 216.;
         for t in [0., 7., 19., 43.] {

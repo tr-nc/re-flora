@@ -222,7 +222,6 @@ impl BufferUpdater {
             sun_display_luminance,
             sun_altitude,
             sun_azimuth,
-            ..SunInfo::zeroed()
         })
     }
 

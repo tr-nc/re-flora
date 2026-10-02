@@ -72,69 +72,6 @@ pub(super) fn gui_consumes_nonkeyboard_event(
     }
 }
 
-#[cfg(test)]
-mod panel_input_tests {
-    use super::{gui_consumes_nonkeyboard_event, gui_owns_pointer, panel_blocks_world};
-
-    #[test]
-    fn latest_pointer_position_blocks_ui_but_leaves_world_available() {
-        let ctx = egui::Context::default();
-        let mut panel = egui::Rect::NOTHING;
-        for _ in 0..2 {
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-                panel = egui::Window::new("Debug input test")
-                    .fixed_pos(egui::pos2(20.0, 20.0))
-                    .show(ui.ctx(), |ui| {
-                        ui.label("Controls");
-                    })
-                    .unwrap()
-                    .response
-                    .rect;
-            });
-        }
-        let physical = |p: egui::Pos2| Some(glam::Vec2::new(p.x, p.y) * ctx.pixels_per_point());
-        assert!(gui_owns_pointer(&ctx, physical(panel.center())));
-        assert!(!gui_owns_pointer(
-            &ctx,
-            physical(panel.max + egui::vec2(100., 100.))
-        ));
-        let _ = ctx.run_ui(
-            egui::RawInput {
-                events: vec![egui::Event::PointerMoved(panel.center())],
-                ..Default::default()
-            },
-            |ui| {
-                egui::Window::new("Debug input test")
-                    .fixed_pos(egui::pos2(20., 20.))
-                    .show(ui.ctx(), |ui| {
-                        ui.label("Controls");
-                    });
-            },
-        );
-        // Winit has queued a move out of Debug, followed by a press, before the next
-        // egui frame. Its consumed response still reflects the previous hover.
-        assert!(ctx.egui_wants_pointer_input());
-        let owned = gui_owns_pointer(&ctx, physical(panel.max + egui::vec2(100., 100.)));
-        assert!(!gui_consumes_nonkeyboard_event(
-            true,
-            ctx.egui_wants_pointer_input(),
-            owned
-        ));
-    }
-
-    #[test]
-    fn debug_panel_is_non_modal_only_in_orbit_edit() {
-        assert!(!panel_blocks_world(true, false, true));
-        assert!(panel_blocks_world(true, false, false));
-        for orbit in [false, true] {
-            assert!(!panel_blocks_world(false, false, orbit));
-            for debug in [false, true] {
-                assert!(panel_blocks_world(debug, true, orbit));
-            }
-        }
-    }
-}
-
 impl App {
     fn blocking_panel_open(&self) -> bool {
         panel_blocks_world(
@@ -982,9 +919,7 @@ impl App {
         origin: Vec3,
         direction: Vec3,
     ) -> Option<crate::tree_gen::skin::SurfaceHit> {
-        if self.tracer.raster_trees.posed_surface.is_none() {
-            return None;
-        }
+        self.tracer.raster_trees.posed_surface.as_ref()?;
         self.tracer.raster_trees.raycast(
             origin,
             direction,
@@ -1587,6 +1522,69 @@ impl App {
             if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                 self.camera_control
                     .accumulate_free_look_mouse_delta(Vec2::new(delta.0 as f32, delta.1 as f32));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod panel_input_tests {
+    use super::{gui_consumes_nonkeyboard_event, gui_owns_pointer, panel_blocks_world};
+
+    #[test]
+    fn latest_pointer_position_blocks_ui_but_leaves_world_available() {
+        let ctx = egui::Context::default();
+        let mut panel = egui::Rect::NOTHING;
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                panel = egui::Window::new("Debug input test")
+                    .fixed_pos(egui::pos2(20.0, 20.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Controls");
+                    })
+                    .unwrap()
+                    .response
+                    .rect;
+            });
+        }
+        let physical = |p: egui::Pos2| Some(glam::Vec2::new(p.x, p.y) * ctx.pixels_per_point());
+        assert!(gui_owns_pointer(&ctx, physical(panel.center())));
+        assert!(!gui_owns_pointer(
+            &ctx,
+            physical(panel.max + egui::vec2(100., 100.))
+        ));
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PointerMoved(panel.center())],
+                ..Default::default()
+            },
+            |ui| {
+                egui::Window::new("Debug input test")
+                    .fixed_pos(egui::pos2(20., 20.))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Controls");
+                    });
+            },
+        );
+        // Winit has queued a move out of Debug, followed by a press, before the next
+        // egui frame. Its consumed response still reflects the previous hover.
+        assert!(ctx.egui_wants_pointer_input());
+        let owned = gui_owns_pointer(&ctx, physical(panel.max + egui::vec2(100., 100.)));
+        assert!(!gui_consumes_nonkeyboard_event(
+            true,
+            ctx.egui_wants_pointer_input(),
+            owned
+        ));
+    }
+
+    #[test]
+    fn debug_panel_is_non_modal_only_in_orbit_edit() {
+        assert!(!panel_blocks_world(true, false, true));
+        assert!(panel_blocks_world(true, false, false));
+        for orbit in [false, true] {
+            assert!(!panel_blocks_world(false, false, orbit));
+            for debug in [false, true] {
+                assert!(panel_blocks_world(debug, true, orbit));
             }
         }
     }

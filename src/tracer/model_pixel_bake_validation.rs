@@ -99,7 +99,7 @@ fn checked_projected_groups(
     n: u32,
 ) -> Result<Vec<model_pixel_repair::Group>> {
     ensure!(
-        evidence.len() >= 1 + count * 13,
+        evidence.len() > count * 13,
         "invalid GPU projection evidence length"
     );
     let observed_bounds = Vec4::from_array(evidence[0]);

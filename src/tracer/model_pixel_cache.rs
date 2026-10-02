@@ -506,13 +506,15 @@ impl CacheFrame {
         )
     }
 }
+type DiagnosticCacheEntry = (Spec, Arc<SourceGeneration>, Arc<Buffer>);
+
 pub(super) struct ModelPixelCache {
     device: Device,
     allocator: Allocator,
     storage: GpuPagedStorage,
     active: [Option<(Spec, GpuStorageAllocation)>; KINDS],
     frames: Vec<Option<CacheFrame>>,
-    diagnostics: Vec<Vec<(Spec, Arc<SourceGeneration>, Arc<Buffer>)>>,
+    diagnostics: Vec<Vec<DiagnosticCacheEntry>>,
     source: Option<Arc<SourceGeneration>>,
     directions: Option<Arc<Directions>>,
     review: bool,
@@ -782,8 +784,8 @@ mod tests {
             assert_eq!(s.palette[base + 2][3], flower.color_texture.height as f32);
             assert!(offset >= models::MODEL_COUNT * models::HEAD_PALETTE_SIZE);
             for (texel, rgb) in flower.color_texture.rgb.chunks_exact(3).enumerate() {
-                for channel in 0..3 {
-                    let v = f32::from(rgb[channel]) / 255.;
+                for (channel, value) in rgb.iter().enumerate() {
+                    let v = f32::from(*value) / 255.;
                     let expected = if v <= 0.04045 {
                         v / 12.92
                     } else {

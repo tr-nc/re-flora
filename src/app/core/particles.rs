@@ -24,9 +24,8 @@ const WATER_DEBUG_COLOR: Vec4 = Vec4::new(0.12, 0.45, 1.0, 1.0);
 const BUTTERFLY_LIMIT_PER_WORLD_CHUNK: u64 = 2;
 // Leaf-born visual particles may start inside branch voxels. B treats the canopy
 // as permeable, while soil, rocks and constructed surfaces remain solid.
-const BUTTERFLY_FLIGHT_SURFACE_MASK: u32 = u32::MAX
-    & !(1 << crate::builder::VOXEL_TYPE_CHERRY_WOOD)
-    & !(1 << crate::builder::VOXEL_TYPE_OAK_WOOD);
+const BUTTERFLY_FLIGHT_SURFACE_MASK: u32 =
+    !(1 << crate::builder::VOXEL_TYPE_CHERRY_WOOD) & !(1 << crate::builder::VOXEL_TYPE_OAK_WOOD);
 const DETACHED_TERRAIN_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(1.0 / 30.0, 2);
 
 fn butterfly_world_limit(chunk_dim: glam::UVec3) -> usize {
@@ -1253,7 +1252,7 @@ mod tests {
             let rect = rects[index];
             // Use current layout and click inside the track, not a possibly-default endpoint.
             let pos = egui::pos2(
-                rect.left() + context.style().spacing.slider_width * 0.5,
+                rect.left() + context.global_style().spacing.slider_width * 0.5,
                 rect.center().y,
             );
             draw(click_events(pos, true));

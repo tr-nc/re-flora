@@ -125,7 +125,7 @@ impl BoundedTopologyJob {
         anyhow::ensure!(seed.cmpge(bound.min()).all() && seed.cmplt(bound.max()).all());
         let local = seed - bound.min();
         let seed_index = local.x + dim.x * (local.y + dim.y * local.z);
-        anyhow::ensure!(snapshot[seed_index as usize] & VOXEL_TYPE_MASK as u8 != 0);
+        anyhow::ensure!(snapshot[seed_index as usize] & VOXEL_TYPE_MASK != 0);
         let mut visited = vec![false; expected];
         visited[seed_index as usize] = true;
         Ok(Self {
@@ -182,7 +182,7 @@ impl BoundedTopologyJob {
             for neighbor in neighbors {
                 let neighbor_index = self.index_of(neighbor);
                 if !self.visited[neighbor_index as usize]
-                    && self.snapshot[neighbor_index as usize] & VOXEL_TYPE_MASK as u8 != 0
+                    && self.snapshot[neighbor_index as usize] & VOXEL_TYPE_MASK != 0
                 {
                     self.visited[neighbor_index as usize] = true;
                     self.queue.push_back(neighbor_index);
@@ -396,7 +396,7 @@ impl ManualReleaseRequest {
 
 #[derive(Debug)]
 struct BoundedCommitPayload {
-    job: BoundedTopologyJob,
+    job: Box<BoundedTopologyJob>,
     visual_voxels: Vec<(UVec3, u8)>,
     release_frame: u64,
     revision_before: u32,
@@ -1385,7 +1385,7 @@ impl TerrainConnectivityBench {
                 let (visual_voxels, sampling_us, staging_clear_us) =
                     prepare_bounded_commit(&mut job, self.options.available_particles);
                 self.state = BenchState::Commit(BoundedCommitPayload {
-                    job,
+                    job: Box::new(job),
                     visual_voxels,
                     release_frame,
                     revision_before,
@@ -1721,7 +1721,7 @@ impl App {
                 block,
                 candidate_region,
                 world_dim,
-                VOXEL_TYPE_MASK as u8,
+                VOXEL_TYPE_MASK,
                 usize::MAX,
                 |world_voxel| reader.voxel_at(world_voxel),
             )?;
@@ -1919,7 +1919,7 @@ fn prepare_bounded_commit(
         .map(|sample| {
             let index = job.component[sample * job.component.len() / sampled_count];
             let world = job.bound.min() + job.position_of(index);
-            (world, job.snapshot[index as usize] & VOXEL_TYPE_MASK as u8)
+            (world, job.snapshot[index as usize] & VOXEL_TYPE_MASK)
         })
         .collect::<Vec<_>>();
     let sampling_us = sampling_started.elapsed().as_secs_f64() * 1_000_000.0;
@@ -2133,7 +2133,7 @@ fn count_fixture_solids(plain_builder: &mut PlainBuilder) -> anyhow::Result<usiz
     let voxels = plain_builder.read_chunk_atlas_region(bound.min(), bound.dimensions())?;
     Ok(voxels
         .iter()
-        .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+        .filter(|voxel| **voxel & VOXEL_TYPE_MASK != 0)
         .count())
 }
 
@@ -2145,7 +2145,7 @@ fn count_component_solids(
     let voxels = plain_builder.read_chunk_atlas_region(bound.min(), bound.dimensions())?;
     Ok(component
         .iter()
-        .filter(|index| voxels[**index as usize] & VOXEL_TYPE_MASK as u8 != 0)
+        .filter(|index| voxels[**index as usize] & VOXEL_TYPE_MASK != 0)
         .count())
 }
 
@@ -2302,7 +2302,7 @@ mod tests {
         job.terminal = Some(BoundedDisposition::Detached);
         job.component = vec![job.index_of(FIXTURE_ORIGIN - job.bound.min())];
         BoundedCommitPayload {
-            job,
+            job: Box::new(job),
             visual_voxels: vec![(FIXTURE_ORIGIN, 7)],
             release_frame: 19,
             revision_before,
@@ -2320,7 +2320,7 @@ mod tests {
         let voxels = generate_hollow_canopy();
         let solids = voxels
             .iter()
-            .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+            .filter(|voxel| **voxel & VOXEL_TYPE_MASK != 0)
             .count();
         assert_eq!(solids, FIXTURE_VOXELS);
     }
@@ -2697,7 +2697,7 @@ mod tests {
             voxel_budget: 8,
         });
         bench.state = BenchState::Commit(BoundedCommitPayload {
-            job: fixture_job(),
+            job: Box::new(fixture_job()),
             visual_voxels: vec![(UVec3::new(1, 2, 3), 7)],
             release_frame: 19,
             revision_before: 7,
@@ -2746,7 +2746,7 @@ mod tests {
 
     #[test]
     fn failed_manual_release_retries_through_the_next_main_tick_around_completed_frames() {
-        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+        let mut owner = ScenarioOwner::Connectivity(Box::new(TerrainConnectivityBench::new(
             TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Manual,
                 available_particles: 8,
@@ -2754,7 +2754,7 @@ mod tests {
                 observe_frames: 1,
                 voxel_budget: 8,
             },
-        ));
+        )));
         let ScenarioOwner::Connectivity(bench) = &mut owner else {
             panic!("test constructed the wrong scenario owner");
         };
@@ -2794,10 +2794,11 @@ mod tests {
             .contains("injected manual snapshot failure"));
         assert!(matches!(
             &owner,
-            ScenarioOwner::Connectivity(TerrainConnectivityBench {
-                state: BenchState::RetryManualRelease { resume, .. },
-                ..
-            }) if matches!(resume.as_ref(), BenchState::AwaitingManualEdit)
+            ScenarioOwner::Connectivity(bench) if matches!(
+                &bench.state,
+                BenchState::RetryManualRelease { resume, .. }
+                    if matches!(resume.as_ref(), BenchState::AwaitingManualEdit)
+            )
         ));
         let completed_record = CpuFrameRecord {
             frame: 73,
@@ -2864,20 +2865,19 @@ mod tests {
         owner.apply_connectivity_execution(retry_execution).unwrap();
         assert!(matches!(
             owner,
-            ScenarioOwner::Connectivity(TerrainConnectivityBench {
-                state: BenchState::Tracing {
+            ScenarioOwner::Connectivity(bench) if matches!(bench.state,
+                BenchState::Tracing {
                     release_frame: 41,
                     revision_before: 12,
                     ..
-                },
-                ..
-            })
+                }
+            )
         ));
     }
 
     #[test]
     fn completed_frame_validation_is_an_owned_app_execution() {
-        let mut owner = ScenarioOwner::Connectivity(TerrainConnectivityBench::new(
+        let mut owner = ScenarioOwner::Connectivity(Box::new(TerrainConnectivityBench::new(
             TerrainConnectivityBenchOptions {
                 mode: TerrainConnectivityBenchMode::Bounded,
                 available_particles: 8,
@@ -2885,7 +2885,7 @@ mod tests {
                 observe_frames: 1,
                 voxel_budget: 8,
             },
-        ));
+        )));
         let ScenarioOwner::Connectivity(bench) = &mut owner else {
             panic!("test constructed the wrong scenario owner");
         };
@@ -3019,7 +3019,7 @@ mod tests {
         assert_eq!(
             job.snapshot
                 .iter()
-                .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+                .filter(|voxel| **voxel & VOXEL_TYPE_MASK != 0)
                 .count(),
             FIXTURE_VOXELS
         );
@@ -3074,7 +3074,7 @@ mod tests {
         assert!(
             snapshot
                 .iter()
-                .filter(|voxel| **voxel & VOXEL_TYPE_MASK as u8 != 0)
+                .filter(|voxel| **voxel & VOXEL_TYPE_MASK != 0)
                 .count()
                 >= FIXTURE_VOXELS
         );

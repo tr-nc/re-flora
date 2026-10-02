@@ -3535,6 +3535,341 @@ impl App {
     }
 }
 
+impl App {
+    pub(super) fn validate_tree_poses(&self) -> Result<()> {
+        for record in self.trees.records.values() {
+            anyhow::ensure!(record.pose.revision() > 0, "tree pose was not advanced");
+            anyhow::ensure!(
+                record.pose.branches().len() == record.rest_tree.branches().len(),
+                "pose topology is stale"
+            );
+            anyhow::ensure!(
+                record
+                    .pose
+                    .branches()
+                    .iter()
+                    .all(|p| p.rotation.is_finite() && p.translation.is_finite()),
+                "nonfinite tree pose"
+            );
+        }
+        Ok(())
+    }
+
+    fn tree_wind_stiffness(&self) -> Result<crate::tree_gen::pose::TreeStiffness> {
+        crate::tree_gen::pose::TreeStiffness::from_control(
+            self.debug_settings.adjustables.tree_stiffness.value,
+        )
+    }
+
+    pub(super) fn drive_tree_pose_smoke(&mut self) -> Result<()> {
+        let stiffness = self.tree_wind_stiffness()?;
+        let wind = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::new(5., 2.));
+        for _ in 0..120 {
+            for record in self.trees.records.values_mut() {
+                record
+                    .pose
+                    .advance_with_stiffness(&wind, 1. / 60., stiffness)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_tree_surface_queries(&mut self) -> Result<()> {
+        self.vulkan_ctx.device().wait_idle();
+        let surface = self
+            .tracer
+            .raster_trees
+            .posed_surface
+            .as_ref()
+            .context("missing posed tree surface")?;
+        let displacement = self.tracer.raster_trees.rest_mesh.max_displacement(surface);
+        log::info!(
+            "[TREE][DYNAMIC_POSE] max_displacement_voxels={}",
+            displacement * 256.
+        );
+        anyhow::ensure!(
+            displacement > 1. / 256.,
+            "dynamic query fixture did not move at least one voxel"
+        );
+        let indices = &self.tracer.raster_trees.rest_mesh.indices;
+        let rays: Vec<_> = indices
+            .chunks_exact(3)
+            .step_by((indices.len() / 3 / 16).max(1))
+            .filter_map(|t| {
+                let [a, b, c] = [
+                    surface.position(t[0] as usize),
+                    surface.position(t[1] as usize),
+                    surface.position(t[2] as usize),
+                ];
+                let normal = (b - a).cross(c - a).normalize_or_zero();
+                (normal != Vec3::ZERO).then_some(crate::tracer::TerrainRayQuery {
+                    origin: (a + b + c) / 3. + normal * 0.01,
+                    direction: -normal,
+                })
+            })
+            .collect();
+        let mut checked = 0;
+        for ray in rays {
+            let cpu = self.query_terrain_ray_cpu(ray.origin, ray.direction);
+            let gpu = self.tracer.query_terrain_ray_with_validity(ray)?;
+            if let Some(cpu) = cpu {
+                anyhow::ensure!(
+                    gpu.is_valid && cpu.position.distance(gpu.position) < 0.00003,
+                    "dynamic tree CPU/GPU query mismatch cpu={:?} gpu={:?} valid={}",
+                    cpu.position,
+                    gpu.position,
+                    gpu.is_valid
+                );
+                checked += 1;
+            }
+        }
+        anyhow::ensure!(checked >= 4, "insufficient dynamic surface query samples");
+        log::info!("[TREE][DYNAMIC_QUERY] matched_rays={checked}");
+        Ok(())
+    }
+
+    pub(super) fn exercise_posed_tree_edit(&mut self) -> Result<()> {
+        let surface = self
+            .tracer
+            .raster_trees
+            .posed_surface
+            .as_ref()
+            .context("missing posed tree surface")?;
+        let index = surface
+            .positions()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
+            .map(|(i, _)| i)
+            .context("empty tree surface")?;
+        let target = surface.position(index);
+        let origin = target + Vec3::new(0.003, 0.02, 0.003);
+        let hit = self
+            .query_tree_surface_ray(origin, (target - origin).normalize())
+            .context("posed tree edit fixture missed")?;
+        let readback = self.apply_surface_terrain_removal(
+            TerrainRemovalEdit {
+                center: hit.rest_position,
+                radius: 2. / 256.,
+            },
+            Some(VOXEL_TYPE_CHERRY_WOOD),
+            None,
+            None,
+        )?;
+        anyhow::ensure!(
+            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize] > 0,
+            "posed edit removed no wood"
+        );
+        log::info!(
+            "[TREE][DYNAMIC_EDIT] world={:?} rest={:?} removed_wood={}",
+            hit.world_position,
+            hit.rest_position,
+            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize]
+        );
+        Ok(())
+    }
+
+    pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
+        let started = Instant::now();
+        let surface = if self.tracer.raster_trees.enabled
+            && self.debug_settings.adjustables.raster_tree_wind.value
+        {
+            Some(
+                self.tracer
+                    .raster_trees
+                    .rest_mesh
+                    .posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?,
+            )
+        } else {
+            None
+        };
+        let skin_us = started.elapsed().as_secs_f64() * 1e6;
+        let palette_started = Instant::now();
+        if surface.is_some() {
+            self.tracer.publish_tree_skin_poses(|id| {
+                self.trees
+                    .records
+                    .get(&id)
+                    .map(|record| record.pose.branches())
+            })?;
+            let mut attachments = Vec::new();
+            for attachment in &self.tracer.raster_trees.attachments {
+                let pose =
+                    self.trees.records[&attachment.tree_id].pose.branches()[attachment.branch];
+                attachments.push(pose.rotation.to_array());
+                attachments.push(pose.translation.extend(0.).to_array());
+            }
+            self.tracer
+                .publish_tree_attachments(&attachments, self.time_info.delta_time())?;
+        }
+        let palette_us = palette_started.elapsed().as_secs_f64() * 1e6;
+        let physics_started = Instant::now();
+        self.terrain_physics.publish_tree_surface(
+            surface
+                .as_ref()
+                .and(self.tracer.raster_trees.source.terrain_revision()),
+            &self.tracer.raster_trees.rest_mesh.solid_cells,
+            surface.as_ref(),
+            &self.tracer.raster_trees.rest_mesh.indices,
+        )?;
+        let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
+        let query_started = Instant::now();
+        self.tracer.publish_tree_surface(surface)?;
+        let query_us = query_started.elapsed().as_secs_f64() * 1e6;
+        if self.perf_logging {
+            let pose = &self.tracer.tree_pose_solver.timings;
+            log::info!("[PERF][TREE_UPDATE] frame={} pose_submit_us={:.2} pose_wait_us={:.2} pose_readback_us={:.2} pose_gpu_us={:?} readback_bytes={} cpu_skin_us={:.2} palette_us={:.2} physics_us={:.2} query_us={:.2} total_cpu_us={:.2}",
+                self.time_info.total_frame_count(), pose.submit_us, pose.wait_us, pose.readback_us, pose.gpu_us,
+                pose.readback_bytes, skin_us, palette_us, physics_us, query_us,
+                started.elapsed().as_secs_f64()*1e6 + pose.submit_us + pose.wait_us + pose.readback_us);
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
+        let mesh = &self.tracer.raster_trees.rest_mesh;
+        let surface =
+            mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
+        anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");
+        // Normals are validated against the GPU surface by the smoke readback;
+        // normal frames no longer construct an unused CPU shading-normal array.
+        Ok(())
+    }
+
+    pub(super) fn finish_tree_poses(&mut self) -> Result<()> {
+        for update in self.tracer.tree_pose_solver.finish()? {
+            if let Some(record) = self.trees.records.get_mut(&update.tree) {
+                record.pose.accept_gpu(update.source, &update.state)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
+        // An out-of-date swapchain can skip the previous publication. Consume
+        // that job before touching its resources, then submit this frame's step.
+        self.finish_tree_poses()?;
+        let stiffness = self.tree_wind_stiffness()?;
+        self.tracer.tree_pose_solver.submit(
+            self.trees
+                .records
+                .iter()
+                .map(|(&id, record)| (id, &record.pose)),
+            &self.wind_prototype.field.frame(),
+            dt,
+            stiffness,
+            self.launch_owners.raster_tree_smoke.is_some(),
+            self.perf_logging,
+        )
+    }
+
+    pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {
+        if !self
+            .tracer
+            .raster_trees
+            .source
+            .is_current(self.visible_terrain_revision, self.trees.canonical_revision)
+        {
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
+            // Opt-in diagnostic timings only; retain the original synchronization and work.
+            let diagnostic = std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some();
+            let wait_started = Instant::now();
+            self.vulkan_ctx.device().wait_idle();
+            let wait_ms = wait_started.elapsed().as_secs_f64() * 1000.0;
+            let started = Instant::now();
+            let mut read_ms = 0.0;
+            let mut append_ms = 0.0;
+            let mut mesh = crate::tracer::RasterTreeMesh::default();
+            let world_dim = self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK;
+            let mut read_bounds = Vec::with_capacity(self.trees.records.len());
+            for record in self.trees.records.values() {
+                let bound = crate::tracer::tree_surface_cache::tree_surface_read_bound(
+                    record.bound,
+                    world_dim,
+                );
+                read_bounds.push(bound);
+                let origin = bound.min();
+                let dim = bound.max().saturating_sub(origin);
+                let stage = Instant::now();
+                let bytes = self.plain_builder.read_chunk_atlas_region(origin, dim)?;
+                read_ms += stage.elapsed().as_secs_f64() * 1000.0;
+                let stage = Instant::now();
+                mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
+                append_ms += stage.elapsed().as_secs_f64() * 1000.0;
+            }
+            let stage = Instant::now();
+            let cells = mesh.finish()?;
+            let finish_ms = stage.elapsed().as_secs_f64() * 1000.0;
+            let stage = Instant::now();
+            let mut attachment_map = std::collections::BTreeMap::new();
+            let mut mesh_bind_ms = 0.0;
+            for (&tree_id, record) in &self.trees.records {
+                let bind_started = Instant::now();
+                mesh.bind_tree(
+                    tree_id,
+                    record.position,
+                    &record.rest_tree,
+                    Some(&self.tracer.raster_trees.rest_mesh),
+                )?;
+                mesh_bind_ms += bind_started.elapsed().as_secs_f64() * 1000.0;
+                for (leaf, &branch) in record
+                    .rest_tree
+                    .relative_leaf_placements()
+                    .iter()
+                    .zip(record.rest_tree.leaf_branch_indices())
+                {
+                    let anchor = (leaf.anchor + record.position * 256.).as_uvec3();
+                    attachment_map
+                        .entry(anchor.to_array())
+                        .or_insert((tree_id, branch));
+                }
+                for fruit in &record.fruit_specs {
+                    let binding = crate::tree_gen::skin::SkinBinding::at_rest_position(
+                        &record.rest_tree,
+                        fruit.position_voxels.as_vec3() - record.position * 256.,
+                    )?;
+                    attachment_map
+                        .entry(fruit.position_voxels.to_array())
+                        .or_insert((tree_id, binding.branch));
+                }
+            }
+            let bind_ms = stage.elapsed().as_secs_f64() * 1000.0;
+            let stage = Instant::now();
+            let published = self.tracer.publish_static_raster_trees(
+                &mesh,
+                &cells,
+                attachment_map
+                    .into_iter()
+                    .map(
+                        |(anchor, (tree_id, branch))| crate::tracer::TreeAttachment {
+                            anchor: UVec3::from(anchor),
+                            tree_id,
+                            branch,
+                        },
+                    )
+                    .collect(),
+            )?;
+            let upload_ms = stage.elapsed().as_secs_f64() * 1000.0;
+            if diagnostic {
+                log::info!("[TREE_EDIT_DIAG] published={published}");
+                log::info!("[TREE_EDIT_DIAG] compile wait_ms={wait_ms:.3} read_ms={read_ms:.3} append_ms={append_ms:.3} finish_ms={finish_ms:.3} bind_ms={bind_ms:.3} mesh_bind_ms={mesh_bind_ms:.3} upload_ms={upload_ms:.3} bounds={read_bounds:?}");
+            }
+            self.tracer.raster_trees.source.compiled(
+                self.visible_terrain_revision,
+                self.trees.canonical_revision,
+                mesh.terrain_dependencies(),
+            );
+            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
+                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());
+        }
+        if !self.tracer.raster_trees.enabled {
+            self.tracer.invalidate_local_direct_sun_shadow_histories();
+            log::info!("[TREE][RASTER_STATIC] mode=B");
+        }
+        self.tracer.raster_trees.enabled = true;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4892,340 +5227,5 @@ mod tests {
         assert!(
             compiled.rebuild_bound.max().z >= 192_u32.saturating_add(radius_vox).saturating_sub(1)
         );
-    }
-}
-
-impl App {
-    pub(super) fn validate_tree_poses(&self) -> Result<()> {
-        for record in self.trees.records.values() {
-            anyhow::ensure!(record.pose.revision() > 0, "tree pose was not advanced");
-            anyhow::ensure!(
-                record.pose.branches().len() == record.rest_tree.branches().len(),
-                "pose topology is stale"
-            );
-            anyhow::ensure!(
-                record
-                    .pose
-                    .branches()
-                    .iter()
-                    .all(|p| p.rotation.is_finite() && p.translation.is_finite()),
-                "nonfinite tree pose"
-            );
-        }
-        Ok(())
-    }
-
-    fn tree_wind_stiffness(&self) -> Result<crate::tree_gen::pose::TreeStiffness> {
-        crate::tree_gen::pose::TreeStiffness::from_control(
-            self.debug_settings.adjustables.tree_stiffness.value,
-        )
-    }
-
-    pub(super) fn drive_tree_pose_smoke(&mut self) -> Result<()> {
-        let stiffness = self.tree_wind_stiffness()?;
-        let wind = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::new(5., 2.));
-        for _ in 0..120 {
-            for record in self.trees.records.values_mut() {
-                record
-                    .pose
-                    .advance_with_stiffness(&wind, 1. / 60., stiffness)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn validate_tree_surface_queries(&mut self) -> Result<()> {
-        self.vulkan_ctx.device().wait_idle();
-        let surface = self
-            .tracer
-            .raster_trees
-            .posed_surface
-            .as_ref()
-            .context("missing posed tree surface")?;
-        let displacement = self.tracer.raster_trees.rest_mesh.max_displacement(surface);
-        log::info!(
-            "[TREE][DYNAMIC_POSE] max_displacement_voxels={}",
-            displacement * 256.
-        );
-        anyhow::ensure!(
-            displacement > 1. / 256.,
-            "dynamic query fixture did not move at least one voxel"
-        );
-        let indices = &self.tracer.raster_trees.rest_mesh.indices;
-        let rays: Vec<_> = indices
-            .chunks_exact(3)
-            .step_by((indices.len() / 3 / 16).max(1))
-            .filter_map(|t| {
-                let [a, b, c] = [
-                    surface.position(t[0] as usize),
-                    surface.position(t[1] as usize),
-                    surface.position(t[2] as usize),
-                ];
-                let normal = (b - a).cross(c - a).normalize_or_zero();
-                (normal != Vec3::ZERO).then_some(crate::tracer::TerrainRayQuery {
-                    origin: (a + b + c) / 3. + normal * 0.01,
-                    direction: -normal,
-                })
-            })
-            .collect();
-        let mut checked = 0;
-        for ray in rays {
-            let cpu = self.query_terrain_ray_cpu(ray.origin, ray.direction);
-            let gpu = self.tracer.query_terrain_ray_with_validity(ray)?;
-            if let Some(cpu) = cpu {
-                anyhow::ensure!(
-                    gpu.is_valid && cpu.position.distance(gpu.position) < 0.00003,
-                    "dynamic tree CPU/GPU query mismatch cpu={:?} gpu={:?} valid={}",
-                    cpu.position,
-                    gpu.position,
-                    gpu.is_valid
-                );
-                checked += 1;
-            }
-        }
-        anyhow::ensure!(checked >= 4, "insufficient dynamic surface query samples");
-        log::info!("[TREE][DYNAMIC_QUERY] matched_rays={checked}");
-        Ok(())
-    }
-
-    pub(super) fn exercise_posed_tree_edit(&mut self) -> Result<()> {
-        let surface = self
-            .tracer
-            .raster_trees
-            .posed_surface
-            .as_ref()
-            .context("missing posed tree surface")?;
-        let index = surface
-            .positions()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
-            .map(|(i, _)| i)
-            .context("empty tree surface")?;
-        let target = surface.position(index);
-        let origin = target + Vec3::new(0.003, 0.02, 0.003);
-        let hit = self
-            .query_tree_surface_ray(origin, (target - origin).normalize())
-            .context("posed tree edit fixture missed")?;
-        let readback = self.apply_surface_terrain_removal(
-            TerrainRemovalEdit {
-                center: hit.rest_position,
-                radius: 2. / 256.,
-            },
-            Some(VOXEL_TYPE_CHERRY_WOOD),
-            None,
-            None,
-        )?;
-        anyhow::ensure!(
-            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize] > 0,
-            "posed edit removed no wood"
-        );
-        log::info!(
-            "[TREE][DYNAMIC_EDIT] world={:?} rest={:?} removed_wood={}",
-            hit.world_position,
-            hit.rest_position,
-            readback.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize]
-        );
-        Ok(())
-    }
-
-    pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
-        let started = Instant::now();
-        let surface = if self.tracer.raster_trees.enabled
-            && self.debug_settings.adjustables.raster_tree_wind.value
-        {
-            Some(
-                self.tracer
-                    .raster_trees
-                    .rest_mesh
-                    .posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?,
-            )
-        } else {
-            None
-        };
-        let skin_us = started.elapsed().as_secs_f64() * 1e6;
-        let palette_started = Instant::now();
-        if surface.is_some() {
-            self.tracer.publish_tree_skin_poses(|id| {
-                self.trees
-                    .records
-                    .get(&id)
-                    .map(|record| record.pose.branches())
-            })?;
-            let mut attachments = Vec::new();
-            for attachment in &self.tracer.raster_trees.attachments {
-                let pose =
-                    self.trees.records[&attachment.tree_id].pose.branches()[attachment.branch];
-                attachments.push(pose.rotation.to_array());
-                attachments.push(pose.translation.extend(0.).to_array());
-            }
-            self.tracer
-                .publish_tree_attachments(&attachments, self.time_info.delta_time())?;
-        }
-        let palette_us = palette_started.elapsed().as_secs_f64() * 1e6;
-        let physics_started = Instant::now();
-        self.terrain_physics.publish_tree_surface(
-            surface
-                .as_ref()
-                .and(self.tracer.raster_trees.source.terrain_revision()),
-            &self.tracer.raster_trees.rest_mesh.solid_cells,
-            surface.as_ref(),
-            &self.tracer.raster_trees.rest_mesh.indices,
-        )?;
-        let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
-        let query_started = Instant::now();
-        self.tracer.publish_tree_surface(surface)?;
-        let query_us = query_started.elapsed().as_secs_f64() * 1e6;
-        if self.perf_logging {
-            let pose = &self.tracer.tree_pose_solver.timings;
-            log::info!("[PERF][TREE_UPDATE] frame={} pose_submit_us={:.2} pose_wait_us={:.2} pose_readback_us={:.2} pose_gpu_us={:?} readback_bytes={} cpu_skin_us={:.2} palette_us={:.2} physics_us={:.2} query_us={:.2} total_cpu_us={:.2}",
-                self.time_info.total_frame_count(), pose.submit_us, pose.wait_us, pose.readback_us, pose.gpu_us,
-                pose.readback_bytes, skin_us, palette_us, physics_us, query_us,
-                started.elapsed().as_secs_f64()*1e6 + pose.submit_us + pose.wait_us + pose.readback_us);
-        }
-        Ok(())
-    }
-
-    pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
-        let mesh = &self.tracer.raster_trees.rest_mesh;
-        let surface =
-            mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
-        anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");
-        // Normals are validated against the GPU surface by the smoke readback;
-        // normal frames no longer construct an unused CPU shading-normal array.
-        Ok(())
-    }
-
-    pub(super) fn finish_tree_poses(&mut self) -> Result<()> {
-        for update in self.tracer.tree_pose_solver.finish()? {
-            if let Some(record) = self.trees.records.get_mut(&update.tree) {
-                record.pose.accept_gpu(update.source, &update.state)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
-        // An out-of-date swapchain can skip the previous publication. Consume
-        // that job before touching its resources, then submit this frame's step.
-        self.finish_tree_poses()?;
-        let stiffness = self.tree_wind_stiffness()?;
-        self.tracer.tree_pose_solver.submit(
-            self.trees
-                .records
-                .iter()
-                .map(|(&id, record)| (id, &record.pose)),
-            &self.wind_prototype.field.frame(),
-            dt,
-            stiffness,
-            self.launch_owners.raster_tree_smoke.is_some(),
-            self.perf_logging,
-        )
-    }
-
-    pub(super) fn sync_static_raster_trees(&mut self) -> Result<()> {
-        if !self
-            .tracer
-            .raster_trees
-            .source
-            .is_current(self.visible_terrain_revision, self.trees.canonical_revision)
-        {
-            self.tracer.invalidate_local_direct_sun_shadow_histories();
-            // Opt-in diagnostic timings only; retain the original synchronization and work.
-            let diagnostic = std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some();
-            let wait_started = Instant::now();
-            self.vulkan_ctx.device().wait_idle();
-            let wait_ms = wait_started.elapsed().as_secs_f64() * 1000.0;
-            let started = Instant::now();
-            let mut read_ms = 0.0;
-            let mut append_ms = 0.0;
-            let mut mesh = crate::tracer::RasterTreeMesh::default();
-            let world_dim = self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK;
-            let mut read_bounds = Vec::with_capacity(self.trees.records.len());
-            for record in self.trees.records.values() {
-                let bound = crate::tracer::tree_surface_cache::tree_surface_read_bound(
-                    record.bound,
-                    world_dim,
-                );
-                read_bounds.push(bound);
-                let origin = bound.min();
-                let dim = bound.max().saturating_sub(origin);
-                let stage = Instant::now();
-                let bytes = self.plain_builder.read_chunk_atlas_region(origin, dim)?;
-                read_ms += stage.elapsed().as_secs_f64() * 1000.0;
-                let stage = Instant::now();
-                mesh.append_region(origin, dim, &bytes, &record.trunk_geometry.round_cones)?;
-                append_ms += stage.elapsed().as_secs_f64() * 1000.0;
-            }
-            let stage = Instant::now();
-            let cells = mesh.finish()?;
-            let finish_ms = stage.elapsed().as_secs_f64() * 1000.0;
-            let stage = Instant::now();
-            let mut attachment_map = std::collections::BTreeMap::new();
-            let mut mesh_bind_ms = 0.0;
-            for (&tree_id, record) in &self.trees.records {
-                let bind_started = Instant::now();
-                mesh.bind_tree(
-                    tree_id,
-                    record.position,
-                    &record.rest_tree,
-                    Some(&self.tracer.raster_trees.rest_mesh),
-                )?;
-                mesh_bind_ms += bind_started.elapsed().as_secs_f64() * 1000.0;
-                for (leaf, &branch) in record
-                    .rest_tree
-                    .relative_leaf_placements()
-                    .iter()
-                    .zip(record.rest_tree.leaf_branch_indices())
-                {
-                    let anchor = (leaf.anchor + record.position * 256.).as_uvec3();
-                    attachment_map
-                        .entry(anchor.to_array())
-                        .or_insert((tree_id, branch));
-                }
-                for fruit in &record.fruit_specs {
-                    let binding = crate::tree_gen::skin::SkinBinding::at_rest_position(
-                        &record.rest_tree,
-                        fruit.position_voxels.as_vec3() - record.position * 256.,
-                    )?;
-                    attachment_map
-                        .entry(fruit.position_voxels.to_array())
-                        .or_insert((tree_id, binding.branch));
-                }
-            }
-            let bind_ms = stage.elapsed().as_secs_f64() * 1000.0;
-            let stage = Instant::now();
-            let published = self.tracer.publish_static_raster_trees(
-                &mesh,
-                &cells,
-                attachment_map
-                    .into_iter()
-                    .map(
-                        |(anchor, (tree_id, branch))| crate::tracer::TreeAttachment {
-                            anchor: UVec3::from(anchor),
-                            tree_id,
-                            branch,
-                        },
-                    )
-                    .collect(),
-            )?;
-            let upload_ms = stage.elapsed().as_secs_f64() * 1000.0;
-            if diagnostic {
-                log::info!("[TREE_EDIT_DIAG] published={published}");
-                log::info!("[TREE_EDIT_DIAG] compile wait_ms={wait_ms:.3} read_ms={read_ms:.3} append_ms={append_ms:.3} finish_ms={finish_ms:.3} bind_ms={bind_ms:.3} mesh_bind_ms={mesh_bind_ms:.3} upload_ms={upload_ms:.3} bounds={read_bounds:?}");
-            }
-            self.tracer.raster_trees.source.compiled(
-                self.visible_terrain_revision,
-                self.trees.canonical_revision,
-                mesh.terrain_dependencies(),
-            );
-            log::info!("[TREE][RASTER_STATIC] revision={} trees={} surface_cells={} triangles={} compile_ms={:.3} query_primitives={} secondary_geometry=published_tree_surface",
-                self.visible_terrain_revision,self.trees.records.len(),mesh.cell_count(),mesh.indices.len()/3,started.elapsed().as_secs_f64()*1000.0,self.tracer.raster_trees.scene.primitives.len());
-        }
-        if !self.tracer.raster_trees.enabled {
-            self.tracer.invalidate_local_direct_sun_shadow_histories();
-            log::info!("[TREE][RASTER_STATIC] mode=B");
-        }
-        self.tracer.raster_trees.enabled = true;
-        Ok(())
     }
 }

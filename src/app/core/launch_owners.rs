@@ -46,7 +46,7 @@ pub(super) enum CameraOwner {
     },
     DenoiserBenchmark {
         snapshot: String,
-        runtime: DenoiserBench,
+        runtime: Box<DenoiserBench>,
     },
 }
 
@@ -86,7 +86,7 @@ pub(super) enum StandardScenarioOwner {
 
 pub(super) enum ScenarioOwner {
     Standard(StandardScenarioOwner),
-    Connectivity(TerrainConnectivityBench),
+    Connectivity(Box<TerrainConnectivityBench>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -653,7 +653,7 @@ pub(in crate::app) fn prepare_startup_owners(
         } => (
             CameraOwner::DenoiserBenchmark {
                 snapshot,
-                runtime: DenoiserBench::new_camera(benchmark),
+                runtime: Box::new(DenoiserBench::new_camera(benchmark)),
             },
             ScreenshotRuntime::new(None),
         ),
@@ -716,7 +716,7 @@ pub(in crate::app) fn prepare_startup_owners(
         },
         Scenario::TerrainConnectivityBenchmark(options) => LaunchMode::General {
             camera,
-            scenario: ScenarioOwner::Connectivity(TerrainConnectivityBench::new(options)),
+            scenario: ScenarioOwner::Connectivity(Box::new(TerrainConnectivityBench::new(options))),
         },
         Scenario::LightingModeAcceptance(options) => LaunchMode::General {
             camera,
@@ -1033,8 +1033,10 @@ mod tests {
         let command = garden.begin_canopy_audio_frame(glam::Vec3::ZERO, 1.0);
         assert!(matches!(command, CanopyAudioFrameCommand::Standard));
         assert_eq!(command.wind_policy(), CanopyAudioWindPolicy::Configured);
-        let mut snapshot = CanopyAudioTelemetrySnapshot::default();
-        snapshot.petal_direct_ray_count = 9;
+        let snapshot = CanopyAudioTelemetrySnapshot {
+            petal_direct_ray_count: 9,
+            ..Default::default()
+        };
         let receipt = garden
             .finish_canopy_audio_frame(
                 command,

@@ -312,6 +312,7 @@ impl RasterTreeMesh {
 
     /// Exact surface query used to validate rest-coordinate editing. The future
     /// scene acceleration structure must preserve this barycentric hit contract.
+    #[cfg(test)]
     pub fn raycast(
         &self,
         posed: &PosedTreeSurface,

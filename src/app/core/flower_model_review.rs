@@ -236,8 +236,7 @@ impl App {
 /// maximum simultaneous VRAM stress and visual/performance approval are separate.
 fn control_settings(phase: u32) -> crate::flora::models::Settings {
     use crate::flora::models::{Settings, Shape};
-    let mut s = Settings::default();
-    s.shape = match phase {
+    let shape = match phase {
         1 | 2 => Shape {
             head_scale: 2.,
             height_scale: 1.,
@@ -281,11 +280,15 @@ fn control_settings(phase: u32) -> crate::flora::models::Settings {
         25 => Shape::MAX,
         _ => Shape::default(),
     };
-    s.resolution = match phase {
+    let resolution = match phase {
         6..=9 => 8,
         10 => 64,
         _ => 32,
     };
-    s.size_scale = if phase == 17 { 2. } else { 1. };
-    s
+    Settings {
+        shape,
+        resolution,
+        size_scale: if phase == 17 { 2. } else { 1. },
+        ..Settings::default()
+    }
 }

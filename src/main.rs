@@ -116,22 +116,6 @@ fn init_env_logger() -> Option<PathBuf> {
     log_path
 }
 
-#[cfg(test)]
-mod startup_log_tests {
-    use super::*;
-
-    #[test]
-    fn run_log_binding_marker_uses_the_existing_absolute_path() {
-        let file = tempfile::NamedTempFile::new().unwrap();
-        let expected = file.path().canonicalize().unwrap();
-
-        assert_eq!(
-            run_log_binding_marker(file.path()).unwrap(),
-            format!("[RUN_LOG] path={}", expected.display())
-        );
-    }
-}
-
 fn handle_camera_snapshot_query() {
     match app::camera_snapshots::CameraSnapshotLibrary::load_default() {
         Ok(library) => {
@@ -245,7 +229,7 @@ pub fn main() {
             handle_camera_snapshot_query();
             return;
         }
-        LaunchCommand::Run(plan) => plan,
+        LaunchCommand::Run(plan) => *plan,
     };
     if let Err(err) = validate_requested_camera_snapshot(&plan.automation.camera) {
         eprintln!("{err}");
@@ -266,5 +250,21 @@ pub fn main() {
 
     if let Some(path) = &run_log_path {
         log::info!("Run log saved to {}", path.display());
+    }
+}
+
+#[cfg(test)]
+mod startup_log_tests {
+    use super::*;
+
+    #[test]
+    fn run_log_binding_marker_uses_the_existing_absolute_path() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let expected = file.path().canonicalize().unwrap();
+
+        assert_eq!(
+            run_log_binding_marker(file.path()).unwrap(),
+            format!("[RUN_LOG] path={}", expected.display())
+        );
     }
 }

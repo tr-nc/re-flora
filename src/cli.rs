@@ -288,7 +288,7 @@ pub enum LaunchCommand {
     Help,
     InspectLogs(LogInspection),
     ListCameraSnapshots,
-    Run(RunPlan),
+    Run(Box<RunPlan>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -499,7 +499,7 @@ impl LaunchCommand {
         if let Some(query) = parse_query_command(&args)? {
             return Ok(query);
         }
-        parse_run_plan(args).map(Self::Run)
+        parse_run_plan(args).map(Box::new).map(Self::Run)
     }
 }
 
@@ -1703,7 +1703,7 @@ mod tests {
 
     fn try_parse_owned(args: Vec<String>) -> Result<RunPlan, String> {
         match LaunchCommand::try_from_arg_strings(args)? {
-            LaunchCommand::Run(plan) => Ok(plan),
+            LaunchCommand::Run(plan) => Ok(*plan),
             _ => Err("expected run arguments".to_owned()),
         }
     }

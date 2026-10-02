@@ -54,6 +54,7 @@ impl Torus {
         self.rotation
     }
 
+    #[cfg(test)]
     pub fn inner_radius(&self) -> f32 {
         self.major_radius - self.tube_radius
     }

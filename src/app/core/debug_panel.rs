@@ -17,7 +17,7 @@ mod tests {
         for content_width in [260., 345., 520.] {
             for font_scale in [1., 1.5] {
                 let context = egui::Context::default();
-                context.style_mut(|style| {
+                context.global_style_mut(|style| {
                     super::super::ui_style::apply_gui_style(style);
                     for font in style.text_styles.values_mut() {
                         font.size *= font_scale;
@@ -42,7 +42,7 @@ mod tests {
                         4 => vec![Event::Text("restaurant true voxels ".repeat(20))],
                         _ => vec![],
                     };
-                    let _ = context.run(
+                    let _ = context.run_ui(
                         egui::RawInput {
                             screen_rect: Some(Rect::from_min_size(
                                 Pos2::ZERO,
@@ -52,7 +52,8 @@ mod tests {
                             events,
                             ..Default::default()
                         },
-                        |context| {
+                        |ui| {
+                            let context = ui.ctx();
                             let window = egui::Window::new("Debug Panel")
                                 .id(egui::Id::new("config_panel"))
                                 .default_size(Vec2::new(content_width, 540.))
@@ -88,7 +89,7 @@ mod tests {
 
     fn assert_scrollbar_drag(floating: bool) {
         let context = egui::Context::default();
-        context.style_mut(|style| {
+        context.global_style_mut(|style| {
             style.spacing.scroll.floating = floating;
             style.spacing.scroll.bar_width = 8.;
             style.spacing.scroll.floating_width = 4.;

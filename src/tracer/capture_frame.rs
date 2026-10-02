@@ -68,6 +68,10 @@ struct ArmedCheckpoint {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Copy checkpoint state is inspected each frame without heap allocation"
+)]
 enum CaptureViewPhase {
     Disabled,
     WaitingForCheckpoint,

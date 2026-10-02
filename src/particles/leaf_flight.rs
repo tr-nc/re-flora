@@ -53,6 +53,10 @@ impl LeafFlight {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Rigid-flight kernel updates caller-owned kinematics from independent size, force and wind inputs"
+    )]
     pub fn advance(
         &mut self,
         position: &mut Vec3,

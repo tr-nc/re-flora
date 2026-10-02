@@ -112,7 +112,7 @@ impl PreparedTerrainDetachment {
             );
             let change = VisibleTerrainChange::from_build_edits(request.publication_edits.clone())?
                 .context("terrain detachment has no visible terrain chunks")?;
-            Ok(VisibleTerrainPublication::edit(change)?)
+            VisibleTerrainPublication::edit(change)
         })();
         let publication = match publication {
             Ok(publication) => publication,

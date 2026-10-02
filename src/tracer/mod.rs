@@ -486,7 +486,7 @@ impl DdgiFrameEncoder<'_> {
             );
             if plan.iteration_will_complete {
                 Tracer::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler,
                     gpu_profiler_frame_slot,
                     cmdbuf,
                     "ddgi.atlas_reduce",
@@ -2635,9 +2635,9 @@ impl Tracer {
             )
         };
         LightingModeProductionReadback {
-            terrain_rgbe: make_buffer(resources.compute_output_tex.get_image().get_size() as u64),
-            terrain_depth: make_buffer(resources.compute_depth_tex.get_image().get_size() as u64),
-            raster_rgba: make_buffer(resources.gfx_output_tex.get_image().get_size() as u64),
+            terrain_rgbe: make_buffer(resources.compute_output_tex.get_image().get_size()),
+            terrain_depth: make_buffer(resources.compute_depth_tex.get_image().get_size()),
+            raster_rgba: make_buffer(resources.gfx_output_tex.get_image().get_size()),
         }
     }
 
@@ -6301,7 +6301,6 @@ impl Tracer {
                     self.glass_unrefracted_raster_fallback,
                 ),
                 use_stored_voxel_normal: u32::from(self.glass_stored_voxel_normal),
-                ..bytemuck::Zeroable::zeroed()
             };
             pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
         }

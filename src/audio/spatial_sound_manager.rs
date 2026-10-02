@@ -521,6 +521,10 @@ impl SpatialSoundManager {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Mirrors the clip-source adapter with explicit placement, phase and occlusion inputs"
+    )]
     pub(crate) fn add_canopy_looping_clip_with_extent_at_phase(
         &self,
         generation: CanopyAudioGenerationKey,

@@ -1,7 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
 mod resources;
-mod terrain_hill;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
     PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres, Toruses,
@@ -36,7 +35,6 @@ pub use resources::*;
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::time::{Duration, Instant};
-pub use terrain_hill::*;
 
 pub const VOXEL_TYPE_GLASS: u32 = 1;
 pub const VOXEL_TYPE_ASPHALT: u32 = 12;
@@ -316,7 +314,6 @@ pub struct PlainBuilder {
     buffer_setup_ppl: ComputePipeline,
     #[allow(dead_code)]
     chunk_init_ppl: ComputePipeline,
-    terrain_hill_blend_ppl: ComputePipeline,
     heightmap_ppl: ComputePipeline,
     #[allow(dead_code)]
     terrain_smooth_heights_ppl: ComputePipeline,
@@ -369,12 +366,6 @@ impl PlainBuilder {
         let chunk_init_sm = ShaderModule::from_precompiled(
             device,
             "shader/builder/chunk_writer/chunk_init.comp",
-            "main",
-        )
-        .unwrap();
-        let terrain_hill_blend_sm = ShaderModule::from_precompiled(
-            device,
-            "shader/builder/chunk_writer/terrain_hill_blend.comp",
             "main",
         )
         .unwrap();
@@ -507,8 +498,6 @@ impl PlainBuilder {
 
         let buffer_setup_ppl = ComputePipeline::new(device, &buffer_setup_sm, &pool, &[&resources]);
         let chunk_init_ppl = ComputePipeline::new(device, &chunk_init_sm, &pool, &[&resources]);
-        let terrain_hill_blend_ppl =
-            ComputePipeline::new(device, &terrain_hill_blend_sm, &pool, &[&resources]);
         let heightmap_ppl = ComputePipeline::new(device, &heightmap_sm, &pool, &[&resources]);
         let terrain_smooth_heights_ppl =
             ComputePipeline::new(device, &terrain_smooth_heights_sm, &pool, &[&resources]);
@@ -570,7 +559,6 @@ impl PlainBuilder {
             plain_atlas_dim,
             buffer_setup_ppl,
             chunk_init_ppl,
-            terrain_hill_blend_ppl,
             heightmap_ppl,
             terrain_smooth_heights_ppl,
             terrain_smooth_target_ppl,
@@ -2303,27 +2291,6 @@ impl PlainBuilder {
         Ok(())
     }
 
-    pub fn chunk_modify_surface_spheres_with_voxel_type(
-        &mut self,
-        bvh_nodes: &[BvhNode],
-        spheres: &[Sphere],
-        fill_voxel_type: u32,
-        target_voxel_type: Option<u32>,
-        max_write_count: Option<u32>,
-        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
-    ) -> Result<ChunkModifyReadback> {
-        self.modify_spheres_with_readback(
-            bvh_nodes,
-            spheres,
-            fill_voxel_type,
-            target_voxel_type,
-            max_write_count,
-            max_removed_counts,
-            true,
-            None,
-        )
-    }
-
     /// Exact capsule with the spherical brush's readback, inventory limits and legal bounds.
     #[allow(clippy::too_many_arguments)]
     pub fn chunk_modify_surface_capsule(
@@ -2345,31 +2312,6 @@ impl PlainBuilder {
             max_write_count,
             max_removed_counts,
             true,
-            bound,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn modify_spheres_with_readback(
-        &mut self,
-        bvh_nodes: &[BvhNode],
-        spheres: &[Sphere],
-        fill_voxel_type: u32,
-        target_voxel_type: Option<u32>,
-        max_write_count: Option<u32>,
-        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
-        surface_only: bool,
-        bound: Option<UAabb3>,
-    ) -> Result<ChunkModifyReadback> {
-        self.modify_surface_with_readback(
-            bvh_nodes,
-            spheres,
-            None,
-            fill_voxel_type,
-            target_voxel_type,
-            max_write_count,
-            max_removed_counts,
-            surface_only,
             bound,
         )
     }

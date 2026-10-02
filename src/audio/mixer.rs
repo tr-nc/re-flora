@@ -181,10 +181,12 @@ mod tests {
     }
     #[test]
     fn mix_defaults_are_neutral_and_each_channel_is_independent() {
-        let mut settings = AudioMixSettings::default();
-        settings.tree_cicadas = MixChannel {
-            enabled: false,
-            scale: 4.0,
+        let settings = AudioMixSettings {
+            tree_cicadas: MixChannel {
+                enabled: false,
+                scale: 4.0,
+            },
+            ..Default::default()
         };
         for category in AudioCategory::ALL {
             let p = settings.channel(category).params();

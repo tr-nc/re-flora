@@ -121,11 +121,6 @@ pub(crate) enum VoxelEdit {
         toruses: Vec<Torus>,
         voxel_type: u32,
     },
-    StampSurfaceSpheres {
-        bvh_nodes: Vec<BvhNode>,
-        spheres: Vec<Sphere>,
-        voxel_type: u32,
-    },
     ClearVoxelRegion(ClearVoxelRegionEdit),
 }
 
@@ -336,15 +331,6 @@ fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result
             toruses,
             voxel_type,
         } => plain_builder.chunk_modify_toruses_with_voxel_type(&bvh_nodes, &toruses, voxel_type),
-        VoxelEdit::StampSurfaceSpheres {
-            bvh_nodes,
-            spheres,
-            voxel_type,
-        } => plain_builder
-            .chunk_modify_surface_spheres_with_voxel_type(
-                &bvh_nodes, &spheres, voxel_type, None, None, None,
-            )
-            .map(|_| ()),
     }
 }
 

@@ -2226,7 +2226,7 @@ mod tests {
             &[],
             &[],
         );
-        let mask = u32::MAX & !(1 << 5) & !(1 << 6);
+        let mask = !(1 << 5) & !(1 << 6);
         for y in [1.9, 1.4, 0.9, 0.6] {
             let origin = Vec3::new(0.375, y, 0.375);
             let original = snapshot.query_terrain_ray_cpu(origin, -Vec3::Y).unwrap();

@@ -95,7 +95,7 @@ impl IndirectResponse {
             && self.edit_count < 40
             && self.last_edit.elapsed() >= Duration::from_millis(100)
         {
-            let edit = if self.edit_count % 2 == 0 {
+            let edit = if self.edit_count.is_multiple_of(2) {
                 TerrainEdit::CloseSkylight
             } else {
                 TerrainEdit::ReopenSkylight

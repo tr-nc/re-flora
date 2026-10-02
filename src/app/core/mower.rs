@@ -60,6 +60,9 @@ fn turn_step(current: Quat, target: Quat, dt: f32) -> Quat {
 }
 
 fn steered_step(position: Vec3, target: Vec3, rotation: Quat, dt: f32) -> Vec3 {
+    if !dt.is_finite() || dt <= 0. {
+        return position;
+    }
     let desired = follow_step(position, target, dt) - position;
     let forward = rotation * Vec3::Z;
     let forward = Vec3::new(forward.x, 0., forward.z).normalize_or_zero();
@@ -68,7 +71,7 @@ fn steered_step(position: Vec3, target: Vec3, rotation: Quat, dt: f32) -> Vec3 {
     // perpendicular to the chassis. Near targets then orbit as fast as steering
     // can turn. Approach over time instead, keeping the target bearing catchable.
     let distance = Vec2::new(target.x - position.x, target.z - position.z).length();
-    let approach = 1. - (-MOWER_APPROACH_RATE * dt.min(MAX_FRAME_STEP).max(0.)).exp();
+    let approach = 1. - (-MOWER_APPROACH_RATE * dt.clamp(0., MAX_FRAME_STEP)).exp();
     position + forward * desired.length().min(distance * approach) * alignment
 }
 
@@ -790,6 +793,17 @@ mod tests {
         assert!((step.distance(start) - MOWER_MAX_SPEED * 0.02).abs() < 1e-6);
         assert_eq!(step.y, start.y);
     }
+    #[test]
+    fn invalid_or_paused_frame_time_preserves_steered_position() {
+        let position = Vec3::new(1., 2., 3.);
+        for dt in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1., 0.] {
+            assert_eq!(
+                steered_step(position, Vec3::ZERO, Quat::IDENTITY, dt),
+                position
+            );
+        }
+    }
+
     #[test]
     fn slow_pointer_is_followed_exactly_without_overshoot() {
         let start = Vec3::ZERO;

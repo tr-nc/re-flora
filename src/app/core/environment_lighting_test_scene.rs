@@ -560,7 +560,7 @@ pub(super) struct EnvironmentLightingTestScene {
 
 #[derive(Debug)]
 enum EnvironmentPhaseSlot {
-    Ready(EnvironmentPhasePayload),
+    Ready(Box<EnvironmentPhasePayload>),
     InFlight(EnvironmentPhasePermit),
 }
 
@@ -735,7 +735,7 @@ impl EnvironmentPhasePayload {
 #[derive(Debug)]
 struct EnvironmentPhaseAttempt {
     permit: EnvironmentPhasePermit,
-    payload: EnvironmentPhasePayload,
+    payload: Box<EnvironmentPhasePayload>,
 }
 
 #[derive(Debug)]
@@ -745,7 +745,7 @@ enum EnvironmentPhaseRecoveryDiagnostic {
     Retrying {
         family: EnvironmentPhaseFamily,
         identity: usize,
-        phase: TestScenePhase,
+        phase: Box<TestScenePhase>,
         injected_frame: u64,
     },
     Complete,
@@ -834,7 +834,7 @@ impl EnvironmentPhaseAttempt {
 #[derive(Debug)]
 struct EnvironmentPhaseReceipt {
     permit: EnvironmentPhasePermit,
-    payload: EnvironmentPhasePayload,
+    payload: Box<EnvironmentPhasePayload>,
 }
 
 #[derive(Debug)]
@@ -942,9 +942,9 @@ impl InflightCaptureWindow {
         };
         if latest_terrain_revision != self.target_revision()
             || !active.is_ready()
-            || !active
+            || active
                 .relocated_terrain_revision
-                .is_some_and(|revision| revision != self.target_revision())
+                .is_none_or(|revision| revision == self.target_revision())
             || !staging.is_some_and(|staging| {
                 staging.build_token == Some(candidate) && staging.stage != DdgiVolumeStage::Ready
             })
@@ -1158,7 +1158,7 @@ impl EnvironmentLightingTestScene {
         let owner_id = NEXT_OWNER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             owner_id,
-            state: EnvironmentPhaseSlot::Ready(EnvironmentPhasePayload {
+            state: EnvironmentPhaseSlot::Ready(Box::new(EnvironmentPhasePayload {
                 identity: Box::new(EnvironmentPhaseIdentityPermit { owner_id }),
                 case,
                 phase: TestScenePhase::Pending,
@@ -1173,7 +1173,7 @@ impl EnvironmentLightingTestScene {
                 point_light_expected_registry_revision: 0,
                 scratch: EnvironmentFamilyScratch::for_family(family),
                 recovery_diagnostic: EnvironmentPhaseRecoveryDiagnostic::from_process_environment(),
-            }),
+            })),
             transaction_revision: 0,
         }
     }
@@ -3236,7 +3236,7 @@ impl App {
                 environment.recovery_diagnostic = EnvironmentPhaseRecoveryDiagnostic::Retrying {
                     family,
                     identity,
-                    phase,
+                    phase: Box::new(phase),
                     injected_frame: frame,
                 };
                 anyhow::bail!("injected {family:?} environment phase preflight failure");
@@ -3252,7 +3252,7 @@ impl App {
                     "environment phase recovery did not retain its exact payload"
                 );
                 anyhow::ensure!(
-                    phase == expected_phase,
+                    phase == *expected_phase,
                     "environment phase recovery advanced before its retry"
                 );
                 require_environment_phase_retry_on_next_frame(injected_frame, frame)
@@ -3301,24 +3301,22 @@ impl App {
             case,
             EnvironmentLightingTestCase::IndirectResponse
                 | EnvironmentLightingTestCase::IndirectResponseStatic
+        ) && !matches!(
+            phase,
+            TestScenePhase::Pending | TestScenePhase::Settling { .. }
         ) {
-            if !matches!(
-                phase,
-                TestScenePhase::Pending | TestScenePhase::Settling { .. }
-            ) {
-                let response = environment.indirect_response.get_or_insert_with(|| {
-                    indirect_response::IndirectResponse::new(
-                        case == EnvironmentLightingTestCase::IndirectResponse,
-                    )
-                });
-                if response
-                    .step(self)
-                    .expect("DDGI response fixture must remain valid")
-                {
-                    environment.phase = TestScenePhase::Ready;
-                }
-                return;
+            let response = environment.indirect_response.get_or_insert_with(|| {
+                indirect_response::IndirectResponse::new(
+                    case == EnvironmentLightingTestCase::IndirectResponse,
+                )
+            });
+            if response
+                .step(self)
+                .expect("DDGI response fixture must remain valid")
+            {
+                environment.phase = TestScenePhase::Ready;
             }
+            return;
         }
         // This fixture uses the real visible-terrain publication path, independent of DDGI
         // completion: a held editing gesture must not wait for lighting to converge.

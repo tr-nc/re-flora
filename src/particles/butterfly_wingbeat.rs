@@ -197,11 +197,13 @@ mod tests {
         for offset in [0., 0.137, 0.999] {
             let mut integral = Vec3::ZERO;
             for tick in 1..=120 {
-                let mut coupling = WingbeatCoupling::default();
-                coupling.pose = ButterflyWingbeatPose {
-                    phase: (offset + tick as f32 / 120.).rem_euclid(1.),
-                    blend: 1.,
-                    orientation: Quat::IDENTITY,
+                let coupling = WingbeatCoupling {
+                    pose: ButterflyWingbeatPose {
+                        phase: (offset + tick as f32 / 120.).rem_euclid(1.),
+                        blend: 1.,
+                        orientation: Quat::IDENTITY,
+                    },
+                    ..Default::default()
                 };
                 integral += coupling.acceleration(1., 4., 1. / 120.) / 120.;
             }

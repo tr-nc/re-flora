@@ -97,6 +97,10 @@ impl DdgiPublishedVolume {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Inline Copy snapshot keeps frame publication allocation-free"
+)]
 enum DdgiActivePublication {
     Configured(DdgiVolumeGrid),
     Building(DdgiVolumeGeneration),
@@ -321,6 +325,10 @@ impl DdgiFrameView<'_> {
 /// Each variant contains only observations valid for that state. In particular, stale readbacks
 /// cannot masquerade as zero-stat progress, and a publication always carries its validated field
 /// and convergence evidence together.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Batch observations are transient frame results; keep completion allocation-free"
+)]
 pub(crate) enum DdgiBatchCompletion {
     Stale(DdgiStaleBatchObservation),
     Progress(DdgiBatchProgress),
@@ -852,6 +860,10 @@ mod convergence_evidence {
 }
 
 /// Result of one runtime-owned attempt to publish a complete Staging Volume.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Transfers ownership of the retired GPU volume without another allocation"
+)]
 pub(crate) enum DdgiVolumePublishOutcome {
     Idle,
     DiscardedObsolete(DdgiBuildToken),
@@ -1247,10 +1259,8 @@ impl DdgiRuntime {
                 } else if self.pending_authored_fact.replace(authored).is_some() {
                     self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
                 }
-            } else {
-                if self.pending_authored_fact.take().is_some() {
-                    self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
-                }
+            } else if self.pending_authored_fact.take().is_some() {
+                self.coalesced_live_revisions = self.coalesced_live_revisions.saturating_add(1);
             }
         }
 

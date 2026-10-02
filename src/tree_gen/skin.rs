@@ -78,6 +78,7 @@ impl SkinBinding {
     }
 
     /// Attachments authored at a branch tip inherit the complete branch pose.
+    #[cfg(test)]
     pub fn branch_tip(tree: &Tree, branch: usize) -> Result<Self> {
         ensure!(
             branch < tree.branches().len(),
@@ -132,6 +133,7 @@ impl SkinTransform {
     pub fn normal(self, rest_normal: Vec3) -> Vec3 {
         (self.linear.inverse().transpose() * rest_normal).normalize_or_zero()
     }
+    #[cfg(test)]
     pub fn inverse_point(self, world: Vec3) -> Vec3 {
         self.linear.inverse() * (world - self.translation)
     }
@@ -142,6 +144,7 @@ pub struct SurfaceHit {
     pub distance: f32,
     pub world_position: Vec3,
     pub rest_position: Vec3,
+    #[cfg(test)]
     pub normal: Vec3,
 }
 
@@ -178,6 +181,7 @@ pub fn intersect_surface_triangle(
         distance,
         world_position: origin + direction * distance,
         rest_position: rest[0] * (1. - u - v) + rest[1] * u + rest[2] * v,
+        #[cfg(test)]
         normal: e1.cross(e2).normalize_or_zero(),
     })
 }

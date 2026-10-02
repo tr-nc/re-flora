@@ -49,7 +49,6 @@ impl Column {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::flora::models::{flowers, Shape};
 
     #[test]

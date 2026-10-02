@@ -295,8 +295,10 @@ mod tests {
         assert!(b.frame().cells.iter().flatten().any(|v| *v != 0.));
         assert!(b.gusts.is_empty());
         assert!(b.frame().cells.iter().flatten().all(|v| v.is_finite()));
-        let mut calm = WindField::default();
-        calm.background_enabled = false;
+        let mut calm = WindField {
+            background_enabled: false,
+            ..Default::default()
+        };
         calm.advance(0.);
         calm.advance(0.5);
         assert!(calm.frame().cells.iter().flatten().all(|v| *v == 0.));

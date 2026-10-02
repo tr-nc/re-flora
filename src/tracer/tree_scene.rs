@@ -32,7 +32,10 @@ pub struct TreeScene {
 
 impl TreeScene {
     pub fn new(indices: &[u32], positions: &[Vec3]) -> Result<Self> {
-        ensure!(indices.len() % 3 == 0, "invalid tree triangle count");
+        ensure!(
+            indices.len().is_multiple_of(3),
+            "invalid tree triangle count"
+        );
         ensure!(
             positions.len() <= MAX_TREE_VERTICES && indices.len() / 3 <= MAX_TREE_PRIMITIVES,
             "dynamic tree scene capacity exceeded: vertices={} / {}, primitives={} / {}",

@@ -246,7 +246,7 @@ mod tests {
         draw(Vec::new());
         let rect = draw(Vec::new());
         let pos = egui::pos2(
-            rect.left() + context.style().spacing.slider_width * 0.75,
+            rect.left() + context.global_style().spacing.slider_width * 0.75,
             rect.center().y,
         );
         for pressed in [true, false] {

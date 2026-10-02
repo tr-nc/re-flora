@@ -85,6 +85,7 @@ impl BranchPose {
         self.rotation * rest_world + self.translation
     }
 
+    #[cfg(test)]
     pub fn inverse_point(self, world: Vec3) -> Vec3 {
         self.rotation.conjugate() * (world - self.translation)
     }

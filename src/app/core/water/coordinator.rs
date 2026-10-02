@@ -489,12 +489,11 @@ mod tests {
         assert_eq!(runtime.phase(), WaterPhase::Quiesced);
 
         runtime.complete_publication_for_test();
-        let resumed = runtime
+        let _resumed = runtime
             .finish_publication_after_terrain_advance()
             .expect("ready owner must emit one linear resume event");
         assert_eq!(runtime.phase(), WaterPhase::Running);
         assert!(runtime.finish_publication_after_terrain_advance().is_none());
-        drop(resumed);
         runtime.shutdown_workers_for_test();
     }
 

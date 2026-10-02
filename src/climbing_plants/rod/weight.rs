@@ -10,6 +10,10 @@ const RIGIDITY: f32 = 12000.0;
 const GUIDE_DENSITY: f32 = 4.0 * RIGIDITY / (ZONE_LENGTH * ZONE_LENGTH);
 const PROPOSAL_MOTION: f32 = 1.8;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Numerical proposal kernel keeps borrowed rod state and independent physical inputs explicit"
+)]
 pub(super) fn propose(
     plant: &Plant,
     rod: &Rod,

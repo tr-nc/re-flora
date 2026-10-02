@@ -50,7 +50,6 @@ impl Settings {
             } else {
                 1.0
             },
-            ..self
         }
     }
 }
@@ -127,7 +126,6 @@ impl Shape {
 pub struct Triangle {
     pub positions: [Vec3; 3],
     pub normal: Vec3,
-    pub color: [u8; 3],
     /// Shared head atlas coordinates; stems use zero UVs and their own colors.
     pub uvs: [Vec2; 3],
     /// Rigid cell/leaf/head attachment; wind translates it without tilting cells.
@@ -339,7 +337,6 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                     triangles.push(Triangle {
                         positions,
                         normal,
-                        color: palette[0],
                         uvs: [index[0], index[1], index[2]]
                             .map(|i| Vec2::from_slice(&part.uvs[i * 2..i * 2 + 2])),
                         anchor,

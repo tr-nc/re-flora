@@ -888,7 +888,7 @@ mod tests {
             let (position, focus) = camera.orbit_pose(0.6, elevation, 2.0);
             assert!(position.y >= focus.y);
             let (_, recovered, _) = camera.orbit_spherical(position);
-            assert!(recovered >= 0.0 && recovered <= ORBIT_CAMERA_MAX_ELEVATION_RAD);
+            assert!((0.0..=ORBIT_CAMERA_MAX_ELEVATION_RAD).contains(&recovered));
         }
         let (_, recovered, _) = camera.orbit_spherical(camera.orbit_focus - Vec3::Y);
         assert_near(recovered, 0.0);

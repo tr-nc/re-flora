@@ -103,6 +103,10 @@ impl CanopyAudioFrameCommand {
 }
 
 #[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Per-frame telemetry travels inline so recording audio counters does not allocate"
+)]
 pub(super) enum CanopyAudioFrameEffect {
     Rejected,
     Applied {

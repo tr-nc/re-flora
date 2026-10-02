@@ -295,9 +295,7 @@ impl GuiConfigLoader {
                 )
             });
         }
-        for id in ["raster_tree_wind"] {
-            Self::add_missing_param(config, "Debug", id);
-        }
+        Self::add_missing_param(config, "Debug", "raster_tree_wind");
         Self::add_missing_param(config, "Falling Leaves", "falling_leaf_mesh");
         if !has_wind {
             if let Some(value) = old_wind {
