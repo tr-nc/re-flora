@@ -1,6 +1,7 @@
 import flower_model;
 import flower_stem_geometry;
 import flower_stem_experiment;
+import flower_stem_model_sampling;
 struct StemFragment {
     float4 color:SV_Target0;
     float depth:SV_Depth;
@@ -9,7 +10,10 @@ struct StemFragment {
 StemFragment main(StemProxyVertex input) {
     float3 displayRay=normalize(input.ray);
     bool pixelized=flowerStemSamplingSettings().y!=0u;
-    float3 sampleRay=pixelized?stemDirectionCell(displayRay,flowerStemSamplingSettings().z):displayRay;
+    bool modelSampling=pixelized&&flowerStemShapeSettings().y>0.5;
+    StemModelGrid grid=stemProxyGrid(input);
+    float3 sampleRay=modelSampling?stemModelSampleRay(grid,camera_info.pos.xyz,displayRay):
+        (pixelized?stemDirectionCell(displayRay,flowerStemSamplingSettings().z):displayRay);
     float3 sampleOrigin=camera_info.pos.xyz;
     float3 ro=stemToLocalVector(input,sampleOrigin-input.root_scale.xyz)/input.root_scale.w;
     float3 rd=stemToLocalVector(input,sampleRay);
@@ -30,7 +34,9 @@ StemFragment main(StemProxyVertex input) {
     // ray, through the sampled surface. Intersect that plane with the actual
     // display ray before writing scene depth: never paste RGBA over terrain or
     // petals, and never use a stale offscreen/cubemap depth convention.
-    if(pixelized) {
+    if(modelSampling) {
+        world=stemModelDisplayPoint(grid,camera_info.pos.xyz,displayRay,world);
+    } else if(pixelized) {
         world=stemDirectionDisplayPoint(camera_info.pos.xyz,displayRay,sampleRay,world);
     }
     // Quantized source-ray texels are finite planes: their display footprint

@@ -927,6 +927,56 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn old_stem_saves_gain_model_sampling_unchecked_without_changing_a() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "flower_stem_model_sampling" | "flower_stem_model_resolution"
+                )
+            });
+        }
+        let before = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .filter(|p| p.id.starts_with("flower_stem_"))
+            .map(|p| (p.id.clone(), p.value.clone()))
+            .collect::<Vec<_>>();
+        GuiConfigLoader::migrate_flower_stem_selector(&mut config);
+        let params = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            params
+                .iter()
+                .find(|p| p.id == "flower_stem_model_sampling")
+                .unwrap()
+                .value,
+            GuiParamValue::Bool { value: false }
+        ));
+        assert!(matches!(
+            params
+                .iter()
+                .find(|p| p.id == "flower_stem_model_resolution")
+                .unwrap()
+                .value,
+            GuiParamValue::Uint { value: 128, .. }
+        ));
+        for (id, value) in before {
+            assert_eq!(
+                serde_json::to_value(&params.iter().find(|p| p.id == id).unwrap().value).unwrap(),
+                serde_json::to_value(value).unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn independent_stem_effects_survive_legacy_metadata_and_round_trip() {
         use crate::app::gui_config_model::GuiParamValue;
         for pixelized in [false, true] {
