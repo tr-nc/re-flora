@@ -1012,11 +1012,7 @@ impl App {
                     return;
                 }
 
-                let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.previous_stroke_center(action),
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                );
+                let edit = self.player_tools.stroke_edit(action, center);
                 if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
@@ -1071,11 +1067,7 @@ impl App {
                     return;
                 }
 
-                let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.previous_stroke_center(action),
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                );
+                let edit = self.player_tools.stroke_edit(action, center);
                 if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
@@ -1279,11 +1271,7 @@ impl App {
                     return;
                 }
 
-                let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.previous_stroke_center(action),
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                );
+                let edit = self.player_tools.stroke_edit(action, center);
                 if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
@@ -1334,11 +1322,7 @@ impl App {
                     return;
                 }
 
-                let edit = TerrainBrushEdit::from_previous_center(
-                    self.player_tools.previous_stroke_center(action),
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                );
+                let edit = self.player_tools.stroke_edit(action, center);
                 if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);

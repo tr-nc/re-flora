@@ -81,20 +81,6 @@ pub(crate) enum VoxelAtlasStateWrite {
     Clear,
 }
 
-impl TerrainBrushEdit {
-    pub(crate) fn from_previous_center(
-        previous_center: Option<Vec3>,
-        current_center: Vec3,
-        radius: f32,
-    ) -> Self {
-        Self {
-            start: previous_center.unwrap_or(current_center),
-            end: current_center,
-            radius,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) enum VoxelEdit {
     StampRoundCones {

@@ -103,37 +103,7 @@ impl ContinuousTerrainToolAction {
     }
 }
 
-#[derive(Debug, Default)]
-struct TerrainStroke {
-    last_dab_time: Option<Instant>,
-    previous_center: Option<Vec3>,
-}
-
-impl TerrainStroke {
-    fn ready(&self, now: Instant, interval: Duration) -> bool {
-        self.last_dab_time
-            .is_none_or(|last_dab| now.duration_since(last_dab) >= interval)
-    }
-
-    fn record_dab(&mut self, action: ContinuousTerrainToolAction, now: Instant, center: Vec3) {
-        self.last_dab_time = Some(now);
-        self.previous_center = action.tracks_path().then_some(center);
-    }
-
-    fn defer(&mut self, now: Instant) {
-        self.last_dab_time = Some(now);
-        self.previous_center = None;
-    }
-
-    fn interrupt(&mut self) {
-        self.previous_center = None;
-    }
-
-    fn restart(&mut self) {
-        self.last_dab_time = None;
-        self.previous_center = None;
-    }
-}
+use crate::app::brush_stroke::BrushStroke as TerrainStroke;
 
 #[derive(Debug)]
 struct TerrainStrokeRuntime {
@@ -200,11 +170,14 @@ impl TerrainStrokeRuntime {
     }
 
     fn previous_center(&self, action: ContinuousTerrainToolAction) -> Option<Vec3> {
-        self.tracker(action).previous_center
+        self.tracker(action).previous_center()
     }
 
     fn record_dab(&mut self, action: ContinuousTerrainToolAction, now: Instant, center: Vec3) {
-        self.tracker_mut(action).record_dab(action, now, center);
+        self.tracker_mut(action).record_dab(now, center);
+        if !action.tracks_path() {
+            self.tracker_mut(action).interrupt();
+        }
     }
 
     fn defer(&mut self, action: ContinuousTerrainToolAction, now: Instant) {
@@ -613,6 +586,16 @@ impl PlayerToolRuntime {
         interval: Duration,
     ) -> bool {
         self.strokes.ready(action, now, interval)
+    }
+
+    pub(super) fn stroke_edit(
+        &self,
+        action: ContinuousTerrainToolAction,
+        center: Vec3,
+    ) -> crate::app::world_edits::TerrainBrushEdit {
+        self.strokes
+            .tracker(action)
+            .edit(center, self.terrain_edit_radius)
     }
 
     pub(super) fn previous_stroke_center(
