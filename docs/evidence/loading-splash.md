@@ -4,7 +4,7 @@ The approved research-board direction replaces the initial checkerboard/white-ti
 
 ## Shipped presentation
 
-- B layout: one dark background with fine grid lines, small leaf marks in quiet cells, alternating yellow five-petal and cream six-petal flowers.
+- B layout: one dark background with fine grid lines, small leaf marks in quiet cells, alternating yellow five-petal and cream six-petal flowers. Following visual feedback, grid density is now 1.25× the base composition (20% smaller cells); flowers and the grid-aligned title/underline scale with it.
 - Title occupies exactly 4×1 logical cells, with no independent white backing. The grid scales uniformly and extends at the viewport edges for other aspect ratios.
 - Three palettes (`forest`, `moss`, `pond`), randomly selected once when the loading presentation is created and retained throughout loading. Selection is not persisted and may repeat on consecutive launches.
 - Four held poses: −10°, 0°, +10°, 0°, 1.2 seconds each. Four spatial phase groups are offset by 0.45 seconds. No full-circle rotation or interpolated movement.
@@ -25,5 +25,10 @@ The approved research-board direction replaces the initial checkerboard/white-ti
   - `[LOADING][SPLASH] layout=B palette=moss local_pixels=16 title_cells=4x1 motion=sway poses=-10,0,10,0 step_seconds=1.2`
   - No ERROR/VUID; shutdown `failures=0`, application exited successfully.
 - The before/after diff of user-owned `config/gui.toml` is identical.
+
+## Smaller-cell follow-up
+
+- `cargo fmt --check`, `cargo check`, and all 7 loading tests passed. The new size guardrail checks 76.8-point cells at 960×576; title-centering tolerance accounts for f32 viewport-coordinate rounding.
+- Hidden muted Release smoke passed: `target/re-flora-logs/re-flora-20261003-032712.307-498732.log`, no ERROR/VUID, shutdown `failures=0`.
 
 The native hidden run validates startup/rendering correctness, not a new human visual review or a performance claim. No visible game was automatically launched. Temporary HTML/JavaScript and cached reference images were removed; source links, visual reasoning and final parameters remain in the design document.

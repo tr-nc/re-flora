@@ -4,6 +4,8 @@ use egui::{epaint::Mesh, Color32, Context, FontId, LayerId, Pos2, Rect, Vec2};
 use std::time::Instant;
 
 const CELL: f32 = 96.0;
+// 25% more cells across the viewport: each cell is 20% smaller.
+const GRID_DENSITY: f32 = 1.25;
 const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
 const STEP_SECONDS: f64 = 1.2;
 
@@ -33,8 +35,8 @@ fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
-/// Keep the approved 10×6 composition square-scaled, extending the grid at the
-/// viewport edges rather than stretching its cells or independently moving text.
+/// Keep the approved 10×6 composition square-scaled at the chosen density,
+/// extending the grid at the edges instead of independently moving the title.
 struct Layout {
     cell: f32,
     origin: Pos2,
@@ -43,9 +45,8 @@ struct Layout {
 
 impl Layout {
     fn new(viewport: Rect) -> Self {
-        let cell = (viewport.width() / 10.0)
-            .min(viewport.height() / 6.0)
-            .max(0.01);
+        let cell =
+            ((viewport.width() / 10.0).min(viewport.height() / 6.0) / GRID_DENSITY).max(0.01);
         let origin = viewport.center() - Vec2::new(5.0, 3.0) * cell;
         let title = Rect::from_min_size(
             origin + Vec2::new(3.0, 2.0) * cell,
@@ -274,6 +275,15 @@ fn flower_mesh(kind: usize, palette: Palette) -> Mesh {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn denser_grid_shrinks_cells_without_changing_title_alignment() {
+        let layout = Layout::new(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0)));
+        assert!((layout.cell - 76.8).abs() < 0.00001);
+        assert!((layout.title.width() - 4.0 * layout.cell).abs() < 0.00001);
+        // f32 layout arithmetic may differ by one ULP at viewport coordinates.
+        assert!((layout.title.center().x - 480.0).abs() < 0.001);
+    }
 
     #[test]
     fn sway_holds_four_frames_and_staggers_groups() {
