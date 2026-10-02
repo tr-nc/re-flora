@@ -410,6 +410,7 @@ impl ResizeLifecycleTest {
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
+    splash_transition: Option<loading::SplashTransition>,
     pending_frame_extent: Option<Extent2D>,
     resize_lifecycle_test: Option<ResizeLifecycleTest>,
     egui_texture_lifecycle_test: Option<EguiTextureLifecycleTest>,
@@ -1476,6 +1477,7 @@ impl App {
                 canopy_audio_vegetation_startup,
             }),
 
+            splash_transition: None,
             cursor_position_physical: None,
             wind_prototype: wind_prototype::WindPrototype::new(),
             camera_control: CameraControlRuntime::default(),
@@ -2690,6 +2692,14 @@ impl App {
                         let mut style = (*ctx.global_style()).clone();
                         apply_gui_style(&mut style);
                         ctx.set_global_style(style);
+
+                        if let Some(transition) = self.splash_transition.as_mut() {
+                            let visible = !hide_ui_for_environment_test_capture
+                                && !hide_ui_for_frame_stability_bench
+                                && !self.launch_owners.screenshot().is_scheduled()
+                                && matches!(denoiser_frame.ui_step(), DenoiserUiStep::Inactive);
+                            transition.show(ctx, visible);
+                        }
 
                         self.wind_prototype.overlay(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
 
@@ -3993,6 +4003,7 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                 );
                 let gpu_ms = gpu_record_start.elapsed().as_secs_f32() * 1000.0;
 
+                let presented = present_result.is_ok();
                 match present_result {
                     Ok(is_suboptimal) if is_suboptimal => {
                         self.queue_current_frame_extent();
@@ -4002,6 +4013,29 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                     }
                     Err(error) => panic!("Failed to present queue. Cause: {}", error),
                     _ => {}
+                }
+
+                if presented
+                    && self
+                        .splash_transition
+                        .as_ref()
+                        .is_some_and(|transition| transition.needs_first_frame_completion())
+                {
+                    // Queueing presentation alone does not guarantee that the first
+                    // game frame has finished rendering. Wait once before timing its reveal.
+                    frame.wait_until_complete().unwrap_or_else(|err| {
+                        panic!(
+                            "first game frame did not complete before splash transition: {err:#}"
+                        )
+                    });
+                }
+                if presented
+                    && self
+                        .splash_transition
+                        .as_mut()
+                        .is_some_and(|transition| transition.presented())
+                {
+                    self.splash_transition = None;
                 }
 
                 let mut lighting_mode_acceptance_complete = false;

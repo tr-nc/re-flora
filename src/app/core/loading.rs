@@ -3,6 +3,7 @@ use crate::terrain_persistence::TerrainSnapshotReader;
 use std::path::Path;
 
 mod splash;
+pub(super) use splash::Transition as SplashTransition;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadingPhase {
@@ -309,6 +310,7 @@ impl App {
                 .expect("completed loading must retain its Visible Terrain Publication");
             let canopy_audio_vegetation_startup = loading.take_canopy_audio_vegetation_startup();
             self.finalize_loading(&mut publication, canopy_audio_vegetation_startup);
+            self.splash_transition = Some(SplashTransition::new(loading.splash));
         }
     }
 

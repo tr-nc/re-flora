@@ -1,116 +1,326 @@
-//! Loading-only presentation. Flower pixels are authored once in model space;
-//! their colored quads rotate together, never re-sampled onto a screen-space grid.
+//! Approved B layout: a fine grid, a four-cell title and held ±10° flower poses.
+//! Colored pixel quads are authored in model space and transformed as a whole.
 use egui::{epaint::Mesh, Color32, Context, FontId, LayerId, Pos2, Rect, Vec2};
 use std::time::Instant;
 
-const GREENS: [Color32; 2] = [Color32::from_rgb(41, 79, 64), Color32::from_rgb(48, 87, 70)];
-const STEPS: usize = 24;
-const STEP_SECONDS: f64 = 0.8 / 0.75;
+const CELL: f32 = 96.0;
+// 25% more cells across the viewport: each cell is 20% smaller.
+const GRID_DENSITY: f32 = 1.25;
+const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
+const STEP_SECONDS: f64 = 1.2;
+const FLOWER_STAGGER_SECONDS: f64 = 0.6;
+const TRANSITION_END_SECONDS: f64 = 2.0 + FLOWER_STAGGER_SECONDS;
+
+#[derive(Clone, Copy)]
+struct Palette {
+    name: &'static str,
+    // Background, grid, cream, yellow, flower center.
+    colors: [u32; 5],
+}
+
+const PALETTES: [Palette; 3] = [
+    Palette {
+        name: "forest",
+        colors: [0x233f32, 0x2b4937, 0xeee2b8, 0xd9b764, 0xa38846],
+    },
+    Palette {
+        name: "moss",
+        colors: [0x374833, 0x40513a, 0xe5ddbb, 0xc9ac65, 0x9b824a],
+    },
+    Palette {
+        name: "pond",
+        colors: [0x203e3c, 0x294845, 0xe0e4d1, 0xbebc75, 0x8c9259],
+    },
+];
+
+fn rgb(hex: u32) -> Color32 {
+    Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+}
+
+/// Keep the approved 10×6 composition square-scaled at the chosen density,
+/// extending the grid at the edges instead of independently moving the title.
+struct Layout {
+    cell: f32,
+    origin: Pos2,
+    title: Rect,
+}
+
+impl Layout {
+    fn new(viewport: Rect) -> Self {
+        let cell =
+            ((viewport.width() / 10.0).min(viewport.height() / 6.0) / GRID_DENSITY).max(0.01);
+        let origin = viewport.center() - Vec2::new(5.0, 3.0) * cell;
+        let title = Rect::from_min_size(
+            origin + Vec2::new(3.0, 2.0) * cell,
+            Vec2::new(4.0, 1.0) * cell,
+        );
+        Self {
+            cell,
+            origin,
+            title,
+        }
+    }
+
+    fn tile(&self, column: i32, row: i32) -> Rect {
+        Rect::from_min_size(
+            self.origin + Vec2::new(column as f32, row as f32) * self.cell,
+            Vec2::splat(self.cell),
+        )
+    }
+}
+
+fn reserved(column: i32, row: i32) -> bool {
+    (3..7).contains(&column) && row == 2
+}
 
 pub(crate) struct Splash {
-    flowers: [Mesh; 2],
+    palette: Palette,
+    flowers: [[Mesh; 4]; 2],
     started: Option<Instant>,
 }
 
 impl Default for Splash {
     fn default() -> Self {
-        Self {
-            flowers: std::array::from_fn(flower_mesh),
-            started: None,
-        }
+        // Independent cosmetic randomness, selected once per loading owner;
+        // never reseed or consume the world's procedural-generation RNG.
+        Self::new(PALETTES[rand::random_range(0..PALETTES.len())])
     }
 }
 
 impl Splash {
+    fn new(palette: Palette) -> Self {
+        let flowers = std::array::from_fn(|kind| {
+            let local = flower_mesh(kind, palette);
+            std::array::from_fn(|frame| {
+                let mut mesh = local.clone();
+                mesh.rotate(
+                    egui::emath::Rot2::from_angle(POSES[frame].to_radians()),
+                    Pos2::ZERO,
+                );
+                mesh
+            })
+        });
+        Self {
+            palette,
+            flowers,
+            started: None,
+        }
+    }
+
     pub(super) fn show(&mut self, ctx: &Context, progress: f32) {
+        self.paint(ctx, progress, LayerId::background(), Opacity::at(0.0));
+    }
+
+    fn paint(&mut self, ctx: &Context, progress: f32, layer: LayerId, opacity: Opacity) {
+        if self.started.is_none() {
+            log::info!("[LOADING][SPLASH] layout=B palette={} local_pixels=16 title_cells=4x1 motion=sway poses=-10,0,10,0 step_seconds=1.2", self.palette.name);
+        }
         let seconds = self
             .started
             .get_or_insert_with(Instant::now)
             .elapsed()
             .as_secs_f64();
-        let rect = ctx.viewport_rect();
-        let painter = ctx.layer_painter(LayerId::background());
-        painter.rect_filled(rect, 0.0, GREENS[0]);
-        let cell = if rect.width() < 650.0 { 112.0 } else { 144.0 };
-        let columns = (rect.width() / cell).ceil() as usize + 2;
-        let rows = (rect.height() / cell).ceil() as usize + 2;
-        let origin = rect.center() - Vec2::new(columns as f32, rows as f32) * (cell / 2.0);
-        let flowers: [Mesh; 2] = std::array::from_fn(|kind| {
-            let mut mesh = self.flowers[kind].clone();
-            for vertex in &mut mesh.vertices {
-                vertex.pos *= 2.0;
-            }
-            mesh.rotate(
-                egui::emath::Rot2::from_angle(
-                    rotation_step(kind, seconds) as f32 * std::f32::consts::TAU / STEPS as f32,
-                ),
-                Pos2::ZERO,
-            );
-            mesh
-        });
+        let viewport = ctx.viewport_rect();
+        let layout = Layout::new(viewport);
+        let scale = layout.cell / CELL;
+        let [background, grid, cream, yellow, _] = self.palette.colors.map(rgb);
+        let mut painter = ctx.layer_painter(layer).with_clip_rect(viewport);
+        painter.set_opacity(opacity.background);
+        painter.rect_filled(viewport, 0.0, background);
+        let first = (viewport.min - layout.origin) / layout.cell;
+        let last = (viewport.max - layout.origin) / layout.cell;
         let mut field = Mesh::default();
-        for row in 0..rows {
-            for column in 0..columns {
-                let kind = (row + column) % 2;
-                let tile = Rect::from_min_size(
-                    origin + Vec2::new(column as f32, row as f32) * cell,
-                    Vec2::splat(cell),
-                );
-                if !tile.intersects(rect) {
+        for row in first.y.floor() as i32..last.y.ceil() as i32 {
+            for column in first.x.floor() as i32..last.x.ceil() as i32 {
+                if reserved(column, row) {
                     continue;
                 }
-                painter.rect_filled(tile, 0.0, GREENS[kind]);
-                append_at(&mut field, &flowers[kind], tile.center());
+                let tile = layout.tile(column, row);
+                painter.rect_stroke(
+                    tile.shrink(0.5 * scale),
+                    0.0,
+                    egui::Stroke::new(scale, grid),
+                    egui::StrokeKind::Middle,
+                );
+                let flower_alpha = opacity.flower(column, row);
+                if (column + row).rem_euclid(3) == 0 {
+                    // Quiet cells contain only the study's small leaf marks.
+                    for (offset, size) in [
+                        (Vec2::new(46.0, 47.0), Vec2::new(4.0, 2.0)),
+                        (Vec2::new(48.0, 44.0), Vec2::new(2.0, 3.0)),
+                    ] {
+                        field.add_colored_rect(
+                            Rect::from_min_size(tile.min + offset * scale, size * scale),
+                            grid.gamma_multiply(flower_alpha),
+                        );
+                    }
+                    continue;
+                }
+                let kind = (column + row).rem_euclid(2) as usize;
+                let group = (column + row * 3).rem_euclid(4) as usize;
+                append_at(
+                    &mut field,
+                    &self.flowers[kind][sway_frame(group, seconds)],
+                    tile.center(),
+                    3.0 * scale,
+                    flower_alpha,
+                );
             }
         }
+        // The title is part of the grid: no white backing and no interior lines.
+        painter.rect_stroke(
+            layout.title.shrink(0.5 * scale),
+            0.0,
+            egui::Stroke::new(scale, grid),
+            egui::StrokeKind::Middle,
+        );
+        // Each flower already has its own premultiplied alpha; do not multiply
+        // the field by the title's fade (or by the background's fade) again.
+        painter.set_opacity(1.0);
         painter.add(egui::Shape::mesh(field));
-
-        // Reuse the game's Pixelify Sans font. No subtitle or loading-status text.
+        painter.set_opacity(opacity.foreground);
         let title = painter.layout_no_wrap(
             "re: flora".to_owned(),
-            FontId::proportional((rect.width() * 0.05).clamp(40.0, 72.0)),
-            GREENS[0],
+            FontId::proportional(64.0 * scale),
+            cream,
         );
-        let title_center = rect.min + Vec2::new(rect.width() * 0.5, rect.height() * 0.365);
-        let padding = if rect.width() < 650.0 {
-            Vec2::new(24.0, 16.0)
-        } else {
-            Vec2::new(30.0, 19.0)
-        };
-        painter.rect_filled(
-            Rect::from_center_size(title_center, title.size() + padding * 2.0),
-            0.0,
-            Color32::WHITE,
-        );
-        painter.galley(title_center - title.size() * 0.5, title, GREENS[0]);
-
-        let bar_width = (rect.width() * 0.19).clamp(160.0, 260.0).min(rect.width());
-        let bar = Rect::from_min_size(
-            rect.min + Vec2::new((rect.width() - bar_width) * 0.5, rect.height() * 0.86),
-            Vec2::new(bar_width, 3.0),
-        );
-        painter.rect_filled(bar, 0.0, Color32::from_rgb(83, 117, 91));
+        let (title_pos, underline) = title_and_underline(layout.title, title.mesh_bounds, scale);
+        painter.galley(title_pos, title, cream);
+        painter.rect_filled(underline, 0.0, grid);
         painter.rect_filled(
             Rect::from_min_size(
-                bar.min,
-                Vec2::new(bar.width() * progress.clamp(0.0, 1.0), bar.height()),
+                underline.min,
+                Vec2::new(
+                    underline.width() * progress.clamp(0.0, 1.0),
+                    underline.height(),
+                ),
             ),
             0.0,
-            Color32::from_rgb(238, 229, 173),
+            yellow,
         );
     }
 }
 
-fn rotation_step(kind: usize, seconds: f64) -> usize {
-    let step = (seconds / STEP_SECONDS + kind as f64 * 0.5).floor() as usize % STEPS;
-    if kind == 0 {
-        step
-    } else {
-        (STEPS - step) % STEPS
+/// Two staged alpha fades: background/grid during [0, 1] seconds, then
+/// title/underline during [1, 2]. Flower starts are independently staggered.
+/// No position or scale changes.
+#[derive(Clone, Copy, Debug)]
+struct Opacity {
+    background: f32,
+    foreground: f32,
+    flower_fade: Option<(u64, f64)>,
+}
+
+fn fade(t: f64) -> f32 {
+    let t = t.clamp(0.0, 1.0) as f32;
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
+
+impl Opacity {
+    fn at(seconds: f64) -> Self {
+        Self {
+            background: fade(seconds),
+            foreground: fade(seconds - 1.0),
+            flower_fade: None,
+        }
+    }
+
+    fn flower(self, column: i32, row: i32) -> f32 {
+        match self.flower_fade {
+            Some((seed, seconds)) => fade(seconds - 1.0 - flower_delay(seed, column, row)),
+            None => self.foreground,
+        }
     }
 }
 
-fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2) {
+/// Hash a fixed per-transition seed and logical cell coordinates. This keeps a
+/// flower's timing stable across repaints/resizes, including negative edge cells.
+fn flower_delay(seed: u64, column: i32, row: i32) -> f64 {
+    let cell = ((column as u32 as u64) << 32) | row as u32 as u64;
+    let mut hash = (seed ^ cell).wrapping_add(0x9e3779b97f4a7c15);
+    hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
+    hash ^= hash >> 31;
+    (hash >> 11) as f64 / (1u64 << 53) as f64 * FLOWER_STAGGER_SECONDS
+}
+
+/// Moves the same splash above the real game render after loading completes.
+/// Start the clock only after the first game frame has successfully presented,
+/// so expensive first-frame GPU initialization cannot consume the whole fade.
+pub(crate) struct Transition {
+    splash: Splash,
+    flower_seed: u64,
+    first_presented: Option<Instant>,
+    clear_frame_drawn: bool,
+}
+
+impl Transition {
+    pub(crate) fn new(splash: Splash) -> Self {
+        Self {
+            splash,
+            flower_seed: rand::random(),
+            first_presented: None,
+            clear_frame_drawn: false,
+        }
+    }
+
+    pub(crate) fn show(&mut self, ctx: &Context, visible: bool) {
+        let seconds = self
+            .first_presented
+            .map_or(0.0, |start| start.elapsed().as_secs_f64());
+        let opacity = Opacity {
+            flower_fade: Some((self.flower_seed, seconds)),
+            ..Opacity::at(seconds)
+        };
+        self.clear_frame_drawn = seconds >= TRANSITION_END_SECONDS;
+        // Automated scene captures must keep receiving the scene, not an intro.
+        if visible && !self.clear_frame_drawn {
+            self.splash.paint(
+                ctx,
+                1.0,
+                LayerId::new(egui::Order::Tooltip, egui::Id::new("splash_transition")),
+                opacity,
+            );
+        }
+    }
+
+    pub(crate) fn needs_first_frame_completion(&self) -> bool {
+        self.first_presented.is_none()
+    }
+
+    /// The first callback requires its GPU frame fence to have completed.
+    /// Return true only after a fully transparent overlay frame was presented.
+    pub(crate) fn presented(&mut self) -> bool {
+        if self.first_presented.is_none() {
+            self.first_presented = Some(Instant::now());
+            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s title=1..2s flowers=1..2.6s random_delay=0..0.6s");
+        }
+        if self.clear_frame_drawn {
+            log::info!("[LOADING][SPLASH_TRANSITION] complete");
+        }
+        self.clear_frame_drawn
+    }
+}
+
+/// Center the wordmark and its progress underline as one unit. Use visible ink
+/// bounds, not font advance width, so both ends align with the actual letters.
+fn title_and_underline(region: Rect, ink: Rect, scale: f32) -> (Pos2, Rect) {
+    let gap = 10.0 * scale;
+    let height = 3.0 * scale;
+    let top = region.center() - Vec2::new(ink.width(), ink.height() + gap + height) * 0.5;
+    let text_pos = top - ink.min.to_vec2();
+    let underline = Rect::from_min_size(
+        top + Vec2::new(0.0, ink.height() + gap),
+        Vec2::new(ink.width(), height),
+    );
+    (text_pos, underline)
+}
+
+fn sway_frame(group: usize, seconds: f64) -> usize {
+    ((seconds + group as f64 * 0.45) / STEP_SECONDS).floor() as usize % POSES.len()
+}
+
+fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2, scale: f32, alpha: f32) {
     let offset = target.vertices.len() as u32;
     target
         .indices
@@ -118,50 +328,43 @@ fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2) {
     target
         .vertices
         .extend(source.vertices.iter().map(|vertex| egui::epaint::Vertex {
-            pos: center + vertex.pos.to_vec2(),
+            pos: center + vertex.pos.to_vec2() * scale,
+            color: vertex.color.gamma_multiply(alpha),
             ..*vertex
         }));
 }
 
-/// Build colored unit-square texels instead of filtered textures. This preserves
-/// the local pixel lattice at every rotation without changing the GUI sampler.
-fn flower_mesh(kind: usize) -> Mesh {
-    let (petals, breadth, edge, petal, light, center, pollen) = if kind == 0 {
-        (5, 3.5, 0xcfaa48, 0xf1ce62, 0xffe59a, 0x9d773a, 0xd4a44d)
+/// Port of the approved study's 16px silhouettes, not borrowed reference assets.
+/// Flat unit-square pixels avoid texture filtering or angle-dependent resampling.
+fn flower_mesh(kind: usize, palette: Palette) -> Mesh {
+    let (petals, length, breadth, radius) = if kind == 0 {
+        (5, 2.9, 2.2, 3.9)
     } else {
-        (7, 2.3, 0xc8d5bb, 0xeeefdb, 0xfffdf1, 0xd1aa45, 0xf4d66e)
+        (6, 2.8, 1.85, 3.8)
     };
-    let rgb = |hex: u32| Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
-    let mut pixels = [None; 32 * 32];
+    let [_, _, cream, yellow, center] = palette.colors.map(rgb);
+    let mut pixels = [None; 16 * 16];
     for i in 0..petals {
         let angle = -std::f64::consts::FRAC_PI_2 + i as f64 * std::f64::consts::TAU / petals as f64;
         let (sin, cos) = angle.sin_cos();
-        let length = 4.6 + 0.3 * (i as f64 * 2.0).sin();
-        for y in 3..29 {
-            for x in 3..29 {
-                let dx = x as f64 - 15.5;
-                let dy = y as f64 - 15.5;
+        for y in 0..16 {
+            for x in 0..16 {
+                let dx = x as f64 - 7.5;
+                let dy = y as f64 - 7.5;
                 let u = dx * cos + dy * sin;
                 let v = -dx * sin + dy * cos;
-                let distance = ((u - 6.4) / length).powi(2) + (v / breadth).powi(2);
-                if distance <= 1.0 {
-                    pixels[y * 32 + x] = Some(rgb(if distance > 0.77 {
-                        edge
-                    } else if v < -0.3 {
-                        light
-                    } else {
-                        petal
-                    }));
+                if ((u - radius) / length).powi(2) + (v / breadth).powi(2) <= 1.0 {
+                    pixels[y * 16 + x] = Some(if kind == 0 { yellow } else { cream });
                 }
             }
         }
     }
-    for y in 12..20 {
-        for x in 12..20 {
-            let dx = x as f64 - 15.5;
-            let dy = y as f64 - 15.5;
-            if dx * dx + dy * dy <= 10.0 {
-                pixels[y * 32 + x] = Some(rgb(if dx + dy < -1.0 { pollen } else { center }));
+    for y in 0..16 {
+        for x in 0..16 {
+            let dx = x as f64 - 7.5;
+            let dy = y as f64 - 7.5;
+            if dx * dx + dy * dy <= 3.0 {
+                pixels[y * 16 + x] = Some(if dx + dy < 0.0 { yellow } else { center });
             }
         }
     }
@@ -170,7 +373,7 @@ fn flower_mesh(kind: usize) -> Mesh {
         if let Some(color) = color {
             mesh.add_colored_rect(
                 Rect::from_min_size(
-                    egui::pos2((index % 32) as f32 - 16.0, (index / 32) as f32 - 16.0),
+                    egui::pos2((index % 16) as f32 - 8.0, (index / 16) as f32 - 8.0),
                     Vec2::splat(1.0),
                 ),
                 color,
@@ -185,68 +388,230 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rotation_holds_steps_and_loops_in_opposite_directions() {
-        for kind in 0..2 {
-            assert_eq!(rotation_step(kind, 0.1), rotation_step(kind, 0.3));
-            assert_eq!(
-                rotation_step(kind, 0.1),
-                rotation_step(kind, 0.1 + STEP_SECONDS * STEPS as f64)
-            );
+    fn flower_fades_are_stable_varied_and_finish_after_the_title() {
+        let mut delays = Vec::new();
+        for row in -3..6 {
+            for column in -3..10 {
+                let delay = flower_delay(42, column, row);
+                assert_eq!(delay, flower_delay(42, column, row));
+                assert!((0.0..FLOWER_STAGGER_SECONDS).contains(&delay));
+                delays.push(delay);
+                let alpha = |seconds| {
+                    Opacity {
+                        flower_fade: Some((42, seconds)),
+                        ..Opacity::at(seconds)
+                    }
+                    .flower(column, row)
+                };
+                assert_eq!(alpha(1.0), 1.0);
+                assert!(alpha(2.0) > 0.0);
+                assert_eq!(alpha(TRANSITION_END_SECONDS), 0.0);
+                let mut previous = 1.0;
+                for frame in 0..=160 {
+                    let current = alpha(frame as f64 / 60.0);
+                    assert!(current <= previous);
+                    previous = current;
+                }
+            }
         }
-        assert_eq!(rotation_step(0, 1.2), 1);
-        assert_eq!(rotation_step(1, 1.2), 23);
+        let low = delays.iter().copied().fold(f64::INFINITY, f64::min);
+        let high = delays.iter().copied().fold(0.0, f64::max);
+        assert!(high - low > 0.4);
+        assert_ne!(flower_delay(42, 0, 0), flower_delay(43, 0, 0));
     }
 
     #[test]
-    fn local_pixels_remain_rigid_colored_quads_after_rotation() {
-        for kind in 0..2 {
-            let original = flower_mesh(kind);
-            assert!(!original.is_empty());
-            assert_eq!(original.vertices.len() % 4, 0);
-            let mut rotated = original.clone();
-            rotated.rotate(
-                egui::emath::Rot2::from_angle(std::f32::consts::PI / 12.0),
-                Pos2::ZERO,
+    fn flower_alpha_is_baked_without_modifying_cached_local_pixels() {
+        let flower = flower_mesh(0, PALETTES[0]);
+        let mut field = Mesh::default();
+        append_at(&mut field, &flower, Pos2::ZERO, 1.0, 0.5);
+        for (source, faded) in flower.vertices.iter().zip(&field.vertices) {
+            assert_eq!(source.color.a(), 255);
+            assert_eq!(faded.color, source.color.gamma_multiply(0.5));
+            assert_eq!(source.pos, faded.pos);
+        }
+    }
+
+    #[test]
+    fn transition_fades_background_before_foreground() {
+        for (time, background, foreground) in [
+            (0.0, 1.0, 1.0),
+            (0.5, 0.5, 1.0),
+            (1.0, 0.0, 1.0),
+            (1.5, 0.0, 0.5),
+            (2.0, 0.0, 0.0),
+            (10.0, 0.0, 0.0),
+        ] {
+            let opacity = Opacity::at(time);
+            assert!((opacity.background - background).abs() < 0.00001);
+            assert!((opacity.foreground - foreground).abs() < 0.00001);
+        }
+        let mut previous = Opacity::at(0.0);
+        for frame in 1..=120 {
+            let current = Opacity::at(frame as f64 / 60.0);
+            assert!(current.background <= previous.background);
+            assert!(current.foreground <= previous.foreground);
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn transition_retains_palette_and_waits_for_presented_frames() {
+        let ctx = Context::default();
+        let mut transition = Transition::new(Splash::new(PALETTES[1]));
+        let draw = |transition: &mut Transition| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0))),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| transition.show(ctx, true));
+        };
+        draw(&mut transition);
+        assert!(transition.first_presented.is_none());
+        assert!(!transition.clear_frame_drawn);
+        assert!(!transition.presented());
+        assert!(transition.first_presented.is_some());
+        assert_eq!(transition.splash.palette.name, "moss");
+        transition.first_presented = Some(Instant::now() - std::time::Duration::from_millis(2100));
+        draw(&mut transition);
+        assert!(
+            !transition.clear_frame_drawn,
+            "late flowers must outlive the title fade"
+        );
+        transition.first_presented = Some(Instant::now() - std::time::Duration::from_secs(3));
+        // Time alone does not end the transition before a clear frame is drawn.
+        assert!(!transition.presented());
+        draw(&mut transition);
+        assert!(transition.clear_frame_drawn);
+        assert!(transition.presented());
+    }
+
+    #[test]
+    fn denser_grid_shrinks_cells_without_changing_title_alignment() {
+        let layout = Layout::new(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0)));
+        assert!((layout.cell - 76.8).abs() < 0.00001);
+        assert!((layout.title.width() - 4.0 * layout.cell).abs() < 0.00001);
+        // f32 layout arithmetic may differ by one ULP at viewport coordinates.
+        assert!((layout.title.center().x - 480.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn sway_holds_four_frames_and_staggers_groups() {
+        for (frame, angle) in [-10.0, 0.0, 10.0, 0.0].into_iter().enumerate() {
+            let time = frame as f64 * STEP_SECONDS + 0.01;
+            assert_eq!(POSES[sway_frame(0, time)], angle);
+            assert_eq!(sway_frame(0, time), sway_frame(0, time + 0.8));
+            assert_eq!(
+                sway_frame(0, time),
+                sway_frame(0, time + 4.0 * STEP_SECONDS)
             );
-            assert_eq!(original.indices, rotated.indices);
-            for (before, after) in original.vertices.iter().zip(&rotated.vertices) {
-                assert_eq!(before.color, after.color);
-                assert!(
-                    (before.pos.to_vec2().length() - after.pos.to_vec2().length()).abs() < 0.00001
-                );
+        }
+        assert_ne!(sway_frame(0, 0.1), sway_frame(3, 0.1));
+    }
+
+    #[test]
+    fn title_stays_on_the_grid_at_all_aspect_ratios() {
+        for size in [
+            Vec2::new(960.0, 576.0),
+            Vec2::new(1920.0, 1080.0),
+            Vec2::new(3440.0, 1440.0),
+            Vec2::new(390.0, 844.0),
+        ] {
+            let viewport = Rect::from_min_size(egui::pos2(13.0, 27.0), size);
+            let layout = Layout::new(viewport);
+            assert!(viewport.contains_rect(layout.title));
+            for point in [layout.title.min, layout.title.max] {
+                let cell = (point - layout.origin) / layout.cell;
+                assert!((cell.x - cell.x.round()).abs() < 0.00001);
+                assert!((cell.y - cell.y.round()).abs() < 0.00001);
             }
-            for (before, after) in original
-                .vertices
-                .chunks_exact(4)
-                .zip(rotated.vertices.chunks_exact(4))
-            {
-                for i in 0..4 {
-                    assert!(
-                        (before[i].pos.distance(before[(i + 1) % 4].pos)
-                            - after[i].pos.distance(after[(i + 1) % 4].pos))
-                        .abs()
-                            < 0.00001
-                    );
+            assert!((layout.title.width() / layout.cell - 4.0).abs() < 0.00001);
+            assert!((layout.title.height() / layout.cell - 1.0).abs() < 0.00001);
+            let scale = layout.cell / CELL;
+            let ink =
+                Rect::from_min_size(egui::pos2(2.0, 7.0) * scale, Vec2::new(250.0, 48.0) * scale);
+            let (text_pos, underline) = title_and_underline(layout.title, ink, scale);
+            let positioned_ink = ink.translate(text_pos.to_vec2());
+            assert!(layout.title.contains_rect(positioned_ink));
+            assert!(layout.title.contains_rect(underline));
+            assert!((underline.min.x - positioned_ink.min.x).abs() < 0.001);
+            assert!((underline.max.x - positioned_ink.max.x).abs() < 0.001);
+            assert!(underline.min.y > positioned_ink.max.y);
+            assert!(
+                (positioned_ink.union(underline).center() - layout.title.center()).length() < 0.001
+            );
+        }
+        assert!(
+            (0..6)
+                .flat_map(|r| (0..10).map(move |c| reserved(c, r)))
+                .filter(|r| *r)
+                .count()
+                == 4
+        );
+    }
+
+    #[test]
+    fn all_palettes_have_stable_local_pixel_geometry_and_rigid_poses() {
+        for palette in PALETTES {
+            let splash = Splash::new(palette);
+            assert_eq!(splash.palette.colors, palette.colors);
+            for kind in 0..2 {
+                let original = flower_mesh(kind, palette);
+                assert!(!original.is_empty());
+                assert_eq!(
+                    original.vertices.len(),
+                    flower_mesh(kind, PALETTES[0]).vertices.len()
+                );
+                for rotated in &splash.flowers[kind] {
+                    assert_eq!(original.indices, rotated.indices);
+                    for (before, after) in original.vertices.iter().zip(&rotated.vertices) {
+                        assert_eq!(before.color, after.color);
+                        assert!(
+                            (before.pos.to_vec2().length() - after.pos.to_vec2().length()).abs()
+                                < 0.00001
+                        );
+                    }
                 }
             }
         }
     }
 
     #[test]
-    fn batching_keeps_flower_indices_and_local_colors_valid() {
+    fn batching_keeps_flower_indices_valid_after_scaling() {
         let mut field = Mesh::default();
         for kind in 0..2 {
-            let flower = flower_mesh(kind);
-            append_at(&mut field, &flower, egui::pos2(100.0 * kind as f32, 50.0));
+            append_at(
+                &mut field,
+                &flower_mesh(kind, PALETTES[0]),
+                egui::pos2(100.0 * kind as f32, 50.0),
+                3.0,
+                1.0,
+            );
         }
         assert!(field.is_valid());
         assert_eq!(
             field.vertices.len(),
-            flower_mesh(0).vertices.len() + flower_mesh(1).vertices.len()
+            flower_mesh(0, PALETTES[0]).vertices.len() + flower_mesh(1, PALETTES[0]).vertices.len()
         );
-        assert_ne!(
-            flower_mesh(0).vertices[0].color,
-            flower_mesh(1).vertices[0].color
-        );
+    }
+
+    #[test]
+    fn repaint_does_not_reselect_palette_or_rebuild_local_shapes() {
+        let ctx = Context::default();
+        for palette in PALETTES {
+            let mut splash = Splash::new(palette);
+            let vertex = splash.flowers[0][0].vertices[0];
+            for progress in [0.0, 0.5, 1.0] {
+                let input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0))),
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| splash.show(ctx, progress));
+                assert!(!output.shapes.is_empty());
+                assert_eq!(splash.palette.colors, palette.colors);
+                assert_eq!(splash.flowers[0][0].vertices[0].pos, vertex.pos);
+                assert_eq!(splash.flowers[0][0].vertices[0].color, vertex.color);
+            }
+        }
     }
 }
