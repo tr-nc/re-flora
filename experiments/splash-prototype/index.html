@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- THROWAWAY visual prototype. Three cream/pixel-sprout splash layouts via ?variant=A|B|C.
+<!-- THROWAWAY visual prototype. Full-bleed cream checkerboard, two top-down growth animations.
      No game integration, real loading, storage, dependencies or external requests.
      Run from repo root: python3 -m http.server 4173 --bind 127.0.0.1
      Open /experiments/splash-prototype/ . Hide review UI with H or ?clean=1. -->
@@ -7,30 +7,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#fffbee">
+<meta name="theme-color" content="#fbf5de">
 <link rel="icon" href="data:,">
 <title>Re: Flora · Splash study</title>
 <style>
 @font-face { font-family: Pixel; src: url('../../assets/font/PixelifySans-VariableFont_wght.ttf') format('truetype'); font-display: swap; }
-:root { color-scheme: light; --paper: #fffbee; --ink: #605a36; --muted: #918967; --line: #e8dfb6; --accent: #919b57; }
+:root { color-scheme: light; --paper: #fbf5de; --ink: #605a36; --muted: #918967; --line: #e8dfb6; --accent: #919b57; }
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; background: var(--paper); color: var(--ink); font-family: system-ui, sans-serif; }
 #garden { display: block; position: fixed; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 main { position: fixed; inset: 0; pointer-events: none; }
-.brand { position: absolute; top: 43%; left: 50%; transform: translate(-50%, -50%); text-align: center; white-space: nowrap; }
-h1 { margin: 0; font: 500 clamp(58px, 7.8vw, 112px)/1 Pixel, monospace; letter-spacing: -.045em; }
-.tagline { margin: 20px 0 0; font: 400 10px/1.6 system-ui, sans-serif; letter-spacing: .32em; text-transform: uppercase; color: #8b815d; }
-.loader { position: absolute; left: 50%; top: 68%; transform: translateX(-50%); width: clamp(160px, 19vw, 260px); height: 3px; background: #e7dfba; }
+.brand { position: absolute; top: 36.5%; left: 50%; transform: translate(-50%, -50%); padding: 17px 30px 21px; background: #fff; text-align: center; white-space: nowrap; }
+h1 { margin: 0; font: 500 clamp(40px, 5vw, 72px)/1 Pixel, monospace; letter-spacing: -.045em; }
+.loader { position: absolute; left: 50%; top: 86%; transform: translateX(-50%); width: clamp(160px, 19vw, 260px); height: 3px; background: #e7dfba; }
 .loader-fill { display: block; height: 100%; background: #8f9956; transform: scaleX(0); transform-origin: left; }
-body[data-variant="A"] .brand { top: 43%; }
-body[data-variant="B"] .brand { top: 42%; }
-body[data-variant="C"] .brand { top: 47%; }
-body[data-variant="C"] h1 { font-size: clamp(55px, 6.8vw, 96px); }
 .corner { position: fixed; top: 28px; left: 32px; color: #9b926c; font: 10px/1.4 monospace; letter-spacing: .1em; }
 .review { position: fixed; z-index: 2; bottom: 22px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 24px); padding: 10px 12px; background: #363d2df2; color: #f7f3db; border: 1px solid #505844; border-radius: 12px; box-shadow: 0 8px 30px #383b2520; font-size: 11px; }
 .row { display: flex; align-items: center; justify-content: center; gap: 14px; }
-.switcher { display: flex; align-items: center; gap: 8px; padding-right: 14px; border-right: 1px solid #61664f; }
-#variantLabel { width: 102px; text-align: center; white-space: nowrap; font-size: 12px; }
 button { border: 0; cursor: pointer; font: inherit; color: inherit; background: #ffffff0b; border-radius: 5px; min-height: 28px; padding: 4px 9px; }
 button:hover { background: #ffffff20; }
 button:focus-visible, input:focus-visible { outline: 2px solid #f4d77f; outline-offset: 3px; }
@@ -40,25 +33,23 @@ input[type=range] { width: 68px; accent-color: #d3dca3; }
 .review-tag { color: #b7ad7d; }
 body.clean .review, body.clean .corner { display: none; }
 @media (max-width: 650px) {
-  .review { bottom: 12px; width: max-content; }
+  .review { top: 12px; bottom: auto; width: max-content; }
   .row { flex-wrap: wrap; gap: 8px 12px; max-width: 340px; }
-  .switcher { border: 0; padding-right: 0; }
   .state { white-space: normal; max-width: 340px; }
   .corner { top: 18px; left: 18px; font-size: 9px; }
-  .tagline { font-size: 8px; letter-spacing: .25em; }
+  .brand { padding: 14px 24px 18px; }
 }
 </style>
 </head>
-<body data-variant="B">
+<body>
 <canvas id="garden" aria-hidden="true"></canvas>
 <main aria-label="Re: Flora 启动画面概念预览">
-  <div class="brand"><h1>re: flora</h1><p class="tagline">a little space to grow</p></div>
+  <div class="brand"><h1>re: flora</h1></div>
   <div class="loader" role="progressbar" aria-label="模拟加载进度（非游戏进度）" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="loader-fill"></span></div>
 </main>
-<div class="corner">RE: FLORA <span class="review-tag">/ SPLASH STUDY 01</span></div>
+<div class="corner">RE: FLORA <span class="review-tag">/ SPLASH STUDY 02</span></div>
 <aside class="review" aria-label="原型比较工具（不属于 Splash 设计）">
   <div class="row">
-    <div class="switcher"><button id="prev" aria-label="上一个方案">←</button><span id="variantLabel" aria-live="polite"></span><button id="next" aria-label="下一个方案">→</button></div>
     <label>速度 <input id="speed" type="range" min="0.5" max="1.5" step="0.25" value="0.75"></label>
     <label>格子 <input id="size" type="range" min="96" max="192" step="16" value="144"></label>
     <button id="pause" aria-pressed="false">暂停</button>
@@ -67,22 +58,22 @@ body.clean .review, body.clean .corner { display: none; }
   <div class="state" id="state"></div>
 </aside>
 <script>
-// The sprites are drawn on a 32×32 pixel lattice, from above: the seed opens
-// into two cotyledons, then a second pair. No upright stem / side-view plant.
+// Two genuinely different top-down growth sequences, both on 32×32 grids.
+// Pale tiles: two broad cotyledons open together. Yellow tiles: four narrower
+// leaves unfurl successively around the center. No side-view stems.
 const canvas = document.querySelector('#garden');
 const ctx = canvas.getContext('2d');
-const paper = '#fffbee';
+const paper = '#fbf5de';
+// Original B: #fffbeb / #f7efd0. Move each halfway toward their shared midpoint.
+const tileColors = ['#fdf8e4', '#f9f2d7'];
 const palette = { soil: '#ddd1a2', seed: '#92754d', seedLight: '#bea36d', edge: '#778345', leaf: '#a7b86a', light: '#d0d994', vein: '#8d9e54', center: '#637444' };
-const variants = { A: '满格花圃', B: '棋盘萌芽', C: '留白画框' };
-const keys = Object.keys(variants);
 const query = new URLSearchParams(location.search);
-let variant = keys.includes(query.get('variant')) ? query.get('variant') : 'B';
 let clean = query.get('clean') === '1';
 let speed = .75, cellSize = 144, time = 0, paused = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let width = 0, height = 0, last = 0, lastFrame = -1;
-const frames = [];
+const frames = [[], []];
 
-function makeSprout(frame) {
+function makeSprout(frame, kind) {
   const image = document.createElement('canvas'); image.width = image.height = 32;
   const g = image.getContext('2d');
   const pixel = (x,y,color) => { g.fillStyle = color; g.fillRect(x,y,1,1); };
@@ -93,18 +84,24 @@ function makeSprout(frame) {
       if ((x===14||x===17)&&(y===14||y===17)) continue;
       pixel(x,y, x+y<31 ? palette.seedLight : palette.seed);
     }
-    if(frame>2) { pixel(15,15,paper); pixel(16,16,palette.center); }
+    if(frame>2) { pixel(15,15,tileColors[kind]); pixel(16,16,palette.center); }
     return image;
   }
   // Seed shells at the base remain visible under the unfurling leaves.
   [[13,17],[14,18],[17,13],[18,14]].forEach(([x,y]) => pixel(x,y,palette.seedLight));
-  const progress = Math.min(1,(frame-4)/10);
-  const leaves = [
-    [-Math.PI*.78, 11*progress, 3.7*progress],
-    [ Math.PI*.22, 11*progress, 3.7*progress],
-    [-Math.PI*.28, 8*Math.max(0,(progress-.35)/.65), 3*Math.max(0,(progress-.35)/.65)],
-    [ Math.PI*.72, 8*Math.max(0,(progress-.35)/.65), 3*Math.max(0,(progress-.35)/.65)],
-  ];
+  let leaves;
+  if(kind===0) {
+    // Simultaneous paired opening: long, rounded seed leaves.
+    const growth=Math.min(1,(frame-4)/9);
+    const breadth=4.5*Math.min(1,Math.max(0,(frame-6)/7));
+    leaves=[[-Math.PI*.78,12*growth,breadth], [Math.PI*.22,12*growth,breadth]];
+  } else {
+    // Clockwise unfurling: each leaf starts two frames after the previous one.
+    leaves=Array.from({length:4},(_,i)=>{
+      const growth=Math.min(1,Math.max(0,(frame-4-i*2)/6));
+      return [-Math.PI*.62+i*Math.PI*.5,[10,9,11,8.5][i]*growth,3.7*growth];
+    });
+  }
   for(const [angle,length,breadth] of leaves) {
     if(length<1) continue;
     for(let y=2;y<30;y++) for(let x=2;x<30;x++) {
@@ -114,9 +111,9 @@ function makeSprout(frame) {
       if(u<=0||u>=length) continue;
       const edge=Math.pow(Math.sin(Math.PI*u/length),.8)*breadth;
       if(Math.abs(v)>edge) continue;
-      let color = v>.6 ? palette.leaf : palette.light;
-      if(edge-Math.abs(v)<.7) color=palette.edge;
-      if(Math.abs(v)<.5 && u<length-1) color=palette.vein;
+      let color = v>.6 ? (kind ? '#9cac73' : palette.leaf) : (kind ? '#c6d49a' : palette.light);
+      if(edge-Math.abs(v)<.7) color=kind ? '#728354' : palette.edge;
+      if(Math.abs(v)<.5 && u<length-1) color=kind ? '#879b60' : palette.vein;
       pixel(x,y,color);
     }
   }
@@ -125,7 +122,7 @@ function makeSprout(frame) {
   if(frame===16||frame===17) { pixel(24,7,'#d8bd62'); if(frame===17) { pixel(23,8,'#e5d294');pixel(25,6,'#e5d294'); } }
   return image;
 }
-for(let f=0;f<24;f++) frames.push(makeSprout(f));
+for(let kind=0;kind<2;kind++) for(let f=0;f<24;f++) frames[kind].push(makeSprout(f,kind));
 
 function resize() {
   width=innerWidth; height=innerHeight;
@@ -145,37 +142,15 @@ function draw() {
   for(let row=0;row<rows;row++) for(let col=0;col<columns;col++) {
     const x=ox+col*cell, y=oy+row*cell, cx=x+cell/2, cy=y+cell/2;
     const parity=(row+col)&1;
-    let present=true, quiet=false, phase=cycle%1;
-    if(variant==='A') {
-      quiet=Math.abs(cx-width/2)<Math.min(260,width*.39) && cy>height*.26 && cy<height*.74;
-      ctx.fillStyle=parity?'#faf5df':'#fffbee';
-    } else if(variant==='B') {
-      // The whole horizontal clearing keeps the wordmark and progress line quiet.
-      quiet=cy>height*.29 && cy<height*.76;
-      present=parity===(Math.floor(cycle)&1);
-      ctx.fillStyle=parity?'#f7efd0':'#fffbeb';
-    } else {
-      // A tiled frame; the middle becomes an unbroken sheet of warm white.
-      quiet=cx>cell*1.2 && cx<width-cell*1.2 && cy>cell*.95 && cy<height-cell*.95;
-      if(width<650) quiet=cy>height*.2&&cy<height*.79;
-      phase=(cycle+parity*.5)%1;
-      ctx.fillStyle=parity?'#f8f1d6':'#fffbee';
-    }
-    if(variant==='C'&&quiet) continue;
-    if(!quiet) { ctx.fillRect(x,y,cell,cell); }
-    // All linework is soft and strictly square, including the progress bar.
-    ctx.strokeStyle=quiet?'#eee7cc':'#e8dfb7';ctx.lineWidth=1;
-    if(variant!=='B'||!quiet) ctx.strokeRect(x+.5,y+.5,cell,cell);
-    if(quiet||!present) continue;
+    // Every cell stays painted and animated, even behind the title and bar.
+    // Parity determines the animation itself, not merely a time offset.
+    ctx.fillStyle=tileColors[parity];ctx.fillRect(x,y,cell,cell);
+    ctx.strokeStyle='#ebe3c2';ctx.lineWidth=1;
+    ctx.strokeRect(x+.5,y+.5,cell,cell);
+    const phase=(cycle+parity*.25)%1;
     const frame=Math.min(23,Math.floor(phase*24));
     const extent=32*spriteScale;
-    ctx.drawImage(frames[frame], Math.round(cx-extent/2), Math.round(cy-extent/2), extent, extent);
-    // Small corner registration pixels make the repeated field feel intentional.
-    if(variant==='A') { ctx.fillStyle='#e1d7ae';ctx.fillRect(x+cell-3,y+cell-3,2,2); }
-  }
-  if(variant==='C') {
-    const extent=96;
-    ctx.drawImage(frames[Math.min(23,Math.floor((cycle%1)*24))], Math.round(width/2-extent/2), Math.round(height*.26-extent/2), extent, extent);
+    ctx.drawImage(frames[parity][frame], Math.round(cx-extent/2), Math.round(cy-extent/2), extent, extent);
   }
   // Purely simulated loading. Nothing here is connected to game startup.
   const progress=(time%20)/20;
@@ -183,32 +158,26 @@ function draw() {
   document.querySelector('.loader').setAttribute('aria-valuenow',Math.round(progress*100));
 }
 function update() {
-  document.body.dataset.variant=variant;
   document.body.classList.toggle('clean',clean);
-  document.querySelector('#variantLabel').textContent=`${variant} · ${variants[variant]}`;
   document.querySelector('#pause').textContent=paused?'播放':'暂停';
   document.querySelector('#pause').setAttribute('aria-pressed',paused);
-  document.querySelector('#state').textContent=`HTML DEMO · 俯视 / 24 帧 · ${speed}× · ${cellSize}px 格子 · 模拟进度 · H 隐藏/恢复`;
-  const url=new URL(location.href);url.searchParams.set('variant',variant);
+  document.querySelector('#state').textContent=`DEMO · 双叶展开 / 环生小芽 · ${speed}× · ${width<650?Math.min(cellSize,112):cellSize}px 格子 · H 隐藏/恢复`;
+  const url=new URL(location.href);url.searchParams.delete('variant');
   if(clean) url.searchParams.set('clean','1'); else url.searchParams.delete('clean');
   history.replaceState(null,'',url);
   lastFrame=-1;draw();
 }
-function cycleVariant(delta) { variant=keys[(keys.indexOf(variant)+delta+keys.length)%keys.length];update(); }
-document.querySelector('#prev').onclick=()=>cycleVariant(-1);
-document.querySelector('#next').onclick=()=>cycleVariant(1);
 document.querySelector('#pause').onclick=()=>{paused=!paused;update();};
 document.querySelector('#clean').onclick=()=>{clean=true;update();};
 document.querySelector('#speed').oninput=e=>{speed=Number(e.target.value);update();};
 document.querySelector('#size').oninput=e=>{cellSize=Number(e.target.value);update();};
 addEventListener('keydown',e=>{
   if(e.target.closest('input,textarea,select,[contenteditable]')) return;
-  if(e.key==='ArrowLeft'||e.key==='ArrowRight') { e.preventDefault();cycleVariant(e.key==='ArrowLeft'?-1:1); }
   if(e.key.toLowerCase()==='h') { clean=!clean;update(); }
   if(e.code==='Space') { e.preventDefault();paused=!paused;update(); }
 });
-addEventListener('popstate',()=>{ const p=new URLSearchParams(location.search); variant=keys.includes(p.get('variant'))?p.get('variant'):'B';clean=p.get('clean')==='1';update(); });
-addEventListener('resize',resize);
+addEventListener('popstate',()=>{ clean=new URLSearchParams(location.search).get('clean')==='1';update(); });
+addEventListener('resize',()=>{resize();update();});
 function tick(now) {
   if(last&&!paused&&!document.hidden) time+=Math.min((now-last)/1000,.1);
   last=now;

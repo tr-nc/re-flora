@@ -1,8 +1,8 @@
 # Splash screen — throwaway HTML study
 
-**Question:** Which warm-white / pale-yellow grid layout best supports top-down pixel sprouts and a very simple loading line?
+**Question:** How should a warm-white / pale-yellow checkerboard, top-down pixel growth and a minimal loading line feel together?
 
-Visual review only. **Not wired into the game**, no real startup progress, no saved settings, no npm/build dependencies. Keep this experiment out of production integration; the chosen direction should be implemented separately after review.
+Visual review only. **Not wired into the game**, no real startup progress, no saved settings, no npm/build dependencies. Implement the approved direction separately when integrating into the game.
 
 ## Open
 
@@ -12,26 +12,31 @@ From the repository root:
 python3 -m http.server 4173 --bind 127.0.0.1
 ```
 
-Open <http://127.0.0.1:4173/experiments/splash-prototype/>. You can also open `index.html` directly; it uses the repository's existing Pixelify Sans font with a fallback.
+Open <http://127.0.0.1:4173/experiments/splash-prototype/> or add `?clean=1` to hide the review tools. Opening `index.html` directly also works; the page uses the repository's existing Pixelify Sans font with a fallback.
 
-- `?variant=A` — **满格花圃**: synchronous sprouts across a full-bleed tiled field, with a small quiet area around the title.
-- `?variant=B` — **棋盘萌芽** (default): sprouts alternate checkerboard cells; a wide central clearing separates the two garden bands.
-- `?variant=C` — **留白画框**: a tiled border around a large quiet center, with one larger sprout above the title.
-- Add `&clean=1` for a clean preview without review controls.
+## Current direction — revision 2
 
-The thin progress line is at **68% of viewport height**, horizontally centered. No visible percentage or loading copy. It simulates a repeating 20-second load, unrelated to the game.
+- Full-bleed checkerboard with **no central clearing or overlay**. Only the title has a compact, solid white rectangular backing.
+- Tile colors **#fdf8e4 / #f9f2d7**: each original color moved halfway toward their common midpoint, approximately halving the contrast without changing the overall warmth.
+- Smaller title, centered at **36.5% of viewport height**; subtitle removed.
+- A simple **3 px loading line at 86% of viewport height**, horizontally centered. No visible percentage or loading text. Simulated 20-second loop, unrelated to game startup.
+- Two distinct, parity-bound animations, both viewed from above:
+  - Pale squares: a seed splits and **two broad cotyledons open together**.
+  - Yellow squares: **four leaves unfurl successively around the center**.
+- Both sets of cells animate throughout. They do not alternate between occupied/empty sets. A quarter-cycle offset adds rhythm, but their shapes and growth sequences are genuinely different, not just time-shifted copies.
 
-The 32×32 sprites have a 24-frame growth cycle (including holds): seed → split seed → two cotyledons → four-leaf rosette, viewed from above. Rendering uses nearest-neighbor integer enlargement, not smooth scaling of vector illustrations. Reduced-motion preference starts the demo paused.
+Sprites use 32×32 pixel lattices and 24-frame growth cycles (including holds), enlarged with nearest-neighbor integer scaling. Reduced-motion preference starts the demo paused.
+
+The original three-layout comparison is preserved on `prototype/splash-screen` at `0f4d043e`. This revision converges on the user's full-checkerboard direction; old `?variant=` links now open the current design.
 
 ## Review controls
 
-- Bottom arrows / keyboard **← →**: change layout; the URL follows.
 - Sliders: growth speed and cell size (mobile caps cells at 112 px).
-- **Space**: pause / resume both animation and simulated progress.
-- **H**: hide / restore the prototype controls.
+- **Space**: pause / resume animation and simulated progress.
+- **H**: hide / restore the prototype tools.
 
-Everything stays in memory except the shareable layout/clean URL. The dark review bar and top-left study label are **not part of the splash design**.
+Everything stays in memory except the shareable clean-preview URL. The dark review bar and top-left study label are **not part of the splash design**.
 
-## Review status
+## Validation
 
-Awaiting visual selection; no game changes. Browser-checked at 1440×900 and 390×844: three layouts, keyboard switching, slider input without accidental layout switching, pause, clean-preview toggle, no horizontal overflow and no browser errors. No Rust/shader files changed, so no game build is needed for this demo.
+Browser-checked on desktop and mobile: full-grid composition, two distinct animation sequences, smaller white-backed title, low progress line, slider/pause controls, clean-preview toggle, no horizontal overflow and no browser errors. No Rust/shader/game changes; no game build needed.
