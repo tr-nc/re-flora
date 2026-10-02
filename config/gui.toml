@@ -1285,12 +1285,12 @@ max = 64
 [[section.param]]
 id = "special_flora_min_spacing_voxels"
 kind = "float"
-label = "Special Flora Min Spacing (voxels)"
+label = "Non-grass Flora Shared Min Spacing (voxels)"
 type = "Float"
 
 [section.param.data]
 value = 5
-min = 0
+min = 1
 max = 32
 
 [[section.param]]

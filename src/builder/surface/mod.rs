@@ -878,13 +878,18 @@ impl SurfaceBuilder {
         })
     }
 
-    pub fn authored_flora_base_positions_for_species(&self, species_index: u32) -> Vec<UVec3> {
+    pub fn authored_flora_base_positions(&self) -> impl Iterator<Item = (u32, UVec3)> + '_ {
         self.authored_flora
             .instances_by_chunk
             .values()
             .flat_map(|instances| instances.iter())
-            .filter(|instance| instance.species_index == species_index)
-            .map(|instance| instance.base_world_vox)
+            .map(|instance| (instance.species_index, instance.base_world_vox))
+    }
+
+    pub fn authored_flora_base_positions_for_species(&self, species_index: u32) -> Vec<UVec3> {
+        self.authored_flora_base_positions()
+            .filter(|(index, _)| *index == species_index)
+            .map(|(_, position)| position)
             .collect()
     }
 

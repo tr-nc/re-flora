@@ -650,6 +650,28 @@ fn authored_flora_existing_cluster_anchor(
     candidates.into_iter().next()
 }
 
+// Density is shared by every non-grass species; cluster attraction remains
+// species-specific. Read canonical instances so previous strokes, loaded plants,
+// and plants in adjacent chunks all participate in the same admission check.
+fn authored_flora_neighbours(
+    instances: impl IntoIterator<Item = (u32, UVec3)>,
+    selected_species: u32,
+) -> (Vec<Vec3>, Vec<Vec3>) {
+    let mut all = Vec::new();
+    let mut same_species = Vec::new();
+    for (species_index, position) in instances {
+        if species::is_grass_species_index(species_index) {
+            continue;
+        }
+        let center = authored_flora_base_center(position);
+        all.push(center);
+        if species_index == selected_species {
+            same_species.push(center);
+        }
+    }
+    (all, same_species)
+}
+
 fn authored_flora_natural_candidate_score(
     candidate_base_center_vox: Vec3,
     cluster_anchor_vox: Vec3,
@@ -3203,7 +3225,7 @@ impl App {
                 .adjustables
                 .special_flora_min_spacing_voxels
                 .value
-                .max(0.0),
+                .max(1.0),
             cluster_bias: self
                 .debug_settings
                 .adjustables
@@ -3228,12 +3250,10 @@ impl App {
             return Ok(());
         }
 
-        let existing_base_centers_vox = self
-            .surface_builder
-            .authored_flora_base_positions_for_species(species_index)
-            .into_iter()
-            .map(authored_flora_base_center)
-            .collect::<Vec<_>>();
+        let (existing_base_centers_vox, same_species_centers_vox) = authored_flora_neighbours(
+            self.surface_builder.authored_flora_base_positions(),
+            species_index,
+        );
         let mut placed_base_centers_vox = Vec::new();
         let mut placement_batch = AuthoredFloraPlacementBatch::new();
         let x_span = max.x - min.x;
@@ -3249,7 +3269,7 @@ impl App {
         let existing_anchor = (!is_outlier_release).then(|| {
             authored_flora_existing_cluster_anchor(
                 edit,
-                &existing_base_centers_vox,
+                &same_species_centers_vox,
                 distribution.cluster_radius_voxels,
                 release_seed,
             )
@@ -3518,6 +3538,114 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_grass_density_is_shared_across_species_and_strokes() {
+        let params = SpecialFloraDistributionParams {
+            plants_per_release: 2,
+            cluster_radius_voxels: 18.0,
+            min_spacing_voxels: 5.0,
+            cluster_bias: 0.75,
+            outlier_chance: 0.15,
+        };
+        let root = UVec3::new(255, 100, 255);
+        // A different flower, across a chunk boundary, must reject this candidate.
+        let instances = vec![(2, root)];
+        let (all, same) = authored_flora_neighbours(instances.clone(), 3);
+        assert!(same.is_empty());
+        let candidate = authored_flora_base_center(root + UVec3::X);
+        assert!(authored_flora_natural_candidate_score(
+            candidate,
+            candidate,
+            &all,
+            &[],
+            params,
+            42,
+        )
+        .is_none());
+        // The exact spacing boundary is accepted; plants accepted earlier in
+        // this release have the same force as plants from previous releases.
+        let boundary = authored_flora_base_center(root + UVec3::X * 5);
+        assert!(
+            authored_flora_natural_candidate_score(boundary, boundary, &all, &[], params, 42,)
+                .is_some()
+        );
+        assert!(authored_flora_natural_candidate_score(
+            boundary,
+            boundary,
+            &all,
+            &[boundary],
+            params,
+            42,
+        )
+        .is_none());
+        let (all, same) = authored_flora_neighbours(instances, 2);
+        assert_eq!(all, same);
+        // Neither grass species consumes flower density.
+        let (grass, _) = authored_flora_neighbours(
+            [
+                (species::TALL_GRASS_SPECIES_INDEX, root),
+                (species::SHORT_GRASS_SPECIES_INDEX, root),
+            ],
+            3,
+        );
+        assert!(grass.is_empty());
+        assert!(authored_flora_natural_candidate_score(
+            candidate,
+            candidate,
+            &grass,
+            &[],
+            params,
+            42,
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn switching_species_cannot_refill_a_saturated_flora_patch() {
+        let params = SpecialFloraDistributionParams {
+            plants_per_release: 2,
+            cluster_radius_voxels: 18.0,
+            min_spacing_voxels: 5.0,
+            cluster_bias: 0.75,
+            outlier_chance: 0.15,
+        };
+        let mut instances = Vec::new();
+        for pass in 0..4 {
+            let count_before = instances.len();
+            for species_index in 2..species::species().len() as u32 {
+                for x in 250..261 {
+                    for z in 250..261 {
+                        let root = UVec3::new(x, 100, z);
+                        let candidate = authored_flora_base_center(root);
+                        let (all, _) =
+                            authored_flora_neighbours(instances.iter().copied(), species_index);
+                        if authored_flora_natural_candidate_score(
+                            candidate,
+                            candidate,
+                            &all,
+                            &[],
+                            params,
+                            42,
+                        )
+                        .is_some()
+                        {
+                            instances.push((species_index, root));
+                        }
+                    }
+                }
+            }
+            if pass > 0 {
+                assert_eq!(instances.len(), count_before);
+            }
+        }
+        assert!(instances.len() > 1 && instances.len() < 121);
+        for (i, (_, a)) in instances.iter().enumerate() {
+            for (_, b) in &instances[i + 1..] {
+                assert!(authored_flora_xz_distance_sq(a.as_vec3(), b.as_vec3()) >= 25.0);
+            }
+        }
+    }
     use std::f32::consts::FRAC_PI_4;
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]

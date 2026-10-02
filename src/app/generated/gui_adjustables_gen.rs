@@ -676,7 +676,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Flora",
         id: "special_flora_min_spacing_voxels",
         kind: "float",
-        label: "Special Flora Min Spacing (voxels)",
+        label: "Non-grass Flora Shared Min Spacing (voxels)",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
