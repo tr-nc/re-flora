@@ -168,6 +168,7 @@ impl App {
 
     pub(super) fn terrain_edit_pointer_available(&self) -> bool {
         !self.blocking_panel_open()
+            && !self.camera_control.zoom_in_progress()
             && !self.gui_blocks_world_pointer()
             && self.launch_owners.glass_experiment_settings().is_none()
             && (!self.window_state.is_cursor_visible() || self.is_orbit_edit_camera_mode())
@@ -270,6 +271,36 @@ impl App {
         frame_delta_time: f32,
         sim_time_seconds: f64,
     ) -> Vec<crate::gameplay::camera::FootstepEvent> {
+        self.review_camera_zoom();
+        if self.camera_control.zoom_in_progress() {
+            if !self.blocking_panel_open() {
+                let step = self
+                    .camera_control
+                    .advance_zoom_transition(frame_delta_time);
+                if let Some((pose, done)) = step {
+                    let yaw = pose.yaw_deg.to_radians();
+                    let pitch = pose.pitch_deg.to_radians();
+                    let front = Vec3::new(
+                        yaw.sin() * pitch.cos(),
+                        pitch.sin(),
+                        -yaw.cos() * pitch.cos(),
+                    );
+                    self.tracer
+                        .set_camera_pose_looking_at(pose.position, pose.position + front);
+                    if done {
+                        self.tracer.reset_camera_velocity();
+                        self.sync_cursor_with_panels();
+                        log::info!(
+                            "[CAMERA_ZOOM] completed walking={} yaw={} pitch={}",
+                            self.is_walk_camera_mode(),
+                            pose.yaw_deg,
+                            pose.pitch_deg
+                        );
+                    }
+                }
+            }
+            return self.tracer.take_footstep_events();
+        }
         if self.is_free_fly_camera_mode() {
             self.tracer.update_fly_camera(frame_delta_time);
         } else if self.is_walk_camera_mode() {
@@ -331,6 +362,7 @@ impl App {
 
     fn orbit_mouse_drag_available(&self) -> bool {
         self.is_orbit_edit_camera_mode()
+            && !self.camera_control.zoom_in_progress()
             && !self.blocking_panel_open()
             && !self.gui_blocks_world_pointer()
     }
@@ -440,24 +472,149 @@ impl App {
         }
 
         if self.camera_scroll_available() {
-            self.camera_control.queue_mouse_wheel_dolly(scroll_lines);
+            if self.is_walk_camera_mode() {
+                if scroll_lines.is_finite() && scroll_lines < 0. {
+                    self.prepare_camera_zoom_switch();
+                    self.camera_control
+                        .begin_zoom_to_edit(self.tracer.camera_pose());
+                    self.sync_cursor_with_panels();
+                    log::info!("[CAMERA_ZOOM] started destination=orbit-edit preview=false");
+                }
+            } else {
+                self.camera_control.queue_mouse_wheel_dolly(scroll_lines);
+            }
         }
     }
 
+    // Opt-in native diagnostic drives the production wheel/capsule paths.
+    fn review_camera_zoom(&mut self) {
+        let Some((phase, frames)) = self.camera_control.zoom_review else {
+            return;
+        };
+        self.camera_control.zoom_review = Some((phase, frames + 1));
+        if self.camera_control.zoom_in_progress() || frames < 120 {
+            return;
+        }
+        match phase {
+            0 => {
+                let center = super::camera_control::ORBIT_CAMERA_DEFAULT_FOCUS;
+                let hit = self
+                    .query_terrain_ray_cpu(Vec3::new(center.x, 2., center.z), Vec3::NEG_Y)
+                    .expect("zoom review needs terrain");
+                let height = self
+                    .tracer
+                    .prepare_walk_camera_movement(0., 0.)
+                    .camera_height;
+                let mut pose = self.tracer.camera_pose();
+                pose.position = hit.position + Vec3::Y * (height + 0.002);
+                pose.yaw_deg = 36.;
+                pose.pitch_deg = 80.;
+                self.tracer.apply_camera_pose(pose);
+                self.camera_control.apply_snapshot_mode(false);
+                self.sync_cursor_with_panels();
+                self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0., -1.));
+                assert!(
+                    self.camera_control.zoom_in_progress(),
+                    "walk wheel must directly start withdrawal without preview"
+                );
+                self.camera_control.zoom_review = Some((1, 0));
+            }
+            1 => {
+                assert!(self.is_orbit_edit_camera_mode());
+                let pose = self.tracer.camera_pose();
+                assert!((pose.pitch_deg + 25.).abs() < 0.01);
+                assert!((pose.yaw_deg - 36.).abs() < 0.01);
+                assert!(self.window_state.is_cursor_visible());
+                self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0., 12.));
+                self.camera_control.zoom_review = Some((2, 0));
+            }
+            2 => {
+                assert!(
+                    self.is_walk_camera_mode(),
+                    "zoom must land using capsule, not remain in orbit"
+                );
+                assert!(!self.window_state.is_cursor_visible());
+                let pose = self.tracer.camera_pose();
+                assert!(pose.position.is_finite());
+                assert!(pose.pitch_deg.abs() < 0.01);
+                assert!((pose.yaw_deg - 36.).abs() < 0.01);
+                log::info!("[CAMERA_ZOOM_REVIEW] passed preview=false wheel_roundtrip=true yaw_preserved=true edit_pitch=-25 landing_capsule=true cursor=true");
+                self.camera_control.zoom_review = None;
+            }
+            _ => unreachable!("native zoom review phase"),
+        }
+    }
+
+    fn prepare_camera_zoom_switch(&mut self) {
+        self.player_tools.cancel_continuous_hold();
+        self.stop_terrain_edit_loop_sound();
+        self.reset_camera_movement_input();
+        self.tracer.reset_camera_velocity();
+    }
+
     fn camera_scroll_available(&self) -> bool {
-        self.orbit_mouse_drag_available()
+        (self.is_orbit_edit_camera_mode() || self.is_walk_camera_mode())
+            && !self.camera_control.zoom_in_progress()
+            && !self.blocking_panel_open()
+            && !self.gui_blocks_world_pointer()
     }
 
     fn update_mouse_wheel_camera_dolly(&mut self, frame_delta_time: f32) {
         let available = self.camera_scroll_available();
         let camera_position = self.tracer.camera_position();
-        let Some((position, focus)) =
-            self.camera_control
-                .advance_orbit_dolly(frame_delta_time, available, camera_position)
-        else {
+        if !self.is_orbit_edit_camera_mode() {
+            return;
+        }
+        match self
+            .camera_control
+            .advance_orbit_dolly(frame_delta_time, available, camera_position)
+        {
+            Some(super::camera_control::OrbitDollyAction::Pose(position, focus)) => {
+                self.tracer.set_camera_pose_looking_at(position, focus);
+            }
+            Some(super::camera_control::OrbitDollyAction::Land) => self.try_zoom_into_walk(),
+            None => {}
+        }
+    }
+
+    fn try_zoom_into_walk(&mut self) {
+        let start = self.tracer.camera_pose();
+        let focus = self.camera_control.flora_showcase_center(start.position);
+        let origin = Vec3::new(focus.x, start.position.y.max(focus.y) + 0.25, focus.z);
+        let Some(hit) = self.query_terrain_ray_cpu(origin, Vec3::NEG_Y) else {
+            log::info!("[CAMERA_ZOOM] landing rejected reason=no-terrain");
             return;
         };
-        self.tracer.set_camera_pose_looking_at(position, focus);
+        // Sweep the real player capsule onto the published collision floor, not just
+        // a brush-ray height. No floor / blocked capsule means stay in edit mode.
+        let height = self
+            .tracer
+            .prepare_walk_camera_movement(0., 0.)
+            .camera_height;
+        let eye_above = hit.position + Vec3::Y * (height + 0.12);
+        let request = crate::gameplay::camera::PlayerWalkMovementRequest {
+            camera_position: eye_above,
+            camera_height: height,
+            desired_translation: Vec3::new(0., -0.122, 0.),
+        };
+        let result = match self.terrain_physics.move_player_capsule(request, 1. / 60.) {
+            Ok(result) => result,
+            Err(error) => {
+                log::warn!("[CAMERA_ZOOM] landing rejected reason=capsule-query {error:#}");
+                return;
+            }
+        };
+        let eye = eye_above + result.translation;
+        if !result.grounded || !eye.is_finite() || eye.y < hit.position.y + height - 0.01 {
+            log::info!("[CAMERA_ZOOM] landing rejected reason=unsafe-capsule");
+            return;
+        }
+        self.prepare_camera_zoom_switch();
+        self.camera_control.begin_zoom_to_walk(start, eye);
+        log::info!(
+            "[CAMERA_ZOOM] started destination=walk ground={:?} eye={eye:?} capsule=true",
+            hit.position
+        );
     }
 
     pub(super) fn set_tool_mouse_button_state(&mut self, button: MouseButton, state: ElementState) {

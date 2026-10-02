@@ -14,16 +14,14 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Sampling — Flower Stems",
-        description: "Live A/B; off restores the original cube stems. All three candidates use the same tapered skeleton. Direction cells tilt with the view: fixed-position rotation preserves source rays, walking does not. Surface cells follow the plant but keep a continuous silhouette. Thin direction-sampled branches can disappear; no minimum-width or temporal filter is hidden here. Test forks are bare branches, not new flower heads. Direction density and surface cell size affect only their respective modes.",
+        description: "Continuous stems with independent surface shading and pixel sampling. Wind is always active.",
         initially_open: true,
         params: &[
-            "flower_stem_experiment",
-            "flower_stem_sampling",
+            "flower_stem_pixelized",
+            "flower_stem_surface_cells",
             "flower_stem_direction_resolution",
-            "flower_stem_surface_cell_scale",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
-            "flower_stem_freeze_motion",
         ],
     },
     ControlGroup {
@@ -136,6 +134,32 @@ pub(super) fn render(
             .id_salt(("debug_controls", group.title))
             .default_open(group.initially_open)
             .show(ui, |ui| {
+                if group.title == "Pixel Sampling — Flower Stems" {
+                    ui.weak(group.description);
+                    for (title, ids) in [
+                        ("Geometry", &["model_flower_voxel_scale", "flower_stem_radius_scale", "flower_stem_test_branches"][..]),
+                        ("Shading", &["flower_stem_surface_cells", "model_flower_stem_bottom_color", "model_flower_stem_tip_color"][..]),
+                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_direction_resolution"][..]),
+                    ] {
+                        ui.label(title);
+                        for id in ids {
+                            if *id == "flower_stem_direction_resolution" && !adjustables.flower_stem_pixelized.value {
+                                continue;
+                            }
+                            for owner in config {
+                                if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
+                                    render_gui_param_from_config(ui, param, &owner.name, adjustables);
+                                }
+                            }
+                        }
+                        if title == "Shading" {
+                            ui.weak("Off: continuous shading. On: branch-attached material cells.");
+                        } else if title == "Pixelization" {
+                            ui.weak("Quantizes world-direction sample rays, not screen-space post-processing. Combines with either shading style.");
+                        }
+                    }
+                    return;
+                }
                 ui.weak(group.description);
                 ui.add_space(4.0);
                 if group.title == "Pixel Models — Global" {
@@ -185,6 +209,75 @@ mod tests {
     use super::*;
     use crate::app::gui_config::{DebugSettings, GuiConfigLoader};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn stem_effects_render_independently_without_resetting_hidden_values() {
+        let group = GROUPS
+            .iter()
+            .find(|g| g.title == "Pixel Sampling — Flower Stems")
+            .unwrap();
+        for (pixelized, surface_cells) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let mut settings = DebugSettings::load();
+            settings.adjustables.flower_stem_pixelized.value = pixelized;
+            settings.adjustables.flower_stem_surface_cells.value = surface_cells;
+            settings.adjustables.flower_stem_direction_resolution.value = 768;
+            settings.adjustables.model_flower_voxel_scale.value = 1.8;
+            settings.sync_config();
+            let before = serde_json::to_value(&settings.config).unwrap();
+            let context = egui::Context::default();
+            context.memory_mut(|memory| memory.set_everything_is_visible(true));
+            let output = context.run_ui(egui::RawInput::default(), |ui| {
+                settings.draw(ui, |_, _| {});
+            });
+            let text = format!("{:?}", output.shapes);
+            let mut expected = vec![
+                "flower_stem_pixelized",
+                "flower_stem_surface_cells",
+                "flower_stem_radius_scale",
+                "flower_stem_test_branches",
+            ];
+            if pixelized {
+                expected.push("flower_stem_direction_resolution");
+            }
+            assert!(text.contains("Geometry"));
+            assert!(text.contains("Shading"));
+            assert!(text.contains("Pixelization"));
+            for id in group.params {
+                let label = &settings
+                    .config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == *id)
+                    .unwrap()
+                    .label;
+                assert_eq!(
+                    text.contains(label),
+                    expected.contains(id),
+                    "pixelized={pixelized} surface_cells={surface_cells} id={id}"
+                );
+            }
+            let voxel_label = &settings
+                .config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "model_flower_voxel_scale")
+                .unwrap()
+                .label;
+            assert_eq!(
+                text.matches(voxel_label).count(),
+                1,
+                "Stem dimensions must have one owner"
+            );
+            assert!(!text.contains("block geometry B"));
+            assert!(!text.contains("geometry cell size"));
+            settings.sync_config();
+            assert_eq!(serde_json::to_value(&settings.config).unwrap(), before);
+        }
+    }
 
     #[test]
     fn optional_ddgi_candidates_are_isolated_in_a_collapsed_experiment_group() {

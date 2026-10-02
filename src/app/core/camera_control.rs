@@ -1,4 +1,13 @@
+mod zoom;
+
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
+use crate::gameplay::camera::CameraPose;
+use zoom::{edit_pose_from_walk, ZoomTransition};
+
+pub(super) enum OrbitDollyAction {
+    Pose(Vec3, Vec3),
+    Land,
+}
 use glam::{Vec2, Vec3};
 use winit::event::{ElementState, MouseButton};
 use winit::keyboard::KeyCode;
@@ -211,6 +220,10 @@ pub(super) struct OrbitMotion {
 
 pub(super) struct CameraControlRuntime {
     mode: CameraControlMode,
+    zoom_transition: Option<ZoomTransition>,
+
+    // Opt-in native input/physics diagnostic; never a persisted setting.
+    pub(super) zoom_review: Option<(u8, u32)>,
     debug_return_mode: Option<CameraControlMode>,
     orbit_focus: Vec3,
     keyboard_pan: OrbitKeyboardPanInput,
@@ -226,6 +239,9 @@ impl Default for CameraControlRuntime {
     fn default() -> Self {
         Self {
             mode: CameraControlMode::default(),
+            zoom_transition: None,
+            zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1"))
+                .then_some((0, 0)),
             debug_return_mode: None,
             orbit_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             keyboard_pan: OrbitKeyboardPanInput::default(),
@@ -271,12 +287,14 @@ impl CameraControlRuntime {
     }
 
     pub(super) fn cycle_mode(&mut self) -> bool {
+        self.zoom_transition = None;
         self.debug_return_mode = None;
         self.mode = self.mode.next();
         self.is_orbit_edit()
     }
 
     pub(super) fn apply_snapshot_mode(&mut self, fly_mode: bool) {
+        self.zoom_transition = None;
         self.debug_return_mode = None;
         self.mode = if fly_mode {
             CameraControlMode::FreeFly
@@ -552,8 +570,56 @@ impl CameraControlRuntime {
         }
     }
 
+    pub(super) fn zoom_in_progress(&self) -> bool {
+        self.zoom_transition.is_some()
+    }
+
+    pub(super) fn begin_zoom_to_walk(&mut self, start: CameraPose, eye: Vec3) {
+        self.reset_motion();
+        self.debug_return_mode = None;
+        self.zoom_transition = Some(ZoomTransition::new(
+            start,
+            CameraPose {
+                position: eye,
+                pitch_deg: 0.,
+                ..start
+            },
+            true,
+        ));
+    }
+
+    pub(super) fn begin_zoom_to_edit(&mut self, start: CameraPose) {
+        self.reset_motion();
+        self.debug_return_mode = None;
+        self.mode = CameraControlMode::OrbitEdit;
+        self.orbit_focus = start.position;
+        self.zoom_transition = Some(ZoomTransition::new(
+            start,
+            edit_pose_from_walk(start),
+            false,
+        ));
+    }
+
+    pub(super) fn advance_zoom_transition(&mut self, dt: f32) -> Option<(CameraPose, bool)> {
+        let transition = self.zoom_transition.as_mut()?;
+        let (pose, done) = transition.advance(dt);
+        if done {
+            self.mode = if transition.walking {
+                CameraControlMode::Walk
+            } else {
+                CameraControlMode::OrbitEdit
+            };
+            self.zoom_transition = None;
+            self.accumulated_mouse_delta = Vec2::ZERO;
+            self.smoothed_mouse_delta = Vec2::ZERO;
+        }
+        Some((pose, done))
+    }
+
     pub(super) fn queue_mouse_wheel_dolly(&mut self, scroll_lines: f32) {
-        self.dolly_smoother.add_scroll_lines(scroll_lines);
+        if !self.zoom_in_progress() {
+            self.dolly_smoother.add_scroll_lines(scroll_lines);
+        }
     }
 
     pub(super) fn advance_orbit_dolly(
@@ -561,8 +627,8 @@ impl CameraControlRuntime {
         frame_delta_time: f32,
         available: bool,
         camera_position: Vec3,
-    ) -> Option<(Vec3, Vec3)> {
-        if !available {
+    ) -> Option<OrbitDollyAction> {
+        if !available || self.zoom_in_progress() {
             self.dolly_smoother.reset();
             return None;
         }
@@ -574,7 +640,15 @@ impl CameraControlRuntime {
         let forward_distance =
             scroll_lines * ORBIT_CAMERA_DOLLY_SPEED * MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE;
         let (azimuth, elevation, distance) = self.orbit_spherical(camera_position);
-        Some(self.orbit_pose(azimuth, elevation, distance - forward_distance))
+        if forward_distance > 0.
+            && distance - forward_distance <= ORBIT_CAMERA_MIN_DISTANCE
+            && self.debug_return_mode.is_none()
+        {
+            self.dolly_smoother.reset();
+            return Some(OrbitDollyAction::Land);
+        }
+        let (position, focus) = self.orbit_pose(azimuth, elevation, distance - forward_distance);
+        Some(OrbitDollyAction::Pose(position, focus))
     }
 }
 
@@ -897,6 +971,57 @@ mod tests {
         assert!((total_advanced - velocity).length() <= 0.0001);
         assert_eq!(smoother.current_delta, Vec3::ZERO);
         assert_eq!(smoother.target_delta, Vec3::ZERO);
+    }
+
+    #[test]
+    fn wheel_zoom_enters_walk_only_after_a_bounded_transition() {
+        let mut runtime = CameraControlRuntime::default();
+        runtime.set_orbit_focus(Vec3::ZERO);
+        runtime.queue_mouse_wheel_dolly(12.);
+        assert!(matches!(
+            runtime.advance_orbit_dolly(1., true, Vec3::Z * 0.6),
+            Some(OrbitDollyAction::Land)
+        ));
+        let pose = CameraPose {
+            position: Vec3::Z * 0.2,
+            yaw_deg: 20.,
+            pitch_deg: -45.,
+            fov_deg: 60.,
+        };
+        runtime.begin_zoom_to_walk(pose, Vec3::Y * 0.08);
+        assert!(runtime.is_orbit_edit());
+        assert!(runtime.zoom_in_progress());
+        assert!(!runtime.advance_zoom_transition(0.1).unwrap().1);
+        assert!(runtime.advance_zoom_transition(1.).unwrap().1);
+        assert!(runtime.is_walk());
+        assert!(!runtime.zoom_in_progress());
+        runtime.begin_zoom_to_edit(pose);
+        assert!(runtime.is_orbit_edit());
+        assert!(runtime.zoom_in_progress());
+        runtime.advance_zoom_transition(1.);
+        assert!(runtime.is_orbit_edit());
+    }
+
+    #[test]
+    fn ui_owned_scroll_and_temporary_debug_orbit_cannot_land() {
+        let mut runtime = CameraControlRuntime::default();
+        runtime.set_orbit_focus(Vec3::ZERO);
+        runtime.queue_mouse_wheel_dolly(12.);
+        assert!(runtime
+            .advance_orbit_dolly(1., false, Vec3::Z * 0.6)
+            .is_none());
+        assert!(runtime
+            .advance_orbit_dolly(1., true, Vec3::Z * 0.6)
+            .is_none());
+        runtime.apply_snapshot_mode(true);
+        runtime.sync_debug_panel_mode(true);
+        runtime.queue_mouse_wheel_dolly(12.);
+        assert!(matches!(
+            runtime.advance_orbit_dolly(1., true, Vec3::Z * 0.6),
+            Some(OrbitDollyAction::Pose(..))
+        ));
+        runtime.sync_debug_panel_mode(false);
+        assert!(runtime.is_free_fly());
     }
 
     #[test]

@@ -92,31 +92,22 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
-id = "flower_stem_experiment"
+id = "flower_stem_pixelized"
 kind = "bool"
-label = "Flower stems: experimental sampling (off = original)"
+label = "Flower stems: world-direction pixel sampling"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "flower_stem_surface_cells"
+kind = "bool"
+label = "Flower stems: surface-attached cell shading"
 type = "Bool"
 
 [section.param.data]
 value = false
-
-[[section.param]]
-id = "flower_stem_sampling"
-kind = "choice"
-label = "Flower stems: sampling method"
-type = "Choice"
-
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
-[section.param.data]
-value = 1
-options = [
-    "Continuous silhouette (reference)",
-    "World-direction pixels (rotation-stable source)",
-    "Surface-attached cells (continuous silhouette)",
-]
 
 [[section.param]]
 id = "flower_stem_direction_resolution"
@@ -125,41 +116,22 @@ label = "Flower stems: direction cells per cube face"
 type = "Uint"
 
 [section.param.enabled_if]
-param = "flower_stem_experiment"
+param = "flower_stem_pixelized"
 equals = true
 
 [section.param.data]
-value = 512
+value = 550
 min = 128
 max = 2048
 
 [[section.param]]
-id = "flower_stem_surface_cell_scale"
-kind = "float"
-label = "Flower stems: surface cell size / stem edge"
-type = "Float"
-
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
-[section.param.data]
-value = 1
-min = 0.25
-max = 4
-
-[[section.param]]
 id = "flower_stem_radius_scale"
 kind = "float"
-label = "Flower stems: continuous radius scale"
+label = "Flower stems: radius scale"
 type = "Float"
 
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
 [section.param.data]
-value = 0.7
+value = 1.43
 min = 0.25
 max = 2
 
@@ -169,25 +141,8 @@ kind = "bool"
 label = "Flower stems: two tapered test branches"
 type = "Bool"
 
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
 [section.param.data]
 value = true
-
-[[section.param]]
-id = "flower_stem_freeze_motion"
-kind = "bool"
-label = "Flower stems + heads: disable wind / rest bend"
-type = "Bool"
-
-[section.param.enabled_if]
-param = "flower_stem_experiment"
-equals = true
-
-[section.param.data]
-value = false
 
 [[section.param]]
 id = "ddgi_aggregate_history"
@@ -1268,7 +1223,7 @@ max = 1
 [[section.param]]
 id = "model_flower_voxel_scale"
 kind = "float"
-label = "Stem Voxel Edge Scale (1 = Half Grass Edge)"
+label = "Flower stems: base dimension scale"
 type = "Float"
 
 [section.param.data]

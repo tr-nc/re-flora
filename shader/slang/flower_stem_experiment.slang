@@ -11,6 +11,7 @@ public struct StemProxyVertex {
     // Plant yaw (axisX.x/z), height and rest bend, all camera-independent.
     [[vk::location(2)]] public nointerpolation float4 yaw_height_bend:TEXCOORD2;
     [[vk::location(3)]] public nointerpolation float4 motion_edge:TEXCOORD3;
+    [[vk::location(4)]] public nointerpolation float4 socket:TEXCOORD4;
 };
 public float3 stemToWorldVector(StemProxyVertex p,float3 v) {
     float c=p.yaw_height_bend.x,s=p.yaw_height_bend.y;
@@ -24,7 +25,7 @@ public StemGeometry stemGeometry(StemProxyVertex p) {
     StemGeometry s;
     s.height=p.yaw_height_bend.z;s.bend=p.yaw_height_bend.w;
     s.radius=p.motion_edge.w*0.5*flowerStemShapeSettings().x;
-    s.motion=p.motion_edge.xyz;s.branches=flowerStemSamplingSettings().w;
+    s.motion=p.motion_edge.xyz;s.branches=flowerStemSamplingSettings().w;s.socket=p.socket;
     return s;
 }
 public float3 stemWorldPoint(StemProxyVertex p,float3 local) {

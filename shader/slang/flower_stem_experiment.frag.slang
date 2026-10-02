@@ -8,9 +8,10 @@ struct StemFragment {
 [shader("fragment")]
 StemFragment main(StemProxyVertex input) {
     float3 displayRay=normalize(input.ray);
-    uint mode=flowerStemSamplingSettings().y;
-    float3 sampleRay=mode==1u?stemDirectionCell(displayRay,flowerStemSamplingSettings().z):displayRay;
-    float3 ro=stemToLocalVector(input,camera_info.pos.xyz-input.root_scale.xyz)/input.root_scale.w;
+    bool pixelized=flowerStemSamplingSettings().y!=0u;
+    float3 sampleRay=pixelized?stemDirectionCell(displayRay,flowerStemSamplingSettings().z):displayRay;
+    float3 sampleOrigin=camera_info.pos.xyz;
+    float3 ro=stemToLocalVector(input,sampleOrigin-input.root_scale.xyz)/input.root_scale.w;
     float3 rd=stemToLocalVector(input,sampleRay);
     StemGeometry s=stemGeometry(input);
     StemHit hit=traceStem(s,ro,rd);
@@ -22,17 +23,22 @@ StemFragment main(StemProxyVertex input) {
     if(hit.distance>=1e19)return output;
     float3 world=stemWorldPoint(input,hit.point);
     float3 shadePoint=hit.point,shadeNormal=hit.normal;
-    if(mode==2u)stemSurfaceCell(s,hit,input.motion_edge.w*flowerStemShapeSettings().y,shadePoint,shadeNormal);
+    if(flowerStemSamplingSettings().x!=0u)stemSurfaceCell(s,hit,input.motion_edge.w,shadePoint,shadeNormal);
     float3 color=flowerStemColor(shadePoint.y,s.height);
     output.color=float4(shadeFlower(color,stemWorldPoint(input,shadePoint),stemToWorldVector(input,shadeNormal)),1);
     // A direction texel is a little plane perpendicular to its fixed source
     // ray, through the sampled surface. Intersect that plane with the actual
     // display ray before writing scene depth: never paste RGBA over terrain or
     // petals, and never use a stale offscreen/cubemap depth convention.
-    if(mode==1u) {
-        float distance=dot(world-camera_info.pos.xyz,sampleRay)/max(dot(displayRay,sampleRay),1e-6);
-        world=camera_info.pos.xyz+displayRay*distance;
+    if(pixelized) {
+        world=stemDirectionDisplayPoint(camera_info.pos.xyz,displayRay,sampleRay,world);
     }
+    // Quantized source-ray texels are finite planes: their display footprint
+    // can cross the socket even when the sampled point does not. Restrict the
+    // actual displayed/depth point too; never paint stem on the outward head
+    // side or force its depth behind petals to conceal a geometric mismatch.
+    float3 displayedLocal=stemToLocalVector(input,world-input.root_scale.xyz)/input.root_scale.w;
+    if(!stemInsideSocket(s,displayedLocal)) { output.color=float4(0);output.depth=1.0;return output; }
     float4 clip=mul(camera_info.view_proj_mat,float4(world,1));
     output.depth=clip.z/clip.w;
     if(clip.w<=0.0||output.depth<0.0||output.depth>1.0) {

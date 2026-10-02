@@ -33,7 +33,11 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 ## Publish the flower bank
 
 The six published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).
-Both the native publisher and web studio call the one `parametric-flower.mjs` generator; the old
+Both the native publisher and web studio call the one `parametric-flower.mjs` generator; it also
+publishes the head's `socket_normal` for the analytic stem's closed attachment-plane cut. Source
+hits and world-direction texel display points must remain on the inward side, rather than relying
+on a thin flower center to hide an overflowing rounded stem end. See [socket evidence](../../docs/evidence/stem-flower-socket.md).
+The old
 radial/tulip/whole-plant geometry recipes have been removed. `flower-head.mjs` preserves the complete
 attachment-local head, not one tile per petal. All preset geometry, UVs and palette-weight decoding
 are shared; runtime placement/lighting/sampling remain consumer-owned.
@@ -76,46 +80,41 @@ and size controls). With mean `m` and variance `v`:
 ```text
 maximum layers = max(1, round(base layers × (m + 3 × sqrt(v))))
 plant layers   = clamp(round(base layers × (m + sqrt(v) × z)), 1, maximum layers)
-voxel edge     = 0.05 × voxel edge scale
-stem height    = plant layers × voxel edge
+base dimension = 0.05 × base dimension scale
+stem height    = plant layers × base dimension
 ```
 
 Variance is **not standard deviation**. Rounding, the one-layer minimum and upper
 three-standard-deviation safety cap mean the final discrete/clamped heights are only
 approximately Gaussian. At variance zero, same-species plants have equal layer counts.
-Reducing voxel size never adds layers to compensate; the stem becomes shorter. Mean
-changes layer counts, never stretches cubes. Existing global size/growth still apply to
-the whole plant. The head follows the actual tip without being resized by these controls.
+Reducing the base dimension never adds layers to compensate; the stem becomes shorter.
+Existing global size/growth still apply to the whole plant. The head follows the actual
+tip without being resized by these controls. The saved `model_flower_voxel_scale` ID is
+retained for compatibility, but no cube mesh is generated.
 
-GPU instances select a prefix of a bounded, closed-cell source mesh and re-bend its cell
-centers without stretching. At most 301 cells per plant are allocated under supported
-settings. Cache generations carry the matching distribution and draw counts; large
-variance increases vertex work, not per-instance flower-head baking.
+Stems are continuous tapered analytic geometry, rendered through a six-vertex proxy.
+The source bank contains only head triangles; stem height capacity is explicit metadata,
+not inferred from mesh triangle counts.
 
 **Stem Bottom Color** and **Stem Tip Color** are declarative saved
 settings, independent of grass and calyx colors. The native stem interpolates between them
 along its undeformed height, so wind and overall scaling do not slide the gradient. There
-is no whole-plant pixelization switch. The opt-in **Pixel Sampling — Flower Stems** experiment adds a separate
-original/continuous/direction/surface comparison; unchecked preserves the voxel-stem rules below.
-See [stem sampling evidence](../../docs/evidence/stem-sampling-experiment.md).
+is no whole-plant pixelization switch. **Pixel Sampling — Flower Stems** has three groups:
 
-- Exactly one cube occupies each horizontal layer of the stalk. Its baseline edge is `0.05`
-  (half a grass edge at full growth and overall scale 1). Adjacent cells share positive face
-  area; no lateral filling or branches are generated. Global size/growth still scale the plant.
-- Native cells retain all six faces, including caps hidden at rest: wind may expose new
-  parts of those caps. Internal faces stay occluded inside the opaque cell volumes.
-- Mean/variance edits regenerate the bounded layer bank rather than stretch cubes. The CPU source generation
-  owns the resulting triangle ranges and draw counts; bounded index capacity covers the full
-  saved height range. There are no stem leaflets or leaf-attachment transforms.
-- Wind uses the existing vegetation response, but translates whole cells in XZ
-  instead of tilting the entire stack. Smoothstep displacement is bounded to one quarter of
-  stem height so the saved height range retains overlapping cell footprints. The terminal head
-  follows the same tip displacement. Culling includes that bound; this is not a new solver.
-- **The calyx belongs to the complete flower object**, together with petals and center, and is
-  pixelated with that head. It is never constrained by the stalk's one-voxel-per-layer rule.
+- **Geometry**: base dimensions, radius scale and optional two tapered branches.
+- **Shading**: independent surface-attached cell shading checkbox (off = continuous),
+  plus bottom/tip colors. This changes shading coordinates, not visibility or depth.
+- **Pixelization**: independent world-direction sampling checkbox and direction resolution.
+  Quantized source rays affect the silhouette and depth; this is not screen-space post-processing.
+  Both effects can be enabled or disabled independently.
+
+Original cube stems, fixed-object pixel sampling and the wind-freeze override are removed.
+Wind/rest bend always follow the normal shared stem/head pose, bounded to one quarter of
+stem height; CPU culling includes that bound. The calyx remains part of the pixelated head.
+See [independent stem controls](../../docs/evidence/stem-independent-controls.md).
 `flower_model.slang` adapts pose/materials to the existing sampling/projection/display modules;
 `ModelPixelFrame` owns compute/draw pairing and frame-slot storage, and `PipelineTopology`
-owns descriptor retirement. Native voxel stems and depth-bearing heads share the game depth
+owns descriptor retirement. Continuous stems and depth-bearing heads share the game depth
 attachment and environment lighting. These flowers add no dedicated collision or shadow-caster
 pass. Browser shape/color/weight-map edits remain temporary until intentionally copied to the shared preset and published.
 The shared model deliberately supports a single radial whorl with identical petals and a simple

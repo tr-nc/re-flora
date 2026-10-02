@@ -15,8 +15,9 @@ import tracer_types;
 public struct FlowerModelPart {
     public uint4 range; // first triangle, count, shared cache source, head count
     public float4 center_radius;
-    public float4 stem; // tip x/y, max bend fraction, stem triangle count
+    public float4 stem; // tip x/y, max bend fraction, maximum layer count
     public float4 distribution; // base layers, edge, mean, standard deviation
+    public float4 socket; // outward head normal; live plane offset computed at stem tip
 };
 public struct PushConstantFlower {
     public uint3 chunk_world_offset;
@@ -52,7 +53,6 @@ public struct FlowerPlantPose {
     public ModelPixelFrame frame;
     public float3 tip_offset;
     public float3 attachment_offset;
-    public uint layers;
     public float height;
     public float bend;
 };
@@ -65,7 +65,7 @@ public float flowerNormalSample(uint seed) {
 public uint flowerLayerCount(uint seed) {
     FlowerModelPart part=flowerPart(0u);
     float factor=part.distribution.z+part.distribution.w*flowerNormalSample(seed);
-    return uint(clamp(floor(part.distribution.x*factor+0.5),1.0,part.stem.w/12.0));
+    return uint(clamp(floor(part.distribution.x*factor+0.5),1.0,part.stem.w));
 }
 public FlowerPlantPose flowerPlantPose(uint plant) {
     Instance instance=flora_instances.data[floraSpeciesInstanceOffset(flower_pc.species)+plant];
@@ -75,7 +75,7 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     FlowerModelPart whole=flowerPart(0u);
     uint layers=flowerLayerCount(seed^wellonsHash(flower_pc.species));
     float height=layers*whole.distribution.y;
-    // A small layer count still needs positive-area contact after wind bending.
+    // Bound rest bend consistently with the authored assembly dimensions.
     float bend=min(whole.stem.x,whole.distribution.y*float(layers-1u)*0.25);
     float3 attachmentDelta=float3(bend-whole.stem.x,height-whole.stem.y,0);
     float moisture=1.0;
@@ -94,13 +94,7 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
         ?sampleVegetationResponse(root,seed,flower_pc.species,plant,flower_pc.response_offset)
         :sampleWindVolume(wind_volume_info,wind_volume_tex,float3(root)/256.0,seed);
     float3 rest=floraNaturalRestBend(gui_input,seed,1.0,plantHeight);
-    // The experiment freezes both consumers of this pose, so the terminal head
-    // never detaches from a frozen stem. Off restores the untouched original pose.
-    if(gui_input.flower_stem_sampling.x!=0u&&gui_input.flower_stem_shape.z>0.5) {
-        wind=float3(0);rest=float3(0);
-    }
-    // Keep horizontal voxel layers horizontal. Wind transports whole cells,
-    // and the terminal head; it never rotates/stretches cells.
+    // Stem and terminal head share the same wind displacement and yaw frame.
     float3 up=float3(0,1,0);
     float yaw=constructFloat01(wellonsHash(seed))*6.2831853;
     float3 sideways=float3(cos(yaw),0,sin(yaw));
@@ -110,23 +104,17 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     frame.axisX=normalize(cross(up,frame.axisZ));frame.axisY=up;
     frame.scale=spawn.visibility>0.0?scale:0.0;
     float3 displacement=float3(wind.x+rest.x,0,wind.z+rest.z)*growth/256.0;
-    // Bounded smooth bending preserves positive overlap between adjacent cells
-    // throughout the saved height range. The uploaded bound is also consumed
-    // by CPU culling; it must not be independently tuned here.
+    // The uploaded displacement bound is also consumed by CPU culling;
+    // it must not be independently tuned here.
     float limit=height*frame.scale*whole.stem.z;
     displacement*=min(1.0,limit/max(length(displacement),1e-7));
     float3 attachmentOffset=(frame.axisX*attachmentDelta.x+frame.axisY*attachmentDelta.y)*frame.scale;
     frame.center+=displacement+attachmentOffset;
     FlowerPlantPose pose;pose.frame=frame;pose.tip_offset=displacement;
-    pose.attachment_offset=attachmentOffset;pose.layers=layers;pose.height=height;pose.bend=bend;
+    pose.attachment_offset=attachmentOffset;pose.height=height;pose.bend=bend;
     return pose;
 }
 public ModelPixelFrame flowerPlantFrame(uint plant) { return flowerPlantPose(plant).frame; }
-public float3 flowerStemWorld(FlowerPlantPose pose,float3 local,float anchorHeight) {
-    float t=saturate(anchorHeight/max(pose.height,1e-7));
-    float weight=t*t*(3.0-2.0*t);
-    return modelPixelWorld(pose.frame,local)+pose.tip_offset*(weight-1.0)-pose.attachment_offset;
-}
 public uint4 flowerStemSamplingSettings() { return gui_input.flower_stem_sampling; }
 public float4 flowerStemShapeSettings() { return gui_input.flower_stem_shape; }
 public float3 flowerStemColor(float height,float totalHeight) {

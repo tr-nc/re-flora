@@ -1,6 +1,12 @@
 # 游戏内植物茎采样对照
 
+**当前 UI、退休模式和保存迁移以 [`stem-selector-controls.md`](stem-selector-controls.md) 为准。下文保留首轮实验记录，不是当前控件清单。**
+
 基于 [`stem_pixel_rotation_stability.md`](../research/stem_pixel_rotation_stability.md) 的第一轮视觉候选。用户已确认接受像素倾斜／变形，并要求同时比较原地转头与绕行。**已实现运行时对照，不是最终美术、无闪烁或性能验收。** 未保留二维教学 HTML。
+
+后续 Surface-attached 几何格滑杆与实时 A/B 见 [`stem-surface-block-geometry.md`](stem-surface-block-geometry.md)；旧的 Surface-attached 连续轮廓说明对应 A。
+
+后续固定物体网格 A/B 见 [`stem-object-sampling-ab.md`](stem-object-sampling-ab.md)。下述 World-direction 描述仍对应原角度采样 A；新复选框默认关闭，保留该比较基线。
 
 ## 使用
 

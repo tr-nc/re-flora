@@ -3,7 +3,7 @@ import flower_stem_geometry;
 bool close(float a,float b) { return abs(a-b)<2e-5; }
 export __extern_cpp int main() {
     StemGeometry s;
-    s.height=2.0;s.bend=0.0;s.radius=0.1;s.motion=float3(0);s.branches=0u;
+    s.height=2.0;s.bend=0.0;s.radius=0.1;s.motion=float3(0);s.branches=0u;s.socket=float4(0);
     StemHit side=traceStem(s,float3(0,1,1),float3(0,0,-1));
     // Independent closed-form middle of a linear tapered hull of spheres.
     if(!close(side.distance,1.0-0.08/sqrt(1.0-0.02*0.02)))return 1;

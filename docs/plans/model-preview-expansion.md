@@ -51,3 +51,11 @@
 - Rust 1260 passed、Slang 27 passed、Node 34 passed、四套浏览器通过；真实隐藏 Release 六种花 9 阶段和 3,145,728 个花缓存记录校验通过。
 - 注释与报告保留模型局限、缓存／atlas 增量；没有宣称最终视觉／性能接受。
 - 报告：`docs/evidence/unified-native-flowers.md`。
+
+## 4. 网页编辑清理与茎穿出花盘修复 — 已完成
+
+- 删除画笔、撤销、权重 PNG 编辑／导入／导出和专用控件逻辑；程序化贴纸与 palette 渲染保留。清理提交 `592f707f`。
+- 统一生成器声明 socket 法线；连续茎源在真实 attachment 面闭合截断，direction texel 显示点同样受接合面约束，不按花补丁／深度偏移。
+- 滨菊生产 trace 回归先红后绿，覆盖六种花、风、半径／密度／极短茎和方向格；1260 Rust、28 Slang、34 Node，通过四 renderer／16 phase 原生验证。
+- 用户 GUI 设置完整保留，不改默认、不提交用户在游戏内保存的设置。
+- 报告：`docs/evidence/stem-flower-socket.md`。

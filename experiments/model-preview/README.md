@@ -39,11 +39,10 @@ node scripts/serve-model-preview.mjs
 
 - RGB 存 A/B/C 的权重，D 为剩余权重，最后归一化。纯红／绿／蓝／黑代表 A/B/C/D；红绿过渡就是 A 与 B 混色，不是数字索引跳到另一种颜色。
 - 混色在 **Linear-sRGB**，结果由共享标准材质参与源图、像素图和补点采色。比如 palette A 蓝、B 白，同一贴纸可表现瓣中蓝→白边；换 palette 不改贴纸或几何。
-- 提供“瓣根→瓣尖”“瓣中→白边”“细脉”“纯色”四个模板，可自由画 A/B/C/D、调画笔、撤销，切换查看最终配色或原始权重。
+- 模板在共用源中程序化生成（根→尖、瓣中→白边、细脉、纯色）；页面只展示预设并允许换 palette，不提供贴纸编辑。
 - 贴纸图集左 ¾：每一片花瓣共用的 UV，**上根下尖、左右瓣缘**。右上：花心；右下：花萼。四槽不固定绑定任何器官。
-- 可导出／导入 **不透明权重 PNG**（32–512px 宽高、≤4 MiB）。alpha 不参与权重；透明／越界图片拒绝且不破坏当前贴纸。导入不上传网络。建议使用本工具导出的无额外色彩配置权重图，避免图像编辑器对数据通道作颜色管理。
-- 画布可拖动绘制，也可方向键移动光标、空格绘制。颜色预设只换 palette，不覆盖造型和贴纸。
-- 参数仅在当前页面内存；切换模型／恢复默认会清除编辑。PNG 导出可保存权重，但不是完整形态工程文件。
+- 画笔、撤销、权重 PNG 导入／导出与贴纸编辑器已按用户要求删除；颜色预设只换 palette，不覆盖造型和预设贴纸。
+- 参数仅在当前页面内存；切换模型／恢复默认会清除调整，不提供保存工程。像素结果的透明 PNG 截图导出仍保留。
 
 右侧仍是**每完整花头 N×N → 固定 512×512 透明合成**，不是每瓣一张图。每头使用同相机裁切投影，GPU 深度／几何补点深度参与合成。形状改变更新包围球，转台和左侧缩放不逐帧重新撑满瓦片。
 
@@ -72,11 +71,10 @@ node scripts/serve-model-preview.mjs
 | 文件 | 职责 |
 | --- | --- |
 | `viewer.js` / HTML / CSS | 唯一模型切换、声明式控件、相机、时钟、导出入口 |
-| `weight-map-editor.js` | 通用权重贴纸控件，绘制／撤销／有界 PNG I/O，不参与渲染 |
 | `models/flower-catalog.mjs` | 直接引用游戏预设，补充仅网页的研究预设 |
 | `assets/models/flower-source.mjs` | 六种正式花的共用形态／palette／贴纸预设 |
 | `assets/models/parametric-flower.mjs` | 无 DOM / Three.js 的确定性几何、UV、参数边界 |
-| `assets/models/palette-mask.mjs` | 两端共用的权重模板、绘制、验证、线性 palette 混色 |
+| `assets/models/palette-mask.mjs` | 两端共用的权重模板、验证、线性 palette 混色 |
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
 | `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |
@@ -86,7 +84,7 @@ node scripts/serve-model-preview.mjs
 
 新模型定义注册到 `models/index.js`，提供：
 
-- `id`、`label`、`defaults`、`controls`（range / checkbox / color / select / weight-map / note）、`preview`。
+- `id`、`label`、`defaults`、`controls`（range / checkbox / color / select / note）、`preview`。
 - `async create()` → `scene`、`meshes`、固定 `view`、`clips`、`apply(settings)`、可跳到任意时刻的 `sample(time,clip)`、`preparePass`、`shadows`、`description`、`dispose()`。
 - `repairGroups: [{id,label,meshes}]`；非零唯一 ID，一个 mesh 只归一组，不能把不应相连的对象硬缝起来。
 - 花头可提供 `pixelParts: [{id,label,meshes,center,span,anchor}]`；完整花头与同 ID repair group 匹配，center/span 是旋转安全固定包围，不另建姿态或相机权威。
@@ -106,4 +104,4 @@ node experiments/model-preview/tests/animals-browser.cjs
 
 支持 `CHROME_EXECUTABLE` / `PREVIEW_ARTIFACT_DIR`。脚本自行创建／关闭服务与 headless Chrome；不启动游戏，不保存 GUI 设置。
 
-完整 Node 套件：34 个纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；贴纸真实绘制／撤销／PNG 往返／透明拒绝、palette/贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。不提交二进制截图。游戏的性能和美术接受需另行验证。
+完整 Node 套件：34 个纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。不提交二进制截图。游戏的性能和美术接受需另行验证。

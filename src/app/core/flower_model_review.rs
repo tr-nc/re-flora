@@ -20,8 +20,8 @@ impl FlowerModelReview {
         let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
             return Ok(None);
         };
-        ensure!(["a", "b", "ab", "controls", "stems", "stem-original", "stem-continuous", "stem-direction", "stem-surface"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (live sampling/camera sweep), or stem-original/continuous/direction/surface (fixed captures)");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-direction", "stem-surface", "stem-combined"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/sampling combinations with live wind and camera sweep), or stem-continuous/direction/surface/combined (fixed camera)");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -79,6 +79,8 @@ impl App {
             1.
         };
         if controls {
+            settings.flower_stem_pixelized.value = false;
+            settings.flower_stem_surface_cells.value = true;
             settings.model_flower_height_variance.value = control.shape.height_variance;
             settings.model_flower_voxel_scale.value = control.shape.voxel_scale;
         }

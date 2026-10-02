@@ -22,7 +22,6 @@ export const flowerDefinitions=flowerCatalog.map(spec=>({
     {key:'tilt',label:'花头仰角',min:-15,max:85,step:1},
     {type:'note',label:'贴纸只决定 A/B/C/D 的混合权重，实际颜色由下方 palette 决定。四槽没有固定部位含义；蓝白渐变不需要新颜色分区参数。'},
     ...paletteKeys.map((key,i)=>({key,type:'color',label:`调色板 ${'ABCD'[i]}`})),
-    {key:'weightMap',type:'weight-map',label:'调色板权重贴纸',paletteKeys},
   ],
   colorPresets:[
     {name:'蓝白',colors:{paletteA:'#488cdf',paletteB:'#fbfcff',paletteC:'#f4ce67',paletteD:'#5c864d'}},

@@ -18,8 +18,8 @@ public struct U_GuiInput
     public float3 flora_voxel_hsv_offset_max;
     public float3 flower_stem_bottom;
     public float3 flower_stem_tip;
-    public uint4 flower_stem_sampling; // enabled, method, direction resolution, branches
-    public float4 flower_stem_shape; // radius scale, surface cell scale, freeze motion, reserved
+    public uint4 flower_stem_sampling; // surface-cell shading, pixelized rays, direction resolution, branches
+    public float4 flower_stem_shape; // radius scale, reserved
     public float3 grass_bottom_dark;
     public float3 grass_bottom_light;
     public float3 grass_tip_dark;

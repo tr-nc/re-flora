@@ -9,9 +9,9 @@ import {spawnSync} from 'node:child_process';
 
 const help = `Usage: node scripts/validate-stem-sampling.mjs [--seconds <positive-number>]
 
-Capture original, continuous, world-direction and surface-attached flower stems
-in hidden muted Release mode, then exercise all modes with fixed-position yaw /
-pitch and orbit, wind, density/radius extremes, near-plane clipping and resize.
+Capture all four combinations of continuous/surface-cell shading and direction
+pixel sampling in hidden muted Release mode, then exercise fixed/orbit/dolly/near
+cameras, live wind and resize.
 Requires Cargo, Slang, Vulkan and a desktop display. GUI settings are never saved.
 --seconds controls sweep duration (default 12); fixed captures take 4 seconds each.
 Artifacts: target/stem-sampling-review/{*.png,*.log,summary.json}
@@ -39,7 +39,7 @@ const before = configHash();
 const speciesCount = JSON.parse(fs.readFileSync(path.join(root, 'assets/models/flowers.json'))).flowers.length;
 const summary = {configSha256: before, speciesCount, runs: []};
 try {
-  for (const mode of ['stem-original', 'stem-continuous', 'stem-direction', 'stem-surface', 'stems']) {
+  for (const mode of ['stem-continuous', 'stem-direction', 'stem-surface', 'stem-combined', 'stems']) {
     const sweep = mode === 'stems';
     const image = path.join(output, `${mode}.png`);
     if (!sweep) fs.rmSync(image, {force: true});
@@ -59,7 +59,7 @@ try {
     assert.equal((log.match(/\[FLOWER_REVIEW_PLANT\]/g) || []).length, speciesCount);
     const run = {mode, log: path.relative(root, logPath)};
     if (sweep) {
-      const phases = [...log.matchAll(/\[STEM_REVIEW_PHASE\] phase=(\d+) enabled=(\w+) method=(\d+) motion=(\w+)/g)];
+      const phases = [...log.matchAll(/\[STEM_REVIEW_PHASE\] phase=(\d+) pixelized=(\w+) surface_cells=(\w+)/g)];
       assert.deepEqual(phases.map(m => +m[1]), Array.from({length: 16}, (_, i) => i),
         `Incomplete sweep; retry --seconds ${Math.max(20, seconds * 2)}; inspect ${logPath}`);
       run.phases = phases.map((m, i) => {
@@ -67,18 +67,12 @@ try {
         const draws = new Set([...section.matchAll(/\[FLOWER_DRAW\] species=([\w-]+)/g)].map(m => m[1]));
         // Close clipping deliberately permits offscreen plants; ordinary phases
         // must actually submit every species, not just set GUI values.
-        if (i !== 14) assert.equal(draws.size, speciesCount, `phase ${i}: missing draws`);
-        const cameras = [...section.matchAll(/\[STEM_REVIEW_CAMERA\].*eye=(\[[^\]]+\]) focus=(\[[^\]]+\])/g)];
-        assert.ok(cameras.length >= 3, `phase ${i}: missing camera observations`);
-        if (i < 4) {
-          assert.equal(new Set(cameras.map(m => m[1])).size, 1, 'turn must not secretly orbit');
-          assert.ok(new Set(cameras.map(m => m[2])).size > 1, 'turn must change orientation');
-        }
-        if (i >= 4 && i <= 9) assert.ok(new Set(cameras.map(m => m[1])).size > 1, 'orbit must move camera');
-        return {phase: i, enabled: m[2] === 'true', method: +m[3], motion: m[4], species: [...draws]};
+        if (i < 12) assert.equal(draws.size, speciesCount, `phase ${i}: missing draws`);
+        assert.equal(m[2] === 'true', i % 4 >= 2);
+        assert.equal(m[3] === 'true', i % 2 === 1);
+        assert.match(section, /wind=live/);
+        return {phase: i, pixelized: m[2] === 'true', surfaceCells: m[3] === 'true', species: [...draws]};
       });
-      assert.deepEqual(run.phases.slice(0, 4).map(p => [p.enabled, p.method]), [[false, 0], [true, 0], [true, 1], [true, 2]]);
-      assert.equal(run.phases[15].enabled, false, 'must return to original after all candidates');
       const resize = log.indexOf('[FLOWER_REVIEW_RESIZE] after_submitted_frames=72');
       assert.ok(resize >= 0 && log.slice(resize).includes('[RESIZE_LIFECYCLE] phase=published'), 'resize after experimental draws');
       // All stem policies are live uniforms. Only the initial head bank builds.
@@ -95,7 +89,7 @@ try {
     assert.equal(configHash(), before, 'review changed saved GUI settings');
   }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
-  console.log(`PASS: four captures, 16 live phases, both camera motions and clean Vulkan logs.\n${output}/summary.json\nVisual approval and release performance acceptance remain separate.`);
+  console.log(`PASS: four captures, 16 live phases, independent effects, live wind and clean Vulkan logs.\n${output}/summary.json\nVisual approval and release performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/; native log: cargo run --release -- --latest-log`);
   process.exitCode = 1;

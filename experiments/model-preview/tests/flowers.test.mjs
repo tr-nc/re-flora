@@ -12,6 +12,8 @@ test('native flower publication regenerates byte-for-byte from shared geometry a
   assert.deepEqual(flowers.map(f=>[f.id,f.stem_layers]),[['wild-geranium',41],['forget-me-not',42],['oxeye-daisy',42],['cosmos',42],['coneflower',43],['tulip',37]]);
   for(const [i,f]of flowers.entries()){
     const spec=flowerCatalog[i],recipe=flowerGeometry(spec.id);
+    assert.deepEqual(f.socket_normal,recipe.socketNormal.map(v=>Number(v.toFixed(9))||0));
+    assert.ok(Math.abs(Math.hypot(...f.socket_normal)-1)<1e-8);
     for(const [j,part]of f.parts.entries()){
       assert.deepEqual(part.indices,recipe.parts[j].indices);
       assert.deepEqual(part.positions,recipe.parts[j].positions.map(v=>Number(v.toFixed(9))||0));
