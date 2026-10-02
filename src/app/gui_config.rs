@@ -527,19 +527,7 @@ fn render_gui_param_from_config(
         .is_none_or(|condition| adjustables.matches_condition(condition));
     ui.add_enabled_ui(enabled, |ui| {
         render_gui_param_control(ui, param, section_name, adjustables);
-    })
-    .response
-    .on_hover_text(format!("{section_name}.{}", param.id));
-    if !enabled {
-        if let Some(condition) = &param.enabled_if {
-            let expected = match &condition.equals {
-                GuiParamConditionValue::Bool(value) => value.to_string(),
-                GuiParamConditionValue::Integer(value) => value.to_string(),
-                GuiParamConditionValue::String(value) => value.clone(),
-            };
-            ui.weak(format!("Requires {} = {expected}", condition.param));
-        }
-    }
+    });
 }
 
 fn render_gui_param_control(
@@ -689,18 +677,11 @@ fn param_search_path(section: &str, id: &str, has_debug: bool) -> String {
 
 fn search_matches_param(
     filter: &SearchFilter,
-    section: &str,
+    _section: &str,
     param: &GuiParam,
     path: &str,
 ) -> bool {
-    let mut fields = vec![
-        navigation::category(path),
-        section,
-        section_title(section),
-        path,
-        param.id.as_str(),
-        param.label.as_str(),
-    ];
+    let mut fields = vec![navigation::category(path), path, param.label.as_str()];
     if let GuiParamValue::Choice { options, .. } = &param.value {
         fields.extend(options.iter().map(String::as_str));
     }
@@ -932,7 +913,7 @@ mod search_tests {
             .unwrap();
         let path = param_search_path(&voxel.name, &dirt.id, true);
         assert_eq!(path, "Terrain");
-        for query in ["terrain dirt", "voxel_dirt", "TERRAIN"] {
+        for query in ["terrain dirt", "TERRAIN"] {
             assert!(search_matches_param(
                 &SearchFilter::new(query),
                 &voxel.name,
@@ -947,7 +928,7 @@ mod search_tests {
         assert!(param_search_path("Flora", "model_flower_view_count", true)
             .starts_with("Pixel Models — Global"));
         let mut future = dirt.clone();
-        future.id = "future_telescope_rendering".to_owned();
+        future.id = "internal_opaque_123".to_owned();
         future.label = "Future telescope clarity".to_owned();
         assert!(search_matches_param(
             &SearchFilter::new("telescope clarity"),
@@ -955,6 +936,14 @@ mod search_tests {
             &future,
             "Future"
         ));
+        for query in ["internal_opaque_123", "HiddenStorageSection"] {
+            assert!(!search_matches_param(
+                &SearchFilter::new(query),
+                "HiddenStorageSection",
+                &future,
+                "Future"
+            ));
+        }
         for section in &config.section {
             for param in &section.param {
                 if let GuiParamValue::Choice { options, .. } = &param.value {

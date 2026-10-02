@@ -1686,21 +1686,6 @@ impl App {
                 family.insert(0, CUSTOM_GUI_FONT_NAME.to_owned());
             }
 
-            // Keep the pixel face for Latin UI text, with bundled CJK coverage for
-            // search input. Do not depend on fonts installed on the player's OS.
-            const CJK_FONT: &str = "debug-search-cjk";
-            let cjk_bytes = std::fs::read("assets/font/DroidSansFallbackFull.ttf")
-                .context("Failed to read bundled CJK GUI fallback font")?;
-            fonts
-                .font_data
-                .insert(CJK_FONT.to_owned(), FontData::from_owned(cjk_bytes).into());
-            for family in [FontFamily::Proportional, FontFamily::Monospace] {
-                fonts
-                    .families
-                    .entry(family)
-                    .or_default()
-                    .push(CJK_FONT.to_owned());
-            }
             ctx.set_fonts(fonts);
             log::info!("Loaded custom GUI font from {}", font_path);
         }

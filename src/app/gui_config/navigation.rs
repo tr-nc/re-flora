@@ -37,29 +37,3 @@ pub(super) fn category(path: &str) -> &'static str {
         _ => CATEGORIES[4],
     }
 }
-
-/// Query-side synonyms: narrow concepts, not a second index of individual controls.
-pub(super) fn aliases(term: &str) -> &[&str] {
-    match term {
-        "光照" | "照明" => &["lighting", "light", "luminance"],
-        "阴影" => &["shadow"],
-        "风" | "风力" => &["wind"],
-        "树" | "树木" => &["tree"],
-        "草" | "草地" => &["grass"],
-        "花" | "花朵" => &["flower"],
-        "蝴蝶" => &["butterfly", "butterflies"],
-        "水" | "水流" => &["water"],
-        "地形" => &["terrain", "voxel"],
-        "颜色" | "色彩" | "colour" => &["color"],
-        "声音" | "音量" | "sound" => &["audio", "sound", "volume"],
-        "相机" | "镜头" => &["camera", "headbob"],
-        "生长" => &["growth", "age"],
-        "像素" => &["pixel"],
-        "分辨率" => &["resolution"],
-        "密度" => &["density"],
-        "速度" => &["speed", "rate"],
-        "重力" => &["gravity"],
-        "树叶" | "叶子" => &["leaf", "leaves"],
-        _ => &[],
-    }
-}
