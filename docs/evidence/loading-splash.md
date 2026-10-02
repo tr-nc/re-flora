@@ -40,4 +40,12 @@ The approved research-board direction replaces the initial checkerboard/white-ti
 - Additional 6-second hidden muted Release run exercised the entire transition: `target/re-flora-logs/re-flora-20261003-034410.003-504870.log`. Start logged at `03:44:14.260`, completion at `03:44:16.269`; no ERROR/VUID, shutdown `failures=0`.
 - User GUI settings remained byte-for-byte identical in the before/after diff. No generated files changed.
 
+## Randomized flower-fade follow-up
+
+- Title timing remains 1–2 seconds. Flower/leaf cells now receive a fixed per-transition, coordinate-derived delay in [0, 0.6) seconds before their one-second fade. Fade alpha is baked per flower, independently of the title painter opacity; cached local pixel geometry/colors are unchanged.
+- Overlay retirement waits until 2.6 seconds and a clear presented frame, so the last flowers cannot be cut off when the title disappears.
+- `cargo fmt --check`, `cargo check`, all 11 loading tests passed. Added stable-delay variation/range, monotonic alpha, late-flower lifetime and premultiplied-color guardrails.
+- Hidden muted Release runs at 0.5 and 7 seconds passed; full transition log: `target/re-flora-logs/re-flora-20261003-035138.357-506818.log`. Start `03:51:42.755`, completion `03:51:45.367`, no ERROR/VUID, shutdown `failures=0`.
+- User GUI settings remained unchanged; no generated files changed.
+
 The native hidden run validates startup/rendering correctness, not a new human visual review or a performance claim. No visible game was automatically launched. Temporary HTML/JavaScript and cached reference images were removed; source links, visual reasoning and final parameters remain in the design document.

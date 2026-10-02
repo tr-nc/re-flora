@@ -8,6 +8,8 @@ const CELL: f32 = 96.0;
 const GRID_DENSITY: f32 = 1.25;
 const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
 const STEP_SECONDS: f64 = 1.2;
+const FLOWER_STAGGER_SECONDS: f64 = 0.6;
+const TRANSITION_END_SECONDS: f64 = 2.0 + FLOWER_STAGGER_SECONDS;
 
 #[derive(Clone, Copy)]
 struct Palette {
@@ -140,6 +142,7 @@ impl Splash {
                     egui::Stroke::new(scale, grid),
                     egui::StrokeKind::Middle,
                 );
+                let flower_alpha = opacity.flower(column, row);
                 if (column + row).rem_euclid(3) == 0 {
                     // Quiet cells contain only the study's small leaf marks.
                     for (offset, size) in [
@@ -148,7 +151,7 @@ impl Splash {
                     ] {
                         field.add_colored_rect(
                             Rect::from_min_size(tile.min + offset * scale, size * scale),
-                            grid,
+                            grid.gamma_multiply(flower_alpha),
                         );
                     }
                     continue;
@@ -160,6 +163,7 @@ impl Splash {
                     &self.flowers[kind][sway_frame(group, seconds)],
                     tile.center(),
                     3.0 * scale,
+                    flower_alpha,
                 );
             }
         }
@@ -170,8 +174,11 @@ impl Splash {
             egui::Stroke::new(scale, grid),
             egui::StrokeKind::Middle,
         );
-        painter.set_opacity(opacity.foreground);
+        // Each flower already has its own premultiplied alpha; do not multiply
+        // the field by the title's fade (or by the background's fade) again.
+        painter.set_opacity(1.0);
         painter.add(egui::Shape::mesh(field));
+        painter.set_opacity(opacity.foreground);
         let title = painter.layout_no_wrap(
             "re: flora".to_owned(),
             FontId::proportional(64.0 * scale),
@@ -195,24 +202,46 @@ impl Splash {
 }
 
 /// Two staged alpha fades: background/grid during [0, 1] seconds, then
-/// flowers/leaves/title/underline during [1, 2]. No position or scale changes.
+/// title/underline during [1, 2]. Flower starts are independently staggered.
+/// No position or scale changes.
 #[derive(Clone, Copy, Debug)]
 struct Opacity {
     background: f32,
     foreground: f32,
+    flower_fade: Option<(u64, f64)>,
+}
+
+fn fade(t: f64) -> f32 {
+    let t = t.clamp(0.0, 1.0) as f32;
+    1.0 - t * t * (3.0 - 2.0 * t)
 }
 
 impl Opacity {
     fn at(seconds: f64) -> Self {
-        fn fade(t: f64) -> f32 {
-            let t = t.clamp(0.0, 1.0) as f32;
-            1.0 - t * t * (3.0 - 2.0 * t)
-        }
         Self {
             background: fade(seconds),
             foreground: fade(seconds - 1.0),
+            flower_fade: None,
         }
     }
+
+    fn flower(self, column: i32, row: i32) -> f32 {
+        match self.flower_fade {
+            Some((seed, seconds)) => fade(seconds - 1.0 - flower_delay(seed, column, row)),
+            None => self.foreground,
+        }
+    }
+}
+
+/// Hash a fixed per-transition seed and logical cell coordinates. This keeps a
+/// flower's timing stable across repaints/resizes, including negative edge cells.
+fn flower_delay(seed: u64, column: i32, row: i32) -> f64 {
+    let cell = ((column as u32 as u64) << 32) | row as u32 as u64;
+    let mut hash = (seed ^ cell).wrapping_add(0x9e3779b97f4a7c15);
+    hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
+    hash ^= hash >> 31;
+    (hash >> 11) as f64 / (1u64 << 53) as f64 * FLOWER_STAGGER_SECONDS
 }
 
 /// Moves the same splash above the real game render after loading completes.
@@ -220,6 +249,7 @@ impl Opacity {
 /// so expensive first-frame GPU initialization cannot consume the whole fade.
 pub(crate) struct Transition {
     splash: Splash,
+    flower_seed: u64,
     first_presented: Option<Instant>,
     clear_frame_drawn: bool,
 }
@@ -228,6 +258,7 @@ impl Transition {
     pub(crate) fn new(splash: Splash) -> Self {
         Self {
             splash,
+            flower_seed: rand::random(),
             first_presented: None,
             clear_frame_drawn: false,
         }
@@ -237,8 +268,11 @@ impl Transition {
         let seconds = self
             .first_presented
             .map_or(0.0, |start| start.elapsed().as_secs_f64());
-        let opacity = Opacity::at(seconds);
-        self.clear_frame_drawn = opacity.foreground == 0.0;
+        let opacity = Opacity {
+            flower_fade: Some((self.flower_seed, seconds)),
+            ..Opacity::at(seconds)
+        };
+        self.clear_frame_drawn = seconds >= TRANSITION_END_SECONDS;
         // Automated scene captures must keep receiving the scene, not an intro.
         if visible && !self.clear_frame_drawn {
             self.splash.paint(
@@ -259,7 +293,7 @@ impl Transition {
     pub(crate) fn presented(&mut self) -> bool {
         if self.first_presented.is_none() {
             self.first_presented = Some(Instant::now());
-            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s foreground=1..2s");
+            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s title=1..2s flowers=1..2.6s random_delay=0..0.6s");
         }
         if self.clear_frame_drawn {
             log::info!("[LOADING][SPLASH_TRANSITION] complete");
@@ -286,7 +320,7 @@ fn sway_frame(group: usize, seconds: f64) -> usize {
     ((seconds + group as f64 * 0.45) / STEP_SECONDS).floor() as usize % POSES.len()
 }
 
-fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2, scale: f32) {
+fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2, scale: f32, alpha: f32) {
     let offset = target.vertices.len() as u32;
     target
         .indices
@@ -295,6 +329,7 @@ fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2, scale: f32) {
         .vertices
         .extend(source.vertices.iter().map(|vertex| egui::epaint::Vertex {
             pos: center + vertex.pos.to_vec2() * scale,
+            color: vertex.color.gamma_multiply(alpha),
             ..*vertex
         }));
 }
@@ -353,6 +388,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn flower_fades_are_stable_varied_and_finish_after_the_title() {
+        let mut delays = Vec::new();
+        for row in -3..6 {
+            for column in -3..10 {
+                let delay = flower_delay(42, column, row);
+                assert_eq!(delay, flower_delay(42, column, row));
+                assert!((0.0..FLOWER_STAGGER_SECONDS).contains(&delay));
+                delays.push(delay);
+                let alpha = |seconds| {
+                    Opacity {
+                        flower_fade: Some((42, seconds)),
+                        ..Opacity::at(seconds)
+                    }
+                    .flower(column, row)
+                };
+                assert_eq!(alpha(1.0), 1.0);
+                assert!(alpha(2.0) > 0.0);
+                assert_eq!(alpha(TRANSITION_END_SECONDS), 0.0);
+                let mut previous = 1.0;
+                for frame in 0..=160 {
+                    let current = alpha(frame as f64 / 60.0);
+                    assert!(current <= previous);
+                    previous = current;
+                }
+            }
+        }
+        let low = delays.iter().copied().fold(f64::INFINITY, f64::min);
+        let high = delays.iter().copied().fold(0.0, f64::max);
+        assert!(high - low > 0.4);
+        assert_ne!(flower_delay(42, 0, 0), flower_delay(43, 0, 0));
+    }
+
+    #[test]
+    fn flower_alpha_is_baked_without_modifying_cached_local_pixels() {
+        let flower = flower_mesh(0, PALETTES[0]);
+        let mut field = Mesh::default();
+        append_at(&mut field, &flower, Pos2::ZERO, 1.0, 0.5);
+        for (source, faded) in flower.vertices.iter().zip(&field.vertices) {
+            assert_eq!(source.color.a(), 255);
+            assert_eq!(faded.color, source.color.gamma_multiply(0.5));
+            assert_eq!(source.pos, faded.pos);
+        }
+    }
+
+    #[test]
     fn transition_fades_background_before_foreground() {
         for (time, background, foreground) in [
             (0.0, 1.0, 1.0),
@@ -392,6 +472,12 @@ mod tests {
         assert!(!transition.presented());
         assert!(transition.first_presented.is_some());
         assert_eq!(transition.splash.palette.name, "moss");
+        transition.first_presented = Some(Instant::now() - std::time::Duration::from_millis(2100));
+        draw(&mut transition);
+        assert!(
+            !transition.clear_frame_drawn,
+            "late flowers must outlive the title fade"
+        );
         transition.first_presented = Some(Instant::now() - std::time::Duration::from_secs(3));
         // Time alone does not end the transition before a clear frame is drawn.
         assert!(!transition.presented());
@@ -499,6 +585,7 @@ mod tests {
                 &flower_mesh(kind, PALETTES[0]),
                 egui::pos2(100.0 * kind as f32, 50.0),
                 3.0,
+                1.0,
             );
         }
         assert!(field.is_valid());
