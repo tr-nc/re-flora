@@ -44,6 +44,16 @@ settings.draw(ui, |section, temporary| {
 - 原任意 `extra_controls(&mut egui::Ui)` 入口改成显式 `TemporaryControls`；底层 raw renderer 改为私有。
 - 通用参数保留由声明驱动的统一同步，不是为新增字段手写映射；没有增加第二套生成器。
 
+## Debug Panel 搜索
+
+顶部 Search 是会话内的 UI 过滤器，不属于游戏设置，也不会写进 Save。支持名称、参数 ID、显示分组名及 choice 选项；多个词按 AND 匹配，忽略大小写和标点。Ctrl+F 聚焦，搜索框内 Escape 或 Clear 清空。搜索结果直接展开，清空后保留原来的折叠状态；修改搜索会把结果滚动到顶部。
+
+- 声明式 `section.param` 自动被索引，不维护第二份控件清单。搜索中的控件仍调用原渲染器，保留保存绑定、范围和 `enabled_if`。
+- `SavedControls` 的 slider/toggle 自动按标签和所属路径筛选。新增保存控件继续使用 selector；无需每个控件加搜索分支。隐藏控件不访问 selector、不分配布局空间。
+- 既有裸 UI 工具按分组匹配，而非逐个子控件匹配。`SearchFilter::section(ui, title, keywords, draw)` 是接入这类工具的共享入口；`TemporaryControls::not_saved` 按所属组及不保存原因匹配。新增复杂工具需要用自己的标题/关键词描述该组，或改用支持逐控件筛选的 SavedControls。
+- 搜索路径只反映现有展示分类，例如存储 `Voxel` 仍显示为 `Terrain`。参数 ID、保存 section 和单一所有权不改变。
+- 根层级不要插入人为的空白间隔；依靠正常 widget 间距即可。组内的曲线/说明布局不受此规则影响。
+
 ## 自动检查
 
 `cargo test` 自动运行：
@@ -54,6 +64,23 @@ settings.draw(ui, |section, temporary| {
 - 临时标签、旧文件兼容、原子保存、失败提示、树与蝴蝶 UI 回归仍保留。
 
 覆盖范围是已声明／序列化的设置，不声称能检测有人故意在其它任意 UI 中绕过统一入口。旧树编辑器仍是模块内部可信适配器，直接编辑已保存的树对象；Environment Probes 是既有独立临时实验，现已明确显示不保存。本次没有把整个应用所有 UI 都改造成受限界面。
+
+## 搜索与根层级间距验证
+
+- `cargo fmt --check`、`cargo check`、`cargo test` 通过：1301 项 app 测试 + 4 项 library 测试，4 ignored。
+- 搜索回归覆盖分组别名、参数 ID、choice 选项、多词匹配、新声明发现、搜索内编辑及保存、隐藏控件零布局/零 selector 访问、折叠状态不变、Ctrl+F/Escape 和曲线端点约束。既有 scrollbar 拖动测试仍通过。
+- 隐藏静音 Release 启动及餐馆场景的 `restaurant`、`flight height`、无匹配查询截图已查看；成功运行的日志无 ERROR/panic/VUID，正常退出 `failures=0`。没有启动可见游戏。
+- 本地截图：`target/debug-search-restaurant.png`、`target/debug-search-custom.png`、`target/debug-search-empty.png`。测试日志：`target/debug-search-all-tests.log`。
+- 搜索 UI 状态不进入配置保存；运行未产生 `config/gui.toml` 或生成文件差异。
+
+## 搜索栏横向膨胀回归
+
+搜索栏原先固定预留 52px 给 Clear，未覆盖实际主题下的按钮内边距和控件间距。剩余宽度计算偏大，导致可调整窗口每帧继续被内容撑宽。现在从右侧先布局真实 Clear 按钮，输入框只使用剩余空间，不限制窗口的手动调整能力，也不修改字体、配色、窗口默认尺寸或主题。
+
+- `cargo test search_toolbar_does_not_grow` 已先复现失败：真实 GUI 主题下 30 帧由约 384px 增至 611px；修复后通过。
+- 回归覆盖三种窗口宽度、两种字体大小、空查询及长查询；使用实际 `apply_gui_style`，避免默认 egui 主题掩盖问题。
+- `cargo fmt --check`、`cargo check`、`cargo test search`（14 项）、`cargo test debug_panel`（5 项）通过。
+- 隐藏静音 Release 启动和餐馆搜索截图验证通过；已查看 `target/debug-search-width-fixed.png`，日志无 ERROR/panic/VUID，退出 `failures=0`。无配置或生成文件差异。
 
 ## 2026-09-13 验证
 

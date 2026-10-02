@@ -6,7 +6,7 @@ use rapier3d::prelude::{AxisMask, VoxelState};
 use rapier3d::prelude::{
     BroadPhaseBvh, ColliderBuilder, ColliderHandle, Group, IVector, InteractionGroups,
     InteractionTestMode, PhysicsWorld, Pose, QueryFilter, QueryPipeline, RigidBodyBuilder,
-    RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels,
+    RigidBodyHandle, Rotation, Shape, ShapeCastHit, SharedShape, Vector, Voxels, Ray,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -139,6 +139,13 @@ pub struct CapsuleCharacterCollision {
     pub translation_remaining: Vec3,
     /// The distance traveled along the cast direction before impact.
     pub time_of_impact: f32,
+}
+
+/// Nearest static walking-surface hit in physics voxel units. Uses the same world as characters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CharacterSurfaceRayHit {
+    pub position: Vec3,
+    pub normal: Vec3,
 }
 
 /// Input for one kinematic capsule movement query, in physics voxel units.
@@ -371,6 +378,7 @@ pub struct CollisionWorld {
     source_occupancies: HashMap<StaticVoxelBrickId, BrickOccupancy>,
     deforming_exclusions: HashMap<StaticVoxelBrickId, Vec<UVec3>>,
     deforming_surface: Option<ColliderHandle>,
+    fixed_scene_surface: Option<ColliderHandle>,
     dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
     next_dynamic_body_id: u64,
     fixed_step_seconds: f32,
@@ -401,6 +409,7 @@ impl CollisionWorld {
             source_occupancies: HashMap::new(),
             deforming_exclusions: HashMap::new(),
             deforming_surface: None,
+            fixed_scene_surface: None,
             dynamic_bodies: HashMap::new(),
             next_dynamic_body_id: 1,
             fixed_step_seconds: DEFAULT_FIXED_STEP_SECONDS,
@@ -561,7 +570,7 @@ impl CollisionWorld {
         }
     }
 
-    /// Resolves a classic upright capsule character movement against static voxel terrain.
+    /// Resolves upright capsule movement against static voxel terrain and fixed model surfaces.
     ///
     /// This is a query-only kinematic controller: callers own character position and velocity and
     /// apply the returned translation themselves. Dynamic bodies are deliberately absent from the
@@ -682,6 +691,27 @@ impl CollisionWorld {
         })
     }
 
+    /// Pick voxel terrain and fixed model surfaces from the character controller's static world.
+    /// Dynamic fruit and sensors are excluded just as they are for character movement.
+    pub fn cast_character_surface_ray(&mut self, origin: Vec3, direction: Vec3, max_distance: f32) -> Option<CharacterSurfaceRayHit> {
+        if !origin.is_finite() || !direction.is_finite() || !max_distance.is_finite() || max_distance <= 0. {
+            return None;
+        }
+        let direction = direction.normalize_or_zero();
+        if direction == Vec3::ZERO { return None; }
+        self.sync_capsule_character_broad_phase();
+        let queries = self.capsule_character_broad_phase.as_query_pipeline(
+            self.physics.narrow_phase.query_dispatcher(), &self.physics.bodies,
+            &self.physics.colliders, QueryFilter::default().exclude_sensors(),
+        );
+        let ray = Ray::new(to_rapier_vec(origin), to_rapier_vec(direction));
+        let (_, hit) = queries.cast_ray_and_get_normal(&ray, max_distance, true)?;
+        Some(CharacterSurfaceRayHit {
+            position: origin + direction * hit.time_of_impact,
+            normal: from_rapier_vec(hit.normal),
+        })
+    }
+
     /// Applies pending static-terrain changes to the character-query acceleration structure.
     ///
     /// Character movement calls this automatically. Loading code may call it proactively so a
@@ -792,6 +822,37 @@ impl CollisionWorld {
                 self.insert_new_brick(id, occupancy);
             }
         }
+    }
+
+    /// Fixed scene models share the player/rigid-body world without occupying the animated-tree slot.
+    /// Inputs are physics voxel units. Invalid replacements leave the current scene unchanged.
+    pub fn set_fixed_scene_surface(&mut self, positions: &[Vec3], indices: &[[u32; 3]]) -> Result<(), String> {
+        if positions.iter().any(|p| !p.is_finite()) || indices.iter().flatten().any(|&i| i as usize >= positions.len()) {
+            return Err("invalid fixed scene triangle geometry".to_owned());
+        }
+        let shape = if indices.is_empty() {
+            None
+        } else {
+            Some(SharedShape::trimesh_with_flags(
+                positions.iter().copied().map(to_rapier_vec).collect(),
+                indices.to_vec(),
+                rapier3d::parry::shape::TriMeshFlags::FIX_INTERNAL_EDGES
+                    | rapier3d::parry::shape::TriMeshFlags::MERGE_DUPLICATE_VERTICES,
+            ).map_err(|err| format!("fixed scene mesh: {err}"))?)
+        };
+        if let Some(handle) = self.fixed_scene_surface.take() {
+            self.physics.remove_collider(handle);
+            self.capsule_character_modified_colliders.remove(&handle);
+            self.capsule_character_removed_colliders.insert(handle);
+        }
+        if let Some(shape) = shape {
+            let handle = self.physics.insert_collider(
+                ColliderBuilder::new(shape).collision_groups(static_terrain_collision_groups()), None,
+            );
+            self.fixed_scene_surface = Some(handle);
+            self.capsule_character_modified_colliders.insert(handle);
+        }
+        Ok(())
     }
 
     /// The animated mesh participates in the same player and rigid-body queries
@@ -1414,6 +1475,32 @@ mod tests {
             .voxel_state(id, local)
             .expect("test voxel must exist")
             .free_faces()
+    }
+
+    #[test]
+    fn fixed_scene_is_independent_of_tree_surface_and_invalid_replacement_is_atomic() {
+        let mut world = CollisionWorld::new();
+        let positions = [Vec3::new(-40., 0., -40.), Vec3::new(-40., 0., 40.), Vec3::new(40., 0., 40.), Vec3::new(40., 0., -40.)];
+        world.set_fixed_scene_surface(&positions, &[[0, 1, 2], [0, 2, 3]]).unwrap();
+        let handle = world.fixed_scene_surface.unwrap();
+        assert!(world.set_fixed_scene_surface(&positions, &[[0, 1, 99]]).is_err());
+        assert_eq!(world.fixed_scene_surface, Some(handle));
+        world.set_deforming_surface(&[], &[]).unwrap();
+        assert_eq!(world.fixed_scene_surface, Some(handle));
+        let result = world.move_capsule_character(CapsuleCharacterMove {
+            center: Vec3::new(0., 2.1, 0.), radius: 1., half_height: 1.,
+            desired_translation: Vec3::new(0.25, -0.5, 0.), dt: 1. / 60.,
+        }).unwrap();
+        assert!(result.grounded);
+        assert!(result.translation.y > -0.2);
+        let hit = world.cast_character_surface_ray(Vec3::Y * 10., Vec3::NEG_Y, 20.).unwrap();
+        assert!(hit.position.length() < 1e-5 && hit.normal.y > 0.99);
+        assert!(world.cast_character_surface_ray(Vec3::Y * 10., Vec3::ZERO, 20.).is_none());
+        assert!(world.cast_character_surface_ray(Vec3::splat(f32::NAN), Vec3::NEG_Y, 20.).is_none());
+        world.set_fixed_scene_surface(&[], &[]).unwrap();
+        assert!(world.fixed_scene_surface.is_none());
+        assert!(world.physics.colliders.get(handle).is_none());
+        assert!(world.cast_character_surface_ray(Vec3::Y * 10., Vec3::NEG_Y, 20.).is_none());
     }
 
     #[test]

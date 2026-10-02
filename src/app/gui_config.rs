@@ -17,6 +17,8 @@ pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
 pub(crate) mod saved_controls;
+mod search;
+pub(crate) use search::SearchFilter;
 
 mod generated {
     include!("generated/gui_adjustables_gen.rs");
@@ -28,6 +30,8 @@ pub struct DebugSettings {
     pub config: GuiConfigFile,
     pub adjustables: GuiAdjustables,
     save_status: Option<String>,
+    search: search::SearchState,
+    search_matches: usize,
 }
 
 // Custom live values ARE the serializable document, never copies requiring save hooks.
@@ -56,6 +60,10 @@ impl DebugSettings {
             config,
             adjustables,
             save_status: None,
+            search: search::SearchState {
+                query: std::env::var("RE_FLORA_DEBUG_SEARCH_REVIEW").unwrap_or_default(),
+            },
+            search_matches: 0,
         }
     }
 
@@ -81,11 +89,72 @@ impl DebugSettings {
         self.adjustables.write_to_config(&mut self.config);
     }
 
+    /// Search is presentation-only/session state, not a saved game setting.
+    pub(crate) fn search_toolbar(&mut self, ui: &mut egui::Ui) -> (SearchFilter, bool) {
+        self.search.toolbar(ui)
+    }
+
+    pub(crate) fn search_has_results(&self) -> bool {
+        self.search_matches > 0
+    }
+
     pub fn draw(
         &mut self,
         ui: &mut egui::Ui,
         mut temporary_controls: impl FnMut(&str, &mut saved_controls::TemporaryControls<'_>),
     ) -> bool {
+        let filter = SearchFilter::new(&self.search.query);
+        if filter.is_active() {
+            let mut matches =
+                render_search_results(ui, &self.config.section, &mut self.adjustables, &filter);
+            for (path, draw) in [
+                (
+                    "Audio / Live mixer",
+                    audio_mix::draw as fn(&mut saved_controls::SavedControls<'_>),
+                ),
+                (
+                    "Butterflies / Flight",
+                    butterfly_flight::draw_butterfly_flight_controls,
+                ),
+            ] {
+                let mut controls = saved_controls::SavedControls::filtered(
+                    ui,
+                    &mut self.config.custom,
+                    &filter,
+                    path,
+                );
+                draw(&mut controls);
+                matches += controls.matches();
+            }
+            let mut tree_desc_changed = false;
+            if let Some(changed) = filter.section(
+                ui,
+                "Flora / Tree",
+                &["Branches", "Leaves", "Growth"],
+                |ui| {
+                    edit_tree_desc(
+                        ui,
+                        &mut self.config.custom.tree.desc,
+                        Some(&mut self.config.custom.tree.render_leaves),
+                    )
+                },
+            ) {
+                tree_desc_changed |= changed;
+                matches += 1;
+            }
+            for section in &self.config.section {
+                let mut controls = saved_controls::TemporaryControls::filtered(
+                    ui,
+                    &filter,
+                    section_title(&section.name),
+                );
+                temporary_controls(&section.name, &mut controls);
+                matches += controls.matches();
+            }
+            self.search_matches = matches;
+            return tree_desc_changed;
+        }
+        self.search_matches = 0;
         let Self {
             config,
             adjustables,
@@ -583,6 +652,83 @@ fn section_title(name: &str) -> &str {
     }
 }
 
+fn param_search_path(section: &str, id: &str, has_debug: bool) -> String {
+    if has_debug {
+        if let Some(path) = debug_groups::search_path(section, id) {
+            return path;
+        }
+    }
+    if let Some(path) = flora_groups::search_path(section, id) {
+        return path.to_owned();
+    }
+    match section_parent(section) {
+        Some(parent) => format!("{} / {}", section_title(parent), section_title(section)),
+        None => section_title(section).to_owned(),
+    }
+}
+
+fn search_matches_param(
+    filter: &SearchFilter,
+    section: &str,
+    param: &GuiParam,
+    path: &str,
+) -> bool {
+    let mut fields = vec![
+        section,
+        section_title(section),
+        path,
+        param.id.as_str(),
+        param.label.as_str(),
+    ];
+    if let GuiParamValue::Choice { options, .. } = &param.value {
+        fields.extend(options.iter().map(String::as_str));
+    }
+    filter.matches(fields)
+}
+
+fn render_search_results(
+    ui: &mut egui::Ui,
+    config: &[crate::app::gui_config_model::GuiSection],
+    adjustables: &mut GuiAdjustables,
+    filter: &SearchFilter,
+) -> usize {
+    let has_debug = config.iter().any(|section| section.name == "Debug");
+    let mut matches = 0;
+    // Search the declaration, not a second list of controls. Future params appear automatically.
+    // Render the same saved fields/conditions, once each, outside collapsed groups.
+    for section in config {
+        for param in &section.param {
+            let path = param_search_path(&section.name, &param.id, has_debug);
+            if !search_matches_param(filter, &section.name, param, &path) {
+                continue;
+            }
+            matches += 1;
+            let before = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
+                .map(|field| field.value.to_bits());
+            ui.push_id(("debug_search_param", &section.name, &param.id), |ui| {
+                ui.weak(&path);
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            });
+            let after = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
+                .map(|field| field.value.to_bits());
+            if before != after {
+                // Preserve custom editor constraints only on an actual edit, never on a query.
+                if matches!(
+                    param.id.as_str(),
+                    "grass_natural_bend_min_voxels" | "grass_natural_bend_max_voxels"
+                ) {
+                    enforce_flora_natural_bend_order(adjustables);
+                }
+                if param.id.starts_with("leaf_paddle_") {
+                    enforce_leaf_curve_order(adjustables);
+                }
+                crate::app::flutter_response_editor::enforce_endpoint_order(adjustables, &param.id);
+            }
+        }
+    }
+    matches
+}
+
 fn render_gui_from_config(
     ui: &mut egui::Ui,
     config: &[crate::app::gui_config_model::GuiSection],
@@ -696,6 +842,142 @@ fn render_section_controls(
         {
             render_gui_param_from_config(ui, param, &section.name, adjustables);
         }
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    fn text_rect(shape: &egui::Shape, needle: &str) -> Option<egui::Rect> {
+        match shape {
+            egui::Shape::Text(text) if text.galley.job.text.contains(needle) => {
+                Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| text_rect(shape, needle)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn search_finds_display_aliases_group_paths_options_and_future_declarations() {
+        let config = GuiConfigLoader::load();
+        let voxel = config.section.iter().find(|s| s.name == "Voxel").unwrap();
+        let dirt = voxel
+            .param
+            .iter()
+            .find(|p| p.id == "voxel_dirt_color")
+            .unwrap();
+        let path = param_search_path(&voxel.name, &dirt.id, true);
+        assert_eq!(path, "Terrain");
+        for query in ["terrain dirt", "voxel_dirt", "TERRAIN"] {
+            assert!(search_matches_param(
+                &SearchFilter::new(query),
+                &voxel.name,
+                dirt,
+                &path
+            ));
+        }
+        assert!(
+            param_search_path("Flora", "grass_vibration_primary_speed", true)
+                .contains("Wind / Response / Grass")
+        );
+        assert!(param_search_path("Flora", "model_flower_view_count", true)
+            .starts_with("Pixel Models — Global"));
+        let mut future = dirt.clone();
+        future.id = "future_telescope_rendering".to_owned();
+        future.label = "Future telescope clarity".to_owned();
+        assert!(search_matches_param(
+            &SearchFilter::new("telescope clarity"),
+            "Future",
+            &future,
+            "Future"
+        ));
+        for section in &config.section {
+            for param in &section.param {
+                if let GuiParamValue::Choice { options, .. } = &param.value {
+                    for option in options {
+                        assert!(search_matches_param(
+                            &SearchFilter::new(option),
+                            &section.name,
+                            param,
+                            ""
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn search_results_are_editable_saved_fields_and_queries_are_not_saved() {
+        let mut settings = DebugSettings::load();
+        settings.search.query = "restaurant true voxel".to_owned();
+        settings.adjustables.rooftop_voxel_scene.value = false;
+        let label = "Restaurant scene: true voxels";
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert!(settings.search_has_results());
+            assert_eq!(settings.search_matches, 1);
+            assert!(!output
+                .shapes
+                .iter()
+                .any(|shape| text_rect(&shape.shape, "Dirt Color").is_some()));
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| text_rect(&shape.shape, label))
+                .unwrap()
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.rooftop_voxel_scene.value);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let document = std::fs::read_to_string(&path).unwrap();
+        assert!(!document.contains("restaurant true voxel"));
+        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(reloaded.adjustables.rooftop_voxel_scene.value);
+        assert!(reloaded.search.query.is_empty());
+    }
+
+    #[test]
+    fn empty_results_do_not_modify_settings() {
+        let mut settings = DebugSettings::load();
+        settings.search.query = "no_setting_has_this_unique_name".to_owned();
+        let before = toml::to_string(&settings.config).unwrap();
+        settings.adjustables.grass_natural_bend_min_voxels.value = 4.;
+        settings.adjustables.grass_natural_bend_max_voxels.value = 1.;
+        let context = egui::Context::default();
+        let _ = context.run_ui(Default::default(), |ui| {
+            assert!(!settings.draw(ui, |_, _| {}));
+        });
+        assert!(!settings.search_has_results());
+        assert_eq!(settings.adjustables.grass_natural_bend_min_voxels.value, 4.);
+        assert_eq!(settings.adjustables.grass_natural_bend_max_voxels.value, 1.);
+        assert_eq!(toml::to_string(&settings.config).unwrap(), before);
     }
 }
 

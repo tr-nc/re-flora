@@ -116,6 +116,7 @@ public struct U_CameraInfo
 
 public struct U_ShadowCameraInfo
 {
+    public uint glass_experiment_enabled;
     public float4 pos;
     public float4x4 view_mat;
     public float4x4 view_mat_inv;

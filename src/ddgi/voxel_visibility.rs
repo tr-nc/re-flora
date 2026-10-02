@@ -17,7 +17,7 @@ use re_flora_vkn::{
     VulkanContext,
 };
 
-pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 2048;
+pub const DDGI_VOXEL_VISIBILITY_MAX_STEPS: u32 = 3072;
 pub const DDGI_VOXEL_VISIBILITY_BLOCK_SIZE: u32 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

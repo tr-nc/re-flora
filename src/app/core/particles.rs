@@ -519,8 +519,8 @@ impl App {
         let wind = self.wind_prototype.field.frame();
         self.particle_system
             .update_with_wind(dt, self.particle_forces, &wind);
-        let world_max =
-            super::CHUNK_DIM.as_vec3() + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
+        let world_max = self.world_chunk_dim.as_vec3()
+            + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
         let animation_time = self.butterfly_presentation_time();
         for emitter in &mut self.butterfly_emitters {
             emitter.synchronize_animation_clock(animation_time, dt);
@@ -844,7 +844,7 @@ impl App {
         let terrain_y = |position: Vec3| {
             let origin = Vec3::new(
                 position.x,
-                super::CHUNK_DIM.y as f32 + crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD,
+                self.world_chunk_dim.y as f32 + crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD,
                 position.z,
             );
             self.contree_builder
@@ -879,7 +879,7 @@ impl App {
                 let target = subject.position_ws;
                 let camera = if height_review {
                     let mut camera = target + Vec3::new(0., 0., 0.45);
-                    camera.z = camera.z.clamp(0.1, super::CHUNK_DIM.z as f32 - 0.1);
+                    camera.z = camera.z.clamp(0.1, self.world_chunk_dim.z as f32 - 0.1);
                     camera.y = terrain_y(camera).unwrap_or(target.y - 0.08) + 0.08;
                     camera
                 } else {
@@ -991,7 +991,7 @@ impl App {
         const STEP_LEN: f32 = crate::particles::emitters::WORM_STEP_LEN;
         const RAY_EPSILON: f32 = 0.02;
         // Match the terrarium glass box top.
-        let map_size = super::CHUNK_DIM.as_vec3();
+        let map_size = self.world_chunk_dim.as_vec3();
         let butterfly_max_y = map_size.y + crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
 
         let mut all_handles: Vec<ParticleHandle> = Vec::new();

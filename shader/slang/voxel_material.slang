@@ -51,7 +51,8 @@ public VoxelMaterial voxelMaterial(uint voxelType, bool glassExperimentEnabled)
     result.attenuation_distance_world = 1.0;
     if (voxelType == VOXEL_TYPE_EMPTY) return result;
 
-    if (glassExperimentEnabled && voxelType == GLASS_EXPERIMENT_VOXEL_TYPE)
+    if (voxelType == VOXEL_TYPE_GLASS ||
+        (glassExperimentEnabled && voxelType == GLASS_EXPERIMENT_VOXEL_TYPE))
     {
         result.surface_class = VOXEL_SURFACE_CLASS_DIELECTRIC;
         result.flags = GLASS_EXPERIMENT_MATERIAL_FLAGS;

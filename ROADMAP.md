@@ -14,7 +14,31 @@ documents take priority.
 - Release a friction-light packaged prototype, learn from player behavior, then expand toward itch.io
   and Steam.
 
-## Current Milestone: First Garden Moment
+## Current Authorized Step: Rooftop Proof of Concept — 2026-09-30
+
+Following the confirmed [rooftop restaurant direction](docs/game_direction.md), first deliver an
+independent experimental scene with a bare, fixed raster-model roof/building, editable voxel soil,
+existing orbit/editing controls, Edit and Grow, and unlimited developer resources enabled from entry.
+Verify the first soil placement on the roof, non-destructible building/support, free-form planting,
+visible mixed-rendering coherence and editing feel. No finite-resource balance, old-save migration,
+purchase system or new character animation is required. Do not delete existing save files or promise
+persistence for this unsaved proof.
+
+Next, after separately approving the proof, use existing apples for one gentle restaurant supply
+and sales/reward loop. Keep requests optional and pressure-free. Purchases, soil-bag pouring,
+new levelling tools, vent heat, vintage mowers and interior/exterior upgrades remain later plans.
+Higher GI fidelity and a broad lighting redesign must not displace the proof of gameplay feel.
+
+The order above supersedes conflicting flower-first, near-ground-camera and packaged-demo-first
+assumptions below. The longer-term video/demo and sustainable-return goals remain aspirations;
+they are not acceptance gates or packaging authorization for the rooftop proof.
+
+**Candidate status — 2026-10-01:** the basic unsaved rooftop proof is implemented on `agent/gamify`.
+See [Rooftop PoC](docs/rooftop_poc.md) for startup controls, actual captures, validation and lighting
+limits. This completes the technical sample, not user approval of its feel or performance acceptance;
+it does not authorize starting the restaurant supply stage.
+
+## Longer-Term Milestone: First Garden Moment
 
 Work is ordered by its contribution to one 30-45 second video and one 10-15 minute playable slice.
 Do not start a new rendering, simulation, world-generation, spatial-audio, voxel, automation, or

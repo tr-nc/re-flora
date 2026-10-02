@@ -1,9 +1,18 @@
 module voxel_data;
 
 import packer;
+import voxel_types;
 
 public static const uint VOXEL_TYPE_MASK = 0x0Fu;
 public static const uint VOXEL_ATLAS_STATE_MASK = 0xF0u;
+// Ownership flag ONLY for non-soil voxels. Dirt/sand retain all four state bits.
+public static const uint VOXEL_FIXED_SCENE_BIT = 0x80u;
+public bool voxelIsFixedScene(uint voxelData)
+{
+    uint type = voxelData & VOXEL_TYPE_MASK;
+    return type != VOXEL_TYPE_EMPTY && type != VOXEL_TYPE_DIRT && type != VOXEL_TYPE_SAND &&
+        (voxelData & VOXEL_FIXED_SCENE_BIT) != 0u;
+}
 public static const uint VOXEL_MOISTURE_MASK = 0x30u;
 public static const uint VOXEL_MOISTURE_SHIFT = 4u;
 public static const uint VOXEL_MOISTURE_MAX = 3u;

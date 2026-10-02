@@ -482,6 +482,24 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/props/mower.vert",
+        source_path: "shader/slang/mower.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/static_scene.vert",
+        source_path: "shader/slang/static_scene.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/props/static_scene.frag",
+        source_path: "shader/slang/static_scene.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/props/sprinkler.vert",
         source_path: "shader/slang/sprinkler.vert.slang",
         module_path: "shader/slang",

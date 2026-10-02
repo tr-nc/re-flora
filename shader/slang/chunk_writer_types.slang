@@ -1,6 +1,6 @@
 module chunk_writer_types;
 
-public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 12u;
+public static const uint EDIT_STATS_VOXEL_TYPE_COUNT = 16u;
 public static const uint EDIT_REMOVAL_SAMPLE_COUNT = 50u;
 
 public struct B_EditStats
@@ -66,11 +66,14 @@ public struct U_ChunkModifyInfo
     public uint target_voxel_type;
     public uint primitive_kind;
     public uint surface_only;
+    // Zero disables model support; otherwise the floor's voxel Y plus one.
+    public uint surface_support_y_plus_one;
     public uint max_write_count;
-    public uint clear_fill_voxel_state;
+    public uint fill_policy;
     public uint4 max_removed_counts_0_3;
     public uint4 max_removed_counts_4_7;
     public uint4 max_removed_counts_8_11;
+    public uint4 max_removed_counts_12_15;
 };
 
 public struct B_BvhNodes
@@ -170,6 +173,8 @@ public struct U_TerrainSmoothMboInfo
     public float4 center_radius;
     public float4 params;
     public uint4 threshold;
+    public uint4 write_min;
+    public uint4 write_max;
 };
 
 public struct B_TerrainSmoothMboDensityA

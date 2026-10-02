@@ -53,6 +53,7 @@ pub(crate) const WIND_SLOT_INDEX: usize = 8;
 pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 9;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
+pub(crate) const MOWER_SLOT_INDEX: usize = 11;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
@@ -818,7 +819,11 @@ fn draw_tool_panel_slot(
         egui::Sense::hover()
     };
     let (rect, response) = ui.allocate_exact_size(theme.slot_size, sense);
-    let response = response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint));
+    let response = if slot.index == MOWER_SLOT_INDEX && slot.label == "Mower" {
+        response.on_hover_text("Mower [L]\nZoomed-out orbit/cursor mode only.\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
+    } else {
+        response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint))
+    };
     let hovered = interaction_enabled && response.hovered();
     let clicked = interaction_enabled && response.clicked();
     let painter = ui.painter_at(rect);
@@ -882,6 +887,32 @@ fn draw_tool_panel_slot(
         egui::Image::new(icon)
             .fit_to_exact_size(theme.icon_size)
             .paint_at(ui, icon_rect);
+    } else if slot.index == MOWER_SLOT_INDEX {
+        let center = icon_rect.center();
+        let deck = egui::Rect::from_center_size(center + egui::vec2(0., 5.), egui::vec2(24., 10.));
+        painter.rect_filled(deck, egui::CornerRadius::same(2), accent);
+        for x in [-8., 8.] {
+            painter.circle_filled(center + egui::vec2(x, 11.), 3., TEXT_COLOR);
+        }
+        painter.rect_filled(
+            egui::Rect::from_center_size(center + egui::vec2(0., -1.), egui::vec2(9., 7.)),
+            egui::CornerRadius::same(1),
+            GOLD_ACCENT,
+        );
+        painter.line_segment(
+            [
+                center + egui::vec2(-9., 2.),
+                center + egui::vec2(-15., -12.),
+            ],
+            egui::Stroke::new(2., TEXT_COLOR),
+        );
+        painter.line_segment(
+            [
+                center + egui::vec2(-15., -12.),
+                center + egui::vec2(-7., -12.),
+            ],
+            egui::Stroke::new(2., TEXT_COLOR),
+        );
     } else if slot.index == WIND_SLOT_INDEX {
         for (y, length) in [(-7., 20.), (0., 25.), (7., 16.)] {
             let start = egui::pos2(icon_rect.left() + 1., icon_rect.center().y + y);
@@ -946,6 +977,7 @@ pub(crate) struct VoxelPaletteEntry {
     pub count: u32,
     pub color: Color32,
     pub selected: bool,
+    pub unlimited: bool,
 }
 
 #[derive(Default)]
@@ -991,15 +1023,23 @@ pub(crate) fn draw_voxel_palette(
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(
-                            egui::RichText::new("Backpack")
-                                .color(GOLD_ACCENT)
-                                .size(12.0)
-                                .strong(),
+                            egui::RichText::new(if entries.iter().any(|e| e.unlimited) {
+                                "Unlimited materials"
+                            } else {
+                                "Backpack"
+                            })
+                            .color(GOLD_ACCENT)
+                            .size(12.0)
+                            .strong(),
                         );
                         ui.label(
-                            egui::RichText::new("status only · no material filter")
-                                .color(TEXT_COLOR.linear_multiply(0.78))
-                                .size(10.0),
+                            egui::RichText::new(if entries.iter().any(|e| e.unlimited) {
+                                "developer PoC · choose Edit material"
+                            } else {
+                                "status only · no material filter"
+                            })
+                            .color(TEXT_COLOR.linear_multiply(0.78))
+                            .size(10.0),
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1096,7 +1136,11 @@ fn draw_voxel_palette_entry(
     painter.text(
         egui::pos2(rect.right() - 10.0, rect.center().y),
         egui::Align2::RIGHT_CENTER,
-        format!("{:>6}", entry.count),
+        if entry.unlimited {
+            "∞".to_owned()
+        } else {
+            format!("{:>6}", entry.count)
+        },
         egui::TextStyle::Monospace.resolve(ui.style()),
         TEXT_COLOR,
     );

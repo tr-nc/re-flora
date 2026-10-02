@@ -109,6 +109,30 @@ pub(super) fn is_pixel_model_control(section: &str, id: &str) -> bool {
     PIXEL_MODEL_CONTROLS.contains(&(section, id))
 }
 
+pub(super) fn search_path(section: &str, id: &str) -> Option<String> {
+    if is_pixel_model_control(section, id) {
+        let category = if PIXEL_MODEL_CONTROLS[..2].contains(&(section, id)) {
+            "Direction Views"
+        } else if PIXEL_MODEL_CONTROLS[2..6].contains(&(section, id)) {
+            "Pixels per Model"
+        } else {
+            "Post-processing"
+        };
+        return Some(format!("Pixel Models — Global / {category}"));
+    }
+    if section != "Debug" {
+        return None;
+    }
+    GROUPS
+        .iter()
+        .find(|group| group.params.contains(&id))
+        .map(|group| match group.parent {
+            Some("Wind") => format!("Wind / Response / Shared Mechanics / {}", group.title),
+            Some(parent) => format!("{parent} / {}", group.title),
+            None => group.title.to_owned(),
+        })
+}
+
 fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }

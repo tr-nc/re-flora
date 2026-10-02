@@ -1,11 +1,52 @@
 # Re: Flora Game Direction
 
 Status: canonical, global, continuously maintained  
-Last updated: 2026-08-10
+Last updated: 2026-09-30
 
 This is the single source of truth for Re: Flora's game direction. Current decisions in this
 document supersede older plans when they disagree. Roadmaps, demo specifications, storefront copy,
 and technical plans must remain subordinate to it.
+
+## Confirmed Rooftop Restaurant Direction — 2026-09-30
+
+The player tends a rooftop garden above their own single-storey, homegrown restaurant. The audience
+and Restorative Garden contract are unchanged: restaurant supply is a gentle invitation, not a
+mandatory order, attendance obligation, deadline, debt or absence penalty. Harvest gives garden
+care a destination; the restaurant must not turn the garden into another job.
+
+The following confirmed decisions supersede conflicting flower-first, camera and delivery-order
+assumptions later in this document and in the older First Garden Moment specification:
+
+- Use existing apples for the first eventual harvest → restaurant supply → sales/reward loop.
+  Other crops, livestock, cooking ingredients and a full nutritional supply chain are deferred.
+- Keep the existing orbit/editing view and tool interaction; no new visible player avatar or labour
+  animation system is required for the proof.
+- Use conventional rasterized models for the fixed restaurant, roof and large scene objects, with a
+  coherent pixelized visual treatment. Keep player-added soil editable voxel terrain and reuse
+  existing plant/small-object rendering. Rendering representation does not replace explicit picking,
+  support, collision and water-boundary semantics.
+- The restaurant and roof are not destructible with Edit. Future interior/exterior upgrades may
+  replace models or change finishes through conventional game interactions, not voxel carving.
+- Gameplay and visible feel take priority over pursuing higher global-illumination fidelity. Reuse
+  existing lighting where appropriate; this does not authorize retiring or redesigning lighting.
+
+**Current authorized proof:** an independent experimental rooftop scene, initially with no soil,
+fixed model building/roof, free-form soil placement/removal and planting with existing tools. Rename
+Dig to Edit for this context and use explicit unlimited developer resources from entry; finite
+inventory, starting-resource balance and a resource-mode switch are not required by this proof.
+No old-save migration or preservation work is required; this is not permission to delete unrelated
+save files. Label the scene as an unsaved experiment rather than promising garden persistence.
+
+Acceptance first covers the bare roof, mixed-rendering appearance, the first soil placement and
+planting/editing feel. The apple supply loop is the next separately authorized stage, not part of
+this proof. Purchases, soil-bag pouring animations, new levelling tools, vent heat mechanics, vintage
+mowers and restaurant renovation remain future plans. Do not automatically launch a visible game.
+
+The Chinese decision record, original brief, references and stage boundaries are in
+[the rooftop restaurant discussion](discussions/rooftop-restaurant-gamify.html). This section records
+product decisions and authorization. Implementation status, actual captures and reproducible
+validation are recorded separately in [Rooftop PoC](rooftop_poc.md): the basic candidate is available
+on `agent/gamify`; manual interaction/appearance review and performance acceptance are still open.
 
 ## North Star
 

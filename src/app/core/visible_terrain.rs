@@ -563,7 +563,7 @@ impl VisibleTerrainPublicationHost for App {
             self.tracer.show_climbing_plant_geometry(&[])?;
         }
         self.terrain_physics
-            .begin_world_terrain_collider_import(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)
+            .begin_world_terrain_collider_import(self.world_chunk_dim * VOXEL_DIM_PER_CHUNK)
     }
 
     fn advance_world_collider_import(&mut self) -> Result<(usize, usize)> {

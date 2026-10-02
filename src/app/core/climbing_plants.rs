@@ -362,7 +362,7 @@ fn fixture_edit(fixture: Fixture, site: Site) -> Result<WorldEditTransaction> {
 impl App {
     /// Grow-tool placement replaces the single session vine, without changing the clicked terrain.
     pub(super) fn plant_climbing_at_surface(&mut self, hit: Vec3, direction: Vec3) -> Result<bool> {
-        let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+        let world_dim = self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK;
         let point = hit * 256.0;
         if !point.is_finite()
             || point.cmplt(Vec3::splat(4.0)).any()
@@ -471,7 +471,7 @@ impl App {
                 site
             } else {
                 let source = self.contree_builder.cpu_voxel_source_snapshot();
-                let world_dim = super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK;
+                let world_dim = self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK;
                 let ContreeCpuVoxelBlockExport::Ready(block) =
                     source.export_voxel_block(Site::COLUMN, UVec3::new(1, world_dim.y, 1))?
                 else {
@@ -562,7 +562,7 @@ impl App {
                 let cell = tip.floor().as_uvec3();
                 let min = UVec3::new(cell.x.saturating_sub(1), cell.y.saturating_sub(2), cell.z);
                 let max = UVec3::new(cell.x + 2, cell.y + 3, (tip.z + plant.radius).ceil() as u32)
-                    .min(super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK);
+                    .min(self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK);
                 anyhow::ensure!(
                     max.cmpgt(min).all(),
                     "vine tip is outside editable refill bounds"
@@ -594,7 +594,7 @@ impl App {
                 (max + Vec3::splat(9.))
                     .ceil()
                     .as_uvec3()
-                    .min(super::CHUNK_DIM * super::VOXEL_DIM_PER_CHUNK),
+                    .min(self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK),
             )
         } else {
             let (position, _, _) = site

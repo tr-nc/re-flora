@@ -179,7 +179,7 @@ int3 glassVoxelCellFromKey(uint key)
 
 int3 glassInterfaceVoxelCell(SceneQueryEvent event)
 {
-    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, shading_info.glass_experiment_enabled != 0u);
     return toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
         ? event.to_cell
         : event.from_cell;
@@ -723,8 +723,8 @@ void spawnGlassInterfacePaths(
         result.fallback_reason = GLASS_FALLBACK_EXHAUSTED;
         return;
     }
-    VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, true);
-    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, shading_info.glass_experiment_enabled != 0u);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, shading_info.glass_experiment_enabled != 0u);
     float fresnel = sceneQueryDielectricFresnel(
         path.direction, event.incident_face_normal,
         fromMaterial.ior, toMaterial.ior);
@@ -775,8 +775,8 @@ void spawnGlassThinSheetFront(
     inout GlassResolveResult result, inout uint nextSerial)
 {
     result.interfaces += 1u;
-    VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, true);
-    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, shading_info.glass_experiment_enabled != 0u);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, shading_info.glass_experiment_enabled != 0u);
     if (toMaterial.surface_class != VOXEL_SURFACE_CLASS_DIELECTRIC)
     {
         // A camera already inside Glass has no complete thin sheet in front of it. Retain the
@@ -838,7 +838,7 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
     // It still consumes one slot in the cross-pass path budget.
     result.scene_queries = 1u;
     VoxelMaterial frontMedium = voxelMaterial(
-        frontEvent.from_voxel_type, true);
+        frontEvent.from_voxel_type, shading_info.glass_experiment_enabled != 0u);
     if (frontMedium.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
     {
         cameraPath.throughput *= sceneQueryBeerLambert(
@@ -881,10 +881,10 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
         result.scene_queries += 1u;
         SceneQueryEvent event = walkVoxelMediaToNextEvent(
             contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
-            path.origin, path.direction, 256.0, true,
+            path.origin, path.direction, 256.0, shading_info.glass_experiment_enabled != 0u,
             SCENE_QUERY_MAX_DDA_STEPS, localInvocationIndex);
         result.dda_steps += event.dda_steps;
-        VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, true);
+        VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, shading_info.glass_experiment_enabled != 0u);
         if (fromMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC)
         {
             path.throughput *= sceneQueryBeerLambert(
@@ -1011,8 +1011,8 @@ uint glassVoxelTypeAtCell(int3 cell)
 
 bool glassCellsShareMedium(uint glassVoxelType, uint neighborVoxelType)
 {
-    VoxelMaterial glassMaterial = voxelMaterial(glassVoxelType, true);
-    VoxelMaterial neighborMaterial = voxelMaterial(neighborVoxelType, true);
+    VoxelMaterial glassMaterial = voxelMaterial(glassVoxelType, shading_info.glass_experiment_enabled != 0u);
+    VoxelMaterial neighborMaterial = voxelMaterial(neighborVoxelType, shading_info.glass_experiment_enabled != 0u);
     return glassMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
         neighborMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
         glassVoxelType == neighborVoxelType;
@@ -1033,7 +1033,7 @@ SceneQueryEvent canonicalGlassFrontEvent(
     uint cameraVoxelType = sceneQueryVoxelTypeAtWorld(
         chunk_atlas, camera_info.pos.xyz, 256.0);
     bool cameraInsideGlass = voxelMaterial(
-        cameraVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+        cameraVoxelType, shading_info.glass_experiment_enabled != 0u).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
 
     uint glassVoxelType = glassVoxelTypeAtCell(glassCell);
     float3 preferredOutward = cameraInsideGlass
@@ -1106,7 +1106,7 @@ void glassInterfaceFaceFrame(
     uint axis = glassInterfaceAxis(event);
     tangentU = axis == 0u ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
     tangentV = axis == 2u ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0);
-    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, true);
+    VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, shading_info.glass_experiment_enabled != 0u);
     int3 outwardStep = toMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC
         ? event.from_cell - event.to_cell
         : event.to_cell - event.from_cell;

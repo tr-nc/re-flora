@@ -20,7 +20,7 @@ pub(super) enum BackpackVoxel {
 }
 
 impl BackpackVoxel {
-    const ALL: [Self; 10] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::Dirt,
         Self::Sand,
         Self::Stucco,

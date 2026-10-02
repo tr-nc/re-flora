@@ -60,15 +60,15 @@ float tracePixelDepth(Ray ray, uint localInvocationIndex)
         uint originVoxelType = sceneQueryVoxelTypeAtWorld(
             chunk_atlas, ray.origin, 256.0);
         bool originInsideGlass = voxelMaterial(
-            originVoxelType, true).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
+            originVoxelType, shadow_camera_info.glass_experiment_enabled != 0u).surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC;
         bool hitGlass = accelerated.is_hit && voxelMaterial(
-            accelerated.voxel_type, true).surface_class ==
+            accelerated.voxel_type, shadow_camera_info.glass_experiment_enabled != 0u).surface_class ==
                 VOXEL_SURFACE_CLASS_DIELECTRIC;
         if (originInsideGlass || hitGlass)
         {
             ScenePrimaryQuery query = tracePrimaryVoxelSurfaces(
                 contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
-                ray.origin, ray.direction, 256.0, true, accelerated,
+                ray.origin, ray.direction, 256.0, shadow_camera_info.glass_experiment_enabled != 0u, accelerated,
                 originInsideGlass, localInvocationIndex);
             result = sceneQueryMarchingResultFromOpaqueEvent(
                 query.opaque_hit, ray.origin);

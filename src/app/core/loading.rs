@@ -109,6 +109,9 @@ impl App {
                         VOXEL_DIM_PER_CHUNK,
                         &bytes,
                     ),
+                    // PlainBuilder's fresh atlas is already empty. Do not seed terrain beneath
+                    // the model roof: this scene has no editable voxels until the first soil dab.
+                    None if loading_directive == launch_owners::LoadingDirective::Rooftop => Ok(()),
                     None => self
                         .plain_builder
                         .chunk_init(atlas_offset, VOXEL_DIM_PER_CHUNK),
@@ -413,6 +416,10 @@ impl App {
                 self.finish_house_garden()
                     .unwrap_or_else(|err| panic!("[HOUSE_SCENE] garden setup failed: {err:#}"));
                 log::info!("[HOUSE_SCENE] procedural tuning tree suppressed around the house");
+            }
+            launch_owners::LoadingDirective::Rooftop => {
+                self.finish_rooftop_scene()
+                    .unwrap_or_else(|err| panic!("[ROOFTOP] setup failed: {err:#}"));
             }
             launch_owners::LoadingDirective::Garden => {
                 if !self.terrain_persistence.startup_load_requested() {

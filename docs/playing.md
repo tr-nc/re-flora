@@ -3,7 +3,9 @@
 This guide explains how to download, launch, and explore the current Re: Flora prototype. The latest
 release is an evolving systems playground; the complete care, harvest, and Seed Circulation loop in
 [First Garden Moment](https://github.com/tr-nc/re-flora/blob/main/docs/first_garden_moment.md) is still
-the current product milestone.
+a longer-term product milestone. This source branch also contains an independent, unsaved
+[Rooftop PoC](rooftop_poc.md), launched with `cargo run --release -- --rooftop-poc`; it is not a claim
+that an existing packaged release includes this experiment.
 
 This copy of the guide tracks the current branch. Every packaged release includes the matching guide
 from its own source revision. Because development continues between tags, follow the guide inside the

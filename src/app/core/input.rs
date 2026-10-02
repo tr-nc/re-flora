@@ -20,12 +20,22 @@ fn scroll_delta_lines(delta: MouseScrollDelta) -> f32 {
     }
 }
 
-fn terrain_edit_endpoint_within_editable_chunk(center: Vec3) -> bool {
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(center)
-}
+impl App {
+    fn terrain_edit_endpoint_within_editable_chunk(&self, center: Vec3) -> bool {
+        if self.rooftop_scene.is_some() {
+            super::rooftop_scene::RooftopScene::allows_soil(center)
+        } else {
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(center)
+        }
+    }
 
-fn terrain_brush_endpoint_within_editable_chunk(edit: TerrainBrushEdit) -> bool {
-    INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(edit)
+    fn terrain_brush_endpoint_within_editable_chunk(&self, edit: TerrainBrushEdit) -> bool {
+        if self.rooftop_scene.is_some() {
+            self.terrain_edit_endpoint_within_editable_chunk(edit.end)
+        } else {
+            INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_brush_endpoint(edit)
+        }
+    }
 }
 
 const TERRAIN_EDIT_PREVIEW_VALID_COLOR: Vec3 = Vec3::new(0.45, 0.86, 1.0);
@@ -422,7 +432,11 @@ impl App {
                 true
             }
             ElementState::Pressed
-                if self.orbit_mouse_drag_available() && button == MouseButton::Right =>
+                if self.orbit_mouse_drag_available()
+                    && button == MouseButton::Right
+                    && (self.rooftop_scene.is_none()
+                        || self.modifiers.alt_key()
+                        || !self.player_tools.has_secondary_pointer_action()) =>
             {
                 self.player_tools
                     .set_pointer_button_state(MouseButton::Right, ElementState::Released);
@@ -852,7 +866,7 @@ impl App {
         }
     }
 
-    fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
+    pub(super) fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
         if self.is_orbit_edit_camera_mode() {
             let extent = self.window_state.window_extent();
             let cursor_pos = self.cursor_position_physical.unwrap_or_else(|| {
@@ -883,7 +897,19 @@ impl App {
         Ok(self
             .query_terrain_ray_cpu(origin, direction)
             .map(|hit| hit.position)
-            .filter(|hit| (*hit - origin).length() <= max_distance))
+            .filter(|hit| (*hit - origin).length() <= max_distance)
+            .filter(|hit| {
+                self.rooftop_scene.is_none()
+                    || super::rooftop_scene::RooftopScene::allows_soil(*hit)
+            })
+            .filter(|hit| {
+                // A bare model surface is an Edit support, not a plantable voxel substrate.
+                self.is_shovel_selected()
+                    || self.rooftop_scene.as_ref().is_none_or(|s| {
+                        s.ray_hit(origin, direction)
+                            .is_none_or(|p| p.distance(*hit) > 1e-5)
+                    })
+            }))
     }
 
     pub(super) fn query_terrain_ray_cpu(
@@ -898,6 +924,18 @@ impl App {
         let mut terrain = self
             .contree_builder
             .query_terrain_ray_cpu(origin, direction);
+        if let Some(position) = self
+            .rooftop_scene
+            .as_ref()
+            .and_then(|s| s.ray_hit(origin, direction))
+        {
+            if terrain.is_none_or(|hit| position.distance(origin) < hit.position.distance(origin)) {
+                terrain = Some(crate::builder::ContreeCpuRayHit {
+                    position,
+                    voxel_type: crate::builder::VOXEL_TYPE_ROCK,
+                });
+            }
+        }
         if self.tracer.raster_trees.posed_surface.is_none() {
             return terrain;
         }
@@ -977,7 +1015,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1011,8 +1049,10 @@ impl App {
                         }
 
                         let material_mode = self.voxel_material_mode();
-                        self.voxel_backpack
-                            .deposit_removed(&readback.stats, material_mode);
+                        if self.rooftop_scene.is_none() {
+                            self.voxel_backpack
+                                .deposit_removed(&readback.stats, material_mode);
+                        }
                         self.spawn_terrain_harvest_particles(
                             center,
                             &readback.stats,
@@ -1044,7 +1084,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1093,7 +1133,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1134,7 +1174,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1174,7 +1214,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1193,7 +1233,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1255,7 +1295,9 @@ impl App {
     }
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {
-        terrain_edit_endpoint_within_editable_chunk(center)
+        self.terrain_edit_endpoint_within_editable_chunk(center)
+            && (self.rooftop_scene.is_none()
+                || super::rooftop_scene::RooftopScene::allows_soil(center))
     }
 
     pub(super) fn try_shovel_place(&mut self, now: Instant) {
@@ -1265,8 +1307,14 @@ impl App {
         }
         let action = ContinuousTerrainToolAction::ShovelPlace;
 
-        // Placement ignores material selection and uses the first stored voxel type.
-        let Some((place_voxel, place_voxel_count)) = self.voxel_backpack.first_available() else {
+        // The unsaved proof selects a semantic material without manufacturing inventory.
+        // Normal garden placement retains its original first-stored-material behavior.
+        let available = self
+            .rooftop_scene
+            .as_ref()
+            .map(|s| (s.material, u32::MAX))
+            .or_else(|| self.voxel_backpack.first_available());
+        let Some((place_voxel, place_voxel_count)) = available else {
             self.stop_terrain_edit_loop_sound();
             return;
         };
@@ -1275,7 +1323,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1299,8 +1347,12 @@ impl App {
                         place_voxel_count,
                     )
                     .map(|readback| {
-                        self.voxel_backpack
-                            .withdraw(place_voxel, readback.stats.count_added(place_voxel_type_id));
+                        if self.rooftop_scene.is_none() {
+                            self.voxel_backpack.withdraw(
+                                place_voxel,
+                                readback.stats.count_added(place_voxel_type_id),
+                            );
+                        }
                     })
                 {
                     log::error!("Failed to apply terrain placement: {}", err);
@@ -1327,7 +1379,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1370,7 +1422,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1389,7 +1441,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1425,7 +1477,7 @@ impl App {
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1444,7 +1496,7 @@ impl App {
                     center,
                     self.player_tools.terrain_edit_radius,
                 );
-                if !terrain_brush_endpoint_within_editable_chunk(edit) {
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();
                     self.player_tools.defer_stroke(action, now);
                     return;
@@ -1478,7 +1530,7 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
-                if !terrain_edit_endpoint_within_editable_chunk(center) {
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     return;
                 }
                 match placeable_kind {

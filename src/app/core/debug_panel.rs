@@ -13,6 +13,70 @@ mod tests {
     use egui::{Event, PointerButton, Pos2, Rect, Vec2};
 
     #[test]
+    fn search_toolbar_does_not_grow_the_debug_window_across_frames() {
+        for content_width in [260., 345., 520.] {
+            for font_scale in [1., 1.5] {
+                let context = egui::Context::default();
+                context.style_mut(|style| {
+                    super::super::ui_style::apply_gui_style(style);
+                    for font in style.text_styles.values_mut() {
+                        font.size *= font_scale;
+                    }
+                });
+                let mut settings = crate::app::gui_config::DebugSettings::load();
+                let mut widths = Vec::new();
+                for frame in 0..30 {
+                    let modifiers = if frame == 3 {
+                        egui::Modifiers::COMMAND
+                    } else {
+                        egui::Modifiers::NONE
+                    };
+                    let events = match frame {
+                        3 => vec![Event::Key {
+                            key: egui::Key::F,
+                            physical_key: None,
+                            pressed: true,
+                            repeat: false,
+                            modifiers,
+                        }],
+                        4 => vec![Event::Text("restaurant true voxels ".repeat(20))],
+                        _ => vec![],
+                    };
+                    let _ = context.run(
+                        egui::RawInput {
+                            screen_rect: Some(Rect::from_min_size(
+                                Pos2::ZERO,
+                                Vec2::new(1440., 900.),
+                            )),
+                            modifiers,
+                            events,
+                            ..Default::default()
+                        },
+                        |context| {
+                            let window = egui::Window::new("Debug Panel")
+                                .id(egui::Id::new("config_panel"))
+                                .default_size(Vec2::new(content_width, 540.))
+                                .show(context, |ui| {
+                                    settings.search_toolbar(ui);
+                                })
+                                .unwrap();
+                            widths.push(window.response.rect.width());
+                        },
+                    );
+                }
+                assert!(
+                    widths.iter().skip(3).all(|width| *width <= widths[2] + 1.),
+                    "search expanded the window over time: {widths:?}"
+                );
+                assert!(
+                    widths[29] < content_width + 35.,
+                    "search exceeded the existing panel width: {widths:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn scrollbar_drag_scrolls_content_without_moving_window() {
         assert_scrollbar_drag(false);
     }

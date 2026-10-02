@@ -26,6 +26,8 @@ pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
 mod model_cache_review;
+mod mower;
+mod rooftop_scene;
 mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
@@ -422,6 +424,8 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     wind_prototype: wind_prototype::WindPrototype,
     cottage_base_y: Option<f32>,
+    rooftop_scene: Option<rooftop_scene::RooftopScene>,
+    world_chunk_dim: UVec3,
     camera_control: CameraControlRuntime,
     modifiers: ModifiersState,
     perf_logging: bool,
@@ -462,6 +466,7 @@ pub struct App {
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
+    mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
     water_particle_handoff_main_thread_ms: Option<f32>,
 
@@ -1092,6 +1097,8 @@ impl App {
         );
         let water_experience =
             launch_owners.loading_directive() == launch_owners::LoadingDirective::WaterExperience;
+        let rooftop_poc =
+            launch_owners.loading_directive() == launch_owners::LoadingDirective::Rooftop;
         let hybrid_transparency =
             launch_owners.test_scene_frame_plan().kind() == TestSceneKind::Hybrid;
         let foliage_shadow_bench = launch_owners.is_foliage_shadow();
@@ -1099,7 +1106,12 @@ impl App {
             .take_lighting_mode_acceptance_options()
             .context("take lighting-mode acceptance options")?;
         let lighting_mode_acceptance_requested = lighting_mode_acceptance_options.is_some();
-        let chunk_bound = UAabb3::new(UVec3::ZERO, CHUNK_DIM);
+        let world_chunk_dim = if rooftop_poc {
+            UVec3::new(4, 2, 4)
+        } else {
+            CHUNK_DIM
+        };
+        let chunk_bound = UAabb3::new(UVec3::ZERO, world_chunk_dim);
         let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
 
@@ -1109,6 +1121,10 @@ impl App {
 
         let mut terrain_persistence =
             TerrainPersistenceRuntime::from_plan(terrain, glass_experiment_enabled)?;
+        if rooftop_poc {
+            terrain_persistence
+                .disable_for_experiment("Rooftop PoC is unsaved; restart opens a bare roof.");
+        }
         let terrain_snapshot_reader = terrain_persistence.take_startup_reader();
 
         let swapchain = Swapchain::new(
@@ -1155,7 +1171,7 @@ impl App {
         let plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
-            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+            world_chunk_dim * VOXEL_DIM_PER_CHUNK,
             FREE_ATLAS_DIM,
         );
 
@@ -1171,12 +1187,12 @@ impl App {
         }
 
         let contree_pool_sizes =
-            ContreeBuilder::pool_sizes_for_chunk_dim(CHUNK_DIM, VOXEL_DIM_PER_CHUNK);
+            ContreeBuilder::pool_sizes_for_chunk_dim(world_chunk_dim, VOXEL_DIM_PER_CHUNK);
         log::info!(
             "Contree pool sizes: node={:.2} MiB leaf={:.2} MiB chunk_dim={:?} per_chunk_node={} bytes per_chunk_leaf={} MiB",
             contree_pool_sizes.node_pool_size_in_bytes as f64 / (1024.0 * 1024.0),
             contree_pool_sizes.leaf_pool_size_in_bytes as f64 / (1024.0 * 1024.0),
-            CHUNK_DIM,
+            world_chunk_dim,
             contree_pool_sizes.node_chunk_size_in_bytes,
             contree_pool_sizes.leaf_chunk_size_in_bytes / (1024 * 1024),
         );
@@ -1184,7 +1200,7 @@ impl App {
             vulkan_ctx.clone(),
             allocator.clone(),
             surface_builder.get_resources(),
-            CHUNK_DIM,
+            world_chunk_dim,
             VOXEL_DIM_PER_CHUNK,
             contree_pool_sizes.node_pool_size_in_bytes,
             contree_pool_sizes.leaf_pool_size_in_bytes,
@@ -1200,9 +1216,9 @@ impl App {
 
         let chunk_indices = {
             let mut indices = Vec::new();
-            for x in 0..CHUNK_DIM.x {
-                for y in 0..CHUNK_DIM.y {
-                    for z in 0..CHUNK_DIM.z {
+            for x in 0..world_chunk_dim.x {
+                for y in 0..world_chunk_dim.y {
+                    for z in 0..world_chunk_dim.z {
                         indices.push(UVec3::new(x, y, z));
                     }
                 }
@@ -1236,7 +1252,7 @@ impl App {
             plain_builder.get_resources(),
             lighting_mode_acceptance::initial_raster_lighting_state(),
             TracerDesc {
-                scaling_factor: 0.5,
+                scaling_factor: if rooftop_poc { 0.33 } else { 0.5 },
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: lighting.probe_spacing_voxels,
@@ -1257,6 +1273,7 @@ impl App {
                     )
                 ),
                 glass_experiment_enabled,
+                dedicated_glass_enabled: rooftop_poc,
                 glass_debug_view: glass_debug_view.as_u32(),
             },
         )?;
@@ -1397,15 +1414,22 @@ impl App {
             butterfly_flight_tuning,
         );
         let particle_snapshots = Vec::with_capacity(particle_system.capacity());
-        let world_extent = CHUNK_DIM.as_vec3();
+        let world_extent = world_chunk_dim.as_vec3();
         let cells_per_unit = 32.0;
-        let water = water::WaterRuntime::launch(water::WaterLaunchRequest::from_plan(
+        let mut water_request = water::WaterLaunchRequest::from_plan(
             water_plan,
             water_experience,
             &debug_settings.adjustables,
             world_extent,
             cells_per_unit,
-        ));
+        );
+        if rooftop_poc {
+            water_request = water_request.with_fixed_container(
+                rooftop_scene::SOIL_MIN.as_vec3() / 256.,
+                rooftop_scene::SOIL_MAX.as_vec3() / 256.,
+            );
+        }
+        let water = water::WaterRuntime::launch(water_request);
         if water_experience {
             launch_owners.activate_water_experience(water.config().particle_count);
         }
@@ -1427,7 +1451,7 @@ impl App {
         ))
         .then(|| {
             emissive_voxel_lighting::EmissiveVoxelLightingRuntime::new(
-                CHUNK_DIM,
+                world_chunk_dim,
                 VOXEL_DIM_PER_CHUNK,
             )
         })
@@ -1435,6 +1459,8 @@ impl App {
 
         let mut app = Self {
             cottage_base_y: None,
+            rooftop_scene: None,
+            world_chunk_dim,
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
@@ -1510,6 +1536,7 @@ impl App {
             item_panel_sprinkler_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_tiller_icon: None,
+            mower: mower::MowerRuntime::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -1520,7 +1547,7 @@ impl App {
             },
             voxel_backpack: VoxelBackpack::default(),
             water_particle_handoff_main_thread_ms: None,
-            terrain_moisture: TerrainMoistureRuntime::default(),
+            terrain_moisture: TerrainMoistureRuntime::new(world_chunk_dim),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
 
@@ -1995,7 +2022,7 @@ impl App {
         let revision = self.visible_terrain_revision;
         self.tracer.observe_published_environment_probe_terrain(
             revision,
-            UAabb3::new(UVec3::ZERO, CHUNK_DIM * VOXEL_DIM_PER_CHUNK),
+            UAabb3::new(UVec3::ZERO, self.world_chunk_dim * VOXEL_DIM_PER_CHUNK),
         )?;
         Ok(revision)
     }
@@ -2029,6 +2056,12 @@ impl App {
     ) {
         if self.shutdown_lifecycle.is_started() {
             return;
+        }
+        if matches!(
+            &event,
+            WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. }
+        ) {
+            self.mower.cancel_drag();
         }
         if matches!(
             &event,
@@ -2117,6 +2150,7 @@ impl App {
                     }
                 ) {
                     self.wind_prototype.cancel();
+                    self.mower.cancel_drag();
                 }
                 if let WindowEvent::CursorMoved { position, .. } = &event {
                     self.sync_orbit_mouse_drag_position(Vec2::new(
@@ -2215,6 +2249,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
                         PhysicalKey::Code(KeyCode::Digit8) => Some(7),
                         PhysicalKey::Code(KeyCode::Digit9) => Some(ui_style::WIND_SLOT_INDEX),
+                        PhysicalKey::Code(KeyCode::KeyL) => Some(ui_style::MOWER_SLOT_INDEX),
                         _ => None,
                     };
 
@@ -2240,8 +2275,12 @@ impl App {
                 self.handle_orbit_mouse_drag(Vec2::new(position.x as f32, position.y as f32));
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if self.handle_mower_pointer(button, state) {
+                    return;
+                }
                 let captured = self.set_orbit_mouse_drag_state(button, state);
                 if captured {
+                    self.mower.cancel_drag();
                     return;
                 }
 
@@ -2404,7 +2443,7 @@ impl App {
                 if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
                 }
-                let extent = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+                let extent = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
                 self.wind_prototype
                     .field
                     .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
@@ -2474,9 +2513,16 @@ impl App {
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
                     self.player_tools.selected_item_panel_display_slot();
-                let voxel_palette_entries: Vec<VoxelPaletteEntry> = self
-                    .voxel_backpack
-                    .snapshot()
+                let rooftop_material = self.rooftop_scene.as_ref().map(|s| s.material);
+                let voxel_entries = if rooftop_material.is_some() {
+                    voxel_backpack::BackpackVoxel::ALL
+                        .into_iter()
+                        .map(|voxel| voxel_backpack::VoxelBackpackEntry { voxel, count: 0 })
+                        .collect()
+                } else {
+                    self.voxel_backpack.snapshot()
+                };
+                let voxel_palette_entries: Vec<VoxelPaletteEntry> = voxel_entries
                     .into_iter()
                     .map(|entry| {
                         let voxel = entry.voxel;
@@ -2486,7 +2532,8 @@ impl App {
                             label: voxel.label(),
                             count: entry.count,
                             color: Color32::from_rgb(red, green, blue),
-                            selected: false,
+                            selected: rooftop_material == Some(voxel),
+                            unlimited: rooftop_material.is_some(),
                         }
                     })
                     .collect();
@@ -2511,12 +2558,13 @@ impl App {
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
+                let mut clicked_rooftop_material = None;
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
                 let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
                 let environment_probe_status = ddgi_runtime_status.active();
                 let environment_probe_draft_grid = DdgiVolumeGrid::new(
-                    CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+                    self.world_chunk_dim * VOXEL_DIM_PER_CHUNK,
                     DdgiProbeSpacing::try_from(self.environment_probe_spacing_draft)
                         .expect("environment probe UI only exposes supported spacings"),
                 )
@@ -2635,6 +2683,7 @@ impl App {
                 let prototype_extent = self.window_state.window_extent();
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 let egui_start = Instant::now();
+                let mower_mode_available = self.mower_mode_available();
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
@@ -2722,9 +2771,9 @@ impl App {
                                         ui.small(status);
                                     }
 
-                                    ui.add_space(8.0);
-                                    ui.add_space(8.0);
-                                    ui.collapsing("Terrain & Plants", |ui| {
+                                    let (debug_search, search_changed) = self.debug_settings.search_toolbar(ui);
+                                    let mut extra_search_matches = 0usize;
+                                    extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
                                     if ui.button("Plant all flowers & grasses around me").clicked() {
@@ -2734,13 +2783,13 @@ impl App {
                                     if let Some(status) = &self.flora_showcase_status {
                                         ui.small(status);
                                     }
-                                    });
+                                    }).is_some());
 
-                                    ui.add_space(4.0);
-                                    ui.add_space(4.0);
-
-                                    debug_panel::scroll_area()
-                                        .show(ui, |ui| {
+                                    let mut settings_scroll = debug_panel::scroll_area();
+                                    if search_changed {
+                                        settings_scroll = settings_scroll.vertical_scroll_offset(0.);
+                                    }
+                                    settings_scroll.show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
@@ -2752,9 +2801,7 @@ impl App {
                                                 }
                                             });
 
-                                            ui.add_space(8.0);
-                                            ui.add_space(8.0);
-ui.collapsing("Environment Probes", |ui| {
+extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Cheap terrain lighting", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested", "Revisions Allocated memory"], |ui| {
 
                                             ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
@@ -2919,11 +2966,9 @@ ui.collapsing("Environment Probes", |ui| {
                                                 },
                                             );
 
-                                            });
+                                            }).is_some());
 
-                                            ui.add_space(8.0);
-                                            ui.add_space(8.0);
-                                            camera_snapshot_to_apply = ui.collapsing("Camera Snapshots", |ui| draw_camera_snapshots_ui(
+                                            let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Save", "Load", "Name", "Description", "Pose", "FOV", "Free fly"], |ui| draw_camera_snapshots_ui(
                                                 ui,
                                                 &mut self.camera_snapshots,
                                                 &mut self.camera_snapshot_draft_name,
@@ -2931,17 +2976,20 @@ ui.collapsing("Environment Probes", |ui| {
                                                 &mut self.camera_snapshot_status,
                                                 current_camera_pose,
                                                 current_camera_is_free_fly,
-                                            )).body_returned.flatten();
+                                            ));
+                                            extra_search_matches += usize::from(camera_search_result.is_some());
+                                            camera_snapshot_to_apply = camera_search_result.flatten();
 
-                                            ui.add_space(8.0);
-                                            ui.add_space(8.0);
-                                            ui.collapsing("Flora Growth", |ui| {
+                                            extra_search_matches += usize::from(debug_search.section(ui, "Flora Growth", &["Updating chunks", "Status"], |ui| {
                                             ui.label(format!(
                                                 "Updating chunks: {}",
                                                 growing_flora_chunk_count
                                             ));
-                                            });
+                                            }).is_some());
 
+                                            if debug_search.is_active() && !self.debug_settings.search_has_results() && extra_search_matches == 0 {
+                                                ui.weak("No matching controls. Try fewer words or Clear.");
+                                            }
                                         });
                                 });
                         }
@@ -2968,7 +3016,7 @@ ui.collapsing("Environment Probes", |ui| {
                             },
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
-                                label: "Dig",
+                                label: if rooftop_material.is_some() { "Edit" } else { "Dig" },
                                 key_hint: "3",
                                 category: Some("TOOLS"),
                                 icon: item_panel_shovel_icon.as_ref(),
@@ -3039,6 +3087,15 @@ ui.collapsing("Environment Probes", |ui| {
                                 enabled: true,
                             },
                             ItemPanelSlot {
+                                index: ui_style::MOWER_SLOT_INDEX,
+                                label: "Mower",
+                                key_hint: "L",
+                                category: Some("ITEMS"),
+                                icon: None,
+                                accent: SAGE_ACCENT,
+                                enabled: mower_mode_available,
+                            },
+                            ItemPanelSlot {
                                 index: ui_style::WIND_SLOT_INDEX,
                                 label: "Wind",
                                 key_hint: "9",
@@ -3071,8 +3128,9 @@ ui.collapsing("Environment Probes", |ui| {
                         let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Staff {
                             Default::default()
                         } else {
-                            draw_voxel_palette(ctx, &voxel_palette_entries, false)
+                            draw_voxel_palette(ctx, &voxel_palette_entries, rooftop_material.is_some() && self.window_state.is_cursor_visible())
                         };
+                        clicked_rooftop_material = voxel_palette_response.clicked_voxel;
                         self.player_tools.backpack_summary_panel_screen_pos =
                             voxel_palette_response
                                 .panel_center
@@ -3252,6 +3310,11 @@ ui.collapsing("Environment Probes", |ui| {
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
                 }
+                if let (Some(material), Some(scene)) =
+                    (clicked_rooftop_material, self.rooftop_scene.as_mut())
+                {
+                    scene.material = material;
+                }
                 if let Some(selection_idx) = clicked_flora_paint_selection_index {
                     self.select_flora_paint_selection_index(selection_idx);
                 }
@@ -3363,6 +3426,11 @@ ui.collapsing("Environment Probes", |ui| {
                     }
                 }
 
+                if let Err(error) = self.sync_rooftop_voxel_mode() {
+                    log::error!("[ROOFTOP][VOXEL_AB] switch failed: {error:#}");
+                    event_loop.exit();
+                    return;
+                }
                 let time_of_day_changed_by_gui =
                     self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =
@@ -3388,6 +3456,9 @@ ui.collapsing("Environment Probes", |ui| {
                     self.debug_settings.adjustables.auto_daynight_cycle.value,
                 );
 
+                if let Err(error) = self.update_mower(frame_delta_time) {
+                    log::error!("[MOWER] update failed: {error:#}");
+                }
                 self.sync_leaf_lifecycle_mode();
                 if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
                     log::warn!("[ECOLOGY] update failed: {error:#}");

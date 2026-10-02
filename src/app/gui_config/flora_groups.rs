@@ -84,6 +84,37 @@ const PARAM_GROUPS: &[&[&str]] = &[
     LEAF_CURVES,
 ];
 
+pub(super) fn search_path(section: &str, id: &str) -> Option<&'static str> {
+    match section {
+        "Flora" if DISTRIBUTION.contains(&id) => Some("Flora / Planting / Distribution"),
+        "Flora" if MODEL_FLOWERS.contains(&id) => Some("Flora / Ground Plants / Model Flowers"),
+        "Flora" if GROUND_MOTION[..2].contains(&id) => Some("Flora / Ground Plants / Rest Shape"),
+        "Flora" if GRASS_COLORS.contains(&id) => Some("Flora / Ground Plants / Grass Colors"),
+        "Flora" if GROUND_MOTION[2..].contains(&id) => Some("Wind / Response / Grass"),
+        "Flora" if LEAF_MOTION.contains(&id) || LEAF_CURVES.contains(&id) => {
+            Some("Wind / Response / Leaves")
+        }
+        "Leaves"
+            if [
+                LEAF_RESPONSE,
+                LEAF_AMPLITUDE,
+                LEAF_AMPLITUDE_CURVE,
+                LEAF_FREQUENCY,
+                LEAF_FREQUENCY_CURVE,
+            ]
+            .iter()
+            .any(|ids| ids.contains(&id)) =>
+        {
+            Some("Wind / Response / Leaves")
+        }
+        "Leaves" => Some("Flora / Leaves / Appearance & Lighting"),
+        "Grass Wind Response" => Some("Wind / Response / Grass"),
+        "Flora Spawn Animation" => Some("Flora / Planting / Spawn Animation"),
+        "FloraVariation" => Some("Flora / Ground Plants / Color Variation"),
+        _ => None,
+    }
+}
+
 fn is_grouped(id: &str) -> bool {
     PARAM_GROUPS.iter().any(|group| group.contains(&id))
 }

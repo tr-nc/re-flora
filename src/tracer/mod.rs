@@ -21,6 +21,11 @@ pub use butterfly_palette::*;
 
 mod leaf_particle_pose;
 
+mod mower_resources;
+mod static_scene;
+use mower_resources::MowerRendererResources;
+pub use static_scene::StaticSceneMesh;
+use static_scene::StaticSceneResources;
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
 
@@ -1326,6 +1331,7 @@ pub struct TracerDesc {
     pub ddgi_terrain_moments: bool,
     pub ddgi_local_light_trace_diagnostics_enabled: bool,
     pub glass_experiment_enabled: bool,
+    pub dedicated_glass_enabled: bool,
     pub glass_debug_view: u32,
 }
 
@@ -1600,7 +1606,9 @@ pub struct Tracer {
     allocator: Allocator,
     resources: TracerResources,
     particle_resources: ParticleRendererResources,
+    static_scene: Option<StaticSceneResources>,
     sprinkler_resources: SprinklerRendererResources,
+    mower_resources: MowerRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
     climbing_plant_resources: DynamicFruitRendererResources,
@@ -1847,7 +1855,10 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
-        let pipeline_builder = PipelineBuilder::new(&vulkan_ctx, desc.glass_experiment_enabled)?;
+        let pipeline_builder = PipelineBuilder::new(
+            &vulkan_ctx,
+            desc.glass_experiment_enabled || desc.dedicated_glass_enabled,
+        )?;
         let shader_modules = pipeline_builder.shader_modules();
 
         let resources = TracerResources::new(
@@ -1865,7 +1876,7 @@ impl Tracer {
             render_extent,
             screen_extent,
             desc.environment_irradiance_capture_enabled,
-            desc.glass_experiment_enabled,
+            desc.glass_experiment_enabled || desc.dedicated_glass_enabled,
             Extent2D::new(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION),
             Extent2D::new(
                 LEAF_SHADOW_OPACITY_RESOLUTION,
@@ -1943,6 +1954,8 @@ impl Tracer {
         });
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
+        let mower_resources =
+            MowerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let model_pixel_frame = ModelPixelFrame::new(&vulkan_ctx, allocator.clone());
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
@@ -1956,7 +1969,9 @@ impl Tracer {
             allocator,
             resources,
             particle_resources,
+            static_scene: None,
             sprinkler_resources,
+            mower_resources,
             geometry_preview_resources,
             dynamic_fruit_resources,
             climbing_plant_resources,
@@ -2863,11 +2878,17 @@ impl Tracer {
             LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
             0,
         )
-        .with_flags(if self.desc.ddgi_local_light_trace_diagnostics_enabled {
-            LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
-        } else {
-            0
-        });
+        .with_flags(
+            (if self.desc.ddgi_local_light_trace_diagnostics_enabled {
+                LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
+            } else {
+                0
+            }) | if self.desc.glass_experiment_enabled {
+                crate::lighting::LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS
+            } else {
+                0
+            },
+        );
         let local_lighting = &self.resources.local_lighting;
         let local_light_payload =
             self.local_light_live_publication
@@ -2962,10 +2983,11 @@ impl Tracer {
             let shadow_map_resolution = shadow_map_extent.width.min(shadow_map_extent.height);
             let (shadow_view_mat, shadow_proj_mat) =
                 calculate_directional_light_matrices(world_bound, sun_dir, shadow_map_resolution);
-            BufferUpdater::update_camera_info(
+            BufferUpdater::update_shadow_camera_info(
                 &mut self.resources.shadow.shadow_camera_info,
                 shadow_view_mat,
                 shadow_proj_mat,
+                self.desc.glass_experiment_enabled,
             )?;
             self.direct_sun_shadows.mark_camera_updated();
         }
@@ -3271,6 +3293,8 @@ impl Tracer {
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
     ) -> Result<()> {
+        self.mower_resources
+            .prepare_frame(gpu_profiler_frame_slot)?;
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
@@ -3777,6 +3801,17 @@ impl Tracer {
             &self.resources.apple_pixel.apple_pixel_quad_vertices,
             BufferUse::VertexRead,
         );
+        if let Some(scene) = &self.static_scene {
+            record_mesh(&scene.indices, &scene.vertices, scene.index_count);
+        }
+        record_mesh(
+            &self.mower_resources.indices,
+            &self.mower_resources.vertices,
+            self.mower_resources.index_count,
+        );
+        if self.mower_resources.visible {
+            record_instance(self.mower_resources.instances());
+        }
         record_mesh(
             &self.sprinkler_resources.indices,
             &self.sprinkler_resources.vertices,
@@ -3934,6 +3969,8 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
+            || self.static_scene.is_some()
+            || self.mower_resources.visible
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
@@ -4129,7 +4166,7 @@ impl Tracer {
             "composition.pass",
             || self.record_composition_pass(cmdbuf),
         );
-        if self.desc.glass_experiment_enabled {
+        if self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4212,6 +4249,8 @@ impl Tracer {
             || render_flags.enable_particles
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
+            || self.static_scene.is_some()
+            || self.mower_resources.visible
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
@@ -4849,10 +4888,26 @@ impl Tracer {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }
         }
+        if self.mower_resources.visible {
+            self.pipeline_topology
+                .graphics()
+                .mower_ppl
+                .prepare_descriptor_resources(cmdbuf);
+        }
         if self.sprinkler_resources.instance_count > 0 {
             self.pipeline_topology
                 .graphics()
                 .sprinkler_ppl
+                .prepare_descriptor_resources(cmdbuf);
+        }
+        if self.static_scene.is_some() {
+            self.pipeline_topology
+                .graphics()
+                .static_scene_ppl
+                .prepare_descriptor_resources(cmdbuf);
+            self.pipeline_topology
+                .graphics()
+                .static_scene_glass_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
         if self.geometry_preview_resources.has_visible_mesh() {
@@ -5257,6 +5312,35 @@ impl Tracer {
                     scope,
                     PipelineStage::ALL_COMMANDS,
                 );
+            }
+        }
+
+        if self.mower_resources.visible {
+            let resources = &self.mower_resources;
+            let pipeline = &self.pipeline_topology.graphics().mower_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&resources.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, resources.instances()]);
+            pipeline.record_indexed(cmdbuf, resources.index_count, 1, 0, 0, 0, None);
+        }
+        if let Some(scene) = &self.static_scene {
+            let pipeline = &self.pipeline_topology.graphics().static_scene_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(&scene.indices);
+            cmdbuf.bind_vertex_buffers(0, &[&scene.vertices]);
+            pipeline.record_indexed(cmdbuf, scene.index_count, 1, 0, 0, 0, None);
+            if !scene.translucent_triangles.is_empty() {
+                let mut triangles = scene.translucent_triangles.clone();
+                let front = self.camera_front();
+                triangles.sort_by(|a, b| b.1.dot(front).total_cmp(&a.1.dot(front)));
+                let glass_pipeline = &self.pipeline_topology.graphics().static_scene_glass_ppl;
+                glass_pipeline.record_bind(cmdbuf);
+                glass_pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+                for (first_index, _) in triangles {
+                    glass_pipeline.record_indexed(cmdbuf, 3, 1, first_index, 0, 0, None);
+                }
             }
         }
 
@@ -6472,6 +6556,30 @@ impl Tracer {
 
     pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
         self.camera.take_footstep_events()
+    }
+
+    /// Scene replacement is an infrequent setup operation, never an in-flight buffer mutation.
+    pub fn upload_static_scene(&mut self, mesh: &StaticSceneMesh) -> Result<()> {
+        self.vulkan_ctx.device().wait_idle();
+        self.static_scene = Some(StaticSceneResources::new(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            mesh,
+        )?);
+        Ok(())
+    }
+
+    pub(crate) fn clear_static_scene(&mut self) {
+        self.vulkan_ctx.device().wait_idle();
+        self.static_scene = None;
+    }
+
+    pub(crate) fn show_mower(
+        &mut self,
+        position: Option<Vec3>,
+        rotation: glam::Quat,
+    ) -> Result<()> {
+        self.mower_resources.show(position, rotation)
     }
 
     pub fn upload_sprinklers(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {

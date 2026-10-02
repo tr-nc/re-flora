@@ -1,4 +1,6 @@
-use super::{App, CHUNK_DIM, VOXEL_DIM_PER_CHUNK};
+#[cfg(test)]
+use super::CHUNK_DIM;
+use super::{App, VOXEL_DIM_PER_CHUNK};
 use crate::builder::{ContreeCpuRayHit, VOXEL_TYPE_DIRT, VOXEL_TYPE_STUCCO};
 use glam::{UVec2, UVec3, Vec3};
 
@@ -42,11 +44,22 @@ impl AuthoredFloraPlacementBatch {
 /// label/position around the ring. This does not include climbing vines.
 pub(super) const FLORA_SHOWCASE_ATTEMPTS: usize = 25;
 
-pub(super) fn flora_showcase_column(
+#[cfg(test)]
+fn flora_showcase_column(
     center: Vec3,
     index: usize,
     count: usize,
     attempt: usize,
+) -> Option<UVec2> {
+    flora_showcase_column_in_world(center, index, count, attempt, CHUNK_DIM)
+}
+
+pub(super) fn flora_showcase_column_in_world(
+    center: Vec3,
+    index: usize,
+    count: usize,
+    attempt: usize,
+    chunk_dim: UVec3,
 ) -> Option<UVec2> {
     if !center.is_finite() || count == 0 || index >= count || attempt >= FLORA_SHOWCASE_ATTEMPTS {
         return None;
@@ -56,7 +69,7 @@ pub(super) fn flora_showcase_column(
     let radius = 32.0 + [0., -4., 4., -8., 8.][attempt / 5];
     let x = (center.x * 256.0 + angle.cos() * radius).round();
     let z = (center.z * 256.0 + angle.sin() * radius).round();
-    let world = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+    let world = chunk_dim * VOXEL_DIM_PER_CHUNK;
     (x >= 0. && x < world.x as f32 && z >= 0. && z < world.z as f32)
         .then_some(UVec2::new(x as u32, z as u32))
 }
@@ -66,7 +79,10 @@ impl App {
         &self,
         column_world_vox: UVec2,
     ) -> Result<PlantableSurfaceAnchor, PlantingRejection> {
-        self.resolve_plantable_surface_column_below(column_world_vox, CHUNK_DIM.y as f32 + 1.0)
+        self.resolve_plantable_surface_column_below(
+            column_world_vox,
+            self.world_chunk_dim.y as f32 + 1.0,
+        )
     }
 
     /// Query near the player's feet instead of planting on roofs above them.
@@ -75,7 +91,7 @@ impl App {
         column_world_vox: UVec2,
         ceiling_ws: f32,
     ) -> Result<PlantableSurfaceAnchor, PlantingRejection> {
-        let world_dim_vox = CHUNK_DIM * VOXEL_DIM_PER_CHUNK;
+        let world_dim_vox = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         if column_world_vox.x >= world_dim_vox.x
             || column_world_vox.y >= world_dim_vox.z
             || !ceiling_ws.is_finite()
@@ -86,7 +102,7 @@ impl App {
 
         let position_ws = Vec3::new(
             (column_world_vox.x as f32 + 0.5) / VOXEL_DIM_PER_CHUNK.x as f32,
-            ceiling_ws.min(CHUNK_DIM.y as f32 + 1.0),
+            ceiling_ws.min(self.world_chunk_dim.y as f32 + 1.0),
             (column_world_vox.y as f32 + 0.5) / VOXEL_DIM_PER_CHUNK.z as f32,
         );
         let hit = self

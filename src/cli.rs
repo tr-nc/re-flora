@@ -452,6 +452,7 @@ pub enum Scenario {
     HybridTransparency,
     GlassVoxel(GlassVoxelOptions),
     House,
+    Rooftop,
     TerrainConnectivityBenchmark(TerrainConnectivityBenchOptions),
     FoliageShadowBenchmark(FoliageDenoiserOptions),
     LightingModeAcceptance(LightingModeAcceptanceOptions),
@@ -816,6 +817,12 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
         .as_ref()
         .map(|request| request.preset_name.as_str())
     {
+        Some("rooftop-scene") => {
+            if !args.iter().any(|a| a == "--rooftop-poc") {
+                return Err("Screenshot preset 'rooftop-scene' requires --rooftop-poc. Try: re-flora --rooftop-poc --screenshot rooftop-scene target/roof.png --screenshot-delay 2 --auto-exit 10".to_owned());
+            }
+            true
+        }
         Some("glass-test-scene") => {
             if !glass_voxel_test_scene {
                 return Err(
@@ -850,6 +857,10 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
     let house_scene = args
         .iter()
         .any(|arg| arg == "--house-scene" || arg == "--cozy-home");
+    let rooftop_poc = args.iter().any(|arg| arg == "--rooftop-poc");
+    if rooftop_poc && (terrain_load_path.is_some() || terrain_save_path.is_some()) {
+        return Err("--rooftop-poc is an unsaved experiment; omit --terrain-load and --terrain-save. Try: re-flora --rooftop-poc".to_owned());
+    }
     let water_edit_soak = args.iter().any(|arg| arg == "--water-edit-soak");
     let foliage_shadow_bench_requested = foliage_shadow_bench.is_some();
     let canopy_audio_budget_diagnostic = args
@@ -1018,6 +1029,9 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
     }
     if house_scene {
         scenarios.push(Scenario::House);
+    }
+    if rooftop_poc {
+        scenarios.push(Scenario::Rooftop);
     }
     if let Some(benchmark) = terrain_connectivity_bench {
         scenarios.push(Scenario::TerrainConnectivityBenchmark(benchmark));
@@ -1603,6 +1617,8 @@ Options:
                               Use screenshot preset 'glass-test-scene' to retain its fixed camera
   --cozy-home                 Visit the stone cottage garden (separate, unsaved world)
   --house-scene               Alias for --cozy-home
+  --rooftop-poc               Bare model roof + editable soil, unlimited developer resources; unsaved experiment (no terrain load/save)
+                              Capture: --rooftop-poc --hidden --mute --screenshot rooftop-scene target/roof.png --screenshot-delay 2 --auto-exit 10
   --environment-probe-spacing-voxels <N>
                               Set environment probe spacing: 64, 32, 16, or 8 (default: 32)
   --environment-probe-rebuild-spacing-voxels <N>
@@ -2474,6 +2490,56 @@ mod tests {
             "target/must-not-read.rflterrain".into()
         ])
         .is_err());
+    }
+
+    #[test]
+    fn rooftop_is_an_exclusive_unsaved_scenario() {
+        assert_eq!(
+            parse(&["re-flora", "--rooftop-poc"]).scenario,
+            Scenario::Rooftop
+        );
+        for extra in [
+            vec!["--terrain-load", "old.bin"],
+            vec!["--terrain-save", "old.bin"],
+            vec!["--cozy-home"],
+            vec!["--water-experience"],
+            vec!["--canopy-audio-diagnostic"],
+        ] {
+            let mut args = vec!["re-flora".to_owned(), "--rooftop-poc".to_owned()];
+            args.extend(extra.into_iter().map(str::to_owned));
+            assert!(parse_run_plan(args).is_err());
+        }
+    }
+
+    #[test]
+    fn rooftop_screenshot_retains_the_scene_camera_without_saved_snapshot() {
+        let args = [
+            "re-flora",
+            "--rooftop-poc",
+            "--hidden",
+            "--mute",
+            "--screenshot",
+            "rooftop-scene",
+            "target/roof.png",
+            "--screenshot-delay",
+            "2",
+            "--auto-exit",
+            "10",
+        ];
+        let options = parse(&args);
+        assert_eq!(options.scenario, Scenario::Rooftop);
+        assert!(matches!(
+            options.automation.camera,
+            CameraAutomation::FixedSceneScreenshot { .. }
+        ));
+        let without_scene = args
+            .iter()
+            .filter(|&&a| a != "--rooftop-poc")
+            .map(|a| (*a).to_owned())
+            .collect();
+        assert!(parse_run_plan(without_scene)
+            .unwrap_err()
+            .contains("requires --rooftop-poc"));
     }
 
     #[test]

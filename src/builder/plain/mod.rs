@@ -38,6 +38,11 @@ use std::convert::TryInto;
 use std::time::{Duration, Instant};
 pub use terrain_hill::*;
 
+pub const VOXEL_TYPE_GLASS: u32 = 1;
+pub const VOXEL_TYPE_ASPHALT: u32 = 12;
+pub const VOXEL_TYPE_PAINTED_METAL: u32 = 13;
+pub const VOXEL_TYPE_TERRACOTTA: u32 = 14;
+pub const VOXEL_TYPE_CANOPY: u32 = 15;
 pub const VOXEL_TYPE_CHERRY_WOOD: u32 = 5;
 pub const VOXEL_TYPE_OAK_WOOD: u32 = 6;
 pub const VOXEL_TYPE_ROCK: u32 = 7;
@@ -50,8 +55,26 @@ pub const VOXEL_TYPE_DIRT: u32 = 2;
 pub const VOXEL_TYPE_SAND: u32 = 3;
 pub const VOXEL_TYPE_STUCCO: u32 = 4;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
+pub const VOXEL_FIXED_SCENE_BIT: u8 = 0x80;
+
+#[derive(Clone, Copy)]
+#[repr(u32)]
+enum AtlasFillPolicy {
+    PreserveState = 0,
+    ClearState = 1,
+    FixedScene = 2,
+}
+
+pub fn voxel_is_fixed_scene(data: u8) -> bool {
+    let ty = u32::from(data & VOXEL_TYPE_MASK);
+    ty != VOXEL_TYPE_EMPTY
+        && ty != VOXEL_TYPE_DIRT
+        && ty != VOXEL_TYPE_SAND
+        && data & VOXEL_FIXED_SCENE_BIT != 0
+}
 pub const VOXEL_ATLAS_STATE_MASK: u8 = 0xf0;
-// Atlas bytes store 4 bits of voxel type and 2 bits of moisture. Bits 6-7 are reserved.
+// Atlas bytes retain 4 type bits and 2 moisture bits. Bits 6-7 remain reserved for soil;
+// bit 7 is fixed-scene ownership on non-soil types only.
 pub const VOXEL_MOISTURE_MASK: u8 = 0x30;
 pub const VOXEL_MOISTURE_MAX: u8 = 0x03;
 pub const VOXEL_PROPERTY_MOISTURE: u32 = 1;
@@ -60,7 +83,7 @@ const PRIMITIVE_KIND_ROUND_CONE: u32 = 0;
 const PRIMITIVE_KIND_CUBOID: u32 = 1;
 const PRIMITIVE_KIND_SPHERE: u32 = 2;
 const PRIMITIVE_KIND_TORUS: u32 = 3;
-pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 12;
+pub const EDIT_STATS_VOXEL_TYPE_COUNT: usize = 16;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -230,6 +253,8 @@ struct TerrainSmoothMboInfoGpu {
     center_radius: [f32; 4],
     params: [f32; 4],
     threshold: [u32; 4],
+    write_min: [u32; 4],
+    write_max: [u32; 4],
 }
 
 #[repr(C)]
@@ -639,6 +664,10 @@ impl PlainBuilder {
 
         cmdbuf.end();
         cmdbuf
+    }
+
+    pub fn voxel_dimensions(&self) -> UVec3 {
+        chunk_atlas_dim(&self.resources)
     }
 
     pub fn get_resources(&self) -> &PlainBuilderResources {
@@ -1488,6 +1517,25 @@ impl PlainBuilder {
         max_delta_world: f32,
         deadband_world: f32,
     ) -> Result<Option<UAabb3>> {
+        self.smooth_terrain_dirt_in_bounds(
+            center,
+            brush_radius_world,
+            strength,
+            max_delta_world,
+            deadband_world,
+            None,
+        )
+    }
+
+    pub fn smooth_terrain_dirt_in_bounds(
+        &mut self,
+        center: Vec3,
+        brush_radius_world: f32,
+        strength: f32,
+        max_delta_world: f32,
+        deadband_world: f32,
+        write_bound: Option<UAabb3>,
+    ) -> Result<Option<UAabb3>> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let center_vox = center * 256.0;
         let brush_radius_vox = (brush_radius_world * 256.0).max(0.0);
@@ -1517,6 +1565,7 @@ impl PlainBuilder {
                 strength,
                 max_delta_world,
                 deadband_world,
+                write_bound,
             );
         }
 
@@ -1526,6 +1575,7 @@ impl PlainBuilder {
             strength,
             max_delta_world,
             deadband_world,
+            write_bound,
         )
     }
 
@@ -1536,6 +1586,7 @@ impl PlainBuilder {
         strength: f32,
         max_delta_world: f32,
         deadband_world: f32,
+        write_bound: Option<UAabb3>,
     ) -> Result<Option<UAabb3>> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
@@ -1578,6 +1629,14 @@ impl PlainBuilder {
             center_radius: [center_vox.x, center_vox.y, center_vox.z, brush_radius_vox],
             params: [strength, deadband_vox, 0.0, 0.0],
             threshold: [0, 0, 0, 0],
+            write_min: write_bound
+                .map_or(UVec3::ZERO, |b| b.min())
+                .extend(0)
+                .to_array(),
+            write_max: write_bound
+                .map_or(atlas_dim, |b| b.max())
+                .extend(0)
+                .to_array(),
         };
 
         let prepare_start = Instant::now();
@@ -1784,6 +1843,7 @@ impl PlainBuilder {
         strength: f32,
         max_delta_world: f32,
         deadband_world: f32,
+        write_bound: Option<UAabb3>,
     ) -> Result<Option<UAabb3>> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
@@ -1821,8 +1881,12 @@ impl PlainBuilder {
             .collect();
         let mutable: Vec<bool> = atlas_data
             .iter()
-            .map(|voxel_data| {
+            .enumerate()
+            .map(|(idx, voxel_data)| {
+                let world = offset + volume_local_pos(idx, dim);
                 is_terrain_smooth_mutable_voxel(voxel_type_from_atlas_byte(*voxel_data) as u32)
+                    && write_bound
+                        .is_none_or(|b| world.cmpge(b.min()).all() && world.cmplt(b.max()).all())
             })
             .collect();
 
@@ -2116,7 +2180,30 @@ impl PlainBuilder {
             bvh_nodes,
             cuboids,
             fill_voxel_type,
-            clear_fill_voxel_state,
+            if clear_fill_voxel_state {
+                AtlasFillPolicy::ClearState
+            } else {
+                AtlasFillPolicy::PreserveState
+            },
+        )
+    }
+
+    /// Scene authoring is the sole capability allowed to write/clear immutable non-soil cells.
+    pub fn chunk_modify_fixed_scene_cuboids(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        cuboids: &[Cuboid],
+        material: u32,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            material != VOXEL_TYPE_DIRT && material != VOXEL_TYPE_SAND,
+            "fixed scene cannot own soil state bits"
+        );
+        self.chunk_modify_cuboids_with_voxel_type_impl(
+            bvh_nodes,
+            cuboids,
+            material,
+            AtlasFillPolicy::FixedScene,
         )
     }
 
@@ -2138,7 +2225,8 @@ impl PlainBuilder {
             None,
             PRIMITIVE_KIND_SPHERE,
             false,
-            false,
+            AtlasFillPolicy::PreserveState,
+            None,
             None,
             None,
         )?;
@@ -2185,7 +2273,8 @@ impl PlainBuilder {
             None,
             PRIMITIVE_KIND_TORUS,
             false,
-            false,
+            AtlasFillPolicy::PreserveState,
+            None,
             None,
             None,
         )?;
@@ -2223,11 +2312,67 @@ impl PlainBuilder {
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
+        self.modify_spheres_with_readback(
+            bvh_nodes,
+            spheres,
+            fill_voxel_type,
+            target_voxel_type,
+            max_write_count,
+            max_removed_counts,
+            true,
+            None,
+        )
+    }
+
+    /// Original addition/removal surface brush constrained to a legal layer. Its model floor
+    /// supplies solid adjacency without stamping voxels into the editable atlas.
+    pub fn chunk_modify_bounded_spheres(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        fill_voxel_type: u32,
+        bound: UAabb3,
+    ) -> Result<ChunkModifyReadback> {
+        let target = (fill_voxel_type != crate::builder::VOXEL_TYPE_EMPTY)
+            .then_some(crate::builder::VOXEL_TYPE_EMPTY);
+        self.modify_spheres_with_readback(
+            bvh_nodes,
+            spheres,
+            fill_voxel_type,
+            target,
+            None,
+            None,
+            true,
+            Some(bound),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn modify_spheres_with_readback(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        fill_voxel_type: u32,
+        target_voxel_type: Option<u32>,
+        max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
+        surface_only: bool,
+        bound: Option<UAabb3>,
+    ) -> Result<ChunkModifyReadback> {
         let total_start = Instant::now();
         let atlas_dim = chunk_atlas_dim(&self.resources);
-        let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
+        let Some((mut offset, mut dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim)
+        else {
             return Ok(ChunkModifyReadback::default());
         };
+        if let Some(bound) = bound {
+            let max = (offset + dim).min(bound.max());
+            offset = offset.max(bound.min());
+            if offset.cmpge(max).any() {
+                return Ok(ChunkModifyReadback::default());
+            }
+            dim = max - offset;
+        }
         let prep_start = Instant::now();
         clear_edit_stats(&self.resources)?;
         clear_edit_removal_candidates(&self.resources)?;
@@ -2238,10 +2383,11 @@ impl PlainBuilder {
             fill_voxel_type,
             target_voxel_type,
             PRIMITIVE_KIND_SPHERE,
-            true,
-            false,
+            surface_only,
+            AtlasFillPolicy::PreserveState,
             max_write_count,
             max_removed_counts,
+            bound.map(|b| b.min().y),
         )?;
         update_spheres(&self.resources, spheres)?;
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
@@ -2415,7 +2561,8 @@ impl PlainBuilder {
             target_voxel_type,
             PRIMITIVE_KIND_ROUND_CONE,
             false,
-            false,
+            AtlasFillPolicy::PreserveState,
+            None,
             None,
             None,
         )?;
@@ -2456,7 +2603,7 @@ impl PlainBuilder {
         bvh_nodes: &[BvhNode],
         cuboids: &[Cuboid],
         fill_voxel_type: u32,
-        clear_fill_voxel_state: bool,
+        fill_policy: AtlasFillPolicy,
     ) -> Result<()> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let Some((offset, dim)) = calculate_clipped_offset_and_dim(bvh_nodes, atlas_dim) else {
@@ -2470,7 +2617,8 @@ impl PlainBuilder {
             None,
             PRIMITIVE_KIND_CUBOID,
             false,
-            clear_fill_voxel_state,
+            fill_policy,
+            None,
             None,
             None,
         )?;
@@ -2989,15 +3137,25 @@ mod tests {
     #[test]
     fn emissive_material_fits_the_existing_four_bit_schema_and_edit_stats() {
         assert!(VOXEL_TYPE_EMISSIVE <= u32::from(VOXEL_TYPE_MASK));
-        assert_eq!(EDIT_STATS_VOXEL_TYPE_COUNT, VOXEL_TYPE_PETAL as usize + 1);
+        assert_eq!(EDIT_STATS_VOXEL_TYPE_COUNT, VOXEL_TYPE_MASK as usize + 1);
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::EditStats>(),
             EDIT_STATS_VOXEL_TYPE_COUNT * 2 * std::mem::size_of::<u32>()
         );
         let modify = crate::generated::gpu_structs::ChunkModifyInfo::zeroed();
         assert_eq!(modify.max_removed_counts_8_11.len(), 4);
+        assert_eq!(modify.max_removed_counts_12_15.len(), 4);
+        for data in 0u8..=u8::MAX {
+            let ty = u32::from(data & VOXEL_TYPE_MASK);
+            if [VOXEL_TYPE_EMPTY, VOXEL_TYPE_DIRT, VOXEL_TYPE_SAND].contains(&ty) {
+                assert!(!voxel_is_fixed_scene(data));
+            }
+        }
+        assert!(voxel_is_fixed_scene(
+            VOXEL_TYPE_GLASS as u8 | VOXEL_FIXED_SCENE_BIT
+        ));
         let writer_types = include_str!("../../../shader/slang/chunk_writer_types.slang");
-        assert!(writer_types.contains("EDIT_STATS_VOXEL_TYPE_COUNT = 12u"));
+        assert!(writer_types.contains("EDIT_STATS_VOXEL_TYPE_COUNT = 16u"));
         assert!(writer_types.contains("max_removed_counts_8_11"));
         let packed = pack_voxel_atlas_byte(VOXEL_TYPE_EMISSIVE as u8, 0);
         assert_eq!(
@@ -3071,9 +3229,10 @@ fn update_chunk_modify_info(
     target_voxel_type: Option<u32>,
     primitive_kind: u32,
     surface_only: bool,
-    clear_fill_voxel_state: bool,
+    fill_policy: AtlasFillPolicy,
     max_write_count: Option<u32>,
     max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
+    surface_support_y: Option<u32>,
 ) -> Result<()> {
     let max_removed_counts = max_removed_counts.unwrap_or([u32::MAX; EDIT_STATS_VOXEL_TYPE_COUNT]);
     resources.chunk_modify_info.fill_uniform(&ChunkModifyInfo {
@@ -3083,11 +3242,13 @@ fn update_chunk_modify_info(
         target_voxel_type: target_voxel_type.unwrap_or(u32::MAX),
         primitive_kind,
         surface_only: if surface_only { 1 } else { 0 },
+        surface_support_y_plus_one: surface_support_y.map_or(0, |y| y + 1),
         max_write_count: max_write_count.unwrap_or(0),
-        clear_fill_voxel_state: if clear_fill_voxel_state { 1 } else { 0 },
+        fill_policy: fill_policy as u32,
         max_removed_counts_0_3: max_removed_counts[..4].try_into().unwrap(),
         max_removed_counts_4_7: max_removed_counts[4..8].try_into().unwrap(),
         max_removed_counts_8_11: max_removed_counts[8..12].try_into().unwrap(),
+        max_removed_counts_12_15: max_removed_counts[12..16].try_into().unwrap(),
         ..ChunkModifyInfo::zeroed()
     })
 }
