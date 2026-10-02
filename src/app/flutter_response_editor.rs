@@ -80,6 +80,27 @@ fn fields(a: &mut GuiAdjustables, kind: Kind) -> Fields<'_> {
     }
 }
 
+/// Declarative search sliders obey the same endpoint order as the curve handles.
+pub(super) fn enforce_endpoint_order(a: &mut GuiAdjustables, edited_id: &str) {
+    let (kind, is_start) = match edited_id {
+        "leaf_flutter_wind_start" => (Kind::Amplitude, true),
+        "leaf_flutter_wind_full" => (Kind::Amplitude, false),
+        "leaf_flutter_frequency_start" => (Kind::Frequency, true),
+        "leaf_flutter_frequency_full" => (Kind::Frequency, false),
+        "grass_sway_amplitude_start" => (Kind::GrassAmplitude, true),
+        "grass_sway_amplitude_full" => (Kind::GrassAmplitude, false),
+        "grass_sway_frequency_start" => (Kind::GrassFrequency, true),
+        "grass_sway_frequency_full" => (Kind::GrassFrequency, false),
+        _ => return,
+    };
+    let f = fields(a, kind);
+    if is_start {
+        *f.start = (*f.start).min(*f.full);
+    } else {
+        *f.full = (*f.full).max(*f.start);
+    }
+}
+
 pub(super) fn draw(ui: &mut egui::Ui, a: &mut GuiAdjustables, kind: Kind) -> Rect {
     let mut f = fields(a, kind);
     let maximum = f.max;
@@ -176,6 +197,42 @@ fn edit_fields(f: &mut Fields<'_>, index: usize, wind: f32, value: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn searched_endpoint_sliders_obey_the_same_order_as_curve_handles() {
+        let mut a =
+            GuiAdjustables::from_config(&crate::app::gui_config_loader::GuiConfigLoader::load());
+        for (kind, start, full) in [
+            (
+                Kind::Amplitude,
+                "leaf_flutter_wind_start",
+                "leaf_flutter_wind_full",
+            ),
+            (
+                Kind::Frequency,
+                "leaf_flutter_frequency_start",
+                "leaf_flutter_frequency_full",
+            ),
+            (
+                Kind::GrassAmplitude,
+                "grass_sway_amplitude_start",
+                "grass_sway_amplitude_full",
+            ),
+            (
+                Kind::GrassFrequency,
+                "grass_sway_frequency_start",
+                "grass_sway_frequency_full",
+            ),
+        ] {
+            *fields(&mut a, kind).start = 4.;
+            *fields(&mut a, kind).full = 1.;
+            enforce_endpoint_order(&mut a, start);
+            assert_eq!(*fields(&mut a, kind).start, 1.);
+            *fields(&mut a, kind).start = 3.;
+            enforce_endpoint_order(&mut a, full);
+            assert_eq!(*fields(&mut a, kind).full, 3.);
+        }
+    }
+
     #[test]
     fn curve_titles_use_supported_ascii_text() {
         let mut a =

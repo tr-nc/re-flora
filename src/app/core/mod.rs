@@ -2771,9 +2771,9 @@ impl App {
                                         ui.small(status);
                                     }
 
-                                    ui.add_space(8.0);
-                                    ui.add_space(8.0);
-                                    ui.collapsing("Terrain & Plants", |ui| {
+                                    let (debug_search, search_changed) = self.debug_settings.search_toolbar(ui);
+                                    let mut extra_search_matches = 0usize;
+                                    extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
                                     ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
                                     if ui.button("Plant all flowers & grasses around me").clicked() {
@@ -2783,13 +2783,13 @@ impl App {
                                     if let Some(status) = &self.flora_showcase_status {
                                         ui.small(status);
                                     }
-                                    });
+                                    }).is_some());
 
-                                    ui.add_space(4.0);
-                                    ui.add_space(4.0);
-
-                                    debug_panel::scroll_area()
-                                        .show(ui, |ui| {
+                                    let mut settings_scroll = debug_panel::scroll_area();
+                                    if search_changed {
+                                        settings_scroll = settings_scroll.vertical_scroll_offset(0.);
+                                    }
+                                    settings_scroll.show(ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
@@ -2801,9 +2801,7 @@ impl App {
                                                 }
                                             });
 
-                                            ui.add_space(8.0);
-                                            ui.add_space(8.0);
-ui.collapsing("Environment Probes", |ui| {
+extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Cheap terrain lighting", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested", "Revisions Allocated memory"], |ui| {
 
                                             ui.small("Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
@@ -2968,11 +2966,9 @@ ui.collapsing("Environment Probes", |ui| {
                                                 },
                                             );
 
-                                            });
+                                            }).is_some());
 
-                                            ui.add_space(8.0);
-                                            ui.add_space(8.0);
-                                            camera_snapshot_to_apply = ui.collapsing("Camera Snapshots", |ui| draw_camera_snapshots_ui(
+                                            let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Save", "Load", "Name", "Description", "Pose", "FOV", "Free fly"], |ui| draw_camera_snapshots_ui(
                                                 ui,
                                                 &mut self.camera_snapshots,
                                                 &mut self.camera_snapshot_draft_name,
@@ -2980,17 +2976,20 @@ ui.collapsing("Environment Probes", |ui| {
                                                 &mut self.camera_snapshot_status,
                                                 current_camera_pose,
                                                 current_camera_is_free_fly,
-                                            )).body_returned.flatten();
+                                            ));
+                                            extra_search_matches += usize::from(camera_search_result.is_some());
+                                            camera_snapshot_to_apply = camera_search_result.flatten();
 
-                                            ui.add_space(8.0);
-                                            ui.add_space(8.0);
-                                            ui.collapsing("Flora Growth", |ui| {
+                                            extra_search_matches += usize::from(debug_search.section(ui, "Flora Growth", &["Updating chunks", "Status"], |ui| {
                                             ui.label(format!(
                                                 "Updating chunks: {}",
                                                 growing_flora_chunk_count
                                             ));
-                                            });
+                                            }).is_some());
 
+                                            if debug_search.is_active() && !self.debug_settings.search_has_results() && extra_search_matches == 0 {
+                                                ui.weak("No matching controls. Try fewer words or Clear.");
+                                            }
                                         });
                                 });
                         }

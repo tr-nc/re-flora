@@ -3,7 +3,8 @@
 ## Try it
 
 Run `cargo run --release -- --rooftop-poc`. Press **R** to open Debug Panel,
-expand **Terrain** (the displayed name of the stored `Voxel` section), and enable
+search **restaurant** in the top Search field (or expand **Terrain**, the displayed
+name of the stored `Voxel` section), and enable
 **Restaurant scene: true voxels (A/B; off = original models)**.
 Unchecked retains the authored raster scene; checked stamps all 317 boxes into the
 normal atlas → Surface → Contree → scene-acceleration pipeline and removes the
