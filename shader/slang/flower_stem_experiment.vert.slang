@@ -27,23 +27,16 @@ StemProxyVertex main(VertexInput input) {
         // Conservative analytic proxy shared by both independent effects.
         float3 lo,hi;stemBounds(s,lo,hi);
         if(flowerStemSamplingSettings().y==1u) {
-            float margin;
-            if(flowerStemShapeSettings().y>0.5) {
-                float3 center=float3(s.bend*0.5,s.height*0.5,0);
-                float radius=length(max(abs(lo-center),abs(hi-center)));
-                uint resolution=uint(flowerStemShapeSettings().z);
-                float3 right=mul(camera_info.view_mat_inv,float4(1,0,0,0)).xyz;
-                StemModelGrid grid=stemModelGrid(stemWorldPoint(output,center),radius*pose.frame.scale,
-                    s.height*pose.frame.scale,resolution,camera_info.pos.xyz,right);
-                output.grid_center_cell=float4(grid.center,grid.cell);
-                output.grid_x=grid.x;output.grid_y=grid.y;
-                // Conservative perspective fringe, including inside-bound refinement.
-                margin=2.0*s.height/float(resolution);
-            } else {
-                float distance=length(camera_info.pos.xyz-output.root_scale.xyz)+
-                    max(length(lo),length(hi))*pose.frame.scale;
-                margin=distance*4.0/float(flowerStemSamplingSettings().z)/pose.frame.scale;
-            }
+            float3 center=float3(s.bend*0.5,s.height*0.5,0);
+            float radius=length(max(abs(lo-center),abs(hi-center)));
+            uint resolution=flowerStemSamplingSettings().z;
+            float3 right=mul(camera_info.view_mat_inv,float4(1,0,0,0)).xyz;
+            StemModelGrid grid=stemModelGrid(stemWorldPoint(output,center),radius*pose.frame.scale,
+                s.height*pose.frame.scale,resolution,camera_info.pos.xyz,right);
+            output.grid_center_cell=float4(grid.center,grid.cell);
+            output.grid_x=grid.x;output.grid_y=grid.y;
+            // Conservative perspective fringe, including inside-bound refinement.
+            float margin=2.0*s.height/float(resolution);
             lo-=margin;hi+=margin;
         }
         float2 ndcLo=float2(1e20),ndcHi=float2(-1e20);

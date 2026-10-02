@@ -19,8 +19,6 @@ const GROUPS: &[ControlGroup] = &[
         params: &[
             "flower_stem_pixelized",
             "flower_stem_surface_cells",
-            "flower_stem_direction_resolution",
-            "flower_stem_model_sampling",
             "flower_stem_model_resolution",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
@@ -141,18 +139,13 @@ pub(super) fn render(
                     for (title, ids) in [
                         ("Geometry", &["model_flower_voxel_scale", "flower_stem_radius_scale", "flower_stem_test_branches"][..]),
                         ("Shading", &["flower_stem_surface_cells", "model_flower_stem_bottom_color", "model_flower_stem_tip_color"][..]),
-                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_model_sampling", "flower_stem_direction_resolution", "flower_stem_model_resolution"][..]),
+                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_model_resolution"][..]),
                     ] {
                         ui.label(title);
                         for id in ids {
-                            let pixelized = adjustables.flower_stem_pixelized.value;
-                            let model = adjustables.flower_stem_model_sampling.value;
-                            if match *id {
-                                "flower_stem_model_sampling" => !pixelized,
-                                "flower_stem_direction_resolution" => !pixelized || model,
-                                "flower_stem_model_resolution" => !pixelized || !model,
-                                _ => false,
-                            } { continue; }
+                            if *id == "flower_stem_model_resolution" && !adjustables.flower_stem_pixelized.value {
+                                continue;
+                            }
                             for owner in config {
                                 if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
                                     render_gui_param_from_config(ui, param, &owner.name, adjustables);
@@ -162,7 +155,7 @@ pub(super) fn render(
                         if title == "Shading" {
                             ui.weak("Off: continuous shading. On: branch-attached material cells.");
                         } else if title == "Pixelization" {
-                            ui.weak("A: fixed angular cells. B: model-sized cells with continuous perspective views, no discrete angle switching. Combines with either shading style.");
+                            ui.weak("Model-sized cells with continuous perspective views, no discrete angle switching. Combines with either shading style.");
                         }
                     }
                     return;
@@ -223,21 +216,12 @@ mod tests {
             .iter()
             .find(|g| g.title == "Pixel Sampling — Flower Stems")
             .unwrap();
-        for (pixelized, surface_cells, model) in [
-            (false, false, false),
-            (false, true, false),
-            (true, false, false),
-            (true, true, false),
-            (false, false, true),
-            (false, true, true),
-            (true, false, true),
-            (true, true, true),
-        ] {
+        for (pixelized, surface_cells) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
             let mut settings = DebugSettings::load();
             settings.adjustables.flower_stem_pixelized.value = pixelized;
             settings.adjustables.flower_stem_surface_cells.value = surface_cells;
-            settings.adjustables.flower_stem_direction_resolution.value = 768;
-            settings.adjustables.flower_stem_model_sampling.value = model;
             settings.adjustables.flower_stem_model_resolution.value = 192;
             settings.adjustables.model_flower_voxel_scale.value = 1.8;
             settings.sync_config();
@@ -255,12 +239,7 @@ mod tests {
                 "flower_stem_test_branches",
             ];
             if pixelized {
-                expected.push("flower_stem_model_sampling");
-                expected.push(if model {
-                    "flower_stem_model_resolution"
-                } else {
-                    "flower_stem_direction_resolution"
-                });
+                expected.push("flower_stem_model_resolution");
             }
             assert!(text.contains("Geometry"));
             assert!(text.contains("Shading"));
@@ -277,7 +256,7 @@ mod tests {
                 assert_eq!(
                     text.contains(label),
                     expected.contains(id),
-                    "pixelized={pixelized} surface_cells={surface_cells} model={model} id={id}"
+                    "pixelized={pixelized} surface_cells={surface_cells} id={id}"
                 );
             }
             let voxel_label = &settings
@@ -293,6 +272,8 @@ mod tests {
                 1,
                 "Stem dimensions must have one owner"
             );
+            assert!(!text.contains("world-direction"));
+            assert!(!text.contains("direction cells per cube face"));
             assert!(!text.contains("block geometry B"));
             assert!(!text.contains("geometry cell size"));
             settings.sync_config();

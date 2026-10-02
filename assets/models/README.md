@@ -104,13 +104,13 @@ is no whole-plant pixelization switch. **Pixel Sampling — Flower Stems** has t
 - **Geometry**: base dimensions, radius scale and optional two tapered branches.
 - **Shading**: independent surface-attached cell shading checkbox (off = continuous),
   plus bottom/tip colors. This changes shading coordinates, not visibility or depth.
-- **Pixelization**: independent pixel sampling checkbox. The **model-space sampling (B)**
-  checkbox defaults off, preserving world-direction angular sampling (A). B anchors the grid
-  and its cell size to the plant, with continuously camera-oriented perspective samples; no
-  canonical view table or angle switching. A has direction resolution; B has samples per stem
-  height. Quantized rays affect silhouette/depth, not screen-space post-processing. Either
-  sampling policy combines with continuous or surface-cell shading.
-  See [model-space sampling A/B](../../docs/evidence/stem-model-space-sampling.md).
+- **Pixelization**: **model-space pixelization** checkbox and samples per stem height.
+  Model-space sampling is the only pixelization policy: it anchors the grid and its cell size
+  to the plant, with continuously camera-oriented perspective samples, no canonical view table
+  or angle switching. The old angular policy, A/B selector and direction resolution are removed.
+  Quantized rays affect silhouette/depth, not screen-space post-processing. Pixelization off/on
+  combines independently with continuous or surface-cell shading.
+  See [model-space sampling](../../docs/evidence/stem-model-space-sampling.md).
 
 Original cube stems, fixed-object pixel sampling and the wind-freeze override are removed.
 Wind/rest bend always follow the normal shared stem/head pose, bounded to one quarter of

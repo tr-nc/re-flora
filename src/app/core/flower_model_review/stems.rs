@@ -9,20 +9,14 @@ fn policy(mode: &str, phase: u32) -> StemExperiment {
     let combination = match mode {
         "stem-continuous" => 0,
         "stem-surface" => 1,
-        "stem-direction" | "stem-direction-far" | "stem-model" | "stem-model-far" => 2,
-        "stem-combined" | "stem-model-surface" => 3,
-        "stem-model-review" => 2 | (phase % 2),
+        "stem-model" | "stem-model-far" => 2,
+        "stem-combined" => 3,
         "stems" => phase % 4,
         _ => unreachable!("validated stem review mode"),
     };
     StemExperiment {
         pixelized: combination & 2 != 0,
         surface_cells: combination & 1 != 0,
-        model_sampling: if mode == "stem-model-review" {
-            phase % 4 >= 2
-        } else {
-            mode.starts_with("stem-model")
-        },
         ..StemExperiment::default()
     }
 }
@@ -38,15 +32,13 @@ impl App {
         let s = &mut self.debug_settings.adjustables;
         s.flower_stem_pixelized.value = p.pixelized;
         s.flower_stem_surface_cells.value = p.surface_cells;
-        s.flower_stem_direction_resolution.value = p.direction_resolution;
-        s.flower_stem_model_sampling.value = p.model_sampling;
         s.flower_stem_model_resolution.value = p.model_resolution;
         s.flower_stem_radius_scale.value = p.radius_scale;
         s.flower_stem_test_branches.value = p.branches;
         let target = self.flower_model_review.as_ref().unwrap().target.unwrap();
         let step = (frame % 24) as f32 / 23.;
         let offset = Vec3::new(0., 0.14, 0.43);
-        let sweep = mode == "stems" || mode == "stem-model-review";
+        let sweep = mode == "stems";
         let (camera, focus) = if sweep && phase >= 12 {
             (
                 target + offset * (0.8 - step * 0.9),
@@ -70,7 +62,7 @@ impl App {
             "stem review camera"
         );
         if frame.is_multiple_of(24) && ((sweep && frame < 16 * 24) || frame == 0) {
-            log::info!("[STEM_REVIEW_PHASE] phase={phase} pixelized={} surface_cells={} resolution={} branches={} model_sampling={} model_resolution={} wind=live saved=false", p.pixelized, p.surface_cells, p.direction_resolution, p.branches, p.model_sampling, p.model_resolution);
+            log::info!("[STEM_REVIEW_PHASE] phase={phase} pixelized={} surface_cells={} branches={} model_resolution={} wind=live saved=false", p.pixelized, p.surface_cells, p.branches, p.model_resolution);
         }
         if frame.is_multiple_of(8) && sweep && frame < 16 * 24 {
             log::info!(
@@ -92,11 +84,6 @@ mod tests {
             let p = policy("stems", phase);
             assert_eq!(p.pixelized, phase % 4 >= 2);
             assert_eq!(p.surface_cells, phase % 2 == 1);
-            assert!(!p.model_sampling);
-            let model = policy("stem-model-review", phase);
-            assert!(model.pixelized);
-            assert_eq!(model.model_sampling, phase % 4 >= 2);
-            assert_eq!(model.surface_cells, phase % 2 == 1);
             assert_eq!(policy("stem-model", 0), policy("stem-model-far", 0));
         }
         assert_eq!(policy("stem-combined", 0), policy("stems", 3));

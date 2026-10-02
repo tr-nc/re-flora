@@ -28,7 +28,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "flower_stem_pixelized",
         kind: "bool",
-        label: "Flower stems: pixelized sampling",
+        label: "Flower stems: model-space pixelization",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -38,21 +38,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "flower_stem_model_sampling",
-        kind: "bool",
-        label: "Flower stems: model-space sampling (B; off = world-direction A)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "flower_stem_model_resolution",
         kind: "uint",
-        label: "Flower stems B: samples per stem height",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "flower_stem_direction_resolution",
-        kind: "uint",
-        label: "Flower stems: direction cells per cube face",
+        label: "Flower stems: samples per stem height",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1440,9 +1428,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 pub struct GuiAdjustables {
     pub flower_stem_pixelized: crate::gui_adjustables::BoolParam,
     pub flower_stem_surface_cells: crate::gui_adjustables::BoolParam,
-    pub flower_stem_model_sampling: crate::gui_adjustables::BoolParam,
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
-    pub flower_stem_direction_resolution: crate::gui_adjustables::UintParam,
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
     pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
@@ -1688,9 +1674,7 @@ impl GuiAdjustables {
 
         let mut flower_stem_pixelized_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_surface_cells_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut flower_stem_model_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut flower_stem_direction_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1935,23 +1919,11 @@ impl GuiAdjustables {
                             flower_stem_surface_cells_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "flower_stem_model_sampling" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            flower_stem_model_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "flower_stem_model_resolution" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             flower_stem_model_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "flower_stem_direction_resolution" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            flower_stem_direction_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "flower_stem_radius_scale" => {
@@ -3500,9 +3472,7 @@ impl GuiAdjustables {
         GuiAdjustables {
             flower_stem_pixelized: flower_stem_pixelized_field.expect("Missing parameter: flower_stem_pixelized"),
             flower_stem_surface_cells: flower_stem_surface_cells_field.expect("Missing parameter: flower_stem_surface_cells"),
-            flower_stem_model_sampling: flower_stem_model_sampling_field.expect("Missing parameter: flower_stem_model_sampling"),
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
-            flower_stem_direction_resolution: flower_stem_direction_resolution_field.expect("Missing parameter: flower_stem_direction_resolution"),
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
             ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
@@ -3933,7 +3903,6 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
         "flower_stem_model_resolution" => Some(&adjustables.flower_stem_model_resolution),
-        "flower_stem_direction_resolution" => Some(&adjustables.flower_stem_direction_resolution),
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
@@ -3972,7 +3941,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "flower_stem_pixelized" => Some(&adjustables.flower_stem_pixelized),
         "flower_stem_surface_cells" => Some(&adjustables.flower_stem_surface_cells),
-        "flower_stem_model_sampling" => Some(&adjustables.flower_stem_model_sampling),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
         "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
@@ -4215,7 +4183,6 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
         "flower_stem_model_resolution" => Some(&mut adjustables.flower_stem_model_resolution),
-        "flower_stem_direction_resolution" => Some(&mut adjustables.flower_stem_direction_resolution),
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
@@ -4254,7 +4221,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "flower_stem_pixelized" => Some(&mut adjustables.flower_stem_pixelized),
         "flower_stem_surface_cells" => Some(&mut adjustables.flower_stem_surface_cells),
-        "flower_stem_model_sampling" => Some(&mut adjustables.flower_stem_model_sampling),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
         "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),

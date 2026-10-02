@@ -1,17 +1,6 @@
 import flower_stem_geometry;
 import flower_stem_model_sampling;
 
-uint angularCells(float distance) {
-    uint count=0u;
-    float3 previous=float3(0);
-    for(uint i=0u;i<=256u;i++) {
-        float3 ray=normalize(float3(float(i)/256.0-0.5,0,-distance));
-        float3 sampled=stemDirectionCell(ray,512u);
-        if(i==0u||any(sampled!=previous))count++;
-        previous=sampled;
-    }
-    return count;
-}
 uint modelCells(float distance) {
     float3 camera=float3(0,0,distance);
     StemModelGrid grid=stemModelGrid(float3(0),1.1,2.0,128u,camera,float3(1,0,0));
@@ -25,9 +14,7 @@ uint modelCells(float distance) {
     return count;
 }
 export __extern_cpp int main() {
-    // A retains its original contract: a distant plant has fewer source cells.
-    if(angularCells(2.0)<=angularCells(8.0))return 1;
-    // B keeps exactly the same source samples for the same model-unit span.
+    // Keep exactly the same source samples for the same model-unit span.
     if(modelCells(2.0)!=65u||modelCells(8.0)!=65u||modelCells(32.0)!=65u)return 2;
     for(uint i=0u;i<100u;i++) {
         float x=float(i)/99.0-0.5;

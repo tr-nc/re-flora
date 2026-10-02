@@ -151,28 +151,6 @@ public StemHit traceStem(StemGeometry s,float3 ro,float3 rd) {
     return hit;
 }
 
-// Fixed WORLD axes, deterministic face ties. This is an on-demand evaluation
-// of cubemap sample rays, not a screen-space grid and not a six-face cache.
-// Camera translation changes the ray origin; rotation does not change the set
-// of source rays. Face edges and final display resampling remain visible risks.
-public float3 stemDirectionDisplayPoint(float3 origin,float3 displayRay,float3 sampleRay,float3 samplePoint) {
-    float distance=dot(samplePoint-origin,sampleRay)/max(dot(displayRay,sampleRay),1e-6);
-    return origin+displayRay*distance;
-}
-public float3 stemDirectionCell(float3 direction,uint resolution) {
-    float3 magnitude=abs(direction);
-    uint axis=magnitude.x>=magnitude.y&&magnitude.x>=magnitude.z?0u:
-        (magnitude.y>=magnitude.z?1u:2u);
-    uint u=(axis+1u)%3u,v=(axis+2u)%3u;
-    float2 uv=float2(direction[u],direction[v])/max(magnitude[axis],1e-8);
-    float n=float(max(resolution,1u));
-    float2 index=clamp(floor((uv*0.5+0.5)*n),float2(0),float2(n-1.0));
-    uv=(index+0.5)*(2.0/n)-1.0;
-    float3 ray=float3(0);ray[axis]=direction[axis]>=0.0?1.0:-1.0;
-    ray[u]=uv.x;ray[v]=uv.y;
-    return normalize(ray);
-}
-
 // Quantize material/shading coordinates, NOT visibility/depth. Coordinates are
 // branch-attached, with a camera-independent frame even while wind bends it.
 public void stemSurfaceCell(StemGeometry s,StemHit hit,float cellSize,

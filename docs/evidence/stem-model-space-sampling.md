@@ -1,6 +1,27 @@
-# Flower stem pixelization：模型尺寸采样 A/B
+# Flower stem pixelization：模型尺寸采样
 
-## 入口与效果
+## 当前状态：用户批准，作为唯一像素化方式
+
+**R → Debug → Pixel Sampling — Flower Stems → Pixelization** 只保留：
+
+- **Flower stems: model-space pixelization**：是否像素化。
+- **Flower stems: samples per stem height**：勾选像素化时显示。
+
+已删除 World-direction 角度采样、A/B 开关、方向分辨率、对应 shader 函数、角度剔除边距及专用验证路径。不是把旧分支藏在 UI 后面。模型采样和连续／分格着色仍独立组合；没有恢复固定角度图像、立方体茎或冻结风动。
+
+旧存档中的 `flower_stem_model_sampling`（无论 true/false）和 `flower_stem_direction_resolution` 都会被移除；`flower_stem_pixelized`、分格着色、已有 `flower_stem_model_resolution` 保持原值。采样分辨率的条件改绑到 `flower_stem_pixelized`。加载不写盘，正常保存时清理旧字段。缺少模型分辨率的老存档补声明默认值。
+
+验证脚本已更新为 5 张截图与 16 阶段 sweep，覆盖四种像素化／着色组合、模型采样远近、环绕、近裁剪、风动和 resize。距离不变采样、连续视角、socket 裁剪、深度与剔除测试均保留，并改为只调用已采用的生产路径。
+
+本次转正验证：`cargo fmt --check`、`cargo check` 通过；`cargo test` 为 4 + 1271 通过、4 ignored；29 项 Slang CPU 测试通过。隐藏 Release smoke 与 `node scripts/validate-stem-sampling.mjs --seconds 35` 均通过，运行日志 `target/re-flora-logs/re-flora-20261002-234725.107-432302.log` 正常退出 `failures=0`，无 ERROR / VUID。保留用户最新的采样数 103、分格着色开启和茎底颜色设置，不把这些个人调参混入模式清理提交。
+
+用户视觉选择不等于大规模 Release 性能验收；远处仍受屏幕亚像素覆盖限制。
+
+---
+
+以下记录此前 A/B 候选阶段，旧 UI／模式和对应复现命令不再是当前接口。
+
+## 历史：入口与效果
 
 **R → Debug → Pixel Sampling — Flower Stems → Pixelization**：
 

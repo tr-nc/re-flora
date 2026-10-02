@@ -211,6 +211,8 @@ impl GuiConfigLoader {
                         | "flower_stem_sampling"
                         | "flower_stem_object_sampling"
                         | "flower_stem_object_resolution"
+                        | "flower_stem_model_sampling"
+                        | "flower_stem_direction_resolution"
                         | "flower_stem_freeze_motion"
                         | "flower_stem_surface_cell_scale"
                         | "flower_stem_surface_geometry"
@@ -927,52 +929,95 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn old_stem_saves_gain_model_sampling_unchecked_without_changing_a() {
-        use crate::app::gui_config_model::GuiParamValue;
-        let mut config: GuiConfigFile =
-            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        for section in &mut config.section {
-            section.param.retain(|p| {
-                !matches!(
-                    p.id.as_str(),
-                    "flower_stem_model_sampling" | "flower_stem_model_resolution"
-                )
-            });
-        }
-        let before = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .filter(|p| p.id.starts_with("flower_stem_"))
-            .map(|p| (p.id.clone(), p.value.clone()))
-            .collect::<Vec<_>>();
-        GuiConfigLoader::migrate_flower_stem_selector(&mut config);
-        let params = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .collect::<Vec<_>>();
-        assert!(matches!(
-            params
-                .iter()
-                .find(|p| p.id == "flower_stem_model_sampling")
-                .unwrap()
-                .value,
-            GuiParamValue::Bool { value: false }
-        ));
-        assert!(matches!(
-            params
-                .iter()
-                .find(|p| p.id == "flower_stem_model_resolution")
-                .unwrap()
-                .value,
-            GuiParamValue::Uint { value: 128, .. }
-        ));
-        for (id, value) in before {
-            assert_eq!(
-                serde_json::to_value(&params.iter().find(|p| p.id == id).unwrap().value).unwrap(),
-                serde_json::to_value(value).unwrap()
-            );
+    fn stem_saves_retire_angular_controls_and_preserve_model_settings() {
+        use crate::app::gui_config_model::{
+            GuiParamConditionValue, GuiParamEnabledIf, GuiParamValue as Value,
+        };
+        for model in [false, true] {
+            for has_resolution in [false, true] {
+                for pixelized in [false, true] {
+                    let mut config: GuiConfigFile =
+                        toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                    let debug = config
+                        .section
+                        .iter_mut()
+                        .find(|s| s.name == "Debug")
+                        .unwrap();
+                    debug
+                        .param
+                        .iter_mut()
+                        .find(|p| p.id == "flower_stem_pixelized")
+                        .unwrap()
+                        .value = Value::Bool { value: pixelized };
+                    let mut flag = debug.param[0].clone();
+                    flag.id = "flower_stem_model_sampling".into();
+                    flag.value = Value::Bool { value: model };
+                    debug.param.push(flag);
+                    let resolution = debug
+                        .param
+                        .iter_mut()
+                        .find(|p| p.id == "flower_stem_model_resolution")
+                        .unwrap();
+                    let default_resolution = match resolution.value {
+                        Value::Uint { value, .. } => value,
+                        _ => unreachable!("model resolution is an integer"),
+                    };
+                    resolution.value = Value::Uint {
+                        value: 192,
+                        min: Some(32),
+                        max: Some(512),
+                    };
+                    resolution.enabled_if = Some(GuiParamEnabledIf {
+                        param: "flower_stem_model_sampling".into(),
+                        equals: GuiParamConditionValue::Bool(true),
+                    });
+                    let mut direction = resolution.clone();
+                    direction.id = "flower_stem_direction_resolution".into();
+                    debug.param.push(direction);
+                    if !has_resolution {
+                        debug
+                            .param
+                            .retain(|p| p.id != "flower_stem_model_resolution");
+                    }
+                    let file = std::env::temp_dir().join(format!(
+                        "re-flora-model-only-{}-{model}-{has_resolution}-{pixelized}.toml",
+                        std::process::id()
+                    ));
+                    GuiConfigLoader::save_to_path(&config, &file).unwrap();
+                    let before = std::fs::read(&file).unwrap();
+                    let loaded = GuiConfigLoader::load_from_path(&file);
+                    assert_eq!(before, std::fs::read(&file).unwrap());
+                    let params = loaded
+                        .section
+                        .iter()
+                        .flat_map(|s| &s.param)
+                        .collect::<Vec<_>>();
+                    assert!(!params.iter().any(|p| matches!(
+                        p.id.as_str(),
+                        "flower_stem_model_sampling" | "flower_stem_direction_resolution"
+                    )));
+                    assert!(
+                        matches!(params.iter().find(|p| p.id == "flower_stem_pixelized").unwrap().value, Value::Bool { value } if value == pixelized)
+                    );
+                    let resolution = params
+                        .iter()
+                        .find(|p| p.id == "flower_stem_model_resolution")
+                        .unwrap();
+                    assert!(
+                        matches!(resolution.value, Value::Uint { value, .. } if value == if has_resolution { 192 } else { default_resolution })
+                    );
+                    assert_eq!(
+                        resolution.enabled_if.as_ref().unwrap().param,
+                        "flower_stem_pixelized"
+                    );
+                    GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
+                    assert_eq!(
+                        toml::to_string(&loaded).unwrap(),
+                        toml::to_string(&GuiConfigLoader::load_from_path(&file)).unwrap()
+                    );
+                    std::fs::remove_file(file).unwrap();
+                }
+            }
         }
     }
 
@@ -1116,11 +1161,11 @@ mod tests {
                 if let Value::Uint { value, .. } = &mut debug
                     .param
                     .iter_mut()
-                    .find(|p| p.id == "flower_stem_direction_resolution")
+                    .find(|p| p.id == "flower_stem_model_resolution")
                     .unwrap()
                     .value
                 {
-                    *value = 771;
+                    *value = 191;
                 }
                 let file = std::env::temp_dir().join(format!(
                     "re-flora-stem-selector-{}-{enabled}-{mode}.toml",
@@ -1164,10 +1209,10 @@ mod tests {
                 assert!(matches!(
                     params
                         .iter()
-                        .find(|p| p.id == "flower_stem_direction_resolution")
+                        .find(|p| p.id == "flower_stem_model_resolution")
                         .unwrap()
                         .value,
-                    Value::Uint { value: 771, .. }
+                    Value::Uint { value: 191, .. }
                 ));
                 GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
                 let once = toml::to_string(&loaded).unwrap();
