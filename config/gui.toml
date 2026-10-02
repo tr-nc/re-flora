@@ -2220,7 +2220,7 @@ label = "Wing Light Transmission (0 = Opaque, 1 = Equal Sides)"
 type = "Float"
 
 [section.param.data]
-value = 0.9
+value = 0.1
 min = 0
 max = 1
 
