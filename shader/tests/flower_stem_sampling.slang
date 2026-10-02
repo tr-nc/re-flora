@@ -44,5 +44,23 @@ export __extern_cpp int main() {
     StemHit neighbour=interior;neighbour.parameter+=0.001;
     float3 point2,normal2;stemSurfaceCell(s,neighbour,0.1,point2,normal2);
     if(length(point-point2)>1e-6||length(normal-normal2)>1e-6)return 15;
+    // All sides of a ring must use identical material AND lighting inputs.
+    // Exercise bent, wind-displaced stems and both forks, not just a vertical stem.
+    s.bend=0.08;s.motion=float3(0.2,0,-0.15);s.branches=1u;
+    for(uint branch=0u;branch<3u;branch++) {
+        interior.branch=branch;
+        stemSurfaceCell(s,interior,0.1,point,normal);
+        for(uint face=0u;face<4u;face++) {
+            neighbour=interior;
+            float angle=float(face)*1.57079632679;
+            neighbour.normal=float3(cos(angle),0,sin(angle));
+            neighbour.point+=neighbour.normal*s.radius;
+            stemSurfaceCell(s,neighbour,0.1,point2,normal2);
+            if(length(point-point2)>1e-6||length(normal-normal2)>1e-6)return 16;
+        }
+        neighbour.parameter=0.8;
+        stemSurfaceCell(s,neighbour,0.1,point2,normal2);
+        if(length(point-point2)<0.01)return 17;
+    }
     return 0;
 }

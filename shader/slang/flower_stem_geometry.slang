@@ -151,22 +151,16 @@ public StemHit traceStem(StemGeometry s,float3 ro,float3 rd) {
     return hit;
 }
 
-// Quantize material/shading coordinates, NOT visibility/depth. Coordinates are
-// branch-attached, with a camera-independent frame even while wind bends it.
+// Quantize material/shading coordinates, NOT visibility/depth. Each axial
+// segment shares one center and tangent normal across its entire circumference,
+// so both its gradient color and lighting stay uniform, including under wind.
 public void stemSurfaceCell(StemGeometry s,StemHit hit,float cellSize,
     out float3 point,out float3 normal) {
     uint branch=hit.branch;
     float restLength=s.height*(branch==0u?1.0:0.34);
     float rings=max(1.0,ceil(restLength/max(cellSize,1e-6)));
     float t=(min(floor(hit.parameter*rings),rings-1.0)+0.5)/rings;
-    float3 tangent=normalize(stemCenter(s,branch,min(1.0,t+0.001))-
+    normal=normalize(stemCenter(s,branch,min(1.0,t+0.001))-
         stemCenter(s,branch,max(0.0,t-0.001)));
-    // All skeleton tangents have a positive Y component: no frame pole flip.
-    float3 u=normalize(cross(tangent,float3(0,0,1)));
-    float3 v=cross(tangent,u);
-    float angle=atan2(dot(hit.normal,v),dot(hit.normal,u));
-    float sides=clamp(ceil(6.28318530718*s.radius/max(cellSize,1e-6)),4.0,32.0);
-    angle=(floor(angle*sides/6.28318530718)+0.5)*6.28318530718/sides;
-    normal=u*cos(angle)+v*sin(angle);
-    point=stemCenter(s,branch,t)+normal*stemRadius(s,branch,t);
+    point=stemCenter(s,branch,t);
 }
