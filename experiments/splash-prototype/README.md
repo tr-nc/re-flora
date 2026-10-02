@@ -14,12 +14,13 @@ python3 -m http.server 4173 --bind 127.0.0.1
 
 Open <http://127.0.0.1:4173/experiments/splash-prototype/> or add `?clean=1` to hide the review tools. Opening `index.html` directly also works; the page uses the repository's existing Pixelify Sans font with a fallback.
 
-## Current direction — revision 3
+## Current direction — revision 4
 
 - Full-bleed checkerboard in two close dark greens: **#294f40 / #305746**. No central clearing or extra grid lines.
 - Each darker square contains a **yellow five-petal flower**; each lighter square contains a **white seven-petal flower**. Both remain fully open and visible: no growth cycle, sprouting or disappearance.
-- **Discrete rotation, not continuous rotation:** 24 pre-rasterized orientations per flower, **15° per step**, with no interpolation, CSS rotation or crossfade. At the default 0.75× speed, each orientation holds approximately **1.07 seconds**, taking **25.6 seconds per revolution**.
-- Yellow flowers turn clockwise, white flowers counterclockwise, with staggered stepping beats. Their silhouettes and colors are distinct. Each sprite is rasterized on a 32×32 pixel lattice and enlarged with nearest-neighbor integer scaling.
+- **Discrete rotation, not continuous rotation:** 24 held orientations, **15° per step**, with no angle interpolation or crossfade. At the default 0.75× speed, each orientation holds approximately **1.07 seconds**, taking **25.6 seconds per revolution**.
+- **Local/model-space pixelization:** each flower is rasterized only once on its own 32×32 grid. The fixed sprite is enlarged with nearest-neighbor sampling, then rotated as a whole. The pixel blocks rotate with the flower; they are not rebuilt on a screen-aligned grid at each angle. Canvas ultimately samples onto the display, but that does not redefine the flower's source pixel lattice.
+- Yellow flowers turn clockwise, white flowers counterclockwise, with staggered stepping beats. Their silhouettes and colors are distinct.
 - Retained smaller title at **36.5% of viewport height**, on a compact white rectangular backing. No subtitle.
 - Retained **3 px loading line at 86% of viewport height**, with green track and pale-yellow fill. No visible percentage or loading text. Simulated 20-second loop, unrelated to game startup.
 - Reduced-motion preference starts the demo paused.
@@ -36,4 +37,4 @@ Everything stays in memory except the shareable clean-preview URL. The review ba
 
 ## Validation
 
-Browser-reviewed at 1440×900 and 390×844, without browser errors or horizontal overflow. Verified 24 distinct, nonempty frames per flower, unchanged orientation between steps, discrete advancement and exact full-turn looping. Pause holds animation time; mobile review tools do not obscure the loading line. No Rust/shader/game changes; no game build needed.
+Revision 3 was browser-reviewed at 1440×900 and 390×844, including stepping, looping, pause and layout. Revision 4 verifies that only two fixed local sprites are used, their pixels remain unchanged across orientation steps, and rendering applies the held rotation to each sprite with image smoothing disabled. Desktop/mobile previews checked for browser errors and overflow. No Rust/shader/game changes; no game build needed.

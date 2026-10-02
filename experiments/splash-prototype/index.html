@@ -58,8 +58,9 @@ body.clean .review, body.clean .corner { display: none; }
   <div class="state" id="state"></div>
 </aside>
 <script>
-// Two fully open flowers, rasterized directly at discrete angles on 32×32 grids.
-// No growth, interpolated transforms, antialiasing or crossfades between frames.
+// Pixelize each flower ONCE in its own 32×32 local/model-space grid.
+// Rotate that fixed sprite as a whole: its texels turn with the flower rather
+// than being re-quantized against a screen-aligned grid at each orientation.
 const canvas = document.querySelector('#garden');
 const ctx = canvas.getContext('2d');
 const paper = '#294f40';
@@ -74,16 +75,13 @@ const query = new URLSearchParams(location.search);
 let clean = query.get('clean') === '1';
 let speed = .75, cellSize = 144, time = 0, paused = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let width = 0, height = 0, last = 0, lastFrame = -1;
-const frames = [[], []];
-
-function makeFlower(frame, kind) {
+function makeFlower(kind) {
   const image = document.createElement('canvas'); image.width = image.height = 32;
   const g = image.getContext('2d');
   const style = flowerStyles[kind];
-  const rotation = frame*Math.PI*2/rotationSteps;
   const pixel = (x,y,color) => { g.fillStyle=color; g.fillRect(x,y,1,1); };
   for(let i=0;i<style.petals;i++) {
-    const angle=rotation-Math.PI/2+i*Math.PI*2/style.petals;
+    const angle=-Math.PI/2+i*Math.PI*2/style.petals;
     // Slightly unequal petals make the whole flower's turning readable.
     const length=4.6+.3*Math.sin(i*2);
     for(let y=3;y<29;y++) for(let x=3;x<29;x++) {
@@ -103,7 +101,7 @@ function makeFlower(frame, kind) {
   }
   return image;
 }
-for(let kind=0;kind<2;kind++) for(let f=0;f<rotationSteps;f++) frames[kind].push(makeFlower(f,kind));
+const sprites = flowerStyles.map((_,kind)=>makeFlower(kind));
 
 function flowerFrame(kind, seconds) {
   // Yellow clockwise / white counterclockwise, with offset stepping beats.
@@ -132,7 +130,13 @@ function draw() {
     ctx.fillStyle=tileColors[parity];ctx.fillRect(x,y,cell,cell);
     const frame=flowerFrame(parity,time);
     const extent=32*spriteScale;
-    ctx.drawImage(frames[parity][frame], Math.round(cx-extent/2), Math.round(cy-extent/2), extent, extent);
+    // Transform the already-pixelized local image. Nearest-neighbor sampling
+    // preserves its fixed texels; rotation changes only at the held 15° steps.
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(frame*Math.PI*2/rotationSteps);
+    ctx.drawImage(sprites[parity], -extent/2, -extent/2, extent, extent);
+    ctx.restore();
   }
   // Purely simulated loading. Nothing here is connected to game startup.
   const progress=(time%20)/20;
@@ -143,7 +147,7 @@ function update() {
   document.body.classList.toggle('clean',clean);
   document.querySelector('#pause').textContent=paused?'播放':'暂停';
   document.querySelector('#pause').setAttribute('aria-pressed',paused);
-  document.querySelector('#state').textContent=`DEMO · 黄花 / 白花 · 15° 分帧旋转 · ${speed}× · ${width<650?Math.min(cellSize,112):cellSize}px 格子 · H 隐藏/恢复`;
+  document.querySelector('#state').textContent=`DEMO · 黄花 / 白花 · 局部像素 · 15° 分帧旋转 · ${speed}× · ${width<650?Math.min(cellSize,112):cellSize}px 格子 · H 隐藏/恢复`;
   const url=new URL(location.href);url.searchParams.delete('variant');
   if(clean) url.searchParams.set('clean','1'); else url.searchParams.delete('clean');
   history.replaceState(null,'',url);
