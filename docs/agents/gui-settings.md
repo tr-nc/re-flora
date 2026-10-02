@@ -73,6 +73,15 @@ settings.draw(ui, |section, temporary| {
 - 本地截图：`target/debug-search-restaurant.png`、`target/debug-search-custom.png`、`target/debug-search-empty.png`。测试日志：`target/debug-search-all-tests.log`。
 - 搜索 UI 状态不进入配置保存；运行未产生 `config/gui.toml` 或生成文件差异。
 
+## 搜索栏横向膨胀回归
+
+搜索栏原先固定预留 52px 给 Clear，未覆盖实际主题下的按钮内边距和控件间距。剩余宽度计算偏大，导致可调整窗口每帧继续被内容撑宽。现在从右侧先布局真实 Clear 按钮，输入框只使用剩余空间，不限制窗口的手动调整能力，也不修改字体、配色、窗口默认尺寸或主题。
+
+- `cargo test search_toolbar_does_not_grow` 已先复现失败：真实 GUI 主题下 30 帧由约 384px 增至 611px；修复后通过。
+- 回归覆盖三种窗口宽度、两种字体大小、空查询及长查询；使用实际 `apply_gui_style`，避免默认 egui 主题掩盖问题。
+- `cargo fmt --check`、`cargo check`、`cargo test search`（14 项）、`cargo test debug_panel`（5 项）通过。
+- 隐藏静音 Release 启动和餐馆搜索截图验证通过；已查看 `target/debug-search-width-fixed.png`，日志无 ERROR/panic/VUID，退出 `failures=0`。无配置或生成文件差异。
+
 ## 2026-09-13 验证
 
 实现提交 `0409f89e`，worktree `re-flora-agent-butterfly-block-flight`。

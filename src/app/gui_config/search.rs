@@ -73,23 +73,25 @@ impl SearchState {
         let previous = self.query.clone();
         ui.horizontal(|ui| {
             ui.label("Search");
-            let id = ui.make_persistent_id("debug_panel_search");
-            let was_focused = ui.memory(|memory| memory.has_focus(id) || memory.had_focus_last_frame(id));
-            // egui clears focus at pass start on Escape; retain the previous owner's intent.
-            let clear_requested = was_focused && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-            let focus_requested = ui.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-            if clear_requested { self.query.clear(); }
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.query)
-                    .id(id)
-                    .hint_text("Labels, IDs or groups...")
-                    .desired_width((ui.available_width() - 52.).max(40.)),
-            ).on_hover_text("Not saved: this is a session-only panel filter. All words must match; case and punctuation are ignored. Ctrl+F focuses search; Escape clears it. Legacy custom tools match by group.");
-            if focus_requested || clear_requested { response.request_focus(); }
-            if ui.add_enabled(!self.query.is_empty(), egui::Button::new("Clear")).clicked() {
-                self.query.clear();
-                response.request_focus();
-            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let id = ui.make_persistent_id("debug_panel_search");
+                let was_focused = ui.memory(|memory| memory.has_focus(id) || memory.had_focus_last_frame(id));
+                // egui clears focus at pass start on Escape; retain the previous owner's intent.
+                let clear_requested = was_focused && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                let focus_requested = ui.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+                if clear_requested { self.query.clear(); }
+                // Lay out Clear first so the input uses the actual remaining width,
+                // including theme padding and spacing, without expanding its parent.
+                let clear_clicked = ui.add_enabled(!self.query.is_empty(), egui::Button::new("Clear")).clicked();
+                if clear_clicked { self.query.clear(); }
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.query)
+                        .id(id)
+                        .hint_text("Labels, IDs or groups...")
+                        .desired_width(ui.available_width()),
+                ).on_hover_text("Not saved: this is a session-only panel filter. All words must match; case and punctuation are ignored. Ctrl+F focuses search; Escape clears it. Legacy custom tools match by group.");
+                if focus_requested || clear_requested || clear_clicked { response.request_focus(); }
+            });
         });
         (SearchFilter::new(&self.query), self.query != previous)
     }
