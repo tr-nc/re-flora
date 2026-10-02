@@ -1465,6 +1465,7 @@ impl App {
             egui_renderer: renderer,
             window_state,
             loading_state: Some(LoadingState {
+                splash: Default::default(),
                 chunk_indices,
                 terrain_snapshot_reader,
                 visible_terrain_publication: Some(visible_terrain_publication),

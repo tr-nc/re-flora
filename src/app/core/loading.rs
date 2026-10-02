@@ -2,6 +2,8 @@ use super::*;
 use crate::terrain_persistence::TerrainSnapshotReader;
 use std::path::Path;
 
+mod splash;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadingPhase {
     Terrain,
@@ -10,6 +12,7 @@ pub(super) enum LoadingPhase {
 }
 
 pub(super) struct LoadingState {
+    pub(super) splash: splash::Splash,
     pub(super) chunk_indices: Vec<UVec3>,
     pub(super) terrain_snapshot_reader: Option<TerrainSnapshotReader>,
     pub(super) visible_terrain_publication: Option<visible_terrain::VisibleTerrainPublication>,
@@ -197,91 +200,21 @@ impl App {
     }
 
     pub(super) fn render_loading_frame(&mut self) {
-        let loading = match &self.loading_state {
+        let loading = match &mut self.loading_state {
             Some(loading) => loading,
             None => return,
         };
 
-        let progress = loading.progress_fraction();
-        let step_label = loading.step_label.clone();
         let is_done = loading.is_done();
+        let progress = if is_done {
+            1.0
+        } else {
+            loading.progress_fraction()
+        };
 
         self.egui_renderer
             .update(&self.window_state.window(), |ctx| {
-                #[allow(deprecated)]
-                egui::CentralPanel::default()
-                    .frame(egui::containers::Frame {
-                        fill: Color32::from_rgb(20, 20, 25),
-                        ..Default::default()
-                    })
-                    .show(ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(ui.available_height() * 0.3);
-
-                            ui.label(
-                                RichText::new("Re: Flora")
-                                    .size(36.0)
-                                    .color(Color32::from_rgb(200, 180, 140)),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("Loading world...")
-                                    .size(18.0)
-                                    .color(Color32::from_rgb(160, 160, 170)),
-                            );
-                            ui.add_space(24.0);
-
-                            let bar_width = ui.available_width().min(400.0);
-                            let progress = if is_done { 1.0 } else { progress };
-                            let bar_height = 24.0;
-                            let (rect, _) = ui.allocate_at_least(
-                                egui::vec2(bar_width, bar_height),
-                                egui::Sense::hover(),
-                            );
-
-                            let painter = ui.painter();
-                            painter.rect_filled(rect, 2.0, Color32::from_rgb(40, 40, 50));
-
-                            let fill_width = rect.width() * progress;
-                            let fill_rect = egui::Rect::from_min_max(
-                                rect.min,
-                                egui::pos2(rect.min.x + fill_width, rect.max.y),
-                            );
-                            painter.rect_filled(fill_rect, 2.0, Color32::from_rgb(100, 140, 80));
-
-                            let pct_text = format!("{}%", (progress * 100.0) as u32);
-                            let font = egui::FontId::proportional(14.0);
-                            let shadow_galley = painter.layout_no_wrap(
-                                pct_text.clone(),
-                                font.clone(),
-                                Color32::from_black_alpha(120),
-                            );
-                            let galley = painter.layout_no_wrap(pct_text, font, Color32::WHITE);
-                            let text_pos = egui::pos2(
-                                rect.center().x - galley.size().x / 2.0,
-                                rect.center().y - galley.size().y / 2.0,
-                            );
-                            painter.galley(
-                                egui::pos2(text_pos.x + 1.0, text_pos.y + 1.0),
-                                shadow_galley,
-                                Color32::from_black_alpha(120),
-                            );
-                            painter.galley(text_pos, galley, Color32::WHITE);
-
-                            ui.add_space(12.0);
-
-                            let status = if is_done {
-                                "Finalizing...".to_owned()
-                            } else {
-                                step_label.clone()
-                            };
-                            ui.label(
-                                RichText::new(status)
-                                    .size(14.0)
-                                    .color(Color32::from_rgb(130, 130, 140)),
-                            );
-                        });
-                    });
+                loading.splash.show(ctx, progress);
             });
 
         let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
@@ -551,6 +484,7 @@ mod tests {
     #[test]
     fn loading_owns_the_canopy_vegetation_effect_until_one_consumption() {
         let mut loading = LoadingState {
+            splash: Default::default(),
             chunk_indices: Vec::new(),
             terrain_snapshot_reader: None,
             visible_terrain_publication: None,
