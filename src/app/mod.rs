@@ -1,4 +1,5 @@
 mod app_controller;
+mod brush_stroke;
 pub(crate) mod camera_snapshots;
 mod core;
 mod curve_preview;

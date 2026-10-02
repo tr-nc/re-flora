@@ -98,42 +98,18 @@ impl ContinuousTerrainToolAction {
     fn tracks_path(self) -> bool {
         matches!(
             self,
-            Self::StaffRegenerate | Self::StaffRemove | Self::Water | Self::Till
+            Self::ShovelDig
+                | Self::ShovelPlace
+                | Self::HoeTrim
+                | Self::StaffRegenerate
+                | Self::StaffRemove
+                | Self::Water
+                | Self::Till
         )
     }
 }
 
-#[derive(Debug, Default)]
-struct TerrainStroke {
-    last_dab_time: Option<Instant>,
-    previous_center: Option<Vec3>,
-}
-
-impl TerrainStroke {
-    fn ready(&self, now: Instant, interval: Duration) -> bool {
-        self.last_dab_time
-            .is_none_or(|last_dab| now.duration_since(last_dab) >= interval)
-    }
-
-    fn record_dab(&mut self, action: ContinuousTerrainToolAction, now: Instant, center: Vec3) {
-        self.last_dab_time = Some(now);
-        self.previous_center = action.tracks_path().then_some(center);
-    }
-
-    fn defer(&mut self, now: Instant) {
-        self.last_dab_time = Some(now);
-        self.previous_center = None;
-    }
-
-    fn interrupt(&mut self) {
-        self.previous_center = None;
-    }
-
-    fn restart(&mut self) {
-        self.last_dab_time = None;
-        self.previous_center = None;
-    }
-}
+use crate::app::brush_stroke::BrushStroke as TerrainStroke;
 
 #[derive(Debug)]
 struct TerrainStrokeRuntime {
@@ -200,11 +176,14 @@ impl TerrainStrokeRuntime {
     }
 
     fn previous_center(&self, action: ContinuousTerrainToolAction) -> Option<Vec3> {
-        self.tracker(action).previous_center
+        self.tracker(action).previous_center()
     }
 
     fn record_dab(&mut self, action: ContinuousTerrainToolAction, now: Instant, center: Vec3) {
-        self.tracker_mut(action).record_dab(action, now, center);
+        self.tracker_mut(action).record_dab(now, center);
+        if !action.tracks_path() {
+            self.tracker_mut(action).interrupt();
+        }
     }
 
     fn defer(&mut self, action: ContinuousTerrainToolAction, now: Instant) {
@@ -224,6 +203,9 @@ impl TerrainStrokeRuntime {
 
     fn interrupt_paths(&mut self) {
         for action in [
+            ContinuousTerrainToolAction::ShovelDig,
+            ContinuousTerrainToolAction::ShovelPlace,
+            ContinuousTerrainToolAction::HoeTrim,
             ContinuousTerrainToolAction::StaffRegenerate,
             ContinuousTerrainToolAction::StaffRemove,
             ContinuousTerrainToolAction::Water,
@@ -498,6 +480,8 @@ impl PlayerToolRuntime {
             match button {
                 MouseButton::Left => {
                     for action in [
+                        ContinuousTerrainToolAction::ShovelDig,
+                        ContinuousTerrainToolAction::HoeTrim,
                         ContinuousTerrainToolAction::StaffRegenerate,
                         ContinuousTerrainToolAction::Water,
                         ContinuousTerrainToolAction::Till,
@@ -505,9 +489,12 @@ impl PlayerToolRuntime {
                         self.strokes.interrupt(action);
                     }
                 }
-                MouseButton::Right => self
-                    .strokes
-                    .interrupt(ContinuousTerrainToolAction::StaffRemove),
+                MouseButton::Right => {
+                    self.strokes
+                        .interrupt(ContinuousTerrainToolAction::ShovelPlace);
+                    self.strokes
+                        .interrupt(ContinuousTerrainToolAction::StaffRemove);
+                }
                 _ => {}
             }
         }
@@ -613,6 +600,16 @@ impl PlayerToolRuntime {
         interval: Duration,
     ) -> bool {
         self.strokes.ready(action, now, interval)
+    }
+
+    pub(super) fn stroke_edit(
+        &self,
+        action: ContinuousTerrainToolAction,
+        center: Vec3,
+    ) -> crate::app::world_edits::TerrainBrushEdit {
+        self.strokes
+            .tracker(action)
+            .edit(center, self.terrain_edit_radius)
     }
 
     pub(super) fn previous_stroke_center(
@@ -922,6 +919,11 @@ mod tests {
     #[test]
     fn releasing_each_swept_tool_breaks_its_path_including_tiller() {
         let cases = [
+            (
+                super::SHOVEL_SLOT_INDEX,
+                ContinuousTerrainToolAction::ShovelDig,
+            ),
+            (super::HOE_SLOT_INDEX, ContinuousTerrainToolAction::HoeTrim),
             (
                 super::STAFF_SLOT_INDEX,
                 ContinuousTerrainToolAction::StaffRegenerate,

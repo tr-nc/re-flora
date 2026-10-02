@@ -27,7 +27,7 @@ impl SearchFilter {
         !self.terms.is_empty()
     }
 
-    /// All query words must occur somewhere in the supplied labels/IDs/path/keywords.
+    /// All query words must occur somewhere in the supplied visible labels/path/keywords.
     pub(crate) fn matches<'a>(&self, fields: impl IntoIterator<Item = &'a str>) -> bool {
         if !self.is_active() {
             return true;
@@ -87,7 +87,7 @@ impl SearchState {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
                         .id(id)
-                        .hint_text("Labels, IDs or groups...")
+                        .hint_text("Names or groups... (Ctrl+F)")
                         .desired_width(ui.available_width()),
                 ).on_hover_text("Not saved: this is a session-only panel filter. All words must match; case and punctuation are ignored. Ctrl+F focuses search; Escape clears it. Legacy custom tools match by group.");
                 if focus_requested || clear_requested || clear_clicked { response.request_focus(); }
@@ -110,6 +110,14 @@ mod tests {
         assert!(SearchFilter::new("树木").matches(["树木颜色"]));
         assert!(!SearchFilter::new("not here").matches(["not", "absent"]));
         assert!(!SearchFilter::new("  _ / ").is_active());
+    }
+
+    #[test]
+    fn search_uses_visible_words_without_hidden_synonyms() {
+        assert!(SearchFilter::new("tree wind").matches(["Tree", "Wind response"]));
+        assert!(!SearchFilter::new("树 风").matches(["Tree", "Wind response"]));
+        assert!(!SearchFilter::new("colour").matches(["Grass color"]));
+        assert!(!SearchFilter::new("worldtick").matches(["World tick"]));
     }
 
     #[test]

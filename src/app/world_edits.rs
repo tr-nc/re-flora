@@ -74,25 +74,21 @@ pub(crate) struct TerrainBrushEdit {
     pub(crate) radius: f32,
 }
 
+impl From<TerrainRemovalEdit> for TerrainBrushEdit {
+    fn from(edit: TerrainRemovalEdit) -> Self {
+        Self {
+            start: edit.center,
+            end: edit.center,
+            radius: edit.radius,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum VoxelAtlasStateWrite {
     #[default]
     MaterialDefault,
     Clear,
-}
-
-impl TerrainBrushEdit {
-    pub(crate) fn from_previous_center(
-        previous_center: Option<Vec3>,
-        current_center: Vec3,
-        radius: f32,
-    ) -> Self {
-        Self {
-            start: previous_center.unwrap_or(current_center),
-            end: current_center,
-            radius,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

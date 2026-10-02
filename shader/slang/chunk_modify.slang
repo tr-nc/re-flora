@@ -75,6 +75,12 @@ float signedDistanceRoundCone(float3 point,
     float3 direction = centerB - centerA;
     float lengthSquared = dot(direction, direction);
     float radiusDifference = radiusA - radiusB;
+    // A stationary brush (or a cone contained in one endpoint sphere) has no axis.
+    if (lengthSquared <= radiusDifference * radiusDifference || lengthSquared <= 1e-8)
+    {
+        return min(length(point - centerA) - radiusA,
+                   length(point - centerB) - radiusB);
+    }
     float aSquared = lengthSquared - radiusDifference * radiusDifference;
     float inverseLengthSquared = 1.0 / lengthSquared;
 
