@@ -15,7 +15,7 @@ const GROUPS: &[ControlGroup] = &[
         parent: None,
         title: "Pixel Sampling — Flower Stems",
         description: "Live A/B; off restores the original cube stems. All three candidates use the same tapered skeleton. Direction cells tilt with the view: fixed-position rotation preserves source rays, walking does not. Surface cells follow the plant but keep a continuous silhouette. Thin direction-sampled branches can disappear; no minimum-width or temporal filter is hidden here. Test forks are bare branches, not new flower heads. Direction density and surface cell size affect only their respective modes.",
-        initially_open: true,
+        initially_open: false,
         params: &[
             "flower_stem_experiment",
             "flower_stem_sampling",
@@ -42,7 +42,7 @@ const GROUPS: &[ControlGroup] = &[
         parent: None,
         title: "Pixel Models — Global",
         description: "Pixel-model cache settings for all affected objects, plus the scene-wide post-processing dither. Dynamic models share one view count; flower heads have a separate static count. More views or pixels use more GPU cache memory.",
-        initially_open: true,
+        initially_open: false,
         params: &["model_pixel_view_count", "apple_pixel_resolution"],
     },
     ControlGroup {
@@ -146,7 +146,44 @@ pub(super) fn render(
     adjustables: &mut GuiAdjustables,
     parent: Option<&str>,
 ) {
-    for group in GROUPS.iter().filter(|group| group.parent == parent) {
+    render_filtered(ui, section, config, adjustables, parent, None);
+}
+
+pub(super) fn render_category(
+    ui: &mut egui::Ui,
+    section: &GuiSection,
+    config: &[GuiSection],
+    adjustables: &mut GuiAdjustables,
+    category: &str,
+) -> bool {
+    let has_groups = GROUPS
+        .iter()
+        .any(|g| g.parent.is_none() && super::navigation::category(g.title) == category)
+        || (category == "Other Settings" && section.param.iter().any(|p| !is_grouped(&p.id)));
+    if has_groups {
+        ui.separator();
+        ui.label(
+            egui::RichText::new(category)
+                .strong()
+                .color(ui.visuals().text_color()),
+        );
+        render_filtered(ui, section, config, adjustables, None, Some(category));
+    }
+    has_groups
+}
+
+fn render_filtered(
+    ui: &mut egui::Ui,
+    section: &GuiSection,
+    config: &[GuiSection],
+    adjustables: &mut GuiAdjustables,
+    parent: Option<&str>,
+    category: Option<&str>,
+) {
+    for group in GROUPS.iter().filter(|group| {
+        group.parent == parent
+            && category.is_none_or(|c| super::navigation::category(group.title) == c)
+    }) {
         if parent == Some("Wind") {
             ui.label(group.title);
             for id in group.params {
@@ -193,7 +230,10 @@ pub(super) fn render(
     }
     // New/unrecognized settings must never silently disappear. The coverage test below requires
     // intentional classification of all settings shipped in our config.
-    if parent.is_none() && section.param.iter().any(|param| !is_grouped(&param.id)) {
+    if parent.is_none()
+        && category.is_none_or(|c| c == "Other Settings")
+        && section.param.iter().any(|param| !is_grouped(&param.id))
+    {
         ui.collapsing("Other Diagnostics", |ui| {
             for param in &section.param {
                 if !is_grouped(&param.id) {
@@ -345,6 +385,17 @@ mod tests {
         }
         for group in GROUPS {
             assert!(text.contains(group.title), "missing group {}", group.title);
+            assert_ne!(
+                super::super::navigation::category(group.parent.unwrap_or(group.title)),
+                "Other Settings"
+            );
+        }
+        for category in &super::super::navigation::CATEGORIES[..4] {
+            assert_eq!(
+                text.lines().filter(|line| line == category).count(),
+                1,
+                "category must appear once: {category}"
+            );
         }
         for &(section, id) in PIXEL_MODEL_CONTROLS {
             let label = &settings

@@ -16,6 +16,7 @@ mod audio_mix;
 pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
+mod navigation;
 pub(crate) mod saved_controls;
 mod search;
 pub(crate) use search::SearchFilter;
@@ -526,7 +527,19 @@ fn render_gui_param_from_config(
         .is_none_or(|condition| adjustables.matches_condition(condition));
     ui.add_enabled_ui(enabled, |ui| {
         render_gui_param_control(ui, param, section_name, adjustables);
-    });
+    })
+    .response
+    .on_hover_text(format!("{section_name}.{}", param.id));
+    if !enabled {
+        if let Some(condition) = &param.enabled_if {
+            let expected = match &condition.equals {
+                GuiParamConditionValue::Bool(value) => value.to_string(),
+                GuiParamConditionValue::Integer(value) => value.to_string(),
+                GuiParamConditionValue::String(value) => value.clone(),
+            };
+            ui.weak(format!("Requires {} = {expected}", condition.param));
+        }
+    }
 }
 
 fn render_gui_param_control(
@@ -647,6 +660,7 @@ fn section_title(name: &str) -> &str {
         "Sky" => "Atmos",
         "Voxel" => "Terrain",
         "HeadBob" => "Camera",
+        "WaterSimulation" => "Water Simulation",
         "FloraVariation" => "Flora Variation",
         _ => name,
     }
@@ -661,6 +675,12 @@ fn param_search_path(section: &str, id: &str, has_debug: bool) -> String {
     if let Some(path) = flora_groups::search_path(section, id) {
         return path.to_owned();
     }
+    if section == "Wind" {
+        return "Wind / Response / Sound".to_owned();
+    }
+    if section == "Audio" {
+        return "Audio / Advanced audio / source trims".to_owned();
+    }
     match section_parent(section) {
         Some(parent) => format!("{} / {}", section_title(parent), section_title(section)),
         None => section_title(section).to_owned(),
@@ -674,6 +694,7 @@ fn search_matches_param(
     path: &str,
 ) -> bool {
     let mut fields = vec![
+        navigation::category(path),
         section,
         section_title(section),
         path,
@@ -696,33 +717,58 @@ fn render_search_results(
     let mut matches = 0;
     // Search the declaration, not a second list of controls. Future params appear automatically.
     // Render the same saved fields/conditions, once each, outside collapsed groups.
+    let mut groups = std::collections::BTreeMap::<String, Vec<_>>::new();
     for section in config {
         for param in &section.param {
             let path = param_search_path(&section.name, &param.id, has_debug);
-            if !search_matches_param(filter, &section.name, param, &path) {
+            if search_matches_param(filter, &section.name, param, &path) {
+                groups.entry(path).or_default().push((section, param));
+            }
+        }
+    }
+    let count: usize = groups.values().map(Vec::len).sum();
+    if count > 0 {
+        ui.weak(format!(
+            "{count} parameter matches in {} groups",
+            groups.len()
+        ));
+    }
+    for category in navigation::CATEGORIES {
+        for (path, params) in &groups {
+            if navigation::category(path) != *category {
                 continue;
             }
-            matches += 1;
-            let before = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
-                .map(|field| field.value.to_bits());
-            ui.push_id(("debug_search_param", &section.name, &param.id), |ui| {
-                ui.weak(&path);
-                render_gui_param_from_config(ui, param, &section.name, adjustables);
-            });
-            let after = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
-                .map(|field| field.value.to_bits());
-            if before != after {
-                // Preserve custom editor constraints only on an actual edit, never on a query.
-                if matches!(
-                    param.id.as_str(),
-                    "grass_natural_bend_min_voxels" | "grass_natural_bend_max_voxels"
-                ) {
-                    enforce_flora_natural_bend_order(adjustables);
+            ui.separator();
+            ui.label(
+                egui::RichText::new(format!("{category} / {path}"))
+                    .strong()
+                    .color(ui.visuals().text_color()),
+            );
+            for &(section, param) in params {
+                matches += 1;
+                let before = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
+                    .map(|field| field.value.to_bits());
+                ui.push_id(("debug_search_param", &section.name, &param.id), |ui| {
+                    render_gui_param_from_config(ui, param, &section.name, adjustables);
+                });
+                let after = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
+                    .map(|field| field.value.to_bits());
+                if before != after {
+                    // Preserve custom editor constraints only on an actual edit, never on a query.
+                    if matches!(
+                        param.id.as_str(),
+                        "grass_natural_bend_min_voxels" | "grass_natural_bend_max_voxels"
+                    ) {
+                        enforce_flora_natural_bend_order(adjustables);
+                    }
+                    if param.id.starts_with("leaf_paddle_") {
+                        enforce_leaf_curve_order(adjustables);
+                    }
+                    crate::app::flutter_response_editor::enforce_endpoint_order(
+                        adjustables,
+                        &param.id,
+                    );
                 }
-                if param.id.starts_with("leaf_paddle_") {
-                    enforce_leaf_curve_order(adjustables);
-                }
-                crate::app::flutter_response_editor::enforce_endpoint_order(adjustables, &param.id);
             }
         }
     }
@@ -736,28 +782,43 @@ fn render_gui_from_config(
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
     let has_debug = config.iter().any(|s| s.name == "Debug");
-    for section in config {
-        if section.name == "Debug" {
-            debug_groups::render(ui, section, config, adjustables, None);
-            continue;
+    for category in navigation::CATEGORIES {
+        let mut heading_shown = false;
+        if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
+            heading_shown = debug_groups::render_category(ui, debug, config, adjustables, category);
         }
-        // Hide the empty legacy wrapper; future unrelated settings stay visible.
-        if has_debug
-            && section.name == "Post Processing"
-            && section
-                .param
-                .iter()
-                .all(|p| debug_groups::is_pixel_model_control(&section.name, &p.id))
-        {
-            continue;
-        }
-        // If a custom config lacks a parent, keep its children visible at the top level.
-        if section_parent(&section.name)
-            .is_some_and(|parent| config.iter().any(|s| s.name == parent))
-        {
-            continue;
-        }
-        ui.collapsing(section_title(&section.name), |ui| {
+        for section in config {
+            if section.name == "Debug"
+                || navigation::category(section_title(&section.name)) != *category
+            {
+                continue;
+            }
+            // Hide the empty legacy wrapper; future unrelated settings stay visible.
+            if has_debug
+                && section.name == "Post Processing"
+                && section
+                    .param
+                    .iter()
+                    .all(|p| debug_groups::is_pixel_model_control(&section.name, &p.id))
+            {
+                continue;
+            }
+            // If a custom config lacks a parent, keep its children visible at the top level.
+            if section_parent(&section.name)
+                .is_some_and(|parent| config.iter().any(|s| s.name == parent))
+            {
+                continue;
+            }
+            if !heading_shown {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(*category)
+                        .strong()
+                        .color(ui.visuals().text_color()),
+                );
+                heading_shown = true;
+            }
+            ui.collapsing(section_title(&section.name), |ui| {
             if section.name == "Audio" {
                 after_section(&section.name, ui);
                 ui.collapsing("Advanced audio / source trims", |ui| {
@@ -804,6 +865,7 @@ fn render_gui_from_config(
                 }
             }
         });
+        }
     }
 }
 

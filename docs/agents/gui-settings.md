@@ -54,6 +54,17 @@ settings.draw(ui, |section, temporary| {
 - 搜索路径只反映现有展示分类，例如存储 `Voxel` 仍显示为 `Terrain`。参数 ID、保存 section 和单一所有权不改变。
 - 根层级不要插入人为的空白间隔；依靠正常 widget 间距即可。组内的曲线/说明布局不受此规则影响。
 
+## 调整目的目录与双语搜索
+
+- 通用设置按 Rendering & Lighting、World & Simulation、Plants & Wildlife、Camera & Audio 排序；未知扩展归入 Other Settings，不隐藏新设置。目录分类集中在 `src/app/gui_config/navigation.rs`，不改变存储 section、ID 或保存绑定。
+- 搜索结果按展示路径聚合，同组只显示一次路径；顶部数量是声明式参数匹配数，不含随后显示的自定义编辑器/工具。Wind 声音和 Audio 高级参数使用实际浏览路径。
+- 中文概念词通过查询侧别名匹配，例如 `树 风`、`蝴蝶 分辨率`、`草 颜色`。仍按空白分词、所有词 AND 匹配；不是自然语言翻译或错字纠正。支持 `colour` 等少量常用别名及 `worldtick` 这样的紧凑 ID。
+- 中文输入由随包的 `assets/font/DroidSansFallbackFull.ttf` 提供字形回退，保留原 Latin 像素字体；许可证在同目录 `.NOTICE`。不依赖用户系统字体。
+- 搜索框直接提示 Ctrl+F。灰色声明式控件显示所需前置参数和值；悬停控件可查看存储 ID。实验像素组默认收起，已有会话折叠状态不强制重置。
+- 本轮 `cargo fmt --check`、`cargo check`、完整 `cargo test`（1303 + 4 passed，4 ignored）通过；最终默认折叠调整后另跑 66 项 gui_config 测试通过。原有编译 warning 未清理。
+- Release 隐藏静音 smoke 和分类首页、`树 风`、无结果搜索截图检查通过；过程中修正了深色主题加粗标题低对比度、中文缺字问题。日志正常退出 `failures=0`，无 ERROR/panic/VUID。截图在 `target/debug-panel-{categories,search-cn,empty}.png`；没有自动启动可见窗口。
+- `config/gui.toml` 和生成文件无修改。既有裸 UI 工具仍按组搜索，不声称逐控件索引；本轮未改变其操作或持久化模型。
+
 ## 自动检查
 
 `cargo test` 自动运行：

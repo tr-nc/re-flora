@@ -33,9 +33,19 @@ impl SearchFilter {
             return true;
         }
         let fields: Vec<_> = fields.into_iter().map(normalize).collect();
-        self.terms
-            .iter()
-            .all(|term| fields.iter().any(|field| field.contains(term)))
+        self.terms.iter().all(|term| {
+            std::iter::once(term.as_str())
+                .chain(super::navigation::aliases(term).iter().copied())
+                .any(|alternative| {
+                    fields.iter().any(|field| {
+                        field.contains(alternative)
+                            || field
+                                .split_whitespace()
+                                .collect::<String>()
+                                .contains(alternative)
+                    })
+                })
+        })
     }
 
     /// Legacy/custom tool groups can opt in without changing their state ownership.
@@ -87,9 +97,9 @@ impl SearchState {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
                         .id(id)
-                        .hint_text("Labels, IDs or groups...")
+                        .hint_text("Search / 搜索… (Ctrl+F)")
                         .desired_width(ui.available_width()),
-                ).on_hover_text("Not saved: this is a session-only panel filter. All words must match; case and punctuation are ignored. Ctrl+F focuses search; Escape clears it. Legacy custom tools match by group.");
+                ).on_hover_text("Not saved: this is a session-only panel filter. All words must match; case and punctuation are ignored. Chinese keywords (风、光照、颜色…) and compact IDs are supported. Ctrl+F focuses search; Escape clears it. Legacy custom tools match by group.");
                 if focus_requested || clear_requested || clear_clicked { response.request_focus(); }
             });
         });
@@ -110,6 +120,15 @@ mod tests {
         assert!(SearchFilter::new("树木").matches(["树木颜色"]));
         assert!(!SearchFilter::new("not here").matches(["not", "absent"]));
         assert!(!SearchFilter::new("  _ / ").is_active());
+    }
+
+    #[test]
+    fn bilingual_keywords_and_compact_ids_keep_and_semantics() {
+        assert!(SearchFilter::new("树 风").matches(["Tree", "Wind response"]));
+        assert!(SearchFilter::new("蝴蝶 分辨率").matches(["Butterflies", "pixel_resolution"]));
+        assert!(SearchFilter::new("colour").matches(["Grass color"]));
+        assert!(SearchFilter::new("worldtick").matches(["world_tick_seconds"]));
+        assert!(!SearchFilter::new("树 水").matches(["Tree wind"]));
     }
 
     #[test]
