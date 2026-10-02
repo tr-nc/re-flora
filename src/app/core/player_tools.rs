@@ -98,7 +98,13 @@ impl ContinuousTerrainToolAction {
     fn tracks_path(self) -> bool {
         matches!(
             self,
-            Self::StaffRegenerate | Self::StaffRemove | Self::Water | Self::Till
+            Self::ShovelDig
+                | Self::ShovelPlace
+                | Self::HoeTrim
+                | Self::StaffRegenerate
+                | Self::StaffRemove
+                | Self::Water
+                | Self::Till
         )
     }
 }
@@ -197,6 +203,9 @@ impl TerrainStrokeRuntime {
 
     fn interrupt_paths(&mut self) {
         for action in [
+            ContinuousTerrainToolAction::ShovelDig,
+            ContinuousTerrainToolAction::ShovelPlace,
+            ContinuousTerrainToolAction::HoeTrim,
             ContinuousTerrainToolAction::StaffRegenerate,
             ContinuousTerrainToolAction::StaffRemove,
             ContinuousTerrainToolAction::Water,
@@ -471,6 +480,8 @@ impl PlayerToolRuntime {
             match button {
                 MouseButton::Left => {
                     for action in [
+                        ContinuousTerrainToolAction::ShovelDig,
+                        ContinuousTerrainToolAction::HoeTrim,
                         ContinuousTerrainToolAction::StaffRegenerate,
                         ContinuousTerrainToolAction::Water,
                         ContinuousTerrainToolAction::Till,
@@ -478,9 +489,12 @@ impl PlayerToolRuntime {
                         self.strokes.interrupt(action);
                     }
                 }
-                MouseButton::Right => self
-                    .strokes
-                    .interrupt(ContinuousTerrainToolAction::StaffRemove),
+                MouseButton::Right => {
+                    self.strokes
+                        .interrupt(ContinuousTerrainToolAction::ShovelPlace);
+                    self.strokes
+                        .interrupt(ContinuousTerrainToolAction::StaffRemove);
+                }
                 _ => {}
             }
         }
@@ -905,6 +919,11 @@ mod tests {
     #[test]
     fn releasing_each_swept_tool_breaks_its_path_including_tiller() {
         let cases = [
+            (
+                super::SHOVEL_SLOT_INDEX,
+                ContinuousTerrainToolAction::ShovelDig,
+            ),
+            (super::HOE_SLOT_INDEX, ContinuousTerrainToolAction::HoeTrim),
             (
                 super::STAFF_SLOT_INDEX,
                 ContinuousTerrainToolAction::StaffRegenerate,

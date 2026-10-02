@@ -20,7 +20,7 @@ use crate::builder::{
     ChunkModifyReadback, VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_EMPTY, VOXEL_TYPE_OAK_WOOD,
 };
 use crate::flora::species;
-use crate::geom::{build_bvh, Cuboid, RoundCone, Sphere, UAabb3};
+use crate::geom::{build_bvh, Cuboid, RoundCone, UAabb3};
 use crate::particles::{LeafEmitterDesc, ParticleSystem};
 use crate::procedual_placer::{generate_positions, PlacerDesc};
 use crate::tree_gen::{Tree, TreeDesc};
@@ -91,13 +91,10 @@ struct CompiledFencePlacement {
     rebuild_bound: UAabb3,
 }
 
-struct CompiledTerrainSurfaceRemoval {
-    voxel_edit: VoxelEdit,
-    rebuild_bound: UAabb3,
-}
-
 struct CompiledTerrainBrushSurfaceEdit {
     rebuild_bound: UAabb3,
+    bvh_nodes: Vec<crate::geom::BvhNode>,
+    capsule: RoundCone,
 }
 
 #[allow(dead_code)]
@@ -172,80 +169,6 @@ struct TerrainSurfaceRemovalService;
 
 impl TerrainSurfaceRemovalService {
     #[cfg(test)]
-    fn compile(edit: TerrainRemovalEdit) -> Option<CompiledTerrainSurfaceRemoval> {
-        Self::compile_with_voxel_type(edit, crate::builder::VOXEL_TYPE_EMPTY, super::CHUNK_DIM)
-    }
-
-    fn compile_with_voxel_type(
-        edit: TerrainRemovalEdit,
-        voxel_type: u32,
-        chunk_dim: UVec3,
-    ) -> Option<CompiledTerrainSurfaceRemoval> {
-        if edit.radius <= 0.0 {
-            return None;
-        }
-
-        let center_voxel = edit.center * 256.0;
-        let radius_voxel = edit.radius * 256.0;
-        let sphere = Sphere::new(center_voxel, radius_voxel);
-        let world_dim = super::VOXEL_DIM_PER_CHUNK * chunk_dim;
-        let max_inclusive = world_dim - UVec3::ONE;
-        let sphere_aabb = sphere.aabb();
-        let min_f = sphere_aabb.min();
-        let max_f = sphere_aabb.max();
-        if max_f.x < 0.0
-            || max_f.y < 0.0
-            || max_f.z < 0.0
-            || min_f.x > max_inclusive.x as f32
-            || min_f.y > max_inclusive.y as f32
-            || min_f.z > max_inclusive.z as f32
-        {
-            return None;
-        }
-
-        let min = UVec3::new(
-            min_f.x.max(0.0).floor() as u32,
-            min_f.y.max(0.0).floor() as u32,
-            min_f.z.max(0.0).floor() as u32,
-        )
-        .min(world_dim);
-        let max_exclusive = UVec3::new(
-            max_f.x.max(0.0).ceil() as u32,
-            max_f.y.max(0.0).ceil() as u32,
-            max_f.z.max(0.0).ceil() as u32,
-        )
-        .min(world_dim);
-        if min.cmpge(max_exclusive).any() {
-            return None;
-        }
-
-        // The voxel modify dispatch treats the BVH AABB max as exclusive. Keep it clipped to
-        // `world_dim` rather than `world_dim - 1`; otherwise the positive atlas edge (voxel 255
-        // in the default 256³ chunk) is never dispatched and cannot be dug away.
-        let clipped_aabb = crate::geom::Aabb3::new(min.as_vec3(), max_exclusive.as_vec3());
-        let bvh_nodes = build_bvh(&[clipped_aabb], &[0_u32]).ok()?;
-        let rebuild_max = UVec3::new(
-            max_exclusive.x.saturating_sub(1),
-            max_exclusive.y.saturating_sub(1),
-            max_exclusive.z.saturating_sub(1),
-        )
-        .min(max_inclusive);
-        let rebuild_bound = UAabb3::new(
-            bvh_nodes[0].aabb.min_uvec3().min(max_inclusive),
-            rebuild_max,
-        );
-
-        Some(CompiledTerrainSurfaceRemoval {
-            voxel_edit: VoxelEdit::StampSurfaceSpheres {
-                bvh_nodes,
-                spheres: vec![sphere],
-                voxel_type,
-            },
-            rebuild_bound,
-        })
-    }
-
-    #[cfg(test)]
     fn compile_surface_brush(edit: TerrainBrushEdit) -> Option<CompiledTerrainBrushSurfaceEdit> {
         Self::compile_surface_brush_in_world(edit, super::CHUNK_DIM)
     }
@@ -254,7 +177,11 @@ impl TerrainSurfaceRemovalService {
         edit: TerrainBrushEdit,
         chunk_dim: UVec3,
     ) -> Option<CompiledTerrainBrushSurfaceEdit> {
-        if edit.radius <= 0.0 {
+        if !edit.radius.is_finite()
+            || !edit.start.is_finite()
+            || !edit.end.is_finite()
+            || edit.radius <= 0.0
+        {
             return None;
         }
 
@@ -304,7 +231,11 @@ impl TerrainSurfaceRemovalService {
             rebuild_max,
         );
 
-        Some(CompiledTerrainBrushSurfaceEdit { rebuild_bound })
+        Some(CompiledTerrainBrushSurfaceEdit {
+            rebuild_bound,
+            bvh_nodes,
+            capsule: RoundCone::new(radius_voxel, start_voxel, radius_voxel, end_voxel),
+        })
     }
 }
 
@@ -2864,46 +2795,33 @@ impl App {
 
     pub(super) fn apply_surface_terrain_removal(
         &mut self,
-        edit: TerrainRemovalEdit,
+        edit: impl Into<TerrainBrushEdit>,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
+        let edit = edit.into();
         if self.rooftop_scene.is_some() && target_voxel_type.is_none() {
             return self.apply_rooftop_soil(edit, crate::builder::VOXEL_TYPE_EMPTY);
         }
         let total_start = Instant::now();
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile_with_voxel_type(
-            edit,
-            crate::builder::VOXEL_TYPE_EMPTY,
-            self.world_chunk_dim,
-        ) {
+        if let Some(compiled) =
+            TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
+        {
             let rebuild_bound = compiled.rebuild_bound;
-            let stats = match compiled.voxel_edit {
-                VoxelEdit::StampSurfaceSpheres {
-                    bvh_nodes,
-                    spheres,
-                    voxel_type,
-                } => self
-                    .plain_builder
-                    .chunk_modify_surface_spheres_with_voxel_type(
-                        &bvh_nodes,
-                        &spheres,
-                        voxel_type,
-                        target_voxel_type,
-                        max_write_count,
-                        max_removed_counts,
-                    )?,
-                _ => unreachable!("terrain surface removal compiled into unexpected edit type"),
-            };
+            let stats = self.plain_builder.chunk_modify_surface_capsule(
+                &compiled.bvh_nodes,
+                &compiled.capsule,
+                crate::builder::VOXEL_TYPE_EMPTY,
+                target_voxel_type,
+                max_write_count,
+                max_removed_counts,
+                None,
+            )?;
             let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
             self.clear_surface_occupants_in_brush(
-                TerrainBrushEdit {
-                    start: edit.center,
-                    end: edit.center,
-                    radius: edit.radius,
-                },
+                edit,
                 SurfaceOccupantClearPath::TerrainRebuild {
                     bound: rebuild_bound,
                     terrain_changed,
@@ -2925,38 +2843,29 @@ impl App {
 
     pub(super) fn apply_surface_terrain_placement(
         &mut self,
-        edit: TerrainRemovalEdit,
+        edit: impl Into<TerrainBrushEdit>,
         voxel_type: u32,
         max_write_count: u32,
     ) -> Result<ChunkModifyReadback> {
+        let edit = edit.into();
         if self.rooftop_scene.is_some() {
             return self.apply_rooftop_soil(edit, voxel_type);
         }
         let total_start = Instant::now();
-        if let Some(compiled) = TerrainSurfaceRemovalService::compile_with_voxel_type(
-            edit,
-            voxel_type,
-            self.world_chunk_dim,
-        ) {
+        if let Some(compiled) =
+            TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
+        {
             let rebuild_bound = compiled.rebuild_bound;
             let modify_start = Instant::now();
-            let stats = match compiled.voxel_edit {
-                VoxelEdit::StampSurfaceSpheres {
-                    bvh_nodes,
-                    spheres,
-                    voxel_type,
-                } => self
-                    .plain_builder
-                    .chunk_modify_surface_spheres_with_voxel_type(
-                        &bvh_nodes,
-                        &spheres,
-                        voxel_type,
-                        None,
-                        Some(max_write_count),
-                        None,
-                    )?,
-                _ => unreachable!("terrain surface placement compiled into unexpected edit type"),
-            };
+            let stats = self.plain_builder.chunk_modify_surface_capsule(
+                &compiled.bvh_nodes,
+                &compiled.capsule,
+                voxel_type,
+                None,
+                Some(max_write_count),
+                None,
+                None,
+            )?;
             let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
             let _modify_elapsed = modify_start.elapsed();
@@ -2964,8 +2873,8 @@ impl App {
             self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
                 rebuild_bound,
                 world_ops::FloraBrushEdit {
-                    start: edit.center,
-                    end: edit.center,
+                    start: edit.start,
+                    end: edit.end,
                     radius: edit.radius,
                     tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
@@ -3438,14 +3347,6 @@ impl App {
             );
         }
         Ok(())
-    }
-
-    pub(super) fn apply_flora_trim(&mut self, edit: TerrainRemovalEdit) -> Result<()> {
-        self.apply_flora_trim_path(TerrainBrushEdit {
-            start: edit.center,
-            end: edit.center,
-            radius: edit.radius,
-        })
     }
 
     pub(super) fn apply_flora_trim_path(&mut self, brush_edit: TerrainBrushEdit) -> Result<()> {
@@ -4779,18 +4680,69 @@ mod tests {
     fn terrain_surface_removal_bvh_reaches_positive_atlas_edge() {
         let world_dim = super::super::VOXEL_DIM_PER_CHUNK * super::super::CHUNK_DIM;
         let positive_edge_x = world_dim.x as f32 / super::super::VOXEL_DIM_PER_CHUNK.x as f32;
-        let compiled = TerrainSurfaceRemovalService::compile(TerrainRemovalEdit {
-            center: Vec3::new(positive_edge_x, 0.5, 0.5),
+        let compiled = TerrainSurfaceRemovalService::compile_surface_brush(TerrainBrushEdit {
+            start: Vec3::new(positive_edge_x, 0.5, 0.5),
+            end: Vec3::new(positive_edge_x, 0.5, 0.5),
             radius: super::super::TERRAIN_EDIT_DEFAULT_RADIUS,
         })
         .expect("edge-overlapping edit should compile");
 
-        let VoxelEdit::StampSurfaceSpheres { bvh_nodes, .. } = &compiled.voxel_edit else {
-            panic!("expected surface sphere edit");
-        };
-
-        assert_eq!(bvh_nodes[0].aabb.max().x, world_dim.x as f32);
+        assert_eq!(compiled.bvh_nodes[0].aabb.max().x, world_dim.x as f32);
         assert_eq!(compiled.rebuild_bound.max().x, world_dim.x - 1);
+    }
+
+    #[test]
+    fn terrain_capsule_contains_fast_stroke_middle_and_stationary_dab() {
+        let start = Vec3::new(0.25, 0.5, 0.25);
+        let end = Vec3::new(0.75, 0.5, 0.25);
+        let radius = 4. / 256.;
+        let compiled = TerrainSurfaceRemovalService::compile_surface_brush(TerrainBrushEdit {
+            start,
+            end,
+            radius,
+        })
+        .unwrap();
+        for i in 0..=100 {
+            let point = start.lerp(end, i as f32 / 100.) * 256.;
+            assert!(compiled.capsule.signed_distance(point) < 0.);
+            assert!(compiled.capsule.signed_distance(point + Vec3::Y * 5.) > 0.);
+        }
+        let dab = TerrainSurfaceRemovalService::compile_surface_brush(TerrainBrushEdit {
+            start,
+            end: start,
+            radius,
+        })
+        .unwrap();
+        assert_eq!(dab.capsule.signed_distance(start * 256.), -4.);
+        assert!(dab.capsule.signed_distance(start * 256. + Vec3::X * 5.) > 0.);
+    }
+
+    #[test]
+    fn terrain_capsule_rejects_invalid_samples() {
+        for edit in [
+            TerrainBrushEdit {
+                start: Vec3::NAN,
+                end: Vec3::ONE,
+                radius: 1.,
+            },
+            TerrainBrushEdit {
+                start: Vec3::ONE,
+                end: Vec3::INFINITY,
+                radius: 1.,
+            },
+            TerrainBrushEdit {
+                start: Vec3::ONE,
+                end: Vec3::ONE,
+                radius: f32::NAN,
+            },
+            TerrainBrushEdit {
+                start: Vec3::ONE,
+                end: Vec3::ONE,
+                radius: 0.,
+            },
+        ] {
+            assert!(TerrainSurfaceRemovalService::compile_surface_brush(edit).is_none());
+        }
     }
 
     #[test]

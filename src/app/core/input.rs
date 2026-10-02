@@ -2,9 +2,7 @@ use super::placeables::PlaceableKind;
 use super::player_tools::{ContinuousTerrainToolAction, PlayerTool, PlayerToolSelectionUpdate};
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
-use crate::app::world_edits::{
-    TerrainBrushEdit, TerrainRemovalEdit, TreeAddOptions, TreePlacement,
-};
+use crate::app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement};
 use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
@@ -851,6 +849,8 @@ impl App {
 
     pub(super) fn try_shovel_dig(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_shovel_selected() {
+            self.player_tools
+                .interrupt_stroke(ContinuousTerrainToolAction::ShovelDig);
             self.stop_terrain_edit_loop_sound();
             return;
         }
@@ -873,12 +873,24 @@ impl App {
                 }
 
                 let tree_rest_center = self.tree_edit_rest_center(center);
+                // Rest-space wood and world-space terrain must never share a path anchor.
+                // Tree edits remain single dabs until we can track the hit tree's identity.
+                if tree_rest_center.is_some() {
+                    self.player_tools.interrupt_stroke(action);
+                }
+                let edit = self
+                    .player_tools
+                    .stroke_edit(action, tree_rest_center.unwrap_or(center));
+                if tree_rest_center.is_none()
+                    && !self.terrain_brush_endpoint_within_editable_chunk(edit)
+                {
+                    self.player_tools.defer_stroke(action, now);
+                    self.stop_terrain_edit_loop_sound();
+                    return;
+                }
                 if let Err(err) = self
                     .apply_surface_terrain_removal(
-                        TerrainRemovalEdit {
-                            center: tree_rest_center.unwrap_or(center),
-                            radius: self.player_tools.terrain_edit_radius,
-                        },
+                        edit,
                         // Tree hits edit their rest-space wood, leaving nearby terrain intact.
                         tree_rest_center.map(|_| 5),
                         None,
@@ -904,15 +916,20 @@ impl App {
                     })
                 {
                     log::error!("Failed to apply terrain removal: {}", err);
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
                 self.player_tools.record_stroke_dab(action, now, center);
+                if tree_rest_center.is_some() {
+                    self.player_tools.interrupt_stroke(action);
+                }
             }
             Ok(None) => {
                 self.stop_terrain_edit_loop_sound();
                 self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
+                self.player_tools.interrupt_stroke(action);
                 log::error!("Shovel carve attempt failed during terrain query: {}", err);
             }
         }
@@ -1137,6 +1154,8 @@ impl App {
 
     pub(super) fn try_shovel_place(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_shovel_selected() {
+            self.player_tools
+                .interrupt_stroke(ContinuousTerrainToolAction::ShovelPlace);
             self.stop_terrain_edit_loop_sound();
             return;
         }
@@ -1150,6 +1169,7 @@ impl App {
             .map(|s| (s.material, u32::MAX))
             .or_else(|| self.voxel_backpack.first_available());
         let Some((place_voxel, place_voxel_count)) = available else {
+            self.player_tools.interrupt_stroke(action);
             self.stop_terrain_edit_loop_sound();
             return;
         };
@@ -1172,15 +1192,14 @@ impl App {
                     return;
                 }
 
+                let edit = self.player_tools.stroke_edit(action, center);
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
+                    self.player_tools.defer_stroke(action, now);
+                    self.stop_terrain_edit_loop_sound();
+                    return;
+                }
                 if let Err(err) = self
-                    .apply_surface_terrain_placement(
-                        TerrainRemovalEdit {
-                            center,
-                            radius: self.player_tools.terrain_edit_radius,
-                        },
-                        place_voxel_type_id,
-                        place_voxel_count,
-                    )
+                    .apply_surface_terrain_placement(edit, place_voxel_type_id, place_voxel_count)
                     .map(|readback| {
                         if self.rooftop_scene.is_none() {
                             self.voxel_backpack.withdraw(
@@ -1191,6 +1210,7 @@ impl App {
                     })
                 {
                     log::error!("Failed to apply terrain placement: {}", err);
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
                 self.player_tools.record_stroke_dab(action, now, center);
@@ -1200,6 +1220,7 @@ impl App {
                 self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
+                self.player_tools.interrupt_stroke(action);
                 log::error!("Shovel place attempt failed during terrain query: {}", err);
             }
         }
@@ -1207,6 +1228,8 @@ impl App {
 
     pub(super) fn try_hoe_trim(&mut self, now: Instant) {
         if !self.terrain_edit_pointer_available() || !self.is_hoe_selected() {
+            self.player_tools
+                .interrupt_stroke(ContinuousTerrainToolAction::HoeTrim);
             self.stop_terrain_edit_loop_sound();
             return;
         }
@@ -1228,11 +1251,15 @@ impl App {
                     return;
                 }
 
-                if let Err(err) = self.apply_flora_trim(TerrainRemovalEdit {
-                    center,
-                    radius: self.player_tools.terrain_edit_radius,
-                }) {
+                let edit = self.player_tools.stroke_edit(action, center);
+                if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
+                    self.player_tools.defer_stroke(action, now);
+                    self.stop_terrain_edit_loop_sound();
+                    return;
+                }
+                if let Err(err) = self.apply_flora_trim_path(edit) {
                     log::error!("Failed to apply flora trim: {}", err);
+                    self.player_tools.interrupt_stroke(action);
                     return;
                 }
                 self.player_tools.record_stroke_dab(action, now, center);
@@ -1242,6 +1269,7 @@ impl App {
                 self.player_tools.defer_stroke(action, now);
             }
             Err(err) => {
+                self.player_tools.interrupt_stroke(action);
                 log::error!("Hoe trim attempt failed during terrain query: {}", err);
             }
         }

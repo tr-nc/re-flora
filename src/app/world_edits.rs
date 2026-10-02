@@ -74,6 +74,16 @@ pub(crate) struct TerrainBrushEdit {
     pub(crate) radius: f32,
 }
 
+impl From<TerrainRemovalEdit> for TerrainBrushEdit {
+    fn from(edit: TerrainRemovalEdit) -> Self {
+        Self {
+            start: edit.center,
+            end: edit.center,
+            radius: edit.radius,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum VoxelAtlasStateWrite {
     #[default]

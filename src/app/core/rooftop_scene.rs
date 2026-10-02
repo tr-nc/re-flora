@@ -4,7 +4,7 @@ use super::*;
 use crate::app::world_edits::{TerrainBrushEdit, TerrainRemovalEdit};
 use crate::builder::ChunkModifyReadback;
 use crate::builder::*;
-use crate::geom::{build_bvh, Aabb3, Cuboid, Sphere};
+use crate::geom::{build_bvh, Aabb3, Cuboid, RoundCone};
 use crate::tracer::StaticSceneMesh;
 
 // Translate, never scale or crop: the complete neighbourhood fits a 1024 x 512 x 1024 atlas.
@@ -515,25 +515,31 @@ impl App {
 
     pub(super) fn apply_rooftop_soil(
         &mut self,
-        edit: TerrainRemovalEdit,
+        edit: impl Into<TerrainBrushEdit>,
         material: u32,
     ) -> Result<ChunkModifyReadback> {
+        let edit = edit.into();
         anyhow::ensure!(
-            RooftopScene::allows_soil(edit.center),
+            RooftopScene::allows_soil(edit.start) && RooftopScene::allows_soil(edit.end),
             "soil brush outside rooftop work area"
         );
         anyhow::ensure!(
             edit.radius.is_finite() && edit.radius > 0.0,
             "invalid rooftop brush radius"
         );
-        let sphere = Sphere::new(edit.center * 256., edit.radius * 256.);
-        let min = sphere
+        let capsule = RoundCone::new(
+            edit.radius * 256.,
+            edit.start * 256.,
+            edit.radius * 256.,
+            edit.end * 256.,
+        );
+        let min = capsule
             .aabb()
             .min()
             .floor()
             .max(SOIL_MIN.as_vec3())
             .as_uvec3();
-        let max = sphere
+        let max = capsule
             .aabb()
             .max()
             .ceil()
@@ -542,21 +548,21 @@ impl App {
         let rebuild_bound = UAabb3::new(min, max);
         let bvh_nodes = build_bvh(&[Aabb3::new(min.as_vec3(), max.as_vec3())], &[0_u32])
             .map_err(anyhow::Error::msg)?;
-        let stats = self.plain_builder.chunk_modify_bounded_spheres(
+        let stats = self.plain_builder.chunk_modify_surface_capsule(
             &bvh_nodes,
-            &[sphere],
+            &capsule,
             material,
-            UAabb3::new(SOIL_MIN, SOIL_MAX),
+            (material != crate::builder::VOXEL_TYPE_EMPTY)
+                .then_some(crate::builder::VOXEL_TYPE_EMPTY),
+            None,
+            None,
+            Some(UAabb3::new(SOIL_MIN, SOIL_MAX)),
         )?;
         let changed = stats.stats.added_counts.iter().any(|&n| n > 0)
             || stats.stats.removed_counts.iter().any(|&n| n > 0);
         if material == crate::builder::VOXEL_TYPE_EMPTY {
             self.clear_surface_occupants_in_brush(
-                TerrainBrushEdit {
-                    start: edit.center,
-                    end: edit.center,
-                    radius: edit.radius,
-                },
+                edit,
                 SurfaceOccupantClearPath::TerrainRebuild {
                     bound: rebuild_bound,
                     terrain_changed: changed,
@@ -566,8 +572,8 @@ impl App {
             self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
                 rebuild_bound,
                 world_ops::FloraBrushEdit {
-                    start: edit.center,
-                    end: edit.center,
+                    start: edit.start,
+                    end: edit.end,
                     radius: edit.radius,
                     tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
@@ -878,6 +884,54 @@ impl App {
         )?;
         log::info!("[ROOFTOP][CHECK] production_rmb_placement=true backpack_preserved=true");
         self.validate_rooftop_voxel_ab()?;
+        self.validate_rooftop_capsule_edits()?;
+        Ok(())
+    }
+
+    // Opt-in GPU fixture: endpoints are far enough apart that two spheres cannot cover
+    // the middle. Inspect atlas bytes rather than relying on a visually plausible mesh.
+    fn validate_rooftop_capsule_edits(&mut self) -> Result<()> {
+        let start = Vec3::new(450., SOIL_MIN.y as f32, 480.) / 256.;
+        let end = Vec3::new(560., SOIL_MIN.y as f32, 480.) / 256.;
+        let edit = TerrainBrushEdit {
+            start,
+            end,
+            radius: 4. / 256.,
+        };
+        let row_min = UVec3::new(450, SOIL_MIN.y, 480);
+        let row_dim = UVec3::new(111, 1, 1);
+        let add = self.apply_surface_terrain_placement(edit, VOXEL_TYPE_DIRT, u32::MAX)?;
+        let row = self
+            .plain_builder
+            .read_chunk_atlas_region(row_min, row_dim)?;
+        anyhow::ensure!(
+            row.iter()
+                .all(|&v| u32::from(v & VOXEL_TYPE_MASK) == VOXEL_TYPE_DIRT),
+            "capsule placement has gaps between endpoints"
+        );
+        let below = self
+            .plain_builder
+            .read_chunk_atlas_region(row_min - UVec3::Y, row_dim)?;
+        anyhow::ensure!(
+            below
+                .iter()
+                .all(|&v| u32::from(v & VOXEL_TYPE_MASK) != VOXEL_TYPE_DIRT),
+            "capsule crossed the protected floor"
+        );
+        let remove = self.apply_surface_terrain_removal(edit, None, None, None)?;
+        let row = self
+            .plain_builder
+            .read_chunk_atlas_region(row_min, row_dim)?;
+        anyhow::ensure!(
+            row.iter()
+                .all(|&v| u32::from(v & VOXEL_TYPE_MASK) != VOXEL_TYPE_DIRT),
+            "capsule removal left gaps between endpoints"
+        );
+        log::info!(
+            "[BRUSH][CAPSULE_CHECK] continuous_cells=111 added={} removed={} protected_floor=true",
+            add.stats.count_added(VOXEL_TYPE_DIRT),
+            remove.stats.count_removed(VOXEL_TYPE_DIRT)
+        );
         Ok(())
     }
 }

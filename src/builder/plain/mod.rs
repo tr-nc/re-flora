@@ -2324,26 +2324,28 @@ impl PlainBuilder {
         )
     }
 
-    /// Original addition/removal surface brush constrained to a legal layer. Its model floor
-    /// supplies solid adjacency without stamping voxels into the editable atlas.
-    pub fn chunk_modify_bounded_spheres(
+    /// Exact capsule with the spherical brush's readback, inventory limits and legal bounds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn chunk_modify_surface_capsule(
         &mut self,
         bvh_nodes: &[BvhNode],
-        spheres: &[Sphere],
+        capsule: &RoundCone,
         fill_voxel_type: u32,
-        bound: UAabb3,
+        target_voxel_type: Option<u32>,
+        max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
+        bound: Option<UAabb3>,
     ) -> Result<ChunkModifyReadback> {
-        let target = (fill_voxel_type != crate::builder::VOXEL_TYPE_EMPTY)
-            .then_some(crate::builder::VOXEL_TYPE_EMPTY);
-        self.modify_spheres_with_readback(
+        self.modify_surface_with_readback(
             bvh_nodes,
-            spheres,
+            &[],
+            Some(capsule),
             fill_voxel_type,
-            target,
-            None,
-            None,
+            target_voxel_type,
+            max_write_count,
+            max_removed_counts,
             true,
-            Some(bound),
+            bound,
         )
     }
 
@@ -2352,6 +2354,32 @@ impl PlainBuilder {
         &mut self,
         bvh_nodes: &[BvhNode],
         spheres: &[Sphere],
+        fill_voxel_type: u32,
+        target_voxel_type: Option<u32>,
+        max_write_count: Option<u32>,
+        max_removed_counts: Option<[u32; EDIT_STATS_VOXEL_TYPE_COUNT]>,
+        surface_only: bool,
+        bound: Option<UAabb3>,
+    ) -> Result<ChunkModifyReadback> {
+        self.modify_surface_with_readback(
+            bvh_nodes,
+            spheres,
+            None,
+            fill_voxel_type,
+            target_voxel_type,
+            max_write_count,
+            max_removed_counts,
+            surface_only,
+            bound,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn modify_surface_with_readback(
+        &mut self,
+        bvh_nodes: &[BvhNode],
+        spheres: &[Sphere],
+        capsule: Option<&RoundCone>,
         fill_voxel_type: u32,
         target_voxel_type: Option<u32>,
         max_write_count: Option<u32>,
@@ -2382,14 +2410,22 @@ impl PlainBuilder {
             dim,
             fill_voxel_type,
             target_voxel_type,
-            PRIMITIVE_KIND_SPHERE,
+            if capsule.is_some() {
+                PRIMITIVE_KIND_ROUND_CONE
+            } else {
+                PRIMITIVE_KIND_SPHERE
+            },
             surface_only,
             AtlasFillPolicy::PreserveState,
             max_write_count,
             max_removed_counts,
             bound.map(|b| b.min().y),
         )?;
-        update_spheres(&self.resources, spheres)?;
+        if let Some(capsule) = capsule {
+            update_round_cones(&self.resources, std::slice::from_ref(capsule))?;
+        } else {
+            update_spheres(&self.resources, spheres)?;
+        }
         update_trunk_bvh_nodes(&self.resources, bvh_nodes)?;
         crate::util::BENCH
             .lock()
