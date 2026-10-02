@@ -12,11 +12,6 @@ public struct StemProxyVertex {
     [[vk::location(2)]] public nointerpolation float4 yaw_height_bend:TEXCOORD2;
     [[vk::location(3)]] public nointerpolation float4 motion_edge:TEXCOORD3;
     [[vk::location(4)]] public nointerpolation float4 socket:TEXCOORD4;
-    [[vk::location(5)]] public nointerpolation float4 object_x:TEXCOORD5;
-    [[vk::location(6)]] public nointerpolation float4 object_y:TEXCOORD6;
-    [[vk::location(7)]] public nointerpolation float4 object_z:TEXCOORD7;
-    [[vk::location(8)]] public nointerpolation float4 object_center:TEXCOORD8;
-    [[vk::location(9)]] public noperspective float2 object_uv:TEXCOORD9;
 };
 public float3 stemToWorldVector(StemProxyVertex p,float3 v) {
     float c=p.yaw_height_bend.x,s=p.yaw_height_bend.y;

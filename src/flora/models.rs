@@ -152,7 +152,6 @@ pub struct Flower {
     pub triangles: Vec<Triangle>,
     pub whole: Part,
     pub heads: Vec<Part>,
-    pub stem_triangles: u32,
     pub column: Column,
     /// Base layer count, edge, multiplier mean, standard deviation. Immutable with source geometry.
     pub distribution: [f32; 4],
@@ -174,8 +173,7 @@ impl Flower {
             shape.height_scale,
             shape.height_variance.sqrt(),
         ];
-        result.triangles = result.column.triangles();
-        result.stem_triangles = result.triangles.len() as u32;
+        result.triangles.clear();
         for (authored, part) in self.heads.iter().zip(&mut result.heads) {
             part.triangles.start = result.triangles.len() as u32;
             part.anchor = result.column.tip();
@@ -291,8 +289,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
             // Game-owned assembly: authored assets contain only attachment-local heads.
             let column = Column::for_layers(source.stem_layers)?;
             let tip = column.tip();
-            let mut triangles = column.triangles();
-            let stem_triangles = triangles.len() as u32;
+            let mut triangles = Vec::new();
             let mut ranges = vec![0..0; source.heads.len()];
             let palette = source.palette;
             let texture = &source.color_texture;
@@ -393,7 +390,6 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 },
                 triangles,
                 heads,
-                stem_triangles,
                 distribution: [column.count() as f32, column.edge, 1., 0.],
                 column,
             })
@@ -564,8 +560,7 @@ mod tests {
             let count = model.triangles.len();
             assert!(count > 100 && count < 4000, "{}", model.id);
             assert_eq!(model.heads.len(), 1);
-            assert!(model.stem_triangles > 0);
-            let mut end = model.stem_triangles;
+            let mut end = 0;
             for head in &model.heads {
                 assert_eq!(head.triangles.start, end);
                 end = head.triangles.end;
@@ -588,7 +583,7 @@ mod tests {
                 model.whole.center,
                 Vec3::new(0., model.column.tip().y * 0.5, 0.)
             );
-            assert_eq!(model.stem_triangles, model.column.count() * 12);
+            assert_eq!(model.heads[0].triangles.start, 0);
         }
     }
 }

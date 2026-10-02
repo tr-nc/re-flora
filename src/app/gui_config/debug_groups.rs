@@ -14,16 +14,14 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Sampling — Flower Stems",
-        description: "Select a stem renderer; only its active controls are shown.",
+        description: "Continuous stems with independent surface shading and pixel sampling. Wind is always active.",
         initially_open: true,
         params: &[
-            "flower_stem_sampling",
-            "flower_stem_object_sampling",
+            "flower_stem_pixelized",
+            "flower_stem_surface_cells",
             "flower_stem_direction_resolution",
-            "flower_stem_object_resolution",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
-            "flower_stem_freeze_motion",
         ],
     },
     ControlGroup {
@@ -115,25 +113,6 @@ fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }
 
-fn stem_control_visible(id: &str, mode: u32, object_b: bool) -> bool {
-    match id {
-        "flower_stem_sampling" => true,
-        "flower_stem_object_sampling" => mode == 1,
-        "flower_stem_direction_resolution" => mode == 1 && !object_b,
-        "flower_stem_object_resolution" => mode == 1 && object_b,
-        _ => mode != 0,
-    }
-}
-
-fn stem_description(mode: u32, object_b: bool) -> &'static str {
-    match mode {
-        1 if object_b => "World-direction B: fixed object pixels; distance changes display size, not source resolution.",
-        1 => "World-direction A: angular source cells. Thin stems can lose samples with distance.",
-        2 => "Surface-attached: continuous geometry with fixed material cells; no block geometry or cell-size setting.",
-        _ => "Original cube stems: adjust the saved voxel edge scale. Default 2 matches grass at full growth and overall size 1. Edge scale also changes the shared stalk's height; overall size and growth still scale the plant.",
-    }
-}
-
 pub(super) fn render(
     ui: &mut egui::Ui,
     section: &GuiSection,
@@ -156,44 +135,27 @@ pub(super) fn render(
             .default_open(group.initially_open)
             .show(ui, |ui| {
                 if group.title == "Pixel Sampling — Flower Stems" {
-                    if let Some(param) = section
-                        .param
-                        .iter()
-                        .find(|p| p.id == "flower_stem_sampling")
-                    {
-                        render_gui_param_from_config(ui, param, &section.name, adjustables);
-                    }
-                    ui.weak(stem_description(
-                        adjustables.flower_stem_sampling.value,
-                        adjustables.flower_stem_object_sampling.value,
-                    ));
-                    if adjustables.flower_stem_sampling.value == 0 {
-                        if let Some(owner) = config.iter().find(|s| s.name == "Flora") {
-                            for id in super::flora_groups::ORIGINAL_STEM_CONTROLS {
+                    ui.weak(group.description);
+                    for (title, ids) in [
+                        ("Geometry", &["model_flower_voxel_scale", "flower_stem_radius_scale", "flower_stem_test_branches"][..]),
+                        ("Shading", &["flower_stem_surface_cells", "model_flower_stem_bottom_color", "model_flower_stem_tip_color"][..]),
+                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_direction_resolution"][..]),
+                    ] {
+                        ui.label(title);
+                        for id in ids {
+                            if *id == "flower_stem_direction_resolution" && !adjustables.flower_stem_pixelized.value {
+                                continue;
+                            }
+                            for owner in config {
                                 if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
-                                    render_gui_param_from_config(
-                                        ui,
-                                        param,
-                                        &owner.name,
-                                        adjustables,
-                                    );
+                                    render_gui_param_from_config(ui, param, &owner.name, adjustables);
                                 }
                             }
                         }
-                    }
-                    for id in group
-                        .params
-                        .iter()
-                        .filter(|id| **id != "flower_stem_sampling")
-                    {
-                        if stem_control_visible(
-                            id,
-                            adjustables.flower_stem_sampling.value,
-                            adjustables.flower_stem_object_sampling.value,
-                        ) {
-                            if let Some(param) = section.param.iter().find(|p| p.id == *id) {
-                                render_gui_param_from_config(ui, param, &section.name, adjustables);
-                            }
+                        if title == "Shading" {
+                            ui.weak("Off: continuous shading. On: branch-attached material cells.");
+                        } else if title == "Pixelization" {
+                            ui.weak("Quantizes world-direction sample rays, not screen-space post-processing. Combines with either shading style.");
                         }
                     }
                     return;
@@ -249,16 +211,18 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn stem_dropdown_renders_only_relevant_controls_without_resetting_hidden_values() {
+    fn stem_effects_render_independently_without_resetting_hidden_values() {
         let group = GROUPS
             .iter()
             .find(|g| g.title == "Pixel Sampling — Flower Stems")
             .unwrap();
-        for (mode, object_b) in [(0, true), (1, false), (1, true), (2, true)] {
+        for (pixelized, surface_cells) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
             let mut settings = DebugSettings::load();
-            settings.adjustables.flower_stem_sampling.value = mode;
-            settings.adjustables.flower_stem_object_sampling.value = object_b;
-            settings.adjustables.flower_stem_object_resolution.value = 192;
+            settings.adjustables.flower_stem_pixelized.value = pixelized;
+            settings.adjustables.flower_stem_surface_cells.value = surface_cells;
+            settings.adjustables.flower_stem_direction_resolution.value = 768;
             settings.adjustables.model_flower_voxel_scale.value = 1.8;
             settings.sync_config();
             let before = serde_json::to_value(&settings.config).unwrap();
@@ -268,25 +232,18 @@ mod tests {
                 settings.draw(ui, |_, _| {});
             });
             let text = format!("{:?}", output.shapes);
-            let mut expected = vec!["flower_stem_sampling"];
-            if mode != 0 {
-                expected.extend([
-                    "flower_stem_radius_scale",
-                    "flower_stem_test_branches",
-                    "flower_stem_freeze_motion",
-                ]);
+            let mut expected = vec![
+                "flower_stem_pixelized",
+                "flower_stem_surface_cells",
+                "flower_stem_radius_scale",
+                "flower_stem_test_branches",
+            ];
+            if pixelized {
+                expected.push("flower_stem_direction_resolution");
             }
-            match mode {
-                1 => {
-                    expected.push("flower_stem_object_sampling");
-                    expected.push(if object_b {
-                        "flower_stem_object_resolution"
-                    } else {
-                        "flower_stem_direction_resolution"
-                    });
-                }
-                _ => {}
-            }
+            assert!(text.contains("Geometry"));
+            assert!(text.contains("Shading"));
+            assert!(text.contains("Pixelization"));
             for id in group.params {
                 let label = &settings
                     .config
@@ -299,7 +256,7 @@ mod tests {
                 assert_eq!(
                     text.contains(label),
                     expected.contains(id),
-                    "mode={mode} object={object_b} id={id}"
+                    "pixelized={pixelized} surface_cells={surface_cells} id={id}"
                 );
             }
             let voxel_label = &settings
@@ -312,8 +269,8 @@ mod tests {
                 .label;
             assert_eq!(
                 text.matches(voxel_label).count(),
-                usize::from(mode == 0),
-                "Original voxel slider must have one owner and only appear in Original"
+                1,
+                "Stem dimensions must have one owner"
             );
             assert!(!text.contains("block geometry B"));
             assert!(!text.contains("geometry cell size"));

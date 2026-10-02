@@ -1,9 +1,6 @@
 import flower_model;
 import flower_stem_geometry;
 import flower_stem_experiment;
-import model_pixel_cache;
-import model_pixel_views;
-import model_pixel_projection;
 struct VertexInput {
     [[vk::location(0)]] uint vertex:TEXCOORD0;
     uint instance:SV_VulkanInstanceID;
@@ -17,7 +14,6 @@ StemProxyVertex main(VertexInput input) {
     output.yaw_height_bend=float4(pose.frame.axisX.x,pose.frame.axisX.z,pose.height,pose.bend);
     output.motion_edge=float4(0,0,0,flowerPart(0u).distribution.y);
     output.socket=flowerPart(1u).socket;
-    output.object_x=output.object_y=output.object_z=output.object_center=float4(0);output.object_uv=float2(0);
     if(pose.frame.scale<=1e-7)return output;
     output.motion_edge.xyz=stemToLocalVector(output,pose.tip_offset)/pose.frame.scale;
     StemGeometry s=stemGeometry(output);
@@ -25,23 +21,8 @@ StemProxyVertex main(VertexInput input) {
     uint corners[6]={0u,1u,2u,0u,2u,3u};
     uint i=corners[input.vertex];
     float2 uv=float2(i==1u||i==2u?1.0:0.0,i>=2u?1.0:0.0),ndc;
-    if(flowerStemShapeSettings().w>0.0) {
-        float3 center;float radius;stemObjectFrame(s,center,radius);
-        float3 pivot=stemWorldPoint(output,center);radius*=pose.frame.scale;
-        uint views=modelSourceViewCount(flowerPart(1u).range.z);
-        float3 delta=camera_info.pos.xyz-pivot;
-        uint key=nearestModelView(length(delta)>1e-8?normalize(delta):float3(0,0,1),views);
-        // Keep canonical directions in WORLD space, matching A's rotation-stable
-        // orientation. Source origins are object anchored, unlike angular A.
-        ModelPixelView view=canonicalModelView(key,views);
-        view.roll=modelObjectRoll(view.x,view.z,pivot,camera_info);
-        output.object_x=float4(view.x,view.roll.x);output.object_y=float4(view.y,view.roll.y);
-        output.object_z=float4(view.z,float(key));output.object_center=float4(pivot,radius);
-        output.object_uv=uv;
-        output.position=modelOrthographicQuad(view,pivot,radius,uv,camera_info);
-        ndc=output.position.xy;
-    } else {
-        // Unchanged A/continuous/surface conservative analytic proxy.
+    {
+        // Conservative analytic proxy shared by both independent effects.
         float3 lo,hi;stemBounds(s,lo,hi);
         if(flowerStemSamplingSettings().y==1u) {
             float distance=length(camera_info.pos.xyz-output.root_scale.xyz)+

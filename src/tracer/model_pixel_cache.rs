@@ -100,9 +100,9 @@ fn triangle(p: [Vec3; 3], normals: [Vec3; 3], uv: [Vec2; 3], material: u32) -> T
 struct FlowerPart {
     range: [u32; 4],
     center_radius: [f32; 4],
-    stem: [f32; 4], // tip x/y, max bend fraction, non-pixel stem triangle count
+    stem: [f32; 4],         // tip x/y, max bend fraction, maximum layers
     distribution: [f32; 4], // base layers, edge, mean, standard deviation
-    socket: [f32; 4], // outward attachment-plane normal; offset set by live stem pose
+    socket: [f32; 4],       // outward attachment-plane normal; offset set by live stem pose
 }
 pub(super) struct Source {
     pub(super) triangles: Vec<Triangle>,
@@ -230,7 +230,7 @@ pub(super) fn source(shape: Shape) -> Source {
                     flower.column.tip().x,
                     flower.column.tip().y,
                     models::MAX_BEND_FRACTION,
-                    flower.stem_triangles as f32,
+                    flower.column.count() as f32,
                 ],
             }));
         }
@@ -503,15 +503,6 @@ impl CacheFrame {
         (
             "flower_parts",
             DescriptorResource::Buffer(&self.source.parts),
-        )
-    }
-    pub fn flower_stem_index_count(&self, model: usize) -> u32 {
-        self.source.cpu.flower_parts[model * (models::MAX_HEADS + 1)].stem[3] as u32 * 3
-    }
-    pub fn flower_triangles(&self) -> (&'static str, DescriptorResource<'_>) {
-        (
-            "flower_triangles",
-            DescriptorResource::Buffer(&self.source.triangles),
         )
     }
 }
@@ -895,11 +886,19 @@ mod tests {
             for (model, authored) in models::flowers().iter().enumerate() {
                 let flower = authored.transformed(shape);
                 let whole = &s.flower_parts[model * 4];
-                assert_eq!(whole.stem[3] as u32, flower.stem_triangles);
+                assert_eq!(whole.stem[3] as u32, flower.column.count());
+                assert!(whole.stem[3] >= 1.);
                 assert_eq!(whole.distribution, flower.distribution);
                 assert_eq!(whole.distribution[3], shape.height_variance.sqrt());
                 for z in [-8., -3., 0., 1., 3., 8.] {
                     let layers = shape.layers_for_normal(authored.column.count(), z);
+                    // GPU clamps against explicit layer capacity, never triangle counts.
+                    let gpu_layers = (whole.distribution[0]
+                        * (whole.distribution[2] + whole.distribution[3] * z)
+                        + 0.5)
+                        .floor()
+                        .clamp(1., whole.stem[3]) as u32;
+                    assert_eq!(gpu_layers, layers);
                     let edge = whole.distribution[1];
                     let tip = Vec3::new(
                         whole.stem[0].min(edge * (layers - 1) as f32 * 0.25),

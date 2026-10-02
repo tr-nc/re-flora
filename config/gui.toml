@@ -92,31 +92,35 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
-id = "flower_stem_sampling"
-kind = "choice"
-label = "Flower stems"
-type = "Choice"
+id = "flower_stem_pixelized"
+kind = "bool"
+label = "Flower stems: world-direction pixel sampling"
+type = "Bool"
 
 [section.param.data]
-value = 0
-options = [
-    "Original cube stems",
-    "World-direction pixels (rotation-stable source)",
-    "Surface-attached cells (continuous geometry)",
-]
+value = true
+
+[[section.param]]
+id = "flower_stem_surface_cells"
+kind = "bool"
+label = "Flower stems: surface-attached cell shading"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "flower_stem_direction_resolution"
 kind = "uint"
-label = "Flower stems A: direction cells per cube face"
+label = "Flower stems: direction cells per cube face"
 type = "Uint"
 
 [section.param.enabled_if]
-param = "flower_stem_object_sampling"
-equals = false
+param = "flower_stem_pixelized"
+equals = true
 
 [section.param.data]
-value = 512
+value = 550
 min = 128
 max = 2048
 
@@ -127,7 +131,7 @@ label = "Flower stems: radius scale"
 type = "Float"
 
 [section.param.data]
-value = 0.7
+value = 1.43
 min = 0.25
 max = 2
 
@@ -139,43 +143,6 @@ type = "Bool"
 
 [section.param.data]
 value = true
-
-[[section.param]]
-id = "flower_stem_freeze_motion"
-kind = "bool"
-label = "Flower stems + heads: disable wind / rest bend"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "flower_stem_object_sampling"
-kind = "bool"
-label = "World-direction stems: fixed object pixels (B; off = angular A)"
-type = "Bool"
-
-[section.param.enabled_if]
-param = "flower_stem_sampling"
-equals = 1
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "flower_stem_object_resolution"
-kind = "uint"
-label = "Flower stems B: pixels per complete stem (fixed object grid)"
-type = "Uint"
-
-[section.param.enabled_if]
-param = "flower_stem_object_sampling"
-equals = true
-
-[section.param.data]
-value = 256
-min = 32
-max = 512
 
 [[section.param]]
 id = "ddgi_aggregate_history"
@@ -1256,7 +1223,7 @@ max = 1
 [[section.param]]
 id = "model_flower_voxel_scale"
 kind = "float"
-label = "Original cube stems: voxel edge scale (2 = grass edge at full growth / size 1)"
+label = "Flower stems: base dimension scale"
 type = "Float"
 
 [section.param.data]

@@ -169,8 +169,8 @@ impl GuiConfigLoader {
         config
     }
 
-    // Keep retained mode indices: 0 now means original, 1/2 retain their meaning.
-    // Refresh only presentation metadata; hidden settings keep their saved values.
+    // Split the retired selector into independent shading/sampling switches.
+    // Existing new switches win; migration never writes the file on load.
     fn migrate_flower_stem_selector(config: &mut GuiConfigFile) {
         let old_enabled = config
             .section
@@ -184,16 +184,34 @@ impl GuiConfigLoader {
                     None
                 }
             });
-        let had_selector = config
+        let old_mode = config
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .any(|p| p.id == "flower_stem_sampling");
+            .find(|p| p.id == "flower_stem_sampling")
+            .and_then(|p| match p.value {
+                GuiParamValue::Choice { value, .. } => Some(value),
+                _ => None,
+            });
+        let has_pixelized = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "flower_stem_pixelized");
+        let has_surface_cells = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "flower_stem_surface_cells");
         for section in &mut config.section {
             section.param.retain(|p| {
                 !matches!(
                     p.id.as_str(),
                     "flower_stem_experiment"
+                        | "flower_stem_sampling"
+                        | "flower_stem_object_sampling"
+                        | "flower_stem_object_resolution"
+                        | "flower_stem_freeze_motion"
                         | "flower_stem_surface_cell_scale"
                         | "flower_stem_surface_geometry"
                         | "flower_stem_geometry_cell_scale"
@@ -232,18 +250,15 @@ impl GuiConfigLoader {
             {
                 param.label.clone_from(&schema.label);
                 param.enabled_if.clone_from(&schema.enabled_if);
-                if param.id == "flower_stem_sampling" {
-                    if let (
-                        GuiParamValue::Choice { value, options },
-                        GuiParamValue::Choice { options: fresh, .. },
-                    ) = (&mut param.value, &schema.value)
-                    {
-                        *value = if old_enabled == Some(false) || !had_selector {
-                            0
-                        } else {
-                            (*value).min(2)
-                        };
-                        options.clone_from(fresh);
+                if let GuiParamValue::Bool { value } = &mut param.value {
+                    if old_mode.is_some() || old_enabled.is_some() {
+                        let direction = old_enabled != Some(false) && old_mode == Some(1);
+                        if param.id == "flower_stem_pixelized" && !has_pixelized {
+                            *value = direction;
+                        } else if param.id == "flower_stem_surface_cells" && !has_surface_cells {
+                            // Removed original cubes become the continuous surface-cell default.
+                            *value = !direction;
+                        }
                     }
                 }
             }
@@ -912,6 +927,56 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn independent_stem_effects_survive_legacy_metadata_and_round_trip() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for pixelized in [false, true] {
+            for surface_cells in [false, true] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let debug = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                for (id, value) in [
+                    ("flower_stem_pixelized", pixelized),
+                    ("flower_stem_surface_cells", surface_cells),
+                ] {
+                    debug.param.iter_mut().find(|p| p.id == id).unwrap().value =
+                        GuiParamValue::Bool { value };
+                }
+                let mut retired = debug.param[0].clone();
+                retired.id = "flower_stem_sampling".into();
+                retired.value = GuiParamValue::Choice {
+                    value: 2,
+                    options: vec!["original".into(), "direction".into(), "surface".into()],
+                };
+                debug.param.push(retired);
+                let file = std::env::temp_dir().join(format!(
+                    "re-flora-stem-effects-{}-{pixelized}-{surface_cells}.toml",
+                    std::process::id()
+                ));
+                GuiConfigLoader::save_to_path(&config, &file).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&file);
+                for (id, expected) in [
+                    ("flower_stem_pixelized", pixelized),
+                    ("flower_stem_surface_cells", surface_cells),
+                ] {
+                    assert!(
+                        matches!(loaded.section.iter().flat_map(|s| &s.param).find(|p| p.id == id).unwrap().value, GuiParamValue::Bool { value } if value == expected)
+                    );
+                }
+                GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
+                assert_eq!(
+                    toml::to_string(&loaded).unwrap(),
+                    toml::to_string(&GuiConfigLoader::load_from_path(&file)).unwrap()
+                );
+                std::fs::remove_file(file).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn flower_stem_selector_migrates_old_enablement_and_retires_controls_without_saving() {
         use crate::app::gui_config_model::{
             GuiParamConditionValue, GuiParamEnabledIf, GuiParamValue as Value,
@@ -959,11 +1024,14 @@ mod tests {
                 blocks.value = Value::Bool { value: true };
                 debug.param.push(blocks);
                 debug.param.push(material);
-                let selector = debug
-                    .param
-                    .iter_mut()
-                    .find(|p| p.id == "flower_stem_sampling")
-                    .unwrap();
+                debug.param.retain(|p| {
+                    !matches!(
+                        p.id.as_str(),
+                        "flower_stem_pixelized" | "flower_stem_surface_cells"
+                    )
+                });
+                let mut selector = debug.param[0].clone();
+                selector.id = "flower_stem_sampling".into();
                 selector.enabled_if = Some(GuiParamEnabledIf {
                     param: "flower_stem_experiment".into(),
                     equals: GuiParamConditionValue::Bool(true),
@@ -976,6 +1044,16 @@ mod tests {
                         "Surface-attached".into(),
                     ],
                 };
+                debug.param.push(selector);
+                for id in [
+                    "flower_stem_object_sampling",
+                    "flower_stem_object_resolution",
+                    "flower_stem_freeze_motion",
+                ] {
+                    let mut retired = debug.param[0].clone();
+                    retired.id = id.into();
+                    debug.param.push(retired);
+                }
                 let radius = debug
                     .param
                     .iter_mut()
@@ -1014,14 +1092,22 @@ mod tests {
                         | "flower_stem_surface_geometry"
                         | "flower_stem_geometry_cell_scale"
                 )));
-                let selector = params
-                    .iter()
-                    .find(|p| p.id == "flower_stem_sampling")
-                    .unwrap();
-                assert!(selector.enabled_if.is_none());
-                assert!(
-                    matches!(&selector.value, Value::Choice { value, options } if *value == if enabled { mode } else { 0 } && options[0] == "Original cube stems")
-                );
+                for id in [
+                    "flower_stem_sampling",
+                    "flower_stem_object_sampling",
+                    "flower_stem_object_resolution",
+                    "flower_stem_freeze_motion",
+                ] {
+                    assert!(!params.iter().any(|p| p.id == id));
+                }
+                for (id, expected) in [
+                    ("flower_stem_pixelized", enabled && mode == 1),
+                    ("flower_stem_surface_cells", !(enabled && mode == 1)),
+                ] {
+                    assert!(
+                        matches!(params.iter().find(|p| p.id == id).unwrap().value, Value::Bool { value } if value == expected)
+                    );
+                }
                 assert!(
                     matches!(params.iter().find(|p| p.id == "flower_stem_radius_scale").unwrap().value, Value::Float { value, .. } if value == 1.27)
                 );

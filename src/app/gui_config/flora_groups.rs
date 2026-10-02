@@ -61,19 +61,21 @@ const LEAF_FREQUENCY_CURVE: &[&str] = &[
 ];
 const MODEL_FLOWER_PIXEL_CONTROLS: &[&str] =
     &["model_flower_pixel_resolution", "model_flower_view_count"];
-// Classified here for schema ownership, presented by the Original stem mode.
-pub(super) const ORIGINAL_STEM_CONTROLS: &[&str] = &["model_flower_voxel_scale"];
+// Schema ownership remains Flora; presented under stem geometry and shading.
+pub(super) const STEM_CONTROLS: &[&str] = &[
+    "model_flower_voxel_scale",
+    "model_flower_stem_bottom_color",
+    "model_flower_stem_tip_color",
+];
 const MODEL_FLOWERS: &[&str] = &[
     "model_flower_head_scale",
     "model_flower_height_scale",
     "model_flower_height_variance",
     "model_flower_size_scale",
-    "model_flower_stem_bottom_color",
-    "model_flower_stem_tip_color",
 ];
 const PARAM_GROUPS: &[&[&str]] = &[
     MODEL_FLOWER_PIXEL_CONTROLS,
-    ORIGINAL_STEM_CONTROLS,
+    STEM_CONTROLS,
     MODEL_FLOWERS,
     DISTRIBUTION,
     GROUND_MOTION,
@@ -169,7 +171,7 @@ pub(super) fn render(
                 );
             } else {
                 controls(ui, flora, MODEL_FLOWER_PIXEL_CONTROLS, adjustables);
-                controls(ui, flora, ORIGINAL_STEM_CONTROLS, adjustables);
+                controls(ui, flora, STEM_CONTROLS, adjustables);
             }
         });
         category(ui, "Rest Shape", |ui| {

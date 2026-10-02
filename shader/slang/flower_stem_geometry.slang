@@ -33,23 +33,6 @@ public void stemBounds(StemGeometry s,out float3 lo,out float3 hi) {
     lo=float3(-reach-s.radius,-s.radius,-reach-s.radius)+min(s.motion,float3(0));
     hi=float3(s.bend+reach+s.radius,s.height+s.radius,reach+s.radius)+max(s.motion,float3(0));
 }
-// A complete-stem object image has a fixed rotation-safe frame. Reserve the
-// existing maximum wind displacement, rather than fitting the current bend or
-// silhouette each frame. Camera distance/projection never enter these values.
-public void stemObjectFrame(StemGeometry s,out float3 center,out float radius) {
-    center=float3(s.bend*0.5,s.height*0.5,0);
-    float reach=s.branches!=0u?s.height*0.22:0.0;
-    float wind=s.height*0.25;
-    float3 extent=float3(abs(s.bend)*0.5+reach+wind+s.radius,s.height*0.5+s.radius,reach+wind+s.radius);
-    radius=max(length(extent)*1.01,1e-4);
-}
-public float2 stemObjectCell(float2 uv,uint resolution) {
-    float n=float(max(resolution,1u));
-    return (clamp(floor(uv*n),float2(0),float2(n-1.0))+0.5)/n;
-}
-public float3 stemObjectRayOrigin(float3 center,float radius,float3 x,float3 y,float3 z,float2 uv) {
-    return center+(x*(uv.x*2.0-1.0)+y*(uv.y*2.0-1.0)+z)*radius;
-}
 public struct StemHit {
     public float distance;
     public float3 point;
