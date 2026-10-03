@@ -53,6 +53,11 @@ use std::{
 use winit::event_loop::EventLoop;
 
 const RUN_LOG_BINDING_TARGET: &str = "re_flora::run_log_binding";
+const RUN_SUMMARY_TARGET: &str = "re_flora::run_summary";
+// Internal diagnostics are opt-in via RUST_LOG or --perf. Warnings and errors
+// from every subsystem remain visible during ordinary runs.
+const DEFAULT_LOG_FILTER: &str = "warn,re_flora::run_summary=info,re_flora::run_log_binding=info";
+const DIAGNOSTIC_LOG_FILTER: &str = "info,winit=warn,sctk=warn,wayland_client=warn,x11rb=warn,calloop=error,symphonia_format_riff=warn";
 
 fn run_log_binding_marker(path: &Path) -> io::Result<String> {
     Ok(format!("[RUN_LOG] path={}", path.canonicalize()?.display()))
@@ -64,7 +69,7 @@ fn backtrace_on() {
     env::set_var("RUST_BACKTRACE", "1");
 }
 
-fn init_env_logger() -> Option<PathBuf> {
+fn init_env_logger(perf_logging: bool) -> Option<PathBuf> {
     let run_log = match run_log::create_run_log_file() {
         Ok(run_log) => Some(run_log),
         Err(err) => {
@@ -73,9 +78,13 @@ fn init_env_logger() -> Option<PathBuf> {
         }
     };
 
-    let mut builder = env_logger::Builder::from_env(Env::default().default_filter_or(
-        "info,winit=warn,sctk=warn,wayland_client=warn,x11rb=warn,calloop=error,symphonia_format_riff=warn",
-    ));
+    let default_filter = if perf_logging {
+        DIAGNOSTIC_LOG_FILTER
+    } else {
+        DEFAULT_LOG_FILTER
+    };
+    let mut builder =
+        env_logger::Builder::from_env(Env::default().default_filter_or(default_filter));
 
     let log_path = if let Some((path, file)) = run_log {
         builder.target(Target::Pipe(Box::new(run_log::TeeLogWriter::new(file))));
@@ -106,7 +115,7 @@ fn init_env_logger() -> Option<PathBuf> {
         .init();
 
     if let Some(path) = &log_path {
-        log::info!("Writing run log to {}", path.display());
+        log::info!(target: RUN_SUMMARY_TARGET, "Writing run log to {}", path.display());
         match run_log_binding_marker(path) {
             Ok(marker) => log::info!(target: RUN_LOG_BINDING_TARGET, "{marker}"),
             Err(err) => eprintln!("Failed to bind run log path {}: {err}", path.display()),
@@ -236,7 +245,7 @@ pub fn main() {
         std::process::exit(1);
     }
 
-    let run_log_path = init_env_logger();
+    let run_log_path = init_env_logger(plan.platform.render.perf_logging);
 
     let mut app = AppController::new(plan);
     let event_loop = EventLoop::builder().build().unwrap();
@@ -244,18 +253,61 @@ pub fn main() {
     drop(app);
 
     match result {
-        Ok(_) => log::info!("Application exited successfully"),
+        Ok(_) => log::info!(target: RUN_SUMMARY_TARGET, "Application exited successfully"),
         Err(e) => log::error!("Application exited with error: {:?}", e),
     }
 
     if let Some(path) = &run_log_path {
-        log::info!("Run log saved to {}", path.display());
+        log::info!(target: RUN_SUMMARY_TARGET, "Run log saved to {}", path.display());
     }
 }
 
 #[cfg(test)]
 mod startup_log_tests {
     use super::*;
+
+    #[test]
+    fn ordinary_runs_only_log_summaries_and_problems() {
+        let logger = env_logger::Builder::new()
+            .parse_filters(DEFAULT_LOG_FILTER)
+            .build();
+        let matches = |target, level| {
+            logger.matches(
+                &log::Record::builder()
+                    .target(target)
+                    .level(level)
+                    .args(format_args!("test"))
+                    .build(),
+            )
+        };
+        for target in [RUN_SUMMARY_TARGET, RUN_LOG_BINDING_TARGET] {
+            assert!(matches(target, log::Level::Info));
+        }
+        for target in [
+            "re_flora::tracer",
+            "re_flora::app::core::water::terrain",
+            "re_flora_vkn::swapchain",
+            "petalsonic::spatial::processor",
+        ] {
+            assert!(!matches(target, log::Level::Info));
+            assert!(matches(target, log::Level::Warn));
+            assert!(matches(target, log::Level::Error));
+        }
+    }
+
+    #[test]
+    fn performance_runs_keep_diagnostic_info() {
+        let logger = env_logger::Builder::new()
+            .parse_filters(DIAGNOSTIC_LOG_FILTER)
+            .build();
+        assert!(logger.matches(
+            &log::Record::builder()
+                .target("re_flora::tracer")
+                .level(log::Level::Info)
+                .args(format_args!("test"))
+                .build()
+        ));
+    }
 
     #[test]
     fn run_log_binding_marker_uses_the_existing_absolute_path() {

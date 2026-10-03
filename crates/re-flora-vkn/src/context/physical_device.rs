@@ -507,7 +507,7 @@ pub fn create_physical_device(
 
     print_selected_queue_families(&queue_family_indices);
 
-    log::info!("Selected physical device: {}", best_device_info.device_name);
+    log::info!(target: "re_flora::run_summary", "Selected physical device: {}", best_device_info.device_name);
 
     (best_device_info.device, queue_family_indices)
 }

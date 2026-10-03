@@ -4020,7 +4020,8 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                         )
                     });
                     log::info!(
-                        "[LOADING][FIRST_GAME_FRAME] gpu_wait_ms={:.3}",
+                        target: crate::RUN_SUMMARY_TARGET,
+                        "Loading complete; first game frame ready (gpu_wait_ms={:.3})",
                         completion_start.elapsed().as_secs_f64() * 1000.0,
                     );
                 }
