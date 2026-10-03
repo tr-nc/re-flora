@@ -9,8 +9,11 @@ const GRID_DENSITY: f32 = 1.25;
 const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
 const STEP_SECONDS: f64 = 1.2;
 const SWAY_PHASES: usize = 16;
-const FLOWER_STAGGER_SECONDS: f64 = 0.6;
-const TRANSITION_END_SECONDS: f64 = 2.0 + FLOWER_STAGGER_SECONDS;
+const FLOWER_FADE_START_SECONDS: f64 = 0.4;
+const FLOWER_FADE_DURATION_SECONDS: f64 = 0.7;
+const FLOWER_STAGGER_SECONDS: f64 = 0.3;
+const TRANSITION_END_SECONDS: f64 =
+    FLOWER_FADE_START_SECONDS + FLOWER_FADE_DURATION_SECONDS + FLOWER_STAGGER_SECONDS;
 
 #[derive(Clone, Copy)]
 struct Palette {
@@ -228,7 +231,10 @@ impl Opacity {
 
     fn flower(self, column: i32, row: i32) -> f32 {
         match self.flower_fade {
-            Some((seed, seconds)) => fade(seconds - 1.0 - flower_delay(seed, column, row)),
+            Some((seed, seconds)) => fade(
+                (seconds - FLOWER_FADE_START_SECONDS - flower_delay(seed, column, row))
+                    / FLOWER_FADE_DURATION_SECONDS,
+            ),
             None => self.foreground,
         }
     }
@@ -294,7 +300,13 @@ impl Transition {
     pub(crate) fn presented(&mut self) -> bool {
         if self.first_presented.is_none() {
             self.first_presented = Some(Instant::now());
-            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s title=0..1s flowers=1..2.6s random_delay=0..0.6s");
+            log::info!(
+                "[LOADING][SPLASH_TRANSITION] started background=0..1s title=0..1s flowers={}..{}s fade_duration={}s random_delay=0..{}s",
+                FLOWER_FADE_START_SECONDS,
+                TRANSITION_END_SECONDS,
+                FLOWER_FADE_DURATION_SECONDS,
+                FLOWER_STAGGER_SECONDS,
+            );
         }
         if self.clear_frame_drawn {
             log::info!("[LOADING][SPLASH_TRANSITION] complete");
@@ -411,9 +423,16 @@ mod tests {
                     }
                     .flower(column, row)
                 };
-                assert_eq!(alpha(1.0), 1.0);
-                assert!(alpha(2.0) > 0.0);
+                assert_eq!(alpha(FLOWER_FADE_START_SECONDS), 1.0);
+                assert!(
+                    (alpha(FLOWER_FADE_START_SECONDS + delay + FLOWER_FADE_DURATION_SECONDS * 0.5)
+                        - 0.5)
+                        .abs()
+                        < 0.00001
+                );
+                assert!(alpha(1.0) > 0.0, "flowers still outlive the title fade");
                 assert_eq!(alpha(TRANSITION_END_SECONDS), 0.0);
+                assert_eq!(alpha(1.4), 0.0, "flower fade must wrap up promptly");
                 let mut previous = 1.0;
                 for frame in 0..=160 {
                     let current = alpha(frame as f64 / 60.0);
@@ -424,7 +443,7 @@ mod tests {
         }
         let low = delays.iter().copied().fold(f64::INFINITY, f64::min);
         let high = delays.iter().copied().fold(0.0, f64::max);
-        assert!(high - low > 0.4);
+        assert!(high - low > FLOWER_STAGGER_SECONDS * 0.66);
         assert_ne!(flower_delay(42, 0, 0), flower_delay(43, 0, 0));
     }
 
@@ -502,7 +521,7 @@ mod tests {
                 flower_fade: Some((42, frame as f64 / 60.0)),
                 ..current
             };
-            if frame <= 60 {
+            if frame as f64 / 60.0 <= FLOWER_FADE_START_SECONDS {
                 assert_eq!(flowers.flower(0, 0), 1.0);
             }
             previous = current;
@@ -526,7 +545,7 @@ mod tests {
         assert!(!transition.presented());
         assert!(transition.first_presented.is_some());
         assert_eq!(transition.splash.palette.name, "moss");
-        transition.first_presented = Some(Instant::now() - std::time::Duration::from_millis(2100));
+        transition.first_presented = Some(Instant::now() - std::time::Duration::from_millis(1200));
         draw(&mut transition);
         assert!(
             !transition.clear_frame_drawn,
