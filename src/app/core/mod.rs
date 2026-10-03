@@ -4023,11 +4023,16 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                 {
                     // Queueing presentation alone does not guarantee that the first
                     // game frame has finished rendering. Wait once before timing its reveal.
+                    let completion_start = Instant::now();
                     frame.wait_until_complete().unwrap_or_else(|err| {
                         panic!(
                             "first game frame did not complete before splash transition: {err:#}"
                         )
                     });
+                    log::info!(
+                        "[LOADING][FIRST_GAME_FRAME] gpu_wait_ms={:.3}",
+                        completion_start.elapsed().as_secs_f64() * 1000.0,
+                    );
                 }
                 if presented
                     && self

@@ -1344,6 +1344,16 @@ pub struct FruitMotionParams {
     pub min_response: f32,
 }
 
+/// Saved model settings shared by startup baking and normal frame preparation.
+#[derive(Debug, Clone, Copy)]
+pub struct ModelCacheSettings {
+    pub views: u32,
+    pub apple_resolution: u32,
+    /// Leaf and butterfly resolutions, in cache-kind order.
+    pub particle_resolutions: [u32; 2],
+    pub flowers: crate::flora::models::Settings,
+}
+
 /// Terrain state frozen by the application for one renderer update.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainFrameInput {
@@ -3247,6 +3257,30 @@ impl Tracer {
         self.camera_proj_mat_prev_frame = self.camera.get_proj_mat();
 
         Ok(capture_buffers_ready)
+    }
+
+    pub fn startup_model_cache_progress(&self) -> f32 {
+        self.model_pixel_frame.startup_cache_progress()
+    }
+
+    pub fn warmup_startup_model_cache(
+        &mut self,
+        cmdbuf: &CommandBuffer,
+        frame_slot: usize,
+        profiler: Option<&mut GpuProfiler>,
+        settings: ModelCacheSettings,
+    ) -> Result<bool> {
+        Self::with_gpu_scope(profiler, frame_slot, cmdbuf, "models.cache.warmup", || {
+            self.model_pixel_frame.warmup_cache(
+                frame_slot,
+                cmdbuf,
+                &self.pipeline_topology.compute().model_pixel_bake_ppl,
+                model_pixel_views::runtime_count(settings.views),
+                settings.apple_resolution.clamp(8, 64),
+                settings.particle_resolutions,
+                settings.flowers.normalized(),
+            )
+        })
     }
 
     fn with_gpu_scope<T>(

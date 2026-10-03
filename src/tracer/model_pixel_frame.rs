@@ -135,6 +135,40 @@ impl ModelPixelFrame {
             .begin_transient_descriptor_frame(slot);
     }
 
+    pub fn startup_cache_progress(&self) -> f32 {
+        self.cache.startup_progress()
+    }
+
+    pub fn warmup_cache(
+        &mut self,
+        slot: usize,
+        cmd: &CommandBuffer,
+        pipeline: &ComputePipeline,
+        views: u32,
+        apple_resolution: u32,
+        particle_resolutions: [u32; 2],
+        flowers: crate::flora::models::Settings,
+    ) -> Result<bool> {
+        self.particle_resolutions = particle_resolutions.map(|resolution| resolution.clamp(8, 64));
+        self.cache.warmup(
+            slot,
+            cmd,
+            pipeline,
+            [views, views, views, flowers.views],
+            self.cache_resolutions(apple_resolution, flowers.resolution),
+            flowers.shape,
+        )
+    }
+
+    fn cache_resolutions(&self, apple: u32, flowers: u32) -> [u32; 4] {
+        [
+            self.particle_resolutions[0],
+            apple,
+            self.particle_resolutions[1],
+            flowers,
+        ]
+    }
+
     pub fn prepare_cache(
         &mut self,
         cmd: &CommandBuffer,
@@ -148,12 +182,7 @@ impl ModelPixelFrame {
             cmd,
             pipeline,
             [views, views, views, flowers.views],
-            [
-                self.particle_resolutions[0],
-                apple_resolution,
-                self.particle_resolutions[1],
-                flowers.resolution,
-            ],
+            self.cache_resolutions(apple_resolution, flowers.resolution),
             flowers.shape,
         )
     }

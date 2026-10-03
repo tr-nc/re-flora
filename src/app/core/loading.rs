@@ -207,16 +207,7 @@ impl App {
         };
 
         let is_done = loading.is_done();
-        let progress = if is_done {
-            1.0
-        } else {
-            loading.progress_fraction()
-        };
-
-        self.egui_renderer
-            .update(&self.window_state.window(), |ctx| {
-                loading.splash.show(ctx, progress);
-            });
+        let terrain_progress = loading.progress_fraction();
 
         let frame = match self.frame_manager.begin_frame(&mut self.swapchain) {
             Ok(frame) => frame,
@@ -251,6 +242,25 @@ impl App {
                 PipelineStage::ALL_COMMANDS,
             )
         });
+
+        let model_cache_ready = self
+            .tracer
+            .warmup_startup_model_cache(
+                cmdbuf,
+                frame_slot,
+                self.gpu_profiler.as_mut(),
+                render_frame_input::model_cache_inputs(&self.debug_settings),
+            )
+            .unwrap_or_else(|err| panic!("startup model cache warmup failed: {err:#}"));
+
+        // Startup includes immutable GPU model surfaces, not just terrain.
+        // Recompute after the batch so the last loading frame reaches 100%.
+        let progress = terrain_progress * 0.8 + self.tracer.startup_model_cache_progress() * 0.2;
+        let loading = self.loading_state.as_mut().unwrap();
+        self.egui_renderer
+            .update(&self.window_state.window(), |ctx| {
+                loading.splash.show(ctx, progress);
+            });
 
         self.swapchain
             .record_prepare_image_for_render_pass(cmdbuf, &frame);
@@ -299,7 +309,7 @@ impl App {
             _ => {}
         }
 
-        if is_done {
+        if is_done && model_cache_ready {
             let mut loading = self
                 .loading_state
                 .take()

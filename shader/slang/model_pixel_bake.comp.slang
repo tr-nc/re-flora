@@ -2,7 +2,7 @@ import model_pixel_bake;
 import model_pixel_bake_geometry;
 import model_cache_types;
 import gpu_paged_storage;
-struct BakeSpec { uint kind; uint resolution; uint views; uint shapes; GpuStorageHandle storage; uint verify; uint evidence_stride; };
+struct BakeSpec { uint kind; uint resolution; uint views; uint shapes; GpuStorageHandle storage; uint verify; uint evidence_stride; uint slice_start; uint padding; };
 [[vk::binding(10,1)]] RWStructuredBuffer<uint> model_cache_validation;
 [[vk::binding(14,1)]] RWStructuredBuffer<float4> model_bake_evidence;
 public struct BakeObserver : IModelPixelProjectionObserver {
@@ -29,6 +29,7 @@ public struct BakeObserver : IModelPixelProjectionObserver {
 [numthreads(8,8,1)]
 [shader("compute")]
 void main(uint3 id:SV_DispatchThreadID) {
+    id.z += spec.slice_start;
     if(any(id.xy>=uint2(spec.resolution)) || id.z>=spec.views*spec.shapes)return;
     if(spec.verify==2u) {
         if(id.z>=spec.shapes*2u)return;

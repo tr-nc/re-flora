@@ -18,6 +18,7 @@ use resource_container_derive::ResourceContainer;
 use std::{
     alloc::Layout,
     sync::{Arc, LazyLock},
+    time::{Duration, Instant},
 };
 
 pub const ANIMATION_FRAMES: u32 = 32;
@@ -401,7 +402,32 @@ struct BakePush {
     storage: GpuStorageHandle,
     verify: u32,
     evidence_stride: u32,
+    slice_start: u32,
+    padding: u32,
 }
+
+// Bound startup dispatches so presentation can run between cache batches.
+const STARTUP_BAKE_SLICES: u32 = 32;
+
+fn bake_batch(start: u32, total: u32) -> std::ops::Range<u32> {
+    start..start.saturating_add(STARTUP_BAKE_SLICES).min(total)
+}
+
+struct PendingBake {
+    spec: Spec,
+    allocation: GpuStorageAllocation,
+    next_slice: u32,
+}
+
+struct CacheWarmup {
+    requested: [Spec; KINDS],
+    pending: Vec<PendingBake>,
+    validation: Arc<Buffer>,
+    batches: u32,
+    last_batch: Instant,
+    max_batch_gap: Duration,
+}
+
 struct SourceGeneration {
     shape: Shape,
     cpu: Source,
@@ -518,6 +544,7 @@ pub(super) struct ModelPixelCache {
     source: Option<Arc<SourceGeneration>>,
     directions: Option<Arc<Directions>>,
     review: bool,
+    warmup: Option<CacheWarmup>,
 }
 impl ModelPixelCache {
     pub fn new(context: &VulkanContext, allocator: Allocator) -> Self {
@@ -531,8 +558,139 @@ impl ModelPixelCache {
             source: None,
             directions: None,
             review: std::env::var_os("RE_FLORA_MODEL_CACHE_REVIEW").is_some(),
+            warmup: None,
         }
     }
+    pub fn startup_progress(&self) -> f32 {
+        if self.review || self.active.iter().all(Option::is_some) {
+            return 1.0;
+        }
+        let Some(warmup) = &self.warmup else {
+            return 0.0;
+        };
+        let total: u32 = warmup
+            .requested
+            .iter()
+            .map(|s| s.views * SHAPES[s.kind as usize])
+            .sum();
+        let remaining: u32 = warmup
+            .pending
+            .iter()
+            .map(|p| p.spec.views * SHAPES[p.spec.kind as usize] - p.next_slice)
+            .sum();
+        (total - remaining) as f32 / total as f32
+    }
+
+    /// Loading-only work: no consumer can see a partially baked allocation.
+    /// All batches use the normal graphics queue, so later consumers are ordered
+    /// after the last bake without a separate queue or unsafe resource mutation.
+    pub fn warmup(
+        &mut self,
+        slot: usize,
+        cmd: &CommandBuffer,
+        pipeline: &ComputePipeline,
+        views: [u32; KINDS],
+        resolutions: [u32; KINDS],
+        shape: Shape,
+    ) -> Result<bool> {
+        // The explicit evidence run retains its original exhaustive bake and
+        // readbacks in prepare(); ordinary startup uses bounded batches.
+        if self.review {
+            return Ok(true);
+        }
+        let requested = requested_specs(views, resolutions, shape);
+        if self
+            .active
+            .iter()
+            .zip(requested)
+            .all(|(active, spec)| active.as_ref().is_some_and(|(old, _)| *old == spec))
+        {
+            return Ok(true);
+        }
+        if self.warmup.is_none() {
+            let source = Arc::new(SourceGeneration::new(&self.device, &self.allocator, shape)?);
+            let directions = Arc::new(Directions::new(
+                &self.device,
+                &self.allocator,
+                *views.iter().max().unwrap(),
+            )?);
+            let validation = buffer(&self.device, &self.allocator, KINDS * 16)?;
+            validation.fill(&[0u32; KINDS * 4])?;
+            let mut pending = Vec::new();
+            for spec in requested {
+                let allocation = self.storage.allocate(
+                    spec.records()?,
+                    Layout::from_size_align(SURFACE_BYTES as usize, 16).unwrap(),
+                )?;
+                pending.push(PendingBake {
+                    spec,
+                    allocation,
+                    next_slice: 0,
+                });
+            }
+            self.source = Some(source);
+            self.directions = Some(directions);
+            self.warmup = Some(CacheWarmup {
+                requested,
+                pending,
+                validation,
+                batches: 0,
+                last_batch: Instant::now(),
+                max_batch_gap: Duration::ZERO,
+            });
+        }
+        let warmup = self.warmup.as_mut().unwrap();
+        let now = Instant::now();
+        warmup.max_batch_gap = warmup.max_batch_gap.max(now - warmup.last_batch);
+        warmup.last_batch = now;
+        ensure!(
+            warmup.requested == requested,
+            "model cache specifications changed during startup warmup"
+        );
+        self.storage.begin_frame(slot);
+        pipeline.begin_transient_descriptor_frame(slot);
+        let pending = warmup.pending.last_mut().unwrap();
+        let spec = pending.spec;
+        let batch = bake_batch(pending.next_slice, spec.views * SHAPES[spec.kind as usize]);
+        self.storage
+            .use_in_frame(slot, cmd, &pending.allocation, BufferUse::ComputeWrite);
+        let push = BakePush {
+            kind: spec.kind,
+            resolution: spec.resolution,
+            views: spec.views,
+            shapes: SHAPES[spec.kind as usize],
+            storage: pending.allocation.handle(),
+            verify: 0,
+            evidence_stride: 0,
+            slice_start: batch.start,
+            padding: 0,
+        };
+        let source = self.source.as_ref().unwrap();
+        let descriptors = source.bake_bindings(
+            self.directions.as_ref().unwrap(),
+            &warmup.validation,
+            &source.evidence_placeholder,
+        );
+        pipeline.record_with_descriptors(
+            cmd,
+            &descriptors,
+            Extent3D::new(spec.resolution, spec.resolution, batch.len() as u32),
+            Some(bytemuck::bytes_of(&push)),
+        )?;
+        pending.next_slice = batch.end;
+        warmup.batches += 1;
+        if pending.next_slice == spec.views * SHAPES[spec.kind as usize] {
+            let finished = warmup.pending.pop().unwrap();
+            self.active[spec.kind as usize] = Some((spec, finished.allocation));
+        }
+        let ready = warmup.pending.is_empty();
+        if ready {
+            log::info!("[MODEL_CACHE_WARMUP] complete batches={} max_slices_per_batch={STARTUP_BAKE_SLICES} max_batch_gap_ms={:.3}", warmup.batches, warmup.max_batch_gap.as_secs_f64() * 1000.0);
+            self.warmup = None;
+        }
+        Ok(ready)
+    }
+
     /// Called in the ready frame slot, before any consumer. Allocate every
     /// replacement before publishing anything; never silently fall back to live.
     pub fn prepare(
@@ -544,6 +702,10 @@ impl ModelPixelCache {
         resolutions: [u32; KINDS],
         shape: Shape,
     ) -> Result<()> {
+        ensure!(
+            self.warmup.is_none(),
+            "model consumers cannot use an unfinished startup cache"
+        );
         while self.frames.len() <= slot {
             self.frames.push(None);
             self.diagnostics.push(Vec::new());
@@ -644,6 +806,8 @@ impl ModelPixelCache {
                 storage: allocation.handle(),
                 verify: 0,
                 evidence_stride: 0,
+                slice_start: 0,
+                padding: 0,
             };
             let descriptors =
                 source.bake_bindings(&directions, &frame.validation, &source.evidence_placeholder);
@@ -739,6 +903,24 @@ impl ModelPixelCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_bake_batches_cover_every_slice_once_and_stay_bounded() {
+        for total in [1, 31, 32, 33, 64, 3072, 6144] {
+            let mut next = 0;
+            let mut covered = Vec::new();
+            while next < total {
+                let batch = bake_batch(next, total);
+                assert_eq!(batch.start, next);
+                assert!(!batch.is_empty());
+                assert!(batch.len() <= STARTUP_BAKE_SLICES as usize);
+                next = batch.end;
+                covered.extend(batch);
+            }
+            assert_eq!(covered, (0..total).collect::<Vec<_>>());
+            assert!(bake_batch(total, total).is_empty());
+        }
+    }
+
     #[test]
     fn all_consumers_have_shared_canonical_sources() {
         let s = source(Shape::default());
@@ -1065,7 +1247,8 @@ mod tests {
         .is_err());
         assert_eq!(std::mem::size_of::<Entry>(), 40);
         assert_eq!(std::mem::offset_of!(Entry, resolution), 24);
-        assert_eq!(std::mem::size_of::<BakePush>(), 48);
+        assert_eq!(std::mem::size_of::<BakePush>(), 56);
+        assert_eq!(std::mem::offset_of!(BakePush, slice_start), 48);
         assert_eq!(std::mem::offset_of!(BakePush, storage), 16);
     }
 }
