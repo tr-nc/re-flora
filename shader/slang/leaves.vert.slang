@@ -82,24 +82,14 @@ VertexOutput main(VertexInput input)
         instancePosition, prepared.color_gradient, voxelInfo);
     if (isTreeLeaf)
     {
-        if (rasterFloraUsesDdgiLighting())
-        {
-            PushConstantFlora floraPc = floraPushConstants();
-            float3 environmentLight = flora_lighting_cache.irradiance[
-                floraLightingCacheIndex(
-                    floraPc, input.instance_index, 0u)].xyz;
-            output.color = shadeTreeLeafVertexWithEnvironment(
-                baseColor, prepared.shadow_weight, environmentLight,
-                prepared.sun_transmittance, prepared.color_gradient,
-                prepared.voxel_position, prepared.optical_normal);
-        }
-        else
-        {
-            output.color = shadeLegacyTreeLeafVertex(
-                baseColor, prepared.shadow_weight,
-                prepared.sun_transmittance, prepared.color_gradient,
-                prepared.voxel_position, prepared.optical_normal);
-        }
+        PushConstantFlora floraPc = floraPushConstants();
+        float3 environmentLight = flora_lighting_cache.irradiance[
+            floraLightingCacheIndex(
+                floraPc, input.instance_index, 0u)].xyz;
+        output.color = shadeTreeLeafVertexWithEnvironment(
+            baseColor, prepared.shadow_weight, environmentLight,
+            prepared.sun_transmittance, prepared.color_gradient,
+            prepared.voxel_position, prepared.optical_normal);
     }
     else
     {

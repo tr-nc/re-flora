@@ -54,8 +54,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint invocation : SV_Gro
         FLORA_SPECIES_TREE_LEAF, seed, INSTANCE_GROWTH_PROGRESS_MATURE,
         1.0, 1.0, INSTANCE_SPAWN_INACTIVE, localInstanceIndex);
 
-    float3 irradiance = prepared.should_trim ||
-                        !rasterFloraDdgiLightingEnabled()
+    float3 irradiance = prepared.should_trim
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);

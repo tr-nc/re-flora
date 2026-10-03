@@ -16,7 +16,7 @@ analyzer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(analyzer)
 
 FROZEN_SCHEMA = "re-flora-lighting-mode-acceptance-v1"
-FROZEN_CALIBRATION = "r13-e2-production-v1"
+FROZEN_CALIBRATION = "raster-ddgi-fixed-v2"
 
 
 def producer_fnv1a64(data: bytes) -> str:
@@ -43,7 +43,7 @@ def valid_artifact(
     terrain["D"] = terrain["A"]
     raster = {"A": bytes([0, 0, 0, 255] * 20)}
     raster["B"] = raster["A"]
-    raster["C"] = bytes([1, 0, 0, 255] * 20)
+    raster["C"] = raster["A"]
     raster["D"] = raster["C"]
     identity = {
         "binary_identity": "fnv1a64:0123456789abcdef",
@@ -72,8 +72,8 @@ def valid_artifact(
     modes = {
         "A": ("ddgi", "ddgi"),
         "B": ("path-reference", "ddgi"),
-        "C": ("path-reference", "legacy"),
-        "D": ("ddgi", "legacy"),
+        "C": ("path-reference", "ddgi"),
+        "D": ("ddgi", "ddgi"),
     }
     for label in "ABCD":
         layers = []
@@ -158,7 +158,7 @@ def replace_layer_bytes(
 
 
 class LightingModeAcceptanceAnalyzerTests(unittest.TestCase):
-    def test_accepts_two_sided_raw_factorial_effects_with_exact_identity(self) -> None:
+    def test_accepts_repeated_terrain_comparison_with_fixed_raster_ddgi(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "capture.rflma"
             valid_artifact(path)
@@ -167,9 +167,9 @@ class LightingModeAcceptanceAnalyzerTests(unittest.TestCase):
 
         self.assertEqual(result["verdict"], "GREEN")
         self.assertEqual(result["schema"], "re-flora-lighting-mode-acceptance-v1")
-        self.assertEqual(result["calibration"], "r13-e2-production-v1")
+        self.assertEqual(result["calibration"], "raster-ddgi-fixed-v2")
         self.assertEqual(result["terrain_changed_ab"], 20)
-        self.assertEqual(result["raster_changed_ad"], 20)
+        self.assertEqual(result["raster_changed_ad"], 0)
 
     def test_rejects_unknown_calibration_before_reading_payload(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -203,7 +203,7 @@ class LightingModeAcceptanceAnalyzerTests(unittest.TestCase):
             artifact(
                 path,
                 'schema = "re-flora-lighting-mode-acceptance-v1"\n'
-                'calibration = "r13-e2-production-v1"\n'
+                'calibration = "raster-ddgi-fixed-v2"\n'
                 'phase_count = 4\n',
             )
 
@@ -485,8 +485,8 @@ class LightingModeAcceptanceAnalyzerTests(unittest.TestCase):
     def test_rejects_each_other_non_target_orthogonality_pair(self) -> None:
         cases = (
             ("terrain_rgbe", "C", bytes([2, 0, 0, 0] * 20), "terrain B/C"),
-            ("raster_rgba", "B", bytes([2, 0, 0, 255] * 20), "raster A/B"),
-            ("raster_rgba", "D", bytes([2, 0, 0, 255] * 20), "raster C/D"),
+            ("raster_rgba", "B", bytes([2, 0, 0, 255] * 20), "raster B/C"),
+            ("raster_rgba", "D", bytes([2, 0, 0, 255] * 20), "raster A/D"),
         )
         for kind, label, replacement, reason in cases:
             with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory:

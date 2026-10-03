@@ -23,9 +23,7 @@ public void prepareModelObject(uint index,float3 pivot,ModelPixelFrame orientati
         // One spatial lookup per object; no per-texel external-shadow queries.
         StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,
             shadow_camera_info, pivot,float3(0,1,0));
-        float3 ambient=(apple || gui_input.raster_flora_ddgi_lighting!=0u)
-            ?sampleDiffuseEnvironment(gui_input,shading_info,pivot,float3(0,1,0))
-            :LEGACY_RASTER_FLORA_AMBIENT_LIGHT*sun_info.sky_light_strength;
+        float3 ambient=sampleDiffuseEnvironment(gui_input,shading_info,pivot,float3(0,1,0));
         light=float4(ambient,shadow.sun_transmittance);
     }
     model_object_samples[index*4u]=light;

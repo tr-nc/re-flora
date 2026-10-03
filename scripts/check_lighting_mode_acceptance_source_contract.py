@@ -801,19 +801,7 @@ def audit(sources: dict[str, str]) -> list[str]:
             else:
                 argument = sink_calls[0][0]
                 expected_fields = {
-                    "raster_flora_ddgi_lighting": (
-                        lighting_parameter,
-                        ".",
-                        "raster_lighting_mode",
-                        "(",
-                        ")",
-                        ".",
-                        "is_ddgi",
-                        "(",
-                        ")",
-                        "as",
-                        "u32",
-                    ),
+
                     "path_tracing_reference": (
                         lighting_parameter,
                         ".",

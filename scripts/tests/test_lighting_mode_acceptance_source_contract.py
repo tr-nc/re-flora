@@ -90,7 +90,6 @@ impl BufferUpdater {
         lighting_frame: &ResolvedLightingFrameInputs,
     ) -> Result<()> {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
-            raster_flora_ddgi_lighting: lighting_frame.raster_lighting_mode().is_ddgi() as u32,
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
             path_tracing_ambient_light: lighting_frame.path_tracing_ambient_light().to_array(),
@@ -404,7 +403,6 @@ impl Tracer {
 
     def test_each_lighting_uniform_value_must_use_its_inline_capsule_getter(self) -> None:
         mutations = (
-            ("lighting_frame.raster_lighting_mode().is_ddgi() as u32", "forged_raster"),
             ("lighting_frame.path_tracing_reference() as u32", "forged_path"),
             ("lighting_frame.path_tracing_max_bounces()", "forged_bounces"),
             (

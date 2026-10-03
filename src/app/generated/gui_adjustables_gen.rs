@@ -134,12 +134,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "raster_flora_ddgi_lighting",
-        kind: "bool",
-        label: "Raster Flora DDGI Lighting",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "path_tracing_reference",
         kind: "bool",
         label: "Path Tracing Reference (Terrain)",
@@ -1450,7 +1444,6 @@ pub struct GuiAdjustables {
     pub lod_distance: crate::gui_adjustables::FloatParam,
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
-    pub raster_flora_ddgi_lighting: crate::gui_adjustables::BoolParam,
     pub path_tracing_reference: crate::gui_adjustables::BoolParam,
     pub path_tracing_ambient_light: crate::gui_adjustables::ColorParam,
     pub path_tracing_max_bounces: crate::gui_adjustables::UintParam,
@@ -1697,7 +1690,6 @@ impl GuiAdjustables {
         let mut lod_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut raster_flora_ddgi_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut path_tracing_reference_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut path_tracing_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut path_tracing_max_bounces_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2027,11 +2019,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             grass_render_mode_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "raster_flora_ddgi_lighting" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            raster_flora_ddgi_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "path_tracing_reference" => {
@@ -3501,7 +3488,6 @@ impl GuiAdjustables {
             lod_distance: lod_distance_field.expect("Missing parameter: lod_distance"),
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
-            raster_flora_ddgi_lighting: raster_flora_ddgi_lighting_field.expect("Missing parameter: raster_flora_ddgi_lighting"),
             path_tracing_reference: path_tracing_reference_field.expect("Missing parameter: path_tracing_reference"),
             path_tracing_ambient_light: path_tracing_ambient_light_field.expect("Missing parameter: path_tracing_ambient_light"),
             path_tracing_max_bounces: path_tracing_max_bounces_field.expect("Missing parameter: path_tracing_max_bounces"),
@@ -3960,7 +3946,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
-        "raster_flora_ddgi_lighting" => Some(&adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&adjustables.flora_inertial_response),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
@@ -4241,7 +4226,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
-        "raster_flora_ddgi_lighting" => Some(&mut adjustables.raster_flora_ddgi_lighting),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&mut adjustables.flora_inertial_response),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),

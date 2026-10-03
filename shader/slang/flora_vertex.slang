@@ -460,29 +460,9 @@ public float4 projectFloraPosition(float3 worldPosition)
     return mul(camera_info.view_proj_mat, float4(worldPosition, 1.0));
 }
 
-public bool rasterFloraUsesDdgiLighting()
-{
-    return rasterFloraDdgiLightingEnabled() ||
-        localLightCount(local_light_info) > 0u;
-}
-
-public bool rasterFloraDdgiLightingEnabled()
-{
-    return gui_input.raster_flora_ddgi_lighting != 0u;
-}
-
 public U_LocalLightInfo floraLocalLightInfo()
 {
     return local_light_info;
-}
-
-public float3 shadeLegacyRasterFloraVertex(
-    float3 baseColor, float shadowWeight, float3 voxelPosition)
-{
-    float3 litColor = applyLegacyRasterFloraLighting(
-        sun_info, baseColor, shadowWeight);
-    return applyTerrainEditPreviewTint(
-        terrain_edit_preview, litColor, voxelPosition);
 }
 
 public float3 shadeFloraVertex(float3 baseColor, float shadowWeight,
@@ -566,20 +546,6 @@ public float3 shadeTreeLeafVertexWithEnvironment(
         return shadeOrientedLeaf(baseColor, environmentLight, sunTransmittance, voxelPosition, opticalNormal);
     float3 litColor = applyStylizedVoxelLightingWithEnvironment(
         sun_info, baseColor, shadowWeight, environmentLight);
-    return finishTreeLeafShading(
-        litColor, baseColor, sunTransmittance, canopyGradient,
-        voxelPosition);
-}
-
-public float3 shadeLegacyTreeLeafVertex(
-    float3 baseColor, float shadowWeight, float sunTransmittance,
-    float canopyGradient, float3 voxelPosition, float3 opticalNormal)
-{
-    if (attachedVegetationResponseEnabled() && gui_input.leaf_flutter_strength > 0.0)
-        return shadeOrientedLeaf(baseColor, LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength,
-            sunTransmittance, voxelPosition, opticalNormal);
-    float3 litColor = applyLegacyRasterFloraLighting(
-        sun_info, baseColor, shadowWeight);
     return finishTreeLeafShading(
         litColor, baseColor, sunTransmittance, canopyGradient,
         voxelPosition);

@@ -80,8 +80,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         sampleVegetationResponse(instancePosition, seed, instanceType,
             localInstanceIndex, floraPc.response_offset), 0.0);
 
-    float3 irradiance = prepared.should_trim ||
-                        !rasterFloraDdgiLightingEnabled()
+    float3 irradiance = prepared.should_trim
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);

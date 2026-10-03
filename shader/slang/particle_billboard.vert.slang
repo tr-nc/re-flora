@@ -106,10 +106,8 @@ VertexOutput main(VertexInput input)
 
     if (hasFlightPose || (input.leaf_optics.w > 0.0 && gui_input.leaf_flutter_strength > 0.0))
     {
-        float3 environmentLight = gui_input.raster_flora_ddgi_lighting != 0u
-            ? sampleDiffuseEnvironment(gui_input, shading_info,
-                input.instance_position, float3(0.0, 1.0, 0.0))
-            : LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun_info.sky_light_strength;
+        float3 environmentLight = sampleDiffuseEnvironment(gui_input, shading_info,
+            input.instance_position, float3(0.0, 1.0, 0.0));
         output.color.rgb = shadeLeafWithEnvironment(input.instance_color.rgb,
             environmentLight, shadow.sun_transmittance, input.instance_position,
             leafParticleOpticalNormal(input.leaf_optics, input.leaf_pose_flags),

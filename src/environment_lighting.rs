@@ -981,7 +981,7 @@ mod tests {
                 .contains("gui_input,sun_info,shading_info"));
         }
         let object = include_str!("../shader/slang/model_pixel_object.slang");
-        assert!(object.contains("apple || gui_input.raster_flora_ddgi_lighting!=0u"));
+        assert!(!object.contains("raster_flora_ddgi_lighting"));
         assert!(object.contains("sampleDiffuseEnvironment(gui_input,shading_info,pivot,"));
         for consumer in [
             object,
@@ -992,10 +992,16 @@ mod tests {
     }
 
     #[test]
-    fn raster_flora_lighting_switch_preserves_legacy_and_ddgi_paths() {
+    fn raster_flora_lighting_always_uses_ddgi() {
         let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
             .expect("GUI config must be valid TOML");
-        let switch = gui_param(&config, "raster_flora_ddgi_lighting");
+        assert!(config["section"].as_array().unwrap().iter().all(|section| {
+            section["param"].as_array().is_none_or(|params| {
+                params
+                    .iter()
+                    .all(|param| param["id"].as_str() != Some("raster_flora_ddgi_lighting"))
+            })
+        }));
         let lighting = include_str!("../shader/slang/flora_shadow.slang");
         let shared = include_str!("../shader/slang/flora_vertex.slang");
         let flora_cache = include_str!("../shader/slang/flora_lighting_cache.comp.slang");
@@ -1005,11 +1011,11 @@ mod tests {
         let leaves = include_str!("../shader/slang/leaves.vert.slang");
         let leaves_lod = include_str!("../shader/slang/leaves_lod.vert.slang");
 
-        assert_eq!(switch["kind"].as_str(), Some("bool"));
-        assert_eq!(switch["data"]["value"].as_bool(), Some(true));
-        assert!(lighting.contains("float3(24.0 / 255.0)"));
-        assert!(lighting.contains("LEGACY_RASTER_FLORA_AMBIENT_LIGHT * sun.sky_light_strength"));
-        assert!(shared.contains("applyLegacyRasterFloraLighting("));
+        assert!(!lighting.contains("LEGACY_RASTER_FLORA_AMBIENT_LIGHT"));
+        assert!(!shared.contains("rasterFloraUsesDdgiLighting"));
+        assert!(!shared.contains("shadeLegacy"));
+        assert!(!include_str!("../shader/slang/tracer_types.slang")
+            .contains("raster_flora_ddgi_lighting"));
         let flora_environment = shared
             .split_once("public float3 sampleFloraEnvironment(")
             .expect("raster flora must have a shared environment query")
@@ -1020,12 +1026,9 @@ mod tests {
         assert!(flora_environment.contains("sampleDiffuseEnvironment("));
         assert_eq!(flora_cache.matches("sampleFloraEnvironment(").count(), 1);
         for shader in [flora, flora_lod] {
-            let lighting_branch = shader
-                .split_once("if (rasterFloraUsesDdgiLighting())")
-                .expect("raster flora shader must branch before cache access")
-                .1;
-            assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
-            assert!(lighting_branch.contains("shadeLegacyRasterFloraVertex("));
+            assert!(shader.contains("flora_lighting_cache.irradiance["));
+            assert!(shader.contains("shadeFloraVertexWithEnvironment("));
+            assert!(!shader.contains("shadeLegacy"));
         }
         assert_eq!(
             tree_leaf_cache.matches("sampleFloraEnvironment(").count(),
@@ -1036,13 +1039,9 @@ mod tests {
         );
         assert!(!tree_leaf_cache.contains("vertexOffset"));
         for shader in [leaves, leaves_lod] {
-            let lighting_branch = shader
-                .split_once("if (rasterFloraUsesDdgiLighting())")
-                .expect("tree-leaf shader must branch before cache access")
-                .1;
-            assert!(lighting_branch.contains("flora_lighting_cache.irradiance["));
-            assert!(lighting_branch.contains("shadeTreeLeafVertexWithEnvironment("));
-            assert!(lighting_branch.contains("shadeLegacyTreeLeafVertex("));
+            assert!(shader.contains("flora_lighting_cache.irradiance["));
+            assert!(shader.contains("shadeTreeLeafVertexWithEnvironment("));
+            assert!(!shader.contains("shadeLegacy"));
             assert!(!shader.contains("sampleFloraEnvironment("));
         }
         let tree_leaf_finish = shared

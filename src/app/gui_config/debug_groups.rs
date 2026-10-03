@@ -71,7 +71,6 @@ const GROUPS: &[ControlGroup] = &[
         description: "Flora lighting and terrain path-tracing reference. Terrain automatically uses geometry-aware hybrid lighting in the normal consumer path; reference/debug transport is independent.",
         initially_open: false,
         params: &[
-            "raster_flora_ddgi_lighting",
             "path_tracing_reference",
             "path_tracing_ambient_light",
             "path_tracing_max_bounces",

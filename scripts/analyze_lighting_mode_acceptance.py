@@ -16,12 +16,12 @@ from typing import Any
 
 MAGIC = b"RFLMA01\0"
 SCHEMA = "re-flora-lighting-mode-acceptance-v1"
-CALIBRATION = "r13-e2-production-v1"
+CALIBRATION = "raster-ddgi-fixed-v2"
 PHASES = (
     ("A", "ddgi", "ddgi"),
     ("B", "path-reference", "ddgi"),
-    ("C", "path-reference", "legacy"),
-    ("D", "ddgi", "legacy"),
+    ("C", "path-reference", "ddgi"),
+    ("D", "ddgi", "ddgi"),
 )
 LAYERS = {
     "terrain_rgbe": ("R32_UINT", 4),
@@ -275,14 +275,15 @@ def analyze(path: Path) -> dict[str, Any]:
         alpha = [phase["raster_rgba"][index] for index in range(3, len(phase["raster_rgba"]), 4)]
         _require(alpha == [a["raster_rgba"][index] for index in range(3, len(a["raster_rgba"]), 4)], "raster alpha mask changed across phases")
 
+    _require(sum(alpha_mask) > 0, "raster mask is empty")
     terrain_ab = _changed_count(a["terrain_rgbe"], b["terrain_rgbe"], 4, terrain_mask)
     terrain_dc = _changed_count(d["terrain_rgbe"], c["terrain_rgbe"], 4, terrain_mask)
     raster_ad = _changed_count(a["raster_rgba"], d["raster_rgba"], 4, alpha_mask)
     raster_bc = _changed_count(b["raster_rgba"], c["raster_rgba"], 4, alpha_mask)
     _require_effect("terrain A/B", terrain_ab, sum(terrain_mask))
     _require_effect("terrain D/C", terrain_dc, sum(terrain_mask))
-    _require_effect("raster A/D", raster_ad, sum(alpha_mask))
-    _require_effect("raster B/C", raster_bc, sum(alpha_mask))
+    _require(raster_ad == 0, "raster A/D repeatability failed")
+    _require(raster_bc == 0, "raster B/C repeatability failed")
 
     _require(bytes(a["terrain_rgbe"]) == bytes(d["terrain_rgbe"]), "terrain A/D orthogonality failed")
     _require(bytes(b["terrain_rgbe"]) == bytes(c["terrain_rgbe"]), "terrain B/C orthogonality failed")

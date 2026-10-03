@@ -4,7 +4,6 @@ public struct U_GuiInput
 {
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
-    public uint raster_flora_ddgi_lighting;
     public uint raster_tree_static;
     public uint apple_pixel_resolution;
     public uint model_pixel_view_count; // shared 8..512; zero reserved for numerical oracle

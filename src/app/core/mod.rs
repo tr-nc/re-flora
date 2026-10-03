@@ -3578,10 +3578,6 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                             .to_array(),
                         lighting_controls: EffectiveLightingControls::from_gui(
                             self.debug_settings.adjustables.path_tracing_reference.value,
-                            self.debug_settings
-                                .adjustables
-                                .raster_flora_ddgi_lighting
-                                .value,
                         ),
                     },
                 );

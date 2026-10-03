@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 const ARTIFACT_MAGIC: &[u8; 8] = b"RFLMA01\0";
 const ARTIFACT_SCHEMA: &str = "re-flora-lighting-mode-acceptance-v1";
-const CALIBRATION_ID: &str = "r13-e2-production-v1";
+const CALIBRATION_ID: &str = "raster-ddgi-fixed-v2";
 const FIXTURE_ID: &str = "foliage-shadow-r13-e2-v1";
 const FIXED_VISUAL_TIME_SECONDS: f32 = 0.0;
 const FIXED_TIME_OF_DAY: f32 = 0.47;
@@ -23,7 +23,6 @@ pub(super) enum TerrainLightingMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RasterLightingMode {
     Ddgi,
-    Legacy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -233,10 +232,6 @@ impl ResolvedLightingFrameInputs {
         self.dither_strength_lsb
     }
 
-    pub(crate) const fn raster_lighting_mode(self) -> RasterLightingMode {
-        self.raster_lighting_mode
-    }
-
     pub(crate) const fn raster_lighting_state(&self) -> ResolvedRasterLightingState {
         ResolvedRasterLightingState {
             raster_lighting_mode: self.raster_lighting_mode,
@@ -273,21 +268,14 @@ impl EffectiveLightingControls {
         Self { terrain, raster }
     }
 
-    pub(super) const fn from_gui(
-        path_tracing_reference: bool,
-        raster_flora_ddgi_lighting: bool,
-    ) -> Self {
+    pub(super) const fn from_gui(path_tracing_reference: bool) -> Self {
         Self {
             terrain: if path_tracing_reference {
                 TerrainLightingMode::PathTracingReference
             } else {
                 TerrainLightingMode::Ddgi
             },
-            raster: if raster_flora_ddgi_lighting {
-                RasterLightingMode::Ddgi
-            } else {
-                RasterLightingMode::Legacy
-            },
+            raster: RasterLightingMode::Ddgi,
         }
     }
 
@@ -320,18 +308,14 @@ impl LightingModeAcceptancePhase {
                 TerrainLightingMode::PathTracingReference,
                 RasterLightingMode::Ddgi,
             ),
+            // Repeat the terrain comparison with raster DDGI held fixed.
             Self::C => EffectiveLightingControls::new(
                 TerrainLightingMode::PathTracingReference,
-                RasterLightingMode::Legacy,
+                RasterLightingMode::Ddgi,
             ),
-            Self::D => EffectiveLightingControls::new(
-                TerrainLightingMode::Ddgi,
-                RasterLightingMode::Legacy,
-            ),
-            Self::Complete => EffectiveLightingControls::new(
-                TerrainLightingMode::Ddgi,
-                RasterLightingMode::Legacy,
-            ),
+            Self::D | Self::Complete => {
+                EffectiveLightingControls::new(TerrainLightingMode::Ddgi, RasterLightingMode::Ddgi)
+            }
         }
     }
 
@@ -676,7 +660,6 @@ fn phase_manifest(
         },
         raster_mode: match controls.raster {
             RasterLightingMode::Ddgi => "ddgi",
-            RasterLightingMode::Legacy => "legacy",
         },
         binary_identity: format!("fnv1a64:{binary_identity:016x}"),
         fixture: FIXTURE_ID,
@@ -805,27 +788,20 @@ mod tests {
             path_tracing_ambient_light: lighting.path_tracing_ambient_light().to_array(),
             lighting_controls: EffectiveLightingControls::from_gui(
                 lighting.path_tracing_reference(),
-                lighting.raster_lighting_mode().is_ddgi(),
             ),
         }
     }
 
     #[test]
     fn inactive_acceptance_preserves_gui_lighting_controls() {
-        let gui = EffectiveLightingControls::new(
-            TerrainLightingMode::PathTracingReference,
-            RasterLightingMode::Legacy,
-        );
+        let gui = EffectiveLightingControls::from_gui(true);
 
         assert_eq!(LightingModeAcceptancePhase::Inactive.controls(gui), gui);
     }
 
     #[test]
-    fn acceptance_phases_define_the_fixed_two_by_two_matrix() {
-        let gui = EffectiveLightingControls::new(
-            TerrainLightingMode::PathTracingReference,
-            RasterLightingMode::Legacy,
-        );
+    fn acceptance_phases_keep_raster_ddgi_fixed() {
+        let gui = EffectiveLightingControls::from_gui(true);
 
         assert_eq!(
             LightingModeAcceptancePhase::A.controls(gui),
@@ -842,12 +818,12 @@ mod tests {
             LightingModeAcceptancePhase::C.controls(gui),
             EffectiveLightingControls::new(
                 TerrainLightingMode::PathTracingReference,
-                RasterLightingMode::Legacy,
+                RasterLightingMode::Ddgi,
             )
         );
         assert_eq!(
             LightingModeAcceptancePhase::D.controls(gui),
-            EffectiveLightingControls::new(TerrainLightingMode::Ddgi, RasterLightingMode::Legacy,)
+            EffectiveLightingControls::new(TerrainLightingMode::Ddgi, RasterLightingMode::Ddgi,)
         );
     }
 
@@ -861,7 +837,7 @@ mod tests {
             dither_strength_lsb: 0.25,
             path_tracing_max_bounces: 7,
             path_tracing_ambient_light: [0.1, 0.2, 0.3],
-            lighting_controls: EffectiveLightingControls::from_gui(true, false),
+            lighting_controls: EffectiveLightingControls::from_gui(true),
         };
         let inactive = LightingModeAcceptanceRuntime::new(None);
         assert_eq!(resolve(inactive.frame_plan(), inputs), inputs);
@@ -894,9 +870,9 @@ mod tests {
             dither_strength_lsb: 0.25,
             path_tracing_max_bounces: 7,
             path_tracing_ambient_light: [0.1, 0.2, 0.3],
-            lighting_controls: EffectiveLightingControls::from_gui(false, false),
+            lighting_controls: EffectiveLightingControls::from_gui(false),
         };
-        let legacy = LightingModeAcceptancePhase::C
+        let repeated_ddgi = LightingModeAcceptancePhase::C
             .frame_plan()
             .resolve_timing(LiveFrameTiming {
                 visual_time_seconds: 1.0,
@@ -915,7 +891,7 @@ mod tests {
             .resolve_lighting(live)
             .raster_lighting_state();
 
-        assert!(!legacy.is_ddgi());
+        assert!(repeated_ddgi.is_ddgi());
         assert!(ddgi.is_ddgi());
     }
 
@@ -934,7 +910,7 @@ mod tests {
             dither_strength_lsb: 0.25,
             path_tracing_max_bounces: 7,
             path_tracing_ambient_light: [0.1, 0.2, 0.3],
-            lighting_controls: EffectiveLightingControls::from_gui(true, false),
+            lighting_controls: EffectiveLightingControls::from_gui(true),
         };
         for phase in [
             LightingModeAcceptancePhase::A,
@@ -1191,11 +1167,6 @@ mod tests {
             .cycle()
             .take(80)
             .collect::<Vec<_>>();
-        let raster_legacy = [1, 0, 0, 255]
-            .into_iter()
-            .cycle()
-            .take(80)
-            .collect::<Vec<_>>();
         let captures = [
             (
                 LightingModeAcceptancePhase::A,
@@ -1205,14 +1176,14 @@ mod tests {
             (
                 LightingModeAcceptancePhase::B,
                 terrain_changed.clone(),
-                raster_ddgi,
+                raster_ddgi.clone(),
             ),
             (
                 LightingModeAcceptancePhase::C,
                 terrain_changed,
-                raster_legacy.clone(),
+                raster_ddgi.clone(),
             ),
-            (LightingModeAcceptancePhase::D, vec![0; 80], raster_legacy),
+            (LightingModeAcceptancePhase::D, vec![0; 80], raster_ddgi),
         ]
         .into_iter()
         .map(
@@ -1256,10 +1227,10 @@ mod tests {
         let result = String::from_utf8(output.stdout).unwrap();
         for field in [
             r#""schema": "re-flora-lighting-mode-acceptance-v1""#,
-            r#""calibration": "r13-e2-production-v1""#,
+            r#""calibration": "raster-ddgi-fixed-v2""#,
             r#""verdict": "GREEN""#,
             r#""terrain_changed_ab": 20"#,
-            r#""raster_changed_ad": 20"#,
+            r#""raster_changed_ad": 0"#,
         ] {
             assert!(result.contains(field), "missing {field} in {result}");
         }
