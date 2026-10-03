@@ -201,8 +201,8 @@ impl Splash {
     }
 }
 
-/// Two staged alpha fades: background/grid during [0, 1] seconds, then
-/// title/underline during [1, 2]. Flower starts are independently staggered.
+/// Background/grid and title/underline fade together during [0, 1] seconds.
+/// Only flowers are delayed, with independently staggered starts.
 /// No position or scale changes.
 #[derive(Clone, Copy, Debug)]
 struct Opacity {
@@ -220,7 +220,7 @@ impl Opacity {
     fn at(seconds: f64) -> Self {
         Self {
             background: fade(seconds),
-            foreground: fade(seconds - 1.0),
+            foreground: fade(seconds),
             flower_fade: None,
         }
     }
@@ -293,7 +293,7 @@ impl Transition {
     pub(crate) fn presented(&mut self) -> bool {
         if self.first_presented.is_none() {
             self.first_presented = Some(Instant::now());
-            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s title=1..2s flowers=1..2.6s random_delay=0..0.6s");
+            log::info!("[LOADING][SPLASH_TRANSITION] started background=0..1s title=0..1s flowers=1..2.6s random_delay=0..0.6s");
         }
         if self.clear_frame_drawn {
             log::info!("[LOADING][SPLASH_TRANSITION] complete");
@@ -471,12 +471,12 @@ mod tests {
     }
 
     #[test]
-    fn transition_fades_background_before_foreground() {
+    fn transition_fades_background_and_title_together() {
         for (time, background, foreground) in [
             (0.0, 1.0, 1.0),
-            (0.5, 0.5, 1.0),
-            (1.0, 0.0, 1.0),
-            (1.5, 0.0, 0.5),
+            (0.5, 0.5, 0.5),
+            (1.0, 0.0, 0.0),
+            (1.5, 0.0, 0.0),
             (2.0, 0.0, 0.0),
             (10.0, 0.0, 0.0),
         ] {
@@ -489,6 +489,14 @@ mod tests {
             let current = Opacity::at(frame as f64 / 60.0);
             assert!(current.background <= previous.background);
             assert!(current.foreground <= previous.foreground);
+            assert_eq!(current.foreground, current.background);
+            let flowers = Opacity {
+                flower_fade: Some((42, frame as f64 / 60.0)),
+                ..current
+            };
+            if frame <= 60 {
+                assert_eq!(flowers.flower(0, 0), 1.0);
+            }
             previous = current;
         }
     }
