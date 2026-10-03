@@ -300,7 +300,6 @@ impl BufferUpdater {
                 .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
-            path_tracing_ambient_light: lighting_frame.path_tracing_ambient_light().to_array(),
             terrain_ray_origin_offset_world: terrain.ray_origin_offset_world.max(0.0),
             terrain_self_shadow_tolerance_voxels: terrain.self_shadow_tolerance_voxels,
             flora_instance_hsv_offset_max: appearance.instance_hsv_offset_max.to_array(),

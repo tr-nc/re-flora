@@ -64,7 +64,6 @@ struct PlannedLightingFrameInputs {
     sampling_serial: PlannedFrameValue<u32>,
     dither_strength_lsb: PlannedFrameValue<f32>,
     path_tracing_max_bounces: PlannedFrameValue<u32>,
-    path_tracing_ambient_light: PlannedFrameValue<[f32; 3]>,
     lighting_controls: PlannedFrameValue<EffectiveLightingControls>,
 }
 
@@ -86,7 +85,6 @@ pub(super) struct LiveLightingFrameInputs {
     pub sampling_serial: u32,
     pub dither_strength_lsb: f32,
     pub path_tracing_max_bounces: u32,
-    pub path_tracing_ambient_light: [f32; 3],
     pub lighting_controls: EffectiveLightingControls,
 }
 
@@ -98,7 +96,6 @@ pub(crate) struct ResolvedLightingFrameInputs {
     raster_lighting_mode: RasterLightingMode,
     path_tracing_reference: bool,
     path_tracing_max_bounces: u32,
-    path_tracing_ambient_light: glam::Vec3,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -133,7 +130,6 @@ impl LightingModeAcceptanceFramePlan {
                 sampling_serial: PlannedFrameValue::Live,
                 dither_strength_lsb: PlannedFrameValue::Live,
                 path_tracing_max_bounces: PlannedFrameValue::Live,
-                path_tracing_ambient_light: PlannedFrameValue::Live,
                 lighting_controls: PlannedFrameValue::Live,
             },
         }
@@ -150,7 +146,6 @@ impl LightingModeAcceptanceFramePlan {
                 sampling_serial: PlannedFrameValue::Fixed(FIXED_SAMPLING_SERIAL),
                 dither_strength_lsb: PlannedFrameValue::Fixed(0.0),
                 path_tracing_max_bounces: PlannedFrameValue::Fixed(2),
-                path_tracing_ambient_light: PlannedFrameValue::Fixed([0.0; 3]),
                 lighting_controls: PlannedFrameValue::Fixed(controls),
             },
         }
@@ -200,11 +195,6 @@ impl LightingModeAcceptanceRenderPlan {
                 .lighting
                 .path_tracing_max_bounces
                 .resolve(live.path_tracing_max_bounces),
-            path_tracing_ambient_light: glam::Vec3::from_array(
-                self.lighting
-                    .path_tracing_ambient_light
-                    .resolve(live.path_tracing_ambient_light),
-            ),
         }
     }
 }
@@ -244,10 +234,6 @@ impl ResolvedLightingFrameInputs {
 
     pub(crate) const fn path_tracing_max_bounces(self) -> u32 {
         self.path_tracing_max_bounces
-    }
-
-    pub(crate) const fn path_tracing_ambient_light(self) -> glam::Vec3 {
-        self.path_tracing_ambient_light
     }
 }
 
@@ -761,7 +747,6 @@ mod tests {
         sampling_serial: u32,
         dither_strength_lsb: f32,
         path_tracing_max_bounces: u32,
-        path_tracing_ambient_light: [f32; 3],
         lighting_controls: EffectiveLightingControls,
     }
 
@@ -775,7 +760,6 @@ mod tests {
             sampling_serial: live.sampling_serial,
             dither_strength_lsb: live.dither_strength_lsb,
             path_tracing_max_bounces: live.path_tracing_max_bounces,
-            path_tracing_ambient_light: live.path_tracing_ambient_light,
             lighting_controls: live.lighting_controls,
         });
         FrameInputs {
@@ -785,7 +769,6 @@ mod tests {
             sampling_serial: lighting.sampling_serial(),
             dither_strength_lsb: lighting.dither_strength_lsb(),
             path_tracing_max_bounces: lighting.path_tracing_max_bounces(),
-            path_tracing_ambient_light: lighting.path_tracing_ambient_light().to_array(),
             lighting_controls: EffectiveLightingControls::from_gui(
                 lighting.path_tracing_reference(),
             ),
@@ -836,7 +819,6 @@ mod tests {
             sampling_serial: 23,
             dither_strength_lsb: 0.25,
             path_tracing_max_bounces: 7,
-            path_tracing_ambient_light: [0.1, 0.2, 0.3],
             lighting_controls: EffectiveLightingControls::from_gui(true),
         };
         let inactive = LightingModeAcceptanceRuntime::new(None);
@@ -855,7 +837,6 @@ mod tests {
                 sampling_serial: FIXED_SAMPLING_SERIAL,
                 dither_strength_lsb: 0.0,
                 path_tracing_max_bounces: 2,
-                path_tracing_ambient_light: [0.0; 3],
                 lighting_controls: LightingModeAcceptancePhase::A
                     .controls(inputs.lighting_controls),
             }
@@ -869,7 +850,6 @@ mod tests {
             sampling_serial: 23,
             dither_strength_lsb: 0.25,
             path_tracing_max_bounces: 7,
-            path_tracing_ambient_light: [0.1, 0.2, 0.3],
             lighting_controls: EffectiveLightingControls::from_gui(false),
         };
         let repeated_ddgi = LightingModeAcceptancePhase::C
@@ -909,7 +889,6 @@ mod tests {
             sampling_serial: 23,
             dither_strength_lsb: 0.25,
             path_tracing_max_bounces: 7,
-            path_tracing_ambient_light: [0.1, 0.2, 0.3],
             lighting_controls: EffectiveLightingControls::from_gui(true),
         };
         for phase in [
@@ -927,7 +906,6 @@ mod tests {
                     sampling_serial: FIXED_SAMPLING_SERIAL,
                     dither_strength_lsb: 0.0,
                     path_tracing_max_bounces: 2,
-                    path_tracing_ambient_light: [0.0; 3],
                     lighting_controls: phase.controls(live.lighting_controls),
                 },
                 "{}",

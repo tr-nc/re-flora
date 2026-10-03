@@ -72,7 +72,6 @@ const GROUPS: &[ControlGroup] = &[
         initially_open: false,
         params: &[
             "path_tracing_reference",
-            "path_tracing_ambient_light",
             "path_tracing_max_bounces",
         ],
     },

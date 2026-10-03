@@ -289,19 +289,6 @@ type = "Bool"
 value = false
 
 [[section.param]]
-id = "path_tracing_ambient_light"
-kind = "color"
-label = "Path Tracing Ambient Override"
-type = "Color"
-
-[section.param.enabled_if]
-param = "path_tracing_reference"
-equals = true
-
-[section.param.data]
-value = "#000000"
-
-[[section.param]]
 id = "path_tracing_max_bounces"
 kind = "uint"
 label = "Path Tracing Max Bounces"

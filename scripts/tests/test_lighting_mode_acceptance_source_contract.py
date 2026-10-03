@@ -92,7 +92,6 @@ impl BufferUpdater {
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             path_tracing_reference: lighting_frame.path_tracing_reference() as u32,
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
-            path_tracing_ambient_light: lighting_frame.path_tracing_ambient_light().to_array(),
         })
     }
 }
@@ -388,10 +387,6 @@ impl Tracer {
                 "lighting_frame: &ResolvedLightingFrameInputs,",
                 "lighting_frame: &ResolvedLightingFrameInputs, path_tracing_max_bounces: u32,",
             ),
-            (
-                "lighting_frame: &ResolvedLightingFrameInputs,",
-                "lighting_frame: &ResolvedLightingFrameInputs, path_tracing_ambient_light: Vec3,",
-            ),
         )
         for before, after in mutations:
             with self.subTest(after=after):
@@ -405,10 +400,6 @@ impl Tracer {
         mutations = (
             ("lighting_frame.path_tracing_reference() as u32", "forged_path"),
             ("lighting_frame.path_tracing_max_bounces()", "forged_bounces"),
-            (
-                "lighting_frame.path_tracing_ambient_light().to_array()",
-                "forged_ambient",
-            ),
         )
         for before, after in mutations:
             with self.subTest(after=after):

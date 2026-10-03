@@ -697,7 +697,6 @@ def audit(sources: dict[str, str]) -> list[str]:
                 "raster_lighting_mode",
                 "path_tracing_reference",
                 "path_tracing_max_bounces",
-                "path_tracing_ambient_light",
             }
             primitive_types = {
                 "RasterLightingMode",
@@ -766,7 +765,6 @@ def audit(sources: dict[str, str]) -> list[str]:
             "raster_lighting_mode",
             "path_tracing_reference",
             "path_tracing_max_bounces",
-            "path_tracing_ambient_light",
         }
         if any(
             "RasterLightingMode" in parameter
@@ -815,17 +813,6 @@ def audit(sources: dict[str, str]) -> list[str]:
                         lighting_parameter,
                         ".",
                         "path_tracing_max_bounces",
-                        "(",
-                        ")",
-                    ),
-                    "path_tracing_ambient_light": (
-                        lighting_parameter,
-                        ".",
-                        "path_tracing_ambient_light",
-                        "(",
-                        ")",
-                        ".",
-                        "to_array",
                         "(",
                         ")",
                     ),

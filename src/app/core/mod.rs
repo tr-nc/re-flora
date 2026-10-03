@@ -3570,12 +3570,6 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                             .adjustables
                             .path_tracing_max_bounces
                             .value,
-                        path_tracing_ambient_light: self
-                            .debug_settings
-                            .adjustables
-                            .path_tracing_ambient_light
-                            .get_vec3()
-                            .to_array(),
                         lighting_controls: EffectiveLightingControls::from_gui(
                             self.debug_settings.adjustables.path_tracing_reference.value,
                         ),

@@ -388,8 +388,8 @@ float3 pathTraceTerrainReference(MarchingResult primary, float3 albedo,
     int3 primarySunSeed = pathTracingBounceSeed(seed, 0u, int2(83, 101));
     directLight = albedo * pathTracingDirectIrradiance(
         primary, primarySunSeed, localInvocationIndex);
-    environmentIrradiance = gui_input.path_tracing_ambient_light +
-        pathTracingIndirectIrradiance(primary, seed, localInvocationIndex);
+    environmentIrradiance = pathTracingIndirectIrradiance(
+        primary, seed, localInvocationIndex);
     return voxelSurfaceEmission(voxel_colors, primary.voxel_type) +
         directLight + albedo * environmentIrradiance;
 }

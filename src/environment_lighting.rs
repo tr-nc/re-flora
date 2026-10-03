@@ -1061,13 +1061,11 @@ mod tests {
         let config: toml::Value = toml::from_str(include_str!("../config/gui.toml"))
             .expect("GUI config must be valid TOML");
         let reference = gui_param(&config, "path_tracing_reference");
-        let ambient = gui_param(&config, "path_tracing_ambient_light");
         let max_bounces = gui_param(&config, "path_tracing_max_bounces");
         let ray_origin_offset = gui_param(&config, "terrain_ray_origin_offset_world");
         let receiver_visibility_bias = gui_param(&config, "ddgi_receiver_visibility_bias_world");
 
         assert_eq!(reference["kind"].as_str(), Some("bool"));
-        assert_eq!(ambient["kind"].as_str(), Some("color"));
         assert_eq!(max_bounces["kind"].as_str(), Some("uint"));
         assert_eq!(ray_origin_offset["kind"].as_str(), Some("float"));
         assert_eq!(ray_origin_offset["data"]["min"].as_integer(), Some(0));
@@ -1086,13 +1084,20 @@ mod tests {
             Some(1.0 / 256.0),
             "the default visibility receiver bias must remain one terrain voxel"
         );
-        for dependent in [ambient, max_bounces] {
-            assert_eq!(
-                dependent["enabled_if"]["param"].as_str(),
-                Some("path_tracing_reference")
-            );
-            assert_eq!(dependent["enabled_if"]["equals"].as_bool(), Some(true));
-        }
+        assert_eq!(
+            max_bounces["enabled_if"]["param"].as_str(),
+            Some("path_tracing_reference")
+        );
+        assert_eq!(max_bounces["enabled_if"]["equals"].as_bool(), Some(true));
+        assert!(config["section"].as_array().unwrap().iter().all(|section| {
+            section["param"].as_array().is_none_or(|params| {
+                params
+                    .iter()
+                    .all(|param| param["id"].as_str() != Some("path_tracing_ambient_light"))
+            })
+        }));
+        assert!(!include_str!("../shader/slang/tracer_types.slang")
+            .contains("path_tracing_ambient_light"));
 
         let transport = terrain
             .split_once("float3 pathTracingDirectIrradiance(")
@@ -1108,6 +1113,8 @@ mod tests {
         assert!(transport.contains("generalSceneMarching(\n                    shadowRay"));
         assert!(transport.contains("generalSceneMarching(indirectRay"));
         assert!(transport.contains("gui_input.path_tracing_max_bounces"));
+        assert!(!transport.contains("path_tracing_ambient_light"));
+        assert!(transport.contains("environmentIrradiance = pathTracingIndirectIrradiance("));
         assert!(!transport.contains("sampleDdgi"));
         assert!(!transport.contains("directSunShadowTransmittance"));
         assert!(!transport.contains("shadow_map"));

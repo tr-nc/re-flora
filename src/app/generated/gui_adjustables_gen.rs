@@ -140,12 +140,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "path_tracing_ambient_light",
-        kind: "color",
-        label: "Path Tracing Ambient Override",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "path_tracing_max_bounces",
         kind: "uint",
         label: "Path Tracing Max Bounces",
@@ -1445,7 +1439,6 @@ pub struct GuiAdjustables {
     pub flora_draw_distance: crate::gui_adjustables::FloatParam,
     pub grass_render_mode: crate::gui_adjustables::UintParam,
     pub path_tracing_reference: crate::gui_adjustables::BoolParam,
-    pub path_tracing_ambient_light: crate::gui_adjustables::ColorParam,
     pub path_tracing_max_bounces: crate::gui_adjustables::UintParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
     pub flora_inertial_response: crate::gui_adjustables::BoolParam,
@@ -1691,7 +1684,6 @@ impl GuiAdjustables {
         let mut flora_draw_distance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_render_mode_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut path_tracing_reference_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut path_tracing_ambient_light_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut path_tracing_max_bounces_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_inertial_response_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2024,11 +2016,6 @@ impl GuiAdjustables {
                     "path_tracing_reference" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             path_tracing_reference_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "path_tracing_ambient_light" => {
-                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
-                            path_tracing_ambient_light_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
                     "path_tracing_max_bounces" => {
@@ -3489,7 +3476,6 @@ impl GuiAdjustables {
             flora_draw_distance: flora_draw_distance_field.expect("Missing parameter: flora_draw_distance"),
             grass_render_mode: grass_render_mode_field.expect("Missing parameter: grass_render_mode"),
             path_tracing_reference: path_tracing_reference_field.expect("Missing parameter: path_tracing_reference"),
-            path_tracing_ambient_light: path_tracing_ambient_light_field.expect("Missing parameter: path_tracing_ambient_light"),
             path_tracing_max_bounces: path_tracing_max_bounces_field.expect("Missing parameter: path_tracing_max_bounces"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
             flora_inertial_response: flora_inertial_response_field.expect("Missing parameter: flora_inertial_response"),
@@ -3967,7 +3953,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code)]
 pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ColorParam> {
     match id {
-        "path_tracing_ambient_light" => Some(&adjustables.path_tracing_ambient_light),
         "sun_color" => Some(&adjustables.sun_color),
         "glass_tint" => Some(&adjustables.glass_tint),
         "model_flower_stem_bottom_color" => Some(&adjustables.model_flower_stem_bottom_color),
@@ -4247,7 +4232,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code)]
 pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ColorParam> {
     match id {
-        "path_tracing_ambient_light" => Some(&mut adjustables.path_tracing_ambient_light),
         "sun_color" => Some(&mut adjustables.sun_color),
         "glass_tint" => Some(&mut adjustables.glass_tint),
         "model_flower_stem_bottom_color" => Some(&mut adjustables.model_flower_stem_bottom_color),
