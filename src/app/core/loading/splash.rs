@@ -142,16 +142,16 @@ impl Splash {
                     egui::Stroke::new(scale, grid),
                     egui::StrokeKind::Middle,
                 );
-                let flower_alpha = opacity.flower(column, row);
                 if (column + row).rem_euclid(3) == 0 {
-                    // Quiet cells contain only the study's small leaf marks.
+                    // Quiet-cell marks share the grid's dark color and fade.
+                    // Do not leave them floating over the scene with late flowers.
                     for (offset, size) in [
                         (Vec2::new(46.0, 47.0), Vec2::new(4.0, 2.0)),
                         (Vec2::new(48.0, 44.0), Vec2::new(2.0, 3.0)),
                     ] {
                         field.add_colored_rect(
                             Rect::from_min_size(tile.min + offset * scale, size * scale),
-                            grid.gamma_multiply(flower_alpha),
+                            grid.gamma_multiply(opacity.background),
                         );
                     }
                     continue;
@@ -163,7 +163,7 @@ impl Splash {
                     &self.flowers[kind][sway_frame(group, seconds)],
                     tile.center(),
                     3.0 * scale,
-                    flower_alpha,
+                    opacity.flower(column, row),
                 );
             }
         }
@@ -174,8 +174,8 @@ impl Splash {
             egui::Stroke::new(scale, grid),
             egui::StrokeKind::Middle,
         );
-        // Each flower already has its own premultiplied alpha; do not multiply
-        // the field by the title's fade (or by the background's fade) again.
+        // Field colors already include their own premultiplied alpha (grid fade
+        // for quiet marks, staggered fade for flowers); do not fade them again.
         painter.set_opacity(1.0);
         painter.add(egui::Shape::mesh(field));
         painter.set_opacity(opacity.foreground);
@@ -418,6 +418,44 @@ mod tests {
         let high = delays.iter().copied().fold(0.0, f64::max);
         assert!(high - low > 0.4);
         assert_ne!(flower_delay(42, 0, 0), flower_delay(43, 0, 0));
+    }
+
+    #[test]
+    fn quiet_cell_marks_fade_with_the_grid_not_the_flowers() {
+        let ctx = Context::default();
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0));
+        let layout = Layout::new(viewport);
+        let mark_pos = layout.tile(0, 0).min + Vec2::new(46.0, 47.0) * (layout.cell / CELL);
+        let mut splash = Splash::new(PALETTES[0]);
+        for seconds in [0.0, 0.5, 1.0, 1.5] {
+            let opacity = Opacity {
+                flower_fade: Some((42, seconds)),
+                ..Opacity::at(seconds)
+            };
+            let input = egui::RawInput {
+                screen_rect: Some(viewport),
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| {
+                splash.paint(ui.ctx(), 1.0, LayerId::background(), opacity);
+            });
+            let mark = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Mesh(mesh) => mesh
+                        .vertices
+                        .iter()
+                        .find(|vertex| vertex.pos.distance(mark_pos) < 0.001),
+                    _ => None,
+                })
+                .expect("quiet cell mark must be present in the painted field");
+            assert_eq!(
+                mark.color,
+                rgb(PALETTES[0].colors[1]).gamma_multiply(opacity.background),
+                "dark grid decorations must not linger over the revealed scene at {seconds}s"
+            );
+        }
     }
 
     #[test]
