@@ -262,7 +262,10 @@ impl EguiRenderer {
             } else {
                 let tex_desc = ImageDesc {
                     extent,
-                    format: vk::Format::R8G8B8A8_SRGB,
+                    // egui textures are gamma-premultiplied, just like vertex colors.
+                    // Decode explicitly in the shader after undoing premultiplication;
+                    // automatic SRGB sampling would darken translucent texels.
+                    format: vk::Format::R8G8B8A8_UNORM,
                     usage: vk::ImageUsageFlags::SAMPLED
                         | vk::ImageUsageFlags::TRANSFER_DST
                         | vk::ImageUsageFlags::TRANSFER_SRC,

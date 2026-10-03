@@ -1,4 +1,4 @@
-import color;
+import egui_color;
 
 struct Matrices
 {
@@ -26,7 +26,7 @@ struct VertexOutput
 VertexOutput main(VertexInput input)
 {
     VertexOutput output;
-    output.color = float4(srgbToLinear(input.color.rgb), input.color.a);
+    output.color = eguiColorToLinear(input.color);
     output.uv = input.uv;
     output.position = mul(matrices.ortho, float4(input.position, 0.0, 1.0));
     return output;

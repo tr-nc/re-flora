@@ -1,3 +1,5 @@
+import egui_color;
+
 struct FragmentInput
 {
     [[vk::location(0)]] float4 color : COLOR0;
@@ -10,5 +12,5 @@ Sampler2D font_sampler;
 [shader("fragment")]
 float4 main(FragmentInput input) : SV_Target0
 {
-    return input.color * font_sampler.Sample(input.uv);
+    return input.color * eguiColorToLinear(font_sampler.Sample(input.uv));
 }
