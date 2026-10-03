@@ -86,8 +86,49 @@ pub(super) struct MowerSupport {
     pub normal: Vec3,
 }
 
-/// Fit the wheel footprint, not a single voxel face normal. Voxel stairs then read as
-/// a continuous slope, and model triangles use the same character collision source.
+fn walkable_surface_height(world: &mut CollisionWorld, origin: Vec3) -> Option<f32> {
+    world
+        .cast_character_surface_ray(origin, Vec3::NEG_Y, 32.5)
+        .filter(|hit| hit.normal.y >= 0.5)
+        .map(|hit| hit.position.y)
+}
+
+/// Reconstruct a continuous contact height from the voxel-center lattice. Direct
+/// point rays jump a whole voxel when a wheel crosses a stair edge, feeding both
+/// chassis height and tilt. Bilinear sampling removes that discontinuity without
+/// lagging planar motion. Planar model surfaces are reproduced exactly.
+/// This is presentation only; capsule movement still uses the unmodified geometry.
+fn wheel_surface_height(world: &mut CollisionWorld, origin: Vec3) -> Option<f32> {
+    let base_x = (origin.x - 0.5).floor() + 0.5;
+    let base_z = (origin.z - 0.5).floor() + 0.5;
+    let fraction_x = origin.x - base_x;
+    let fraction_z = origin.z - base_z;
+    let mut heights = [0.; 4];
+    for (i, (x, z)) in [(0., 0.), (1., 0.), (0., 1.), (1., 1.)]
+        .into_iter()
+        .enumerate()
+    {
+        let sample = Vec3::new(base_x + x, origin.y, base_z + z);
+        let Some(height) = walkable_surface_height(world, sample) else {
+            // At unsupported edges keep the original contact semantics rather
+            // than inventing a surface across a gap.
+            return walkable_surface_height(world, origin);
+        };
+        heights[i] = height;
+    }
+    let min = heights.into_iter().fold(f32::INFINITY, f32::min);
+    let max = heights.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    if max - min > 2. {
+        // Smooth voxel-scale stairs, not distinct levels at a ledge or wall.
+        return walkable_surface_height(world, origin);
+    }
+    let back = heights[0] + (heights[1] - heights[0]) * fraction_x;
+    let front = heights[2] + (heights[3] - heights[2]) * fraction_x;
+    Some(back + (front - back) * fraction_z)
+}
+
+/// Fit the wheel footprint over continuous contact heights rather than raw voxel
+/// faces. Model triangles use the same character collision source.
 pub(super) fn mower_support(
     world: &mut CollisionWorld,
     feet: Vec3,
@@ -104,13 +145,10 @@ pub(super) fn mower_support(
     for (i, wheel) in wheels.into_iter().enumerate() {
         let offset = rotation * wheel;
         let origin = feet * VOXELS_PER_UNIT + Vec3::new(offset.x, 16.25, offset.z);
-        let hit = world.cast_character_surface_ray(origin, Vec3::NEG_Y, 32.5)?;
-        if hit.normal.y < 0.5 {
-            return None;
-        }
-        points[i] = hit.position;
-        root_y = root_y
-            .max(hit.position.y - offset.y + re_flora_physics::CAPSULE_CHARACTER_COLLISION_OFFSET);
+        let height = wheel_surface_height(world, origin)?;
+        points[i] = Vec3::new(origin.x, height, origin.z);
+        root_y =
+            root_y.max(height - offset.y + re_flora_physics::CAPSULE_CHARACTER_COLLISION_OFFSET);
     }
     let right = (points[1] + points[3] - points[0] - points[2]) * 0.5;
     let forward = (points[2] + points[3] - points[0] - points[1]) * 0.5;
@@ -194,6 +232,65 @@ mod tests {
         let mut world = model_world(&boxes);
         let frame = mower_support(&mut world, Vec3::Y * (13. / 256.), Quat::IDENTITY).unwrap();
         assert!(frame.normal.x < -0.2 && frame.normal.y > 0.8);
+    }
+
+    #[test]
+    fn contact_smoothing_preserves_ledges_and_unsupported_edges() {
+        let mut world =
+            model_world(&[floor(), (Vec3::new(0., 0., -40.), Vec3::new(100., 8., 40.))]);
+        for x in [-0.1, 0.1] {
+            let origin = Vec3::new(x, 16., 0.);
+            assert_eq!(
+                wheel_surface_height(&mut world, origin),
+                walkable_surface_height(&mut world, origin),
+                "a tall ledge must not become an interpolated ramp"
+            );
+        }
+        let mut world = model_world(&[(Vec3::new(-100., -10., -100.), Vec3::new(0., 0., 100.))]);
+        assert_eq!(
+            wheel_surface_height(&mut world, Vec3::new(-0.1, 16., 0.)),
+            Some(0.)
+        );
+        assert_eq!(
+            wheel_surface_height(&mut world, Vec3::new(0.1, 16., 0.)),
+            None
+        );
+    }
+
+    #[test]
+    fn moving_wheel_support_is_continuous_on_a_gentle_voxel_slope() {
+        use glam::{IVec3, UVec3};
+        use re_flora_physics::{BrickOccupancy, StaticVoxelBrickId};
+        let mut filled = Vec::new();
+        for x in 0..32 {
+            for z in 0..32 {
+                for y in 0..1 + x / 4 {
+                    filled.push(UVec3::new(x, y, z));
+                }
+            }
+        }
+        let mut world = CollisionWorld::new();
+        world.upsert_static_voxel_brick(
+            StaticVoxelBrickId(IVec3::ZERO),
+            1,
+            BrickOccupancy::from_filled_voxels(filled),
+        );
+        let rotation = Quat::from_rotation_arc(Vec3::Y, Vec3::new(-0.25, 1., 0.).normalize());
+        let mut previous: Option<MowerSupport> = None;
+        for frame in 0..120 {
+            let feet = Vec3::new(10. + frame as f32 * 0.1, 5., 16.) / 256.;
+            let support = mower_support(&mut world, feet, rotation).unwrap();
+            if let Some(previous) = previous {
+                let rise = (support.position.y - previous.position.y).abs() * 256.;
+                assert!(
+                    rise < 0.15,
+                    "wheel support jumped {rise} voxels in one frame"
+                );
+                let angle = previous.normal.angle_between(support.normal);
+                assert!(angle < 0.02, "support normal snapped by {angle} radians");
+            }
+            previous = Some(support);
+        }
     }
 
     #[test]
