@@ -8,6 +8,7 @@ const CELL: f32 = 96.0;
 const GRID_DENSITY: f32 = 1.25;
 const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
 const STEP_SECONDS: f64 = 1.2;
+const SWAY_PHASES: usize = 16;
 const FLOWER_STAGGER_SECONDS: f64 = 0.6;
 const TRANSITION_END_SECONDS: f64 = 2.0 + FLOWER_STAGGER_SECONDS;
 
@@ -113,7 +114,7 @@ impl Splash {
 
     fn paint(&mut self, ctx: &Context, progress: f32, layer: LayerId, opacity: Opacity) {
         if self.started.is_none() {
-            log::info!("[LOADING][SPLASH] layout=B palette={} local_pixels=16 title_cells=4x1 motion=sway poses=-10,0,10,0 step_seconds=1.2", self.palette.name);
+            log::info!("[LOADING][SPLASH] layout=B palette={} local_pixels=16 title_cells=4x1 motion=sway poses=-10,0,10,0 step_seconds=1.2 phases=16 phase_step_seconds=0.075", self.palette.name);
         }
         let seconds = self
             .started
@@ -157,7 +158,7 @@ impl Splash {
                     continue;
                 }
                 let kind = (column + row).rem_euclid(2) as usize;
-                let group = (column + row * 3).rem_euclid(4) as usize;
+                let group = sway_group(column, row);
                 append_at(
                     &mut field,
                     &self.flowers[kind][sway_frame(group, seconds)],
@@ -316,8 +317,15 @@ fn title_and_underline(region: Rect, ink: Rect, scale: f32) -> (Pos2, Rect) {
     (text_pos, underline)
 }
 
+// Spread pose changes evenly across one hold period, independently of the
+// four cached poses. Logical cell coordinates keep phases stable on repaint.
+fn sway_group(column: i32, row: i32) -> usize {
+    (column + row * 7).rem_euclid(SWAY_PHASES as i32) as usize
+}
+
 fn sway_frame(group: usize, seconds: f64) -> usize {
-    ((seconds + group as f64 * 0.45) / STEP_SECONDS).floor() as usize % POSES.len()
+    let phase = group as f64 * STEP_SECONDS / SWAY_PHASES as f64;
+    ((seconds + phase) / STEP_SECONDS).floor() as usize % POSES.len()
 }
 
 fn append_at(target: &mut Mesh, source: &Mesh, center: Pos2, scale: f32, alpha: f32) {
@@ -552,7 +560,53 @@ mod tests {
                 sway_frame(0, time + 4.0 * STEP_SECONDS)
             );
         }
-        assert_ne!(sway_frame(0, 0.1), sway_frame(3, 0.1));
+        assert_ne!(sway_frame(0, 0.1), sway_frame(SWAY_PHASES - 1, 0.1));
+    }
+
+    #[test]
+    fn visible_flowers_spread_pose_updates_across_the_hold_period() {
+        for size in [
+            Vec2::new(960.0, 576.0),
+            Vec2::new(1920.0, 1080.0),
+            Vec2::new(3440.0, 1440.0),
+            Vec2::new(390.0, 844.0),
+        ] {
+            let viewport = Rect::from_min_size(Pos2::ZERO, size);
+            let layout = Layout::new(viewport);
+            let first = (viewport.min - layout.origin) / layout.cell;
+            let last = (viewport.max - layout.origin) / layout.cell;
+            let mut groups = [false; SWAY_PHASES];
+            for row in first.y.floor() as i32..last.y.ceil() as i32 {
+                for column in first.x.floor() as i32..last.x.ceil() as i32 {
+                    if reserved(column, row) || (column + row).rem_euclid(3) == 0 {
+                        continue;
+                    }
+                    // Count only fully visible flowers, not clipped edge cells.
+                    if viewport.contains_rect(layout.tile(column, row)) {
+                        groups[sway_group(column, row)] = true;
+                    }
+                }
+            }
+            let mut changes = Vec::new();
+            for (group, visible) in groups.into_iter().enumerate() {
+                if !visible {
+                    continue;
+                }
+                let change = STEP_SECONDS - group as f64 * STEP_SECONDS / SWAY_PHASES as f64;
+                assert_ne!(
+                    sway_frame(group, change - 0.0001),
+                    sway_frame(group, change + 0.0001)
+                );
+                changes.push(change);
+            }
+            changes.sort_by(f64::total_cmp);
+            assert!(!changes.is_empty());
+            let mut previous = changes[changes.len() - 1] - STEP_SECONDS;
+            for change in changes {
+                assert!(change - previous <= 0.151, "pose update gap at {size:?}");
+                previous = change;
+            }
+        }
     }
 
     #[test]
