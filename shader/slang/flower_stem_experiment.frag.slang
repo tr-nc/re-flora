@@ -25,7 +25,14 @@ StemFragment main(StemProxyVertex input) {
     if(hit.distance>=1e19)return output;
     float3 world=stemWorldPoint(input,hit.point);
     float3 shadePoint=hit.point,shadeNormal=hit.normal;
-    if(flowerStemSamplingSettings().x!=0u)stemSurfaceCell(s,hit,input.motion_edge.w,shadePoint,shadeNormal);
+    if(flowerStemSamplingSettings().x!=0u) {
+        // motion_edge.w is the base GEOMETRY dimension (also used for radius).
+        // Keep the independently tunable shading cell size local to shading.
+        float cellSize=flowerStemShapeSettings().y!=0.0
+            ?stemWorldCellSize(flowerStemShapeSettings().z,input.root_scale.w)
+            :input.motion_edge.w;
+        stemSurfaceCell(s,hit,cellSize,shadePoint,shadeNormal);
+    }
     float3 color=flowerStemColor(shadePoint.y,s.height);
     output.color=float4(shadeFlower(color,stemWorldPoint(input,shadePoint),stemToWorldVector(input,shadeNormal)),1);
     // Each model texel carries the sampled surface's perspective depth.

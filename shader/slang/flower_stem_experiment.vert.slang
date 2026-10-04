@@ -17,8 +17,6 @@ StemProxyVertex main(VertexInput input) {
     output.socket=flowerPart(1u).socket;
     output.grid_center_cell=float4(0);output.grid_x=float3(1,0,0);output.grid_y=float3(0,1,0);
     if(pose.frame.scale<=1e-7)return output;
-    if(flowerStemShapeSettings().y!=0.0)
-        output.motion_edge.w=stemWorldCellSize(flowerStemShapeSettings().z,pose.frame.scale);
     output.motion_edge.xyz=stemToLocalVector(output,pose.tip_offset)/pose.frame.scale;
     StemGeometry s=stemGeometry(output);
     output.socket.w=dot(output.socket.xyz,stemCenter(s,0u,1.0));

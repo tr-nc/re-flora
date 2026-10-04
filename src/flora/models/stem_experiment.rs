@@ -59,6 +59,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shading_block_height_does_not_overwrite_geometry_edge() {
+        let vertex = include_str!("../../../shader/slang/flower_stem_experiment.vert.slang")
+            .split_whitespace()
+            .collect::<String>();
+        // motion_edge.w owns the base geometry dimension used for radius.
+        // Shading may read it for A mode, but must never replace it with B's cell size.
+        assert!(!vertex.contains("output.motion_edge.w="));
+        assert!(!vertex.contains("stemWorldCellSize("));
+        let geometry = include_str!("../../../shader/slang/flower_stem_experiment.slang")
+            .split_once("public StemGeometry stemGeometry(")
+            .unwrap()
+            .1
+            .split_once("public float3 stemWorldPoint(")
+            .unwrap()
+            .0;
+        assert!(!geometry.contains("stemWorldCellSize"));
+        assert!(!geometry.contains("flowerStemShapeSettings().y"));
+        assert!(!geometry.contains("flowerStemShapeSettings().z"));
+        let fragment = include_str!("../../../shader/slang/flower_stem_experiment.frag.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(fragment.contains("stemSurfaceCell(s,hit,cellSize,shadePoint,shadeNormal)"));
+    }
+
+    #[test]
     fn block_height_is_bounded_without_changing_ab_mode() {
         for fixed_cell_height in [false, true] {
             for (height, expected) in [(0., 0.1), (0.5, 0.5), (8., 4.), (f32::NAN, 0.5)] {
