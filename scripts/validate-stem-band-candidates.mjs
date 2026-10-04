@@ -8,32 +8,37 @@ import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
 const suites = ['all', 'gpu', 'cpu'];
-const help = `Usage: node scripts/validate-stem-band-candidates.mjs [--suite ${suites.join('|')}] [--quick]
+const help = `Usage: node scripts/validate-stem-band-candidates.mjs [--suite ${suites.join('|')}] [--quick] [--pixels]
 Compare original voxel/block rendering, analytic grass, square bands, tapered
 square bands and crossed ribbons. GPU grass uses production painting (3x3 and
 15x15); CPU fixtures animate branched flower-like and climbing-like paths.
 Requires cargo build --release, Vulkan display and GPU timestamps. Runs serially,
 hidden/muted, with fixed simulation time. Does not change saved settings.
 --suite selects the source paths to test (default all).
+--pixels adds square/tapered model-pixelized candidates and focuses GPU coverage
+on small-near and large-wide/far/low views. Use --suite gpu (or all), not cpu.
+The model-grid resolution is pinned to 45; ordinary candidates force pixels off.
 RE_FLORA_GRASS_BAND_POSE_REUSE=0 disables GPU pose reuse for a diagnostic comparison
 (default 1). This choice is recorded in summary.json.
 --quick uses one repeat and the high-population wide views; default uses two
 repeats in opposite order, near/low/mid/far grass and CPU growth/near coverage.
-Artifacts: target/stem-band-trials/{quick|full}-{suite}/{*.log,*.png,runs.json,summary.json}.
+Artifacts: target/stem-band-trials/{quick|full}-{suite}[-pixels]/{*.log,*.png,runs.json,summary.json}.
 Reruns overwrite that suite's artifacts. No automatic visual or release acceptance.
 Examples:
   node scripts/validate-stem-band-candidates.mjs --quick
   node scripts/validate-stem-band-candidates.mjs --suite gpu
+  node scripts/validate-stem-band-candidates.mjs --suite gpu --pixels
 Exit: 0 successful/help; 1 runtime/measurement failure; 2 invalid arguments.`;
 let options;
 try {
-  options = parseArgs({options: {suite: {type:'string', default:'all'}, quick:{type:'boolean',default:false}, help:{type:'boolean',short:'h'}}}).values;
+  options = parseArgs({options: {suite: {type:'string', default:'all'}, quick:{type:'boolean',default:false}, pixels:{type:'boolean',default:false}, help:{type:'boolean',short:'h'}}}).values;
   if (options.help) { console.log(help); process.exit(0); }
   if (!suites.includes(options.suite)) throw new Error(`--suite must be ${suites.join(', ')}, got ${options.suite}`);
+  if (options.pixels && options.suite==='cpu') throw new Error('--pixels tests GPU grass; retry --suite gpu --pixels');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 const root = path.resolve(import.meta.dirname,'..');
 const binary = path.join(root,'target/release/re-flora');
-const output = path.join(root,`target/stem-band-trials/${options.quick?'quick':'full'}-${options.suite}`);
+const output = path.join(root,`target/stem-band-trials/${options.quick?'quick':'full'}-${options.suite}${options.pixels?'-pixels':''}`);
 const hash = data => createHash('sha256').update(data).digest('hex');
 const saved = ['config/gui.toml','config/camera_snapshots.toml'];
 const before = saved.map(file=>hash(fs.readFileSync(path.join(root,file))));
@@ -44,12 +49,15 @@ const percentile = (values,fraction) => {
   return sorted[Math.min(sorted.length-1,Math.floor(sorted.length*fraction))];
 };
 const summarize = values => ({samples:values.length,p50_us:percentile(values,.5),p95_us:percentile(values,.95)});
-const modesGPU = [{name:'voxel',mode:0,ab:'a'}, {name:'analytic',mode:0,ab:'b'},
+const baseModesGPU = [{name:'voxel',mode:0,ab:'a'}, {name:'analytic',mode:0,ab:'b'},
   {name:'square',mode:1,ab:'b'}, {name:'taper',mode:2,ab:'b'}, {name:'ribbon',mode:3,ab:'b'}];
-const modesCPU = [{name:'blocks',mode:0,ab:'a'}, ...modesGPU.slice(2)];
+const modesGPU = [...baseModesGPU, ...(options.pixels ? [
+  {name:'square-pixels',mode:1,ab:'b',pixels:true}, {name:'taper-pixels',mode:2,ab:'b',pixels:true}] : [])];
+const modesCPU = [{name:'blocks',mode:0,ab:'a'}, ...baseModesGPU.slice(2)];
 const jobs = [];
 if(options.suite!=='cpu') {
-  const scenes=options.quick ? [[15,'wide-both']] : [
+  const scenes=options.quick ? [[15,'wide-both']] : options.pixels ? [
+    [3,'near-both'],[15,'wide-both'],[15,'far-both'],[15,'low-both']] : [
     [3,'near-both'],[3,'mid-both'],[3,'far-both'],[3,'low-both'],
     [15,'near-both'],[15,'wide-both'],[15,'far-both'],[15,'low-both']];
   for(const [grid,scene] of scenes) jobs.push({source:'gpu',key:`gpu-g${grid}-${scene}`,grid,scene,modes:modesGPU});
@@ -72,8 +80,9 @@ try {
       const name=`${job.key}-${mode.name}-${repeat+1}`;
       console.log(`running ${name}`);
       const directory=path.join(output,name);fs.mkdirSync(directory,{recursive:true});
-      const env={...process.env,RE_FLORA_STEM_BAND_MODE:String(mode.mode),RE_FLORA_GRASS_STEM_CAPTURE:directory,RE_FLORA_GRASS_BAND_POSE_REUSE:grassPoseReuse};
-      for(const key of ['WAYLAND_DISPLAY','RE_FLORA_GRASS_STEM_REVIEW','RE_FLORA_CPU_STEM_REVIEW','RE_FLORA_CPU_STEM_NEAR','RE_FLORA_CLIMBING_REVIEW','RE_FLORA_GRASS_STEM_TRYOUT','RE_FLORA_FLOWER_MODEL_REVIEW'])delete env[key];
+      const env={...process.env,RE_FLORA_STEM_BAND_MODE:String(mode.mode),RE_FLORA_GRASS_STEM_CAPTURE:directory,RE_FLORA_GRASS_BAND_POSE_REUSE:grassPoseReuse,
+        RE_FLORA_GRASS_BAND_PIXELIZATION:mode.pixels?'1':'0',RE_FLORA_STEM_PIXEL_RESOLUTION:'45'};
+      for(const key of ['WAYLAND_DISPLAY','RE_FLORA_GRASS_STEM_REVIEW','RE_FLORA_CPU_STEM_REVIEW','RE_FLORA_CPU_STEM_NEAR','RE_FLORA_CLIMBING_REVIEW','RE_FLORA_GRASS_STEM_TRYOUT','RE_FLORA_FLOWER_MODEL_REVIEW','RE_FLORA_STEM_PIXEL_LIFECYCLE'])delete env[key];
       let caseName;
       if(job.source==='gpu') {
         caseName=`${job.scene}-${mode.ab}`;
@@ -90,6 +99,7 @@ try {
       assert.equal(result.status,0,`${name}: ${result.error??log.slice(-3000)}; inspect its log and retry --suite ${job.source}`);
       assert.ok(!/\bERROR\b|VUID|panicked at|Validation Error|Validation Warning/.test(log),`${name}: rendering errors`);
       assert.match(log,/\[SHUTDOWN\] phase=complete failures=0/);
+      if(mode.pixels)assert.match(log,/\[GRASS_RASTER_PIXELS\] enabled=true/);
       const marker=job.source==='gpu'?'GRASS_STEM_REVIEW':'CPU_STEM_REVIEW';
       const start=log.match(new RegExp(`\\[${marker}\\].*phase=sample app_frame=(\\d+)(.*)`));
       const end=log.match(new RegExp(`\\[${marker}\\].*phase=complete app_frame=(\\d+)(.*)`));
@@ -108,7 +118,16 @@ try {
         }
       }
       assert.ok(metrics[scope].length>=(options.quick&&job.source==='gpu'?100:250),'Insufficient GPU samples');
-      const cpu={path:[],upload:[]};
+      if(job.source==='gpu')metrics['grass.render_total']=metrics['graphics.flora'].map((value,index)=>value+metrics['graphics.flora_lighting_cache'][index]);
+      const cpu={path:[],upload:[],record:[],submit:[]};
+      for(const line of log.split('\n')) {
+        const frame=line.match(/CPU_FRAME_SCOPE\] frame (\d+) (.*)/);
+        if(!frame||+frame[1]<+start[1]+4||+frame[1]>=+end[1])continue;
+        for(const [kind,scope] of [['record','render.trace_record'],['submit','render.submit_present']]) {
+          const value=frame[2].match(new RegExp(`(?:^| )${scope.replaceAll('.','\\.')}=(\\d+)us`));
+          assert.ok(value,`${name}: missing CPU ${scope}`);cpu[kind].push(+value[1]);
+        }
+      }
       if(job.source==='cpu')for(const match of log.matchAll(/CPU_STEM_TIMING\] simulation_frame=(\d+) path_us=(\d+) upload_us=(\d+)/g)) {
         if(+match[1]>=124&&+match[1]<420){cpu.path.push(+match[2]);cpu.upload.push(+match[3]);}
       }
@@ -116,7 +135,7 @@ try {
       assert.equal(image.subarray(1,4).toString(),'PNG');
       const dimensions=[image.readUInt32BE(16),image.readUInt32BE(20)];
       assert.deepEqual(dimensions,[2560,1440],'Resolution changed; do not compare mixed resolutions');
-      const row={key:job.key,source:job.source,mode:mode.name,repeat:repeat+1,population,dimensions,
+      const row={key:job.key,source:job.source,mode:mode.name,repeat:repeat+1,grassPixelization:!!mode.pixels,stemResolution:45,population,dimensions,
         image:path.relative(root,path.join(directory,`${caseName}.png`)),imageSha256:hash(image),metrics,cpu};
       runs.push(row);checkSaved();
       fs.writeFileSync(path.join(output,'runs.json'),JSON.stringify(runs,null,2));
@@ -129,12 +148,12 @@ try {
     return {key:job.key,source:job.source,population:rows[0].population,modes:Object.fromEntries(job.modes.map(mode=>{
       const selected=rows.filter(row=>row.mode===mode.name);
       const metrics=Object.fromEntries(Object.keys(selected[0].metrics).map(metric=>[metric,summarize(selected.flatMap(row=>row.metrics[metric]))]));
-      if(job.source==='cpu')for(const kind of ['path','upload'])metrics[`cpu.${kind}`]=summarize(selected.flatMap(row=>row.cpu[kind]));
+      for(const kind of ['record','submit',...(job.source==='cpu'?['path','upload']:[])])metrics[`cpu.${kind}`]=summarize(selected.flatMap(row=>row.cpu[kind]));
       return [mode.name,metrics];
     }))};
   });
   const revision=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim();
-  fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({revision,grassPoseReuse:grassPoseReuse==='1',quick:options.quick,repeats:options.quick?1:2,savedConfigSha256:before,summary},null,2));
+  fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({revision,grassPoseReuse:grassPoseReuse==='1',pixelCandidates:options.pixels,stemResolution:45,quick:options.quick,repeats:options.quick?1:2,savedConfigSha256:before,summary},null,2));
   console.log(JSON.stringify(summary,null,2));
 } catch(error) {
   console.error(`${error.message}\nArtifacts: ${output}\nInspect the failed log; cargo run --release -- --tail-latest-log 200`);
