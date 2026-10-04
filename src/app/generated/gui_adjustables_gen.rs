@@ -32,9 +32,15 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "grass_band_pixelization",
+        kind: "bool",
+        label: "Grass: model-grid pixelization of raster stems (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "grass_band_pose_reuse",
         kind: "bool",
-        label: "Grass: reuse GPU-prepared band pose",
+        label: "Grass: reuse GPU-prepared band pose (plain mesh)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -52,7 +58,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "flower_stem_model_resolution",
         kind: "uint",
-        label: "Flower stems: samples per stem height",
+        label: "Stem Pixelization: samples per height (grass and flowers)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1385,6 +1391,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 #[allow(dead_code)]
 pub struct GuiAdjustables {
     pub grass_stem_rendering: crate::gui_adjustables::BoolParam,
+    pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
     pub grass_band_pose_reuse: crate::gui_adjustables::BoolParam,
     pub cpu_stem_band_rendering: crate::gui_adjustables::BoolParam,
     pub stem_band_mode: crate::gui_adjustables::ChoiceParam,
@@ -1624,6 +1631,7 @@ impl GuiAdjustables {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
         let mut grass_stem_rendering_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pose_reuse_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut cpu_stem_band_rendering_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut stem_band_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
@@ -1856,6 +1864,11 @@ impl GuiAdjustables {
                     "grass_stem_rendering" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_stem_rendering_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "grass_band_pixelization" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            grass_band_pixelization_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "grass_band_pose_reuse" => {
@@ -3370,6 +3383,7 @@ impl GuiAdjustables {
 
         GuiAdjustables {
             grass_stem_rendering: grass_stem_rendering_field.expect("Missing parameter: grass_stem_rendering"),
+            grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
             grass_band_pose_reuse: grass_band_pose_reuse_field.expect("Missing parameter: grass_band_pose_reuse"),
             cpu_stem_band_rendering: cpu_stem_band_rendering_field.expect("Missing parameter: cpu_stem_band_rendering"),
             stem_band_mode: stem_band_mode_field.expect("Missing parameter: stem_band_mode"),
@@ -3828,6 +3842,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
         "grass_stem_rendering" => Some(&adjustables.grass_stem_rendering),
+        "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
@@ -4101,6 +4116,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
         "grass_stem_rendering" => Some(&mut adjustables.grass_stem_rendering),
+        "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),

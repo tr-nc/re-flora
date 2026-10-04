@@ -89,6 +89,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::add_missing_param(&mut config, "Debug", "stem_band_mode");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
+        Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
         for id in [
             "leaf_connection_strength",

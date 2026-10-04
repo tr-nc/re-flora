@@ -17,6 +17,8 @@ pub(super) struct GrassStemReview {
     grid: u32,
     candidate: u32,
     pose_reuse: bool,
+    pixelization: bool,
+    resolution: u32,
     sample_frames: u32,
     pub(super) interactive: bool,
 }
@@ -30,6 +32,14 @@ impl GrassStemReview {
             let reuse = environment_uint("RE_FLORA_GRASS_BAND_POSE_REUSE", 1);
             assert!(reuse <= 1, "pose reuse must be 0 or 1");
             review.pose_reuse = reuse != 0;
+            let pixels = environment_uint("RE_FLORA_GRASS_BAND_PIXELIZATION", 0);
+            assert!(pixels <= 1, "pixelization must be 0 or 1");
+            review.pixelization = pixels != 0;
+            review.resolution = environment_uint("RE_FLORA_STEM_PIXEL_RESOLUTION", 45);
+            assert!(
+                (8..=512).contains(&review.resolution),
+                "stem samples must be 8..512"
+            );
             review.sample_frames = environment_uint("RE_FLORA_STEM_SAMPLE_FRAMES", 300);
             assert!(
                 (3..=15).contains(&review.grid) && review.grid % 2 == 1,
@@ -87,6 +97,8 @@ impl GrassStemReview {
             grid: 3,
             candidate: 0,
             pose_reuse: true,
+            pixelization: false,
+            resolution: 45,
             sample_frames: 300,
             interactive: false,
         })
@@ -159,12 +171,25 @@ impl GrassStemReview {
         if !self.interactive {
             gui.stem_band_mode.value = self.candidate;
             gui.grass_band_pose_reuse.value = self.pose_reuse;
+            gui.grass_band_pixelization.value = self.pixelization;
+            if std::env::var_os("RE_FLORA_STEM_PIXEL_LIFECYCLE").is_some() {
+                gui.grass_band_pixelization.value = (frame / 40) % 2 == 1;
+                gui.flower_stem_model_resolution.value =
+                    [32, 45, 192, 512][(frame / 60 % 4) as usize];
+                if frame % 40 == 0 {
+                    log::info!(
+                        "[STEM_PIXEL_LIFECYCLE] frame={frame} enabled={} resolution={} saved=false",
+                        gui.grass_band_pixelization.value,
+                        gui.flower_stem_model_resolution.value
+                    );
+                }
+            }
             gui.flora_growth_override_enabled.value = true;
             gui.flora_growth_override.value = 1.0;
             gui.flora_spawn_duration_seconds.value = 0.28;
             gui.flora_inertial_response.value = true;
             // Shared sampling quality is held fixed across both modes and all cases.
-            gui.flower_stem_model_resolution.value = 45;
+            gui.flower_stem_model_resolution.value = self.resolution;
             gui.grass_natural_bend_min_voxels.value = if self.curved { 4.0 } else { 0.0 };
             gui.grass_natural_bend_max_voxels.value = if self.curved { 4.0 } else { 2.0 };
         }

@@ -493,6 +493,19 @@ pub struct PushConstantGlassResolve {
     pub use_stored_voxel_normal: u32,
 }
 
+/// Auto-generated from `PushConstantGrassRasterPrepare` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantGrassRasterPrepare {
+    pub first_instance: u32,
+    pub instance_count: u32,
+    pub species: u32,
+    pub cache_offset: u32,
+    pub voxel_count: u32,
+    pub slot_side: u32,
+    pub extent: [u32; 2],
+}
+
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

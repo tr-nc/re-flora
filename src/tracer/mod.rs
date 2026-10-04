@@ -43,6 +43,7 @@ mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
 mod grass_band_cache;
+mod grass_raster_pixels;
 mod stem_band_mesh;
 mod stem_band_paths;
 mod stem_band_resources;
@@ -1369,6 +1370,7 @@ pub struct FloraAppearanceFrameInput {
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_stem_rendering: bool,
     pub grass_band_pose_reuse: bool,
+    pub grass_band_pixelization: bool,
     pub stem_band_mode: u32,
     pub growth_override_enabled: bool,
     pub growth_override: f32,
@@ -1622,6 +1624,7 @@ pub struct Tracer {
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     grass_band_cache: grass_band_cache::GrassBandCache,
+    grass_raster_pixels: Option<grass_raster_pixels::GrassRasterPixels>,
     vegetation_response: VegetationResponse,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
@@ -1632,6 +1635,7 @@ pub struct Tracer {
     flower_stem_experiment: crate::flora::models::StemExperiment,
     grass_stem_rendering: bool,
     grass_band_pose_reuse: bool,
+    grass_band_pixelization: bool,
     stem_band_mode: u32,
     flower_spawn_overshoot_voxels: f32,
     // None means no effective display configuration has been published/logged yet.
@@ -1989,6 +1993,7 @@ impl Tracer {
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
+            grass_raster_pixels: None,
             vegetation_response: VegetationResponse::new(chunk_bound),
             ddgi_voxel_visibility,
             ddgi_runtime,
@@ -1999,6 +2004,7 @@ impl Tracer {
             flower_stem_experiment: crate::flora::models::StemExperiment::default(),
             grass_stem_rendering: false,
             grass_band_pose_reuse: true,
+            grass_band_pixelization: false,
             stem_band_mode: 1,
             flower_spawn_overshoot_voxels: 0.,
             ddgi_trace_stats_readback_pending: None,
@@ -3058,6 +3064,10 @@ impl Tracer {
         }
         self.grass_stem_rendering = vegetation.appearance.grass_stem_rendering;
         self.grass_band_pose_reuse = vegetation.appearance.grass_band_pose_reuse;
+        if self.grass_band_pixelization != vegetation.appearance.grass_band_pixelization {
+            log::info!("[GRASS_RASTER_PIXELS] enabled={} backend=hardware_raster tiles=streamed cpu_readback=0", vegetation.appearance.grass_band_pixelization);
+        }
+        self.grass_band_pixelization = vegetation.appearance.grass_band_pixelization;
         let mode = vegetation.appearance.stem_band_mode.min(3);
         if self.stem_band_mode != mode {
             self.cpu_stem_band_resources.invalidate_shadow();
@@ -4404,7 +4414,26 @@ impl Tracer {
         gpu_profiler_frame_slot: usize,
         prepared_particle_pixels: Option<&PreparedModelPixels>,
     ) {
-        let render_target = self.pipeline_topology.color_and_depth_target();
+        let raster_pixels =
+            self.grass_stem_rendering && self.stem_band_mode != 0 && self.grass_band_pixelization;
+        if raster_pixels {
+            let pixels = self.grass_raster_pixels.get_or_insert_with(|| {
+                grass_raster_pixels::GrassRasterPixels::new(
+                    &self.vulkan_ctx,
+                    self.allocator.clone(),
+                    &self.pool,
+                    &self.resources,
+                    self.frame_retirement_sink.clone(),
+                )
+            });
+            pixels.begin_frame(&self.vulkan_ctx, &self.resources, gpu_profiler_frame_slot);
+        }
+        let base_target = self.pipeline_topology.color_and_depth_target();
+        let render_target = if raster_pixels {
+            self.grass_raster_pixels.as_ref().unwrap().main_target()
+        } else {
+            base_target
+        };
 
         let clear_values = [
             vk::ClearValue {
@@ -4492,15 +4521,16 @@ impl Tracer {
             .checked_add(required_tree_leaf_cache_entries)
             .expect("visible raster flora lighting cache entry count overflow");
 
-        let lighting_cache_enabled = flora_lighting_cache_dispatch_enabled(
-            self.raster_lighting_is_ddgi(),
-            self.local_light_live_publication.observation().count > 0,
-            required_lighting_cache_entries,
-        );
+        let lighting_cache_enabled = (raster_pixels && required_flora_cache_entries > 0)
+            || flora_lighting_cache_dispatch_enabled(
+                self.raster_lighting_is_ddgi(),
+                self.local_light_live_publication.observation().count > 0,
+                required_lighting_cache_entries,
+            );
         let band_cache_buffer = if lighting_cache_enabled
             && self.grass_stem_rendering
             && self.stem_band_mode != 0
-            && self.grass_band_pose_reuse
+            && (self.grass_band_pose_reuse || raster_pixels)
             && required_flora_cache_entries > 0
         {
             Some(self.grass_band_cache.ensure(
@@ -5064,7 +5094,13 @@ impl Tracer {
             gpu_profiler_frame_slot,
             cmdbuf,
             "graphics.renderpass.begin",
-            || render_target.record_begin(cmdbuf, &clear_values),
+            || {
+                base_target.record_begin(cmdbuf, &clear_values);
+                if raster_pixels {
+                    base_target.record_end(cmdbuf);
+                    render_target.record_begin(cmdbuf, &[]);
+                }
+            },
         );
 
         let render_extent = self
@@ -5182,11 +5218,46 @@ impl Tracer {
                         lod_state == LodState::Lod1,
                     );
 
+                    let descriptors = prepared_flora_descriptors
+                        .next()
+                        .expect("every flora frame batch must have prepared descriptors");
+                    if raster_pixels && analytic_grass {
+                        render_target.record_end(cmdbuf);
+                        let bands = &self.resources.flower_models;
+                        let index_count = if self.stem_band_mode == 3 {
+                            8 * 12
+                        } else {
+                            8 * 36
+                        };
+                        let indices = if self.stem_band_mode == 3 {
+                            &bands.stem_band_ribbon_indices
+                        } else {
+                            &bands.stem_band_indices
+                        };
+                        self.grass_raster_pixels.as_ref().unwrap().record(
+                            cmdbuf,
+                            band_cache_buffer.as_ref().unwrap(),
+                            &bands.stem_band_vertices,
+                            indices,
+                            index_count,
+                            crate::generated::gpu_structs::PushConstantGrassRasterPrepare {
+                                first_instance: 0,
+                                instance_count: batch.instance_count(),
+                                species: species_index as u32,
+                                cache_offset: batch.lighting_cache_offset(),
+                                voxel_count: batch.mesh_voxel_count(),
+                                slot_side: grass_raster_pixels::slot_side(
+                                    self.flower_stem_experiment.model_resolution,
+                                ),
+                                extent: [render_extent.width, render_extent.height],
+                            },
+                        );
+                        render_target.record_begin(cmdbuf, &[]);
+                        continue;
+                    }
                     pipeline.record_indexed_with_prepared_descriptors(
                         cmdbuf,
-                        prepared_flora_descriptors
-                            .next()
-                            .expect("every flora frame batch must have prepared descriptors"),
+                        descriptors,
                         if analytic_grass {
                             match self.stem_band_mode {
                                 0 => 6,

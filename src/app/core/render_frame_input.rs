@@ -107,6 +107,7 @@ pub(super) fn freeze_render_frame_inputs(
             model_flowers: model_cache.flowers,
             grass_stem_rendering: gui.grass_stem_rendering.value,
             grass_band_pose_reuse: gui.grass_band_pose_reuse.value,
+            grass_band_pixelization: gui.grass_band_pixelization.value,
             stem_band_mode: gui.stem_band_mode.value as u32,
             stem_experiment: crate::flora::models::StemExperiment {
                 pixelized: true,
@@ -353,6 +354,7 @@ mod tests {
         gui.flower_stem_cell_height_voxels.value = 1.25;
         gui.grass_stem_rendering.value = true;
         gui.grass_band_pose_reuse.value = true;
+        gui.grass_band_pixelization.value = true;
         gui.stem_band_mode.value = 2;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_tip_radius_ratio.value = 0.35;
@@ -524,6 +526,7 @@ mod tests {
                     flower_stem_tip,
                     grass_stem_rendering: true,
                     grass_band_pose_reuse: true,
+                    grass_band_pixelization: true,
                     stem_band_mode: 2,
                     stem_experiment: crate::flora::models::StemExperiment {
                         pixelized: true,

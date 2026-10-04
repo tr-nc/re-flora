@@ -14,6 +14,13 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Stem Model Pixelization",
+        description: "Raster grass modes 1–3: unchecked = plain mesh; checked = model-anchored raster tiles, pixelized silhouette and sampled depth, without ray/segment intersections. Uses GPU-prepared poses. Analytic mode and flowers keep their existing model grid; CPU climbing stems are unchanged.",
+        initially_open: false,
+        params: &["grass_band_pixelization", "flower_stem_model_resolution"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Stem Geometry & Color Bands",
         description: "Grass unchecked: original voxel mesh. Checked: selected candidate. Raster bands have flat color and lighting, real depth and no spherical caps; analytic reference retains model pixelization. Growth and wind stay live.",
         initially_open: false,
@@ -25,7 +32,6 @@ const GROUPS: &[ControlGroup] = &[
         description: "",
         initially_open: false,
         params: &[
-            "flower_stem_model_resolution",
             "flower_stem_cell_height_voxels",
             "flower_stem_radius_scale",
             "flower_stem_tip_radius_ratio",
@@ -173,7 +179,6 @@ pub(super) fn render(
                                 "model_flower_stem_tip_color",
                             ][..],
                         ),
-                        ("Pixelization", &["flower_stem_model_resolution"][..]),
                     ] {
                         ui_text::section(ui, title);
                         for id in ids {
