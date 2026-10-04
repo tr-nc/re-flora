@@ -79,8 +79,6 @@ impl App {
             1.
         };
         if controls {
-            settings.flower_stem_pixelized.value = false;
-            settings.flower_stem_surface_cells.value = true;
             settings.model_flower_height_variance.value = control.shape.height_variance;
             settings.model_flower_voxel_scale.value = control.shape.voxel_scale;
         }

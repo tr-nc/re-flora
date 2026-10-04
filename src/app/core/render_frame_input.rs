@@ -108,8 +108,8 @@ pub(super) fn freeze_render_frame_inputs(
         appearance: FloraAppearanceFrameInput {
             model_flowers: model_cache.flowers,
             stem_experiment: crate::flora::models::StemExperiment {
-                pixelized: gui.flower_stem_pixelized.value,
-                surface_cells: gui.flower_stem_surface_cells.value,
+                pixelized: true,
+                surface_cells: true,
                 model_resolution: gui.flower_stem_model_resolution.value,
                 radius_scale: gui.flower_stem_radius_scale.value,
                 branches: gui.flower_stem_test_branches.value,
@@ -356,8 +356,6 @@ mod tests {
         gui.model_flower_height_variance.value = 0.09;
         gui.model_flower_voxel_scale.value = 0.9;
         gui.model_flower_size_scale.value = 1.25;
-        gui.flower_stem_pixelized.value = true;
-        gui.flower_stem_surface_cells.value = true;
         gui.flower_stem_model_resolution.value = 192;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_test_branches.value = false;

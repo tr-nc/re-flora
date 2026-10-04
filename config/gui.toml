@@ -92,32 +92,10 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
-id = "flower_stem_pixelized"
-kind = "bool"
-label = "Flower stems: model-space pixelization"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "flower_stem_surface_cells"
-kind = "bool"
-label = "Flower stems: surface-attached cell shading"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "flower_stem_model_resolution"
 kind = "uint"
 label = "Flower stems: samples per stem height"
 type = "Uint"
-
-[section.param.enabled_if]
-param = "flower_stem_pixelized"
-equals = true
 
 [section.param.data]
 value = 103

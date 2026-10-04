@@ -14,11 +14,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Sampling — Flower Stems",
-        description: "Continuous stems with independent surface shading and pixel sampling. Wind is always active.",
+        description: "Continuous stems with surface-attached cell shading and model-space pixel sampling. Wind is always active.",
         initially_open: false,
         params: &[
-            "flower_stem_pixelized",
-            "flower_stem_surface_cells",
             "flower_stem_model_resolution",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
@@ -196,25 +194,35 @@ fn render_filtered(
                 if group.title == "Pixel Sampling — Flower Stems" {
                     ui.weak(group.description);
                     for (title, ids) in [
-                        ("Geometry", &["model_flower_voxel_scale", "flower_stem_radius_scale", "flower_stem_test_branches"][..]),
-                        ("Shading", &["flower_stem_surface_cells", "model_flower_stem_bottom_color", "model_flower_stem_tip_color"][..]),
-                        ("Pixelization", &["flower_stem_pixelized", "flower_stem_model_resolution"][..]),
+                        (
+                            "Geometry",
+                            &[
+                                "model_flower_voxel_scale",
+                                "flower_stem_radius_scale",
+                                "flower_stem_test_branches",
+                            ][..],
+                        ),
+                        (
+                            "Shading",
+                            &[
+                                "model_flower_stem_bottom_color",
+                                "model_flower_stem_tip_color",
+                            ][..],
+                        ),
+                        ("Pixelization", &["flower_stem_model_resolution"][..]),
                     ] {
                         ui.label(title);
                         for id in ids {
-                            if *id == "flower_stem_model_resolution" && !adjustables.flower_stem_pixelized.value {
-                                continue;
-                            }
                             for owner in config {
                                 if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
-                                    render_gui_param_from_config(ui, param, &owner.name, adjustables);
+                                    render_gui_param_from_config(
+                                        ui,
+                                        param,
+                                        &owner.name,
+                                        adjustables,
+                                    );
                                 }
                             }
-                        }
-                        if title == "Shading" {
-                            ui.weak("Off: continuous shading. On: branch-attached material cells.");
-                        } else if title == "Pixelization" {
-                            ui.weak("Model-sized cells with continuous perspective views, no discrete angle switching. Combines with either shading style.");
                         }
                     }
                     return;
@@ -273,18 +281,14 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn stem_effects_render_independently_without_resetting_hidden_values() {
+    fn stem_controls_keep_tuning_without_retired_switches_or_hints() {
         let group = GROUPS
             .iter()
             .find(|g| g.title == "Pixel Sampling — Flower Stems")
             .unwrap();
-        for (pixelized, surface_cells) in
-            [(false, false), (false, true), (true, false), (true, true)]
-        {
+        for resolution in [32, 192, 512] {
             let mut settings = DebugSettings::load();
-            settings.adjustables.flower_stem_pixelized.value = pixelized;
-            settings.adjustables.flower_stem_surface_cells.value = surface_cells;
-            settings.adjustables.flower_stem_model_resolution.value = 192;
+            settings.adjustables.flower_stem_model_resolution.value = resolution;
             settings.adjustables.model_flower_voxel_scale.value = 1.8;
             settings.sync_config();
             let before = serde_json::to_value(&settings.config).unwrap();
@@ -294,15 +298,10 @@ mod tests {
                 settings.draw(ui, |_, _| {});
             });
             let text = format!("{:?}", output.shapes);
-            let mut expected = vec![
-                "flower_stem_pixelized",
-                "flower_stem_surface_cells",
-                "flower_stem_radius_scale",
-                "flower_stem_test_branches",
-            ];
-            if pixelized {
-                expected.push("flower_stem_model_resolution");
-            }
+            assert!(!text.contains("model-space pixelization"));
+            assert!(!text.contains("Flower stems: surface-attached cell shading"));
+            assert!(!text.contains("Off: continuous shading"));
+            assert!(!text.contains("Model-sized cells with continuous perspective views"));
             assert!(text.contains("Geometry"));
             assert!(text.contains("Shading"));
             assert!(text.contains("Pixelization"));
@@ -315,11 +314,7 @@ mod tests {
                     .find(|p| p.id == *id)
                     .unwrap()
                     .label;
-                assert_eq!(
-                    text.contains(label),
-                    expected.contains(id),
-                    "pixelized={pixelized} surface_cells={surface_cells} id={id}"
-                );
+                assert!(text.contains(label), "resolution={resolution} id={id}");
             }
             let voxel_label = &settings
                 .config

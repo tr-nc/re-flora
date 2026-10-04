@@ -168,45 +168,16 @@ impl GuiConfigLoader {
         config
     }
 
-    // Split the retired selector into independent shading/sampling switches.
-    // Existing new switches win; migration never writes the file on load.
+    // Retire appearance selectors; the combined appearance is now permanent.
+    // Preserve tuning values and never write the file on load.
     fn migrate_flower_stem_selector(config: &mut GuiConfigFile) {
-        let old_enabled = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .find(|p| p.id == "flower_stem_experiment")
-            .and_then(|p| {
-                if let GuiParamValue::Bool { value } = p.value {
-                    Some(value)
-                } else {
-                    None
-                }
-            });
-        let old_mode = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .find(|p| p.id == "flower_stem_sampling")
-            .and_then(|p| match p.value {
-                GuiParamValue::Choice { value, .. } => Some(value),
-                _ => None,
-            });
-        let has_pixelized = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .any(|p| p.id == "flower_stem_pixelized");
-        let has_surface_cells = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .any(|p| p.id == "flower_stem_surface_cells");
         for section in &mut config.section {
             section.param.retain(|p| {
                 !matches!(
                     p.id.as_str(),
-                    "flower_stem_experiment"
+                    "flower_stem_pixelized"
+                        | "flower_stem_surface_cells"
+                        | "flower_stem_experiment"
                         | "flower_stem_sampling"
                         | "flower_stem_object_sampling"
                         | "flower_stem_object_resolution"
@@ -251,17 +222,6 @@ impl GuiConfigLoader {
             {
                 param.label.clone_from(&schema.label);
                 param.enabled_if.clone_from(&schema.enabled_if);
-                if let GuiParamValue::Bool { value } = &mut param.value {
-                    if old_mode.is_some() || old_enabled.is_some() {
-                        let direction = old_enabled != Some(false) && old_mode == Some(1);
-                        if param.id == "flower_stem_pixelized" && !has_pixelized {
-                            *value = direction;
-                        } else if param.id == "flower_stem_surface_cells" && !has_surface_cells {
-                            // Removed original cubes become the continuous surface-cell default.
-                            *value = !direction;
-                        }
-                    }
-                }
             }
         }
     }
@@ -941,12 +901,15 @@ mod tests {
                         .iter_mut()
                         .find(|s| s.name == "Debug")
                         .unwrap();
-                    debug
+                    let mut retired = debug
                         .param
-                        .iter_mut()
-                        .find(|p| p.id == "flower_stem_pixelized")
+                        .iter()
+                        .find(|p| p.id == "flower_stem_test_branches")
                         .unwrap()
-                        .value = Value::Bool { value: pixelized };
+                        .clone();
+                    retired.id = "flower_stem_pixelized".into();
+                    retired.value = Value::Bool { value: pixelized };
+                    debug.param.push(retired);
                     let mut flag = debug.param[0].clone();
                     flag.id = "flower_stem_model_sampling".into();
                     flag.value = Value::Bool { value: model };
@@ -994,9 +957,7 @@ mod tests {
                         p.id.as_str(),
                         "flower_stem_model_sampling" | "flower_stem_direction_resolution"
                     )));
-                    assert!(
-                        matches!(params.iter().find(|p| p.id == "flower_stem_pixelized").unwrap().value, Value::Bool { value } if value == pixelized)
-                    );
+                    assert!(!params.iter().any(|p| p.id == "flower_stem_pixelized"));
                     let resolution = params
                         .iter()
                         .find(|p| p.id == "flower_stem_model_resolution")
@@ -1004,10 +965,7 @@ mod tests {
                     assert!(
                         matches!(resolution.value, Value::Uint { value, .. } if value == if has_resolution { 192 } else { default_resolution })
                     );
-                    assert_eq!(
-                        resolution.enabled_if.as_ref().unwrap().param,
-                        "flower_stem_pixelized"
-                    );
+                    assert!(resolution.enabled_if.is_none());
                     GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
                     assert_eq!(
                         toml::to_string(&loaded).unwrap(),
@@ -1020,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn independent_stem_effects_survive_legacy_metadata_and_round_trip() {
+    fn stem_effect_switches_retire_with_legacy_metadata_and_round_trip() {
         use crate::app::gui_config_model::GuiParamValue;
         for pixelized in [false, true] {
             for surface_cells in [false, true] {
@@ -1035,8 +993,15 @@ mod tests {
                     ("flower_stem_pixelized", pixelized),
                     ("flower_stem_surface_cells", surface_cells),
                 ] {
-                    debug.param.iter_mut().find(|p| p.id == id).unwrap().value =
-                        GuiParamValue::Bool { value };
+                    let mut retired = debug
+                        .param
+                        .iter()
+                        .find(|p| p.id == "flower_stem_test_branches")
+                        .unwrap()
+                        .clone();
+                    retired.id = id.into();
+                    retired.value = GuiParamValue::Bool { value };
+                    debug.param.push(retired);
                 }
                 let mut retired = debug.param[0].clone();
                 retired.id = "flower_stem_sampling".into();
@@ -1051,13 +1016,12 @@ mod tests {
                 ));
                 GuiConfigLoader::save_to_path(&config, &file).unwrap();
                 let loaded = GuiConfigLoader::load_from_path(&file);
-                for (id, expected) in [
-                    ("flower_stem_pixelized", pixelized),
-                    ("flower_stem_surface_cells", surface_cells),
-                ] {
-                    assert!(
-                        matches!(loaded.section.iter().flat_map(|s| &s.param).find(|p| p.id == id).unwrap().value, GuiParamValue::Bool { value } if value == expected)
-                    );
+                for id in ["flower_stem_pixelized", "flower_stem_surface_cells"] {
+                    assert!(!loaded
+                        .section
+                        .iter()
+                        .flat_map(|s| &s.param)
+                        .any(|p| p.id == id));
                 }
                 GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
                 assert_eq!(
@@ -1193,13 +1157,8 @@ mod tests {
                 ] {
                     assert!(!params.iter().any(|p| p.id == id));
                 }
-                for (id, expected) in [
-                    ("flower_stem_pixelized", enabled && mode == 1),
-                    ("flower_stem_surface_cells", !(enabled && mode == 1)),
-                ] {
-                    assert!(
-                        matches!(params.iter().find(|p| p.id == id).unwrap().value, Value::Bool { value } if value == expected)
-                    );
+                for id in ["flower_stem_pixelized", "flower_stem_surface_cells"] {
+                    assert!(!params.iter().any(|p| p.id == id));
                 }
                 assert!(
                     matches!(params.iter().find(|p| p.id == "flower_stem_radius_scale").unwrap().value, Value::Float { value, .. } if value == 1.27)

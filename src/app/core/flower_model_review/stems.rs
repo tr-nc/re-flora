@@ -1,22 +1,14 @@
-//! Native fixture for all four independent sampling/shading combinations.
-//! Uses the same saved fields as Debug without writing settings.
+//! Native fixture for the retained combined stem appearance and camera paths.
+//! Uses the same saved tuning as Debug without writing settings.
 use super::App;
 use crate::flora::models::StemExperiment;
 use anyhow::{ensure, Result};
 use glam::{Quat, Vec3};
 
-fn policy(mode: &str, phase: u32) -> StemExperiment {
-    let combination = match mode {
-        "stem-continuous" => 0,
-        "stem-surface" => 1,
-        "stem-model" | "stem-model-far" => 2,
-        "stem-combined" => 3,
-        "stems" => phase % 4,
-        _ => unreachable!("validated stem review mode"),
-    };
+fn policy(_mode: &str, _phase: u32) -> StemExperiment {
     StemExperiment {
-        pixelized: combination & 2 != 0,
-        surface_cells: combination & 1 != 0,
+        pixelized: true,
+        surface_cells: true,
         ..StemExperiment::default()
     }
 }
@@ -30,8 +22,6 @@ impl App {
     ) -> Result<()> {
         let p = policy(mode, phase);
         let s = &mut self.debug_settings.adjustables;
-        s.flower_stem_pixelized.value = p.pixelized;
-        s.flower_stem_surface_cells.value = p.surface_cells;
         s.flower_stem_model_resolution.value = p.model_resolution;
         s.flower_stem_radius_scale.value = p.radius_scale;
         s.flower_stem_test_branches.value = p.branches;
@@ -79,11 +69,11 @@ impl App {
 mod tests {
     use super::*;
     #[test]
-    fn review_covers_all_combinations_with_each_camera_path() {
+    fn review_keeps_combined_appearance_with_each_camera_path() {
         for phase in 0..16 {
             let p = policy("stems", phase);
-            assert_eq!(p.pixelized, phase % 4 >= 2);
-            assert_eq!(p.surface_cells, phase % 2 == 1);
+            assert!(p.pixelized);
+            assert!(p.surface_cells);
             assert_eq!(policy("stem-model", 0), policy("stem-model-far", 0));
         }
         assert_eq!(policy("stem-combined", 0), policy("stems", 3));
