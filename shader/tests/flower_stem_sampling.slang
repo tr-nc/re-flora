@@ -62,5 +62,21 @@ export __extern_cpp int main() {
         stemSurfaceCell(s,neighbour,0.1,point2,normal2);
         if(length(point-point2)<0.01)return 17;
     }
+    // Fixed world-height blocks shrink in count with growth/size, not in
+    // physical height. A two-unit stem has 20, 10 and 1 rings at these scales.
+    s.height=2;s.bend=0;s.motion=float3(0);
+    interior.branch=0u;interior.parameter=0.01;
+    for(uint i=0u;i<3u;i++) {
+        float scale=i==0u?1.0:(i==1u?0.5:0.01);
+        float cell=stemWorldCellSize(0.1,scale);
+        stemSurfaceCell(s,interior,cell,point,normal);
+        float expected=i<2u?0.05:0.01;
+        if(!close(point.y*scale,expected))return 18;
+        if(any(isnan(point))||any(isnan(normal)))return 19;
+    }
+    // The original mode still uses model-space layers regardless of scale.
+    stemSurfaceCell(s,interior,0.1,point,normal);
+    if(!close(point.y*0.5,0.025))return 20;
+    if(!close(stemWorldCellSize(0.1,0.0),1000000.0))return 21;
     return 0;
 }

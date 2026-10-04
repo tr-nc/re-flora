@@ -151,6 +151,12 @@ public StemHit traceStem(StemGeometry s,float3 ro,float3 rd) {
     return hit;
 }
 
+// Convert a fixed world-space block height to the local coordinates used by
+// the stem. Includes species size, growth and spawn scale, unlike model layers.
+public float stemWorldCellSize(float worldHeight,float scale) {
+    return worldHeight/max(scale,1e-7);
+}
+
 // Quantize material/shading coordinates, NOT visibility/depth. Each axial
 // segment shares one center and tangent normal across its entire circumference,
 // so both its gradient color and lighting stay uniform, including under wind.

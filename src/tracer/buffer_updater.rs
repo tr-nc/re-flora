@@ -312,7 +312,12 @@ impl BufferUpdater {
                 stems.model_resolution,
                 stems.branches as u32,
             ],
-            flower_stem_shape: [stems.radius_scale, 0., 0., 0.],
+            flower_stem_shape: [
+                stems.radius_scale,
+                stems.fixed_cell_height as u32 as f32,
+                stems.cell_height_voxels / 256.,
+                0.,
+            ],
             grass_bottom_dark: appearance.grass_bottom_dark.to_array(),
             grass_bottom_light: appearance.grass_bottom_light.to_array(),
             grass_tip_dark: appearance.grass_tip_dark.to_array(),

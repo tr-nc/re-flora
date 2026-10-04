@@ -32,6 +32,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "flower_stem_fixed_cell_height",
+        kind: "bool",
+        label: "Flower stems: fixed world-height shading blocks (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "flower_stem_cell_height_voxels",
+        kind: "float",
+        label: "Flower stems: shading block height (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flower_stem_radius_scale",
         kind: "float",
         label: "Flower stems: radius scale",
@@ -1385,6 +1397,8 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 #[allow(dead_code)]
 pub struct GuiAdjustables {
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
+    pub flower_stem_fixed_cell_height: crate::gui_adjustables::BoolParam,
+    pub flower_stem_cell_height_voxels: crate::gui_adjustables::FloatParam,
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
@@ -1624,6 +1638,8 @@ impl GuiAdjustables {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut flower_stem_fixed_cell_height_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut flower_stem_cell_height_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -1858,6 +1874,18 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             flower_stem_model_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "flower_stem_fixed_cell_height" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            flower_stem_fixed_cell_height_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "flower_stem_cell_height_voxels" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            flower_stem_cell_height_voxels_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "flower_stem_radius_scale" => {
@@ -3378,6 +3406,8 @@ impl GuiAdjustables {
 
         GuiAdjustables {
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
+            flower_stem_fixed_cell_height: flower_stem_fixed_cell_height_field.expect("Missing parameter: flower_stem_fixed_cell_height"),
+            flower_stem_cell_height_voxels: flower_stem_cell_height_voxels_field.expect("Missing parameter: flower_stem_cell_height_voxels"),
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
@@ -3610,6 +3640,7 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "flower_stem_cell_height_voxels" => Some(&adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&adjustables.flower_stem_radius_scale),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
@@ -3838,6 +3869,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "flower_stem_fixed_cell_height" => Some(&adjustables.flower_stem_fixed_cell_height),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
@@ -3883,6 +3915,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "flower_stem_cell_height_voxels" => Some(&mut adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&mut adjustables.flower_stem_radius_scale),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
@@ -4111,6 +4144,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "flower_stem_fixed_cell_height" => Some(&mut adjustables.flower_stem_fixed_cell_height),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
