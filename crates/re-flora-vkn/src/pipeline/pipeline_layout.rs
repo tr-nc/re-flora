@@ -143,15 +143,7 @@ impl PipelineLayout {
             } else {
                 // compare the ranges
                 let other_range = other.0.push_constant_ranges.get(offset).unwrap();
-                if range.size != other_range.size {
-                    return Err(anyhow::anyhow!(
-                        "Push constant ranges at offset {} do not match: {} != {}",
-                        offset,
-                        range.size,
-                        other_range.size
-                    ));
-                }
-                merged_push_constant_ranges.insert(*offset, *range);
+                merged_push_constant_ranges.insert(*offset, merge_push_range(*range, *other_range)?);
             }
         }
 
@@ -166,5 +158,26 @@ impl PipelineLayout {
             &merged_descriptor_set_layouts,
             &merged_push_constant_ranges,
         ))
+    }
+}
+
+fn merge_push_range(a: vk::PushConstantRange, b: vk::PushConstantRange) -> anyhow::Result<vk::PushConstantRange> {
+    if a.offset != b.offset || a.size != b.size {
+        return Err(anyhow::anyhow!("Push constant ranges do not match: {:?} != {:?}", a, b));
+    }
+    Ok(vk::PushConstantRange { stage_flags: a.stage_flags | b.stage_flags, ..a })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shared_push_constants_retain_both_shader_stages() {
+        let vertex = vk::PushConstantRange { stage_flags: vk::ShaderStageFlags::VERTEX, offset: 0, size: 32 };
+        let fragment = vk::PushConstantRange { stage_flags: vk::ShaderStageFlags::FRAGMENT, ..vertex };
+        let merged = merge_push_range(vertex, fragment).unwrap();
+        assert_eq!(merged.stage_flags, vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT);
+        assert_eq!(merged.size, 32);
+        assert!(merge_push_range(vertex, vk::PushConstantRange { size: 64, ..fragment }).is_err());
     }
 }
