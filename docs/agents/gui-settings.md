@@ -1,5 +1,28 @@
 # Debug 设置：新增控件默认可保存
 
+## GUI 文字职责与统一样式
+
+设置 UI 的说明文字统一通过 `src/app/ui_text.rs` 绘制。调用方只传普通字符串，
+不传 `RichText`、字号、颜色或字体；样式随全局主题变化，但同一职责只有一个绘制入口：
+
+- `hint`：说明、使用提示、未保存原因；统一 Body 字号和弱化文字颜色。
+- `label`：参数/输入框标签；Body 字号和正常文字颜色。声明式 slider/checkbox 等仍用原生控件标签。
+- `section`：分组标题、搜索结果路径；统一 Body 加粗。
+- `status`：实时数值、操作结果；Body 字号和正常文字颜色。
+- `warning`：警告、阻塞或错误提示；Body 字号和主题警告颜色。
+- `title`：面板标题；Heading 字号和主题强调颜色。
+
+自定义保存控件用 `SavedControls::hint` / `section`，保留原来的搜索隐藏行为；
+不要恢复 `small(RichText)` 或让调用方覆盖样式。临时工具的普通 `egui::Ui` 也必须使用
+`crate::app::ui_text`，不保存原因和普通 hint 使用同一入口。工具提示继续使用原生
+`on_hover_text` 的纯文本路径，不另造局部富文本。
+
+自动测试验证各职责的字号/颜色、主题字号变化、样式不泄漏；源码守卫检查 `src/app`
+中直接使用 `ui.small` / `ui.weak` 的回归，并在设置模块、相关工具和 Debug Panel 绘制区
+禁止裸 `label` / `heading` / `colored_label` / `RichText`。这是针对现有设置 UI 的源码
+回归守卫，不是完整 Rust AST 静态分析；HUD、图示和自定义控件本身仍可有独立绘制样式，
+不得用它们绕过设置说明文字的语义入口。新增设置模块位于 `gui_config/` 时自动纳入检查。
+
 ## 接入规则
 
 普通 float/int/uint/bool/choice/string/color 设置优先声明在 `config/gui.toml` 的 section/param 中。

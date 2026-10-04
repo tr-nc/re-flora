@@ -11,6 +11,7 @@ mod gui_config_model;
 mod physical_visible_terrain;
 mod terrain_edit_bounds;
 mod tree_gui;
+pub(crate) mod ui_text;
 mod world_edits;
 mod world_ops;
 

@@ -69,8 +69,9 @@ impl ClimbingPlants {
     }
 
     pub(super) fn draw_actions(&mut self, ui: &mut egui::Ui) {
+        use crate::app::ui_text;
         let mut actions = Vec::new();
-        ui.small("3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
+        ui_text::hint(ui, "3 / Dig: remove the backing wall with LMB. The first unsupported step cuts off its whole branch above it, even if still attached higher up. Shift + wheel: brush size.");
         ui.horizontal(|ui| {
             if self.site.is_none() {
                 if ui.button("Create vine wall and focus").clicked() {
@@ -89,42 +90,62 @@ impl ClimbingPlants {
                 self.focus_requested = true;
             }
         });
-        ui.small("Climbing vines are demo-only, not in the Grow plant list. Create vine wall and focus starts a session vine; test terrain restarts it. Search controls change live.");
+        ui_text::hint(ui, "Climbing vines are demo-only, not in the Grow plant list. Create vine wall and focus starts a session vine; test terrain restarts it. Search controls change live.");
         if let Some(site) = self.site {
             let (min, max) = site.bounds();
-            ui.small(format!(
-                "Patch voxels: {:?}..{:?}",
-                min.to_array(),
-                max.to_array()
-            ));
+            ui_text::status(
+                ui,
+                format!("Patch voxels: {:?}..{:?}", min.to_array(), max.to_array()),
+            );
         }
         if self.waiting_for_terrain {
-            ui.label("Waiting for current terrain collision data; simulation is held safely.");
+            ui_text::status(
+                ui,
+                "Waiting for current terrain collision data; simulation is held safely.",
+            );
         }
         if let Some(vine) = &self.vine {
             let plant = vine.plant();
             let attached = plant.anchors.iter().filter(|a| a.attached).count();
             let flexible = plant.nodes.iter().filter(|node| !node.fixed).count();
-            ui.small(format!(
+            ui_text::status(
+                ui,
+                format!(
                 "{} recent nodes (lighter green); continuous bending through compliant attachments",
                 flexible
-            ));
-            ui.label(format!(
-                "{} stem nodes · {} tips · {} attachments · live length {:.0}/{:.0} voxels",
-                plant.nodes.len(),
-                plant.tips.len(),
-                attached,
-                plant.live_arc(),
-                plant.max_live_arc()
-            ));
+            ),
+            );
+            ui_text::status(
+                ui,
+                format!(
+                    "{} stem nodes · {} tips · {} attachments · live length {:.0}/{:.0} voxels",
+                    plant.nodes.len(),
+                    plant.tips.len(),
+                    attached,
+                    plant.live_arc(),
+                    plant.max_live_arc()
+                ),
+            );
             if !plant.root_connected() {
-                ui.label("Root disconnected: regrowth stopped. Reset to restore the root.");
+                ui_text::warning(
+                    ui,
+                    "Root disconnected: regrowth stopped. Reset to restore the root.",
+                );
             } else if plant.nodes.len() >= 512 || plant.live_arc() + 2.0 > plant.max_live_arc() {
-                ui.label("Live stem limit reached. Pruning frees room to grow again.");
+                ui_text::warning(
+                    ui,
+                    "Live stem limit reached. Pruning frees room to grow again.",
+                );
             } else if vine.growth_blocked() {
-                ui.label("Searching for reachable support; large unsupported gaps stop extension.");
+                ui_text::status(
+                    ui,
+                    "Searching for reachable support; large unsupported gaps stop extension.",
+                );
             } else {
-                ui.label("Root connected. A cut leaves a new exploratory tip on the lower stem.");
+                ui_text::status(
+                    ui,
+                    "Root connected. A cut leaves a new exploratory tip on the lower stem.",
+                );
             }
             ui.add_enabled_ui(!self.waiting_for_terrain, |ui| {
                 ui.horizontal(|ui| {
@@ -141,7 +162,7 @@ impl ClimbingPlants {
                     actions.push(Action::DisconnectRoot);
                 }
                 ui.collapsing("Blocked-tip test", |ui| {
-                    ui.small("Inserts real limestone through a tip. Blocked stem is pruned; the surviving shoot searches for a safe route.");
+                    ui_text::hint(ui, "Inserts real limestone through a tip. Blocked stem is pruned; the surviving shoot searches for a safe route.");
                     if ui.button("Refill terrain through tip").clicked() {
                         self.refill_tip_requested = true;
                     }
@@ -154,7 +175,7 @@ impl ClimbingPlants {
             }
         }
         if !self.last_action.is_empty() {
-            ui.label(self.last_action);
+            ui_text::status(ui, self.last_action);
         }
     }
 

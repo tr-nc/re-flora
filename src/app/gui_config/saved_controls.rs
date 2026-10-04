@@ -2,6 +2,7 @@
 //! arbitrary mutable values. Non-capturing function pointers cannot bind App state.
 use super::search::SearchFilter;
 use crate::app::gui_config_model::SavedCustomSettings;
+use crate::app::ui_text;
 
 pub struct SavedControls<'a> {
     ui: &'a mut egui::Ui,
@@ -50,7 +51,7 @@ impl<'a> SavedControls<'a> {
             return false;
         }
         if self.filter.is_active() && self.matches == 0 {
-            self.ui.weak(&self.path);
+            ui_text::section(self.ui, &self.path);
         }
         self.matches += 1;
         true
@@ -115,14 +116,14 @@ impl<'a> SavedControls<'a> {
     pub fn read<T: Copy>(&self, field: fn(&SavedCustomSettings) -> &T) -> T {
         *field(self.settings)
     }
-    pub fn small(&mut self, text: impl Into<egui::RichText>) {
+    pub fn hint(&mut self, text: impl Into<String>) {
         if !self.filter.is_active() {
-            self.ui.small(text);
+            ui_text::hint(self.ui, text);
         }
     }
-    pub fn label(&mut self, text: &str) {
+    pub fn section(&mut self, text: &str) {
         if !self.filter.is_active() {
-            self.ui.label(text);
+            ui_text::section(self.ui, text);
         }
     }
 }
@@ -165,10 +166,10 @@ impl<'a> TemporaryControls<'a> {
             return;
         }
         if self.filter.is_active() {
-            self.ui.weak(&self.path);
+            ui_text::section(self.ui, &self.path);
         }
         self.matches += 1;
-        self.ui.small(format!("Not saved — {reason}"));
+        ui_text::hint(self.ui, format!("Not saved — {reason}"));
         draw(self.ui);
     }
 }

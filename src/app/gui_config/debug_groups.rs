@@ -1,6 +1,7 @@
 //! Presentation only: parameter values, ranges, conditions and saving stay config-owned.
 use super::{render_gui_param_from_config, GuiAdjustables};
 use crate::app::gui_config_model::GuiSection;
+use crate::app::ui_text;
 
 struct ControlGroup {
     parent: Option<&'static str>,
@@ -146,11 +147,7 @@ pub(super) fn render_category(
         || (category == "Other Settings" && section.param.iter().any(|p| !is_grouped(&p.id)));
     if has_groups {
         ui.separator();
-        ui.label(
-            egui::RichText::new(category)
-                .strong()
-                .color(ui.visuals().text_color()),
-        );
+        ui_text::section(ui, category);
         render_filtered(ui, section, config, adjustables, None, Some(category));
     }
     has_groups
@@ -169,7 +166,7 @@ fn render_filtered(
             && category.is_none_or(|c| super::navigation::category(group.title) == c)
     }) {
         if parent == Some("Wind") {
-            ui.label(group.title);
+            ui_text::section(ui, group.title);
             for id in group.params {
                 if let Some(param) = section.param.iter().find(|p| p.id == *id) {
                     render_gui_param_from_config(ui, param, &section.name, adjustables);
@@ -200,7 +197,7 @@ fn render_filtered(
                         ),
                         ("Pixelization", &["flower_stem_model_resolution"][..]),
                     ] {
-                        ui.label(title);
+                        ui_text::section(ui, title);
                         for id in ids {
                             for owner in config {
                                 if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
@@ -216,14 +213,14 @@ fn render_filtered(
                     }
                     return;
                 }
-                ui.weak(group.description);
+                ui_text::hint(ui, group.description);
                 ui.add_space(4.0);
                 if group.title == "Pixel Models — Global" {
                     for (title, controls) in [
                         ("Direction Views", &PIXEL_MODEL_CONTROLS[..2]),
                         ("Pixels per Model", &PIXEL_MODEL_CONTROLS[2..6]),
                     ] {
-                        ui.label(title);
+                        ui_text::section(ui, title);
                         for &(section_name, id) in controls {
                             if let Some(owner) = config.iter().find(|s| s.name == section_name) {
                                 if let Some(param) = owner.param.iter().find(|p| p.id == id) {

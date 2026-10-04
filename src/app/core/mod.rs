@@ -1,3 +1,4 @@
+use crate::app::ui_text;
 #[allow(unused)]
 use crate::util::Timer;
 
@@ -2751,11 +2752,7 @@ impl App {
                                 .default_size(panel_size)
                                 .show(ctx, |ui| {
                                     ui.horizontal(|ui| {
-                                        ui.heading(
-                                            RichText::new("Debug Panel")
-                                                .size(18.0)
-                                                .color(GOLD_ACCENT),
-                                        );
+                                        ui_text::title(ui, "Debug Panel");
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
@@ -2779,20 +2776,20 @@ impl App {
                                         );
                                     });
                                     if let Some(status) = self.debug_settings.save_status() {
-                                        ui.small(status);
+                                        ui_text::status(ui, status);
                                     }
 
                                     let (debug_search, search_changed) = self.debug_settings.search_toolbar(ui);
                                     let mut extra_search_matches = 0usize;
                                     extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
-                                    ui.label("Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
+                                    ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
                                     terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
                                     if ui.button("Plant all flowers & grasses around me").clicked() {
                                         plant_flora_showcase_requested = true;
                                     }
-                                    ui.small("Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
+                                    ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
                                     if let Some(status) = &self.flora_showcase_status {
-                                        ui.small(status);
+                                        ui_text::status(ui, status);
                                     }
                                     }).is_some());
 
@@ -2814,7 +2811,7 @@ impl App {
 
 extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Cheap terrain lighting", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested", "Revisions Allocated memory"], |ui| {
 
-                                            ui.small("Not saved — Environment Probe experiments");
+                                            ui_text::hint(ui, "Not saved — Environment Probe experiments");
                                             let mut terrain_moments = self.tracer.ddgi_terrain_moments();
                                             if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
                                                 .on_hover_text("On: faster distance statistics (default). Off: exact voxel visibility. Changes immediately; this selection is not saved.")
@@ -2992,14 +2989,14 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                                             camera_snapshot_to_apply = camera_search_result.flatten();
 
                                             extra_search_matches += usize::from(debug_search.section(ui, "Flora Growth", &["Updating chunks", "Status"], |ui| {
-                                            ui.label(format!(
+                                            ui_text::status(ui, format!(
                                                 "Updating chunks: {}",
                                                 growing_flora_chunk_count
                                             ));
                                             }).is_some());
 
                                             if debug_search.is_active() && !self.debug_settings.search_has_results() && extra_search_matches == 0 {
-                                                ui.weak("No matching controls. Try fewer words or Clear.");
+                                                ui_text::hint(ui, "No matching controls. Try fewer words or Clear.");
                                             }
                                         });
                                 });

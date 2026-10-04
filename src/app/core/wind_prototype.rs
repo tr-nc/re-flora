@@ -88,11 +88,18 @@ impl WindPrototype {
     }
 
     pub fn controls(&mut self, ui: &mut egui::Ui) {
+        use crate::app::ui_text;
         ui.collapsing("Background Wind", |ui| {
-            ui.label("Temporary controls — never saved to GUI config");
-            ui.small("Continuous natural breeze with occasional strengthening");
+            ui_text::hint(ui, "Temporary controls — never saved to GUI config");
+            ui_text::hint(
+                ui,
+                "Continuous natural breeze with occasional strengthening",
+            );
             ui.checkbox(&mut self.field.background_enabled, "Background inflow");
-            ui.small("Boundary inflow and the Wind item share one transported field.");
+            ui_text::hint(
+                ui,
+                "Boundary inflow and the Wind item share one transported field.",
+            );
             ui.add_enabled_ui(self.field.background_enabled, |ui| {
                 let settings = &mut self.field.natural_inflow;
                 ui.add(egui::Slider::new(&mut settings.strength, 0. ..=3.).text("Breeze strength"));
@@ -107,42 +114,60 @@ impl WindPrototype {
                     egui::Slider::new(&mut settings.strengthening_range_voxels, 48. ..=216.)
                         .text("Strengthening area size (voxels)"),
                 );
-                ui.small("Area size affects strengthening; small breeze variations stay local.");
+                ui_text::hint(
+                    ui,
+                    "Area size affects strengthening; small breeze variations stay local.",
+                );
             });
             ui.add(
                 egui::Slider::new(&mut self.field.propagation_speed, 0. ..=150.)
                     .text("Transport speed"),
             );
-            ui.label(format!(
-                "Wind time {:.1}s | Active gusts {}/{}",
-                self.field.time(),
-                self.field.gusts.len(),
-                MAX_GUSTS
-            ));
-            ui.small("Select Wind in the bottom toolbar (9) to release local wind.");
-            ui.small("Plants, leaf rustle and fallen leaves sample the same wind field.");
+            ui_text::status(
+                ui,
+                format!(
+                    "Wind time {:.1}s | Active gusts {}/{}",
+                    self.field.time(),
+                    self.field.gusts.len(),
+                    MAX_GUSTS
+                ),
+            );
+            ui_text::hint(
+                ui,
+                "Select Wind in the bottom toolbar (9) to release local wind.",
+            );
+            ui_text::hint(
+                ui,
+                "Plants, leaf rustle and fallen leaves sample the same wind field.",
+            );
         });
         ui.collapsing("Wind Item", |ui| {
-            ui.label("Manual local wind — no automatic gusts");
+            ui_text::section(ui, "Manual local wind — no automatic gusts");
             draw_gust_controls(ui, &mut self.field.manual_gust);
             ui.add(
                 egui::Slider::new(&mut self.speed_multiplier, 0.1..=4.).text("Speed multiplier"),
             );
-            ui.small("Drag distance x multiplier = travel speed. Arrow = 1 second.");
+            ui_text::hint(
+                ui,
+                "Drag distance x multiplier = travel speed. Arrow = 1 second.",
+            );
             if let Some(drag) = &self.drag {
                 let preview = drag.preview(
                     self.field.manual_gust,
                     self.speed_multiplier,
                     self.field.time(),
                 );
-                ui.label(format!(
-                    "Travel speed: {:.0} voxels/s",
-                    preview.settings.speed
-                ));
+                ui_text::status(
+                    ui,
+                    format!("Travel speed: {:.0} voxels/s", preview.settings.speed),
+                );
             }
-            ui.label(&self.status);
-            ui.small("Left drag and release: wind. Right drag: camera.");
-            ui.small("Esc cancels aiming. Choose another item to stop aiming.");
+            ui_text::status(ui, &self.status);
+            ui_text::hint(ui, "Left drag and release: wind. Right drag: camera.");
+            ui_text::hint(
+                ui,
+                "Esc cancels aiming. Choose another item to stop aiming.",
+            );
         });
     }
 

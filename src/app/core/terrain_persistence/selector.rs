@@ -1,5 +1,6 @@
 //! Cached directory listing and the terrain save/load controls. No world or GPU access.
 use super::*;
+use crate::app::ui_text;
 use std::path::PathBuf;
 
 #[derive(Default)]
@@ -90,10 +91,13 @@ impl TerrainPersistenceRuntime {
             self.refresh_snapshots();
         }
         ui.horizontal(|ui| {
-            ui.label("Save path");
+            ui_text::label(ui, "Save path");
             ui.text_edit_singleline(&mut self.snapshot_path);
         });
-        ui.small("Choose a saved terrain, or enter a new .rflterrain path to save another.");
+        ui_text::hint(
+            ui,
+            "Choose a saved terrain, or enter a new .rflterrain path to save another.",
+        );
         let ready = self.can_start_operation();
         let selected = self.selector.paths.contains(&self.snapshot_path);
         let action = snapshot_controls::actions(
@@ -102,9 +106,9 @@ impl TerrainPersistenceRuntime {
             ready && !self.snapshot_path.trim().is_empty(),
             ready && selected,
         );
-        ui.label(self.status_label());
+        ui_text::status(ui, self.status_label());
         if let Some(error) = &self.selector.error {
-            ui.colored_label(egui::Color32::LIGHT_RED, error);
+            ui_text::warning(ui, error);
         }
         action
     }

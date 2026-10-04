@@ -3,7 +3,7 @@ use super::saved_controls::SavedControls;
 use crate::particles::ButterflyFlightTuning;
 
 pub(crate) fn draw_butterfly_flight_controls(ui: &mut SavedControls<'_>) {
-    ui.label("Flight");
+    ui.section("Flight");
     let coupling = ui.toggle(
         |s| &mut s.butterfly_flight.tuning.wingbeat_coupling,
         true, false,
@@ -19,8 +19,8 @@ pub(crate) fn draw_butterfly_flight_controls(ui: &mut SavedControls<'_>) {
 }
 
 pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui::Response; 5] {
-    ui.small("Saved with Debug Panel Save. Physics stays at 120 Hz; World Tick is unchanged.");
-    ui.small("Butterfly Update FPS controls position, heading and wings together.");
+    ui.hint("Saved with Debug Panel Save. Physics stays at 120 Hz; World Tick is unchanged.");
+    ui.hint("Butterfly Update FPS controls position, heading and wings together.");
     let height = ui.slider(|s| &mut s.butterfly_flight.tuning.height_above_ground, ButterflyFlightTuning::HEIGHT_RANGE, "Flight height above ground", 0.005, false)
         .on_hover_text(
             "World units above the terrain below each butterfly. 0.08 matches the walking player's default eye height. Changes attract flight gradually, never teleport it. Tree-born butterflies descend naturally. Horizontal tempo is kept at its saved value.",

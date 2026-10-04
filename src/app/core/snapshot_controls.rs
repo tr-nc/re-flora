@@ -25,7 +25,7 @@ pub(super) fn selector(
             }
         });
     ui.horizontal(|ui| {
-        ui.label(format!("Saved {noun}"));
+        crate::app::ui_text::label(ui, format!("Saved {noun}"));
         egui::ComboBox::from_id_salt(id)
             .selected_text(label)
             .show_ui(ui, |ui| {

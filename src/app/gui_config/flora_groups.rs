@@ -5,6 +5,7 @@ use super::{
     enforce_leaf_curve_order, render_gui_param_from_config, GuiAdjustables,
 };
 use crate::app::gui_config_model::GuiSection;
+use crate::app::ui_text;
 
 const DISTRIBUTION: &[&str] = &[
     "special_flora_plants_per_release",
@@ -197,7 +198,8 @@ pub(super) fn render(
         category(ui, "Model Flowers", |ui| {
             controls(ui, flora, MODEL_FLOWERS, adjustables);
             if config.iter().any(|section| section.name == "Debug") {
-                ui.small(
+                ui_text::hint(
+                    ui,
                     "Flower head pixel resolution and view count are under Pixel Models — Global.",
                 );
             } else {
@@ -270,13 +272,13 @@ pub(super) fn render_wind(
                             Kind::GrassFrequency,
                         ),
                     ] {
-                        ui.label(title);
+                        ui_text::section(ui, title);
                         controls(ui, grass, &[scale], adjustables);
                         draw(ui, adjustables, kind);
                     }
                 }
                 if !adjustables.flora_inertial_response.value {
-                    ui.label("Direct grass vibration (inertia off)");
+                    ui_text::section(ui, "Direct grass vibration (inertia off)");
                     controls(ui, flora, &GROUND_MOTION[3..], adjustables);
                 }
             });
@@ -286,17 +288,17 @@ pub(super) fn render_wind(
             .show(ui, |ui| {
                 if let Some(leaves) = config.iter().find(|s| s.name == "Leaves") {
                     controls(ui, leaves, LEAF_RESPONSE, adjustables);
-                    ui.label("Leaf Amplitude Response");
+                    ui_text::section(ui, "Leaf Amplitude Response");
                     controls(ui, leaves, LEAF_AMPLITUDE, adjustables);
                     draw(ui, adjustables, Kind::Amplitude);
-                    ui.label("Leaf Frequency Response");
+                    ui_text::section(ui, "Leaf Frequency Response");
                     controls(ui, leaves, LEAF_FREQUENCY, adjustables);
                     draw(ui, adjustables, Kind::Frequency);
                 }
                 // These controls are still used when the common inertial solver is off.
                 // Show their actual purpose, only when applicable, without another menu.
                 if !adjustables.flora_inertial_response.value {
-                    ui.label("Direct leaf motion (inertia off)");
+                    ui_text::section(ui, "Direct leaf motion (inertia off)");
                     controls(ui, flora, LEAF_MOTION, adjustables);
                     controls(ui, flora, LEAF_CURVES, adjustables);
                     enforce_leaf_curve_order(adjustables);

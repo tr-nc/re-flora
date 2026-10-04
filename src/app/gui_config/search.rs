@@ -55,7 +55,7 @@ impl SearchFilter {
         }
         Some(
             ui.push_id(("debug_search_group", title), |ui| {
-                ui.weak(title);
+                crate::app::ui_text::section(ui, title);
                 body(ui)
             })
             .inner,
@@ -72,7 +72,7 @@ impl SearchState {
     pub(super) fn toolbar(&mut self, ui: &mut egui::Ui) -> (SearchFilter, bool) {
         let previous = self.query.clone();
         ui.horizontal(|ui| {
-            ui.label("Search");
+            crate::app::ui_text::label(ui, "Search");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let id = ui.make_persistent_id("debug_panel_search");
                 let was_focused = ui.memory(|memory| memory.has_focus(id) || memory.had_focus_last_frame(id));

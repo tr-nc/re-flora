@@ -10,6 +10,7 @@ use crate::app::gui_config_model::{
     GuiConfigFile, GuiParam, GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind, GuiParamValue,
 };
 use crate::app::tree_gui::edit_tree_desc;
+use crate::app::ui_text;
 use egui::Color32;
 use std::path::Path;
 mod audio_mix;
@@ -594,7 +595,7 @@ fn render_gui_param_control(
                 )
             });
             ui.horizontal(|ui| {
-                ui.label(&param.label);
+                ui_text::label(ui, &param.label);
                 ui.text_edit_singleline(&mut field.value);
             });
         }
@@ -615,7 +616,7 @@ fn render_gui_param_control(
                 )
             });
             ui.horizontal(|ui| {
-                ui.label(&param.label);
+                ui_text::label(ui, &param.label);
                 ui.color_edit_button_srgba(&mut field.value);
             });
         }
@@ -709,10 +710,10 @@ fn render_search_results(
     }
     let count: usize = groups.values().map(Vec::len).sum();
     if count > 0 {
-        ui.weak(format!(
-            "{count} parameter matches in {} groups",
-            groups.len()
-        ));
+        ui_text::status(
+            ui,
+            format!("{count} parameter matches in {} groups", groups.len()),
+        );
     }
     for category in navigation::CATEGORIES {
         for (path, params) in &groups {
@@ -720,11 +721,7 @@ fn render_search_results(
                 continue;
             }
             ui.separator();
-            ui.label(
-                egui::RichText::new(format!("{category} / {path}"))
-                    .strong()
-                    .color(ui.visuals().text_color()),
-            );
+            ui_text::section(ui, format!("{category} / {path}"));
             for &(section, param) in params {
                 matches += 1;
                 let before = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
@@ -792,11 +789,7 @@ fn render_gui_from_config(
             }
             if !heading_shown {
                 ui.separator();
-                ui.label(
-                    egui::RichText::new(*category)
-                        .strong()
-                        .color(ui.visuals().text_color()),
-                );
+                ui_text::section(ui, *category);
                 heading_shown = true;
             }
             ui.collapsing(section_title(&section.name), |ui| {
@@ -828,7 +821,7 @@ fn render_gui_from_config(
                 return;
             }
             if section.name == "Falling Leaves" {
-                ui.small("B transfers actual tree voxels, preserving their size. Strong wind may strip the entire canopy. Switching A/B clears falling leaves and resets sockets; canopy progress is session-only. Mesh/size controls below apply only to decorative leaves.");
+                ui_text::hint(ui, "Leaves detach from the canopy and regrow. Strong wind may strip the entire canopy; canopy progress is session-only. Model appearance, size and pixel resolution change only the falling leaves' display, not their physics.");
             }
             render_section_controls(ui, section, adjustables, has_debug);
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
@@ -857,22 +850,22 @@ fn render_section_controls(
     pixel_models_at_root: bool,
 ) {
     if section.name == "Wind" {
-        ui.label("Tree sound response");
+        ui_text::section(ui, "Tree sound response");
         for param in &section.param {
             render_gui_param_from_config(ui, param, &section.name, adjustables);
         }
         return;
     }
     if section.name == "Sky" {
-        ui.label("Scene lighting");
+        ui_text::section(ui, "Scene lighting");
         for id in ["sun_luminance", "sky_light_strength"] {
             if let Some(param) = section.param.iter().find(|param| param.id == id) {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
         }
-        ui.small("Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
-        ui.label("Sky appearance & time");
-        ui.small("The sky gradient and its mirror image keep their appearance. Sun disk brightness does not set surface lighting.");
+        ui_text::hint(ui, "Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
+        ui_text::section(ui, "Sky appearance & time");
+        ui_text::hint(ui, "The sky gradient and its mirror image keep their appearance. Sun disk brightness does not set surface lighting.");
         for param in &section.param {
             if !matches!(param.id.as_str(), "sun_luminance" | "sky_light_strength") {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);

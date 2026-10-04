@@ -2,6 +2,7 @@ use super::App;
 use crate::app::camera_snapshots::{
     is_player_default_snapshot_name, CameraSnapshot, CameraSnapshotLibrary,
 };
+use crate::app::ui_text;
 use crate::gameplay::CameraPose;
 use anyhow::{anyhow, Result};
 
@@ -68,14 +69,17 @@ pub(super) fn draw_camera_snapshots_ui(
     is_fly_mode: bool,
 ) -> Option<CameraSnapshot> {
     use super::snapshot_controls::{self, SnapshotAction};
-    ui.small(format!("File: {}", camera_snapshots.path().display()));
+    ui_text::hint(ui, format!("File: {}", camera_snapshots.path().display()));
     let entries: Vec<_> = camera_snapshots
         .snapshots()
         .iter()
         .map(|s| (s.name.clone(), s.name.clone()))
         .collect();
     if camera_snapshots.is_empty() {
-        ui.small("No saved cameras; the authored startup view is retained independently.");
+        ui_text::hint(
+            ui,
+            "No saved cameras; the authored startup view is retained independently.",
+        );
     }
     let before = draft_name.clone();
     if snapshot_controls::selector(
@@ -99,14 +103,14 @@ pub(super) fn draw_camera_snapshots_ui(
         }
     }
     ui.horizontal(|ui| {
-        ui.label("Save name");
+        ui_text::label(ui, "Save name");
         ui.text_edit_singleline(draft_name);
     });
     ui.horizontal(|ui| {
-        ui.label("Description");
+        ui_text::label(ui, "Description");
         ui.text_edit_singleline(draft_description);
     });
-    ui.small("Choose a saved camera to load, update or delete; enter a new name to save another. Delete keeps the current view.");
+    ui_text::hint(ui, "Choose a saved camera to load, update or delete; enter a new name to save another. Delete keeps the current view.");
     let selected = camera_snapshots.find(draft_name).is_some();
     let action = snapshot_controls::actions(ui, "camera", !draft_name.trim().is_empty(), selected);
     let mut applied = None;
@@ -151,7 +155,7 @@ pub(super) fn draw_camera_snapshots_ui(
         None => {}
     }
     if let Some(status) = status.as_ref() {
-        ui.label(status);
+        ui_text::status(ui, status);
     }
     ui.collapsing("Current camera pose", |ui| {
         ui.monospace(format!(

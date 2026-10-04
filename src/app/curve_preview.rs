@@ -46,7 +46,7 @@ pub(super) fn draw_curve_preview(
     markers: &[CurvePreviewMarker<'_>],
     evaluate: impl Fn(f32) -> f32,
 ) -> egui::Response {
-    ui.label(label);
+    crate::app::ui_text::label(ui, label);
     let desired_size = Vec2::new(ui.available_width().max(160.0), PREVIEW_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(desired_size, Sense::hover());
     let painter = ui.painter_at(rect);

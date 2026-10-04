@@ -1,8 +1,8 @@
 use super::saved_controls::SavedControls;
 
 pub(super) fn draw(ui: &mut SavedControls<'_>) {
-    ui.label("Live mixer");
-    ui.small("Logarithmic loudness adjustment: equal travel changes gain by equal dB. Use the switch to mute; Save keeps the mix.");
+    ui.section("Live mixer");
+    ui.hint("Logarithmic loudness adjustment: equal travel changes gain by equal dB. Use the switch to mute; Save keeps the mix.");
     macro_rules! channel {
         ($field:ident, $label:literal) => {
             ui.toggle(
@@ -27,5 +27,5 @@ pub(super) fn draw(ui: &mut SavedControls<'_>) {
     channel!(footsteps, "Footsteps / jump / landing");
     channel!(terrain, "Digging / terrain editing");
     channel!(interface, "Interface / item selection");
-    ui.small("Master also respects M / --mute. Existing dB controls remain advanced input trims.");
+    ui.hint("Master also respects M / --mute. Existing dB controls remain advanced input trims.");
 }
