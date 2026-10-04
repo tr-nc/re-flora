@@ -925,42 +925,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Random Stagger (Seconds)",
     },
     GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_instance_hue_offset",
-        kind: "float",
-        label: "Instance Hue Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_instance_saturation_offset",
-        kind: "float",
-        label: "Instance Saturation Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_instance_value_offset",
-        kind: "float",
-        label: "Instance Value Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_voxel_hue_offset",
-        kind: "float",
-        label: "Voxel Hue Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_voxel_saturation_offset",
-        kind: "float",
-        label: "Voxel Saturation Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "FloraVariation",
-        id: "flora_voxel_value_offset",
-        kind: "float",
-        label: "Voxel Value Offset Max",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Leaves",
         id: "leaf_global_offset_scale",
         kind: "float",
@@ -1546,12 +1510,6 @@ pub struct GuiAdjustables {
     pub flora_spawn_overshoot_min_voxels: crate::gui_adjustables::FloatParam,
     pub flora_spawn_overshoot_max_voxels: crate::gui_adjustables::FloatParam,
     pub flora_spawn_stagger_seconds: crate::gui_adjustables::FloatParam,
-    pub flora_instance_hue_offset: crate::gui_adjustables::FloatParam,
-    pub flora_instance_saturation_offset: crate::gui_adjustables::FloatParam,
-    pub flora_instance_value_offset: crate::gui_adjustables::FloatParam,
-    pub flora_voxel_hue_offset: crate::gui_adjustables::FloatParam,
-    pub flora_voxel_saturation_offset: crate::gui_adjustables::FloatParam,
-    pub flora_voxel_value_offset: crate::gui_adjustables::FloatParam,
     pub leaf_global_offset_scale: crate::gui_adjustables::FloatParam,
     pub leaf_local_displacement_voxels: crate::gui_adjustables::FloatParam,
     pub leaf_flutter_amplitude_high: crate::gui_adjustables::FloatParam,
@@ -1787,12 +1745,6 @@ impl GuiAdjustables {
         let mut flora_spawn_overshoot_min_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_overshoot_max_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_spawn_stagger_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_instance_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_instance_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_instance_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_voxel_hue_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_voxel_saturation_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flora_voxel_value_offset_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_global_offset_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_local_displacement_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_flutter_amplitude_high_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2883,48 +2835,6 @@ impl GuiAdjustables {
                             flora_spawn_stagger_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "flora_instance_hue_offset" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_instance_hue_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_instance_saturation_offset" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_instance_saturation_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_instance_value_offset" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_instance_value_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_voxel_hue_offset" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_voxel_hue_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_voxel_saturation_offset" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_voxel_saturation_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flora_voxel_value_offset" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            flora_voxel_value_offset_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "leaf_global_offset_scale" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3557,12 +3467,6 @@ impl GuiAdjustables {
             flora_spawn_overshoot_min_voxels: flora_spawn_overshoot_min_voxels_field.expect("Missing parameter: flora_spawn_overshoot_min_voxels"),
             flora_spawn_overshoot_max_voxels: flora_spawn_overshoot_max_voxels_field.expect("Missing parameter: flora_spawn_overshoot_max_voxels"),
             flora_spawn_stagger_seconds: flora_spawn_stagger_seconds_field.expect("Missing parameter: flora_spawn_stagger_seconds"),
-            flora_instance_hue_offset: flora_instance_hue_offset_field.expect("Missing parameter: flora_instance_hue_offset"),
-            flora_instance_saturation_offset: flora_instance_saturation_offset_field.expect("Missing parameter: flora_instance_saturation_offset"),
-            flora_instance_value_offset: flora_instance_value_offset_field.expect("Missing parameter: flora_instance_value_offset"),
-            flora_voxel_hue_offset: flora_voxel_hue_offset_field.expect("Missing parameter: flora_voxel_hue_offset"),
-            flora_voxel_saturation_offset: flora_voxel_saturation_offset_field.expect("Missing parameter: flora_voxel_saturation_offset"),
-            flora_voxel_value_offset: flora_voxel_value_offset_field.expect("Missing parameter: flora_voxel_value_offset"),
             leaf_global_offset_scale: leaf_global_offset_scale_field.expect("Missing parameter: leaf_global_offset_scale"),
             leaf_local_displacement_voxels: leaf_local_displacement_voxels_field.expect("Missing parameter: leaf_local_displacement_voxels"),
             leaf_flutter_amplitude_high: leaf_flutter_amplitude_high_field.expect("Missing parameter: leaf_flutter_amplitude_high"),
@@ -3759,12 +3663,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flora_spawn_overshoot_min_voxels" => Some(&adjustables.flora_spawn_overshoot_min_voxels),
         "flora_spawn_overshoot_max_voxels" => Some(&adjustables.flora_spawn_overshoot_max_voxels),
         "flora_spawn_stagger_seconds" => Some(&adjustables.flora_spawn_stagger_seconds),
-        "flora_instance_hue_offset" => Some(&adjustables.flora_instance_hue_offset),
-        "flora_instance_saturation_offset" => Some(&adjustables.flora_instance_saturation_offset),
-        "flora_instance_value_offset" => Some(&adjustables.flora_instance_value_offset),
-        "flora_voxel_hue_offset" => Some(&adjustables.flora_voxel_hue_offset),
-        "flora_voxel_saturation_offset" => Some(&adjustables.flora_voxel_saturation_offset),
-        "flora_voxel_value_offset" => Some(&adjustables.flora_voxel_value_offset),
         "leaf_global_offset_scale" => Some(&adjustables.leaf_global_offset_scale),
         "leaf_local_displacement_voxels" => Some(&adjustables.leaf_local_displacement_voxels),
         "leaf_flutter_amplitude_high" => Some(&adjustables.leaf_flutter_amplitude_high),
@@ -4034,12 +3932,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flora_spawn_overshoot_min_voxels" => Some(&mut adjustables.flora_spawn_overshoot_min_voxels),
         "flora_spawn_overshoot_max_voxels" => Some(&mut adjustables.flora_spawn_overshoot_max_voxels),
         "flora_spawn_stagger_seconds" => Some(&mut adjustables.flora_spawn_stagger_seconds),
-        "flora_instance_hue_offset" => Some(&mut adjustables.flora_instance_hue_offset),
-        "flora_instance_saturation_offset" => Some(&mut adjustables.flora_instance_saturation_offset),
-        "flora_instance_value_offset" => Some(&mut adjustables.flora_instance_value_offset),
-        "flora_voxel_hue_offset" => Some(&mut adjustables.flora_voxel_hue_offset),
-        "flora_voxel_saturation_offset" => Some(&mut adjustables.flora_voxel_saturation_offset),
-        "flora_voxel_value_offset" => Some(&mut adjustables.flora_voxel_value_offset),
         "leaf_global_offset_scale" => Some(&mut adjustables.leaf_global_offset_scale),
         "leaf_local_displacement_voxels" => Some(&mut adjustables.leaf_local_displacement_voxels),
         "leaf_flutter_amplitude_high" => Some(&mut adjustables.leaf_flutter_amplitude_high),

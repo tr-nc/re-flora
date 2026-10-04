@@ -12,8 +12,6 @@ public struct U_GuiInput
     public uint path_tracing_max_bounces;
     public float terrain_ray_origin_offset_world;
     public float terrain_self_shadow_tolerance_voxels;
-    public float3 flora_instance_hsv_offset_max;
-    public float3 flora_voxel_hsv_offset_max;
     public float3 flower_stem_bottom;
     public float3 flower_stem_tip;
     public uint4 flower_stem_sampling; // surface-cell shading, pixelized rays, samples per stem height, branches

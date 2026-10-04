@@ -395,12 +395,7 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
             darkHeightColor, float3(speckle * 0.018, 0.03, speckle * 0.035));
     }
 
-    float3 instanceVariation = signedUnitNoise(float(seed)) *
-                               gui_input.flora_instance_hsv_offset_max;
-    float3 voxelVariation = signedUnitNoise(
-        float4(float3(voxelLocalPosition), float(seed))) *
-        gui_input.flora_voxel_hsv_offset_max;
-    return applyHsvOffset(darkHeightColor, instanceVariation + voxelVariation);
+    return darkHeightColor;
 }
 
 public float3 applyGrassGrowthStressTint(float3 baseColor, bool isGrass,

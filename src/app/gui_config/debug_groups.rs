@@ -494,7 +494,6 @@ mod tests {
             "Grass Amplitude Response",
             "Grass Frequency Response",
             "Grass Colors",
-            "Color Variation",
             "Leaves",
             "Appearance & Lighting",
             "Leaf Amplitude Response",
@@ -505,7 +504,7 @@ mod tests {
                 "missing section {title}"
             );
         }
-        for title in ["Debug", "Sky", "Voxel", "HeadBob"] {
+        for title in ["Debug", "Sky", "Voxel", "HeadBob", "Color Variation"] {
             assert!(
                 !text.lines().any(|line| line == title),
                 "obsolete section {title}"

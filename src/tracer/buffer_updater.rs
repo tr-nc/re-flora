@@ -300,8 +300,6 @@ impl BufferUpdater {
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
             terrain_ray_origin_offset_world: terrain.ray_origin_offset_world.max(0.0),
             terrain_self_shadow_tolerance_voxels: terrain.self_shadow_tolerance_voxels,
-            flora_instance_hsv_offset_max: appearance.instance_hsv_offset_max.to_array(),
-            flora_voxel_hsv_offset_max: appearance.voxel_hsv_offset_max.to_array(),
             flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
             flower_stem_tip: appearance.flower_stem_tip.to_array(),
             flower_stem_sampling: [

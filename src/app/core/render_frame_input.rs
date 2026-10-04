@@ -116,16 +116,6 @@ pub(super) fn freeze_render_frame_inputs(
             },
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
-            instance_hsv_offset_max: Vec3::new(
-                gui.flora_instance_hue_offset.value,
-                gui.flora_instance_saturation_offset.value,
-                gui.flora_instance_value_offset.value,
-            ),
-            voxel_hsv_offset_max: Vec3::new(
-                gui.flora_voxel_hue_offset.value,
-                gui.flora_voxel_saturation_offset.value,
-                gui.flora_voxel_value_offset.value,
-            ),
             flower_stem_bottom: color_to_vec3(gui.model_flower_stem_bottom_color.value),
             flower_stem_tip: color_to_vec3(gui.model_flower_stem_tip_color.value),
             grass_bottom_dark: color_to_vec3(gui.grass_bottom_dark_color.value),
@@ -392,12 +382,6 @@ mod tests {
         let voxel_oak_wood_color = color!(voxel_oak_wood_color);
         let voxel_rock_color = color!(voxel_rock_color);
         let flora_growth_override = float!(flora_growth_override);
-        let flora_instance_hue_offset = float!(flora_instance_hue_offset);
-        let flora_instance_saturation_offset = float!(flora_instance_saturation_offset);
-        let flora_instance_value_offset = float!(flora_instance_value_offset);
-        let flora_voxel_hue_offset = float!(flora_voxel_hue_offset);
-        let flora_voxel_saturation_offset = float!(flora_voxel_saturation_offset);
-        let flora_voxel_value_offset = float!(flora_voxel_value_offset);
         let flower_stem_bottom = color!(model_flower_stem_bottom_color);
         let flower_stem_tip = color!(model_flower_stem_tip_color);
         let grass_bottom_dark = color!(grass_bottom_dark_color);
@@ -530,16 +514,6 @@ mod tests {
                     },
                     growth_override_enabled: true,
                     growth_override: flora_growth_override,
-                    instance_hsv_offset_max: Vec3::new(
-                        flora_instance_hue_offset,
-                        flora_instance_saturation_offset,
-                        flora_instance_value_offset,
-                    ),
-                    voxel_hsv_offset_max: Vec3::new(
-                        flora_voxel_hue_offset,
-                        flora_voxel_saturation_offset,
-                        flora_voxel_value_offset,
-                    ),
                     flower_stem_bottom,
                     flower_stem_tip,
                     stem_experiment: crate::flora::models::StemExperiment {

@@ -5,6 +5,14 @@ use std::{collections::HashMap, collections::HashSet, io::Write, path::Path};
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 const CONFIG_FILE_NAME: &str = "gui.toml";
+const RETIRED_FLORA_COLOR_PARAMS: &[&str] = &[
+    "flora_instance_hue_offset",
+    "flora_instance_saturation_offset",
+    "flora_instance_value_offset",
+    "flora_voxel_hue_offset",
+    "flora_voxel_saturation_offset",
+    "flora_voxel_value_offset",
+];
 // Keep exact voxel-scale controls such as 1 / 256 while still trimming the
 // noisy tail emitted when an f32 is serialized through TOML.
 const GUI_FLOAT_DECIMALS: usize = 8;
@@ -68,6 +76,14 @@ impl GuiConfigLoader {
 
         Self::retire_dither_setting(&mut config);
         Self::retire_cloud_settings(&mut config);
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|param| !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str()));
+        }
+        config
+            .section
+            .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         for id in [
@@ -917,6 +933,57 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retired_flora_color_variation_is_removed_from_legacy_saves() {
+        use super::RETIRED_FLORA_COLOR_PARAMS;
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let original = config.clone();
+        let template = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "flower_stem_tip_radius_ratio")
+            .unwrap()
+            .clone();
+        let retired: Vec<_> = RETIRED_FLORA_COLOR_PARAMS
+            .iter()
+            .map(|id| {
+                let mut param = template.clone();
+                param.id = (*id).into();
+                param.value = GuiParamValue::Float {
+                    value: 0.8,
+                    min: Some(0.),
+                    max: Some(1.),
+                };
+                param
+            })
+            .collect();
+        // Remove retired IDs even if an old save moved them to another section.
+        config.section[0].param.extend(retired.clone());
+        config
+            .section
+            .push(crate::app::gui_config_model::GuiSection {
+                name: "FloraVariation".into(),
+                param: retired,
+            });
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        std::fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(
+            toml::to_string(&loaded).unwrap(),
+            toml::to_string(&original).unwrap()
+        );
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("FloraVariation"));
+        for id in RETIRED_FLORA_COLOR_PARAMS {
+            assert!(!saved.contains(id));
+        }
+    }
+
     #[test]
     fn retired_dither_values_are_removed_without_saving_or_losing_other_controls() {
         use crate::app::gui_config_model::{GuiParamValue, GuiSection};

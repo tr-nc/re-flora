@@ -650,7 +650,6 @@ const SECTION_PARENTS: &[(&str, &str)] = &[
     ("GodRay", "Sky"),
     ("Starlight", "Sky"),
     ("Flora Spawn Animation", "Flora"),
-    ("FloraVariation", "Flora"),
     ("Leaves", "Flora"),
     ("Grass Wind Response", "Wind"),
     ("Terrain Harvest Particles", "Voxel"),
@@ -668,7 +667,6 @@ fn section_title(name: &str) -> &str {
         "Voxel" => "Terrain",
         "HeadBob" => "Camera",
         "WaterSimulation" => "Water Simulation",
-        "FloraVariation" => "Flora Variation",
         _ => name,
     }
 }

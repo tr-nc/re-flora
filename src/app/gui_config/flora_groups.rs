@@ -111,7 +111,6 @@ pub(super) fn search_path(section: &str, id: &str) -> Option<&'static str> {
         "Leaves" => Some("Flora / Leaves / Appearance & Lighting"),
         "Grass Wind Response" => Some("Wind / Response / Grass"),
         "Flora Spawn Animation" => Some("Flora / Planting / Spawn Animation"),
-        "FloraVariation" => Some("Flora / Ground Plants / Color Variation"),
         _ => None,
     }
 }
@@ -214,14 +213,6 @@ pub(super) fn render(
         category(ui, "Grass Colors", |ui| {
             controls(ui, flora, GRASS_COLORS, adjustables);
         });
-        stored_section(
-            ui,
-            config,
-            "FloraVariation",
-            "Color Variation",
-            adjustables,
-            after_section,
-        );
     });
     // The existing Tree editor is supplied by DebugSettings, not duplicated here.
     after_section("Flora", ui);
