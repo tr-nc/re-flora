@@ -1,5 +1,9 @@
 # Ordinary grass: analytic stem A/B
 
+> Historical pre-fix measurements. The near-plane fullscreen-proxy regression
+> is now fixed; see [the fix and updated Release matrix](grass-stem-near-plane-fix.md).
+> The validator now includes top/low/inside/low-curved regression scenes.
+
 ## Candidate
 
 Implementation: `8966a94c` (local). Debug → **Pixel Sampling — Grass** →
