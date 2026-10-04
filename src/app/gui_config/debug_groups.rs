@@ -37,7 +37,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Models — Global",
-        description: "Pixel-model cache settings for all affected objects, plus the scene-wide post-processing dither. Dynamic models share one view count; flower heads have a separate static count. More views or pixels use more GPU cache memory.",
+        description: "Pixel-model cache settings for all affected objects. Dynamic models share one view count; flower heads have a separate static count. More views or pixels use more GPU cache memory.",
         initially_open: false,
         params: &["model_pixel_view_count", "apple_pixel_resolution"],
     },
@@ -98,7 +98,6 @@ const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
     ("Butterflies", "butterfly_pixel_resolution"),
     ("Falling Leaves", "falling_leaf_pixel_resolution"),
     ("Flora", "model_flower_pixel_resolution"),
-    ("Post Processing", "dither_strength_lsb"),
 ];
 
 pub(super) fn is_pixel_model_control(section: &str, id: &str) -> bool {
@@ -109,10 +108,8 @@ pub(super) fn search_path(section: &str, id: &str) -> Option<String> {
     if is_pixel_model_control(section, id) {
         let category = if PIXEL_MODEL_CONTROLS[..2].contains(&(section, id)) {
             "Direction Views"
-        } else if PIXEL_MODEL_CONTROLS[2..6].contains(&(section, id)) {
-            "Pixels per Model"
         } else {
-            "Post-processing"
+            "Pixels per Model"
         };
         return Some(format!("Pixel Models — Global / {category}"));
     }
@@ -233,7 +230,6 @@ fn render_filtered(
                     for (title, controls) in [
                         ("Direction Views", &PIXEL_MODEL_CONTROLS[..2]),
                         ("Pixels per Model", &PIXEL_MODEL_CONTROLS[2..6]),
-                        ("Post-processing", &PIXEL_MODEL_CONTROLS[6..]),
                     ] {
                         ui.label(title);
                         for &(section_name, id) in controls {
@@ -391,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn pixel_model_global_collects_post_processing_for_every_object() {
+    fn pixel_model_global_collects_sampling_for_every_object() {
         let global = GROUPS
             .iter()
             .find(|g| g.title == "Pixel Models — Global")
@@ -401,7 +397,7 @@ mod tests {
             global.params,
             &["model_pixel_view_count", "apple_pixel_resolution"]
         );
-        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 7);
+        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 6);
         let config: crate::app::gui_config_model::GuiConfigFile =
             toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
         for &(section, id) in PIXEL_MODEL_CONTROLS {
@@ -424,18 +420,13 @@ mod tests {
             })
             .filter(|(_, id)| {
                 id.ends_with("pixel_resolution")
-                    || matches!(
-                        *id,
-                        "model_pixel_view_count"
-                            | "model_flower_view_count"
-                            | "dither_strength_lsb"
-                    )
+                    || matches!(*id, "model_pixel_view_count" | "model_flower_view_count")
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(
             model_controls,
             PIXEL_MODEL_CONTROLS.iter().copied().collect(),
-            "new pixel model post-processing controls need a Pixel Models owner"
+            "new pixel model sampling controls need a Pixel Models owner"
         );
     }
 
@@ -503,7 +494,10 @@ mod tests {
                 "{section}/{id} should appear exactly once in Pixel Models — Global"
             );
         }
-        assert!(!text.lines().any(|line| line == "Post Processing"));
+        assert!(!text
+            .lines()
+            .any(|line| matches!(line, "Post Processing" | "Post-processing")));
+        assert!(!text.contains("Dither Strength"));
         let expected_sections = settings
             .config
             .section

@@ -169,12 +169,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Inertia: Discrete Poses / Second",
     },
     GeneratedGuiParamDescriptor {
-        section: "Post Processing",
-        id: "dither_strength_lsb",
-        kind: "float",
-        label: "Dither Strength (Max 8-bit LSB)",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Wind",
         id: "canopy_audio_sample_budget",
         kind: "uint",
@@ -1426,7 +1420,6 @@ pub struct GuiAdjustables {
     pub vegetation_response_damping: crate::gui_adjustables::FloatParam,
     pub vegetation_response_gain: crate::gui_adjustables::FloatParam,
     pub vegetation_response_pose_hz: crate::gui_adjustables::FloatParam,
-    pub dither_strength_lsb: crate::gui_adjustables::FloatParam,
     pub canopy_audio_sample_budget: crate::gui_adjustables::UintParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
@@ -1668,7 +1661,6 @@ impl GuiAdjustables {
         let mut vegetation_response_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_pose_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut dither_strength_lsb_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut canopy_audio_sample_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2029,13 +2021,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             vegetation_response_pose_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "dither_strength_lsb" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            dither_strength_lsb_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "canopy_audio_sample_budget" => {
@@ -3442,7 +3427,6 @@ impl GuiAdjustables {
             vegetation_response_damping: vegetation_response_damping_field.expect("Missing parameter: vegetation_response_damping"),
             vegetation_response_gain: vegetation_response_gain_field.expect("Missing parameter: vegetation_response_gain"),
             vegetation_response_pose_hz: vegetation_response_pose_hz_field.expect("Missing parameter: vegetation_response_pose_hz"),
-            dither_strength_lsb: dither_strength_lsb_field.expect("Missing parameter: dither_strength_lsb"),
             canopy_audio_sample_budget: canopy_audio_sample_budget_field.expect("Missing parameter: canopy_audio_sample_budget"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
@@ -3666,7 +3650,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "vegetation_response_damping" => Some(&adjustables.vegetation_response_damping),
         "vegetation_response_gain" => Some(&adjustables.vegetation_response_gain),
         "vegetation_response_pose_hz" => Some(&adjustables.vegetation_response_pose_hz),
-        "dither_strength_lsb" => Some(&adjustables.dither_strength_lsb),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
@@ -3942,7 +3925,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "vegetation_response_damping" => Some(&mut adjustables.vegetation_response_damping),
         "vegetation_response_gain" => Some(&mut adjustables.vegetation_response_gain),
         "vegetation_response_pose_hz" => Some(&mut adjustables.vegetation_response_pose_hz),
-        "dither_strength_lsb" => Some(&mut adjustables.dither_strength_lsb),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),

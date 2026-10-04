@@ -66,6 +66,7 @@ impl GuiConfigLoader {
             );
         });
 
+        Self::retire_dither_setting(&mut config);
         Self::retire_cloud_settings(&mut config);
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
@@ -290,6 +291,15 @@ impl GuiConfigLoader {
                 param.label.clone_from(&schema.label);
             }
         }
+    }
+
+    fn retire_dither_setting(config: &mut GuiConfigFile) {
+        for section in &mut config.section {
+            section.param.retain(|p| p.id != "dither_strength_lsb");
+        }
+        config
+            .section
+            .retain(|s| s.name != "Post Processing" || !s.param.is_empty());
     }
 
     fn retire_cloud_settings(config: &mut GuiConfigFile) {
@@ -886,6 +896,74 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retired_dither_values_are_removed_without_saving_or_losing_other_controls() {
+        use crate::app::gui_config_model::{GuiParamValue, GuiSection};
+        for value in [0.0, 1.0, 4.0] {
+            for keep_other in [false, true] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let other = config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "leaf_connection_strength")
+                    .unwrap()
+                    .clone();
+                let mut retired = other.clone();
+                retired.id = "dither_strength_lsb".into();
+                retired.value = GuiParamValue::Float {
+                    value,
+                    min: Some(0.0),
+                    max: Some(4.0),
+                };
+                let mut section = GuiSection {
+                    name: "Post Processing".into(),
+                    param: vec![retired],
+                };
+                if keep_other {
+                    for s in &mut config.section {
+                        s.param.retain(|p| p.id != other.id);
+                    }
+                    section.param.push(other.clone());
+                }
+                config.section.push(section);
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                let bytes = std::fs::read(&path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                assert!(!loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .any(|p| p.id == "dither_strength_lsb"));
+                assert_eq!(
+                    loaded.section.iter().any(|s| s.name == "Post Processing"),
+                    keep_other
+                );
+                assert_eq!(
+                    toml::to_string(
+                        loaded
+                            .section
+                            .iter()
+                            .flat_map(|s| &s.param)
+                            .find(|p| p.id == other.id)
+                            .unwrap()
+                    )
+                    .unwrap(),
+                    toml::to_string(&other).unwrap()
+                );
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert_eq!(
+                    toml::to_string(&loaded).unwrap(),
+                    toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
+                );
+            }
+        }
+    }
+
     #[test]
     fn stem_saves_retire_angular_controls_and_preserve_model_settings() {
         use crate::app::gui_config_model::{

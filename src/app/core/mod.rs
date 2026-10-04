@@ -3560,11 +3560,9 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                     LiveLightingFrameInputs {
                         time_of_day: self.world_clock.live_time_of_day(),
                         sampling_serial: self.time_info.total_frame_count() as u32,
-                        dither_strength_lsb: self
-                            .debug_settings
-                            .adjustables
-                            .dither_strength_lsb
-                            .value,
+                        // Fixed output-quantization dither; acceptance plans may
+                        // disable it for deterministic image comparisons.
+                        dither_strength_lsb: 1.0,
                         path_tracing_max_bounces: self
                             .debug_settings
                             .adjustables
