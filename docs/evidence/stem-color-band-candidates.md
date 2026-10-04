@@ -6,7 +6,12 @@ Three runtime-selectable raster candidates now work for GPU grass and CPU-owned
 stem paths: square tubes, tapered square tubes, and crossed ribbons. Each Band
 has one flat, lighting-adjusted color (`nointerpolation`); there is no smooth
 base-to-tip gradient or per-pixel stem intersection. Hardware rasterization owns
-clipping and depth. These candidates use direct geometry, not model-ray pixelization.
+clipping and depth. These measurements use direct geometry, not model-ray pixelization.
+
+The later optional grass model-grid sampling candidate is documented separately
+in [hardware-raster model pixelization](grass-raster-model-pixels.md), including its
+pixelized silhouettes, runtime switch and **failed mass-grass performance acceptance**.
+That switch defaults off; this report's historical timings remain unchanged.
 
 **Crossed ribbons are the performance leader. They are substantially faster than
 analytic grass, but are not a universal improvement over original voxel grass.**

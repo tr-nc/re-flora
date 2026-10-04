@@ -255,9 +255,9 @@ impl GrassStemReview {
                 frame == 0 || counts.iter().all(|count| *count > 0),
                 "grass review has empty grass species: {counts:?}"
             );
-            log::info!("[GRASS_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={} grass={counts:?} camera={:?} target={:?} resolution=45 saved=false grid={} candidate={}",
+            log::info!("[GRASS_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={} grass={counts:?} camera={:?} target={:?} resolution={} saved=false grid={} candidate={}",
                 self.case, if frame == 0 { "start" } else if frame == warmup_frames { "sample" } else { "complete" },
-                app.time_info.total_frame_count(), frame, (target + offset).to_array(), target.to_array(), self.grid, self.candidate);
+                app.time_info.total_frame_count(), frame, (target + offset).to_array(), target.to_array(), gui.flower_stem_model_resolution.value, self.grid, self.candidate);
         }
         Ok(frame == total_frames)
     }
