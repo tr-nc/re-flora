@@ -18,6 +18,7 @@ pub(super) struct GrassStemReview {
     candidate: u32,
     pose_reuse: bool,
     pixelization: bool,
+    pixel_lifecycle: bool,
     resolution: u32,
     sample_frames: u32,
     pub(super) interactive: bool,
@@ -35,6 +36,7 @@ impl GrassStemReview {
             let pixels = environment_uint("RE_FLORA_GRASS_BAND_PIXELIZATION", 0);
             assert!(pixels <= 1, "pixelization must be 0 or 1");
             review.pixelization = pixels != 0;
+            review.pixel_lifecycle = std::env::var_os("RE_FLORA_STEM_PIXEL_LIFECYCLE").is_some();
             review.resolution = environment_uint("RE_FLORA_STEM_PIXEL_RESOLUTION", 45);
             assert!(
                 (8..=512).contains(&review.resolution),
@@ -98,6 +100,7 @@ impl GrassStemReview {
             candidate: 0,
             pose_reuse: true,
             pixelization: false,
+            pixel_lifecycle: false,
             resolution: 45,
             sample_frames: 300,
             interactive: false,
@@ -106,6 +109,17 @@ impl GrassStemReview {
 
     pub(super) fn fixed_response_time(&self) -> Option<f32> {
         (!self.interactive).then_some(self.frame as f32 / 60.)
+    }
+
+    fn pixel_settings(&self, frame: u32) -> (bool, u32) {
+        if self.pixel_lifecycle {
+            (
+                (frame / 40) % 2 == 1,
+                [32, 45, 192, 512][(frame / 60 % 4) as usize],
+            )
+        } else {
+            (self.pixelization, self.resolution)
+        }
     }
 
     pub(super) fn advance(&mut self, app: &mut App) -> Result<bool> {
@@ -171,11 +185,25 @@ impl GrassStemReview {
         if !self.interactive {
             gui.stem_band_mode.value = self.candidate;
             gui.grass_band_pose_reuse.value = self.pose_reuse;
-            gui.grass_band_pixelization.value = self.pixelization;
-            if std::env::var_os("RE_FLORA_STEM_PIXEL_LIFECYCLE").is_some() {
-                gui.grass_band_pixelization.value = (frame / 40) % 2 == 1;
-                gui.flower_stem_model_resolution.value =
-                    [32, 45, 192, 512][(frame / 60 % 4) as usize];
+            (
+                gui.grass_band_pixelization.value,
+                gui.flower_stem_model_resolution.value,
+            ) = self.pixel_settings(frame);
+            if self.pixel_lifecycle {
+                // Resize after tiles have been rendered, not only during loading.
+                let size = match frame {
+                    52 => Some((1152, 648)),
+                    132 => Some((960, 600)),
+                    212 => Some((1280, 720)),
+                    _ => None,
+                };
+                if let Some((width, height)) = size {
+                    let accepted = app
+                        .window_state
+                        .window()
+                        .request_inner_size(winit::dpi::PhysicalSize::new(width, height));
+                    log::info!("[STEM_PIXEL_LIFECYCLE] frame={frame} resize={width}x{height} accepted={accepted:?} saved=false");
+                }
                 if frame % 40 == 0 {
                     log::info!(
                         "[STEM_PIXEL_LIFECYCLE] frame={frame} enabled={} resolution={} saved=false",
@@ -188,8 +216,7 @@ impl GrassStemReview {
             gui.flora_growth_override.value = 1.0;
             gui.flora_spawn_duration_seconds.value = 0.28;
             gui.flora_inertial_response.value = true;
-            // Shared sampling quality is held fixed across both modes and all cases.
-            gui.flower_stem_model_resolution.value = self.resolution;
+            // Shared sampling quality is fixed unless the lifecycle fixture is active.
             gui.grass_natural_bend_min_voxels.value = if self.curved { 4.0 } else { 0.0 };
             gui.grass_natural_bend_max_voxels.value = if self.curved { 4.0 } else { 2.0 };
         }
@@ -249,6 +276,21 @@ mod tests {
         assert!(review.fixed_response_time().unwrap() - 3.75 > 0.28);
         review.interactive = true;
         assert_eq!(review.fixed_response_time(), None);
+    }
+
+    #[test]
+    fn pixel_lifecycle_changes_the_effective_settings() {
+        let mut review = GrassStemReview::parse("near-both-b").unwrap();
+        assert_eq!(review.pixel_settings(200), (false, 45));
+        review.pixel_lifecycle = true;
+        for (frame, expected) in [
+            (40, (true, 32)),
+            (80, (false, 45)),
+            (120, (true, 192)),
+            (200, (true, 512)),
+        ] {
+            assert_eq!(review.pixel_settings(frame), expected);
+        }
     }
 
     #[test]
