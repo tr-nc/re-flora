@@ -29,6 +29,8 @@ Debug Panel 用于调参和明确的操作，不是运行时诊断信息展示�
 
 Save 按钮用橙色边框表示保存文档有修改；成功保存后清除，失败时保留并在日志/按钮 tooltip 报错，不新增常驻 “Settings saved” 元素。比较统一保存文档，覆盖声明式和自定义字段，不为单个控件加 dirty/save hook；搜索及临时工具不计入。
 
+Camera Snapshots 上方追加当前视角，下方每条提供 Apply / Update / Delete；游戏内增删更新同时维护内存库和文件，不需要手动 Refresh。启动时读取文件，外部修改需重启游戏，不监视或轮询文件。不要显示路径、当前 pose 或空列表/使用说明 hint；操作失败仍需明确报错。
+
 ## 接入规则
 
 普通 float/int/uint/bool/choice/string/color 设置优先声明在 `config/gui.toml` 的 section/param 中。
@@ -85,7 +87,7 @@ settings.draw(ui, |section, temporary| {
 
 ## 调整目的目录与名称搜索
 
-- 通用设置按 Rendering & Lighting、World & Simulation、Plants & Wildlife、Camera & Audio 排序；未知扩展归入 Other Settings，不隐藏新设置。目录分类集中在 `src/app/gui_config/navigation.rs`，不改变存储 section、ID 或保存绑定。
+- 通用设置直接显示具体控制组，不加 Rendering & Lighting、World & Simulation、Plants & Wildlife、Camera & Audio 等父分类或分类 separator。搜索路径同样不带这些分类；新设置仍自动显示，不改变存储 section、ID 或保存绑定。
 - 搜索结果按展示路径聚合，同组只显示一次路径；顶部数量是声明式参数匹配数，不含随后显示的自定义编辑器/工具。Wind 声音和 Audio 高级参数使用实际浏览路径。
 - 按用户确认，面板保持英文，只按可见名称搜索；移除中文别名、紧凑 ID 匹配、内部 ID 提示和额外 CJK 字体。按空白分词、所有词 AND 匹配，忽略大小写和标点。
 - 搜索框直接提示 Ctrl+F。实验像素组默认收起，已有会话折叠状态不强制重置。

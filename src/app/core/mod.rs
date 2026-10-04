@@ -449,7 +449,7 @@ pub struct App {
     camera_snapshots: CameraSnapshotLibrary,
     camera_snapshot_draft_name: String,
     camera_snapshot_draft_description: String,
-    camera_snapshot_status: Option<String>,
+    camera_snapshot_error: Option<String>,
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
     card_display_visible: bool,
@@ -1521,7 +1521,7 @@ impl App {
             camera_snapshots,
             camera_snapshot_draft_name,
             camera_snapshot_draft_description: String::new(),
-            camera_snapshot_status: None,
+            camera_snapshot_error: None,
             frame_timing_panel_visible: render.perf_logging,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             card_display_visible: false,
@@ -2798,12 +2798,12 @@ impl App {
                                                 );
                                             }).is_some());
 
-                                            let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Save", "Load", "Name", "Description", "Pose", "FOV", "Free fly"], |ui| draw_camera_snapshots_ui(
+                                            let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Add current camera", "Apply", "Update", "Delete", "Name", "Description"], |ui| draw_camera_snapshots_ui(
                                                 ui,
                                                 &mut self.camera_snapshots,
                                                 &mut self.camera_snapshot_draft_name,
                                                 &mut self.camera_snapshot_draft_description,
-                                                &mut self.camera_snapshot_status,
+                                                &mut self.camera_snapshot_error,
                                                 current_camera_pose,
                                                 current_camera_is_free_fly,
                                             ));
