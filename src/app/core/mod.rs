@@ -1263,7 +1263,6 @@ impl App {
                 environment_irradiance_capture_target: lighting.capture_target,
                 ddgi_batch_order: lighting.batch_order,
                 ddgi_terrain_hard_origin: lighting.terrain_hard_origin,
-                ddgi_terrain_moments: lighting.terrain_moments,
                 ddgi_local_light_trace_diagnostics_enabled: matches!(
                     environment_lighting_test,
                     Some(
@@ -2808,16 +2807,9 @@ impl App {
                                                 }
                                             });
 
-extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Cheap terrain lighting", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested", "Revisions Allocated memory"], |ui| {
+extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested", "Revisions Allocated memory"], |ui| {
 
                                             ui_text::hint(ui, "Not saved — Environment Probe experiments");
-                                            let mut terrain_moments = self.tracer.ddgi_terrain_moments();
-                                            if ui.checkbox(&mut terrain_moments, "Cheap terrain lighting")
-                                                .on_hover_text("On: faster distance statistics (default). Off: exact voxel visibility. Changes immediately; this selection is not saved.")
-                                                .changed()
-                                            {
-                                                self.tracer.set_ddgi_terrain_moments(terrain_moments);
-                                            }
                                             egui::ComboBox::from_label("Spacing (voxels)")
                                                 .selected_text(
                                                     self.environment_probe_spacing_draft.to_string(),

@@ -1541,6 +1541,30 @@ mod tests {
     }
 
     #[test]
+    fn terrain_lighting_uses_moments_without_an_ab_switch() {
+        let query = include_str!("../shader/slang/ddgi_query.slang");
+        let production = query
+            .split_once("public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(")
+            .unwrap()
+            .1
+            .split_once("public DdgiQueryResult sampleDdgiDiffuseEnvironment(")
+            .unwrap()
+            .0;
+        assert!(production
+            .split_whitespace()
+            .collect::<String>()
+            .contains("surfaceNormal,true);"));
+        for source in [
+            include_str!("../shader/slang/tracer_types.slang"),
+            include_str!("tracer/mod.rs"),
+            include_str!("app/core/mod.rs"),
+        ] {
+            assert!(!source.contains("ddgi_terrain_moments"));
+        }
+        assert!(!include_str!("app/core/mod.rs").contains("Cheap terrain lighting"));
+    }
+
+    #[test]
     fn terrain_hybrid_uses_published_confidence_without_a_runtime_switch() {
         let tracer = include_str!("../shader/slang/tracer.slang");
         let compact = tracer.split_whitespace().collect::<String>();

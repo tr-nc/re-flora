@@ -1169,7 +1169,7 @@ public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(
     return sampleDdgiTerrainSmoothEnvironmentFromAtlas(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
         receiverWorldPosition, positionWeightWorldPosition,
-        surfaceNormal, lighting.ddgi_terrain_moments != 0u);
+        surfaceNormal, true);
 }
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironment(
