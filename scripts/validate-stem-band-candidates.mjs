@@ -15,6 +15,8 @@ square bands and crossed ribbons. GPU grass uses production painting (3x3 and
 Requires cargo build --release, Vulkan display and GPU timestamps. Runs serially,
 hidden/muted, with fixed simulation time. Does not change saved settings.
 --suite selects the source paths to test (default all).
+RE_FLORA_GRASS_BAND_POSE_REUSE=0 disables GPU pose reuse for a diagnostic comparison
+(default 1). This choice is recorded in summary.json.
 --quick uses one repeat and the high-population wide views; default uses two
 repeats in opposite order, near/low/mid/far grass and CPU growth/near coverage.
 Artifacts: target/stem-band-trials/{quick|full}-{suite}/{*.log,*.png,runs.json,summary.json}.
@@ -59,7 +61,9 @@ if(options.suite!=='gpu') {
   for(const [shape,count,near] of scenes) jobs.push({source:'cpu',key:`cpu-${shape}-${count}${near?'-near':''}`,shape,count,near,modes:modesCPU});
 }
 const runs=[];
+const grassPoseReuse=process.env.RE_FLORA_GRASS_BAND_POSE_REUSE??'1';
 try {
+  assert.match(grassPoseReuse,/^[01]$/,'RE_FLORA_GRASS_BAND_POSE_REUSE must be 0 or 1');
   assert.ok(fs.existsSync(binary),'Release binary missing. Run cargo build --release, then retry this command.');
   fs.mkdirSync(output,{recursive:true});
   for(let repeat=0;repeat<(options.quick?1:2);repeat++) for(const job of jobs) {
@@ -68,7 +72,7 @@ try {
       const name=`${job.key}-${mode.name}-${repeat+1}`;
       console.log(`running ${name}`);
       const directory=path.join(output,name);fs.mkdirSync(directory,{recursive:true});
-      const env={...process.env,RE_FLORA_STEM_BAND_MODE:String(mode.mode),RE_FLORA_GRASS_STEM_CAPTURE:directory};
+      const env={...process.env,RE_FLORA_STEM_BAND_MODE:String(mode.mode),RE_FLORA_GRASS_STEM_CAPTURE:directory,RE_FLORA_GRASS_BAND_POSE_REUSE:grassPoseReuse};
       for(const key of ['WAYLAND_DISPLAY','RE_FLORA_GRASS_STEM_REVIEW','RE_FLORA_CPU_STEM_REVIEW','RE_FLORA_CPU_STEM_NEAR','RE_FLORA_CLIMBING_REVIEW','RE_FLORA_GRASS_STEM_TRYOUT','RE_FLORA_FLOWER_MODEL_REVIEW'])delete env[key];
       let caseName;
       if(job.source==='gpu') {
@@ -93,6 +97,7 @@ try {
       const population=job.source==='gpu'?start[2].match(/grass=\[([^\]]+)\]/)[1]:start[2].match(/plants=(\d+) bands=(\d+)/).slice(1).join(', ');
       const scope=job.source==='gpu'?'graphics.flora':'graphics.cpu_stems';
       const metrics={[scope]:[],'frame.render':[]};
+      if(job.source==='gpu')metrics['graphics.flora_lighting_cache']=[];
       for(const line of log.split('\n')) {
         const frame=line.match(/GPU_FRAME_SCOPE\] frame (\d+).*dropped=(\d+) (.*)/);
         if(!frame||+frame[1]<+start[1]+4||+frame[1]>=+end[1])continue;
@@ -129,7 +134,7 @@ try {
     }))};
   });
   const revision=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim();
-  fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({revision,quick:options.quick,repeats:options.quick?1:2,savedConfigSha256:before,summary},null,2));
+  fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({revision,grassPoseReuse:grassPoseReuse==='1',quick:options.quick,repeats:options.quick?1:2,savedConfigSha256:before,summary},null,2));
   console.log(JSON.stringify(summary,null,2));
 } catch(error) {
   console.error(`${error.message}\nArtifacts: ${output}\nInspect the failed log; cargo run --release -- --tail-latest-log 200`);

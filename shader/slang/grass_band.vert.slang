@@ -35,28 +35,26 @@ StemBandVertex main(VertexInput input) {
     if(pose.should_trim)return output;
     // Adjacent centres define a continuous path. Halfway boundaries preserve
     // one color band per original voxel layer, including rooted and tip caps.
-    float3 a=pose.voxel_position-float3(0,0.5/256.0,0);
-    float3 b=pose.voxel_position+float3(0,0.5/256.0,0);
-    float3 tangentA=float3(0,1,0),tangentB=float3(0,1,0);
+    float3 previousCenter=pose.voxel_position,nextCenter=pose.voxel_position;
+    bool hasNext=false;
     if(band>0u) {
         uint previous=lookupFloraVoxelInfo(species,int3(0,int(band-1u),0));
         PreparedFloraVertex p=prepareFloraVertex(int3(0,int(band-1u),0),previous,root,species,seed,
             unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
             instance.spawn_start_ms,useResponse,response,0.0);
-        a=(p.voxel_position+pose.voxel_position)*0.5;
-        tangentA=stemBandDirection(pose.voxel_position-p.voxel_position);
-        tangentB=tangentA;b=pose.voxel_position+tangentB*(0.5/256.0);
+        previousCenter=p.voxel_position;
     }
     if(band+1u<height) {
         uint next=lookupFloraVoxelInfo(species,int3(0,int(band+1u),0));
         PreparedFloraVertex p=prepareFloraVertex(int3(0,int(band+1u),0),next,root,species,seed,
             unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
             instance.spawn_start_ms,useResponse,response,0.0);
-        if(!p.should_trim) {
-            b=(p.voxel_position+pose.voxel_position)*0.5;
-            tangentB=stemBandDirection(p.voxel_position-pose.voxel_position);
-        }
+        nextCenter=p.voxel_position;
+        hasNext=!p.should_trim;
     }
+    float3 a,b,tangentA,tangentB;
+    stemBandCenterFrames(pose.voxel_position,previousCenter,nextCenter,
+        band>0u,hasNext,0.5/256.0,a,b,tangentA,tangentB);
     float ra=0.5/256.0*stemBandTaper(gui_input.stem_band_mode,float(band)/float(height));
     float rb=0.5/256.0*stemBandTaper(gui_input.stem_band_mode,float(band+1u)/float(height));
     float3 world=stemBandPoint(a,b,tangentA,tangentB,float3(1,0,0),float3(1,0,0),float2(ra),float2(rb),stemBandCorner(input.vertex));

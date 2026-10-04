@@ -558,6 +558,18 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let grass_band_cached_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/grass_band_cached.vert",
+            "main",
+        )
+        .unwrap();
+        let flora_lighting_band_cache_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/flora_lighting_band_cache.comp",
+            "main",
+        )
+        .unwrap();
         let grass_band_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/grass_band.vert",
@@ -749,6 +761,8 @@ impl PipelineBuilder {
             grass_stem_vert_sm,
             grass_stem_frag_sm,
             grass_band_vert_sm,
+            grass_band_cached_vert_sm,
+            flora_lighting_band_cache_sm,
             stem_band_frag_sm,
             cpu_stem_band_vert_sm,
             cpu_stem_band_shadow_vert_sm,
@@ -960,6 +974,24 @@ impl PipelineBuilder {
                 ],
             })
             .expect("flora lighting cache static descriptors must resolve");
+        let flora_lighting_band_cache_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.flora_lighting_band_cache_sm,
+            pool,
+        );
+        flora_lighting_band_cache_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            })
+            .expect("band preparation static descriptors");
         let tree_leaf_lighting_cache_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.tree_leaf_lighting_cache_sm,
@@ -1149,6 +1181,7 @@ impl PipelineBuilder {
             apple_pixel_tree_ppl,
             apple_pixel_dynamic_ppl,
             flora_lighting_cache_ppl,
+            flora_lighting_band_cache_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
@@ -1296,6 +1329,26 @@ impl PipelineBuilder {
             })
             .expect("grass band static descriptors");
 
+        let grass_band_cached_ppl = Self::create_gfx_pipeline_uninitialized(
+            vulkan_ctx,
+            &shader_modules.grass_band_cached_vert_sm,
+            &shader_modules.stem_band_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        grass_band_cached_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &flora_resources,
+            })
+            .expect("cached grass band static descriptors");
         let flora_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.flora_lod_vert_sm,
@@ -1757,6 +1810,7 @@ impl PipelineBuilder {
             flower_stem_experiment_ppl,
             grass_stem_ppl,
             grass_band_ppl,
+            grass_band_cached_ppl,
             apple_pixel_tree_ppl,
             apple_pixel_dynamic_ppl,
             dynamic_fruit_ppl,
@@ -1983,6 +2037,7 @@ declare_ddgi_consumer_registry! {
     CpuStemBands => Graphics(graphics.cpu_stem_band_ppl),
     AppleDynamicTiles => Compute(compute.apple_pixel_dynamic_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
+    GrassBandPreparation => Compute(compute.flora_lighting_band_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
     Flora => Graphics(graphics.flora_ppl),
     FloraLod => Graphics(graphics.flora_lod_ppl),
@@ -2317,6 +2372,7 @@ impl PipelineTopology {
             &self.graphics.flower_stem_experiment_ppl,
             &self.graphics.grass_stem_ppl,
             &self.graphics.grass_band_ppl,
+            &self.graphics.grass_band_cached_ppl,
         ] {
             retire_graphics(
                 pipeline,
@@ -2866,6 +2922,8 @@ pub struct ShaderModules {
     pub grass_stem_vert_sm: ShaderModule,
     pub grass_stem_frag_sm: ShaderModule,
     pub grass_band_vert_sm: ShaderModule,
+    pub grass_band_cached_vert_sm: ShaderModule,
+    pub flora_lighting_band_cache_sm: ShaderModule,
     pub stem_band_frag_sm: ShaderModule,
     pub cpu_stem_band_vert_sm: ShaderModule,
     pub cpu_stem_band_shadow_vert_sm: ShaderModule,
@@ -2912,6 +2970,7 @@ pub struct ComputePipelines {
     pub tree_skin_ppl: ComputePipeline,
     pub tree_refit_ppl: ComputePipeline,
     pub flora_lighting_cache_ppl: ComputePipeline,
+    pub flora_lighting_band_cache_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,
@@ -2963,6 +3022,7 @@ pub struct GraphicsPipelines {
     pub flower_stem_experiment_ppl: GraphicsPipeline,
     pub grass_stem_ppl: GraphicsPipeline,
     pub grass_band_ppl: GraphicsPipeline,
+    pub grass_band_cached_ppl: GraphicsPipeline,
     pub cpu_stem_band_ppl: GraphicsPipeline,
     pub cpu_stem_band_shadow_ppl: GraphicsPipeline,
     pub apple_pixel_tree_ppl: GraphicsPipeline,
@@ -2985,6 +3045,8 @@ impl GraphicsPipelines {
         self.grass_stem_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.grass_band_ppl
+            .begin_transient_descriptor_frame(frame_slot);
+        self.grass_band_cached_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.flora_ppl.begin_transient_descriptor_frame(frame_slot);
         self.flora_lod_ppl

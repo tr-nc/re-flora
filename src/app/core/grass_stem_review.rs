@@ -16,6 +16,7 @@ pub(super) struct GrassStemReview {
     curved: bool,
     grid: u32,
     candidate: u32,
+    pose_reuse: bool,
     sample_frames: u32,
     pub(super) interactive: bool,
 }
@@ -26,6 +27,9 @@ impl GrassStemReview {
             let mut review = Self::parse(&case).expect("grass stem review case");
             review.grid = environment_uint("RE_FLORA_GRASS_STEM_GRID", 3);
             review.candidate = environment_uint("RE_FLORA_STEM_BAND_MODE", 0);
+            let reuse = environment_uint("RE_FLORA_GRASS_BAND_POSE_REUSE", 1);
+            assert!(reuse <= 1, "pose reuse must be 0 or 1");
+            review.pose_reuse = reuse != 0;
             review.sample_frames = environment_uint("RE_FLORA_STEM_SAMPLE_FRAMES", 300);
             assert!(
                 (3..=15).contains(&review.grid) && review.grid % 2 == 1,
@@ -82,6 +86,7 @@ impl GrassStemReview {
             curved: parts[1] == "curved",
             grid: 3,
             candidate: 0,
+            pose_reuse: true,
             sample_frames: 300,
             interactive: false,
         })
@@ -145,6 +150,7 @@ impl GrassStemReview {
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
             gui.stem_band_mode.value = self.candidate;
+            gui.grass_band_pose_reuse.value = self.pose_reuse;
             gui.flora_growth_override_enabled.value = true;
             gui.flora_growth_override.value = 1.0;
             gui.flora_inertial_response.value = true;

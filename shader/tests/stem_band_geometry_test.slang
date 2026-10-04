@@ -21,6 +21,16 @@ export __extern_cpp int main() {
         float3 p=stemBandPoint(a,axis,axis,axis,axis,axis,float2(0.5),float2(0.1),float3(0.5));
         if(any(isnan(p))||any(isinf(p)))return 3;
     }
+    // Both cached and direct grass use these same shared midpoint frames.
+    float3 pa,pb,pta,ptb,na,nb,nta,ntb;
+    float3 centers[3] = { float3(0), float3(0.4,1,0.1), float3(0.7,2,-0.2) };
+    stemBandCenterFrames(centers[0],centers[0],centers[1],false,true,0.5,pa,pb,pta,ptb);
+    stemBandCenterFrames(centers[1],centers[0],centers[2],true,true,0.5,na,nb,nta,ntb);
+    if(!close(pb,na)||!close(ptb,nta)||!close(pa,float3(0,-0.5,0)))return 7;
+    stemBandCenterFrames(centers[2],centers[1],centers[2],true,false,0.5,pa,pb,pta,ptb);
+    if(!close(nb,pa)||!close(ntb,pta)||!close(pb,centers[2]+ptb*0.5))return 8;
+    stemBandCenterFrames(centers[0],centers[0],centers[0],true,true,0.5,pa,pb,pta,ptb);
+    if(any(isnan(pta))||any(isnan(ptb))||!close(pta,float3(0,1,0)))return 9;
     if(stemColorBand(0,10,8)!=0u||stemColorBand(10,10,8)!=7u)return 4;
     if(stemColorBand(2,10,8)!=1u||stemColorBand(2.5,10,8)!=2u)return 5;
     if(abs(stemBandTaper(2u,1)-0.12)>1e-5||stemBandTaper(1u,1)!=1)return 6;

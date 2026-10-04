@@ -101,6 +101,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "grass_band_pose_reuse"
+kind = "bool"
+label = "Grass: reuse GPU-prepared band pose"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "cpu_stem_band_rendering"
 kind = "bool"
 label = "Experimental color-band stems (CPU climbing paths)"

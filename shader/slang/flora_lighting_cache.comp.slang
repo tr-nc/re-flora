@@ -2,6 +2,14 @@
 #define RE_FLORA_GLASS_TRANSPORT 0
 #endif
 
+#ifndef RE_FLORA_STEM_BAND_CACHE
+#define RE_FLORA_STEM_BAND_CACHE 0
+#endif
+#if RE_FLORA_STEM_BAND_CACHE
+import grass_band_cache;
+[[vk::binding(9, 1)]] RWStructuredBuffer<GrassBandPose> grass_band_pose_cache;
+#endif
+
 import contree_node;
 import flora_lighting_cache;
 #if RE_FLORA_GLASS_TRANSPORT
@@ -104,4 +112,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         floraLightingCacheIndex(
             floraPc, localInstanceIndex, dispatchThreadId.x)] =
         float4(irradiance, 1.0);
+#if RE_FLORA_STEM_BAND_CACHE
+    // Reuse the existing once-per-layer preparation and lighting work. The
+    // original compute entry point never pays for this optional buffer/color.
+    float3 color = sampleFloraBaseColor(true, instanceType, seed, voxelLocalPosition,
+        instancePosition, prepared.color_gradient, voxelInfo);
+    color = applyGrassGrowthStressTint(color, true,
+        effectiveGrowthPotential(true, competitionFactor, environmentFactor));
+    GrassBandPose pose;
+    pose.position_height = float4(prepared.voxel_position,
+        float(sampleGrassHeight(instanceType, seed)));
+    pose.color_valid = float4(shadeFloraVertexWithEnvironment(color,
+        prepared.shadow_weight, irradiance, prepared.voxel_position),
+        prepared.should_trim ? 0.0 : 1.0);
+    grass_band_pose_cache[floraLightingCacheIndex(
+        floraPc, localInstanceIndex, dispatchThreadId.x)] = pose;
+#endif
 }

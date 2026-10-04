@@ -369,6 +369,8 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
     ShaderConfig { logical_path: "shader/foliage/flower_pixel.frag", source_path: "shader/slang/flower_pixel.frag.slang", module_path: "shader/slang", stage: ShaderStage::Fragment },
     ShaderConfig { logical_path: "shader/foliage/cpu_stem_band.vert", source_path: "shader/slang/cpu_stem_band.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
     ShaderConfig { logical_path: "shader/foliage/cpu_stem_band_shadow.vert", source_path: "shader/slang/cpu_stem_band_shadow.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
+    ShaderConfig { logical_path: "shader/foliage/grass_band_cached.vert", source_path: "shader/slang/grass_band_cached.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
+    ShaderConfig { logical_path: "shader/foliage/flora_lighting_band_cache.comp", source_path: "shader/slang/flora_lighting_band_cache.comp.slang", module_path: "shader/slang", stage: ShaderStage::Compute },
     ShaderConfig { logical_path: "shader/foliage/grass_band.vert", source_path: "shader/slang/grass_band.vert.slang", module_path: "shader/slang", stage: ShaderStage::Vertex },
     ShaderConfig { logical_path: "shader/foliage/stem_band.frag", source_path: "shader/slang/stem_band.frag.slang", module_path: "shader/slang", stage: ShaderStage::Fragment },
     ShaderConfig {
