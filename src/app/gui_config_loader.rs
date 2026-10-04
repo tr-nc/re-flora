@@ -70,7 +70,6 @@ impl GuiConfigLoader {
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         for id in [
-            "real_leaf_lifecycle",
             "leaf_connection_strength",
             "leaf_connection_half_life",
             "leaf_regrowth_delay",
@@ -270,12 +269,6 @@ impl GuiConfigLoader {
     // Return saved experimental files to main's voxel-derived tree/leaf display.
     // Keep authored wind and retained lifecycle values; never persist on load.
     fn retire_tree_display_experiments(config: &mut GuiConfigFile) {
-        let experimental = config.section.iter().flat_map(|s| &s.param).any(|p| {
-            matches!(
-                p.id.as_str(),
-                "tree_wind" | "tree_pixelized" | "tree_pixel_size" | "attached_leaf_rotation"
-            )
-        });
         let old_wind = config
             .section
             .iter()
@@ -291,7 +284,11 @@ impl GuiConfigLoader {
             section.param.retain(|p| {
                 !matches!(
                     p.id.as_str(),
-                    "tree_wind" | "tree_pixelized" | "tree_pixel_size" | "attached_leaf_rotation"
+                    "tree_wind"
+                        | "tree_pixelized"
+                        | "tree_pixel_size"
+                        | "attached_leaf_rotation"
+                        | "real_leaf_lifecycle"
                 )
             });
         }
@@ -314,7 +311,13 @@ impl GuiConfigLoader {
         for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
             if matches!(
                 param.id.as_str(),
-                "falling_leaf_mesh" | "falling_leaf_size_scale" | "falling_leaf_pixel_resolution"
+                "falling_leaf_mesh"
+                    | "falling_leaf_size_scale"
+                    | "falling_leaf_pixel_resolution"
+                    | "leaf_connection_strength"
+                    | "leaf_connection_half_life"
+                    | "leaf_regrowth_delay"
+                    | "leaf_regrowth_duration"
             ) {
                 let schema = defaults
                     .section
@@ -322,12 +325,9 @@ impl GuiConfigLoader {
                     .flat_map(|s| &s.param)
                     .find(|p| p.id == param.id)
                     .expect("falling leaf display schema");
-                // Main's older saves also need the new decorative-only enablement.
-                // These are schema changes, not replacements of authored values.
+                // Schema migration preserves authored values and never implicitly saves.
                 param.enabled_if.clone_from(&schema.enabled_if);
-                if experimental {
-                    param.label.clone_from(&schema.label);
-                }
+                param.label.clone_from(&schema.label);
             }
         }
     }
@@ -1278,10 +1278,8 @@ mod tests {
                 old.id.as_str(),
                 "falling_leaf_mesh" | "falling_leaf_size_scale" | "falling_leaf_pixel_resolution"
             ) {
-                expected.enabled_if = Some(crate::app::gui_config_model::GuiParamEnabledIf {
-                    param: "real_leaf_lifecycle".into(),
-                    equals: crate::app::gui_config_model::GuiParamConditionValue::Bool(false),
-                });
+                expected.enabled_if = new.enabled_if.clone();
+                expected.label = new.label.clone();
             }
             assert_eq!(
                 toml::to_string(&expected).unwrap(),
@@ -1289,8 +1287,18 @@ mod tests {
             );
         }
         let gui = crate::app::GuiAdjustables::from_config(&loaded);
-        assert!(!gui.real_leaf_lifecycle.value);
-        assert_eq!(gui.leaf_connection_strength.value, 1.0);
+        assert!(loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .all(|p| p.id != "real_leaf_lifecycle"));
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let defaults = crate::app::GuiAdjustables::from_config(&defaults);
+        assert_eq!(
+            gui.leaf_connection_strength.value,
+            defaults.leaf_connection_strength.value
+        );
         assert_eq!(gui.leaf_connection_half_life.value, 120.0);
         assert_eq!(gui.leaf_regrowth_delay.value, 8.0);
         assert_eq!(gui.leaf_regrowth_duration.value, 20.0);
@@ -1360,6 +1368,10 @@ mod tests {
                 .find(|s| s.name == "Debug")
                 .unwrap();
             debug.param.push(old_wind.clone());
+            let mut retired_lifecycle = old_wind.clone();
+            retired_lifecycle.id = "real_leaf_lifecycle".into();
+            retired_lifecycle.value = GuiParamValue::Bool { value: wind };
+            debug.param.push(retired_lifecycle);
             for id in ["tree_pixelized", "attached_leaf_rotation"] {
                 let mut retired = old_wind.clone();
                 retired.id = id.into();
@@ -1398,7 +1410,11 @@ mod tests {
                 )));
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
             assert_eq!(gui.raster_tree_wind.value, canonical_wind.unwrap_or(wind));
-            assert!(gui.real_leaf_lifecycle.value);
+            assert!(loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .all(|p| p.id != "real_leaf_lifecycle"));
             assert_eq!(gui.leaf_connection_strength.value, 0.7);
             assert_eq!(gui.falling_leaf_size_scale.value, 2.0);
             assert_eq!(gui.falling_leaf_pixel_resolution.value, 32);

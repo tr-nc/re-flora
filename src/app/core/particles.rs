@@ -500,8 +500,7 @@ impl App {
                 &mut self.particle_system,
                 dt,
                 &self.wind_prototype.field.frame(),
-                self.render_flags.enable_leaves
-                    && !self.debug_settings.adjustables.real_leaf_lifecycle.value,
+                false, // Real canopy detachment replaces decorative emission.
             );
             let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
             self.sprinklers.advance_particles(

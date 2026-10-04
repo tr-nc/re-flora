@@ -55,11 +55,11 @@ impl LeafModelSettings {
     }
 
     /// Visual size only: never feed this back into LeafFlight's aerodynamic size.
-    /// Both A/B paths scale detached leaves, not butterflies or leaf-colored debris.
+    /// Source voxels keep their exact size unless the model appearance is selected.
     pub fn render_size(self, snapshot: &ParticleSnapshot) -> f32 {
         if snapshot.kind == ParticleRenderKind::Leaf
             && snapshot.leaf_orientation.is_some()
-            && snapshot.leaf_geometry.is_none()
+            && (snapshot.leaf_geometry.is_none() || self.enabled)
         {
             snapshot.size * self.display_scale()
         } else {
@@ -71,7 +71,6 @@ impl LeafModelSettings {
         self.enabled
             && snapshot.kind == ParticleRenderKind::Leaf
             && snapshot.leaf_orientation.is_some()
-            && snapshot.leaf_geometry.is_none()
     }
 }
 
@@ -1053,6 +1052,42 @@ mod tests {
                 .unwrap();
             system.write_snapshots_for_frame(&mut snapshots, ButterflyFrame::at(119. / 120., 8));
             assert_eq!(snapshots[0].position_ws, Vec3::Y);
+        }
+    }
+
+    #[test]
+    fn source_leaf_appearance_switch_preserves_pose_and_physical_size() {
+        use crate::particles::{ParticleSpawn, ParticleSystem};
+        let mut system = ParticleSystem::new(1);
+        system.spawn(ParticleSpawn::default()).unwrap();
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        let mut source = snapshots[0];
+        source.kind = ParticleRenderKind::Leaf;
+        source.leaf_orientation = Some(Quat::from_rotation_y(0.3));
+        source.leaf_geometry = Some(Quat::from_rotation_x(0.5));
+        let original = source;
+        let mut settings = LeafModelSettings {
+            enabled: false,
+            resolution: 22,
+            size_scale: 4.0,
+        };
+        assert!(!settings.uses_model(&source));
+        assert_eq!(settings.render_size(&source), source.size);
+        settings.enabled = true;
+        assert!(settings.uses_model(&source));
+        assert_eq!(settings.render_size(&source), source.size * 4.0);
+        assert_eq!(source.size, original.size);
+        assert_eq!(source.leaf_geometry, original.leaf_geometry);
+        assert_eq!(source.leaf_orientation, original.leaf_orientation);
+        for kind in [
+            ParticleRenderKind::Butterfly,
+            ParticleRenderKind::WaterDroplet,
+            ParticleRenderKind::TerrainVoxel,
+        ] {
+            source.kind = kind;
+            assert!(!settings.uses_model(&source));
+            assert_eq!(settings.render_size(&source), source.size);
         }
     }
 

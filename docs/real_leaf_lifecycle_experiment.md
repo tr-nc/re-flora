@@ -4,7 +4,19 @@
 
 规则来自 [风致脱落调研与设计讨论](research/wind_leaf_detachment.md)。用户已确认：**足够强、足够持久的风允许把树吹秃，不加最低保叶量、概率豁免或发射限流来避免此事。**
 
-## 使用与模式语义
+## 当前行为
+
+真实脱落与再生已固定开启，原 `Real Detachment + Regrowth` 开关移除。
+Debug → **Falling Leaves** → **Model Leaves (Unchecked = Source Voxels)**
+选择落叶外观：勾选使用模型像素后处理叶片，不勾选保留源方形体素。
+沿用 `falling_leaf_mesh` 保存字段；旧配置的生命周期开关和依赖条件会迁移移除，
+其余保存值保留。模型显示尺寸、像素分辨率仅在模型外观开启时可调。
+外观切换作用于已有及新落叶，不重置冠层、再生时钟、来源身份或飞行物理。
+生命周期验证现检查两种外观切换不清除落叶或无关粒子。
+
+以下 A/B 说明及测量是原实验的历史记录，不代表当前仍可切换生命周期。
+
+## 使用与模式语义（历史）
 
 Debug → **Falling Leaves** → **Real Detachment + Regrowth (B; Unchecked = Original)**，默认关闭。
 

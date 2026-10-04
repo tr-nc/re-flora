@@ -1,4 +1,4 @@
-//! The real-leaf experiment's single publication owner. Rendering, flight and
+//! The leaf lifecycle's single publication owner. Rendering, flight and
 //! ecology observe the same committed socket state; App does not manage leaf timers.
 use super::*;
 use crate::leaf_lifecycle::{LeafCanopy, LeafLifecycleSettings};
@@ -77,12 +77,12 @@ impl App {
             .map(validation::Validation::wind)
     }
 
-    /// Mode changes run even when particle drawing is disabled. One setting owns
-    /// both the old emitter and the experiment; no hidden second enabled flag.
+    /// Initialize real detachment once, even when particle drawing is disabled.
+    /// Appearance settings never reset canopy state or existing particles.
     pub(in crate::app::core) fn sync_leaf_lifecycle_mode(&mut self) {
         validation::drive(self);
         let a = &self.debug_settings.adjustables;
-        let enabled = a.real_leaf_lifecycle.value;
+        let enabled = true;
         let settings = LeafLifecycleSettings {
             strength: a.leaf_connection_strength.value,
             half_life_seconds: a.leaf_connection_half_life.value,

@@ -62,7 +62,7 @@ impl Validation {
             .count();
         match self.stage {
             0 => {
-                app.debug_settings.adjustables.real_leaf_lifecycle.value = false;
+                app.debug_settings.adjustables.falling_leaf_mesh.value = false;
                 if self.sentinel.is_none() {
                     self.sentinel = app.particle_system.spawn(ParticleSpawn {
                         position: Vec3::new(1.0, 1.0, 1.0),
@@ -86,7 +86,7 @@ impl Validation {
                     .sum();
                 assert!(self.count > 0, "leaf validation needs the startup tree");
                 let a = &mut app.debug_settings.adjustables;
-                a.real_leaf_lifecycle.value = true;
+                a.falling_leaf_mesh.value = true;
                 a.leaf_connection_strength.value = 1.0;
                 a.leaf_regrowth_delay.value = 0.1;
                 a.leaf_regrowth_duration.value = 1.0;
@@ -145,40 +145,34 @@ impl Validation {
                 assert!(app.particle_system.capacity() >= source_particles);
                 self.gpu_growth_is(app, 0.0);
                 log::info!("[LEAF_LIFECYCLE][VALIDATE] second_generation=passed source_particles={source_particles} capacity={}", app.particle_system.capacity());
-                app.debug_settings.adjustables.real_leaf_lifecycle.value = false;
+                app.debug_settings.adjustables.falling_leaf_mesh.value = false;
                 self.stage = 4;
             }
-            4 => {
-                assert_eq!(source_particles, 0);
+            4 | 5 => {
+                assert_eq!(app.trees.leaf_lifecycle.detached, self.count * 2);
                 assert!(
-                    app.particle_system
-                        .position(self.sentinel.unwrap())
-                        .is_some(),
-                    "A/B reset removed an unrelated particle"
+                    source_particles >= self.count,
+                    "appearance switch cleared falling leaves"
                 );
                 assert!(app
                     .trees
                     .records
                     .values()
-                    .all(|r| r.leaf_lifecycle.is_none()));
-                self.gpu_growth_is(app, 1.0);
-                app.debug_settings.adjustables.real_leaf_lifecycle.value = true;
-                self.stage = 5;
-            }
-            5 => {
-                assert_eq!(app.trees.leaf_lifecycle.detached, 0);
-                assert!(app.trees.records.values().all(|r| r
-                    .leaf_lifecycle
-                    .as_ref()
-                    .unwrap()
-                    .growth
-                    .iter()
-                    .all(|&g| g == 1.0)));
-                self.gpu_growth_is(app, 1.0);
-                app.debug_settings.adjustables.real_leaf_lifecycle.value = false;
-                app.particle_system.despawn(self.sentinel.take().unwrap());
-                self.stage = 6;
-                log::info!("[LEAF_LIFECYCLE][VALIDATE] PASS all_leaf_transfer=true generations=2 regrowth=true gpu_publication=true ecology=true reversible_ab=true unrelated_particles=preserved");
+                    .all(|r| r.leaf_lifecycle.is_some()));
+                assert!(
+                    app.particle_system
+                        .position(self.sentinel.unwrap())
+                        .is_some(),
+                    "appearance switch removed an unrelated particle"
+                );
+                if self.stage == 4 {
+                    app.debug_settings.adjustables.falling_leaf_mesh.value = true;
+                    self.stage = 5;
+                } else {
+                    app.particle_system.despawn(self.sentinel.take().unwrap());
+                    self.stage = 6;
+                    log::info!("[LEAF_LIFECYCLE][VALIDATE] PASS all_leaf_transfer=true generations=2 regrowth=true gpu_publication=true ecology=true appearance_switch=true unrelated_particles=preserved");
+                }
             }
             _ => {}
         }
