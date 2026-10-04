@@ -183,6 +183,7 @@ impl GuiConfigLoader {
                 !matches!(
                     p.id.as_str(),
                     "flower_stem_pixelized"
+                        | "flower_stem_fixed_cell_height"
                         | "flower_stem_surface_cells"
                         | "flower_stem_experiment"
                         | "flower_stem_sampling"
@@ -982,6 +983,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn retired_stem_block_switch_preserves_height_and_enables_slider() {
+        use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let mut retired = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| matches!(p.kind, GuiParamKind::Bool))
+            .unwrap()
+            .clone();
+        retired.id = "flower_stem_fixed_cell_height".into();
+        retired.value = GuiParamValue::Bool { value: false };
+        config.section[0].param.push(retired);
+        let height = config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "flower_stem_cell_height_voxels")
+            .unwrap();
+        height.value = GuiParamValue::Float {
+            value: 1.25,
+            min: Some(0.1),
+            max: Some(4.),
+        };
+        height.enabled_if =
+            Some(toml::from_str("param = 'flower_stem_fixed_cell_height'\nequals = true").unwrap());
+        GuiConfigLoader::migrate_flower_stem_selector(&mut config);
+        assert!(!config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "flower_stem_fixed_cell_height"));
+        let height = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "flower_stem_cell_height_voxels")
+            .unwrap();
+        assert!(height.enabled_if.is_none());
+        assert!(matches!(height.value, GuiParamValue::Float { value, .. } if value == 1.25));
     }
 
     #[test]

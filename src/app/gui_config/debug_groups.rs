@@ -19,7 +19,6 @@ const GROUPS: &[ControlGroup] = &[
         initially_open: false,
         params: &[
             "flower_stem_model_resolution",
-            "flower_stem_fixed_cell_height",
             "flower_stem_cell_height_voxels",
             "flower_stem_radius_scale",
             "flower_stem_test_branches",
@@ -193,7 +192,6 @@ fn render_filtered(
                         (
                             "Shading",
                             &[
-                                "flower_stem_fixed_cell_height",
                                 "flower_stem_cell_height_voxels",
                                 "model_flower_stem_bottom_color",
                                 "model_flower_stem_tip_color",

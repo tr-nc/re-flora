@@ -4,7 +4,6 @@
 pub struct StemExperiment {
     pub pixelized: bool,
     pub surface_cells: bool,
-    pub fixed_cell_height: bool,
     pub cell_height_voxels: f32,
     pub model_resolution: u32,
     pub radius_scale: f32,
@@ -16,7 +15,6 @@ impl Default for StemExperiment {
         Self {
             pixelized: false,
             surface_cells: true,
-            fixed_cell_height: true,
             cell_height_voxels: 0.5,
             model_resolution: 128,
             radius_scale: 4.0,
@@ -64,7 +62,7 @@ mod tests {
             .split_whitespace()
             .collect::<String>();
         // motion_edge.w owns the base geometry dimension used for radius.
-        // Shading may read it for A mode, but must never replace it with B's cell size.
+        // Shading cell size must never replace this geometry dimension.
         assert!(!vertex.contains("output.motion_edge.w="));
         assert!(!vertex.contains("stemWorldCellSize("));
         let geometry = include_str!("../../../shader/slang/flower_stem_experiment.slang")
@@ -81,21 +79,21 @@ mod tests {
             .split_whitespace()
             .collect::<String>();
         assert!(fragment.contains("stemSurfaceCell(s,hit,cellSize,shadePoint,shadeNormal)"));
+        assert!(fragment.contains(
+            "floatcellSize=stemWorldCellSize(flowerStemShapeSettings().z,input.root_scale.w);"
+        ));
+        assert!(!fragment.contains("flowerStemShapeSettings().y"));
     }
 
     #[test]
-    fn block_height_is_bounded_without_changing_ab_mode() {
-        for fixed_cell_height in [false, true] {
-            for (height, expected) in [(0., 0.1), (0.5, 0.5), (8., 4.), (f32::NAN, 0.5)] {
-                let p = StemExperiment {
-                    fixed_cell_height,
-                    cell_height_voxels: height,
-                    ..Default::default()
-                }
-                .normalized();
-                assert_eq!(p.fixed_cell_height, fixed_cell_height);
-                assert_eq!(p.cell_height_voxels, expected);
+    fn block_height_is_bounded() {
+        for (height, expected) in [(0., 0.1), (0.5, 0.5), (8., 4.), (f32::NAN, 0.5)] {
+            let p = StemExperiment {
+                cell_height_voxels: height,
+                ..Default::default()
             }
+            .normalized();
+            assert_eq!(p.cell_height_voxels, expected);
         }
     }
 

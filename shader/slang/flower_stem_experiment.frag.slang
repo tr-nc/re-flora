@@ -28,9 +28,7 @@ StemFragment main(StemProxyVertex input) {
     if(flowerStemSamplingSettings().x!=0u) {
         // motion_edge.w is the base GEOMETRY dimension (also used for radius).
         // Keep the independently tunable shading cell size local to shading.
-        float cellSize=flowerStemShapeSettings().y!=0.0
-            ?stemWorldCellSize(flowerStemShapeSettings().z,input.root_scale.w)
-            :input.motion_edge.w;
+        float cellSize=stemWorldCellSize(flowerStemShapeSettings().z,input.root_scale.w);
         stemSurfaceCell(s,hit,cellSize,shadePoint,shadeNormal);
     }
     float3 color=flowerStemColor(shadePoint.y,s.height);
