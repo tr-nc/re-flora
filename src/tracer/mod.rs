@@ -42,6 +42,7 @@ mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
+mod stem_band_mesh;
 use crate::flora::species;
 mod model_pixel_cache;
 mod model_pixel_frame;
@@ -1362,6 +1363,7 @@ pub struct FloraAppearanceFrameInput {
     pub model_flowers: crate::flora::models::Settings,
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_stem_rendering: bool,
+    pub stem_band_mode: u32,
     pub growth_override_enabled: bool,
     pub growth_override: f32,
     pub flower_stem_bottom: Vec3,
@@ -1621,6 +1623,7 @@ pub struct Tracer {
     flower_model_settings: crate::flora::models::Settings,
     flower_stem_experiment: crate::flora::models::StemExperiment,
     grass_stem_rendering: bool,
+    stem_band_mode: u32,
     flower_spawn_overshoot_voxels: f32,
     // None means no effective display configuration has been published/logged yet.
     ddgi_trace_stats_readback_pending: Option<DdgiPendingTraceStatsReadback>,
@@ -1979,6 +1982,7 @@ impl Tracer {
             flower_model_settings: crate::flora::models::Settings::default(),
             flower_stem_experiment: crate::flora::models::StemExperiment::default(),
             grass_stem_rendering: false,
+            stem_band_mode: 1,
             flower_spawn_overshoot_voxels: 0.,
             ddgi_trace_stats_readback_pending: None,
             ddgi_local_light_gpu_evidence_accumulating: None,
@@ -3033,6 +3037,7 @@ impl Tracer {
             log::info!("[GRASS_STEM_AB] enabled={} topology=6_vertex_proxy heads=0 colors=grass lighting=shared_cache growth=existing wind=existing", vegetation.appearance.grass_stem_rendering);
         }
         self.grass_stem_rendering = vegetation.appearance.grass_stem_rendering;
+        self.stem_band_mode = vegetation.appearance.stem_band_mode.min(3);
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
             .spawn_overshoot_min_voxels
@@ -4731,7 +4736,11 @@ impl Tracer {
                 let pipeline = if self.grass_stem_rendering
                     && species::is_grass_species_index(batch.species_index() as u32)
                 {
-                    &self.pipeline_topology.graphics().grass_stem_ppl
+                    if self.stem_band_mode == 0 {
+                        &self.pipeline_topology.graphics().grass_stem_ppl
+                    } else {
+                        &self.pipeline_topology.graphics().grass_band_ppl
+                    }
                 } else {
                     match batch.lod_state() {
                         LodState::Lod0 => &self.pipeline_topology.graphics().flora_ppl,
@@ -4867,6 +4876,7 @@ impl Tracer {
                 &self.pipeline_topology.graphics().flower_pixel_ppl,
                 &self.pipeline_topology.graphics().flower_stem_experiment_ppl,
                 &self.pipeline_topology.graphics().grass_stem_ppl,
+                &self.pipeline_topology.graphics().grass_band_ppl,
             ] {
                 pipeline.prepare_descriptor_resources(cmdbuf);
             }
@@ -5026,7 +5036,11 @@ impl Tracer {
                 let analytic_grass = self.grass_stem_rendering
                     && species::is_grass_species_index(species_index as u32);
                 let pipeline = if analytic_grass {
-                    &self.pipeline_topology.graphics().grass_stem_ppl
+                    if self.stem_band_mode == 0 {
+                        &self.pipeline_topology.graphics().grass_stem_ppl
+                    } else {
+                        &self.pipeline_topology.graphics().grass_band_ppl
+                    }
                 } else {
                     match lod_state {
                         LodState::Lod0 => &self.pipeline_topology.graphics().flora_ppl,
@@ -5039,7 +5053,15 @@ impl Tracer {
                 };
                 pipeline.record_bind(cmdbuf);
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-                if analytic_grass {
+                if analytic_grass && self.stem_band_mode != 0 {
+                    let bands = &self.resources.flower_models;
+                    cmdbuf.bind_index_buffer_u32(if self.stem_band_mode == 3 {
+                        &bands.stem_band_ribbon_indices
+                    } else {
+                        &bands.stem_band_indices
+                    });
+                    cmdbuf.bind_vertex_buffers(0, &[&bands.stem_band_vertices]);
+                } else if analytic_grass {
                     cmdbuf.bind_index_buffer_u32(&self.resources.flower_models.flower_stem_indices);
                     cmdbuf.bind_vertex_buffers(
                         0,
@@ -5076,7 +5098,15 @@ impl Tracer {
                         prepared_flora_descriptors
                             .next()
                             .expect("every flora frame batch must have prepared descriptors"),
-                        if analytic_grass { 6 } else { mesh.indices_len },
+                        if analytic_grass {
+                            match self.stem_band_mode {
+                                0 => 6,
+                                3 => 8 * 12,
+                                _ => 8 * 36,
+                            }
+                        } else {
+                            mesh.indices_len
+                        },
                         batch.instance_count(),
                         0,
                         0,

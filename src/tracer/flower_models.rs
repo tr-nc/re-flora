@@ -9,6 +9,9 @@ pub struct FlowerModelResources {
     pub flower_parts: Resource<Buffer>,
     pub flower_stem_vertices: Resource<Buffer>,
     pub flower_stem_indices: Resource<Buffer>,
+    pub stem_band_vertices: Resource<Buffer>,
+    pub stem_band_indices: Resource<Buffer>,
+    pub stem_band_ribbon_indices: Resource<Buffer>,
 }
 impl FlowerModelResources {
     pub fn new(device: Device, allocator: Allocator) -> Self {
@@ -26,6 +29,10 @@ impl FlowerModelResources {
             Resource::new(buffer)
         };
         let stem_indices = (0..6u32).collect::<Vec<_>>();
+        let (band_vertices, band_indices) =
+            super::stem_band_mesh::topology(super::stem_band_mesh::MAX_GRASS_BANDS, false);
+        let (_, ribbon_indices) =
+            super::stem_band_mesh::topology(super::stem_band_mesh::MAX_GRASS_BANDS, true);
         log::info!(
             "[FLOWER_MODELS] assets={} source=head_models assembly=native heads=1 calyx=head leaves=0 stem=continuous_tapered wind=live",
             models::flowers().len()
@@ -39,6 +46,18 @@ impl FlowerModelResources {
             ),
             flower_stem_indices: make(
                 bytemuck::cast_slice(&stem_indices),
+                vk::BufferUsageFlags::INDEX_BUFFER,
+            ),
+            stem_band_vertices: make(
+                bytemuck::cast_slice(&band_vertices),
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+            ),
+            stem_band_indices: make(
+                bytemuck::cast_slice(&band_indices),
+                vk::BufferUsageFlags::INDEX_BUFFER,
+            ),
+            stem_band_ribbon_indices: make(
+                bytemuck::cast_slice(&ribbon_indices),
                 vk::BufferUsageFlags::INDEX_BUFFER,
             ),
         }

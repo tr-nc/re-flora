@@ -2,6 +2,7 @@ module tracer_types;
 
 public struct U_GuiInput
 {
+    public uint stem_band_mode; // 0 analytic reference, 1 square, 2 tapered square, 3 crossed ribbons
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public uint raster_tree_static;

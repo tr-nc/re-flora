@@ -4,8 +4,7 @@ use super::App;
 use anyhow::{ensure, Result};
 use glam::{Vec2, Vec3};
 
-const WARMUP_FRAMES: u32 = 120;
-const TOTAL_FRAMES: u32 = 420;
+const POST_PAINT_WARMUP_FRAMES: u32 = 111;
 
 #[derive(Debug)]
 pub(super) struct GrassStemReview {
@@ -15,13 +14,29 @@ pub(super) struct GrassStemReview {
     distance: &'static str,
     species_mode: u32,
     curved: bool,
+    grid: u32,
+    candidate: u32,
+    sample_frames: u32,
     pub(super) interactive: bool,
 }
 
 impl GrassStemReview {
     pub(super) fn from_environment() -> Option<Self> {
         if let Ok(case) = std::env::var("RE_FLORA_GRASS_STEM_REVIEW") {
-            Some(Self::parse(&case).expect("grass stem review case"))
+            let mut review = Self::parse(&case).expect("grass stem review case");
+            review.grid = environment_uint("RE_FLORA_GRASS_STEM_GRID", 3);
+            review.candidate = environment_uint("RE_FLORA_STEM_BAND_MODE", 0);
+            review.sample_frames = environment_uint("RE_FLORA_STEM_SAMPLE_FRAMES", 300);
+            assert!(
+                (3..=15).contains(&review.grid) && review.grid % 2 == 1,
+                "grass grid must be odd, 3..15"
+            );
+            assert!(review.candidate <= 3, "stem candidate must be 0..3");
+            assert!(
+                (60..=600).contains(&review.sample_frames),
+                "sample frames must be 60..600"
+            );
+            Some(review)
         } else if std::env::var_os("RE_FLORA_GRASS_STEM_TRYOUT").is_some() {
             let mut review = Self::parse("mid-both-a").unwrap();
             review.interactive = true;
@@ -35,7 +50,7 @@ impl GrassStemReview {
         let parts: Vec<_> = case.split('-').collect();
         ensure!(
             parts.len() == 3,
-            "expected <near|mid|far|top|low|inside>-<both|tall|short|curved>-<a|b>"
+            "expected <near|mid|far|top|low|inside|wide>-<both|tall|short|curved>-<a|b>"
         );
         let distance = match parts[0] {
             "near" => "near",
@@ -44,6 +59,7 @@ impl GrassStemReview {
             "top" => "top",
             "low" => "low",
             "inside" => "inside",
+            "wide" => "wide",
             _ => anyhow::bail!("unknown grass review distance"),
         };
         let species_mode = match parts[1] {
@@ -64,6 +80,9 @@ impl GrassStemReview {
             distance,
             species_mode,
             curved: parts[1] == "curved",
+            grid: 3,
+            candidate: 0,
+            sample_frames: 300,
             interactive: false,
         })
     }
@@ -81,10 +100,17 @@ impl GrassStemReview {
             "grass stem review requires --perf GPU timestamps"
         );
         let xz = Vec2::new(0.85, 0.85);
-        if frame < 9 {
+        let warmup_frames = self.grid * self.grid + POST_PAINT_WARMUP_FRAMES;
+        let total_frames = warmup_frames + self.sample_frames;
+        if frame < self.grid * self.grid {
             // The authored-flora launch starts empty. Populate a fixed dense
             // grass patch via the real paint operation, using mature growth ticks.
-            let patch = xz + Vec2::new((frame % 3) as f32 - 1.0, (frame / 3) as f32 - 1.0) * 0.10;
+            let half = (self.grid / 2) as f32;
+            let patch = xz
+                + Vec2::new(
+                    (frame % self.grid) as f32 - half,
+                    (frame / self.grid) as f32 - half,
+                ) * 0.10;
             let center = Vec3::new(patch.x, app.query_terrain_height_cpu(patch), patch.y);
             app.player_tools.flora_paint_selection_index = 0;
             app.apply_surface_flora_regeneration(
@@ -105,6 +131,7 @@ impl GrassStemReview {
             "top" => Vec3::new(0.0, 0.12, 0.0001),
             "low" => Vec3::new(0.0, 0.04, 0.0001),
             "inside" => Vec3::new(0.0, 0.008, 0.0001),
+            "wide" => Vec3::new(0.5, 1.0, 1.6),
             _ => Vec3::new(0.25, 0.45, 1.0),
         };
         app.camera_control.set_orbit_focus(target);
@@ -117,6 +144,7 @@ impl GrassStemReview {
         gui.grass_stem_rendering.value = self.experimental;
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
+            gui.stem_band_mode.value = self.candidate;
             gui.flora_growth_override_enabled.value = true;
             gui.flora_growth_override.value = 1.0;
             gui.flora_inertial_response.value = true;
@@ -126,7 +154,7 @@ impl GrassStemReview {
             gui.grass_natural_bend_max_voxels.value = if self.curved { 4.0 } else { 2.0 };
         }
         app.render_flags.enable_flora = true;
-        if frame == WARMUP_FRAMES {
+        if frame == warmup_frames {
             if let Some(directory) = std::env::var_os("RE_FLORA_GRASS_STEM_CAPTURE") {
                 let directory = std::path::PathBuf::from(directory);
                 std::fs::create_dir_all(&directory)?;
@@ -141,7 +169,7 @@ impl GrassStemReview {
                     }));
             }
         }
-        if frame == 0 || frame == WARMUP_FRAMES || frame == TOTAL_FRAMES {
+        if frame == 0 || frame == warmup_frames || frame == total_frames {
             let counts = [0, 1].map(|species| {
                 app.surface_builder
                     .resources
@@ -155,12 +183,18 @@ impl GrassStemReview {
                 frame == 0 || counts.iter().all(|count| *count > 0),
                 "grass review has empty grass species: {counts:?}"
             );
-            log::info!("[GRASS_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={} grass={counts:?} camera={:?} target={:?} resolution=45 saved=false",
-                self.case, if frame == 0 { "start" } else if frame == WARMUP_FRAMES { "sample" } else { "complete" },
-                app.time_info.total_frame_count(), frame, (target + offset).to_array(), target.to_array());
+            log::info!("[GRASS_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={} grass={counts:?} camera={:?} target={:?} resolution=45 saved=false grid={} candidate={}",
+                self.case, if frame == 0 { "start" } else if frame == warmup_frames { "sample" } else { "complete" },
+                app.time_info.total_frame_count(), frame, (target + offset).to_array(), target.to_array(), self.grid, self.candidate);
         }
-        Ok(frame == TOTAL_FRAMES)
+        Ok(frame == total_frames)
     }
+}
+
+fn environment_uint(name: &str, default: u32) -> u32 {
+    std::env::var(name).map_or(default, |value| {
+        value.parse().expect("unsigned review setting")
+    })
 }
 
 #[cfg(test)]

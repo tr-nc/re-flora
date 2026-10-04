@@ -14,10 +14,10 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
-        title: "Pixel Sampling — Grass",
-        description: "Unchecked: original voxel grass. Checked: stem-only pixelized grass. Shares flower-stem samples per height; preserves grass colors, growth and wind. No flower heads.",
+        title: "Stem Geometry & Color Bands",
+        description: "Grass unchecked: original voxel mesh. Checked: selected candidate. Raster bands have flat color and lighting, real depth and no spherical caps; analytic reference retains model pixelization. Growth and wind stay live.",
         initially_open: false,
-        params: &["grass_stem_rendering"],
+        params: &["grass_stem_rendering", "stem_band_mode"],
     },
     ControlGroup {
         parent: None,

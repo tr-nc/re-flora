@@ -152,7 +152,7 @@ float sampleStandardNormal(uint seed)
     return (constructFloat01(stateA) + constructFloat01(stateB) - 1.0) * 2.4494898;
 }
 
-uint sampleGrassHeight(uint instanceType, uint seed)
+public uint sampleGrassHeight(uint instanceType, uint seed)
 {
     bool isShortGrass = instanceType == FLORA_SPECIES_SHORT_GRASS;
     float meanHeight = isShortGrass ? 3.0 : 5.0;

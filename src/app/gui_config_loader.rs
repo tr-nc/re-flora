@@ -87,6 +87,7 @@ impl GuiConfigLoader {
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
+        Self::add_missing_param(&mut config, "Debug", "stem_band_mode");
         for id in [
             "leaf_connection_strength",
             "leaf_connection_half_life",

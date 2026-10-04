@@ -32,6 +32,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "stem_band_mode",
+        kind: "choice",
+        label: "Stem candidate (grass and CPU paths)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flower_stem_model_resolution",
         kind: "uint",
         label: "Flower stems: samples per stem height",
@@ -1367,6 +1373,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 #[allow(dead_code)]
 pub struct GuiAdjustables {
     pub grass_stem_rendering: crate::gui_adjustables::BoolParam,
+    pub stem_band_mode: crate::gui_adjustables::ChoiceParam,
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
     pub flower_stem_cell_height_voxels: crate::gui_adjustables::FloatParam,
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
@@ -1603,6 +1610,7 @@ impl GuiAdjustables {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
         let mut grass_stem_rendering_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut stem_band_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut flower_stem_cell_height_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -1832,6 +1840,11 @@ impl GuiAdjustables {
                     "grass_stem_rendering" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_stem_rendering_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "stem_band_mode" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            stem_band_mode_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "flower_stem_model_resolution" => {
@@ -3331,6 +3344,7 @@ impl GuiAdjustables {
 
         GuiAdjustables {
             grass_stem_rendering: grass_stem_rendering_field.expect("Missing parameter: grass_stem_rendering"),
+            stem_band_mode: stem_band_mode_field.expect("Missing parameter: stem_band_mode"),
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
             flower_stem_cell_height_voxels: flower_stem_cell_height_voxels_field.expect("Missing parameter: flower_stem_cell_height_voxels"),
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
@@ -3771,6 +3785,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
     match id {
+        "stem_band_mode" => Some(&adjustables.stem_band_mode),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
         _ => None,
     }
@@ -4041,6 +4056,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
     match id {
+        "stem_band_mode" => Some(&mut adjustables.stem_band_mode),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
         _ => None,
     }
