@@ -12,12 +12,14 @@ pub(super) struct AuthoredFloraBench {
     response_check: Option<ResponseCheck>,
     response_perf: Option<ResponsePerf>,
     grass_stem_review: Option<super::grass_stem_review::GrassStemReview>,
+    cpu_stem_review: Option<super::cpu_stem_review::CpuStemReview>,
 }
 
 impl AuthoredFloraBench {
     pub(super) fn new(samples: u32) -> Self {
         Self {
             grass_stem_review: super::grass_stem_review::GrassStemReview::from_environment(),
+            cpu_stem_review: super::cpu_stem_review::CpuStemReview::from_environment(),
             samples: samples.max(1),
             next_sample: 0,
             results: Vec::new(),
@@ -41,6 +43,13 @@ impl AuthoredFloraBench {
     }
 
     fn run_sample(&mut self, app: &mut App) -> bool {
+        assert!(
+            self.grass_stem_review.is_none() || self.cpu_stem_review.is_none(),
+            "choose only one stem fixture"
+        );
+        if let Some(review) = &mut self.cpu_stem_review {
+            return review.advance(app).expect("CPU stem review fixture");
+        }
         if let Some(review) = &mut self.grass_stem_review {
             return review.advance(app).expect("grass stem review fixture");
         }
@@ -96,9 +105,11 @@ impl AuthoredFloraBench {
     }
 
     pub(super) fn is_grass_stem_review(&self) -> bool {
-        self.grass_stem_review
-            .as_ref()
-            .is_some_and(|review| !review.interactive)
+        self.cpu_stem_review.is_some()
+            || self
+                .grass_stem_review
+                .as_ref()
+                .is_some_and(|review| !review.interactive)
     }
 
     pub(super) fn fixed_response_time(&self) -> Option<f32> {
@@ -106,6 +117,11 @@ impl AuthoredFloraBench {
             .as_ref()
             .filter(|review| !review.interactive)
             .map(|review| review.frame as f32 / 60.)
+            .or_else(|| {
+                self.cpu_stem_review
+                    .as_ref()
+                    .map(|review| review.frame as f32 / 60.)
+            })
             .or_else(|| {
                 self.response_perf
                     .as_ref()

@@ -17,7 +17,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Stem Geometry & Color Bands",
         description: "Grass unchecked: original voxel mesh. Checked: selected candidate. Raster bands have flat color and lighting, real depth and no spherical caps; analytic reference retains model pixelization. Growth and wind stay live.",
         initially_open: false,
-        params: &["grass_stem_rendering", "stem_band_mode"],
+        params: &["grass_stem_rendering", "cpu_stem_band_rendering", "stem_band_mode"],
     },
     ControlGroup {
         parent: None,

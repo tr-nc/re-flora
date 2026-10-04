@@ -19,10 +19,10 @@ public float3 stemBandDirection(float3 delta) {
     return dot(delta,delta)>1e-12?normalize(delta):float3(0,1,0);
 }
 public float3 stemBandPoint(float3 a,float3 b,float3 tangentA,float3 tangentB,
-    float3 side,float2 radiiA,float2 radiiB,float3 q) {
+    float3 sideA,float3 sideB,float2 radiiA,float2 radiiB,float3 q) {
     float t=q.y+0.5;
     float3 tangent=stemBandDirection(lerp(tangentA,tangentB,t));
-    float3 x=stemBandSide(tangent,side),z=cross(x,tangent);
+    float3 x=stemBandSide(tangent,lerp(sideA,sideB,t)),z=cross(x,tangent);
     float2 radii=lerp(radiiA,radiiB,t);
     return lerp(a,b,t)+x*(q.x*2.0*radii.x)+z*(q.z*2.0*radii.y);
 }

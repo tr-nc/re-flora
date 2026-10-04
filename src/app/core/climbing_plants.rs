@@ -454,6 +454,17 @@ impl App {
         }
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
         let review = review_mode.is_some();
+        if review {
+            if let Ok(mode) = std::env::var("RE_FLORA_STEM_BAND_MODE") {
+                let mode: u32 = mode.parse()?;
+                anyhow::ensure!(mode <= 3, "stem candidate must be 0..3");
+                self.debug_settings
+                    .adjustables
+                    .cpu_stem_band_rendering
+                    .value = mode != 0;
+                self.debug_settings.adjustables.stem_band_mode.value = mode;
+            }
+        }
         let overhang_review = review_mode.as_deref() == Some("overhang");
         let review_fixture = if overhang_review {
             Some(Fixture::Inward)
@@ -530,6 +541,7 @@ impl App {
                 ..Default::default()
             };
             self.tracer.show_climbing_plant_geometry(&[])?;
+            self.tracer.show_cpu_stem_bands(&[])?;
             self.execute_world_edit(fixture_edit(fixture, site)?)?;
             log::info!(
                 "[CLIMBING] authored editable {} fixture; history is session-only",
@@ -740,6 +752,45 @@ impl App {
                 plant.nodes.iter().all(|n| n.position.is_finite())
             );
         }
+        let banded = self
+            .debug_settings
+            .adjustables
+            .cpu_stem_band_rendering
+            .value;
+        if banded {
+            let mut points: Vec<crate::tracer::StemPathPoint> =
+                Vec::with_capacity(plant.nodes.len());
+            for node in &plant.nodes {
+                let (arc, tangent) = node.parent.map_or((0., Vec3::Y), |parent| {
+                    (
+                        points[parent].rest_arc + node.rest_length / 256.,
+                        (node.position - plant.nodes[parent].position).normalize_or_zero(),
+                    )
+                });
+                let side = tangent
+                    .cross(node.normal)
+                    .try_normalize()
+                    .unwrap_or(Vec3::X);
+                points.push(crate::tracer::StemPathPoint {
+                    position: node.position / 256.,
+                    rest_arc: arc,
+                    tangent,
+                    side,
+                    parent: node.parent,
+                });
+            }
+            let bands = crate::tracer::path_bands(
+                &points,
+                plant.max_live_arc() / 256.,
+                8,
+                0.45 / 256.,
+                self.debug_settings.adjustables.stem_band_mode.value,
+                [Vec3::new(0.22, 0.32, 0.07), Vec3::new(0.32, 0.52, 0.09)],
+            );
+            self.tracer.show_cpu_stem_bands(&bands)?;
+        } else {
+            self.tracer.show_cpu_stem_bands(&[])?;
+        }
         let mut instances = std::mem::take(&mut self.climbing_plants.instances);
         instances.clear();
         instances.reserve(plant.nodes.len() * 2);
@@ -755,16 +806,18 @@ impl App {
                     .try_normalize()
                     .unwrap_or_else(|| up.any_orthonormal_vector());
                 let rotation = Quat::from_mat3(&Mat3::from_cols(side, up, side.cross(up)));
-                instances.push(block_instance(
-                    (start + node.position) * 0.5,
-                    rotation,
-                    Vec3::new(0.9, delta.length(), 0.9),
-                    if node.fixed {
-                        Vec3::new(0.22, 0.32, 0.07)
-                    } else {
-                        Vec3::new(0.32, 0.52, 0.09)
-                    },
-                ));
+                if !banded {
+                    instances.push(block_instance(
+                        (start + node.position) * 0.5,
+                        rotation,
+                        Vec3::new(0.9, delta.length(), 0.9),
+                        if node.fixed {
+                            Vec3::new(0.22, 0.32, 0.07)
+                        } else {
+                            Vec3::new(0.32, 0.52, 0.09)
+                        },
+                    ));
+                }
                 if id % 3 == 0 {
                     let side = if id % 2 == 0 { -1. } else { 1. };
                     instances.push(block_instance(

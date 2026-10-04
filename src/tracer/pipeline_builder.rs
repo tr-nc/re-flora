@@ -546,6 +546,18 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let cpu_stem_band_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/cpu_stem_band.vert",
+            "main",
+        )
+        .unwrap();
+        let cpu_stem_band_shadow_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/cpu_stem_band_shadow.vert",
+            "main",
+        )
+        .unwrap();
         let grass_band_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/grass_band.vert",
@@ -738,6 +750,8 @@ impl PipelineBuilder {
             grass_stem_frag_sm,
             grass_band_vert_sm,
             stem_band_frag_sm,
+            cpu_stem_band_vert_sm,
+            cpu_stem_band_shadow_vert_sm,
             apple_pixel_tree_comp_sm,
             apple_pixel_dynamic_comp_sm,
             apple_pixel_tree_vert_sm,
@@ -1580,6 +1594,44 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
+        let cpu_stem_band_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.cpu_stem_band_vert_sm,
+            &shader_modules.stem_band_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            Some(1),
+            pool,
+            &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                vertex_binding_strides: vec![(
+                    1,
+                    std::mem::size_of::<super::StemBandInstance>() as u32,
+                )],
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        let cpu_stem_band_shadow_ppl = Self::create_gfx_pipeline_with_desc(
+            vulkan_ctx,
+            &shader_modules.cpu_stem_band_shadow_vert_sm,
+            &shader_modules.dynamic_fruit_shadow_frag_sm,
+            &render_passes.render_pass_depth,
+            Some(1),
+            pool,
+            &[resources],
+            GraphicsPipelineDesc {
+                vertex_binding_strides: vec![(
+                    1,
+                    std::mem::size_of::<super::StemBandInstance>() as u32,
+                )],
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
         let apple_pixel_dynamic_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.apple_pixel_dynamic_vert_sm,
@@ -1709,6 +1761,8 @@ impl PipelineBuilder {
             apple_pixel_dynamic_ppl,
             dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
+            cpu_stem_band_ppl,
+            cpu_stem_band_shadow_ppl,
             butterfly_tile_ppl,
             particle_ppl,
             water_droplet_ppl,
@@ -1926,6 +1980,7 @@ declare_ddgi_consumer_registry! {
     GrassStem => Graphics(graphics.grass_stem_ppl),
     GrassBands => Graphics(graphics.grass_band_ppl),
     DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
+    CpuStemBands => Graphics(graphics.cpu_stem_band_ppl),
     AppleDynamicTiles => Compute(compute.apple_pixel_dynamic_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
@@ -2299,6 +2354,7 @@ impl PipelineTopology {
             &self.graphics.environment_probe_visualization_depth_ppl,
             &self.graphics.environment_probe_visualization_overlay_ppl,
             &self.graphics.dynamic_fruit_ppl,
+            &self.graphics.cpu_stem_band_ppl,
             &self.graphics.apple_pixel_dynamic_ppl,
             &self.graphics.butterfly_tile_ppl,
             &self.graphics.particle_ppl,
@@ -2811,6 +2867,8 @@ pub struct ShaderModules {
     pub grass_stem_frag_sm: ShaderModule,
     pub grass_band_vert_sm: ShaderModule,
     pub stem_band_frag_sm: ShaderModule,
+    pub cpu_stem_band_vert_sm: ShaderModule,
+    pub cpu_stem_band_shadow_vert_sm: ShaderModule,
     pub flower_stem_experiment_vert_sm: ShaderModule,
     pub flower_stem_experiment_frag_sm: ShaderModule,
     pub apple_pixel_tree_comp_sm: ShaderModule,
@@ -2905,6 +2963,8 @@ pub struct GraphicsPipelines {
     pub flower_stem_experiment_ppl: GraphicsPipeline,
     pub grass_stem_ppl: GraphicsPipeline,
     pub grass_band_ppl: GraphicsPipeline,
+    pub cpu_stem_band_ppl: GraphicsPipeline,
+    pub cpu_stem_band_shadow_ppl: GraphicsPipeline,
     pub apple_pixel_tree_ppl: GraphicsPipeline,
     pub apple_pixel_dynamic_ppl: GraphicsPipeline,
     pub dynamic_fruit_ppl: GraphicsPipeline,

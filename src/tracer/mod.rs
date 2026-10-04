@@ -43,7 +43,11 @@ mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
 mod stem_band_mesh;
+mod stem_band_paths;
+mod stem_band_resources;
 use crate::flora::species;
+pub use stem_band_paths::{path_bands, StemBandInstance, StemPathPoint};
+use stem_band_resources::StemBandResources;
 mod model_pixel_cache;
 mod model_pixel_frame;
 #[cfg(test)]
@@ -1596,6 +1600,7 @@ pub struct Tracer {
     geometry_preview_resources: GeometryPreviewRendererResources,
     dynamic_fruit_resources: DynamicFruitRendererResources,
     climbing_plant_resources: DynamicFruitRendererResources,
+    cpu_stem_band_resources: StemBandResources,
     pub(crate) raster_trees: RasterTreeGeometry,
     pub(crate) tree_pose_solver: crate::tree_gen::gpu_pose::GpuTreePoseSolver,
     environment_probe_visualization_resources: EnvironmentProbeVisualizationResources,
@@ -1877,6 +1882,11 @@ impl Tracer {
             allocator.clone(),
             frame_retirement_sink.clone(),
         );
+        let cpu_stem_band_resources = StemBandResources::new(
+            vulkan_ctx.device().clone(),
+            allocator.clone(),
+            frame_retirement_sink.clone(),
+        );
         let climbing_plant_resources = DynamicFruitRendererResources::blocks(
             vulkan_ctx.device().clone(),
             allocator.clone(),
@@ -1956,6 +1966,7 @@ impl Tracer {
             geometry_preview_resources,
             dynamic_fruit_resources,
             climbing_plant_resources,
+            cpu_stem_band_resources,
             raster_trees,
             tree_pose_solver,
             environment_probe_visualization_resources,
@@ -3037,7 +3048,11 @@ impl Tracer {
             log::info!("[GRASS_STEM_AB] enabled={} topology=6_vertex_proxy heads=0 colors=grass lighting=shared_cache growth=existing wind=existing", vegetation.appearance.grass_stem_rendering);
         }
         self.grass_stem_rendering = vegetation.appearance.grass_stem_rendering;
-        self.stem_band_mode = vegetation.appearance.stem_band_mode.min(3);
+        let mode = vegetation.appearance.stem_band_mode.min(3);
+        if self.stem_band_mode != mode {
+            self.cpu_stem_band_resources.invalidate_shadow();
+        }
+        self.stem_band_mode = mode;
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
             .spawn_overshoot_min_voxels
@@ -3622,7 +3637,8 @@ impl Tracer {
             (render_flags.enable_shadows && update_shadow_map).then(|| {
                 let dynamic_fruit_shadow_changed =
                     self.dynamic_fruit_resources.take_shadow_changed()
-                        | self.climbing_plant_resources.take_shadow_changed();
+                        | self.climbing_plant_resources.take_shadow_changed()
+                        | self.cpu_stem_band_resources.take_shadow_changed();
                 self.direct_sun_shadows
                     .plan_update(dynamic_fruit_shadow_changed)
             });
@@ -3691,6 +3707,7 @@ impl Tracer {
                 );
             }
             self.record_dynamic_fruit_shadow_pass(cmdbuf, &self.climbing_plant_resources);
+            self.record_cpu_stem_shadow_pass(cmdbuf);
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -3838,6 +3855,15 @@ impl Tracer {
         );
         record_instance(&self.climbing_plant_resources.instances);
         record_mesh(
+            &self.resources.flower_models.stem_band_indices,
+            &self.resources.flower_models.stem_band_vertices,
+            8 * 36,
+        );
+        record_index(&self.resources.flower_models.stem_band_ribbon_indices);
+        if self.cpu_stem_band_resources.count > 0 {
+            record_instance(&self.cpu_stem_band_resources.instances);
+        }
+        record_mesh(
             &self.particle_resources.tree_leaf_indices,
             &self.particle_resources.tree_leaf_vertices,
             self.particle_resources.tree_leaf_indices_len,
@@ -3953,6 +3979,7 @@ impl Tracer {
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
+            || self.cpu_stem_band_resources.count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
 
         if render_flags.enable_flora {
@@ -4232,6 +4259,7 @@ impl Tracer {
             || self.mower_resources.visible
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
+            || self.cpu_stem_band_resources.count > 0
             || (self.raster_trees.enabled && self.raster_trees.index_count > 0);
         if !has_graphics_pass {
             self.resources
@@ -4923,6 +4951,12 @@ impl Tracer {
                 .apple_pixel_dynamic_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
+        if self.cpu_stem_band_resources.count > 0 {
+            self.pipeline_topology
+                .graphics()
+                .cpu_stem_band_ppl
+                .prepare_descriptor_resources(cmdbuf);
+        }
         let prepared_dynamic_pixels = if self.dynamic_fruit_resources.instance_count > 0 {
             Some(
                 Self::with_gpu_scope(
@@ -5517,6 +5551,19 @@ impl Tracer {
             }
         }
 
+        let cpu_stem_scope = (self.climbing_plant_resources.instance_count > 0
+            || self.cpu_stem_band_resources.count > 0)
+            .then(|| {
+                gpu_profiler.as_deref_mut().and_then(|p| {
+                    p.begin_scope(
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                        "graphics.cpu_stems",
+                        PipelineStage::ALL_COMMANDS,
+                    )
+                })
+            })
+            .flatten();
         if self.climbing_plant_resources.instance_count > 0 {
             let resources = &self.climbing_plant_resources;
             let pipeline = &self.pipeline_topology.graphics().dynamic_fruit_ppl;
@@ -5532,6 +5579,21 @@ impl Tracer {
                 0,
                 0,
                 None,
+            );
+        }
+
+        self.record_cpu_stem_geometry(
+            cmdbuf,
+            &self.pipeline_topology.graphics().cpu_stem_band_ppl,
+            viewport,
+            scissor,
+        );
+        if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), cpu_stem_scope) {
+            profiler.end_scope(
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                scope,
+                PipelineStage::ALL_COMMANDS,
             );
         }
 
@@ -5889,6 +5951,72 @@ impl Tracer {
 
         self.pipeline_topology
             .leaf_shadow_opacity_target()
+            .record_end(cmdbuf);
+    }
+
+    fn record_cpu_stem_geometry(
+        &self,
+        cmdbuf: &CommandBuffer,
+        pipeline: &GraphicsPipeline,
+        viewport: Viewport,
+        scissor: vk::Rect2D,
+    ) {
+        if self.cpu_stem_band_resources.count == 0 {
+            return;
+        }
+        let bands = &self.resources.flower_models;
+        pipeline.record_bind(cmdbuf);
+        pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+        cmdbuf.bind_index_buffer_u32(if self.stem_band_mode == 3 {
+            &bands.stem_band_ribbon_indices
+        } else {
+            &bands.stem_band_indices
+        });
+        cmdbuf.bind_vertex_buffers(
+            0,
+            &[
+                &bands.stem_band_vertices,
+                &self.cpu_stem_band_resources.instances,
+            ],
+        );
+        pipeline.record_indexed(
+            cmdbuf,
+            if self.stem_band_mode == 3 { 12 } else { 36 },
+            self.cpu_stem_band_resources.count,
+            0,
+            0,
+            0,
+            None,
+        );
+    }
+
+    fn record_cpu_stem_shadow_pass(&self, cmdbuf: &CommandBuffer) {
+        if self.cpu_stem_band_resources.count == 0 {
+            return;
+        }
+        let pipeline = &self.pipeline_topology.graphics().cpu_stem_band_shadow_ppl;
+        pipeline.prepare_descriptor_resources(cmdbuf);
+        self.pipeline_topology
+            .depth_only_target()
+            .record_begin(cmdbuf, &[]);
+        let extent = self
+            .resources
+            .shadow
+            .shadow_map_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        let viewport = Viewport::from_extent(extent.as_extent_2d().unwrap());
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: vk::Extent2D {
+                width: extent.width,
+                height: extent.height,
+            },
+        };
+        self.record_cpu_stem_geometry(cmdbuf, pipeline, viewport, scissor);
+        self.pipeline_topology
+            .depth_only_target()
             .record_end(cmdbuf);
     }
 
@@ -6902,6 +7030,10 @@ impl Tracer {
             self.raster_trees.skin.bindings.len() as u32,
         ]])?;
         Ok(())
+    }
+
+    pub fn show_cpu_stem_bands(&mut self, instances: &[StemBandInstance]) -> Result<()> {
+        self.cpu_stem_band_resources.show(instances)
     }
 
     pub fn show_climbing_plant_geometry(

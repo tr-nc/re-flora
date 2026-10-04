@@ -8,6 +8,7 @@ mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
 mod climbing_plants;
+mod cpu_stem_review;
 mod ddgi_spatial_weight_readback;
 mod debug_panel;
 mod denoiser_bench;

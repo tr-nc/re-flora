@@ -101,6 +101,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "cpu_stem_band_rendering"
+kind = "bool"
+label = "Experimental color-band stems (CPU climbing paths)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "stem_band_mode"
 kind = "choice"
 label = "Stem candidate (grass and CPU paths)"
