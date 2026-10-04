@@ -546,6 +546,18 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let grass_stem_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/grass_stem.vert",
+            "main",
+        )
+        .unwrap();
+        let grass_stem_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/grass_stem.frag",
+            "main",
+        )
+        .unwrap();
         let flower_stem_experiment_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flower_stem_experiment.vert",
@@ -710,6 +722,8 @@ impl PipelineBuilder {
             flower_pixel_frag_sm,
             flower_stem_experiment_vert_sm,
             flower_stem_experiment_frag_sm,
+            grass_stem_vert_sm,
+            grass_stem_frag_sm,
             apple_pixel_tree_comp_sm,
             apple_pixel_dynamic_comp_sm,
             apple_pixel_tree_vert_sm,
@@ -1212,6 +1226,27 @@ impl PipelineBuilder {
             })
             .expect("flora static descriptors must resolve from tracer resources");
 
+        let grass_stem_ppl = Self::create_gfx_pipeline_uninitialized(
+            vulkan_ctx,
+            &shader_modules.grass_stem_vert_sm,
+            &shader_modules.grass_stem_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        grass_stem_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &flora_resources,
+            })
+            .expect("grass stem static descriptors");
+
         let flora_lod_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.flora_lod_vert_sm,
@@ -1633,6 +1668,7 @@ impl PipelineBuilder {
             raster_tree_shadow_ppl,
             flower_pixel_ppl,
             flower_stem_experiment_ppl,
+            grass_stem_ppl,
             apple_pixel_tree_ppl,
             apple_pixel_dynamic_ppl,
             dynamic_fruit_ppl,
@@ -1851,6 +1887,7 @@ declare_ddgi_consumer_registry! {
     AppleTreeTiles => Compute(compute.apple_pixel_tree_ppl),
     FlowerTiles => Compute(compute.flower_pixel_ppl),
     FlowerStemExperiment => Graphics(graphics.flower_stem_experiment_ppl),
+    GrassStem => Graphics(graphics.grass_stem_ppl),
     DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     AppleDynamicTiles => Compute(compute.apple_pixel_dynamic_ppl),
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
@@ -2186,6 +2223,7 @@ impl PipelineTopology {
             &self.graphics.flora_lod_ppl,
             &self.graphics.flower_pixel_ppl,
             &self.graphics.flower_stem_experiment_ppl,
+            &self.graphics.grass_stem_ppl,
         ] {
             retire_graphics(
                 pipeline,
@@ -2731,6 +2769,8 @@ pub struct ShaderModules {
     pub flower_pixel_comp_sm: ShaderModule,
     pub flower_pixel_vert_sm: ShaderModule,
     pub flower_pixel_frag_sm: ShaderModule,
+    pub grass_stem_vert_sm: ShaderModule,
+    pub grass_stem_frag_sm: ShaderModule,
     pub flower_stem_experiment_vert_sm: ShaderModule,
     pub flower_stem_experiment_frag_sm: ShaderModule,
     pub apple_pixel_tree_comp_sm: ShaderModule,
@@ -2823,6 +2863,7 @@ pub struct GraphicsPipelines {
     pub raster_tree_shadow_ppl: GraphicsPipeline,
     pub flower_pixel_ppl: GraphicsPipeline,
     pub flower_stem_experiment_ppl: GraphicsPipeline,
+    pub grass_stem_ppl: GraphicsPipeline,
     pub apple_pixel_tree_ppl: GraphicsPipeline,
     pub apple_pixel_dynamic_ppl: GraphicsPipeline,
     pub dynamic_fruit_ppl: GraphicsPipeline,
@@ -2839,6 +2880,8 @@ impl GraphicsPipelines {
         self.flower_pixel_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.flower_stem_experiment_ppl
+            .begin_transient_descriptor_frame(frame_slot);
+        self.grass_stem_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.flora_ppl.begin_transient_descriptor_frame(frame_slot);
         self.flora_lod_ppl

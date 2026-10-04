@@ -78,7 +78,7 @@ void stemSphereCap(inout StemHit hit,float3 ro,float3 rd,float3 center,
             stemAccept(hit,roots[i],ro,rd,center,branch,parameter,socket);
     }
 }
-void stemRoundCone(inout StemHit hit,float3 ro,float3 rd,float3 a,float3 b,
+public void stemRoundCone(inout StemHit hit,float3 ro,float3 rd,float3 a,float3 b,
     float ra,float rb,uint branch,float t0,float t1,float4 socket) {
     float3 ab=b-a;
     float h=length(ab);

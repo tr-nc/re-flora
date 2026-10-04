@@ -86,6 +86,7 @@ impl GuiConfigLoader {
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
+        Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         for id in [
             "leaf_connection_strength",
             "leaf_connection_half_life",

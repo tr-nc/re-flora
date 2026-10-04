@@ -105,6 +105,7 @@ pub(super) fn freeze_render_frame_inputs(
     let vegetation = VegetationFrameInput {
         appearance: FloraAppearanceFrameInput {
             model_flowers: model_cache.flowers,
+            grass_stem_rendering: gui.grass_stem_rendering.value,
             stem_experiment: crate::flora::models::StemExperiment {
                 pixelized: true,
                 surface_cells: true,
@@ -348,6 +349,7 @@ mod tests {
         gui.model_flower_size_scale.value = 1.25;
         gui.flower_stem_model_resolution.value = 192;
         gui.flower_stem_cell_height_voxels.value = 1.25;
+        gui.grass_stem_rendering.value = true;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_tip_radius_ratio.value = 0.35;
         gui.flower_stem_test_branches.value = false;
@@ -516,6 +518,7 @@ mod tests {
                     growth_override: flora_growth_override,
                     flower_stem_bottom,
                     flower_stem_tip,
+                    grass_stem_rendering: true,
                     stem_experiment: crate::flora::models::StemExperiment {
                         pixelized: true,
                         surface_cells: true,

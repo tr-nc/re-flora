@@ -14,6 +14,13 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Pixel Sampling — Grass",
+        description: "Unchecked: original voxel grass. Checked: stem-only pixelized grass. Shares flower-stem samples per height; preserves grass colors, growth and wind. No flower heads.",
+        initially_open: false,
+        params: &["grass_stem_rendering"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Pixel Sampling — Flower Stems",
         description: "",
         initially_open: false,
