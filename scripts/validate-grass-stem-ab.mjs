@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 
 if (process.argv.includes('--help')) {
-  console.log('Usage: node scripts/validate-grass-stem-ab.mjs\nRequires: cargo build --release, working Vulkan display, NVIDIA/other GPU timestamps.\nRuns 6 fixed scenes, A/B twice (second pair reversed), 120 warmup + 300 sample frames.\nArtifacts: target/grass-stem-ab/{*.png,*.log,summary.json}. Config files are not changed.');
+  console.log('Usage: node scripts/validate-grass-stem-ab.mjs\nRequires: cargo build --release, working Vulkan display, NVIDIA/other GPU timestamps.\nRuns 10 fixed scenes (including near-plane regression cases), A/B twice (second pair reversed), 120 warmup + 300 sample frames.\nArtifacts: target/grass-stem-ab/{*.png,*.log,summary.json}. Config files are not changed.');
   process.exit(0);
 }
 assert.equal(process.argv.length, 2, 'No options supported; use --help.');
@@ -16,7 +16,7 @@ const output = path.join(root, 'target/grass-stem-ab');
 const binary = path.join(root, 'target/release/re-flora');
 assert.ok(fs.existsSync(binary), 'Run cargo build --release first.');
 fs.mkdirSync(output, { recursive: true });
-const scenes = ['near-both', 'mid-both', 'far-both', 'mid-tall', 'mid-short', 'near-curved'];
+const scenes = ['near-both', 'mid-both', 'far-both', 'mid-tall', 'mid-short', 'near-curved', 'top-both', 'low-both', 'inside-both', 'low-curved'];
 const runs = [];
 function percentile(values, fraction) {
   const sorted = values.toSorted((a,b) => a-b);
@@ -81,5 +81,9 @@ const summary = scenes.map(scene => {
   }));
   return { scene, grass: selected[0].grass, ...modes };
 });
+// A diagnostic regression alarm for the original tens-of-ms cliff, not a
+// release budget or a claim that analytic grass is faster than voxel grass.
+const low = summary.find(row => row.scene === 'low-both');
+assert.ok(low.b['graphics.flora'].p50_us < 5000, 'Near-plane regression: low-both B exceeds the 5ms diagnostic alarm.');
 fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({ resolution: '2560x1440 (check screenshot dimensions)', warmup_frames: 120, repeats: 2, summary }, null, 2));
 console.log(JSON.stringify(summary, null, 2));

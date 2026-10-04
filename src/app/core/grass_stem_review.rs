@@ -35,12 +35,15 @@ impl GrassStemReview {
         let parts: Vec<_> = case.split('-').collect();
         ensure!(
             parts.len() == 3,
-            "expected <near|mid|far>-<both|tall|short|curved>-<a|b>"
+            "expected <near|mid|far|top|low|inside>-<both|tall|short|curved>-<a|b>"
         );
         let distance = match parts[0] {
             "near" => "near",
             "mid" => "mid",
             "far" => "far",
+            "top" => "top",
+            "low" => "low",
+            "inside" => "inside",
             _ => anyhow::bail!("unknown grass review distance"),
         };
         let species_mode = match parts[1] {
@@ -98,6 +101,10 @@ impl GrassStemReview {
         let offset = match self.distance {
             "near" => Vec3::new(0.025, 0.025, 0.07),
             "mid" => Vec3::new(0.08, 0.12, 0.30),
+            // Nonzero Z keeps the downward look direction distinct from up.
+            "top" => Vec3::new(0.0, 0.12, 0.0001),
+            "low" => Vec3::new(0.0, 0.04, 0.0001),
+            "inside" => Vec3::new(0.0, 0.008, 0.0001),
             _ => Vec3::new(0.25, 0.45, 1.0),
         };
         app.camera_control.set_orbit_focus(target);
@@ -168,6 +175,10 @@ mod tests {
             "mid-tall",
             "mid-short",
             "near-curved",
+            "top-both",
+            "low-both",
+            "inside-both",
+            "low-curved",
         ] {
             let a = GrassStemReview::parse(&format!("{scene}-a")).unwrap();
             let b = GrassStemReview::parse(&format!("{scene}-b")).unwrap();
