@@ -185,6 +185,12 @@ impl GrassStemReview {
         if !self.interactive {
             gui.stem_band_mode.value = self.candidate;
             gui.grass_band_pose_reuse.value = self.pose_reuse;
+            gui.flora_growth_override_enabled.value = true;
+            gui.flora_growth_override.value = if self.pixel_lifecycle {
+                (frame % 160) as f32 / 159.0
+            } else {
+                1.0
+            };
             (
                 gui.grass_band_pixelization.value,
                 gui.flower_stem_model_resolution.value,
@@ -206,14 +212,13 @@ impl GrassStemReview {
                 }
                 if frame % 40 == 0 {
                     log::info!(
-                        "[STEM_PIXEL_LIFECYCLE] frame={frame} enabled={} resolution={} saved=false",
+                        "[STEM_PIXEL_LIFECYCLE] frame={frame} enabled={} resolution={} growth={} saved=false",
                         gui.grass_band_pixelization.value,
-                        gui.flower_stem_model_resolution.value
+                        gui.flower_stem_model_resolution.value,
+                        gui.flora_growth_override.value
                     );
                 }
             }
-            gui.flora_growth_override_enabled.value = true;
-            gui.flora_growth_override.value = 1.0;
             gui.flora_spawn_duration_seconds.value = 0.28;
             gui.flora_inertial_response.value = true;
             // Shared sampling quality is fixed unless the lifecycle fixture is active.
