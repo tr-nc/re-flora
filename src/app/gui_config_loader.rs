@@ -223,6 +223,20 @@ impl GuiConfigLoader {
             {
                 param.label.clone_from(&schema.label);
                 param.enabled_if.clone_from(&schema.enabled_if);
+                if param.id == "flower_stem_radius_scale" {
+                    if let (
+                        GuiParamValue::Float { min, max, .. },
+                        GuiParamValue::Float {
+                            min: schema_min,
+                            max: schema_max,
+                            ..
+                        },
+                    ) = (&mut param.value, &schema.value)
+                    {
+                        *min = *schema_min;
+                        *max = *schema_max;
+                    }
+                }
             }
         }
     }
@@ -961,6 +975,53 @@ mod tests {
                     toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn old_stem_radius_range_expands_without_changing_saved_values() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for value in [0.7, 2.0, 4.0, 10.0] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == "flower_stem_radius_scale")
+                .unwrap();
+            param.value = GuiParamValue::Float {
+                value,
+                min: Some(0.25),
+                max: Some(2.0),
+            };
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(bytes, std::fs::read(&path).unwrap());
+            let gui = crate::app::GuiAdjustables::from_config(&loaded);
+            assert_eq!(gui.flower_stem_radius_scale.value, value);
+            assert!(matches!(
+                loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "flower_stem_radius_scale")
+                    .unwrap()
+                    .value,
+                GuiParamValue::Float {
+                    min: Some(0.25),
+                    max: Some(10.0),
+                    ..
+                }
+            ));
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                toml::to_string(&loaded).unwrap(),
+                toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
+            );
         }
     }
 

@@ -15,7 +15,7 @@ impl Default for StemExperiment {
             pixelized: false,
             surface_cells: true,
             model_resolution: 128,
-            radius_scale: 0.7,
+            radius_scale: 4.0,
             branches: true,
         }
     }
@@ -26,9 +26,9 @@ impl StemExperiment {
         Self {
             model_resolution: self.model_resolution.clamp(32, 512),
             radius_scale: if self.radius_scale.is_finite() {
-                self.radius_scale.clamp(0.25, 2.)
+                self.radius_scale.clamp(0.25, 10.)
             } else {
-                0.7
+                Self::default().radius_scale
             },
             ..self
         }
@@ -74,6 +74,28 @@ mod tests {
     }
 
     #[test]
+    fn radius_scale_accepts_the_expanded_range_and_defaults_to_four() {
+        assert_eq!(StemExperiment::default().radius_scale, 4.0);
+        for (radius_scale, expected) in [
+            (0.0, 0.25),
+            (4.0, 4.0),
+            (10.0, 10.0),
+            (20.0, 10.0),
+            (f32::NAN, 4.0),
+        ] {
+            assert_eq!(
+                StemExperiment {
+                    radius_scale,
+                    ..Default::default()
+                }
+                .normalized()
+                .radius_scale,
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn shading_and_pixel_sampling_are_independent_and_bounded() {
         for pixelized in [false, true] {
             for surface_cells in [false, true] {
@@ -88,7 +110,7 @@ mod tests {
                 assert_eq!(p.pixelized, pixelized);
                 assert_eq!(p.surface_cells, surface_cells);
                 assert_eq!(p.model_resolution, 32);
-                assert_eq!(p.radius_scale, 0.7);
+                assert_eq!(p.radius_scale, 4.0);
                 assert_eq!(
                     p.model_padding(100.),
                     if pixelized { 100. * 4. / 32. } else { 0. }

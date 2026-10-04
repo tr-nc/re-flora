@@ -109,9 +109,9 @@ label = "Flower stems: radius scale"
 type = "Float"
 
 [section.param.data]
-value = 1.43
+value = 4
 min = 0.25
-max = 2
+max = 10
 
 [[section.param]]
 id = "flower_stem_test_branches"
