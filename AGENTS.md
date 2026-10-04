@@ -9,6 +9,7 @@
 - Prefer measuring before guessing on performance work.
 - For performance work, release-mode app benchmarks are authoritative; debug builds and unit tests are not performance evidence.
 - Run `cargo check` after shader or Rust changes. It also regenerates shader-derived Rust structs.
+- After completing each requested change, run `cargo build --release` from the worktree containing the change before handing it off, so the Release binary is ready for the user's try-out. Report any build failure; do not claim the Release binary is current if the build failed.
 - Validate Rust/rendering changes with hidden muted mode (`cargo run --release -- --hidden --mute --auto-exit 0.5`) and inspect the run log for errors.
 - Do not edit generated files directly unless they are part of the generated output from a build/check.
 - New Debug settings must use the declarative config or saved-field-bound custom controls; do not add App-only sliders or per-setting save hooks. See `docs/agents/gui-settings.md`. Temporary controls must explicitly declare and display why they are not saved.
