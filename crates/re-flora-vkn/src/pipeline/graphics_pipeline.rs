@@ -61,6 +61,7 @@ pub struct GraphicsPipelineDesc {
     pub depth_test_enable: bool,
     pub depth_write_enable: bool,
     pub depth_compare_op: vk::CompareOp,
+    pub color_blend_enable: bool,
 }
 
 impl Default for GraphicsPipelineDesc {
@@ -73,6 +74,7 @@ impl Default for GraphicsPipelineDesc {
             depth_test_enable: false,
             depth_write_enable: false,
             depth_compare_op: vk::CompareOp::LESS,
+            color_blend_enable: true,
         }
     }
 }
@@ -103,6 +105,8 @@ mod vertex_stride_tests {
         assert_eq!(GraphicsPipelineDesc::default().depth_compare_op, vk::CompareOp::LESS);
         let clear = GraphicsPipelineDesc { depth_compare_op: vk::CompareOp::ALWAYS, ..Default::default() };
         assert_eq!(clear.depth_compare_op, vk::CompareOp::ALWAYS);
+        assert!(GraphicsPipelineDesc::default().color_blend_enable);
+        assert!(!GraphicsPipelineDesc { color_blend_enable: false, ..Default::default() }.color_blend_enable);
     }
 
     #[test]
@@ -255,7 +259,7 @@ impl GraphicsPipeline {
                     | vk::ColorComponentFlags::B
                     | vk::ColorComponentFlags::A,
             )
-            .blend_enable(true)
+            .blend_enable(desc.color_blend_enable)
             .src_color_blend_factor(vk::BlendFactor::ONE)
             .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
             .color_blend_op(vk::BlendOp::ADD)
