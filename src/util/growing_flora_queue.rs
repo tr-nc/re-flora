@@ -70,6 +70,7 @@ impl GrowingFloraQueue {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.queued.len()
     }

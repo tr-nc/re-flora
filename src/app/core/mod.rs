@@ -2558,7 +2558,6 @@ impl App {
                             selected: index == current_flora_paint_selection_index,
                         })
                         .collect();
-                let growing_flora_chunk_count = self.growing_flora_chunks.len();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
@@ -2987,13 +2986,6 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                                             ));
                                             extra_search_matches += usize::from(camera_search_result.is_some());
                                             camera_snapshot_to_apply = camera_search_result.flatten();
-
-                                            extra_search_matches += usize::from(debug_search.section(ui, "Flora Growth", &["Updating chunks", "Status"], |ui| {
-                                            ui_text::status(ui, format!(
-                                                "Updating chunks: {}",
-                                                growing_flora_chunk_count
-                                            ));
-                                            }).is_some());
 
                                             if debug_search.is_active() && !self.debug_settings.search_has_results() && extra_search_matches == 0 {
                                                 ui_text::hint(ui, "No matching controls. Try fewer words or Clear.");
