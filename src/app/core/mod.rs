@@ -21,6 +21,7 @@ mod flower_model_review;
 mod foliage_shadow_bench;
 mod frame_timing;
 mod glass_voxel_test_scene;
+mod grass_stem_review;
 mod house_scene;
 mod hybrid_transparency_test_scene;
 mod input;
@@ -2654,7 +2655,12 @@ impl App {
                     && (self.launch_owners.screenshot().is_scheduled()
                         || !matches!(denoiser_frame.ui_step(), DenoiserUiStep::Inactive));
                 let hide_ui_for_frame_stability_bench =
-                    matches!(denoiser_frame.ui_step(), DenoiserUiStep::FoliageStability);
+                    matches!(denoiser_frame.ui_step(), DenoiserUiStep::FoliageStability)
+                        || self
+                            .launch_owners
+                            .authored_flora_bench
+                            .as_ref()
+                            .is_some_and(AuthoredFloraBench::is_grass_stem_review);
                 if self.loading_state.is_none() {
                     if let Some(test) = self.egui_texture_lifecycle_test.as_mut() {
                         test.advance();

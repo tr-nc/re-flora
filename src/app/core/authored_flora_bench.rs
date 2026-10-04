@@ -11,11 +11,13 @@ pub(super) struct AuthoredFloraBench {
     results: Vec<f32>,
     response_check: Option<ResponseCheck>,
     response_perf: Option<ResponsePerf>,
+    grass_stem_review: Option<super::grass_stem_review::GrassStemReview>,
 }
 
 impl AuthoredFloraBench {
     pub(super) fn new(samples: u32) -> Self {
         Self {
+            grass_stem_review: super::grass_stem_review::GrassStemReview::from_environment(),
             samples: samples.max(1),
             next_sample: 0,
             results: Vec::new(),
@@ -39,6 +41,9 @@ impl AuthoredFloraBench {
     }
 
     fn run_sample(&mut self, app: &mut App) -> bool {
+        if let Some(review) = &mut self.grass_stem_review {
+            return review.advance(app).expect("grass stem review fixture");
+        }
         if let Some(perf) = &mut self.response_perf {
             return perf.advance(app).expect("vegetation performance fixture");
         }
@@ -90,10 +95,22 @@ impl AuthoredFloraBench {
         false
     }
 
-    pub(super) fn fixed_response_time(&self) -> Option<f32> {
-        self.response_perf
+    pub(super) fn is_grass_stem_review(&self) -> bool {
+        self.grass_stem_review
             .as_ref()
-            .map(|perf| perf.frame as f32 / 60.)
+            .is_some_and(|review| !review.interactive)
+    }
+
+    pub(super) fn fixed_response_time(&self) -> Option<f32> {
+        self.grass_stem_review
+            .as_ref()
+            .filter(|review| !review.interactive)
+            .map(|review| review.frame as f32 / 60.)
+            .or_else(|| {
+                self.response_perf
+                    .as_ref()
+                    .map(|perf| perf.frame as f32 / 60.)
+            })
     }
 
     fn log_summary(&self) {
