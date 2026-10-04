@@ -115,8 +115,7 @@ impl AuthoredFloraBench {
     pub(super) fn fixed_response_time(&self) -> Option<f32> {
         self.grass_stem_review
             .as_ref()
-            .filter(|review| !review.interactive)
-            .map(|review| review.frame as f32 / 60.)
+            .and_then(|review| review.fixed_response_time())
             .or_else(|| {
                 self.cpu_stem_review
                     .as_ref()

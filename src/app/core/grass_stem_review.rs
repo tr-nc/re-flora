@@ -92,6 +92,10 @@ impl GrassStemReview {
         })
     }
 
+    pub(super) fn fixed_response_time(&self) -> Option<f32> {
+        (!self.interactive).then_some(self.frame as f32 / 60.)
+    }
+
     pub(super) fn advance(&mut self, app: &mut App) -> Result<bool> {
         let frame = self.frame;
         self.frame += 1;
@@ -118,7 +122,7 @@ impl GrassStemReview {
                 ) * 0.10;
             let center = Vec3::new(patch.x, app.query_terrain_height_cpu(patch), patch.y);
             app.player_tools.flora_paint_selection_index = 0;
-            app.apply_surface_flora_regeneration(
+            app.apply_surface_flora_regeneration_at(
                 crate::app::world_edits::TerrainBrushEdit {
                     start: center,
                     end: center,
@@ -126,6 +130,10 @@ impl GrassStemReview {
                 },
                 frame + 1,
                 true,
+                self.fixed_response_time().map_or_else(
+                    || app.time_info.time_since_start_duration().as_millis() as u32,
+                    |time| (time * 1000.0) as u32,
+                ),
             )?;
         }
         let target = Vec3::new(xz.x, app.query_terrain_height_cpu(xz) + 0.015, xz.y);
@@ -153,6 +161,7 @@ impl GrassStemReview {
             gui.grass_band_pose_reuse.value = self.pose_reuse;
             gui.flora_growth_override_enabled.value = true;
             gui.flora_growth_override.value = 1.0;
+            gui.flora_spawn_duration_seconds.value = 0.28;
             gui.flora_inertial_response.value = true;
             // Shared sampling quality is held fixed across both modes and all cases.
             gui.flower_stem_model_resolution.value = 45;
@@ -206,6 +215,17 @@ fn environment_uint(name: &str, default: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_planting_clock_does_not_depend_on_real_runtime() {
+        let mut review = GrassStemReview::parse("wide-both-b").unwrap();
+        review.frame = 225;
+        assert_eq!(review.fixed_response_time(), Some(3.75));
+        review.frame += POST_PAINT_WARMUP_FRAMES;
+        assert!(review.fixed_response_time().unwrap() - 3.75 > 0.28);
+        review.interactive = true;
+        assert_eq!(review.fixed_response_time(), None);
+    }
+
     #[test]
     fn paired_cases_only_change_the_rendering_mode() {
         for scene in [

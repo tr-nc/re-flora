@@ -3140,10 +3140,26 @@ impl App {
         paint_dab_serial: u32,
         is_release_step: bool,
     ) -> Result<()> {
+        let spawn_time_ms = self.time_info.time_since_start_duration().as_millis() as u32;
+        self.apply_surface_flora_regeneration_at(
+            edit,
+            paint_dab_serial,
+            is_release_step,
+            spawn_time_ms,
+        )
+    }
+
+    /// Explicit clock input keeps scripted planting and rendering on the same timeline.
+    pub(super) fn apply_surface_flora_regeneration_at(
+        &mut self,
+        edit: TerrainBrushEdit,
+        paint_dab_serial: u32,
+        is_release_step: bool,
+        spawn_time_ms: u32,
+    ) -> Result<()> {
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
         {
-            let spawn_time_ms = self.time_info.time_since_start_duration().as_millis() as u32;
             let paint_selection = self.current_flora_paint_selection();
             anyhow::ensure!(
                 paint_selection != species::FloraPaintSelection::ClimbingVine,
