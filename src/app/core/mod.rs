@@ -14,6 +14,7 @@ mod denoiser_bench;
 mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
+mod environment_probe_ui;
 mod fallen_leaf_review;
 mod flower_model_bench;
 mod flower_model_review;
@@ -103,12 +104,6 @@ use crate::audio::{
 };
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_MOISTURE_MAX,
-};
-use crate::ddgi::{
-    DdgiProbeSpacing, DdgiResourceBytes, DdgiVolumeGrid, SUPPORTED_DDGI_SPACINGS_VOXELS,
-};
-use crate::environment_probes::{
-    EnvironmentProbeVisualizationFilter, EnvironmentProbeVisualizationMode,
 };
 use crate::flora::species;
 use crate::game_time::WorldClock;
@@ -2563,17 +2558,6 @@ impl App {
                 let mut clicked_rooftop_material = None;
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
-                let ddgi_runtime_status = self.tracer.ddgi_runtime_status();
-                let environment_probe_status = ddgi_runtime_status.active();
-                let environment_probe_draft_grid = DdgiVolumeGrid::new(
-                    self.world_chunk_dim * VOXEL_DIM_PER_CHUNK,
-                    DdgiProbeSpacing::try_from(self.environment_probe_spacing_draft)
-                        .expect("environment probe UI only exposes supported spacings"),
-                )
-                .expect("environment probe UI only exposes supported spacings");
-                let environment_probe_draft_bytes =
-                    DdgiResourceBytes::for_grid(environment_probe_draft_grid)
-                        .expect("environment probe UI grid must produce valid DDGI atlases");
                 let mut environment_probe_visualization =
                     self.tracer.environment_probe_visualization_settings();
                 let mut environment_probe_rebuild_requested = false;
@@ -2749,15 +2733,18 @@ impl App {
                                 .default_pos(panel_pos)
                                 .default_size(panel_size)
                                 .show(ctx, |ui| {
+                                    let mut save_button_rect = None;
                                     ui.horizontal(|ui| {
                                         ui_text::title(ui, "Debug Panel");
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
-                                                if ui
-                                                    .add(egui::Button::new("Save").small())
-                                                    .clicked()
-                                                {
+                                                let response = ui.add(egui::Button::new("Save").small());
+                                                save_button_rect = Some(response.rect);
+                                                if let Some(error) = self.debug_settings.save_error() {
+                                                    response.clone().on_hover_text(error);
+                                                }
+                                                if response.clicked() {
                                                     match self.debug_settings.save() {
                                                         Ok(_) => {
                                                             log::info!("Config saved successfully");
@@ -2773,29 +2760,24 @@ impl App {
                                             },
                                         );
                                     });
-                                    if let Some(status) = self.debug_settings.save_status() {
-                                        ui_text::status(ui, status);
-                                    }
-
                                     let (debug_search, search_changed) = self.debug_settings.search_toolbar(ui);
                                     let mut extra_search_matches = 0usize;
-                                    extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
-                                    ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
-                                    terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
-                                    if ui.button("Plant all flowers & grasses around me").clicked() {
-                                        plant_flora_showcase_requested = true;
-                                    }
-                                    ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
-                                    if let Some(status) = &self.flora_showcase_status {
-                                        ui_text::status(ui, status);
-                                    }
-                                    }).is_some());
-
                                     let mut settings_scroll = debug_panel::scroll_area();
                                     if search_changed {
                                         settings_scroll = settings_scroll.vertical_scroll_offset(0.);
                                     }
                                     debug_panel::show_scroll_area(settings_scroll, ui, |ui| {
+                                            extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
+                                                ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
+                                                terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
+                                                if ui.button("Plant all flowers & grasses around me").clicked() {
+                                                    plant_flora_showcase_requested = true;
+                                                }
+                                                ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
+                                                if let Some(status) = &self.flora_showcase_status {
+                                                    ui_text::status(ui, status);
+                                                }
+                                            }).is_some());
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
@@ -2807,164 +2789,13 @@ impl App {
                                                 }
                                             });
 
-extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested", "Revisions Allocated memory"], |ui| {
-
-                                            ui_text::hint(ui, "Not saved — Environment Probe experiments");
-                                            egui::ComboBox::from_label("Spacing (voxels)")
-                                                .selected_text(
-                                                    self.environment_probe_spacing_draft.to_string(),
-                                                )
-                                                .show_ui(ui, |ui| {
-                                                    for spacing in
-                                                        SUPPORTED_DDGI_SPACINGS_VOXELS
-                                                    {
-                                                        ui.selectable_value(
-                                                            &mut self
-                                                                .environment_probe_spacing_draft,
-                                                            spacing,
-                                                            spacing.to_string(),
-                                                        );
-                                                    }
-                                                });
-                                            let grid = environment_probe_status.grid;
-                                            let bytes =
-                                                environment_probe_status.resource_bytes;
-                                            ui.monospace(format!(
-                                                "Current {} vox · {} x {} x {} · {}/{} filtered · {:?}",
-                                                grid.spacing_voxels(),
-                                                grid.dimensions().x,
-                                                grid.dimensions().y,
-                                                grid.dimensions().z,
-                                                environment_probe_status.filtered_probe_count,
-                                                grid.probe_count(),
-                                                environment_probe_status.stage,
-                                            ));
-                                            ui.monospace(format!(
-                                                "Revisions: sky {} · terrain {}",
-                                                environment_probe_status.global_sky_revision,
-                                                environment_probe_status
-                                                    .relocated_terrain_revision
-                                                    .map_or_else(|| "pending".to_owned(), |value| value.to_string()),
-                                            ));
-                                            ui.monospace(ddgi_runtime_status.active_line());
-                                            ui.monospace(ddgi_runtime_status.builder_line());
-                                            ui.monospace(ddgi_runtime_status.coordinator_line());
-                                            ui.monospace(ddgi_runtime_status.availability_line());
-                                            ui.monospace(format!(
-                                                "Allocated {:.2} MiB (irradiance {:.2} + visibility {:.2} + metadata {:.2} + rays {:.2} + sky {:.4} + stats {:.4})",
-                                                bytes.total() as f64 / (1024.0 * 1024.0),
-                                                bytes.irradiance_atlas as f64 / (1024.0 * 1024.0),
-                                                bytes.visibility_atlas as f64 / (1024.0 * 1024.0),
-                                                bytes.probe_metadata as f64 / (1024.0 * 1024.0),
-                                                bytes.transient_ray_data as f64 / (1024.0 * 1024.0),
-                                                bytes.global_sky_irradiance as f64 / (1024.0 * 1024.0),
-                                                bytes.trace_stats as f64 / (1024.0 * 1024.0),
-                                            ));
-                                            if environment_probe_draft_grid != grid {
-                                                ui.monospace(format!(
-                                                    "Selected {} x {} x {} · {} probes · {:.2} MiB",
-                                                    environment_probe_draft_grid.dimensions().x,
-                                                    environment_probe_draft_grid.dimensions().y,
-                                                    environment_probe_draft_grid.dimensions().z,
-                                                    environment_probe_draft_grid.probe_count(),
-                                                    environment_probe_draft_bytes.total() as f64
-                                                        / (1024.0 * 1024.0),
-                                                ));
-                                            }
-                                            environment_probe_rebuild_requested = ui
-                                                .add_enabled(
-                                                    self.environment_probe_spacing_draft
-                                                        != grid.spacing_voxels(),
-                                                    egui::Button::new("Apply / Rebuild"),
-                                                )
-                                                .clicked();
-                                            ui.checkbox(
-                                                &mut environment_probe_visualization.enabled,
-                                                "Visualize probes",
-                                            );
-                                            ui.add_enabled_ui(
-                                                environment_probe_visualization.enabled,
-                                                |ui| {
-                                                    egui::ComboBox::from_label("Display")
-                                                        .selected_text(
-                                                            environment_probe_visualization
-                                                                .mode
-                                                                .label(),
-                                                        )
-                                                        .show_ui(ui, |ui| {
-                                                            for mode in
-                                                                EnvironmentProbeVisualizationMode::ALL
-                                                            {
-                                                                ui.selectable_value(
-                                                                    &mut
-                                                                        environment_probe_visualization
-                                                                            .mode,
-                                                                    mode,
-                                                                    mode.label(),
-                                                                );
-                                                            }
-                                                        });
-                                                    egui::ComboBox::from_label("Filter")
-                                                        .selected_text(
-                                                            environment_probe_visualization
-                                                                .filter
-                                                                .label(),
-                                                        )
-                                                        .show_ui(ui, |ui| {
-                                                            for filter in
-                                                                EnvironmentProbeVisualizationFilter::ALL
-                                                            {
-                                                                ui.selectable_value(
-                                                                    &mut
-                                                                        environment_probe_visualization
-                                                                            .filter,
-                                                                    filter,
-                                                                    filter.label(),
-                                                                );
-                                                            }
-                                                        });
-                                                    ui.add(
-                                                        egui::Slider::new(
-                                                            &mut
-                                                                environment_probe_visualization
-                                                                    .camera_radius_voxels,
-                                                            0.0..=512.0,
-                                                        )
-                                                        .text("Camera radius (vox; 0 = all)"),
-                                                    );
-                                                    ui.add(
-                                                        egui::Slider::new(
-                                                            &mut
-                                                                environment_probe_visualization
-                                                                    .instance_stride,
-                                                            1..=64,
-                                                        )
-                                                        .text("Instance stride"),
-                                                    );
-                                                    ui.add(
-                                                        egui::Slider::new(
-                                                            &mut
-                                                                environment_probe_visualization
-                                                                    .marker_size_voxels,
-                                                            0.5..=12.0,
-                                                        )
-                                                        .text("Marker size (voxels)"),
-                                                    );
-                                                    ui.checkbox(
-                                                        &mut environment_probe_visualization
-                                                            .depth_tested,
-                                                        "Depth tested",
-                                                    );
-                                                    ui.monospace(format!(
-                                                        "Submitted instances: {}",
-                                                        environment_probe_visualization
-                                                            .submitted_instance_count(
-                                                                grid.probe_count()
-                                                            ),
-                                                    ));
-                                                },
-                                            );
-
+                                            extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested"], |ui| {
+                                                environment_probe_rebuild_requested = environment_probe_ui::draw(
+                                                    ui,
+                                                    &mut self.environment_probe_spacing_draft,
+                                                    self.tracer.ddgi_runtime_status().active().grid.spacing_voxels(),
+                                                    &mut environment_probe_visualization,
+                                                );
                                             }).is_some());
 
                                             let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Save", "Load", "Name", "Description", "Pose", "FOV", "Free fly"], |ui| draw_camera_snapshots_ui(
@@ -2983,6 +2814,9 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                                                 ui_text::hint(ui, "No matching controls. Try fewer words or Clear.");
                                             }
                                         });
+                                    if let Some(rect) = save_button_rect {
+                                        debug_panel::mark_unsaved(ui, rect, self.debug_settings.is_dirty());
+                                    }
                                 });
                         }
                         self.config_panel_visible = config_panel_open;
@@ -3295,6 +3129,14 @@ extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes
                 if environment_probe_rebuild_requested {
                     self.tracer
                         .rebuild_environment_probes(self.environment_probe_spacing_draft);
+                    let status = self.tracer.ddgi_runtime_status();
+                    log::info!(
+                        "[DDGI][REBUILD_STATUS] {} | {} | {} | {}",
+                        status.active_line(),
+                        status.builder_line(),
+                        status.coordinator_line(),
+                        status.availability_line()
+                    );
                 }
                 self.tracer
                     .set_environment_probe_visualization_settings(environment_probe_visualization);

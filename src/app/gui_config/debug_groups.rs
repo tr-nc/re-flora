@@ -132,40 +132,7 @@ pub(super) fn render(
     adjustables: &mut GuiAdjustables,
     parent: Option<&str>,
 ) {
-    render_filtered(ui, section, config, adjustables, parent, None);
-}
-
-pub(super) fn render_category(
-    ui: &mut egui::Ui,
-    section: &GuiSection,
-    config: &[GuiSection],
-    adjustables: &mut GuiAdjustables,
-    category: &str,
-) -> bool {
-    let has_groups = GROUPS
-        .iter()
-        .any(|g| g.parent.is_none() && super::navigation::category(g.title) == category)
-        || (category == "Other Settings" && section.param.iter().any(|p| !is_grouped(&p.id)));
-    if has_groups {
-        ui.separator();
-        ui_text::section(ui, category);
-        render_filtered(ui, section, config, adjustables, None, Some(category));
-    }
-    has_groups
-}
-
-fn render_filtered(
-    ui: &mut egui::Ui,
-    section: &GuiSection,
-    config: &[GuiSection],
-    adjustables: &mut GuiAdjustables,
-    parent: Option<&str>,
-    category: Option<&str>,
-) {
-    for group in GROUPS.iter().filter(|group| {
-        group.parent == parent
-            && category.is_none_or(|c| super::navigation::category(group.title) == c)
-    }) {
+    for group in GROUPS.iter().filter(|group| group.parent == parent) {
         if parent == Some("Wind") {
             ui_text::section(ui, group.title);
             for id in group.params {
@@ -247,10 +214,7 @@ fn render_filtered(
     }
     // New/unrecognized settings must never silently disappear. The coverage test below requires
     // intentional classification of all settings shipped in our config.
-    if parent.is_none()
-        && category.is_none_or(|c| c == "Other Settings")
-        && section.param.iter().any(|param| !is_grouped(&param.id))
-    {
+    if parent.is_none() && section.param.iter().any(|param| !is_grouped(&param.id)) {
         ui.collapsing("Other Diagnostics", |ui| {
             for param in &section.param {
                 if !is_grouped(&param.id) {
@@ -443,17 +407,15 @@ mod tests {
         }
         for group in GROUPS {
             assert!(text.contains(group.title), "missing group {}", group.title);
-            assert_ne!(
-                super::super::navigation::category(group.parent.unwrap_or(group.title)),
-                "Other Settings"
-            );
         }
-        for category in &super::super::navigation::CATEGORIES[..4] {
-            assert_eq!(
-                text.lines().filter(|line| line == category).count(),
-                1,
-                "category must appear once: {category}"
-            );
+        for category in [
+            "Rendering & Lighting",
+            "World & Simulation",
+            "Plants & Wildlife",
+            "Camera & Audio",
+            "Other Settings",
+        ] {
+            assert!(!text.contains(category), "unnecessary category: {category}");
         }
         for &(section, id) in PIXEL_MODEL_CONTROLS {
             let label = &settings

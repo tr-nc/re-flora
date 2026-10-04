@@ -48,10 +48,54 @@ pub(super) fn show_scroll_area<R>(
     .inner
 }
 
+/// Mark the existing Save button, without adding layout or sticky status text.
+/// Called after controls draw so this frame's edits are reflected immediately.
+pub(super) fn mark_unsaved(ui: &egui::Ui, rect: egui::Rect, dirty: bool) {
+    if dirty {
+        ui.painter().rect_stroke(
+            rect.expand(1.0),
+            2.0,
+            egui::Stroke::new(2.0, egui::Color32::from_rgb(235, 151, 54)),
+            egui::StrokeKind::Outside,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use egui::{Event, PointerButton, Pos2, Rect, Vec2};
+
+    #[test]
+    fn unsaved_border_does_not_add_layout_and_disappears_when_clean() {
+        let context = egui::Context::default();
+        for dirty in [false, true, false] {
+            let output = context.run_ui(egui::RawInput::default(), |ui| {
+                let response = ui.button("Save");
+                let before = ui.min_rect();
+                mark_unsaved(ui, response.rect, dirty);
+                assert_eq!(ui.min_rect(), before);
+            });
+            let has_orange_border = output.shapes.iter().any(|shape| {
+                matches!(&shape.shape, egui::Shape::Rect(rect)
+                    if rect.stroke.color == egui::Color32::from_rgb(235, 151, 54))
+            });
+            assert_eq!(has_orange_border, dirty);
+        }
+    }
+
+    #[test]
+    fn terrain_and_plants_are_inside_the_settings_scroll_area() {
+        let source = include_str!("mod.rs");
+        let start = source
+            .find("debug_panel::show_scroll_area(settings_scroll, ui")
+            .unwrap();
+        let terrain = source
+            .find("debug_search.section(ui, \"Terrain & Plants\"")
+            .unwrap();
+        let end = source.find("debug_panel::mark_unsaved(ui").unwrap();
+        assert!(start < terrain && terrain < end);
+    }
 
     #[test]
     fn pixel_scrollbar_is_square_and_does_not_restyle_settings() {

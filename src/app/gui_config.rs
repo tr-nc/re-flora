@@ -17,7 +17,6 @@ mod audio_mix;
 pub(crate) mod butterfly_flight;
 mod debug_groups;
 mod flora_groups;
-mod navigation;
 pub(crate) mod saved_controls;
 mod search;
 pub(crate) use search::SearchFilter;
@@ -31,7 +30,8 @@ pub use generated::GuiAdjustables;
 pub struct DebugSettings {
     pub config: GuiConfigFile,
     pub adjustables: GuiAdjustables,
-    save_status: Option<String>,
+    saved_document: toml::Value,
+    save_error: Option<String>,
     search: search::SearchState,
     search_matches: usize,
 }
@@ -58,15 +58,19 @@ impl DebugSettings {
     fn from_config(mut config: GuiConfigFile) -> Self {
         let adjustables = GuiAdjustables::from_config(&config);
         config.butterfly_flight.tuning = config.butterfly_flight.tuning.sanitized();
-        Self {
+        let mut settings = Self {
+            saved_document: toml::Value::Table(Default::default()),
             config,
             adjustables,
-            save_status: None,
+            save_error: None,
             search: search::SearchState {
                 query: std::env::var("RE_FLORA_DEBUG_SEARCH_REVIEW").unwrap_or_default(),
             },
             search_matches: 0,
-        }
+        };
+        settings.sync_config();
+        settings.saved_document = settings.live_document();
+        settings
     }
 
     pub fn save(&mut self) -> std::io::Result<()> {
@@ -76,15 +80,29 @@ impl DebugSettings {
     fn save_to_path(&mut self, path: &Path) -> std::io::Result<()> {
         self.sync_config();
         let result = GuiConfigLoader::save_to_path(&self.config, path);
-        self.save_status = Some(match &result {
-            Ok(()) => "Settings saved".to_owned(),
-            Err(error) => format!("Save failed: {error}"),
-        });
+        match &result {
+            Ok(()) => {
+                self.saved_document = self.live_document();
+                self.save_error = None;
+            }
+            Err(error) => self.save_error = Some(format!("Save failed: {error}")),
+        }
         result
     }
 
-    pub fn save_status(&self) -> Option<&str> {
-        self.save_status.as_deref()
+    pub fn save_error(&self) -> Option<&str> {
+        self.save_error.as_deref()
+    }
+
+    /// Compare the entire saved document, including declarative and custom fields.
+    /// Search and temporary controls are deliberately outside this document.
+    pub fn is_dirty(&mut self) -> bool {
+        self.sync_config();
+        self.live_document() != self.saved_document
+    }
+
+    fn live_document(&self) -> toml::Value {
+        toml::Value::try_from(&self.config).expect("serializable GUI settings")
     }
 
     fn sync_config(&mut self) {
@@ -682,7 +700,7 @@ fn search_matches_param(
     param: &GuiParam,
     path: &str,
 ) -> bool {
-    let mut fields = vec![navigation::category(path), path, param.label.as_str()];
+    let mut fields = vec![path, param.label.as_str()];
     if let GuiParamValue::Choice { options, .. } = &param.value {
         fields.extend(options.iter().map(String::as_str));
     }
@@ -715,38 +733,29 @@ fn render_search_results(
             format!("{count} parameter matches in {} groups", groups.len()),
         );
     }
-    for category in navigation::CATEGORIES {
-        for (path, params) in &groups {
-            if navigation::category(path) != *category {
-                continue;
-            }
-            ui.separator();
-            ui_text::section(ui, format!("{category} / {path}"));
-            for &(section, param) in params {
-                matches += 1;
-                let before = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
-                    .map(|field| field.value.to_bits());
-                ui.push_id(("debug_search_param", &section.name, &param.id), |ui| {
-                    render_gui_param_from_config(ui, param, &section.name, adjustables);
-                });
-                let after = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
-                    .map(|field| field.value.to_bits());
-                if before != after {
-                    // Preserve custom editor constraints only on an actual edit, never on a query.
-                    if matches!(
-                        param.id.as_str(),
-                        "grass_natural_bend_min_voxels" | "grass_natural_bend_max_voxels"
-                    ) {
-                        enforce_flora_natural_bend_order(adjustables);
-                    }
-                    if param.id.starts_with("leaf_paddle_") {
-                        enforce_leaf_curve_order(adjustables);
-                    }
-                    crate::app::flutter_response_editor::enforce_endpoint_order(
-                        adjustables,
-                        &param.id,
-                    );
+    for (path, params) in &groups {
+        ui_text::section(ui, path);
+        for &(section, param) in params {
+            matches += 1;
+            let before = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
+                .map(|field| field.value.to_bits());
+            ui.push_id(("debug_search_param", &section.name, &param.id), |ui| {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            });
+            let after = GuiAdjustables::get_float_param_mut(adjustables, &param.id)
+                .map(|field| field.value.to_bits());
+            if before != after {
+                // Preserve custom editor constraints only on an actual edit, never on a query.
+                if matches!(
+                    param.id.as_str(),
+                    "grass_natural_bend_min_voxels" | "grass_natural_bend_max_voxels"
+                ) {
+                    enforce_flora_natural_bend_order(adjustables);
                 }
+                if param.id.starts_with("leaf_paddle_") {
+                    enforce_leaf_curve_order(adjustables);
+                }
+                crate::app::flutter_response_editor::enforce_endpoint_order(adjustables, &param.id);
             }
         }
     }
@@ -760,39 +769,30 @@ fn render_gui_from_config(
     mut after_section: impl FnMut(&str, &mut egui::Ui),
 ) {
     let has_debug = config.iter().any(|s| s.name == "Debug");
-    for category in navigation::CATEGORIES {
-        let mut heading_shown = false;
-        if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
-            heading_shown = debug_groups::render_category(ui, debug, config, adjustables, category);
+    if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
+        debug_groups::render(ui, debug, config, adjustables, None);
+    }
+    for section in config {
+        if section.name == "Debug" {
+            continue;
         }
-        for section in config {
-            if section.name == "Debug"
-                || navigation::category(section_title(&section.name)) != *category
-            {
-                continue;
-            }
-            // Hide the empty legacy wrapper; future unrelated settings stay visible.
-            if has_debug
-                && section.name == "Post Processing"
-                && section
-                    .param
-                    .iter()
-                    .all(|p| debug_groups::is_pixel_model_control(&section.name, &p.id))
-            {
-                continue;
-            }
-            // If a custom config lacks a parent, keep its children visible at the top level.
-            if section_parent(&section.name)
-                .is_some_and(|parent| config.iter().any(|s| s.name == parent))
-            {
-                continue;
-            }
-            if !heading_shown {
-                ui.separator();
-                ui_text::section(ui, *category);
-                heading_shown = true;
-            }
-            ui.collapsing(section_title(&section.name), |ui| {
+        // Hide the empty legacy wrapper; future unrelated settings stay visible.
+        if has_debug
+            && section.name == "Post Processing"
+            && section
+                .param
+                .iter()
+                .all(|p| debug_groups::is_pixel_model_control(&section.name, &p.id))
+        {
+            continue;
+        }
+        // If a custom config lacks a parent, keep its children visible at the top level.
+        if section_parent(&section.name)
+            .is_some_and(|parent| config.iter().any(|s| s.name == parent))
+        {
+            continue;
+        }
+        ui.collapsing(section_title(&section.name), |ui| {
             if section.name == "Audio" {
                 after_section(&section.name, ui);
                 ui.collapsing("Advanced audio / source trims", |ui| {
@@ -839,7 +839,6 @@ fn render_gui_from_config(
                 }
             }
         });
-        }
     }
 }
 
@@ -1611,6 +1610,32 @@ mod tests {
     }
 
     #[test]
+    fn dirty_state_tracks_all_saved_fields_and_only_successful_saves_clear_it() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        assert!(!settings.is_dirty());
+        settings.search.query = "flowers".into();
+        assert!(!settings.is_dirty());
+        let original = settings.adjustables.model_flower_size_scale.value;
+        settings.adjustables.model_flower_size_scale.value = original + 0.25;
+        assert!(settings.is_dirty());
+        settings.adjustables.model_flower_size_scale.value = original;
+        assert!(!settings.is_dirty());
+        settings.butterfly_flight.tuning.speed += 0.1;
+        assert!(settings.is_dirty());
+        let directory = tempfile::tempdir().unwrap();
+        assert!(settings.save_to_path(directory.path()).is_err());
+        assert!(settings.is_dirty());
+        assert!(settings.save_error().is_some());
+        settings
+            .save_to_path(&directory.path().join("gui.toml"))
+            .unwrap();
+        assert!(!settings.is_dirty());
+        assert!(settings.save_error().is_none());
+        settings.adjustables.model_flower_size_scale.value = original + 0.5;
+        assert!(settings.is_dirty());
+    }
+
+    #[test]
     fn saved_flower_controls_round_trip_without_reinterpreting_legacy_overall_size() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.model_flower_size_scale.value = 1.75;
@@ -1741,7 +1766,8 @@ wind_drift = 1.0
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
-        assert_eq!(settings.save_status(), Some("Settings saved"));
+        assert_eq!(settings.save_error(), None);
+        assert!(!settings.is_dirty());
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
         settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Darting;
@@ -1749,7 +1775,7 @@ wind_drift = 1.0
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
         assert!(settings.save_to_path(directory.path()).is_err());
-        assert!(settings.save_status().unwrap().starts_with("Save failed:"));
+        assert!(settings.save_error().unwrap().starts_with("Save failed:"));
     }
 
     #[test]

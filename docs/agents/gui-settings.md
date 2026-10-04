@@ -23,6 +23,12 @@
 回归守卫，不是完整 Rust AST 静态分析；HUD、图示和自定义控件本身仍可有独立绘制样式，
 不得用它们绕过设置说明文字的语义入口。新增设置模块位于 `gui_config/` 时自动纳入检查。
 
+## 调参面板职责
+
+Debug Panel 用于调参和明确的操作，不是运行时诊断信息展示平台。Probe revisions、tokens、内存、计数、当前 camera pose 等诊断应按需写入日志，不常驻面板。不要为不相关的组硬凑父分类或分类 separator；保留具体控制组及其保存归属。所有控制组（包括 Terrain & Plants）放在同一滚动内容内，顶部仅保留 Save 和 Search。
+
+Save 按钮用橙色边框表示保存文档有修改；成功保存后清除，失败时保留并在日志/按钮 tooltip 报错，不新增常驻 “Settings saved” 元素。比较统一保存文档，覆盖声明式和自定义字段，不为单个控件加 dirty/save hook；搜索及临时工具不计入。
+
 ## 接入规则
 
 普通 float/int/uint/bool/choice/string/color 设置优先声明在 `config/gui.toml` 的 section/param 中。

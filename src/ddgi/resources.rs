@@ -1387,6 +1387,7 @@ pub struct DdgiResourceBytes {
 }
 
 impl DdgiResourceBytes {
+    #[cfg(test)]
     pub fn for_grid(grid: DdgiVolumeGrid) -> Result<Self> {
         let irradiance_layout =
             DdgiAtlasLayout::new(grid.probe_count(), DDGI_IRRADIANCE_INTERIOR_SIDE)?;
