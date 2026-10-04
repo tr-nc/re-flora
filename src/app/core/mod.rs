@@ -2800,7 +2800,7 @@ impl App {
                                     if search_changed {
                                         settings_scroll = settings_scroll.vertical_scroll_offset(0.);
                                     }
-                                    settings_scroll.show(ui, |ui| {
+                                    debug_panel::show_scroll_area(settings_scroll, ui, |ui| {
                                             tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
