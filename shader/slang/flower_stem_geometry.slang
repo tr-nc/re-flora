@@ -7,6 +7,7 @@ public struct StemGeometry {
     public float height;
     public float bend;
     public float radius;
+    public float tipRadiusRatio;
     public float3 motion;
     public uint branches;
     public float4 socket; // outward normal xyz, dot(normal, live attachment) w
@@ -26,7 +27,7 @@ public float3 stemCenter(StemGeometry s,uint branch,float t) {
     return p;
 }
 public float stemRadius(StemGeometry s,uint branch,float t) {
-    return s.radius*(branch==0u?lerp(1.0,0.6,t):lerp(0.6,0.18,t));
+    return s.radius*(branch==0u?lerp(1.0,saturate(s.tipRadiusRatio),t):lerp(0.6,0.18,t));
 }
 public void stemBounds(StemGeometry s,out float3 lo,out float3 hi) {
     float reach=s.branches!=0u?s.height*0.22:0.0;

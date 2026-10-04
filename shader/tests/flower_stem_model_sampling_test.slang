@@ -41,7 +41,7 @@ export __extern_cpp int main() {
     }
     // Culling fringe and depth for near, far, and inside-bound cameras. The
     // production hit comes from the same analytic cones as the fragment shader.
-    StemGeometry s;s.height=2;s.bend=0;s.radius=0.15;s.motion=float3(0);s.branches=1u;s.socket=float4(0);
+    StemGeometry s;s.tipRadiusRatio=0.6;s.height=2;s.bend=0;s.radius=0.15;s.motion=float3(0);s.branches=1u;s.socket=float4(0);
     uint hits=0u;
     for(uint d=0u;d<4u;d++) {
         float distance=d==0u?0.02:(d==1u?0.5:(d==2u?2.0:8.0));

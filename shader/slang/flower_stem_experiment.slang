@@ -35,6 +35,7 @@ public StemGeometry stemGeometry(StemProxyVertex p) {
     StemGeometry s;
     s.height=p.yaw_height_bend.z;s.bend=p.yaw_height_bend.w;
     s.radius=p.motion_edge.w*0.5*flowerStemShapeSettings().x;
+    s.tipRadiusRatio=flowerStemShapeSettings().w;
     s.motion=p.motion_edge.xyz;s.branches=flowerStemSamplingSettings().w;s.socket=p.socket;
     return s;
 }

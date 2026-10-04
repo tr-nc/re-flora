@@ -21,6 +21,7 @@ const GROUPS: &[ControlGroup] = &[
             "flower_stem_model_resolution",
             "flower_stem_cell_height_voxels",
             "flower_stem_radius_scale",
+            "flower_stem_tip_radius_ratio",
             "flower_stem_test_branches",
         ],
     },
@@ -153,6 +154,7 @@ pub(super) fn render(
                             &[
                                 "model_flower_voxel_scale",
                                 "flower_stem_radius_scale",
+                                "flower_stem_tip_radius_ratio",
                                 "flower_stem_test_branches",
                             ][..],
                         ),

@@ -7,6 +7,7 @@ pub struct StemExperiment {
     pub cell_height_voxels: f32,
     pub model_resolution: u32,
     pub radius_scale: f32,
+    pub tip_radius_ratio: f32,
     pub branches: bool,
 }
 
@@ -18,6 +19,7 @@ impl Default for StemExperiment {
             cell_height_voxels: 0.5,
             model_resolution: 128,
             radius_scale: 4.0,
+            tip_radius_ratio: 0.6,
             branches: true,
         }
     }
@@ -36,6 +38,11 @@ impl StemExperiment {
                 self.radius_scale.clamp(0.25, 10.)
             } else {
                 Self::default().radius_scale
+            },
+            tip_radius_ratio: if self.tip_radius_ratio.is_finite() {
+                self.tip_radius_ratio.clamp(0., 1.)
+            } else {
+                Self::default().tip_radius_ratio
             },
             ..self
         }
@@ -83,6 +90,29 @@ mod tests {
             "floatcellSize=stemWorldCellSize(flowerStemShapeSettings().z,input.root_scale.w);"
         ));
         assert!(!fragment.contains("flowerStemShapeSettings().y"));
+    }
+
+    #[test]
+    fn tip_radius_ratio_cannot_exceed_the_base() {
+        for (ratio, expected) in [
+            (-1., 0.),
+            (0., 0.),
+            (0.6, 0.6),
+            (1., 1.),
+            (2., 1.),
+            (f32::NAN, 0.6),
+            (f32::INFINITY, 0.6),
+        ] {
+            assert_eq!(
+                StemExperiment {
+                    tip_radius_ratio: ratio,
+                    ..Default::default()
+                }
+                .normalized()
+                .tip_radius_ratio,
+                expected
+            );
+        }
     }
 
     #[test]

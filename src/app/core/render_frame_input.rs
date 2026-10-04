@@ -111,6 +111,7 @@ pub(super) fn freeze_render_frame_inputs(
                 cell_height_voxels: gui.flower_stem_cell_height_voxels.value,
                 model_resolution: gui.flower_stem_model_resolution.value,
                 radius_scale: gui.flower_stem_radius_scale.value,
+                tip_radius_ratio: gui.flower_stem_tip_radius_ratio.value,
                 branches: gui.flower_stem_test_branches.value,
             },
             growth_override_enabled: gui.flora_growth_override_enabled.value,
@@ -358,6 +359,7 @@ mod tests {
         gui.flower_stem_model_resolution.value = 192;
         gui.flower_stem_cell_height_voxels.value = 1.25;
         gui.flower_stem_radius_scale.value = 0.8;
+        gui.flower_stem_tip_radius_ratio.value = 0.35;
         gui.flower_stem_test_branches.value = false;
         gui.flora_growth_override_enabled.value = true;
         gui.apple_pixel_resolution.value = 24;
@@ -546,6 +548,7 @@ mod tests {
                         cell_height_voxels: 1.25,
                         model_resolution: 192,
                         radius_scale: 0.8,
+                        tip_radius_ratio: 0.35,
                         branches: false,
                     },
                     grass_bottom_dark,

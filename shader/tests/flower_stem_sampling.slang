@@ -2,7 +2,7 @@ import flower_stem_geometry;
 
 bool close(float a,float b) { return abs(a-b)<2e-5; }
 export __extern_cpp int main() {
-    StemGeometry s;
+    StemGeometry s;s.tipRadiusRatio=0.6;
     s.height=2.0;s.bend=0.0;s.radius=0.1;s.motion=float3(0);s.branches=0u;s.socket=float4(0);
     StemHit side=traceStem(s,float3(0,1,1),float3(0,0,-1));
     // Independent closed-form middle of a linear tapered hull of spheres.
@@ -78,5 +78,17 @@ export __extern_cpp int main() {
     stemSurfaceCell(s,interior,0.1,point,normal);
     if(!close(point.y*0.5,0.025))return 20;
     if(!close(stemWorldCellSize(0.1,0.0),1000000.0))return 21;
+    // Runtime taper endpoints: pointed, original, cylindrical, and clamped.
+    for(uint i=0u;i<5u;i++) {
+        s.tipRadiusRatio=float(i)*0.5-0.5;
+        float ratio=saturate(s.tipRadiusRatio);
+        if(!close(stemRadius(s,0u,0),s.radius))return 22;
+        if(!close(stemRadius(s,0u,1),s.radius*ratio))return 23;
+        if(!close(stemRadius(s,0u,0.5),s.radius*(1.0+ratio)*0.5))return 24;
+        StemHit hit=traceStem(s,float3(0,1,1),float3(0,0,-1));
+        float slope=s.radius*(ratio-1.0)/s.height;
+        float expected=1.0-s.radius*(1.0+ratio)*0.5/sqrt(1.0-slope*slope);
+        if(!close(hit.distance,expected)||any(isnan(hit.normal)))return 25;
+    }
     return 0;
 }

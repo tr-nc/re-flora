@@ -5,7 +5,7 @@ import flower_stem_model_sampling;
 export __extern_cpp int main() {
     float tilts[6]={38,28,42,44,55,70};
     for(uint species=0u;species<6u;species++)for(uint variant=0u;variant<4u;variant++) {
-        StemGeometry s;
+        StemGeometry s;s.tipRadiusRatio=0.6;
         s.height=variant==3u?0.01:2.1;s.bend=0.08;
         s.radius=variant==0u?.025*1.33:variant==1u?.00625:.1;
         s.motion=float3(.12,0,-.09);s.branches=variant%2u;
