@@ -60,6 +60,7 @@ pub struct GraphicsPipelineDesc {
     pub front_face: vk::FrontFace,
     pub depth_test_enable: bool,
     pub depth_write_enable: bool,
+    pub depth_compare_op: vk::CompareOp,
 }
 
 impl Default for GraphicsPipelineDesc {
@@ -71,6 +72,7 @@ impl Default for GraphicsPipelineDesc {
             front_face: vk::FrontFace::COUNTER_CLOCKWISE,
             depth_test_enable: false,
             depth_write_enable: false,
+            depth_compare_op: vk::CompareOp::LESS,
         }
     }
 }
@@ -95,6 +97,13 @@ fn apply_vertex_binding_strides(
 #[cfg(test)]
 mod vertex_stride_tests {
     use super::*;
+
+    #[test]
+    fn depth_compare_preserves_default_and_supports_attachment_initialization() {
+        assert_eq!(GraphicsPipelineDesc::default().depth_compare_op, vk::CompareOp::LESS);
+        let clear = GraphicsPipelineDesc { depth_compare_op: vk::CompareOp::ALWAYS, ..Default::default() };
+        assert_eq!(clear.depth_compare_op, vk::CompareOp::ALWAYS);
+    }
 
     #[test]
     fn shared_mesh_and_instance_padding_survive_reflection() {
@@ -267,7 +276,7 @@ impl GraphicsPipeline {
         let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
             .depth_test_enable(desc.depth_test_enable)
             .depth_write_enable(desc.depth_write_enable)
-            .depth_compare_op(vk::CompareOp::LESS)
+            .depth_compare_op(desc.depth_compare_op)
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
 
