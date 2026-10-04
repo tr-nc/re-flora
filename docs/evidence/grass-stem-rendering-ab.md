@@ -3,6 +3,9 @@
 > Historical pre-fix measurements. The near-plane fullscreen-proxy regression
 > is now fixed; see [the fix and updated Release matrix](grass-stem-near-plane-fix.md).
 > The validator now includes top/low/inside/low-curved regression scenes.
+> New [solid Color Band mesh candidates](stem-color-band-candidates.md) retain
+> analytic grass as candidate 0 and add square/taper/ribbons for GPU grass and CPU
+> climbing paths; that report covers the corrected-clock 128-run Release matrix.
 
 ## Candidate
 
