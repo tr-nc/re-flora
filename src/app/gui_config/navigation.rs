@@ -14,7 +14,6 @@ pub(super) fn category(path: &str) -> &'static str {
         | "Pixel Models — Global"
         | "Visibility & Detail"
         | "Lighting Diagnostics"
-        | "DDGI Experiments"
         | "Atmos"
         | "Sky"
         | "Glass"

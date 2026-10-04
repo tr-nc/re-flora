@@ -1,6 +1,19 @@
 # DDGI history candidate experiments
 
-## Current try-out status
+## Retirement
+
+The DDGI Experiments group and both saved A/B controls are retired. Normal rendering
+now permanently uses the original (both unchecked) policy: epoch-scoped sampling
+rotation and the original irradiance/visibility history rules. Old saved toggle
+values are removed on load without writing the file; Save persists the migrated
+configuration. The sampling-progress tracker, field-mode latch and live aggregate
+filter branches have been removed. The legacy `cave-edits-history-toggles` fixture
+name remains compatible but now runs all forty edits with the original policy.
+
+The candidate evidence and isolated shader-policy tests below are historical,
+not a currently selectable rendering mode.
+
+## Historical try-out status
 
 Integrated into `agent/butterfly-block-flight` after merging `main` at `6fb81dfa`.
 Both saved controls remain **off by default**. At the default 32-voxel spacing, open

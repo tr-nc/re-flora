@@ -105,8 +105,14 @@ impl GuiConfigLoader {
             }
         }
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
-        Self::add_missing_param(&mut config, "Debug", "ddgi_continuous_sampling");
-        Self::add_missing_param(&mut config, "Debug", "ddgi_aggregate_history");
+        for section in &mut config.section {
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "ddgi_continuous_sampling" | "ddgi_aggregate_history"
+                )
+            });
+        }
         Self::add_missing_param(&mut config, "Debug", "model_pixel_view_count");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
@@ -1681,35 +1687,51 @@ mod tests {
     }
 
     #[test]
-    fn old_configs_default_ddgi_sampling_to_original_and_save_experiment() {
+    fn old_ddgi_experiment_values_are_retired_without_saving() {
         use crate::app::gui_config_model::GuiParamValue;
-        for id in ["ddgi_continuous_sampling", "ddgi_aggregate_history"] {
-            let mut config: GuiConfigFile =
-                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-            for section in &mut config.section {
-                section.param.retain(|p| p.id != id);
+        for continuous in [false, true] {
+            for aggregate in [false, true] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let debug = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                for (id, value) in [
+                    ("ddgi_continuous_sampling", continuous),
+                    ("ddgi_aggregate_history", aggregate),
+                ] {
+                    let mut control = debug
+                        .param
+                        .iter()
+                        .find(|p| p.id == "flower_stem_test_branches")
+                        .unwrap()
+                        .clone();
+                    control.id = id.into();
+                    control.value = GuiParamValue::Bool { value };
+                    debug.param.push(control);
+                }
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                let bytes = std::fs::read(&path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(bytes, std::fs::read(&path).unwrap());
+                assert!(!loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .any(|p| matches!(
+                        p.id.as_str(),
+                        "ddgi_continuous_sampling" | "ddgi_aggregate_history"
+                    )));
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert_eq!(
+                    toml::to_string(&loaded).unwrap(),
+                    toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
+                );
             }
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("gui.toml");
-            GuiConfigLoader::save_to_path(&config, &path).unwrap();
-            let mut loaded = GuiConfigLoader::load_from_path(&path);
-            let control = loaded
-                .section
-                .iter_mut()
-                .flat_map(|s| &mut s.param)
-                .find(|p| p.id == id)
-                .unwrap();
-            assert!(matches!(
-                control.value,
-                GuiParamValue::Bool { value: false }
-            ));
-            control.value = GuiParamValue::Bool { value: true };
-            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-            let reloaded = GuiConfigLoader::load_from_path(&path);
-            assert_eq!(
-                toml::to_string(&loaded).unwrap(),
-                toml::to_string(&reloaded).unwrap()
-            );
         }
     }
 

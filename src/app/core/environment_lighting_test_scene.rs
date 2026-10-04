@@ -1864,16 +1864,9 @@ fn prepare_initial_environment_lighting_test_scene(
         .context("compile deterministic environment-lighting test scene")
 }
 
-// Hidden runtime compatibility replay: same portal geometry and forty edits, all saved control
-// combinations, ending back in original mode. No special renderer or publication path.
-fn ddgi_history_toggle_phase(edit: u32) -> (bool, bool) {
-    [
-        (false, false),
-        (true, false),
-        (false, true),
-        (true, true),
-        (false, false),
-    ][(edit / 8) as usize]
+// Keep the legacy fixture name/log protocol, but retired experiments are always off.
+fn ddgi_history_toggle_phase(_edit: u32) -> (bool, bool) {
+    (false, false)
 }
 
 fn is_cave_edit_case(case: EnvironmentLightingTestCase) -> bool {
@@ -3377,12 +3370,6 @@ impl App {
                             && count % 8 == 0
                         {
                             let (sequence, aggregate) = ddgi_history_toggle_phase(count);
-                            self.debug_settings
-                                .adjustables
-                                .ddgi_continuous_sampling
-                                .value = sequence;
-                            self.debug_settings.adjustables.ddgi_aggregate_history.value =
-                                aggregate;
                             log::info!(
                                 "[DDGI_HISTORY_TOGGLE] edit={} sequence={} aggregate={}",
                                 count,
@@ -7588,19 +7575,13 @@ mod tests {
     }
 
     #[test]
-    fn history_toggle_replay_covers_each_live_mode_and_returns_to_original() {
+    fn legacy_history_toggle_replay_keeps_original_policy() {
         assert_eq!(
             (0..40)
                 .step_by(8)
                 .map(ddgi_history_toggle_phase)
                 .collect::<Vec<_>>(),
-            vec![
-                (false, false),
-                (true, false),
-                (false, true),
-                (true, true),
-                (false, false)
-            ]
+            vec![(false, false); 5]
         );
         let original = TestSceneGeometry::build(EnvironmentLightingTestCase::CaveEditsPortal);
         let toggles =

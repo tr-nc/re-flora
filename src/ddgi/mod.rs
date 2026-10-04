@@ -6,8 +6,6 @@
 mod atlas;
 mod capture;
 mod config;
-mod experiments;
-pub(crate) use experiments::{DdgiExperimentLatch, DdgiExperimentSettings};
 #[cfg_attr(not(test), allow(dead_code))]
 mod octahedral;
 mod resources;
@@ -218,5 +216,3 @@ impl DdgiDebugView {
         }
     }
 }
-
-pub(crate) use resources::DdgiSamplingProgress;

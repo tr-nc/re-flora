@@ -44,18 +44,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "ddgi_aggregate_history",
-        kind: "bool",
-        label: "DDGI geometry-qualified aggregate history (experimental A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "ddgi_continuous_sampling",
-        kind: "bool",
-        label: "DDGI continuous accepted-batch sampling (experimental A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "apple_pixel_resolution",
         kind: "uint",
         label: "Pixels per Apple (N x N, Trees and Fallen Fruit)",
@@ -1399,8 +1387,6 @@ pub struct GuiAdjustables {
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
-    pub ddgi_aggregate_history: crate::gui_adjustables::BoolParam,
-    pub ddgi_continuous_sampling: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
@@ -1640,8 +1626,6 @@ impl GuiAdjustables {
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut ddgi_aggregate_history_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut ddgi_continuous_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1886,16 +1870,6 @@ impl GuiAdjustables {
                     "flower_stem_test_branches" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             flower_stem_test_branches_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "ddgi_aggregate_history" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ddgi_aggregate_history_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "ddgi_continuous_sampling" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ddgi_continuous_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "apple_pixel_resolution" => {
@@ -3406,8 +3380,6 @@ impl GuiAdjustables {
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
-            ddgi_aggregate_history: ddgi_aggregate_history_field.expect("Missing parameter: ddgi_aggregate_history"),
-            ddgi_continuous_sampling: ddgi_continuous_sampling_field.expect("Missing parameter: ddgi_continuous_sampling"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
@@ -3867,8 +3839,6 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
-        "ddgi_aggregate_history" => Some(&adjustables.ddgi_aggregate_history),
-        "ddgi_continuous_sampling" => Some(&adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
@@ -4142,8 +4112,6 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
-        "ddgi_aggregate_history" => Some(&mut adjustables.ddgi_aggregate_history),
-        "ddgi_continuous_sampling" => Some(&mut adjustables.ddgi_continuous_sampling),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),

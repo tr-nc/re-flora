@@ -558,10 +558,6 @@ impl DdgiRayBatch {
         self.resident.probe_priority
     }
 
-    pub fn edited_voxel_bound(self) -> Option<UAabb3> {
-        self.resident.edited_voxel_bound
-    }
-
     pub fn local_recovery_epoch(self) -> u32 {
         self.update_epoch()
     }
@@ -632,49 +628,6 @@ impl DdgiRayBatch {
             self.radiance_revision(),
             self.update_epoch(),
         )
-    }
-}
-
-/// Sequence positions belong to spatial batches, not geometry revisions. Only validated batches
-/// consume a position; a stale/cancelled readback or an encoding retry does not. Retained probes
-/// may skip positions: this is a direction schedule, never an effective sample-count estimate.
-#[derive(Default)]
-pub(crate) struct DdgiSamplingProgress {
-    accepted: std::collections::BTreeMap<(u32, u32, u32), (u64, u64)>,
-}
-
-impl DdgiSamplingProgress {
-    fn key(batch: DdgiRayBatch) -> (u32, u32, u32) {
-        (
-            batch.spacing_voxels(),
-            batch.first_probe_index,
-            batch.probe_count,
-        )
-    }
-
-    fn position(&self, batch: DdgiRayBatch) -> (u64, u64) {
-        self.accepted.get(&Self::key(batch)).copied().unwrap_or((
-            u64::from(batch.geometry_revision()) | (u64::from(batch.radiance_revision()) << 21),
-            0,
-        ))
-    }
-
-    #[cfg(test)]
-    pub fn index(&self, batch: DdgiRayBatch) -> u64 {
-        self.position(batch).1
-    }
-
-    pub fn rotation(&self, batch: DdgiRayBatch) -> [f32; 4] {
-        // Match the initial baseline phase. Rotate (rather than shift) the full index so the
-        // sequence does not silently repeat after 2^22 accepted batches.
-        let (seed, index) = self.position(batch);
-        ddgi_rotation_from_seed(seed ^ index.rotate_left(42))
-    }
-
-    pub fn accept(&mut self, batch: DdgiRayBatch) {
-        let (seed, index) = self.position(batch);
-        self.accepted
-            .insert(Self::key(batch), (seed, index.wrapping_add(1)));
     }
 }
 
@@ -4232,35 +4185,6 @@ mod tests {
         };
         assert!(initial_batch.writes_visibility());
         assert!(temporal_batch.writes_visibility());
-    }
-
-    #[test]
-    fn sampling_progress_consumes_only_accepted_spatial_batches() {
-        let batch = filter_evidence_batch(0, 64);
-        let other = filter_evidence_batch(64, 64);
-        let mut progress = DdgiSamplingProgress::default();
-        assert_eq!(progress.rotation(batch), batch.epoch_rotation());
-        let first = progress.rotation(batch);
-        // Encoding, cancellation, and retry are reads; only validated completion calls accept.
-        assert_eq!(progress.rotation(batch), first);
-        assert_eq!(progress.index(batch), 0);
-        progress.accept(batch);
-        assert_eq!(progress.index(batch), 1);
-        assert_eq!(progress.index(other), 0);
-        assert_ne!(progress.rotation(batch), first);
-        let work = initial_work(99, 3, 32);
-        let changed = DdgiRayBatch {
-            resident: resident_iteration_for_work(work, None, None, DdgiHistoryMode::Accumulating)
-                .unwrap(),
-            ..batch
-        };
-        assert_eq!(progress.rotation(changed), progress.rotation(batch));
-        assert_eq!(
-            progress.index(filter_evidence_batch_for_spacing(0, 64, 16)),
-            0
-        );
-        progress.accept(other);
-        assert_eq!(progress.rotation(other), progress.rotation(batch));
     }
 
     #[test]

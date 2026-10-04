@@ -75,13 +75,6 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "DDGI Experiments",
-        description: "Optional A/B candidates, off by default. Off = original policy; changes apply next field. Tested at 32-voxel spacing; 64-voxel wall spikes regressed. Not required for the digging performance fix.",
-        initially_open: false,
-        params: &["ddgi_continuous_sampling", "ddgi_aggregate_history"],
-    },
-    ControlGroup {
-        parent: None,
         title: "World Timing",
         description: "The shared world update interval, not the vegetation pose rate.",
         initially_open: false,
@@ -335,19 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn optional_ddgi_candidates_are_isolated_in_a_collapsed_experiment_group() {
-        let group = GROUPS
-            .iter()
-            .find(|group| group.title == "DDGI Experiments")
-            .unwrap();
-        assert!(!group.initially_open);
-        assert_eq!(
-            group.params,
-            &["ddgi_continuous_sampling", "ddgi_aggregate_history"]
-        );
-    }
-
-    #[test]
     fn every_debug_parameter_has_exactly_one_group() {
         // Review the full Debug section by adjustment concern, not by object.
         assert!(GROUPS
@@ -498,6 +478,9 @@ mod tests {
             .lines()
             .any(|line| matches!(line, "Post Processing" | "Post-processing")));
         assert!(!text.contains("Dither Strength"));
+        assert!(!text.contains("DDGI Experiments"));
+        assert!(!text.contains("DDGI continuous accepted-batch sampling"));
+        assert!(!text.contains("DDGI geometry-qualified aggregate history"));
         let expected_sections = settings
             .config
             .section

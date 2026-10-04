@@ -67,8 +67,6 @@ pub(super) fn freeze_render_frame_inputs(
         ray_origin_offset_world: gui.terrain_ray_origin_offset_world.value,
         ddgi_receiver_visibility_bias_world: gui.ddgi_receiver_visibility_bias_world.value,
         ddgi_history_retention: gui.ddgi_history_retention.value,
-        ddgi_continuous_sampling: gui.ddgi_continuous_sampling.value,
-        ddgi_aggregate_history: gui.ddgi_aggregate_history.value,
         apple_pixel_resolution: model_cache.apple_resolution,
         model_pixel_view_count: model_cache.views,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
@@ -360,8 +358,6 @@ mod tests {
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_test_branches.value = false;
         gui.flora_growth_override_enabled.value = true;
-        gui.ddgi_continuous_sampling.value = true;
-        gui.ddgi_aggregate_history.value = true;
         gui.apple_pixel_resolution.value = 24;
         gui.model_pixel_view_count.value = 37;
         gui.glass_refraction_enabled.value = false;
@@ -484,8 +480,6 @@ mod tests {
                 ray_origin_offset_world: terrain_ray_origin_offset_world,
                 ddgi_receiver_visibility_bias_world,
                 ddgi_history_retention,
-                ddgi_continuous_sampling: true,
-                ddgi_aggregate_history: true,
                 apple_pixel_resolution: 24,
                 model_pixel_view_count: 37,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
