@@ -566,7 +566,11 @@ impl PipelineBuilder {
         .unwrap();
         let flora_lighting_band_cache_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/foliage/flora_lighting_band_cache.comp",
+            if glass_experiment_enabled {
+                "shader/foliage/flora_lighting_band_cache_glass.comp"
+            } else {
+                "shader/foliage/flora_lighting_band_cache.comp"
+            },
             "main",
         )
         .unwrap();
