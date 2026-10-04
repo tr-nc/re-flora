@@ -14,7 +14,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pixel Sampling — Flower Stems",
-        description: "Continuous stems with surface-attached cell shading and model-space pixel sampling. Wind is always active.",
+        description: "",
         initially_open: false,
         params: &[
             "flower_stem_model_resolution",
@@ -189,7 +189,6 @@ fn render_filtered(
             .default_open(group.initially_open)
             .show(ui, |ui| {
                 if group.title == "Pixel Sampling — Flower Stems" {
-                    ui.weak(group.description);
                     for (title, ids) in [
                         (
                             "Geometry",
@@ -294,6 +293,7 @@ mod tests {
                 settings.draw(ui, |_, _| {});
             });
             let text = format!("{:?}", output.shapes);
+            assert!(!text.contains("Continuous stems"));
             assert!(!text.contains("model-space pixelization"));
             assert!(!text.contains("Flower stems: surface-attached cell shading"));
             assert!(!text.contains("Off: continuous shading"));
