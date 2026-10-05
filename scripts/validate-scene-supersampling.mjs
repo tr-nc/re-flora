@@ -9,7 +9,7 @@ import { parseArgs } from 'node:util';
 
 const help = `Usage: node scripts/validate-scene-supersampling.mjs [--help]
 Validate Release startup and runtime scene pixel controls: 1:1/4:1/16:1/64:1,
-4x/16x AA, native-resolution capping, odd/tiny windows and depth outlines. Hidden and muted;
+4/16 source pixels, both color resolves, native capping and odd/tiny windows. Hidden and muted;
 the real saved Debug field is edited in memory only. No config files are saved.
 Requires: cargo build --release, a Vulkan display and VK_LAYER_KHRONOS_validation
 (install/activate the Vulkan SDK if the layer is unavailable).

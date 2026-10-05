@@ -73,9 +73,6 @@ impl App {
         } else {
             0
         };
-        if frame == 36 {
-            gui.depth_outline_enabled.value = true;
-        }
         let resize = match frame {
             18 => Some((1023, 767)),
             36 => Some((9, 8)),

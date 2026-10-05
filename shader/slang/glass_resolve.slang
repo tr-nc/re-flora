@@ -38,8 +38,6 @@ readonly RWTexture2D<float> god_ray_output_tex;
 RWTexture2D<float4> composited_tex;
 [[vk::binding(16, 0)]] [[vk::image_format("rg32ui")]]
 RWTexture2D<uint2> glass_debug_tex;
-[[vk::binding(24, 0)]] [[vk::image_format("r32f")]]
-RWTexture2D<float> scene_depth_tex;
 // Metadata is an open-addressed cell-key table. z/w hold packed diagnostics; w bit 31 is
 // published last as the shade-ready marker. The separate active-slot list turns sparse hash
 // entries into a dense transport workload.
@@ -1342,8 +1340,6 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent,
         resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);
     glass_debug_tex[coordinate] = diagnostics;
     composited_tex[coordinate] = float4(resolvedColor, 1.0);
-    if (resolvedGlassCell)
-        scene_depth_tex[coordinate] = min(scene_depth_tex[coordinate], frontDepth);
 }
 
 [shader("compute")]

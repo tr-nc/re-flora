@@ -39,7 +39,6 @@ pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
 pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
-pub mod depth_outline;
 mod dynamic_fruit_resources;
 mod flower_models;
 mod grass_band_cache;
@@ -1488,7 +1487,6 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
-    pub depth_outline: depth_outline::Settings,
     pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
@@ -1615,7 +1613,6 @@ pub struct Tracer {
     direct_sun_shadows: DirectSunShadowRuntime,
     god_ray_temporal_blend_enabled: bool,
     god_ray_temporal_alpha: f32,
-    depth_outline_settings: depth_outline::Settings,
     god_ray_history_valid: bool,
     lens_flare_history_valid: bool,
     glass_refraction_enabled: bool,
@@ -1985,7 +1982,6 @@ impl Tracer {
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             god_ray_temporal_blend_enabled: true,
             god_ray_temporal_alpha: 0.10,
-            depth_outline_settings: depth_outline::Settings::default(),
             god_ray_history_valid: false,
             lens_flare_history_valid: false,
             glass_refraction_enabled: true,
@@ -3053,7 +3049,6 @@ impl Tracer {
             environment.god_rays.weight,
             environment.god_rays.color,
         )?;
-        self.depth_outline_settings = environment.depth_outline;
         self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
         self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
@@ -4247,24 +4242,6 @@ impl Tracer {
                 || self.record_glass_resolve_pass(cmdbuf),
             );
         }
-        Self::with_gpu_scope(
-            gpu_profiler.as_deref_mut(),
-            gpu_profiler_frame_slot,
-            cmdbuf,
-            "depth_outline.pass",
-            || {
-                self.pipeline_topology.compute().depth_outline.record(
-                    cmdbuf,
-                    self.resources
-                        .extent_dependent_resources
-                        .composited_tex
-                        .get_image()
-                        .get_desc()
-                        .extent,
-                    self.depth_outline_settings,
-                );
-            },
-        );
         if let Some(profiler) = gpu_profiler {
             let postprocessing_scope = profiler.begin_scope(
                 gpu_profiler_frame_slot,

@@ -21,13 +21,6 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Scene Depth Outlines",
-        description: "One internal sampling pixel, before scene filtering and nearest upscaling; UI stays untouched. All renderers share final scene depth. Relative threshold and minimum gap control occlusion; crease angle detects continuous terrain/model folds in either direction (180 disables creases). Planar slopes are rejected. Sky outlines stay inside objects. Thin detail strength protects grass/leaves. Same-depth color borders and subpixel details are not recovered.",
-        initially_open: false,
-        params: &["depth_outline_enabled", "depth_outline_strength", "depth_outline_color", "depth_outline_relative_threshold", "depth_outline_minimum_gap", "depth_outline_softness", "depth_outline_crease_angle", "depth_outline_sky_strength", "depth_outline_thin_strength"],
-    },
-    ControlGroup {
-        parent: None,
         title: "Stem Model Pixelization",
         description: "Grass square color bands use hardware rasterization and prepared poses on the scene-wide pixel grid. Flower sampling and CPU climbing stems are unchanged.",
         initially_open: false,

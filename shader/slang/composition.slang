@@ -5,7 +5,6 @@ import composition_terrarium_glass;
 import composition_terrarium_panels;
 import composition_types;
 import packer;
-import scene_depth;
 import ray;
 import sunlight;
 import tracer_types;
@@ -48,9 +47,6 @@ static const uint OPAQUE_PROVENANCE_SKY = 3u;
 static const uint OPAQUE_PROVENANCE_UNSUPPORTED_RASTER = 4u;
 #endif
 
-[[vk::binding(19, 0)]] [[vk::image_format("r32f")]]
-RWTexture2D<float> scene_depth_tex;
-
 [numthreads(8, 8, 1)]
 [shader("compute")]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -68,8 +64,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float computeDepth = compute_depth_tex[coordinate];
     float4 rasterColor = gfx_output_tex.Load(int3(coordinate, 0));
     float3 terrainColor = unpackRgbe(compute_output_tex[coordinate]);
-    // Publish once for every renderer and every composition specialization.
-    scene_depth_tex[coordinate] = sceneVisibleDepth(rasterDepth, rasterColor.a, computeDepth);
     float3 finalColor = combineSceneColors(
         rasterDepth, computeDepth, rasterColor, terrainColor, screenUv,
         sun_info, camera_info, starlight_info,
