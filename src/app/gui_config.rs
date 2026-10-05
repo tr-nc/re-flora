@@ -540,6 +540,9 @@ fn render_gui_param_from_config(
     section_name: &str,
     adjustables: &mut GuiAdjustables,
 ) {
+    if debug_groups::retired_pixel_control(&param.id) {
+        return;
+    }
     let enabled = param
         .enabled_if
         .as_ref()
@@ -698,6 +701,9 @@ fn search_matches_param(
     param: &GuiParam,
     path: &str,
 ) -> bool {
+    if debug_groups::retired_pixel_control(&param.id) {
+        return false;
+    }
     let mut fields = vec![path, param.label.as_str()];
     if let GuiParamValue::Choice { options, .. } = &param.value {
         fields.extend(options.iter().map(String::as_str));

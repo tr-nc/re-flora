@@ -12,9 +12,8 @@ pub(crate) use capture_frame::{
 };
 
 mod butterfly_mesh;
-mod model_pixel_bake_validation;
+#[cfg(test)]
 mod model_pixel_bounds;
-mod model_pixel_repair;
 pub use butterfly_mesh::{ButterflyMeshSettings, LeafModelSettings};
 mod butterfly_palette;
 pub use butterfly_palette::*;
@@ -43,7 +42,6 @@ mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
 mod grass_band_cache;
-mod grass_raster_pixels;
 pub(crate) mod scene_resolution;
 mod stem_band_mesh;
 mod stem_band_paths;
@@ -51,12 +49,11 @@ mod stem_band_resources;
 use crate::flora::species;
 pub use stem_band_paths::{path_bands, StemBandInstance, StemPathPoint};
 use stem_band_resources::StemBandResources;
-mod model_pixel_cache;
-mod model_pixel_frame;
+mod model_geometry;
+mod model_mesh_frame;
 #[cfg(test)]
-mod model_pixel_projection;
 mod model_pixel_tiles;
-use model_pixel_frame::{ModelPixelFrame, PixelPass, PreparedModelPixels};
+use model_mesh_frame::{MeshPass, ModelMeshFrame, PreparedModelMeshes};
 mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
 
@@ -1547,7 +1544,7 @@ struct PreparedTreeFoliageBatch<'a, Draw = PreparedDrawDescriptors> {
 
 enum PreparedTreeColorDraw {
     Leaves(PreparedDrawDescriptors),
-    Apples(PreparedModelPixels),
+    Apples(PreparedModelMeshes),
 }
 
 #[derive(Clone, Copy)]
@@ -1625,7 +1622,6 @@ pub struct Tracer {
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     grass_band_cache: grass_band_cache::GrassBandCache,
-    grass_raster_pixels: Option<grass_raster_pixels::GrassRasterPixels>,
     vegetation_response: VegetationResponse,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
@@ -1636,7 +1632,6 @@ pub struct Tracer {
     flower_stem_experiment: crate::flora::models::StemExperiment,
     grass_stem_rendering: bool,
     grass_band_pose_reuse: bool,
-    grass_band_pixelization: bool,
     stem_band_mode: u32,
     flower_spawn_overshoot_voxels: f32,
     // None means no effective display configuration has been published/logged yet.
@@ -1662,7 +1657,7 @@ pub struct Tracer {
     raster_lighting_state: ResolvedRasterLightingState,
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
-    model_pixel_frame: ModelPixelFrame,
+    model_mesh_frame: ModelMeshFrame,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
     tree_leaf_particle_scratch: Vec<ParticleInstanceGpu>,
@@ -1956,7 +1951,7 @@ impl Tracer {
 
         let mower_resources =
             MowerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
-        let model_pixel_frame = ModelPixelFrame::new(&vulkan_ctx, allocator.clone());
+        let model_mesh_frame = ModelMeshFrame::new(&vulkan_ctx, allocator.clone());
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
             vulkan_ctx.clone(),
@@ -1994,7 +1989,6 @@ impl Tracer {
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
-            grass_raster_pixels: None,
             vegetation_response: VegetationResponse::new(chunk_bound),
             ddgi_voxel_visibility,
             ddgi_runtime,
@@ -2005,7 +1999,6 @@ impl Tracer {
             flower_stem_experiment: crate::flora::models::StemExperiment::default(),
             grass_stem_rendering: false,
             grass_band_pose_reuse: true,
-            grass_band_pixelization: false,
             stem_band_mode: 1,
             flower_spawn_overshoot_voxels: 0.,
             ddgi_trace_stats_readback_pending: None,
@@ -2029,7 +2022,7 @@ impl Tracer {
             raster_lighting_state,
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
-            model_pixel_frame,
+            model_mesh_frame,
             particle_instance_scratch: Vec::new(),
             translucent_particle_instance_scratch: Vec::new(),
             tree_leaf_particle_scratch: Vec::new(),
@@ -3062,21 +3055,6 @@ impl Tracer {
         }
         self.grass_stem_rendering = vegetation.appearance.grass_stem_rendering;
         self.grass_band_pose_reuse = vegetation.appearance.grass_band_pose_reuse;
-        if self.grass_band_pixelization != vegetation.appearance.grass_band_pixelization
-            || self.stem_band_mode != vegetation.appearance.stem_band_mode
-        {
-            log::info!(
-                "[GRASS_MODEL_PIXELS] enabled={} active={} backend={} cpu_readback=0",
-                vegetation.appearance.grass_band_pixelization,
-                self.grass_stem_rendering && vegetation.appearance.grass_band_pixelization,
-                if vegetation.appearance.stem_band_mode == 0 {
-                    "analytic"
-                } else {
-                    "hardware_raster"
-                }
-            );
-        }
-        self.grass_band_pixelization = vegetation.appearance.grass_band_pixelization;
         let mode = vegetation.appearance.stem_band_mode.min(1);
         if self.stem_band_mode != mode {
             self.cpu_stem_band_resources.invalidate_shadow();
@@ -3087,12 +3065,8 @@ impl Tracer {
             .spawn_overshoot_min_voxels
             .max(vegetation.growth.spawn_overshoot_max_voxels)
             .max(0.);
-        // One runtime count drives every pixel-model bank, including flower heads.
-        let view_count = model_pixel_views::runtime_count(terrain.model_pixel_view_count);
-        if self.model_pixel_view_count != view_count {
-            log::info!("[MODEL_PIXEL_PREVIEW] single_light=true views={view_count} orthographic=true rotating_pixels=true shared_surfaces=true tile_work=relighting");
-        }
-        self.model_pixel_view_count = view_count;
+        // Legacy model-pixel save fields do not affect this branch's renderer.
+        self.model_pixel_view_count = 0;
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3263,7 +3237,7 @@ impl Tracer {
     }
 
     pub fn startup_model_cache_progress(&self) -> f32 {
-        self.model_pixel_frame.startup_cache_progress()
+        self.model_mesh_frame.startup_cache_progress()
     }
 
     pub fn warmup_startup_model_cache(
@@ -3274,10 +3248,9 @@ impl Tracer {
         settings: ModelCacheSettings,
     ) -> Result<bool> {
         Self::with_gpu_scope(profiler, frame_slot, cmdbuf, "models.cache.warmup", || {
-            self.model_pixel_frame.warmup_cache(
+            self.model_mesh_frame.warmup_cache(
                 frame_slot,
                 cmdbuf,
-                &self.pipeline_topology.compute().model_pixel_bake_ppl,
                 model_pixel_views::runtime_count(settings.views),
                 settings.apple_resolution.clamp(8, 64),
                 settings.particle_resolutions,
@@ -3484,7 +3457,7 @@ impl Tracer {
         }
 
         self.start_next_ddgi_scheduled_work()?;
-        self.model_pixel_frame.begin_frame(
+        self.model_mesh_frame.begin_frame(
             gpu_profiler_frame_slot,
             self.pipeline_topology.compute(),
             self.pipeline_topology.graphics(),
@@ -3494,11 +3467,10 @@ impl Tracer {
             gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
             cmdbuf,
-            "models.cache.bake",
+            "models.geometry.prepare",
             || {
-                self.model_pixel_frame.prepare_cache(
+                self.model_mesh_frame.prepare_cache(
                     cmdbuf,
-                    &self.pipeline_topology.compute().model_pixel_bake_ppl,
                     self.model_pixel_view_count,
                     self.apple_pixel_resolution,
                     self.flower_model_settings,
@@ -4067,17 +4039,16 @@ impl Tracer {
         }
 
         let prepared_particle_pixels =
-            if render_flags.enable_particles && self.model_pixel_frame.particle_count() > 0 {
+            if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
                 Some(Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
                     cmdbuf,
-                    "butterfly.tiles",
+                    "models.particles.prepare",
                     || {
-                        self.model_pixel_frame.particles(
+                        self.model_mesh_frame.particles(
                             cmdbuf,
-                            PixelPass {
-                                compute: &self.pipeline_topology.compute().butterfly_tile_ppl,
+                            MeshPass {
                                 display: &self.pipeline_topology.graphics().butterfly_tile_ppl,
                             },
                             self.camera.get_view_mat(),
@@ -4144,8 +4115,6 @@ impl Tracer {
             // RenderTarget attachment state is committed by the recording transaction, and the
             // composition pipeline declares its shader reads after the render pass.
         }
-
-        self.model_pixel_frame.finish_cache(cmdbuf);
 
         if render_flags.enable_god_rays {
             Self::with_gpu_scope(
@@ -4426,29 +4395,10 @@ impl Tracer {
         enable_glass: bool,
         mut gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
-        prepared_particle_pixels: Option<&PreparedModelPixels>,
+        prepared_particle_pixels: Option<&PreparedModelMeshes>,
     ) {
-        let raster_pixels =
-            self.grass_stem_rendering && self.stem_band_mode != 0 && self.grass_band_pixelization;
-        let profile_pixel_phases = Self::grass_pixel_profile_requested();
-        if raster_pixels {
-            let pixels = self.grass_raster_pixels.get_or_insert_with(|| {
-                grass_raster_pixels::GrassRasterPixels::new(
-                    &self.vulkan_ctx,
-                    self.allocator.clone(),
-                    &self.pool,
-                    &self.resources,
-                    self.frame_retirement_sink.clone(),
-                )
-            });
-            pixels.begin_frame(&self.vulkan_ctx, &self.resources, gpu_profiler_frame_slot);
-        }
         let base_target = self.pipeline_topology.color_and_depth_target();
-        let render_target = if raster_pixels {
-            self.grass_raster_pixels.as_ref().unwrap().main_target()
-        } else {
-            base_target
-        };
+        let render_target = base_target;
 
         let clear_values = [
             vk::ClearValue {
@@ -4536,16 +4486,15 @@ impl Tracer {
             .checked_add(required_tree_leaf_cache_entries)
             .expect("visible raster flora lighting cache entry count overflow");
 
-        let lighting_cache_enabled = (raster_pixels && required_flora_cache_entries > 0)
-            || flora_lighting_cache_dispatch_enabled(
-                self.raster_lighting_is_ddgi(),
-                self.local_light_live_publication.observation().count > 0,
-                required_lighting_cache_entries,
-            );
+        let lighting_cache_enabled = flora_lighting_cache_dispatch_enabled(
+            self.raster_lighting_is_ddgi(),
+            self.local_light_live_publication.observation().count > 0,
+            required_lighting_cache_entries,
+        );
         let band_cache_buffer = if lighting_cache_enabled
             && self.grass_stem_rendering
             && self.stem_band_mode != 0
-            && (self.grass_band_pose_reuse || raster_pixels)
+            && self.grass_band_pose_reuse
             && required_flora_cache_entries > 0
         {
             Some(self.grass_band_cache.ensure(
@@ -4755,7 +4704,7 @@ impl Tracer {
                 .iter()
                 .enumerate()
             {
-                let (below, above) = self.model_pixel_frame.flower_culling_padding(
+                let (below, above) = self.model_mesh_frame.flower_culling_padding(
                     crate::flora::models::WORLD_SCALE * settings.size_scale,
                     self.flower_spawn_overshoot_voxels,
                 );
@@ -4811,12 +4760,11 @@ impl Tracer {
                             gpu_profiler.as_deref_mut(),
                             gpu_profiler_frame_slot,
                             cmdbuf,
-                            "models.flowers.tiles",
+                            "models.flowers.prepare",
                             || {
-                                self.model_pixel_frame.flowers(
+                                self.model_mesh_frame.flowers(
                                     cmdbuf,
-                                    PixelPass {
-                                        compute: &self.pipeline_topology.compute().flower_pixel_ppl,
+                                    MeshPass {
                                         display: &self
                                             .pipeline_topology
                                             .graphics()
@@ -4930,12 +4878,11 @@ impl Tracer {
                         gpu_profiler.as_deref_mut(),
                         gpu_profiler_frame_slot,
                         cmdbuf,
-                        "models.apple_tree.tiles",
+                        "models.apple_tree.prepare",
                         || {
-                            self.model_pixel_frame.attached_apples(
+                            self.model_mesh_frame.attached_apples(
                                 cmdbuf,
-                                PixelPass {
-                                    compute: &self.pipeline_topology.compute().apple_pixel_tree_ppl,
+                                MeshPass {
                                     display: &self
                                         .pipeline_topology
                                         .graphics()
@@ -5061,12 +5008,11 @@ impl Tracer {
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
                     cmdbuf,
-                    "models.apple_dynamic.tiles",
+                    "models.apple_dynamic.prepare",
                     || {
-                        self.model_pixel_frame.fallen_apples(
+                        self.model_mesh_frame.fallen_apples(
                             cmdbuf,
-                            PixelPass {
-                                compute: &self.pipeline_topology.compute().apple_pixel_dynamic_ppl,
+                            MeshPass {
                                 display: &self.pipeline_topology.graphics().apple_pixel_dynamic_ppl,
                             },
                             &self.dynamic_fruit_resources,
@@ -5111,10 +5057,6 @@ impl Tracer {
             "graphics.renderpass.begin",
             || {
                 base_target.record_begin(cmdbuf, &clear_values);
-                if raster_pixels {
-                    base_target.record_end(cmdbuf);
-                    render_target.record_begin(cmdbuf, &[]);
-                }
             },
         );
 
@@ -5232,38 +5174,6 @@ impl Tracer {
                     let descriptors = prepared_flora_descriptors
                         .next()
                         .expect("every flora frame batch must have prepared descriptors");
-                    if raster_pixels && analytic_grass {
-                        render_target.record_end(cmdbuf);
-                        let bands = &self.resources.flower_models;
-                        let index_count = 8 * 36;
-                        let indices = &bands.stem_band_indices;
-                        self.grass_raster_pixels.as_ref().unwrap().record(
-                            cmdbuf,
-                            band_cache_buffer.as_ref().unwrap(),
-                            &bands.stem_band_vertices,
-                            indices,
-                            index_count,
-                            crate::generated::gpu_structs::PushConstantGrassRasterPrepare {
-                                first_instance: 0,
-                                instance_count: batch.instance_count(),
-                                species: species_index as u32,
-                                cache_offset: batch.lighting_cache_offset(),
-                                voxel_count: batch.mesh_voxel_count(),
-                                slot_side: grass_raster_pixels::slot_side(
-                                    self.flower_stem_experiment.model_resolution,
-                                ),
-                                extent: [render_extent.width, render_extent.height],
-                            },
-                            if profile_pixel_phases {
-                                gpu_profiler.as_deref_mut()
-                            } else {
-                                None
-                            },
-                            gpu_profiler_frame_slot,
-                        );
-                        render_target.record_begin(cmdbuf, &[]);
-                        continue;
-                    }
                     pipeline.record_indexed_with_prepared_descriptors(
                         cmdbuf,
                         descriptors,
@@ -7236,7 +7146,7 @@ impl Tracer {
         // here cannot overwrite an earlier draw's instance storage.
         // Stage model poses independently of ordinary/debris particles. ModelPixelFrame
         // publishes complete demand-sized input streams after acquiring the frame slot.
-        self.model_pixel_frame.prepare_particle_models(
+        self.model_mesh_frame.prepare_particle_models(
             snapshots,
             butterfly_mesh,
             leaf_model,

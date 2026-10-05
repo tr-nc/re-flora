@@ -1,0 +1,36 @@
+// Direct triangles at scene resolution. No tiles, per-view surfaces or SV_Depth.
+module model_mesh;
+import model_bake_triangle;
+import model_mesh_lighting;
+import model_mesh_types;
+import color;
+import flora_shadow;
+import environment_lighting;
+import sunlight;
+[[vk::binding(16,1)]] public StructuredBuffer<ButterflyMeshTriangle> model_mesh_triangles;
+[[vk::binding(17,1)]] public StructuredBuffer<uint4> model_mesh_ranges;
+public ModelMeshOutput emptyModelMeshVertex() {
+    ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);return output;
+}
+public float3 meshPoint(ButterflyMeshTriangle t,uint corner) {
+    return t.a.xyz+(corner==1u?t.e1.xyz:corner==2u?t.e2.xyz:float3(0));
+}
+public float3 meshNormal(ButterflyMeshTriangle t,uint corner) {
+    return corner==0u?t.normal0.xyz:corner==1u?t.normal1.xyz:t.normal2.xyz;
+}
+public float3 meshShade(float3 linear,float3 position,float3 normal) {
+    StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,position,normal);
+    return applyStylizedVoxelLighting(gui_input,sun_info,shading_info,linear,shadow.weight,position,normal);
+}
+public ModelMeshOutput appleMeshVertex(uint vertex,uint4 range,ApplePixelVertex pose) {
+    if(vertex>=range.y*3u)return emptyModelMeshVertex();
+    ButterflyMeshTriangle t=model_mesh_triangles[range.x+vertex/3u];
+    float3 point=meshPoint(t,vertex%3u),n=meshNormal(t,vertex%3u);
+    float3 position=pose.center+pose.scale*(pose.axisX*point.x+pose.axisY*point.y+pose.axisZ*point.z);
+    float3 normal=normalize(pose.axisX*n.x+pose.axisY*n.y+pose.axisZ*n.z);
+    uint material=uint(t.uv2.z+0.5);
+    float3 srgb=material==0u?float3(203,48,47)/255.0:material==1u?float3(116,80,46)/255.0:float3(77,145,62)/255.0;
+    ModelMeshOutput output;output.position=mul(camera_info.view_proj_mat,float4(position,1));
+    output.color=float4(meshShade(srgbToLinear(srgb),position,normal),1);return output;
+}
+import apple_pixel_frame;

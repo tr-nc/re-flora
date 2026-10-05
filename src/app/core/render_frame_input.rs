@@ -107,11 +107,11 @@ pub(super) fn freeze_render_frame_inputs(
             model_flowers: model_cache.flowers,
             grass_stem_rendering: gui.grass_stem_rendering.value,
             grass_band_pose_reuse: gui.grass_band_pose_reuse.value,
-            grass_band_pixelization: gui.grass_band_pixelization.value,
+            grass_band_pixelization: false,
             stem_band_mode: gui.stem_band_mode.value.min(1),
             stem_experiment: crate::flora::models::StemExperiment {
-                pixelized: true,
-                surface_cells: true,
+                pixelized: false,
+                surface_cells: false,
                 cell_height_voxels: gui.flower_stem_cell_height_voxels.value,
                 model_resolution: gui.flower_stem_model_resolution.value,
                 radius_scale: gui.flower_stem_radius_scale.value,
@@ -354,7 +354,6 @@ mod tests {
         gui.flower_stem_cell_height_voxels.value = 1.25;
         gui.grass_stem_rendering.value = true;
         gui.grass_band_pose_reuse.value = true;
-        gui.grass_band_pixelization.value = true;
         gui.stem_band_mode.value = 1;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_tip_radius_ratio.value = 0.35;
@@ -526,11 +525,11 @@ mod tests {
                     flower_stem_tip,
                     grass_stem_rendering: true,
                     grass_band_pose_reuse: true,
-                    grass_band_pixelization: true,
+                    grass_band_pixelization: false,
                     stem_band_mode: 1,
                     stem_experiment: crate::flora::models::StemExperiment {
-                        pixelized: true,
-                        surface_cells: true,
+                        pixelized: false,
+                        surface_cells: false,
                         cell_height_voxels: 1.25,
                         model_resolution: 192,
                         radius_scale: 0.8,

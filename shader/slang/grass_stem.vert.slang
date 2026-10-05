@@ -54,7 +54,7 @@ GrassStemProxyVertex main(VertexInput input) {
     float3 lo,hi;grassStemBounds(output.points,count,lo,hi);
     StemProjection projection=projectStemProxy(input.vertex,camera_info,
         output.root_count.xyz,FLORA_SCALING_FACTOR,float2(1,0),lo,hi,(lo+hi)*0.5,
-        float(count),gui_input.flower_stem_sampling.z,gui_input.grass_stem_pixelization!=0u);
+        float(count),0u,false);
     output.position=projection.position;output.ray=projection.ray;
     output.grid_center_cell=float4(projection.grid.center,projection.grid.cell);
     output.grid_x=projection.grid.x;output.grid_y=projection.grid.y;

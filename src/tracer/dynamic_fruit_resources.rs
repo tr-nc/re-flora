@@ -328,7 +328,8 @@ mod tests {
     fn pixel_adapter_reads_the_same_packed_rigid_body_stream() {
         assert_eq!(std::mem::size_of::<DynamicFruitInstanceGpu>(), 14 * 4);
         assert!(
-            include_str!("../../shader/slang/apple_pixel_dynamic.comp.slang").contains("id.z*14u")
+            include_str!("../../shader/slang/apple_mesh_dynamic.vert.slang")
+                .contains("instance*14u")
         );
         assert_eq!(
             std::mem::offset_of!(DynamicFruitInstanceGpu, base_position),

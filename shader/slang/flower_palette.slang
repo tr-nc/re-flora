@@ -1,7 +1,7 @@
 // Same sRGB8 palette-weight texture as the web: texels are decoded to linear
 // before bilinear filtering, like Three's sRGB DataTexture (flipY=false).
 module flower_palette;
-import model_pixel_cache;
+[[vk::binding(18,1)]] public StructuredBuffer<float4> model_cache_palette;
 import model_cache_types;
 public float3 flowerPaletteColor(uint species,float encodedUV) {
     uint base=species*4u;

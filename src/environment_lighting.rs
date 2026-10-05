@@ -931,21 +931,17 @@ mod tests {
         ] {
             assert!(consumer.contains("applyStylizedVoxelLighting("));
         }
-        // Cached apples sample DDGI once in object preparation, then relight
-        // each surface with that sample. Do not require the deleted live path.
-        let object = include_str!("../shader/slang/model_pixel_object.slang");
-        let apple = include_str!("../shader/slang/apple_pixel_tile.slang");
-        assert!(object.contains("sampleDiffuseEnvironment(gui_input,shading_info,pivot,"));
-        assert!(object.contains("model_object_samples[index*4u]=light;"));
-        assert!(apple.contains("light=model_object_samples[input.tileIndex*4u]"));
-        assert!(apple.contains("applyStylizedVoxelLightingWithEnvironment("));
+        // This branch rasterizes native triangles; model lighting still uses
+        // the same environment consumer rather than a second sampled bank.
+        let mesh = include_str!("../shader/slang/model_mesh.slang");
+        assert!(mesh.contains("applyStylizedVoxelLighting(gui_input,sun_info,shading_info"));
+        assert!(!mesh.contains("model_object_samples"));
         for producer in [
-            include_str!("../shader/slang/apple_pixel_tree.comp.slang"),
-            include_str!("../shader/slang/apple_pixel_dynamic.comp.slang"),
+            include_str!("../shader/slang/apple_mesh_tree.vert.slang"),
+            include_str!("../shader/slang/apple_mesh_dynamic.vert.slang"),
         ] {
-            let compact = producer.split_whitespace().collect::<String>();
-            assert!(compact.contains("prepareModelObject(id.z,pose.center,appleModelFrame(pose),true,APPLE_MODEL_SOURCE)"));
-            assert!(compact.contains("sampleAppleModel(pose,id.xy)"));
+            assert!(producer.contains("appleMeshVertex("));
+            assert!(!producer.contains("sampleAppleModel("));
         }
     }
 

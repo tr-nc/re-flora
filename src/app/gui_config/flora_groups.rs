@@ -199,7 +199,7 @@ pub(super) fn render(
             if config.iter().any(|section| section.name == "Debug") {
                 ui_text::hint(
                     ui,
-                    "Flower head pixel resolution and view count are under Pixel Models — Global.",
+                    "Flower heads use native triangle geometry. Pixel size is shared by the entire scene.",
                 );
             } else {
                 controls(ui, flora, MODEL_FLOWER_PIXEL_CONTROLS, adjustables);

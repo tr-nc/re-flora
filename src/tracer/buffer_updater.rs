@@ -284,7 +284,7 @@ impl BufferUpdater {
         let stems = appearance.stem_experiment.normalized();
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
-            grass_stem_pixelization: u32::from(appearance.grass_band_pixelization),
+            grass_stem_pixelization: 0,
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,
@@ -303,12 +303,7 @@ impl BufferUpdater {
             terrain_self_shadow_tolerance_voxels: terrain.self_shadow_tolerance_voxels,
             flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
             flower_stem_tip: appearance.flower_stem_tip.to_array(),
-            flower_stem_sampling: [
-                stems.surface_cells as u32,
-                stems.pixelized as u32,
-                stems.model_resolution,
-                stems.branches as u32,
-            ],
+            flower_stem_sampling: [0, 0, stems.model_resolution, stems.branches as u32],
             flower_stem_shape: [
                 stems.radius_scale,
                 0.,

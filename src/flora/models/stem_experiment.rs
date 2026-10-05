@@ -89,10 +89,9 @@ mod tests {
         let fragment = include_str!("../../../shader/slang/flower_stem_experiment.frag.slang")
             .split_whitespace()
             .collect::<String>();
-        assert!(fragment.contains("stemSurfaceCell(s,hit,cellSize,shadePoint,shadeNormal)"));
-        assert!(fragment.contains(
-            "floatcellSize=stemWorldCellSize(flowerStemShapeSettings().z,input.root_scale.w);"
-        ));
+        assert!(!fragment.contains("stemSurfaceCell("));
+        assert!(!fragment.contains("stemModelSampleRay("));
+        assert!(fragment.contains("float3sampleRay=displayRay;"));
         assert!(!fragment.contains("flowerStemShapeSettings().y"));
     }
 

@@ -2,6 +2,7 @@
 //! Both generate one sample per tile texel, then display through the same lookup
 //! shader as apples. Visible tiles are compact, resolution-sized and batched;
 //! no maximum-resolution allocation is reserved for inactive particle slots.
+#[cfg(test)]
 use super::model_pixel_bounds;
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
@@ -183,6 +184,7 @@ pub(super) struct ButterflyMeshRenderer {
     draw_order: Vec<u32>,
     pub resolution: u32,
     tile_count: u32,
+    #[cfg(test)]
     pub tile_layout: super::model_pixel_tiles::ParticleTiles,
     pub dispatch_resolution: u32,
     previous_leaf_mode: Option<(bool, u32, u32)>,
@@ -196,6 +198,7 @@ impl Default for ButterflyMeshRenderer {
             draw_order: Vec::new(),
             resolution: 22,
             tile_count: 0,
+            #[cfg(test)]
             tile_layout: super::model_pixel_tiles::ParticleTiles::default(),
             dispatch_resolution: 22,
             previous_leaf_mode: None,
@@ -285,8 +288,8 @@ impl ButterflyMeshRenderer {
                     .extend(snapshot.size)
                     .to_array(),
                 metadata: [
-                    super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
-                        + super::model_pixel_cache::animation_frame(phase),
+                    super::model_geometry::BUTTERFLY_SOURCE_BASE
+                        + super::model_geometry::animation_frame(phase),
                     0,
                     self.resolution,
                     0,
@@ -349,7 +352,19 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
+    /// Ordinary geometry uses published simulation poses in back-to-front order.
+    /// No tile packing, visibility samples or model-local pixel allocation.
+    pub fn publish_mesh_frame(&self, publish: impl FnOnce(&[u8]) -> Result<()>) -> Result<()> {
+        let ordered = self
+            .draw_order
+            .iter()
+            .map(|&index| self.instances[index as usize])
+            .collect::<Vec<_>>();
+        publish(bytemuck::cast_slice(&ordered))
+    }
+
     /// Publish pose/visibility only, after the camera is final. No geometry stream.
+    #[cfg(test)]
     pub fn prepare_pixel_frame(
         &mut self,
         view: Mat4,
@@ -383,6 +398,7 @@ impl ButterflyMeshRenderer {
         Ok(())
     }
 
+    #[cfg(test)]
     fn publish_pixel_frame(
         &mut self,
         publish: impl FnOnce(&[Instance], &[u32]) -> Result<()>,
@@ -520,8 +536,8 @@ mod tests {
             );
             assert_eq!(
                 instance.metadata[0],
-                super::super::model_pixel_cache::BUTTERFLY_SOURCE_BASE
-                    + super::super::model_pixel_cache::animation_frame(phase)
+                super::super::model_geometry::BUTTERFLY_SOURCE_BASE
+                    + super::super::model_geometry::animation_frame(phase)
             );
         }
     }

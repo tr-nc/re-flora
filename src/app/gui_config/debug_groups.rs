@@ -22,13 +22,13 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Stem Geometry & Color Bands",
-        description: "Grass unchecked: original voxel mesh. Checked: selected candidate. Square bands have flat color and lighting, real depth and no spherical caps. The shared pixelization checkbox controls both analytic and square grass. Growth and wind stay live.",
+        description: "Grass unchecked: original voxel geometry. Checked: selected stem geometry. Square bands have flat color and lighting, hardware depth and no spherical caps. All objects use the scene-wide pixel grid. Growth and wind stay live.",
         initially_open: false,
         params: &["grass_stem_rendering", "cpu_stem_band_rendering", "stem_band_mode", "grass_band_pose_reuse"],
     },
     ControlGroup {
         parent: None,
-        title: "Pixel Sampling — Flower Stems",
+        title: "Flower Stem Geometry & Color",
         description: "",
         initially_open: false,
         params: &[
@@ -109,6 +109,23 @@ const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
     ("Flora", "model_flower_pixel_resolution"),
 ];
 
+/// Accept legacy saves without exposing controls for deleted rendering paths.
+/// The experiment has one scene-wide pixel grid, not per-model settings.
+pub(super) fn retired_pixel_control(id: &str) -> bool {
+    matches!(
+        id,
+        "grass_band_pixelization"
+            | "flower_stem_model_resolution"
+            | "flower_stem_cell_height_voxels"
+            | "model_pixel_view_count"
+            | "model_flower_view_count"
+            | "apple_pixel_resolution"
+            | "butterfly_pixel_resolution"
+            | "falling_leaf_pixel_resolution"
+            | "model_flower_pixel_resolution"
+    )
+}
+
 pub(super) fn is_pixel_model_control(section: &str, id: &str) -> bool {
     PIXEL_MODEL_CONTROLS.contains(&(section, id))
 }
@@ -146,7 +163,9 @@ pub(super) fn render(
     adjustables: &mut GuiAdjustables,
     parent: Option<&str>,
 ) {
-    for group in GROUPS.iter().filter(|group| group.parent == parent) {
+    for group in GROUPS.iter().filter(|group| {
+        group.parent == parent && !group.params.iter().all(|id| retired_pixel_control(id))
+    }) {
         if parent == Some("Wind") {
             ui_text::section(ui, group.title);
             for id in group.params {
@@ -160,7 +179,7 @@ pub(super) fn render(
             .id_salt(("debug_controls", group.title))
             .default_open(group.initially_open)
             .show(ui, |ui| {
-                if group.title == "Pixel Sampling — Flower Stems" {
+                if group.title == "Flower Stem Geometry & Color" {
                     for (title, ids) in [
                         (
                             "Geometry",
@@ -249,7 +268,7 @@ mod tests {
     fn stem_controls_keep_tuning_without_retired_switches_or_hints() {
         let group = GROUPS
             .iter()
-            .find(|g| g.title == "Pixel Sampling — Flower Stems")
+            .find(|g| g.title == "Flower Stem Geometry & Color")
             .unwrap();
         for resolution in [32, 192, 512] {
             let mut settings = DebugSettings::load();
@@ -270,7 +289,7 @@ mod tests {
             assert!(!text.contains("Model-sized cells with continuous perspective views"));
             assert!(text.contains("Geometry"));
             assert!(text.contains("Shading"));
-            assert!(text.contains("Pixelization"));
+            assert!(!text.contains("Stem Model Pixelization"));
             for id in group.params {
                 let label = &settings
                     .config
@@ -280,7 +299,11 @@ mod tests {
                     .find(|p| p.id == *id)
                     .unwrap()
                     .label;
-                assert!(text.contains(label), "resolution={resolution} id={id}");
+                assert_eq!(
+                    text.contains(label),
+                    !retired_pixel_control(id),
+                    "resolution={resolution} id={id}"
+                );
             }
             let voxel_label = &settings
                 .config
@@ -420,7 +443,12 @@ mod tests {
             collect_text(&shape.shape, &mut text);
         }
         for group in GROUPS {
-            assert!(text.contains(group.title), "missing group {}", group.title);
+            assert_eq!(
+                text.contains(group.title),
+                !group.params.iter().all(|id| retired_pixel_control(id)),
+                "group {}",
+                group.title
+            );
         }
         for category in [
             "Rendering & Lighting",
@@ -445,8 +473,8 @@ mod tests {
                 .label;
             assert_eq!(
                 text.lines().filter(|line| *line == label).count(),
-                1,
-                "{section}/{id} should appear exactly once in Pixel Models — Global"
+                0,
+                "retired {section}/{id} must not appear in the global scene experiment"
             );
         }
         assert!(!text

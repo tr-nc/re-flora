@@ -670,7 +670,6 @@ fn generate_gui_adjustables() {
 
 /// Logical native Slang entry points reflected for CPU/GPU struct generation.
 const SHADER_FILES: &[&str] = &[
-    "shader/foliage/grass_raster_prepare.comp",
     "shader/builder/chunk_writer/buffer_setup.comp",
     "shader/builder/chunk_writer/chunk_modify.comp",
     "shader/builder/chunk_writer/chunk_modify_sample.comp",
@@ -714,7 +713,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/tracer/wind_volume.comp",
     "shader/foliage/vegetation_response.comp",
     "shader/foliage/leaf_handoff.comp",
-    "shader/foliage/flower_pixel.comp",
+    "shader/foliage/flower_pixel.vert",
     "shader/foliage/flora.vert",
     "shader/foliage/flora_lighting_cache.comp",
     "shader/foliage/flora_lod.vert",
