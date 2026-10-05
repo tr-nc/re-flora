@@ -91,27 +91,46 @@ impl GuiConfigLoader {
             "scene_pixel_ratio",
             "scene_supersampling_enabled",
             "scene_supersampling_quality",
+            "scene_pixel_resolve_mode",
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
-        if let Some(param) = config
+        for param in config
             .section
             .iter_mut()
             .flat_map(|s| &mut s.param)
-            .find(|p| {
-                p.id == "scene_supersampling_enabled" && p.label == "Scene: 2x supersampling (A/B)"
+            .filter(|p| {
+                matches!(
+                    p.id.as_str(),
+                    "scene_supersampling_enabled" | "scene_supersampling_quality"
+                ) && matches!(
+                    p.label.as_str(),
+                    "Scene: 2x supersampling (A/B)"
+                        | "Scene: supersampling antialiasing (A/B)"
+                        | "Scene: antialiasing quality (up to native)"
+                )
             })
         {
-            // Rename the old fixed-4-sample label, retaining its saved bool.
+            // Refresh legacy terminology/options from their schema owner, not values.
             let defaults: GuiConfigFile = toml::from_str(include_str!("../../config/gui.toml"))
                 .expect("compiled GUI defaults");
-            param.label = defaults
+            let schema = defaults
                 .section
                 .into_iter()
                 .flat_map(|s| s.param)
                 .find(|p| p.id == param.id)
-                .unwrap()
-                .label;
+                .unwrap();
+            param.label = schema.label;
+            if let (
+                GuiParamValue::Choice { options, .. },
+                GuiParamValue::Choice {
+                    options: new_options,
+                    ..
+                },
+            ) = (&mut param.value, schema.value)
+            {
+                *options = new_options;
+            }
         }
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::migrate_stem_rendering_controls(&mut config);
@@ -1143,9 +1162,11 @@ mod tests {
                 .iter_mut()
                 .find(|s| s.name == "Debug")
                 .unwrap();
-            debug
-                .param
-                .retain(|p| p.id != "scene_pixel_ratio" && p.id != "scene_supersampling_quality");
+            debug.param.retain(|p| {
+                p.id != "scene_pixel_ratio"
+                    && p.id != "scene_supersampling_quality"
+                    && p.id != "scene_pixel_resolve_mode"
+            });
             if let Some(value) = saved {
                 let param = debug
                     .param
@@ -1172,6 +1193,7 @@ mod tests {
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
             assert_eq!(gui.scene_pixel_ratio.value, 3);
             assert_eq!(gui.scene_supersampling_quality.value, 0);
+            assert_eq!(gui.scene_pixel_resolve_mode.value, 0);
             assert!(loaded
                 .section
                 .iter()
@@ -1179,7 +1201,7 @@ mod tests {
                 .find(|p| p.id == "scene_supersampling_enabled")
                 .unwrap()
                 .label
-                .contains("antialiasing"));
+                .contains("pixelization"));
             assert_eq!(
                 gui.scene_supersampling_enabled.value,
                 saved.unwrap_or(false)

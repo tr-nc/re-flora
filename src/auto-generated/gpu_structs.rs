@@ -1066,8 +1066,8 @@ pub struct PlayerColliderInfo {
 pub struct PostProcessingInfo {
     pub samples_per_axis: u32,
     pub pixel_stride: u32,
+    pub resolve_mode: u32,
     pub dither_strength_lsb: f32,
-    pub _pad0: [u8; 4],
 }
 
 /// Auto-generated from `U_RegionInfo` (native Slang source of truth).

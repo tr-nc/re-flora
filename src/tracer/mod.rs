@@ -3061,6 +3061,7 @@ impl Tracer {
             &self.resources,
             self.scene_resolution.samples_per_axis,
             self.scene_resolution.settings.pixel_stride(),
+            self.scene_resolution.settings.resolve_mode(),
             dither_strength_lsb,
         )?;
 

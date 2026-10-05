@@ -2,11 +2,13 @@ import color;
 import dither;
 import tone_mapping;
 import scene_pixel_filter;
+import scene_pixel_style;
 
 struct U_PostProcessingInfo
 {
     uint samples_per_axis;
     uint pixel_stride;
+    uint resolve_mode;
     float dither_strength_lsb;
 };
 
@@ -21,46 +23,74 @@ RWTexture2D<float4> composited_tex;
 [[vk::image_format("rgba16f")]]
 WTexture2D<float4> screen_output_tex;
 
+float3 resolveScenePixel(int2 pixel, uint axis)
+{
+    if (axis > 1u && post_processing_info.resolve_mode == 1u)
+    {
+        int2 source = pixel * int(axis);
+        float3 colors[16];
+        for (uint i = 0u; i < 16u; i++) colors[i] = float3(0.0);
+        uint count = axis * axis;
+        for (uint sample = 0u; sample < count; sample++)
+            colors[sample] = toneMapForDisplay(composited_tex[source + scenePixelSampleOffset(sample, axis)].rgb);
+        // Statistics use display colors; return display-linear RGB. No double
+        // tone mapping or gamma encoding at presentation.
+        return contrastPixelColor(colors, count);
+    }
+    if (axis > 1u)
+    {
+        int2 source = pixel * int(axis);
+        float3 sum = float3(0.0);
+        for (uint sample = 0u; sample < axis * axis; sample++)
+            sum += composited_tex[source + scenePixelSampleOffset(sample, axis)].rgb;
+        // Preserve the previous HDR-average reference, including operation order.
+        return toneMapForDisplay(scenePixelBoxAverage(sum, axis));
+    }
+    return toneMapForDisplay(composited_tex[pixel].rgb);
+}
+
+groupshared float3 resolvedColors[64];
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID)
 {
     uint outputWidth;
     uint outputHeight;
     screen_output_tex.GetDimensions(outputWidth, outputHeight);
-
+    int2 outputExtent = int2(outputWidth, outputHeight);
     int2 uvi = int2(dispatchThreadId.xy);
-    if (any(uvi >= int2(outputWidth, outputHeight)))
-    {
-        return;
-    }
+    if (any(uvi >= outputExtent)) return;
 
     uint inputWidth;
     uint inputHeight;
     composited_tex.GetDimensions(inputWidth, inputHeight);
-    uint samplesPerAxis = post_processing_info.samples_per_axis;
-    uint2 pixelExtent = scenePixelExtent(uint2(inputWidth, inputHeight), samplesPerAxis);
-    int2 mappedUvi = scenePixelCoordinate(uvi, post_processing_info.pixel_stride, pixelExtent);
+    uint axis = post_processing_info.samples_per_axis;
+    uint stride = post_processing_info.pixel_stride;
+    uint2 pixelExtent = scenePixelExtent(uint2(inputWidth, inputHeight), axis);
+    int2 pixel = scenePixelCoordinate(uvi, stride, pixelExtent);
     float3 finalColor;
-    if (samplesPerAxis > 1u)
+
+    int2 groupOrigin = uvi - int2(localId.xy);
+    // Group-uniform condition. Partial edge groups MUST avoid the barrier:
+    // out-of-window invocations have already returned. Exact integer strides
+    // dividing 8 align coarse cells with groups, so one leader resolves each cell.
+    bool fullGroup = all(groupOrigin + int2(7) < outputExtent);
+    if (axis > 1u && post_processing_info.resolve_mode == 1u && fullGroup && 8u % stride == 0u)
     {
-        int2 source = mappedUvi * int(samplesPerAxis);
-        float3 sum = float3(0.0);
-        for (uint sample = 0u; sample < samplesPerAxis * samplesPerAxis; sample++)
-        {
-            sum += composited_tex[source + scenePixelSampleOffset(sample, samplesPerAxis)].rgb;
-        }
-        finalColor = scenePixelBoxAverage(sum, samplesPerAxis);
+        uint cell = (localId.y / stride) * (8u / stride) + localId.x / stride;
+        if (localId.x % stride == 0u && localId.y % stride == 0u)
+            resolvedColors[cell] = resolveScenePixel(pixel, axis);
+        GroupMemoryBarrierWithGroupSync();
+        finalColor = resolvedColors[cell];
     }
     else
     {
-        // Preserve the original point-sampled mode for runtime A/B comparison.
-        finalColor = composited_tex[mappedUvi].rgb;
+        finalColor = resolveScenePixel(pixel, axis);
     }
-    finalColor = toneMapForDisplay(finalColor);
 
-    // Keep the whole enlarged scene pixel one color, including display dither.
-    float ditherOffset = getDitherOffset(mappedUvi, post_processing_info.dither_strength_lsb);
+    // Dither also belongs to the final coarse cell, not individual screen pixels.
+    float ditherOffset = getDitherOffset(pixel, post_processing_info.dither_strength_lsb);
     if (post_processing_info.dither_strength_lsb > 0.0)
     {
         float3 encodedColor = linearToSrgb(finalColor);

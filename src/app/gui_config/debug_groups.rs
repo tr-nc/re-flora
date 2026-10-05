@@ -15,9 +15,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Scene Pixel Sampling",
-        description: "Resolution ratios count physical screen pixels: 4:1 is a 2x2 block; 16:1 is 4x4; 64:1 preserves the original 8x8 blocks. Partial edge blocks are cropped, not stretched. Antialiasing averages linear-color samples without changing the displayed grid. Sampling is capped at the native-equivalent resolution: 1:1 bypasses AA, and 4:1 caps at 4x; the requested quality is retained for coarser grids. UI stays native. Edges/outlines may soften; switching may briefly pause. All controls are saved.",
+        description: "Unchecked: original direct low-resolution rendering. Checked: render a denser source and select a pixel color resolve. HDR average preserves the previous reference; Contrast-aware selects luminance and median chroma in Lab after tone mapping, without palette reduction or outline expansion. Compare at the same source density and final pixel ratio. Contrast may change colors or flicker; not visually approved yet. Ratios count screen pixels: 4:1 is 2x2; 16:1 is 4x4; 64:1 is the original 8x8. Edge blocks are cropped, UI stays native. Source density is capped at native-equivalent resolution: 1:1 bypasses the candidate, 4:1 caps at four source pixels. Preferences are retained and saved.",
         initially_open: false,
-        params: &["scene_pixel_ratio", "scene_supersampling_enabled", "scene_supersampling_quality"],
+        params: &["scene_pixel_ratio", "scene_supersampling_enabled", "scene_supersampling_quality", "scene_pixel_resolve_mode"],
     },
     ControlGroup {
         parent: None,
@@ -284,6 +284,7 @@ mod tests {
             "scene_pixel_ratio",
             "scene_supersampling_enabled",
             "scene_supersampling_quality",
+            "scene_pixel_resolve_mode",
         ] {
             assert_eq!(
                 search_path("Debug", id).as_deref(),
@@ -488,7 +489,7 @@ mod tests {
         }
         assert_eq!(
             text.lines()
-                .filter(|line| *line == "Scene: supersampling antialiasing (A/B)")
+                .filter(|line| *line == "Scene: higher-resolution pixelization (A/B)")
                 .count(),
             1,
             "the saved sampling checkbox must be drawn exactly once",

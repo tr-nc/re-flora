@@ -1,42 +1,46 @@
 # Scene pixel sampling
 
-> This documents the current box-average experiment, not an approved artistic pixelization result. The clarified goal is higher-resolution scene input followed by a style-oriented low-resolution pixel shader, rather than antialiasing itself. See [the pixelization research](research/high-resolution-pixelization.md) for candidate color/outline rules and their limits.
+Open **Debug → Scene Pixel Sampling** (or search its name). Controls are saved through normal **Save**, not game-startup flags. The contrast candidate is ready for visual comparison, not approved visual/performance acceptance.
 
-Open **Debug → Scene Pixel Sampling**. These are saved controls, not game-startup flags.
+## Controls
 
-## Final pixel resolution
+- **Final pixel resolution**: 1:1, 4:1, 16:1, 64:1 (original/default).
+- **Higher-resolution pixelization (A/B)**: unchecked is original direct low-resolution rendering; checked renders a denser source for the selected color resolve.
+- **Source pixel density**: four-to-one (2×2 source pixels) or sixteen-to-one (4×4 source pixels). Independent of displayed block size.
+- **Pixel color resolve**: HDR average (previous reference), or Contrast-aware (experimental). Only one artistic candidate is implemented.
 
-Ratios count physical screen pixels, not the reduction of each dimension. The grid follows the actual game window's physical resolution (the screen resolution when fullscreen), and updates on resize. At 2560×1440:
+At 2560×1440:
 
-| Selection | Physical pixels per scene pixel | Final scene grid |
+| Final resolution | Physical pixels per scene pixel | Final scene grid |
 | --- | --- | --- |
 | 1:1 | 1×1 | 2560×1440 |
 | 4:1 | 2×2 | 1280×720 |
 | 16:1 | 4×4 | 640×360 |
-| 64:1 (original/default) | 8×8 | 320×180 |
+| 64:1 | 8×8 | 320×180 |
 
-Dimensions round **up** to cover the window. Display uses exact integer-sized blocks; only the final block at an edge may be partially cropped. For example, a 1023×767 window at 64:1 has a 128×96 grid, with the last column/row displaying seven physical pixels. The rounded grid is not stretched. UI remains native-resolution.
+The grid follows the actual game window's physical resolution (screen resolution when fullscreen). Dimensions round up; only partial edge blocks are cropped, never stretched. UI remains native.
 
-## Antialiasing
+Source density is capped at native-equivalent resolution, with edge padding: 1:1 bypasses denser rendering/contrast resolve; 4:1 uses at most four source pixels; 16:1 and 64:1 support both densities. Requested controls remain saved when bypassed or disabled.
 
-The checkbox switches between one sample per final pixel (unchecked) and supersampling (checked). Quality requests **4×** (2×2) or **16×** (4×4) color samples per final pixel. All samples are averaged in linear HDR before tone mapping; changing quality does not change the final pixel grid.
+## Candidate and reference
 
-Sampling is deliberately bounded at the native-equivalent resolution, including padding for partial edge blocks:
+The contrast candidate is inspired by [PixelOE](https://github.com/KohakuBlueleaf/PixelOE/blob/7ce444b36d3876a151d845d4493240e904454d89/src/pixeloe/slang/shaders/downscale/contrast.slang). It tone-maps each source color, obtains D65 Lab statistics, chooses luminance using local median/mean/min/max, takes lower-median chroma, and converts back to display-linear RGB. Fallback luminance is the row-major middle sample, matching the referenced rule. Display-gamut output is clamped. No palette reduction, clustering or outline expansion is included.
 
-| Final resolution | Effective AA when requesting 4× / 16× |
-| --- | --- |
-| 1:1 | Bypassed / bypassed |
-| 4:1 | 4× / 4× |
-| 16:1 or 64:1 | 4× / 16× |
+The existing reference still averages **linear HDR before tone mapping**. This operation order is preserved for old saves. The candidate also changes tone-map order, so this compares complete resolves, not an isolated statistical rule with identical color-space inputs.
 
-The requested quality and checkbox remain saved even when bypassed/capped, and apply again when selecting a coarser grid. A capped or disabled quality preference alone does not rebuild GPU resources. Actual sampling changes drain submitted frames, replace scene attachments without recreating the native swapchain, and invalidate temporal history; they may briefly pause.
+Contrast can make blocks harder, but can change hues, flicker, or remove minority thin details; it does not promise detail preservation. Observe wind, camera motion, grass/branches, sky boundaries and highlights. If useful, outline protection is a separate next experiment, not silently included here.
 
-Use the panel's normal **Save** action. Older saves retain their AA checkbox and receive the original 64:1 grid and 4× quality defaults. Very small scene grids remain explicitly 2D textures, including one-pixel-high attachments.
+For aligned full 8×8 compute groups, the contrast shader resolves each coarse cell once into shared memory. All leaders write before a group barrier. Partial edge groups avoid that barrier entirely (some invocations are outside the window) and resolve independently. No extra coarse texture is needed. This is not a measured performance claim.
 
-Supersampling can soften edges and outlines. It cannot restore independently identifiable detail smaller than the final pixel grid. Correctness checks are not visual or performance acceptance; those remain separate user review and Release measurement steps.
+Changing only color resolve does not rebuild attachments or resize the swapchain. Source/grid changes drain submitted frames, replace scene resources and invalidate histories; they may briefly pause.
 
-## Validation
+## Compatibility and validation
 
-- Rust tests cover presets, odd/tiny extents, unchanged grids/aspects across AA modes, quality capping, migration, saved preferences, and searchable ownership.
-- `shader/tests/scene_pixel_filter_test.slang` checks exact blocks, edge coverage, all 4/16 taps, bounds, and linear HDR averaging.
-- After `cargo build --release`, `node scripts/validate-scene-supersampling.mjs` validates native startup and live transitions through all presets and both qualities with Vulkan synchronization validation. It includes 1023×767, 9×8, and 1280×720 windows, depth outlines, and unchanged saved-file hashes. Logs and summary are under `target/scene-supersampling/`.
+Older saves receive the HDR-average resolve default; old checkbox/density values survive, with legacy AA labels updated from the declarative schema. Internal legacy IDs remain compatible. New controls use generated fields, shared search and unified persistence.
+
+- Rust tests cover presets, capping, no resource change for resolve-only switches, migration, saved disabled preferences and searchable ownership.
+- `shader/tests/scene_pixel_style_test.slang` checks Lab round trips, uniform colors, contrast choices, minority-detail limitations and finite/gamut-bounded 4/16-pixel results.
+- `shader/tests/scene_pixel_filter_test.slang` checks block mapping and sampling bounds.
+- After `cargo build --release`, `node scripts/validate-scene-supersampling.mjs` runs Vulkan synchronization validation over both resolves/densities, all ratios, odd/tiny windows, depth outlines and resolve-only toggles. Saved-file hashes must remain unchanged. Artifacts: `target/scene-supersampling/`.
+
+The internal `RE_FLORA_SCENE_PIXEL_TRYOUT` review preset starts the real controls at 64:1, four-to-one source density and contrast resolve, without writing the config. It is only for preparing a live review; normal use is through the panel. See [research](research/high-resolution-pixelization.md) for alternatives and evidence limits.

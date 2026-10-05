@@ -8,6 +8,7 @@ pub(super) fn from_gui(gui: &crate::app::GuiAdjustables) -> Settings {
         gui.scene_supersampling_enabled.value,
         gui.scene_supersampling_quality.value,
     )
+    .with_resolve_mode(gui.scene_pixel_resolve_mode.value)
 }
 
 impl App {
@@ -47,8 +48,8 @@ impl App {
             return false;
         }
         let frame = review.frame;
-        if frame == 54 {
-            log::info!("[SCENE_SUPERSAMPLING_REVIEW] phase=complete frames=54 saved=false");
+        if frame == 66 {
+            log::info!("[SCENE_SUPERSAMPLING_REVIEW] phase=complete frames=66 saved=false");
             return true;
         }
         review.frame += 1;
@@ -67,6 +68,11 @@ impl App {
         gui.scene_pixel_ratio.value = ratio;
         gui.scene_supersampling_enabled.value = enabled;
         gui.scene_supersampling_quality.value = quality;
+        gui.scene_pixel_resolve_mode.value = if matches!(frame / 6, 1 | 3 | 4 | 6 | 9) {
+            1
+        } else {
+            0
+        };
         if frame == 36 {
             gui.depth_outline_enabled.value = true;
         }

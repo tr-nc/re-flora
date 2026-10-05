@@ -34,13 +34,19 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "scene_supersampling_enabled",
         kind: "bool",
-        label: "Scene: supersampling antialiasing (A/B)",
+        label: "Scene: higher-resolution pixelization (A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
         id: "scene_supersampling_quality",
         kind: "choice",
-        label: "Scene: antialiasing quality (up to native)",
+        label: "Scene: source pixel density (up to native)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "scene_pixel_resolve_mode",
+        kind: "choice",
+        label: "Scene: pixel color resolve",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1453,6 +1459,7 @@ pub struct GuiAdjustables {
     pub scene_pixel_ratio: crate::gui_adjustables::ChoiceParam,
     pub scene_supersampling_enabled: crate::gui_adjustables::BoolParam,
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
+    pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
     pub depth_outline_enabled: crate::gui_adjustables::BoolParam,
     pub depth_outline_strength: crate::gui_adjustables::FloatParam,
     pub depth_outline_color: crate::gui_adjustables::ColorParam,
@@ -1703,6 +1710,7 @@ impl GuiAdjustables {
         let mut scene_pixel_ratio_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_supersampling_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut depth_outline_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut depth_outline_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut depth_outline_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1954,6 +1962,11 @@ impl GuiAdjustables {
                     "scene_supersampling_quality" => {
                         if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
                             scene_supersampling_quality_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "scene_pixel_resolve_mode" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            scene_pixel_resolve_mode_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "depth_outline_enabled" => {
@@ -3527,6 +3540,7 @@ impl GuiAdjustables {
             scene_pixel_ratio: scene_pixel_ratio_field.expect("Missing parameter: scene_pixel_ratio"),
             scene_supersampling_enabled: scene_supersampling_enabled_field.expect("Missing parameter: scene_supersampling_enabled"),
             scene_supersampling_quality: scene_supersampling_quality_field.expect("Missing parameter: scene_supersampling_quality"),
+            scene_pixel_resolve_mode: scene_pixel_resolve_mode_field.expect("Missing parameter: scene_pixel_resolve_mode"),
             depth_outline_enabled: depth_outline_enabled_field.expect("Missing parameter: depth_outline_enabled"),
             depth_outline_strength: depth_outline_strength_field.expect("Missing parameter: depth_outline_strength"),
             depth_outline_color: depth_outline_color_field.expect("Missing parameter: depth_outline_color"),
@@ -3987,6 +4001,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
     match id {
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
+        "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
         _ => None,
     }
@@ -4271,6 +4286,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
     match id {
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
+        "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
         _ => None,
     }

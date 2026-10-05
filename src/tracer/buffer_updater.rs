@@ -122,6 +122,7 @@ impl BufferUpdater {
         resources: &TracerResources,
         samples_per_axis: u32,
         pixel_stride: u32,
+        resolve_mode: u32,
         dither_strength_lsb: f32,
     ) -> Result<()> {
         resources
@@ -130,6 +131,7 @@ impl BufferUpdater {
             .fill_uniform(&PostProcessingInfo {
                 samples_per_axis,
                 pixel_stride,
+                resolve_mode,
                 dither_strength_lsb: dither_strength_lsb.max(0.0),
                 ..PostProcessingInfo::zeroed()
             })

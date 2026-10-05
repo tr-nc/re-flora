@@ -35,6 +35,7 @@ impl PixelRatio {
 pub(crate) struct Settings {
     ratio: PixelRatio,
     requested_samples_per_axis: u32,
+    resolve_mode: u32,
 }
 
 impl Settings {
@@ -42,6 +43,7 @@ impl Settings {
     pub fn from_controls(ratio: u32, enabled: bool, quality: u32) -> Self {
         Self {
             ratio: PixelRatio::from_choice(ratio),
+            resolve_mode: 0,
             requested_samples_per_axis: if !enabled {
                 1
             } else if quality == 1 {
@@ -49,6 +51,19 @@ impl Settings {
             } else {
                 2
             },
+        }
+    }
+
+    pub fn with_resolve_mode(mut self, choice: u32) -> Self {
+        self.resolve_mode = u32::from(choice == 1);
+        self
+    }
+
+    pub fn resolve_mode(self) -> u32 {
+        if self.samples_per_axis() > 1 {
+            self.resolve_mode
+        } else {
+            0
         }
     }
 
@@ -98,7 +113,7 @@ impl SceneResolution {
             stride * stride, stride, pixel_extent.width, pixel_extent.height,
             settings.requested_samples_per_axis * settings.requested_samples_per_axis,
             samples_per_axis,
-            if samples_per_axis == 1 { "point".to_owned() } else { format!("box{samples_per_axis}x{samples_per_axis}") },
+            if samples_per_axis == 1 { "point".to_owned() } else if settings.resolve_mode() == 1 { "contrast".to_owned() } else { format!("box{samples_per_axis}x{samples_per_axis}") },
         );
         Self {
             settings,
@@ -186,6 +201,11 @@ mod tests {
         assert_eq!(four.samples_per_axis(), 2);
         assert_eq!(sixteen.samples_per_axis(), 4);
         assert_eq!(native.requested_samples_per_axis, 4);
+        assert_eq!(native.with_resolve_mode(1).resolve_mode(), 0);
+        assert_eq!(sixteen.with_resolve_mode(1).resolve_mode(), 1);
+        assert!(!sixteen
+            .with_resolve_mode(1)
+            .requires_resource_change(sixteen));
         assert!(!native.requires_resource_change(Settings::from_controls(0, false, 0)));
         assert!(sixteen.requires_resource_change(Settings::from_controls(2, true, 0)));
         assert_eq!(

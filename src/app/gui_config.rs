@@ -1696,11 +1696,13 @@ mod tests {
                 settings.adjustables.scene_pixel_ratio.value = ratio;
                 settings.adjustables.scene_supersampling_enabled.value = enabled;
                 settings.adjustables.scene_supersampling_quality.value = 1;
+                settings.adjustables.scene_pixel_resolve_mode.value = 1;
                 settings.save_to_path(&path).unwrap();
                 let loaded = GuiAdjustables::from_config(&GuiConfigLoader::load_from_path(&path));
                 assert_eq!(loaded.scene_pixel_ratio.value, ratio);
                 assert_eq!(loaded.scene_supersampling_enabled.value, enabled);
                 assert_eq!(loaded.scene_supersampling_quality.value, 1);
+                assert_eq!(loaded.scene_pixel_resolve_mode.value, 1);
             }
         }
     }

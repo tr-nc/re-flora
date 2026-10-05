@@ -104,7 +104,7 @@ options = ["1:1 (native)", "4:1 (2x2 screen pixels)", "16:1 (4x4 screen pixels)"
 [[section.param]]
 id = "scene_supersampling_enabled"
 kind = "bool"
-label = "Scene: supersampling antialiasing (A/B)"
+label = "Scene: higher-resolution pixelization (A/B)"
 type = "Bool"
 
 [section.param.data]
@@ -113,7 +113,7 @@ value = false
 [[section.param]]
 id = "scene_supersampling_quality"
 kind = "choice"
-label = "Scene: antialiasing quality (up to native)"
+label = "Scene: source pixel density (up to native)"
 type = "Choice"
 
 [section.param.enabled_if]
@@ -122,7 +122,21 @@ equals = true
 
 [section.param.data]
 value = 0
-options = ["4x (2x2 samples)", "16x (4x4 samples)"]
+options = ["4 to 1 (2x2 source pixels)", "16 to 1 (4x4 source pixels)"]
+
+[[section.param]]
+id = "scene_pixel_resolve_mode"
+kind = "choice"
+label = "Scene: pixel color resolve"
+type = "Choice"
+
+[section.param.enabled_if]
+param = "scene_supersampling_enabled"
+equals = true
+
+[section.param.data]
+value = 0
+options = ["HDR average (previous reference)", "Contrast-aware (experimental)"]
 
 [[section.param]]
 id = "depth_outline_enabled"
