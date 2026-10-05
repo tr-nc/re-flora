@@ -44,6 +44,7 @@ mod dynamic_fruit_resources;
 mod flower_models;
 mod grass_band_cache;
 mod grass_raster_pixels;
+pub(crate) mod scene_resolution;
 mod stem_band_mesh;
 mod stem_band_paths;
 mod stem_band_resources;
@@ -2835,10 +2836,7 @@ impl Tracer {
     // create a lower resolution texture for rendering, for better performance,
     // less memory usage, and stylized rendering
     fn get_render_extent(screen_extent: Extent2D, scaling_factor: f32) -> Extent2D {
-        Extent2D::new(
-            (screen_extent.width as f32 * scaling_factor) as u32,
-            (screen_extent.height as f32 * scaling_factor) as u32,
-        )
+        scene_resolution::render_extent(screen_extent, scaling_factor)
     }
 
     pub fn get_screen_output_tex(&self) -> &Texture {

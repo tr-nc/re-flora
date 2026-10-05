@@ -37,11 +37,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint inputHeight;
     composited_tex.GetDimensions(inputWidth, inputHeight);
     float2 scalingFactor = float2(inputWidth, inputHeight) / float2(outputWidth, outputHeight);
-    int2 mappedUvi = int2(float2(uvi) * scalingFactor);
+    // Point sampling of the scene's actual low-resolution target. UI is
+    // composited later at native resolution; no per-model pixel lattice.
+    int2 mappedUvi = min(int2((float2(uvi) + 0.5) * scalingFactor),
+                        int2(inputWidth, inputHeight) - 1);
     float3 finalColor = composited_tex[mappedUvi].rgb;
     finalColor = toneMapForDisplay(finalColor);
 
-    float ditherOffset = getDitherOffset(uvi, post_processing_info.dither_strength_lsb);
+    // Keep the whole enlarged scene pixel one color, including display dither.
+    float ditherOffset = getDitherOffset(mappedUvi, post_processing_info.dither_strength_lsb);
     if (post_processing_info.dither_strength_lsb > 0.0)
     {
         float3 encodedColor = linearToSrgb(finalColor);

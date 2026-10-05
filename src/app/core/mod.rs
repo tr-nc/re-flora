@@ -1257,7 +1257,7 @@ impl App {
             plain_builder.get_resources(),
             lighting_mode_acceptance::initial_raster_lighting_state(),
             TracerDesc {
-                scaling_factor: if rooftop_poc { 0.33 } else { 0.5 },
+                scaling_factor: crate::tracer::scene_resolution::SCALE,
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: lighting.probe_spacing_voxels,
