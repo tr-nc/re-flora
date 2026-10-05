@@ -4,8 +4,8 @@ use egui::{epaint::Mesh, Color32, Context, FontId, LayerId, Pos2, Rect, Vec2};
 use std::time::Instant;
 
 const CELL: f32 = 96.0;
-// 25% more cells across the viewport: each cell is 20% smaller.
-const GRID_DENSITY: f32 = 1.25;
+// A finer field keeps flowers and the four-cell title light and compact.
+const GRID_DENSITY: f32 = 1.6;
 const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
 const STEP_SECONDS: f64 = 1.2;
 const SWAY_PHASES: usize = 16;
@@ -185,7 +185,7 @@ impl Splash {
         painter.set_opacity(opacity.foreground);
         let title = painter.layout_no_wrap(
             "re: flora".to_owned(),
-            FontId::proportional(64.0 * scale),
+            FontId::proportional(60.0 * scale),
             cream,
         );
         let (title_pos, underline) = title_and_underline(layout.title, title.mesh_bounds, scale);
@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn denser_grid_shrinks_cells_without_changing_title_alignment() {
         let layout = Layout::new(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0)));
-        assert!((layout.cell - 76.8).abs() < 0.00001);
+        assert!((layout.cell - 60.0).abs() < 0.00001);
         assert!((layout.title.width() - 4.0 * layout.cell).abs() < 0.00001);
         // f32 layout arithmetic may differ by one ULP at viewport coordinates.
         assert!((layout.title.center().x - 480.0).abs() < 0.001);
