@@ -324,12 +324,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let depth_outline_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/tracer/depth_outline.comp",
-            "main",
-        )
-        .unwrap();
         let post_processing_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/post_processing.comp",
@@ -693,7 +687,6 @@ impl PipelineBuilder {
             lens_flare_temporal_sm,
             lens_flare_sun_visible_sm,
             post_processing_sm,
-            depth_outline_sm,
             player_collider_sm,
             terrain_query_sm,
             wind_volume_sm,
@@ -1070,14 +1063,7 @@ impl PipelineBuilder {
             &[resources],
         );
 
-        let depth_outline = super::depth_outline::DepthOutline::new(
-            device,
-            &shader_modules.depth_outline_sm,
-            pool,
-            &[resources],
-        );
         ComputePipelines {
-            depth_outline,
             ddgi_global_sky_filter_ppl,
             ddgi_octahedral_gutter_ppl,
             ddgi_probe_relocate_ppl,
@@ -2298,7 +2284,6 @@ impl PipelineTopology {
             &self.compute.lens_flare_sun_visible_ppl,
             &self.compute.composition_ppl,
             &self.compute.post_processing_ppl,
-            self.compute.depth_outline.pipeline(),
         ] {
             retire_compute(
                 pipeline,
@@ -2854,7 +2839,6 @@ pub struct ShaderModules {
     pub lens_flare_temporal_sm: ShaderModule,
     pub lens_flare_sun_visible_sm: ShaderModule,
     pub post_processing_sm: ShaderModule,
-    pub depth_outline_sm: ShaderModule,
     pub player_collider_sm: ShaderModule,
     pub terrain_query_sm: ShaderModule,
     pub wind_volume_sm: ShaderModule,
@@ -2908,7 +2892,6 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
-    pub depth_outline: super::depth_outline::DepthOutline,
     pub ddgi_global_sky_filter_ppl: ComputePipeline,
     pub ddgi_octahedral_gutter_ppl: ComputePipeline,
     pub ddgi_probe_relocate_ppl: ComputePipeline,

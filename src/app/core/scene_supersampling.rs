@@ -49,9 +49,6 @@ impl App {
             .adjustables
             .scene_supersampling_enabled
             .value = enabled;
-        if frame == 24 {
-            self.debug_settings.adjustables.depth_outline_enabled.value = true;
-        }
         let resize = match frame {
             18 => Some((1023, 767)),
             30 => Some((1280, 720)),

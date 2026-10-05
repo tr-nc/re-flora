@@ -9,7 +9,7 @@ import { parseArgs } from 'node:util';
 
 const help = `Usage: node scripts/validate-scene-supersampling.mjs [--help]
 Validate Release startup and runtime A/B/A scene supersampling, including odd
-window dimensions, resize while enabled, and depth outlines. Hidden and muted;
+window dimensions and resize while enabled. Hidden and muted;
 the real saved Debug field is edited in memory only. No config files are saved.
 Requires: cargo build --release, a Vulkan display and VK_LAYER_KHRONOS_validation
 (install/activate the Vulkan SDK if the layer is unavailable).

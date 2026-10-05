@@ -445,12 +445,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
-        logical_path: "shader/tracer/depth_outline.comp",
-        source_path: "shader/slang/depth_outline.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/tracer/post_processing.comp",
         source_path: "shader/slang/post_processing.slang",
         module_path: "shader/slang",
