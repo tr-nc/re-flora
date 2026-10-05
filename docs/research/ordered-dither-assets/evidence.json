@@ -1,0 +1,871 @@
+{
+  "baseline": "d9f5a66af1a89d517d8273bd4af812932df3dd41",
+  "rendering_source_commit": "5ab43c4417f6e39b70056d12cf9896a9717a3e74",
+  "capture_note": "Native Release captures from this worker. The final sun-view fixture was added during capture; common rendering code did not change. Timestamp strings are local time (UTC+08); log names are authoritative.",
+  "gpu": "NVIDIA GeForce RTX 3060 Ti",
+  "native_gpu_lock": "/tmp/re-flora-summer-gpu.lock",
+  "build_jobs": 2,
+  "native_images_total": 50,
+  "committed_native_images": 35,
+  "performance_measured": false,
+  "visual_approval": false,
+  "settings_written": false,
+  "checks": {
+    "cargo_fmt": "PASS",
+    "cargo_check": "PASS",
+    "cargo_test": {
+      "binary_passed": 1346,
+      "library_passed": 4,
+      "failed": 0,
+      "ignored": 3
+    },
+    "slang_cpu": {
+      "passed": 35,
+      "failed": 0
+    },
+    "cargo_build_release": "PASS",
+    "native_errors": 0,
+    "final_smoke_log": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-043712.058-1426753.log"
+  },
+  "browser": {
+    "tool": "agent-browser",
+    "session": "ordered-dither-76062dbdf8ea",
+    "url": "file:// docs/research/ordered-dither.html",
+    "offline": true,
+    "native_images_loaded": 33,
+    "canvas_count": 6,
+    "checks": [
+      "Native scene/effect selects and A/B swap",
+      "Native slider keyboard input and 1:1 image sizing",
+      "Simulation range keyboard input, reset, source change and motion",
+      "Strength 0: all six Canvas buffers equal byte-for-byte",
+      "All six positive-strength simulation variants have distinct gradient checksums",
+      "No page errors or console messages",
+      "Offline reload and local evidence.json link",
+      "Levels endpoints 2 and 32",
+      "390px layout without page horizontal overflow"
+    ],
+    "not_gpu_evidence": "Canvas is an encoded-RGB algorithm illustration, not the GPU pipeline",
+    "closed": true,
+    "mobile": {
+      "viewport_width": 390,
+      "page_width": 390,
+      "horizontal_overflow": false
+    }
+  },
+  "roi_evidence": [
+    {
+      "name": "original",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "global-bayer",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "global-halftone",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "god-rays",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "lens-flare",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "terrain-ambient",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "sky-background",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "zero-strength",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    },
+    {
+      "name": "original-return",
+      "scene_roi": "1024x256+0+0",
+      "coarse_stride": 8,
+      "blocks": 4096,
+      "nonuniform_blocks": 0,
+      "hud_roi": "500x650+1920+60",
+      "hud_sha256": "55c234e1db51d98eae781a7da8e090b459b4c49f63b91bc441eec65c6a0bbd77"
+    }
+  ],
+  "static_sky_bypass": {
+    "roi": "1024x256+0+0",
+    "files": [
+      "garden/original.png",
+      "garden/zero-strength.png",
+      "garden/original-return.png"
+    ],
+    "rgba_sha256": "0592e9f1069e54e3f7392840fc469d7e972c30207b22bc265b6675172de979cc",
+    "whole_dynamic_image_equality_claimed": false
+  },
+  "assets": [
+    {
+      "file": "controls.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "bedcc2b99fbf5f12a626352c1df1d518b3e2f8e34fbae6b0042f38650338dd47"
+    },
+    {
+      "file": "garden/global-bayer.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "c328ba0b8f728a3b47c3b17c64ecfa8992589985e5ec725ba5a47801bbe1dad2"
+    },
+    {
+      "file": "garden/global-halftone.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "ce574c9dcda3a8273c57bb6f68821a2111d73de7fa381e1ffe6b8023cb295809"
+    },
+    {
+      "file": "garden/global-overrides-local.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "6045d77e3bb0d16a8cc1508b05f460a73c39624ca0ffcecb1ac7c4e6fa6318a0"
+    },
+    {
+      "file": "garden/god-rays.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "23c7b0d79e67cfc96d740c51789819cfdbb2d6d450146784d837bdbe32026848"
+    },
+    {
+      "file": "garden/lens-flare.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "3a9be5f8566fda9cb1b7bf9bad302735180dace52b8e3dd0d7033cd5c1106ada"
+    },
+    {
+      "file": "garden/local-combined.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "f95787a6877d7723aad6f64c39c1ccdac387f121f4cd36720b64b6de478d7a20"
+    },
+    {
+      "file": "garden/original-return.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "08c3b881720b2291c7b864b4fec8bc201227ec5c60f6a6e12808d3fbd0da932b"
+    },
+    {
+      "file": "garden/original.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "81b7f54d6a2f28dd6e7cbb08850de2d14ea1ee8c8d48a76f02abd1411c3bf006"
+    },
+    {
+      "file": "garden/sky-background.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "4d8dd03c0972afd8a6a21fd50736fbb66372ef3773cf7302bf502d45303799f3"
+    },
+    {
+      "file": "garden/terrain-ambient.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "063cb56b42c7cd4b867c5f6f79f211ffd99500b15279e38e156c9e1b9973707d"
+    },
+    {
+      "file": "garden/zero-strength.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "8d8011529e539f35958a365cb44c8c82e4d798dcb58e60fdc5eadc400147a7b3"
+    },
+    {
+      "file": "glass/global-bayer.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "f62ea79fa9a1c2f5e205f469969d8780b510f1e750d40ec44d8571e0f0d90e71"
+    },
+    {
+      "file": "glass/global-halftone.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "b0cee0a8c28632b5ec8c47579d4c4a43b58c997179485f6fd644b9cad2300d4f"
+    },
+    {
+      "file": "glass/global-overrides-local.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "4c84b179164c7ea7ad5da508fce0b3cf3ec9c842e4b1cd5bd1dc97aad2a25ba8"
+    },
+    {
+      "file": "glass/god-rays.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "63a54bd7e3018cb96953b884f3a1ce237d8a655a43531fe0ed6af21c96baf5e5"
+    },
+    {
+      "file": "glass/lens-flare.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "5a8e87d32876cb8999a4dd24551eb0b0f672b9c4b90ce4105659c05771092352"
+    },
+    {
+      "file": "glass/local-combined.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "f891e756abf059ed8e6780f51fd3a29047c9ddd6dedce21052463930f83de2ca"
+    },
+    {
+      "file": "glass/original-return.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "272a5827428d2a09f5a0936155a12503af9d3e5874a707f4b7ba7524f26b74e1"
+    },
+    {
+      "file": "glass/original.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "1f5766ff3ed70411a3d3d105e27770141f18c31fd9586f3136fc4427fa9a1040"
+    },
+    {
+      "file": "glass/sky-background.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "cd40161165dc71556742f3353e6029d1fde1c3d6a92f64de734e1786be9fda5b"
+    },
+    {
+      "file": "glass/terrain-ambient.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "bdc2355068d19359f72efbf0fe2d8e7d1811b1fcc91bb11b571ecec760e2d6bf"
+    },
+    {
+      "file": "glass/zero-strength.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "ca16860ca5717b281160698b93b0d1efe561d76efca7858c011ae2c079dc6b04"
+    },
+    {
+      "file": "partial-blocks.png",
+      "width": 1023,
+      "height": 767,
+      "sha256": "31a4b95b66df2dbcc436aef5a5e760ac154f52e8eaa5f286bb893ee986f1538b"
+    },
+    {
+      "file": "sun/global-bayer.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "b33240faf2da593ce75f4384273324f238814203bb12ebee7a5e92c69fe6f217"
+    },
+    {
+      "file": "sun/global-halftone.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "bc5be72dfcc97df95eed889277120fd358cdf4e86b1c2821393866196769d64a"
+    },
+    {
+      "file": "sun/global-overrides-local.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "4f5bf547fd5b3bec286baf7330378ca6c1dfc6dd2ba102d97becdacb01609613"
+    },
+    {
+      "file": "sun/god-rays.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "790e08b055ae87cd5b40bc8098f50898f4df19771453c3985b914557c20fd364"
+    },
+    {
+      "file": "sun/lens-flare.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "f09fa25f700616600d14c99889169f5459a7fa27fb3c504ffa7f9ccdda2b74f1"
+    },
+    {
+      "file": "sun/local-combined.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "4c8eca300ff0b68f18d6c94a5bd210a4cb2ebb79e3a25dfe8ea733a29aa99725"
+    },
+    {
+      "file": "sun/original-return.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "5349e5da0dadab5b3f79a5965114f0110157fd990c8da3e19e47003a5eb556e3"
+    },
+    {
+      "file": "sun/original.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "37dcaa4dc1e0a384138beeb662fe393785795f6dd02b3864fb582547d99af8f0"
+    },
+    {
+      "file": "sun/sky-background.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "554c6d5b773d333c57d4c01716bb317e0400495ada2824d8d98f2d9829175138"
+    },
+    {
+      "file": "sun/terrain-ambient.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "5bee2af41f2b3ef72b6bba2b09bc54aeb69d090b0a30560a75ab745d7c9b5d1a"
+    },
+    {
+      "file": "sun/zero-strength.png",
+      "width": 2560,
+      "height": 1440,
+      "sha256": "cd95d9771d4ec953790ad562f24d38390c74d13c14cbfe7ade480978a394dfe9"
+    }
+  ],
+  "runs": [
+    {
+      "mode": "smoke",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora-agent-dither/target/release/re-flora",
+        "/home/terence/code/re-flora-agent-dither/target/ordered-dither-native/smoke/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "0.5"
+      ],
+      "validation_layers": "not forced",
+      "logfile": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-043712.058-1426753.log",
+      "images": [],
+      "phases": [],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "compare",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "/home/terence/code/re-flora-agent-dither/target/release/re-flora",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "180"
+      ],
+      "logfile": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-041804.630-1385095.log",
+      "images": [
+        {
+          "file": "global-bayer.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "c328ba0b8f728a3b47c3b17c64ecfa8992589985e5ec725ba5a47801bbe1dad2"
+        },
+        {
+          "file": "global-halftone.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "ce574c9dcda3a8273c57bb6f68821a2111d73de7fa381e1ffe6b8023cb295809"
+        },
+        {
+          "file": "global-overrides-local.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "6045d77e3bb0d16a8cc1508b05f460a73c39624ca0ffcecb1ac7c4e6fa6318a0"
+        },
+        {
+          "file": "god-rays.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "23c7b0d79e67cfc96d740c51789819cfdbb2d6d450146784d837bdbe32026848"
+        },
+        {
+          "file": "lens-flare.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "3a9be5f8566fda9cb1b7bf9bad302735180dace52b8e3dd0d7033cd5c1106ada"
+        },
+        {
+          "file": "local-combined.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "f95787a6877d7723aad6f64c39c1ccdac387f121f4cd36720b64b6de478d7a20"
+        },
+        {
+          "file": "original-return.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "08c3b881720b2291c7b864b4fec8bc201227ec5c60f6a6e12808d3fbd0da932b"
+        },
+        {
+          "file": "original.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "81b7f54d6a2f28dd6e7cbb08850de2d14ea1ee8c8d48a76f02abd1411c3bf006"
+        },
+        {
+          "file": "sky-background.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "4d8dd03c0972afd8a6a21fd50736fbb66372ef3773cf7302bf502d45303799f3"
+        },
+        {
+          "file": "terrain-ambient.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "063cb56b42c7cd4b867c5f6f79f211ffd99500b15279e38e156c9e1b9973707d"
+        },
+        {
+          "file": "zero-strength.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "8d8011529e539f35958a365cb44c8c82e4d798dcb58e60fdc5eadc400147a7b3"
+        }
+      ],
+      "phases": [
+        "[04:18:08.485 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=original app_frame=151 flags=0 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:09.588 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=global-bayer app_frame=215 flags=1 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:10.684 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=global-halftone app_frame=279 flags=1 pattern=1 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:11.784 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=god-rays app_frame=343 flags=2 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:12.881 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=4 case=lens-flare app_frame=407 flags=4 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:13.977 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=5 case=terrain-ambient app_frame=471 flags=16 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:15.116 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=6 case=sky-background app_frame=535 flags=8 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:16.214 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=7 case=local-combined app_frame=599 flags=30 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:17.312 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=8 case=global-overrides-local app_frame=663 flags=31 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:18.406 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=9 case=zero-strength app_frame=727 flags=31 pattern=0 levels=8 strength=0 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:19.500 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=10 case=original-return app_frame=791 flags=0 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:18:20.594 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=11 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "grid",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "/home/terence/code/re-flora-agent-dither/target/release/re-flora",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-041843.988-1385235.log",
+      "images": [
+        {
+          "file": "grid-0.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "03dc00f5181e85bd486b43e43906720b44e7f2e55cc1cf92c15d469340771fe3"
+        },
+        {
+          "file": "grid-1.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "bd9fc8ca718b716a8095f71b40855de7c69512d58d9f85face4406776f40be90"
+        },
+        {
+          "file": "grid-10.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "34ca568266bf63f90255f68939f169cc3ffb82da6b72c94765d10175189b87df"
+        },
+        {
+          "file": "grid-11.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "84218de53def0e20f1fb337099f3aa34c6c57a58d32f7b200231b56cf4008ce5"
+        },
+        {
+          "file": "grid-12.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "7565d9cef101d66ed0843ccfc4983282d8c38388e6390fcb79f47bcac1e136c5"
+        },
+        {
+          "file": "grid-13.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "3ad824ea0fe34446cb4d451de9ef7be15a4160678d372f1a9eb70f2efb7fa40b"
+        },
+        {
+          "file": "grid-14.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "8ceaba9c6c802449b54ad778686f44033e5b46861675dbc14b18e77b2ecc50b6"
+        },
+        {
+          "file": "grid-15.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "a9783e2090d1733bef73bde0565ee0128656dabaef9093c2cd047de0e5f2f4f9"
+        },
+        {
+          "file": "grid-2.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "042a2f17fd74b1525ef4057d5d03b1d6263c78374a4ec3f78465328cce0856b8"
+        },
+        {
+          "file": "grid-3.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "83c22c48b317dce34cd9d63f4dc3b90cfefd3bef6087b7a967f88eea22382655"
+        },
+        {
+          "file": "grid-4.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "217b29b5a75275d0a790fa7069b0422843940d946d5856cc1965f1e54bdc1716"
+        },
+        {
+          "file": "grid-5.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "285d4f5eafc1a779d568481ad5d48caf1adf3477bdf15c73f69608d045325b46"
+        },
+        {
+          "file": "grid-6.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "b66cc1f27823d58d2e6e9224166a390153d2d7069d15d7b2a1090652e9a56b62"
+        },
+        {
+          "file": "grid-7.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "cb29f5ea984ed2e9f4415ff710738f44f5167e0cf76bacb65e600b796613f5a8"
+        },
+        {
+          "file": "grid-8.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "10102c8ce332ff601077fa58147aa815e49d33298dac2c6f5f2685ccf488765b"
+        },
+        {
+          "file": "grid-9.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "31a4b95b66df2dbcc436aef5a5e760ac154f52e8eaa5f286bb893ee986f1538b"
+        }
+      ],
+      "phases": [
+        "[04:18:47.706 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=grid app_frame=150 flags=31 pattern=0 levels=8 strength=1 ratio=0 density=0 resolve=0 saved=false",
+        "[04:18:48.804 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=grid app_frame=214 flags=31 pattern=1 levels=8 strength=1 ratio=0 density=0 resolve=1 saved=false",
+        "[04:18:49.897 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=grid app_frame=278 flags=31 pattern=0 levels=8 strength=1 ratio=0 density=1 resolve=0 saved=false",
+        "[04:18:50.997 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=grid app_frame=342 flags=31 pattern=1 levels=8 strength=1 ratio=0 density=1 resolve=1 saved=false",
+        "[04:18:52.092 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=4 case=grid app_frame=406 flags=31 pattern=0 levels=8 strength=1 ratio=1 density=0 resolve=0 saved=false",
+        "[04:18:53.193 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=5 case=grid app_frame=470 flags=31 pattern=1 levels=8 strength=1 ratio=1 density=0 resolve=1 saved=false",
+        "[04:18:54.392 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=6 case=grid app_frame=534 flags=31 pattern=0 levels=8 strength=1 ratio=1 density=1 resolve=0 saved=false",
+        "[04:18:55.470 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=7 case=grid app_frame=598 flags=31 pattern=1 levels=8 strength=1 ratio=1 density=1 resolve=1 saved=false",
+        "[04:18:56.567 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=8 case=grid app_frame=662 flags=31 pattern=0 levels=8 strength=1 ratio=2 density=0 resolve=0 saved=false",
+        "[04:18:57.654 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=9 case=grid app_frame=726 flags=31 pattern=1 levels=8 strength=1 ratio=2 density=0 resolve=1 saved=false",
+        "[04:18:58.751 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=10 case=grid app_frame=790 flags=31 pattern=0 levels=8 strength=1 ratio=2 density=1 resolve=0 saved=false",
+        "[04:18:59.847 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=11 case=grid app_frame=854 flags=31 pattern=1 levels=8 strength=1 ratio=2 density=1 resolve=1 saved=false",
+        "[04:19:00.940 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=12 case=grid app_frame=918 flags=31 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=0 saved=false",
+        "[04:19:02.033 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=13 case=grid app_frame=982 flags=31 pattern=1 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:19:03.126 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=14 case=grid app_frame=1046 flags=31 pattern=0 levels=8 strength=1 ratio=3 density=1 resolve=0 saved=false",
+        "[04:19:04.218 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=15 case=grid app_frame=1110 flags=31 pattern=1 levels=8 strength=1 ratio=3 density=1 resolve=1 saved=false",
+        "[04:19:05.310 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=16 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "glass",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "/home/terence/code/re-flora-agent-dither/target/release/re-flora",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--glass-voxel-test-scene",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-042047.503-1385759.log",
+      "images": [
+        {
+          "file": "global-bayer.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "f62ea79fa9a1c2f5e205f469969d8780b510f1e750d40ec44d8571e0f0d90e71"
+        },
+        {
+          "file": "global-halftone.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "b0cee0a8c28632b5ec8c47579d4c4a43b58c997179485f6fd644b9cad2300d4f"
+        },
+        {
+          "file": "global-overrides-local.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "4c84b179164c7ea7ad5da508fce0b3cf3ec9c842e4b1cd5bd1dc97aad2a25ba8"
+        },
+        {
+          "file": "god-rays.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "63a54bd7e3018cb96953b884f3a1ce237d8a655a43531fe0ed6af21c96baf5e5"
+        },
+        {
+          "file": "lens-flare.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "5a8e87d32876cb8999a4dd24551eb0b0f672b9c4b90ce4105659c05771092352"
+        },
+        {
+          "file": "local-combined.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "f891e756abf059ed8e6780f51fd3a29047c9ddd6dedce21052463930f83de2ca"
+        },
+        {
+          "file": "original-return.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "272a5827428d2a09f5a0936155a12503af9d3e5874a707f4b7ba7524f26b74e1"
+        },
+        {
+          "file": "original.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "1f5766ff3ed70411a3d3d105e27770141f18c31fd9586f3136fc4427fa9a1040"
+        },
+        {
+          "file": "sky-background.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "cd40161165dc71556742f3353e6029d1fde1c3d6a92f64de734e1786be9fda5b"
+        },
+        {
+          "file": "terrain-ambient.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "bdc2355068d19359f72efbf0fe2d8e7d1811b1fcc91bb11b571ecec760e2d6bf"
+        },
+        {
+          "file": "zero-strength.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "ca16860ca5717b281160698b93b0d1efe561d76efca7858c011ae2c079dc6b04"
+        }
+      ],
+      "phases": [
+        "[04:21:28.177 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=original app_frame=140 flags=0 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:29.269 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=global-bayer app_frame=204 flags=1 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:30.364 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=global-halftone app_frame=268 flags=1 pattern=1 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:31.459 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=god-rays app_frame=332 flags=2 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:32.557 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=4 case=lens-flare app_frame=396 flags=4 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:33.654 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=5 case=terrain-ambient app_frame=460 flags=16 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:34.751 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=6 case=sky-background app_frame=524 flags=8 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:35.851 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=7 case=local-combined app_frame=588 flags=30 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:36.945 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=8 case=global-overrides-local app_frame=652 flags=31 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:38.043 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=9 case=zero-strength app_frame=716 flags=31 pattern=0 levels=8 strength=0 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:39.144 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=10 case=original-return app_frame=780 flags=0 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:21:40.242 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=11 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "sun",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora-agent-dither/target/release/re-flora",
+        "/home/terence/code/re-flora-agent-dither/target/ordered-dither-native/sun/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-042248.264-1400823.log",
+      "images": [
+        {
+          "file": "global-bayer.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "b33240faf2da593ce75f4384273324f238814203bb12ebee7a5e92c69fe6f217"
+        },
+        {
+          "file": "global-halftone.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "bc5be72dfcc97df95eed889277120fd358cdf4e86b1c2821393866196769d64a"
+        },
+        {
+          "file": "global-overrides-local.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "4f5bf547fd5b3bec286baf7330378ca6c1dfc6dd2ba102d97becdacb01609613"
+        },
+        {
+          "file": "god-rays.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "790e08b055ae87cd5b40bc8098f50898f4df19771453c3985b914557c20fd364"
+        },
+        {
+          "file": "lens-flare.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "f09fa25f700616600d14c99889169f5459a7fa27fb3c504ffa7f9ccdda2b74f1"
+        },
+        {
+          "file": "local-combined.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "4c8eca300ff0b68f18d6c94a5bd210a4cb2ebb79e3a25dfe8ea733a29aa99725"
+        },
+        {
+          "file": "original-return.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "5349e5da0dadab5b3f79a5965114f0110157fd990c8da3e19e47003a5eb556e3"
+        },
+        {
+          "file": "original.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "37dcaa4dc1e0a384138beeb662fe393785795f6dd02b3864fb582547d99af8f0"
+        },
+        {
+          "file": "sky-background.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "554c6d5b773d333c57d4c01716bb317e0400495ada2824d8d98f2d9829175138"
+        },
+        {
+          "file": "terrain-ambient.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "5bee2af41f2b3ef72b6bba2b09bc54aeb69d090b0a30560a75ab745d7c9b5d1a"
+        },
+        {
+          "file": "zero-strength.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "cd95d9771d4ec953790ad562f24d38390c74d13c14cbfe7ade480978a394dfe9"
+        }
+      ],
+      "phases": [
+        "[04:22:54.148 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=original app_frame=114 flags=0 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:22:55.972 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=global-bayer app_frame=178 flags=1 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:22:57.373 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=global-halftone app_frame=242 flags=1 pattern=1 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:22:59.113 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=god-rays app_frame=306 flags=2 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:00.871 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=4 case=lens-flare app_frame=370 flags=4 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:02.211 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=5 case=terrain-ambient app_frame=434 flags=16 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:03.364 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=6 case=sky-background app_frame=498 flags=8 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:04.457 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=7 case=local-combined app_frame=562 flags=30 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:05.553 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=8 case=global-overrides-local app_frame=626 flags=31 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:06.653 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=9 case=zero-strength app_frame=690 flags=31 pattern=0 levels=8 strength=0 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:07.754 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=10 case=original-return app_frame=754 flags=0 pattern=0 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[04:23:08.849 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=11 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "gui",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora-agent-dither/target/release/re-flora",
+        "/home/terence/code/re-flora-agent-dither/target/ordered-dither-native/gui/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--screenshot",
+        "player-default",
+        "/home/terence/code/re-flora-agent-dither/target/ordered-dither-native/gui/controls.png",
+        "--screenshot-delay",
+        "2",
+        "--auto-exit",
+        "4"
+      ],
+      "validation_layers": "not forced",
+      "logfile": "/home/terence/code/re-flora-agent-dither/target/re-flora-logs/re-flora-20261006-042241.617-1400007.log",
+      "images": [
+        {
+          "file": "controls.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "bedcc2b99fbf5f12a626352c1df1d518b3e2f8e34fbae6b0042f38650338dd47"
+        }
+      ],
+      "phases": [],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    }
+  ]
+}
