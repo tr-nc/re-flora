@@ -53,6 +53,8 @@ pub use stem_band_paths::{path_bands, StemBandInstance, StemPathPoint};
 use stem_band_resources::StemBandResources;
 mod model_geometry;
 mod model_mesh_frame;
+mod stone_preview;
+pub use stone_preview::Request as StonePreviewRequest;
 #[cfg(test)]
 mod model_pixel_tiles;
 use model_mesh_frame::{MeshPass, ModelMeshFrame, PreparedModelMeshes};
@@ -1671,6 +1673,7 @@ pub struct Tracer {
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     model_mesh_frame: ModelMeshFrame,
+    stone_preview: stone_preview::Renderer,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
     tree_leaf_particle_scratch: Vec<ParticleInstanceGpu>,
@@ -1967,6 +1970,7 @@ impl Tracer {
         let mower_resources =
             MowerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let model_mesh_frame = ModelMeshFrame::new(&vulkan_ctx, allocator.clone());
+        let stone_preview = stone_preview::Renderer::new(vulkan_ctx.clone(), allocator.clone());
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
             vulkan_ctx.clone(),
@@ -2038,6 +2042,7 @@ impl Tracer {
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             model_mesh_frame,
+            stone_preview,
             particle_instance_scratch: Vec::new(),
             translucent_particle_instance_scratch: Vec::new(),
             tree_leaf_particle_scratch: Vec::new(),
@@ -3542,6 +3547,12 @@ impl Tracer {
             self.pipeline_topology.graphics(),
         );
 
+        self.stone_preview.begin_frame(gpu_profiler_frame_slot)?;
+        self.pipeline_topology
+            .compute()
+            .stone_contree_preview_ppl
+            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+
         Self::with_gpu_scope(
             gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
@@ -4060,6 +4071,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.static_scene.is_some()
+            || self.stone_preview.has_direct()
             || self.mower_resources.visible
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
@@ -4116,6 +4128,17 @@ impl Tracer {
             // Clear transitions and the later composition pipeline own the transfer-to-shader
             // dependency; no global fallback barrier is needed here.
         }
+
+        self.stone_preview.record_volume(
+            cmdbuf,
+            &self.pipeline_topology.compute().stone_contree_preview_ppl,
+            self.resources
+                .extent_dependent_resources
+                .compute_output_tex
+                .get_image()
+                .get_desc()
+                .extent,
+        )?;
 
         let prepared_particle_pixels =
             if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
@@ -4338,6 +4361,7 @@ impl Tracer {
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.static_scene.is_some()
+            || self.stone_preview.has_direct()
             || self.mower_resources.visible
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
@@ -5071,6 +5095,10 @@ impl Tracer {
                 .cpu_stem_band_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
+        let prepared_stone = self
+            .stone_preview
+            .prepare_direct(cmdbuf, &self.pipeline_topology.graphics().stone_preview_ppl)
+            .expect("stone mesh descriptors and acquired-frame geometry");
         let prepared_dynamic_pixels = if self.dynamic_fruit_resources.instance_count > 0 {
             Some(
                 Self::with_gpu_scope(
@@ -5501,6 +5529,14 @@ impl Tracer {
                     glass_pipeline.record_indexed(cmdbuf, 3, 1, first_index, 0, 0, None);
                 }
             }
+        }
+
+        if let Some(stone) = prepared_stone.as_ref() {
+            self.pipeline_topology
+                .graphics()
+                .stone_preview_ppl
+                .record_viewport_scissor(cmdbuf, viewport, scissor);
+            stone.record(cmdbuf);
         }
 
         if self.geometry_preview_resources.has_visible_mesh() {
@@ -6836,6 +6872,10 @@ impl Tracer {
 
     pub(crate) fn sprinkler_instance_count(&self) -> u32 {
         self.sprinkler_resources.instance_count
+    }
+
+    pub fn set_stone_preview(&mut self, request: Option<StonePreviewRequest>) -> Result<()> {
+        self.stone_preview.request(request)
     }
 
     pub fn upload_debug_geometry_preview(

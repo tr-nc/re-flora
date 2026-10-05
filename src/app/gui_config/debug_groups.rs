@@ -14,6 +14,20 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Stone Geometry",
+        description: "Deterministic closed triangle models, not voxel source data. Slabs have broad flat tops and bottoms with corner cuts and narrow chamfers; rocks use bounded asymmetric cutting planes. Slab thickness is limited to 30% of the short edge. All dimensions use garden world units (256 terrain voxels per unit). These are visual candidates, not approved art.",
+        initially_open: false,
+        params: &["stone_kind", "stone_seed", "stone_width", "stone_depth", "stone_slab_thickness", "stone_rock_height", "stone_variation", "stone_slab_edge_cut", "stone_rock_facets"],
+    },
+    ControlGroup {
+        parent: None,
+        title: "Stone Rendering",
+        description: "Enable the inspection-only preview; the existing garden is unchanged when disabled. Unchecked A/B: the same triangle model goes through the production GPU voxelizer, surface extraction and Contree ray visibility (128 private preview cells per world unit). Checked: hardware-raster triangles. Both use the live garden material palette and global pixel post-processing; UI stays native. Preview is lifted above grass, has no gameplay collider and never writes terrain or saves world data. Focus is applied only on enable. Not visually or performance approved.",
+        initially_open: false,
+        params: &["stone_preview_enabled", "stone_direct_triangles", "stone_preview_focus", "stone_preview_lift", "stone_yaw"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Scene Pixel Sampling",
         description: "Unchecked: original direct low-resolution rendering. Checked: render a denser source and select a pixel color resolve. HDR average preserves the previous reference; Contrast-aware uses perceptual luminance statistics to select one complete source color after tone mapping; it never splices color channels. No palette reduction or outline expansion. Compare at the same source density and final pixel ratio. Contrast may change colors or flicker; not visually approved yet. Ratios count screen pixels: 4:1 is 2x2; 16:1 is 4x4; 64:1 is the original 8x8. Edge blocks are cropped, UI stays native. Source density is capped at native-equivalent resolution: 1:1 bypasses the candidate, 4:1 caps at four source pixels. Preferences are retained and saved.",
         initially_open: false,

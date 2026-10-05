@@ -7,7 +7,6 @@ use super::plain::{
     VOXEL_TYPE_CHERRY_WOOD, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_OAK_WOOD,
     VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
 };
-use super::SurfaceResources;
 use crate::generated::gpu_structs::ContreeBuildInfo;
 use crate::util::AllocationStrategy;
 use crate::util::FirstFitAllocator;
@@ -911,7 +910,9 @@ impl ContreeBuilder {
     pub fn new(
         vulkan_ctx: VulkanContext,
         allocator: Allocator,
-        surfacer_resources: &SurfaceResources,
+        // Ordinary terrain and isolated model previews provide the same reflected
+        // surface records. Allocation, build ordering and Contree format stay owned here.
+        surfacer_resources: &dyn re_flora_vkn::ResourceContainer,
         chunk_dim: UVec3,
         voxel_dim_per_chunk: UVec3,
         node_pool_size_in_bytes: u64,
