@@ -15,6 +15,11 @@ pub(super) struct State {
     review: Option<String>,
     frame: u32,
     phase: Option<u32>,
+    gui_save: Option<GuiSaveReview>,
+}
+struct GuiSaveReview {
+    phase: u8,
+    button: Option<egui::Pos2>,
 }
 impl State {
     pub fn new() -> Result<Self> {
@@ -22,13 +27,62 @@ impl State {
         if let Some(mode) = review.as_deref() {
             ensure!(["voxel-rock","direct-rock","voxel-slab","direct-slab","cycle"].contains(&mode),"RE_FLORA_STONE_REVIEW must be voxel-rock, direct-rock, voxel-slab, direct-slab, or cycle");
         }
+        let gui_save = std::env::var_os("RE_FLORA_STONE_GUI_SAVE_REVIEW").is_some();
+        ensure!(!gui_save || review.is_some(), "stone GUI Save replay requires RE_FLORA_STONE_REVIEW and a backed-up worktree GUI config");
         Ok(Self {
             base: None,
             was_enabled: false,
             review,
             frame: 0,
             phase: None,
+            gui_save: gui_save.then_some(GuiSaveReview {
+                phase: 0,
+                button: None,
+            }),
         })
+    }
+    pub fn remember_save_button(&mut self, center: egui::Pos2) {
+        if let Some(review) = &mut self.gui_save {
+            review.button = Some(center);
+        }
+    }
+    /// Replay normalized native GUI input only: no per-field save hook and no
+    /// visible window/OS pointer needed. The real Save response owns persistence.
+    pub fn gui_save_events(
+        &mut self,
+        pixels_per_point: f32,
+    ) -> Option<[winit::event::WindowEvent; 3]> {
+        use winit::{
+            dpi::PhysicalPosition,
+            event::{DeviceId, ElementState, MouseButton, WindowEvent},
+        };
+        let review = self.gui_save.as_mut()?;
+        let center = review.button?;
+        if self.frame < 3 || review.phase >= 2 {
+            return None;
+        }
+        let pressed = review.phase == 0;
+        review.phase += 1;
+        log::info!("[STONE_GUI_REVIEW] actual_button=Save input={} persistence=normal_gui_handler search=Stone_Rendering", if pressed { "press" } else { "release" });
+        Some([
+            WindowEvent::Focused(true),
+            WindowEvent::CursorMoved {
+                device_id: DeviceId::dummy(),
+                position: PhysicalPosition::new(
+                    f64::from(center.x * pixels_per_point),
+                    f64::from(center.y * pixels_per_point),
+                ),
+            },
+            WindowEvent::MouseInput {
+                device_id: DeviceId::dummy(),
+                state: if pressed {
+                    ElementState::Pressed
+                } else {
+                    ElementState::Released
+                },
+                button: MouseButton::Left,
+            },
+        ])
     }
 }
 fn spec(settings: &GuiAdjustables) -> StoneSpec {
@@ -154,6 +208,47 @@ impl App {
 mod tests {
     use super::*;
     use crate::app::gui_config_loader::GuiConfigLoader;
+    #[test]
+    fn native_gui_save_replay_waits_for_real_layout_then_presses_and_releases_once() {
+        use winit::event::{ElementState, WindowEvent};
+        let mut state = State {
+            base: None,
+            was_enabled: false,
+            review: Some("direct-rock".to_owned()),
+            frame: 2,
+            phase: None,
+            gui_save: Some(GuiSaveReview {
+                phase: 0,
+                button: None,
+            }),
+        };
+        assert!(state.gui_save_events(1.6).is_none());
+        state.remember_save_button(egui::pos2(100., 50.));
+        assert!(state.gui_save_events(1.6).is_none());
+        state.frame = 3;
+        let [_, position, press] = state.gui_save_events(1.6).unwrap();
+        let WindowEvent::CursorMoved { position, .. } = position else {
+            panic!("native pointer event");
+        };
+        assert_eq!(position.x, 160.);
+        assert_eq!(position.y, 80.);
+        assert!(matches!(
+            press,
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                ..
+            }
+        ));
+        assert!(matches!(
+            state.gui_save_events(1.6).unwrap()[2],
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                ..
+            }
+        ));
+        assert!(state.gui_save_events(1.6).is_none());
+    }
+
     #[test]
     fn saved_control_adapter_uses_type_specific_dimensions_and_one_source_spec() {
         let mut s = GuiAdjustables::from_config(&GuiConfigLoader::load());

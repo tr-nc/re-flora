@@ -2703,6 +2703,16 @@ impl App {
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 let egui_start = Instant::now();
                 let mower_mode_available = self.mower_mode_available();
+                if self.loading_state.is_none() {
+                    let scale = self.egui_renderer.context().pixels_per_point();
+                    if let Some(events) = self.stone_preview.gui_save_events(scale) {
+                        for event in events {
+                            let _ = self
+                                .egui_renderer
+                                .on_window_event(&self.window_state.window(), &event);
+                        }
+                    }
+                }
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
@@ -2774,6 +2784,7 @@ impl App {
                                             |ui| {
                                                 let response = ui.add(egui::Button::new("Save").small());
                                                 save_button_rect = Some(response.rect);
+                                                self.stone_preview.remember_save_button(response.rect.center());
                                                 if let Some(error) = self.debug_settings.save_error() {
                                                     response.clone().on_hover_text(error);
                                                 }
