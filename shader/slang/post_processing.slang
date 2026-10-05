@@ -6,6 +6,7 @@ import scene_pixel_filter;
 struct U_PostProcessingInfo
 {
     uint samples_per_axis;
+    uint pixel_stride;
     float dither_strength_lsb;
 };
 
@@ -39,16 +40,17 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     composited_tex.GetDimensions(inputWidth, inputHeight);
     uint samplesPerAxis = post_processing_info.samples_per_axis;
     uint2 pixelExtent = scenePixelExtent(uint2(inputWidth, inputHeight), samplesPerAxis);
-    int2 mappedUvi = scenePixelCoordinate(uvi, uint2(outputWidth, outputHeight), pixelExtent);
+    int2 mappedUvi = scenePixelCoordinate(uvi, post_processing_info.pixel_stride, pixelExtent);
     float3 finalColor;
-    if (samplesPerAxis == 2u)
+    if (samplesPerAxis > 1u)
     {
-        int2 source = mappedUvi * 2;
-        finalColor = scenePixelBoxAverage(
-            composited_tex[source].rgb,
-            composited_tex[source + int2(1, 0)].rgb,
-            composited_tex[source + int2(0, 1)].rgb,
-            composited_tex[source + int2(1, 1)].rgb);
+        int2 source = mappedUvi * int(samplesPerAxis);
+        float3 sum = float3(0.0);
+        for (uint sample = 0u; sample < samplesPerAxis * samplesPerAxis; sample++)
+        {
+            sum += composited_tex[source + scenePixelSampleOffset(sample, samplesPerAxis)].rgb;
+        }
+        finalColor = scenePixelBoxAverage(sum, samplesPerAxis);
     }
     else
     {

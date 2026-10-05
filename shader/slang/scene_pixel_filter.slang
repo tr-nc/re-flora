@@ -4,15 +4,20 @@ public uint2 scenePixelExtent(uint2 renderExtent, uint samplesPerAxis)
     return renderExtent / samplesPerAxis;
 }
 
-public int2 scenePixelCoordinate(int2 outputPixel, uint2 outputExtent, uint2 pixelExtent)
+public int2 scenePixelCoordinate(int2 outputPixel, uint pixelStride, uint2 pixelExtent)
 {
-    float2 ratio = float2(pixelExtent) / float2(outputExtent);
-    return min(int2((float2(outputPixel) + 0.5) * ratio), int2(pixelExtent) - 1);
+    // Exact screen-pixel groups. The last block may be cropped by the window;
+    // never stretch a rounded-down grid across the output extent.
+    return min(outputPixel / int(pixelStride), int2(pixelExtent) - 1);
 }
 
-// Average linear HDR samples before tone mapping. Never filter adjacent coarse
-// cells: each displayed block represents exactly its own 2x2 sampling footprint.
-public float3 scenePixelBoxAverage(float3 a, float3 b, float3 c, float3 d)
+public int2 scenePixelSampleOffset(uint sample, uint samplesPerAxis)
 {
-    return (a + b + c + d) * 0.25;
+    return int2(sample % samplesPerAxis, sample / samplesPerAxis);
+}
+
+// Average linear HDR samples before tone mapping; never mix adjacent coarse cells.
+public float3 scenePixelBoxAverage(float3 sum, uint samplesPerAxis)
+{
+    return sum / float(samplesPerAxis * samplesPerAxis);
 }

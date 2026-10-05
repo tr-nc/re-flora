@@ -1,56 +1,112 @@
-//! Owns the coarse display grid independently of the scene's sampling density.
-//! The baseline uses one sample per pixel; the A/B mode renders exactly twice
-//! each grid dimension for a 2x2 box resolve. UI and the swapchain stay native.
+//! Integer screen-pixel grouping and independently requested supersampling.
+//! The final grid is derived from the physical window. Partial edge blocks are
+//! cropped, never stretched. Sampling is capped at the native-equivalent grid.
 use re_flora_vkn::Extent2D;
 
-pub(crate) const SCALE: f32 = 0.125;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PixelRatio {
+    Native,
+    Four,
+    Sixteen,
+    SixtyFour,
+}
+
+impl PixelRatio {
+    pub fn stride(self) -> u32 {
+        match self {
+            Self::Native => 1,
+            Self::Four => 2,
+            Self::Sixteen => 4,
+            Self::SixtyFour => 8,
+        }
+    }
+
+    fn from_choice(choice: u32) -> Self {
+        match choice {
+            0 => Self::Native,
+            1 => Self::Four,
+            2 => Self::Sixteen,
+            _ => Self::SixtyFour,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Settings {
+    ratio: PixelRatio,
+    requested_samples_per_axis: u32,
+}
+
+impl Settings {
+    /// Normalize the saved controls once, without making the renderer GUI-aware.
+    pub fn from_controls(ratio: u32, enabled: bool, quality: u32) -> Self {
+        Self {
+            ratio: PixelRatio::from_choice(ratio),
+            requested_samples_per_axis: if !enabled {
+                1
+            } else if quality == 1 {
+                4
+            } else {
+                2
+            },
+        }
+    }
+
+    pub fn pixel_stride(self) -> u32 {
+        self.ratio.stride()
+    }
+
+    pub fn requested_samples(self) -> u32 {
+        self.requested_samples_per_axis * self.requested_samples_per_axis
+    }
+
+    pub fn samples_per_axis(self) -> u32 {
+        // No enormous beyond-native allocation when native output and 16x AA
+        // are selected together. Keep the requested preference for coarser grids.
+        self.requested_samples_per_axis.min(self.ratio.stride())
+    }
+
+    pub fn requires_resource_change(self, previous: Self) -> bool {
+        self.ratio != previous.ratio || self.samples_per_axis() != previous.samples_per_axis()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SceneResolution {
+    pub settings: Settings,
     pub pixel_extent: Extent2D,
     pub render_extent: Extent2D,
     pub samples_per_axis: u32,
 }
 
 impl SceneResolution {
-    pub fn new(screen: Extent2D, scale: f32, supersampling: bool) -> Self {
-        let pixel_extent = render_extent(screen, scale);
-        let samples_per_axis = if supersampling { 2 } else { 1 };
-        // Round the display grid first. Scaling the window directly by twice
-        // `scale` would change the grid/aspect on odd window dimensions.
+    pub fn new(screen: Extent2D, settings: Settings) -> Self {
+        let stride = settings.ratio.stride();
+        // Ceil division keeps the last, possibly partial, screen block visible.
+        let pixel_extent = Extent2D::new(
+            screen.width.div_ceil(stride).max(1),
+            screen.height.div_ceil(stride).max(1),
+        );
+        let samples_per_axis = settings.samples_per_axis();
         let render_extent = Extent2D::new(
             pixel_extent.width * samples_per_axis,
             pixel_extent.height * samples_per_axis,
         );
         log::info!(
-            "[SCENE_PIXELS] screen={}x{} scene={}x{} scale={} pixels={}x{} samples_per_axis={} filter={} upscale=nearest ui=native",
-            screen.width,
-            screen.height,
-            render_extent.width,
-            render_extent.height,
-            scale,
-            pixel_extent.width,
-            pixel_extent.height,
+            "[SCENE_PIXELS] screen={}x{} scene={}x{} ratio={}:1 pixel_stride={} pixels={}x{} requested_samples={} samples_per_axis={} filter={} upscale=nearest ui=native",
+            screen.width, screen.height, render_extent.width, render_extent.height,
+            stride * stride, stride, pixel_extent.width, pixel_extent.height,
+            settings.requested_samples_per_axis * settings.requested_samples_per_axis,
             samples_per_axis,
-            if supersampling { "box2x2" } else { "point" },
+            if samples_per_axis == 1 { "point".to_owned() } else { format!("box{samples_per_axis}x{samples_per_axis}") },
         );
         Self {
+            settings,
             pixel_extent,
             render_extent,
             samples_per_axis,
         }
     }
-
-    pub fn supersampling_enabled(self) -> bool {
-        self.samples_per_axis == 2
-    }
-}
-
-fn render_extent(screen: Extent2D, scale: f32) -> Extent2D {
-    Extent2D::new(
-        ((screen.width as f32 * scale) as u32).max(1),
-        ((screen.height as f32 * scale) as u32).max(1),
-    )
 }
 
 #[cfg(test)]
@@ -58,15 +114,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn whole_scene_has_one_sixteenth_the_previous_pixel_count() {
-        let screen = Extent2D::new(2560, 1440);
-        let previous = render_extent(screen, 0.5);
-        let current = render_extent(screen, SCALE);
-        assert_eq!(current, Extent2D::new(320, 180));
-        assert_eq!(
-            previous.width * previous.height,
-            16 * current.width * current.height
-        );
+    fn presets_count_screen_pixels_not_linear_dimensions() {
+        for (choice, width, height) in [
+            (0, 2560, 1440),
+            (1, 1280, 720),
+            (2, 640, 360),
+            (3, 320, 180),
+        ] {
+            let plan = SceneResolution::new(
+                Extent2D::new(2560, 1440),
+                Settings::from_controls(choice, false, 0),
+            );
+            assert_eq!(plan.pixel_extent, Extent2D::new(width, height));
+            assert_eq!(plan.render_extent, plan.pixel_extent);
+        }
     }
 
     #[test]
@@ -75,39 +136,61 @@ mod tests {
             Extent2D::new(2560, 1440),
             Extent2D::new(1023, 767),
             Extent2D::new(1, 1),
-            Extent2D::new(0, 0),
         ] {
-            let a = SceneResolution::new(screen, SCALE, false);
-            let b = SceneResolution::new(screen, SCALE, true);
-            assert_eq!(a.pixel_extent, b.pixel_extent);
-            assert_eq!(a.render_extent, a.pixel_extent);
-            assert_eq!(b.render_extent.width, a.render_extent.width * 2);
-            assert_eq!(b.render_extent.height, a.render_extent.height * 2);
-            assert_eq!(
-                a.render_extent.get_aspect_ratio(),
-                b.render_extent.get_aspect_ratio()
-            );
-            assert!(!a.supersampling_enabled());
-            assert!(b.supersampling_enabled());
+            for ratio in 0..4 {
+                let a = SceneResolution::new(screen, Settings::from_controls(ratio, false, 0));
+                for quality in 0..2 {
+                    let b =
+                        SceneResolution::new(screen, Settings::from_controls(ratio, true, quality));
+                    assert_eq!(a.pixel_extent, b.pixel_extent);
+                    assert_eq!(
+                        b.render_extent.width,
+                        a.pixel_extent.width * b.samples_per_axis
+                    );
+                    assert_eq!(
+                        b.render_extent.height,
+                        a.pixel_extent.height * b.samples_per_axis
+                    );
+                    assert_eq!(
+                        a.render_extent.get_aspect_ratio(),
+                        b.render_extent.get_aspect_ratio()
+                    );
+                    // Padding is at most the remainder of one displayed block.
+                    assert!(b.render_extent.width <= screen.width + b.settings.ratio.stride() - 1);
+                    assert!(
+                        b.render_extent.height <= screen.height + b.settings.ratio.stride() - 1
+                    );
+                }
+            }
         }
-        let odd = SceneResolution::new(Extent2D::new(1023, 767), SCALE, true);
-        assert_eq!(odd.pixel_extent, Extent2D::new(127, 95));
-        assert_eq!(odd.render_extent, Extent2D::new(254, 190));
     }
 
     #[test]
-    fn tiny_and_odd_windows_keep_valid_render_targets() {
-        assert_eq!(
-            render_extent(Extent2D::new(1, 1), SCALE),
-            Extent2D::new(1, 1)
+    fn partial_edge_blocks_are_kept_without_rounding_the_sampling_grid_twice() {
+        let plan = SceneResolution::new(
+            Extent2D::new(1023, 767),
+            Settings::from_controls(3, true, 0),
         );
+        assert_eq!(plan.pixel_extent, Extent2D::new(128, 96));
+        assert_eq!(plan.render_extent, Extent2D::new(256, 192));
+        let tiny = SceneResolution::new(Extent2D::new(1, 1), Settings::from_controls(3, false, 0));
+        assert_eq!(tiny.pixel_extent, Extent2D::new(1, 1));
+    }
+
+    #[test]
+    fn requested_quality_is_capped_without_losing_the_preference() {
+        let native = Settings::from_controls(0, true, 1);
+        let four = Settings::from_controls(1, true, 1);
+        let sixteen = Settings::from_controls(2, true, 1);
+        assert_eq!(native.samples_per_axis(), 1);
+        assert_eq!(four.samples_per_axis(), 2);
+        assert_eq!(sixteen.samples_per_axis(), 4);
+        assert_eq!(native.requested_samples_per_axis, 4);
+        assert!(!native.requires_resource_change(Settings::from_controls(0, false, 0)));
+        assert!(sixteen.requires_resource_change(Settings::from_controls(2, true, 0)));
         assert_eq!(
-            render_extent(Extent2D::new(0, 0), SCALE),
-            Extent2D::new(1, 1)
-        );
-        assert_eq!(
-            render_extent(Extent2D::new(1023, 767), SCALE),
-            Extent2D::new(127, 95)
+            Settings::from_controls(u32::MAX, true, u32::MAX),
+            Settings::from_controls(3, true, 0)
         );
     }
 }

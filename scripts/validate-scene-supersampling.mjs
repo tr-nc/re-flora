@@ -8,8 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
 const help = `Usage: node scripts/validate-scene-supersampling.mjs [--help]
-Validate Release startup and runtime A/B/A scene supersampling, including odd
-window dimensions, resize while enabled, and depth outlines. Hidden and muted;
+Validate Release startup and runtime scene pixel controls: 1:1/4:1/16:1/64:1,
+4x/16x AA, native-resolution capping, odd/tiny windows and depth outlines. Hidden and muted;
 the real saved Debug field is edited in memory only. No config files are saved.
 Requires: cargo build --release, a Vulkan display and VK_LAYER_KHRONOS_validation
 (install/activate the Vulkan SDK if the layer is unavailable).
@@ -53,26 +53,31 @@ try {
     assert.match(log, /\[SHUTDOWN\] phase=complete failures=0/, `${name}: incomplete shutdown`);
     assert.ok(!/\bERROR\b|VUID|hazard detected|panicked at|Validation (Error|Warning)/.test(log), `${name}: inspect validation errors`);
     assert.match(log, /Insert instance layer.*VK_LAYER_KHRONOS_validation/, `${name}: validation layer insertion not observed`);
-    const plans = [...log.matchAll(/\[SCENE_PIXELS\] screen=(\d+)x(\d+) scene=(\d+)x(\d+) scale=([\d.]+) pixels=(\d+)x(\d+) samples_per_axis=(\d+) filter=(\S+)/g)].map(match => ({
-      screen: [+match[1], +match[2]], scene: [+match[3], +match[4]], scale: +match[5],
-      pixels: [+match[6], +match[7]], samplesPerAxis: +match[8], filter: match[9],
+    const plans = [...log.matchAll(/\[SCENE_PIXELS\] screen=(\d+)x(\d+) scene=(\d+)x(\d+) ratio=(\d+):1 pixel_stride=(\d+) pixels=(\d+)x(\d+) requested_samples=(\d+) samples_per_axis=(\d+) filter=(\S+)/g)].map(match => ({
+      screen: [+match[1], +match[2]], scene: [+match[3], +match[4]], ratio: +match[5], stride: +match[6],
+      pixels: [+match[7], +match[8]], requestedSamples: +match[9], samplesPerAxis: +match[10], filter: match[11],
     }));
     assert.ok(plans.length > 0, `${name}: no sampling plans logged`);
     for (const plan of plans) {
-      assert.ok([1, 2].includes(plan.samplesPerAxis));
-      assert.deepEqual(plan.pixels, plan.screen.map(size => Math.max(1, Math.floor(size * plan.scale))));
+      assert.ok([1, 2, 4].includes(plan.samplesPerAxis));
+      assert.equal(plan.ratio, plan.stride * plan.stride);
+      assert.deepEqual(plan.pixels, plan.screen.map(size => Math.max(1, Math.ceil(size / plan.stride))));
+      assert.equal(plan.samplesPerAxis, Math.min(Math.sqrt(plan.requestedSamples), plan.stride));
       assert.deepEqual(plan.scene, plan.pixels.map(size => size * plan.samplesPerAxis));
-      assert.equal(plan.filter, plan.samplesPerAxis === 2 ? 'box2x2' : 'point');
+      assert.equal(plan.filter, plan.samplesPerAxis === 1 ? 'point' : `box${plan.samplesPerAxis}x${plan.samplesPerAxis}`);
     }
     if (lifecycle) {
-      assert.match(log, /SCENE_SUPERSAMPLING_REVIEW\] phase=complete frames=36/);
-      assert.ok(plans.some(plan => plan.samplesPerAxis === 1));
-      assert.ok(plans.some(plan => plan.samplesPerAxis === 2));
-      assert.ok(plans.some(plan => plan.screen[0] === 1023 && plan.screen[1] === 767 && plan.samplesPerAxis === 2), 'odd-size B phase missing');
-      assert.ok(plans.some(plan => plan.screen[0] === 1280 && plan.screen[1] === 720 && plan.samplesPerAxis === 2), 'resized B phase missing');
+      assert.match(log, /SCENE_SUPERSAMPLING_REVIEW\] phase=complete frames=54/);
+      for (const ratio of [1, 4, 16, 64]) assert.ok(plans.some(plan => plan.ratio === ratio), `missing ratio ${ratio}:1`);
+      for (const axis of [1, 2, 4]) assert.ok(plans.some(plan => plan.samplesPerAxis === axis), `missing sampling axis ${axis}`);
+      assert.ok(plans.some(plan => plan.ratio === 1 && plan.requestedSamples === 16 && plan.samplesPerAxis === 1), 'native AA bypass missing');
+      assert.ok(plans.some(plan => plan.ratio === 4 && plan.requestedSamples === 16 && plan.samplesPerAxis === 2), '4:1 AA cap missing');
+      assert.ok(plans.some(plan => plan.screen[0] === 1023 && plan.screen[1] === 767 && plan.samplesPerAxis === 4), 'odd-size 16x phase missing');
+      assert.ok(plans.some(plan => plan.screen[0] === 9 && plan.screen[1] === 8 && plan.samplesPerAxis === 1), 'one-pixel-high 2D scene missing');
+      assert.ok(plans.some(plan => plan.screen[0] === 1280 && plan.screen[1] === 720 && plan.samplesPerAxis === 2), 'resized 4x phase missing');
       const transitions = [...log.matchAll(/\[SCENE_SUPERSAMPLING\] enabled=(true|false) scene_samples=(\d+) frame_extent_generation=(\d+)/g)];
-      assert.ok(transitions.length >= 5, 'runtime mode transitions missing');
-      assert.equal((log.match(/\[RESIZE\] published generation=/g) ?? []).length, 2, 'sampling toggles must not recreate the swapchain');
+      assert.ok(transitions.length >= 8, 'runtime mode transitions missing');
+      assert.equal((log.match(/\[RESIZE\] published generation=/g) ?? []).length, 3, 'sampling toggles must not recreate the swapchain');
     }
     assert.deepEqual(hashes(), before, 'Saved user settings changed');
     results.push({ name, plans, synchronizationValidation: true, validationErrors: 0 });

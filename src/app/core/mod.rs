@@ -1248,6 +1248,7 @@ impl App {
             },
         )?;
 
+        let mut debug_settings = DebugSettings::load();
         let tracer = Tracer::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -1259,7 +1260,7 @@ impl App {
             plain_builder.get_resources(),
             lighting_mode_acceptance::initial_raster_lighting_state(),
             TracerDesc {
-                scaling_factor: crate::tracer::scene_resolution::SCALE,
+                scene_pixel_settings: scene_supersampling::from_gui(&debug_settings.adjustables),
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
                 voxel_dim_per_chunk: VOXEL_DIM_PER_CHUNK,
                 environment_probe_spacing_voxels: lighting.probe_spacing_voxels,
@@ -1323,7 +1324,6 @@ impl App {
         } else {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
-        let mut debug_settings = DebugSettings::load();
         let apple_pixel_review =
             std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("resolution");
         if apple_pixel_review {

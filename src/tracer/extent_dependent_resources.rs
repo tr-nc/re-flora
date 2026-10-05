@@ -262,6 +262,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::D32_SFLOAT,
             usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
                 | vk::ImageUsageFlags::SAMPLED
@@ -297,6 +298,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
@@ -320,6 +322,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R32_UINT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
@@ -343,6 +346,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R32G32_UINT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
@@ -398,6 +402,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT
@@ -417,6 +422,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: god_ray_extent(rendering_extent).into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R32_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
@@ -441,6 +447,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: screen_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_SRC
@@ -459,6 +466,7 @@ impl ExtentDependentResources {
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R8G8B8A8_SRGB,
             usage: vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT
@@ -479,6 +487,7 @@ impl ExtentDependentResources {
         let lens_flare_extent = lens_flare_extent(rendering_extent);
         let tex_desc = ImageDesc {
             extent: lens_flare_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
@@ -511,6 +520,7 @@ impl ExtentDependentResources {
     fn create_hdr_tex(device: Device, allocator: Allocator, rendering_extent: Extent2D) -> Texture {
         let tex_desc = ImageDesc {
             extent: rendering_extent.into(),
+            image_type_override: Some(vk::ImageType::TYPE_2D),
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
             initial_layout: TextureLayout::UNDEFINED,

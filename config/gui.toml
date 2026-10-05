@@ -92,13 +92,37 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "scene_pixel_ratio"
+kind = "choice"
+label = "Scene: final pixel resolution"
+type = "Choice"
+
+[section.param.data]
+value = 3
+options = ["1:1 (native)", "4:1 (2x2 screen pixels)", "16:1 (4x4 screen pixels)", "64:1 (8x8 screen pixels, original)"]
+
+[[section.param]]
 id = "scene_supersampling_enabled"
 kind = "bool"
-label = "Scene: 2x supersampling (A/B)"
+label = "Scene: supersampling antialiasing (A/B)"
 type = "Bool"
 
 [section.param.data]
 value = false
+
+[[section.param]]
+id = "scene_supersampling_quality"
+kind = "choice"
+label = "Scene: antialiasing quality (up to native)"
+type = "Choice"
+
+[section.param.enabled_if]
+param = "scene_supersampling_enabled"
+equals = true
+
+[section.param.data]
+value = 0
+options = ["4x (2x2 samples)", "16x (4x4 samples)"]
 
 [[section.param]]
 id = "depth_outline_enabled"

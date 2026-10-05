@@ -15,9 +15,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Scene Pixel Sampling",
-        description: "Unchecked: original one-sample scene pixels. Checked: render twice each dimension and average 2x2 linear-color samples before nearest upscaling. Displayed pixel size and native UI stay unchanged. Uses four times as many scene samples; edges and depth outlines may become softer. Switching briefly waits for submitted frames. Saved with other settings.",
+        description: "Resolution ratios count physical screen pixels: 4:1 is a 2x2 block; 16:1 is 4x4; 64:1 preserves the original 8x8 blocks. Partial edge blocks are cropped, not stretched. Antialiasing averages linear-color samples without changing the displayed grid. Sampling is capped at the native-equivalent resolution: 1:1 bypasses AA, and 4:1 caps at 4x; the requested quality is retained for coarser grids. UI stays native. Edges/outlines may soften; switching may briefly pause. All controls are saved.",
         initially_open: false,
-        params: &["scene_supersampling_enabled"],
+        params: &["scene_pixel_ratio", "scene_supersampling_enabled", "scene_supersampling_quality"],
     },
     ControlGroup {
         parent: None,
@@ -280,19 +280,24 @@ mod tests {
 
     #[test]
     fn supersampling_has_one_searchable_adjustment_first_owner() {
-        let id = "scene_supersampling_enabled";
-        assert_eq!(
-            search_path("Debug", id).as_deref(),
-            Some("Scene Pixel Sampling")
-        );
-        assert_eq!(
-            GROUPS
-                .iter()
-                .filter(|group| group.params.contains(&id))
-                .count(),
-            1
-        );
-        assert!(!retired_pixel_control(id));
+        for id in [
+            "scene_pixel_ratio",
+            "scene_supersampling_enabled",
+            "scene_supersampling_quality",
+        ] {
+            assert_eq!(
+                search_path("Debug", id).as_deref(),
+                Some("Scene Pixel Sampling")
+            );
+            assert_eq!(
+                GROUPS
+                    .iter()
+                    .filter(|group| group.params.contains(&id))
+                    .count(),
+                1
+            );
+            assert!(!retired_pixel_control(id));
+        }
     }
 
     #[test]
@@ -483,7 +488,7 @@ mod tests {
         }
         assert_eq!(
             text.lines()
-                .filter(|line| *line == "Scene: 2x supersampling (A/B)")
+                .filter(|line| *line == "Scene: supersampling antialiasing (A/B)")
                 .count(),
             1,
             "the saved sampling checkbox must be drawn exactly once",

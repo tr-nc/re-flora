@@ -87,7 +87,32 @@ impl GuiConfigLoader {
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
-        Self::add_missing_param(&mut config, "Debug", "scene_supersampling_enabled");
+        for id in [
+            "scene_pixel_ratio",
+            "scene_supersampling_enabled",
+            "scene_supersampling_quality",
+        ] {
+            Self::add_missing_param(&mut config, "Debug", id);
+        }
+        if let Some(param) = config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| {
+                p.id == "scene_supersampling_enabled" && p.label == "Scene: 2x supersampling (A/B)"
+            })
+        {
+            // Rename the old fixed-4-sample label, retaining its saved bool.
+            let defaults: GuiConfigFile = toml::from_str(include_str!("../../config/gui.toml"))
+                .expect("compiled GUI defaults");
+            param.label = defaults
+                .section
+                .into_iter()
+                .flat_map(|s| s.param)
+                .find(|p| p.id == param.id)
+                .unwrap()
+                .label;
+        }
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::migrate_stem_rendering_controls(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
@@ -1118,13 +1143,17 @@ mod tests {
                 .iter_mut()
                 .find(|s| s.name == "Debug")
                 .unwrap();
+            debug
+                .param
+                .retain(|p| p.id != "scene_pixel_ratio" && p.id != "scene_supersampling_quality");
             if let Some(value) = saved {
-                debug
+                let param = debug
                     .param
                     .iter_mut()
                     .find(|p| p.id == "scene_supersampling_enabled")
-                    .unwrap()
-                    .value = GuiParamValue::Bool { value };
+                    .unwrap();
+                param.label = "Scene: 2x supersampling (A/B)".into();
+                param.value = GuiParamValue::Bool { value };
             } else {
                 debug
                     .param
@@ -1141,6 +1170,16 @@ mod tests {
                 "loading must not save"
             );
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
+            assert_eq!(gui.scene_pixel_ratio.value, 3);
+            assert_eq!(gui.scene_supersampling_quality.value, 0);
+            assert!(loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "scene_supersampling_enabled")
+                .unwrap()
+                .label
+                .contains("antialiasing"));
             assert_eq!(
                 gui.scene_supersampling_enabled.value,
                 saved.unwrap_or(false)

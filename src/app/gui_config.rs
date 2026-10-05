@@ -1687,6 +1687,25 @@ mod tests {
     }
 
     #[test]
+    fn pixel_presets_and_requested_quality_survive_save_and_reload() {
+        let mut settings = DebugSettings::load();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for ratio in 0..4 {
+            for enabled in [false, true] {
+                settings.adjustables.scene_pixel_ratio.value = ratio;
+                settings.adjustables.scene_supersampling_enabled.value = enabled;
+                settings.adjustables.scene_supersampling_quality.value = 1;
+                settings.save_to_path(&path).unwrap();
+                let loaded = GuiAdjustables::from_config(&GuiConfigLoader::load_from_path(&path));
+                assert_eq!(loaded.scene_pixel_ratio.value, ratio);
+                assert_eq!(loaded.scene_supersampling_enabled.value, enabled);
+                assert_eq!(loaded.scene_supersampling_quality.value, 1);
+            }
+        }
+    }
+
+    #[test]
     fn butterfly_flight_controls_survive_debug_settings_save_and_reload() {
         let mut document: toml::Value =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();

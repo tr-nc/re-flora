@@ -1301,7 +1301,7 @@ struct TreeShadowRenderInstanceData {
 
 #[derive(Clone, Copy, Debug)]
 pub struct TracerDesc {
-    pub scaling_factor: f32,
+    pub(crate) scene_pixel_settings: scene_resolution::Settings,
     pub default_camera_look_at: Vec3,
     pub voxel_dim_per_chunk: UVec3,
     pub environment_probe_spacing_voxels: u32,
@@ -1832,7 +1832,7 @@ impl Tracer {
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
         let scene_resolution =
-            scene_resolution::SceneResolution::new(screen_extent, desc.scaling_factor, false);
+            scene_resolution::SceneResolution::new(screen_extent, desc.scene_pixel_settings);
         let render_extent = scene_resolution.render_extent;
         let (camera_position, camera_yaw_deg, camera_pitch_deg) =
             Self::default_camera_pose_for_bound(chunk_bound, desc.default_camera_look_at);
@@ -2679,8 +2679,7 @@ impl Tracer {
     ) {
         let resolution = scene_resolution::SceneResolution::new(
             frame_extent_generation.extent(),
-            self.desc.scaling_factor,
-            self.scene_supersampling_enabled(),
+            self.scene_resolution.settings,
         );
         self.publish_scene_resolution(
             resolution,
@@ -2691,27 +2690,29 @@ impl Tracer {
         );
     }
 
-    pub fn scene_supersampling_enabled(&self) -> bool {
-        self.scene_resolution.supersampling_enabled()
+    pub(crate) fn scene_pixel_settings(&self) -> scene_resolution::Settings {
+        self.scene_resolution.settings
     }
 
-    /// The app drains submitted frames before changing the scene's sampling grid.
-    pub fn set_scene_supersampling(
+    /// The app drains submitted frames when effective scene sampling changes.
+    pub(crate) fn set_scene_pixel_settings(
         &mut self,
-        enabled: bool,
+        settings: scene_resolution::Settings,
         contree_builder_resources: &ContreeBuilderResources,
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
     ) {
-        if enabled == self.scene_supersampling_enabled() {
+        if settings == self.scene_resolution.settings {
             return;
         }
         let frame_extent_generation = self.frame_extent_generation();
-        let resolution = scene_resolution::SceneResolution::new(
-            frame_extent_generation.extent(),
-            self.desc.scaling_factor,
-            enabled,
-        );
+        let resolution =
+            scene_resolution::SceneResolution::new(frame_extent_generation.extent(), settings);
+        if !settings.requires_resource_change(self.scene_resolution.settings) {
+            // A capped/inactive quality preference does not affect GPU resources.
+            self.scene_resolution = resolution;
+            return;
+        }
         self.publish_scene_resolution(
             resolution,
             frame_extent_generation,
@@ -3059,6 +3060,7 @@ impl Tracer {
         BufferUpdater::update_post_processing_info(
             &self.resources,
             self.scene_resolution.samples_per_axis,
+            self.scene_resolution.settings.pixel_stride(),
             dither_strength_lsb,
         )?;
 
