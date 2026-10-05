@@ -10,7 +10,21 @@
 xdg-open docs/research/splash-prototype.html
 ```
 
-字体来自 `assets/font/PixelifySans-VariableFont_wght.ttf`，请保留仓库目录关系。浏览器不允许本地字体时，可以从仓库根目录运行静态文件服务器。
+HTML 已内嵌 `assets/font/PixelifySans-VariableFont_wght.ttf` 的原始字节；可以只复制这一份 HTML 到任意目录，离线打开，不再依赖仓库目录关系或外部字体请求。
+
+### 修改与验证
+
+`splash-prototype.html` 是生成文件，不直接编辑。修改 [`splash-prototype.template.html`](splash-prototype.template.html) 后重新生成：
+
+```sh
+node scripts/build-splash-prototype.mjs
+node scripts/build-splash-prototype.mjs --check
+node scripts/validate-splash-prototype-font.mjs
+```
+
+最后一条需要 `agent-browser` 及其 Chromium。它会只复制 HTML 到临时目录（不复制任何字体资源），验证内嵌字体与游戏文件逐字节相同，并检查原版和分字标题两种模式确实产生了可见文字像素。
+
+之前“没有字”的原因已在这个独立打开场景复现：相对字体路径失效，而字体加载保护直接跳过标题绘制。修复是把同一份游戏字体打包入 HTML，不是移除保护后偷偷使用别的字体。
 
 ## 使用
 
@@ -20,7 +34,7 @@ xdg-open docs/research/splash-prototype.html
 - **比例**：网格密度、花朵大小、标题字号。
 - **标题高度**：0～1 的滑杆。0 是最上方完整格子的中心，1 是最下方完整格子的中心，中间按整行切换。标题按 A/B 模式占四格或八格，移动时原位置恢复普通格子；部分裁切的边缘行不作为标题行。
 - **标题 A/B**：默认不勾选，保留原版四格合并标题；勾选后 `r e : f l o r a` 共八个字形各占一格，包括冒号。词间空格不占格。每个字形按可见轮廓居中，下划线仍显示 69% 进度。
-- **标题字体**：直接读取游戏使用的 `assets/font/PixelifySans-VariableFont_wght.ttf`，Regular 400。Canvas 等字体加载成功后才画标题，加载失败会提示，不会默默用另一种字体替代。
+- **标题字体**：内嵌游戏使用的 `assets/font/PixelifySans-VariableFont_wght.ttf` 原始字节，Regular 400。Canvas 等字体加载成功后才画标题，加载失败会提示，不会默默用另一种字体替代。
 - **加载进度**：滑杆已删除，固定为 **0.69**，包括退场演示期间。
 - **退场重播**：只重抽退场顺序；格子底色、格线和装饰共同淡出，标题最后消失。时间轴可停在任意时刻。
 - **只看画面**：按 Esc 返回。支持随窗口、16:9、5:3、竖屏画幅。
