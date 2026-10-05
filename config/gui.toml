@@ -163,6 +163,19 @@ min = 0.01
 max = 2
 
 [[section.param]]
+id = "depth_outline_crease_angle"
+kind = "float"
+label = "Crease angle threshold (degrees)"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 45
+min = 5
+max = 180
+
+[[section.param]]
 id = "depth_outline_sky_strength"
 kind = "float"
 label = "Sky silhouette strength"

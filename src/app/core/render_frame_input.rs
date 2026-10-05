@@ -242,6 +242,7 @@ pub(super) fn freeze_render_frame_inputs(
             relative_threshold: gui.depth_outline_relative_threshold.value,
             minimum_gap: gui.depth_outline_minimum_gap.value,
             softness: gui.depth_outline_softness.value,
+            crease_angle_degrees: gui.depth_outline_crease_angle.value,
             sky_strength: gui.depth_outline_sky_strength.value,
             thin_strength: gui.depth_outline_thin_strength.value,
         },
@@ -303,6 +304,7 @@ mod tests {
         gui.depth_outline_relative_threshold.value = 0.12;
         gui.depth_outline_minimum_gap.value = 0.02;
         gui.depth_outline_softness.value = 0.8;
+        gui.depth_outline_crease_angle.value = 60.;
         gui.depth_outline_sky_strength.value = 0.3;
         gui.depth_outline_thin_strength.value = 0.1;
         let frame = freeze_render_frame_inputs(
@@ -330,6 +332,7 @@ mod tests {
                 relative_threshold: 0.12,
                 minimum_gap: 0.02,
                 softness: 0.8,
+                crease_angle_degrees: 60.,
                 sky_strength: 0.3,
                 thin_strength: 0.1,
             }
@@ -502,6 +505,15 @@ mod tests {
         let starlight_darkmatter = float!(starlight_darkmatter);
         let starlight_distfading = float!(starlight_distfading);
         let starlight_saturation = float!(starlight_saturation);
+        gui.depth_outline_enabled.value = false;
+        let depth_outline_strength = float!(depth_outline_strength);
+        let depth_outline_color = color!(depth_outline_color);
+        let depth_outline_relative_threshold = float!(depth_outline_relative_threshold);
+        let depth_outline_minimum_gap = float!(depth_outline_minimum_gap);
+        let depth_outline_softness = float!(depth_outline_softness);
+        let depth_outline_crease_angle = float!(depth_outline_crease_angle);
+        let depth_outline_sky_strength = float!(depth_outline_sky_strength);
+        let depth_outline_thin_strength = float!(depth_outline_thin_strength);
         let _ = color_sentinel;
 
         settings.tree.desc.fruit_swing_length_voxels = 201.25;
@@ -697,7 +709,17 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
-                depth_outline: crate::tracer::depth_outline::Settings::default(),
+                depth_outline: crate::tracer::depth_outline::Settings {
+                    enabled: false,
+                    strength: depth_outline_strength,
+                    color: depth_outline_color.to_array(),
+                    relative_threshold: depth_outline_relative_threshold,
+                    minimum_gap: depth_outline_minimum_gap,
+                    softness: depth_outline_softness,
+                    crease_angle_degrees: depth_outline_crease_angle,
+                    sky_strength: depth_outline_sky_strength,
+                    thin_strength: depth_outline_thin_strength,
+                },
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,

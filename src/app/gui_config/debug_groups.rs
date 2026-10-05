@@ -15,9 +15,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Scene Depth Outlines",
-        description: "One internal scene pixel, before nearest upscaling; UI stays untouched. Relative threshold and minimum gap reject small depth changes; opposing gradients reject planar slopes. Sky outlines stay inside objects. Thin detail strength protects grass/leaves. Lower strength for subtle separation. Depth alone does not outline same-depth colors or every crease; camera movement can still reveal the native pixel grid.",
+        description: "One internal scene pixel, before nearest upscaling; UI stays untouched. All renderers share final scene depth. Relative threshold and minimum gap control occlusion; crease angle detects continuous terrain/model folds in either direction (180 disables creases). Planar slopes are rejected. Sky outlines stay inside objects. Thin detail strength protects grass/leaves. Same-depth color borders and subpixel details are not recovered.",
         initially_open: false,
-        params: &["depth_outline_enabled", "depth_outline_strength", "depth_outline_color", "depth_outline_relative_threshold", "depth_outline_minimum_gap", "depth_outline_softness", "depth_outline_sky_strength", "depth_outline_thin_strength"],
+        params: &["depth_outline_enabled", "depth_outline_strength", "depth_outline_color", "depth_outline_relative_threshold", "depth_outline_minimum_gap", "depth_outline_softness", "depth_outline_crease_angle", "depth_outline_sky_strength", "depth_outline_thin_strength"],
     },
     ControlGroup {
         parent: None,

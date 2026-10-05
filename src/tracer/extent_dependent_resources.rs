@@ -52,6 +52,7 @@ fn glass_voxel_cache_capacity(enabled: bool) -> u32 {
 pub struct ExtentDependentResources {
     pub gfx_depth_tex: Resource<Texture>,
     pub compute_depth_tex: Resource<Texture>,
+    pub scene_depth_tex: Resource<Texture>,
     pub compute_output_tex: Resource<Texture>,
     pub glass_front_depth_tex: Resource<Texture>,
     pub glass_front_data_tex: Resource<Texture>,
@@ -93,6 +94,8 @@ impl ExtentDependentResources {
             Self::create_gfx_depth_tex(device.clone(), allocator.clone(), rendering_extent);
         let compute_depth_tex =
             Self::create_compute_depth_tex(device.clone(), allocator.clone(), rendering_extent);
+        let scene_depth_tex =
+            Self::create_r32_float_tex(device.clone(), allocator.clone(), rendering_extent, false);
         let compute_output_tex =
             Self::create_compute_output_tex(device.clone(), allocator.clone(), rendering_extent);
         let glass_front_depth_tex =
@@ -200,6 +203,7 @@ impl ExtentDependentResources {
         Self {
             gfx_depth_tex: Resource::new(gfx_depth_tex),
             compute_depth_tex: Resource::new(compute_depth_tex),
+            scene_depth_tex: Resource::new(scene_depth_tex),
             compute_output_tex: Resource::new(compute_output_tex),
             glass_front_depth_tex: Resource::new(glass_front_depth_tex),
             glass_front_data_tex: Resource::new(glass_front_data_tex),

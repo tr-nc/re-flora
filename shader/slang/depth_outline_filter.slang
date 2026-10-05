@@ -1,25 +1,52 @@
 module depth_outline_filter;
 
-public float outlineVisibleDepth(float raster, float alpha, float terrain)
+public struct OutlineSample {
+    public float inverseDepth;
+    public float3 viewPosition;
+};
+public OutlineSample outlineSample(float deviceDepth, float2 uv, float4x4 inverseProjection)
 {
-    bool hasTerrain = isfinite(terrain) && terrain >= 0.0 && terrain < 1.0;
-    bool hasOpaqueRaster = isfinite(raster) && raster >= 0.0 && raster < 1.0 && alpha >= 0.999;
-    return min(hasTerrain ? terrain : 1.0, hasOpaqueRaster ? raster : 1.0);
+    OutlineSample result = {0.0, float3(0.0)};
+    if (!isfinite(deviceDepth) || deviceDepth < 0.0 || deviceDepth >= 1.0) return result;
+    float4 view = mul(inverseProjection, float4(uv * 2.0 - 1.0, deviceDepth, 1.0));
+    if (!all(isfinite(view)) || abs(view.z) < 1e-8 || abs(view.w) < 1e-8) return result;
+    result.inverseDepth = abs(view.w / view.z);
+    result.viewPosition = view.xyz / view.w;
+    return result;
 }
-
-// Reciprocal eye depth is affine across a projected plane, unlike eye depth.
-// The opposing-gradient residual rejects slopes without a normal texture.
-// c > 0 is foreground; zero denotes sky/invalid samples, never infinity.
-public float outlinePair(float c, float a, float b, float relativeThreshold,
-                         float minimumGap, float softness, float skyStrength)
+// Two samples on each side distinguish a discontinuity from a continuous
+// fold. Inverse depth is affine on projected planes, so extrapolation across
+// a plane predicts the center exactly, regardless of slope or distance.
+public float outlinePair(OutlineSample center, OutlineSample a, OutlineSample b,
+                         float outerA, float outerB, float4 thresholds, float skyStrength)
 {
-    if (c <= 0.0 || !isfinite(c) || !isfinite(a) || !isfinite(b)) return 0.0;
-    float outward = max(c - a, c - b);
-    if (outward <= 0.0) return 0.0; // no halo on the farther/background side
-    float residual = max(0.0, 2.0 * c - a - b) / c;
-    float limit = max(relativeThreshold, minimumGap * c);
-    float edge = smoothstep(limit, limit * (1.0 + softness), residual);
-    if (a == 0.0 || b == 0.0) edge *= skyStrength;
+    float c = center.inverseDepth;
+    if (c <= 0.0) return 0.0;
+    float errorA = (c - 2.0 * a.inverseDepth + outerA) / c;
+    float errorB = (c - 2.0 * b.inverseDepth + outerB) / c;
+    float limit = max(thresholds.x, thresholds.y * c);
+    float edge = smoothstep(limit, limit * (1.0 + thresholds.z), max(errorA, errorB));
+    bool sky = a.inverseDepth == 0.0 || b.inverseDepth == 0.0;
+    if (sky) return edge * skyStrength;
+    float3 left = center.viewPosition - a.viewPosition;
+    float3 right = b.viewPosition - center.viewPosition;
+    float lengths = dot(left,left) * dot(right,right);
+    if (lengths <= 1e-20) return 0.0;
+    float turn = 1.0 - clamp(dot(left,right) * rsqrt(lengths), -1.0, 1.0);
+    // Outer samples can cross a fold one pixel away. They must not dilate
+    // that fold onto a center whose immediate neighbours are still planar.
+    if (turn < 1e-5) return 0.0;
+    // A discontinuity on the farther side must not produce a second halo.
+    // Continuous folds have zero extrapolation error on both sides, including
+    // concave folds previously discarded by the signed three-tap residual.
+    // Continuity is a geometric guard, not an artistic jump threshold. A
+    // large saved threshold must not turn unrelated overlapping leaf depths
+    // into continuous folds or enable background-side crease halos.
+    float continuityLimit = min(limit, 0.01);
+    if (max(abs(errorA), abs(errorB)) <= continuityLimit) {
+        float turnLimit = max(1.0 - thresholds.w, 1e-5);
+        edge = max(edge, smoothstep(turnLimit, turnLimit * (1.0 + thresholds.z), turn));
+    }
     return edge;
 }
 public bool outlineThinPair(float c, float a, float b, float threshold)
@@ -28,14 +55,5 @@ public bool outlineThinPair(float c, float a, float b, float threshold)
 }
 public float outlineCoverage(float signal, uint thinPairs, float thinStrength)
 {
-    // Several opposing gaps indicate subpixel/one-pixel foliage, not a broad
-    // silhouette. Attenuate it rather than filling every tiny leaf with ink.
     return signal * (thinPairs >= 2u ? thinStrength : 1.0);
-}
-public float outlineInverseEyeDepth(float deviceDepth, float2 uv, float4x4 inverseProjection)
-{
-    if (!isfinite(deviceDepth) || deviceDepth < 0.0 || deviceDepth >= 1.0) return 0.0;
-    float4 view = mul(inverseProjection, float4(uv * 2.0 - 1.0, deviceDepth, 1.0));
-    if (!all(isfinite(view)) || abs(view.z) < 1e-8 || abs(view.w) < 1e-8) return 0.0;
-    return abs(view.w / view.z);
 }

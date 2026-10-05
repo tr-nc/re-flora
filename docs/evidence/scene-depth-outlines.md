@@ -1,54 +1,57 @@
 # 场景深度描边
 
-实验分支 `experiment/global-low-resolution` 的独立深模块：
+分支：`experiment/global-low-resolution`。模块为场景后处理，不按模型或绘制后端另建描边路径。
 
-- Rust：`src/tracer/depth_outline.rs`，拥有 pipeline、参数归一化和 dispatch；调用方只提供场景尺寸与保存设置快照。
-- Shader adapter：`shader/slang/depth_outline.slang`，读取场景不透明深度并就地混合场景颜色。
-- Filter：`shader/slang/depth_outline_filter.slang`，拥有深度选择、投影重建、梯度判定与细节保护；纯逻辑 Slang CPU 测试与 GPU 使用同一实现。
-- 拓扑只负责资源绑定及协调 resize descriptor generation retirement；没有独立的 resize/资源回收策略。
+## 唯一场景深度入口
 
-## 处理顺序
+composition 同时合成颜色和 `scene_depth_tex`：tracer 地形、光栅模型以及可见部分透明度的表面按同一最近可见深度规则收口。Glass resolve 在实际绘制前景玻璃时更新该深度。描边只读取此目标，不再自行拼接 raster/tracer 深度。
 
-场景 composition / glass resolve → **depth_outline.pass** → tone mapping / 最近邻放大 → 原生 UI。描边固定一内部像素宽，不按窗口像素扩张，不为每个模型引入特例。没有新图集、历史缓冲或额外图像。
+`shader/slang/scene_depth.slang` 是可见深度选择的唯一实现。composition 的颜色与深度共享有效深度规则；天空记为 1。新目标为内部尺寸 R32F，320×180 时约 0.22 MiB；与窗口 resize 一起创建并通过已有拓扑协调 descriptor generation retirement。
 
-每个 invocation 只读写自己的颜色像素；邻居只读取深度，避免就地处理时的跨线程颜色反馈。反射资源跟踪提供 composition、描边和后处理之间的依赖。
+处理顺序：composition / glass resolve → depth_outline.pass → tone mapping / 最近邻放大 → 原生 UI。
 
-## 避免常见问题
+## 深模块
 
-- **非线性设备深度**：用真实相机 inverse projection 重建 reciprocal eye depth；这等价于线性 eye depth 的倒数，不直接阈值化 device-depth 差。
-- **斜面误判**：投影平面的 reciprocal depth 在屏幕上是仿射量，相向梯度的差为零。四组相向邻居（含对角）检测前景侧的梯度残差，而非直接使用梯度幅值。曲面或小折角仍可能响应，可通过阈值和柔化调整；不宣称能消除所有几何误判。
-- **天空和外晕**：天空/无效深度使用零 reciprocal depth 哨兵；天空中心不描边。只响应近侧，sky silhouette 单独可减弱。
-- **图像边界**：缺少相向样本时跳过该对；不以 clamp 重复样本制造假梯度。
-- **植被黑点**：相对阈值、最小 world-space 深度间隙、低默认强度，加上细薄特征衰减。不会改变几何或模拟。
-- **透明物体**：部分 alpha 的 raster 不作为不透明深度边缘；使用可用的 terrain 深度。当前深度缓冲没有保存被透明层遮盖的所有不透明 raster 层，故不承诺恢复全部隐藏轮廓，也不描透明玻璃边缘。
-- **无效设置**：进入 shader 前拒绝 NaN/infinity、夹取合法范围，保证阈值柔化区间非零。
+- `src/tracer/depth_outline.rs`：pipeline、保存设置快照、输入归一化和 dispatch；不暴露逐模型操作。
+- `shader/slang/depth_outline.slang`：读取唯一场景深度、邻域采样、就地混合场景颜色。
+- `shader/slang/depth_outline_filter.slang`：投影重建、遮挡跳变/连续折角区分、斜面/天空/细节保护。
 
-深度不能发现同深度材质边界或所有折角；没有增加法线目标来伪造这些信息。没有 temporal history，无法消除低分辨率摄像机运动固有的像素跳变；本轮不声称完成动态视觉验收。
+每个 invocation 只读写自己的颜色；邻居只读深度，无跨线程颜色反馈。中心及四组相向邻居判定边缘，外圈用于判定局部连续性，不把外圈边缘膨胀到仍为平面的中心。最多 17 个深度采样，没有模型图集或历史缓冲。
 
-## Debug Panel
+## 本次修复的两个根因
 
-`Scene Depth Outlines`（英文 UI）集中提供：
+1. **遗漏一类折角**：原三个样本的有符号残差只取正值。正负曲率并不等于前景/背景，连续地形折角也可能是负值。增加相向平面外推及视空间切向转角判定；正负折角和镜像邻域都有回归。平面上的像素仍不描边，遮挡远侧不生成第二圈外晕。
+2. **GPU 实际丢失 tracer 深度**：Slang 2025.23.2 的 `-O3` 将两个独立 guarded-ternary 的 min 错误折叠为 raster 选择值与自身的 min。原 shader 重编译后的 SPIR-V 和新入口最初的错误产物均确认存在 `FMin %x %x`，tracer 依赖消失。CPU / `-O0` 正确，CPU 测试无法抓住该 GPU 错误。可见深度改为显式逐路 nearest accumulation；优化后产物保留两路输入，原生深度诊断及 tracer 墙体截图已确认。
 
-1. Scene: depth outlines：开关，默认开启。
-2. Outline strength：混合强度，默认 0.25。
-3. Outline color：sRGB 色板，默认 `#141E24`。
-4. Depth discontinuity threshold (relative)：默认 0.04。
-5. Minimum depth gap (world units)：默认 0.004。
-6. Outline threshold softness：默认 0.5。
-7. Sky silhouette strength：默认 0.6。
-8. Thin detail strength (grass and leaves)：默认 0.25。
+新增 `scripts/check-scene-depth-artifact.mjs` 检查优化后 composition 输出对两个深度 producer 的 SSA 数据依赖。错误产物先失败、修复产物再通过；同时检查普通和 Glass composition。它不是完整 SPIR-V 语义证明，仍配合真实 Vulkan 运行及截图。没有升级/声称修复整个编译器，也没有对所有其它 shader 做同类全局审计。
 
-全部声明在 `config/gui.toml`，绑定统一生成字段、搜索和 Save；没有 App-only 控件或新增单项 save hook。用户原先调整的字段与 camera snapshots 保留。默认克制，最终外观仍需用户调参确认。
+## Debug Panel：Scene Depth Outlines
 
-## 验证与测量
+全部声明在 `config/gui.toml`，绑定统一生成字段、搜索和 Save。开关、强度、颜色、相对跳变阈值、最小 world-space 深度间隙、柔化、天空强度、细薄细节强度均保留。
 
-- `cargo fmt --check`、`cargo check`、完整 `cargo test`：1330 主程序测试 + 4 library 测试通过，3 ignored。
-- GUI 保存/搜索/布局测试 75 项通过；新增 mapper 回归确认八项设置进入渲染快照。原生 Debug 搜索截图显示八项匹配集中在一个分组，UI 清晰且无裁切。
-- Vulkan 库测试 57 项通过。
-- Slang CPU 测试覆盖平面、近远斜面、遮挡前景/背景、天空、微小间隙、薄特征、inverse projection 及不透明/透明深度选择。全套 35 项。
-- 隐藏静音 Release 启动、原生截图、开启 Vulkan synchronization validation 的连续窗口 resize 正常，无检索到的 ERROR/VUID/hazard，退出 `failures=0`。
-- 同一 Release 二进制、2560×1440 窗口 / 320×180 场景，固定宽景 82,454 株，IMMEDIATE；保存开关分别启用/禁用。每档两次 300 帧，剔除边界四帧，592 样本。开关验证期间仅临时修改新增开关，随后恢复；已有用户参数未改。
-- 初轮 filter（添加显式无效深度选择守卫前）：描边区间 p50/p95 **9/10 µs**，禁用后的空 profiling scope **1/1 µs**。GPU 整帧启用 **5427/5986 µs**，禁用 **5418/5987 µs**。整帧差异很小，不作为显著加速/回归的证据，也不推广为其他场景或分辨率的固定成本。
-- 固定相机的开关截图相差 82,304 个输出像素，正好为内部像素块的整数倍；顶部 50 行天空差异为零。实际截图已查看。
+新增 **Crease angle threshold (degrees)**，默认 45，范围 5–180；控制连续几何折角，180 关闭这一分量，不关闭遮挡边缘。这与深度跳变阈值分开，避免用户把跳变阈值调高后意外抹掉地形折角。
 
-日志/截图/原始测量在 `target/depth-outline/`；没有自动启动可见游戏，没有 push。
+已有用户调参和 camera snapshots 未重置。强度/细节强度为 1 时植物会出现密集深色细节；这是保留的用户设置，不声称最终外观已获批准。
+
+## 安全与限制
+
+- 由 inverse projection 重建视空间位置和 reciprocal eye depth，不直接阈值化非线性 device depth。
+- 投影平面的 reciprocal depth 仿射，视空间采样点共线；斜面不因坡度而产生描边。
+- 天空中心不描边；图像外样本不伪装天空、不重复 clamp 样本。
+- 细薄结构可衰减，NaN/infinity 与越界设置在 shader/参数入口处理。
+- 部分透明表面参与当前可见层深度，不恢复多层透明后隐藏的所有几何。屏幕特效/阴影颜色边界没有独立几何深度，UI 不参与。
+- 不能识别同深度材质边界或恢复子像素细节，没有 temporal history，摄像机运动固有的像素跳变仍可能出现。
+
+## 验证与成本
+
+`target/depth-outline-fix/` 保存证据：
+
+- 原滤波回归先以 exit 22 失败；修复后全套 35 Slang CPU 测试通过。
+- GPU 产物检查：`artifact-red.log` 失败，`artifact-green.log` 和 `final-artifact.log` 通过。
+- `raw-tracer-depth.png`、`merged-depth-diagnostic.png`、`merged-depth-fixed.png` 分别显示原始地形深度正常、错误汇聚丢失地形、修复汇聚保留地形；诊断 shader 修改已全部移除。
+- `terrain-walls-fixed.png` 已查看：tracer 墙体与地面交界、门洞、前景植物进入同一描边路径。
+- 完整 Rust：1331 主程序 + 4 library 测试通过，3 ignored。保存快照回归不再依赖用户配置中的描边默认值。
+- 原生 Release 隐藏静音启动、同步验证 resize、tracer walls 和 Glass fixture：无检索到的 ERROR/VUID/hazard，退出 failures=0。
+- 同一 320×180、82,454 株宽景，Release / IMMEDIATE，两次 300 帧，剔除边界四帧后 592 样本：当前 `depth_outline.pass` p50/p95 **13/14 µs**。旧版 9/10 µs 数据来自遗漏 tracer 的实现，不再作为完整场景描边成本。
+
+无自动可见游戏启动，无 push；Release 二进制从此分支构建。

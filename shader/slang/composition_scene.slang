@@ -3,6 +3,7 @@ module composition_scene;
 import composition_sky;
 import composition_types;
 import ray;
+import scene_depth;
 import tracer_types;
 
 public float3 combineSceneColors(float rasterDepth, float computeDepth,
@@ -12,8 +13,8 @@ public float3 combineSceneColors(float rasterDepth, float computeDepth,
                                  U_StarlightInfo starlight,
                                  Sampler2D sunSprite)
 {
-    bool hasRaster = rasterColor.a > 0.0 && rasterDepth < 1.0;
-    bool hasRayTracing = computeDepth < 1.0;
+    bool hasRaster = rasterColor.a > 0.0 && sceneHasDepth(rasterDepth);
+    bool hasRayTracing = sceneHasDepth(computeDepth);
     float rayTracingDepth = hasRayTracing ? computeDepth : 1.0;
     float alpha = clamp(rasterColor.a, 0.0, 1.0);
 

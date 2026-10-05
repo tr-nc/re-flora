@@ -14,6 +14,7 @@ pub struct Settings {
     pub relative_threshold: f32,
     pub minimum_gap: f32, // world units, not device depth
     pub softness: f32,
+    pub crease_angle_degrees: f32,
     pub sky_strength: f32,
     pub thin_strength: f32,
 }
@@ -26,6 +27,7 @@ impl Default for Settings {
             relative_threshold: 0.04,
             minimum_gap: 0.004,
             softness: 0.5,
+            crease_angle_degrees: 45.,
             sky_strength: 0.6,
             thin_strength: 0.25,
         }
@@ -59,7 +61,9 @@ impl Settings {
                 bounded(self.relative_threshold, d.relative_threshold, 0.0001, 1.),
                 bounded(self.minimum_gap, d.minimum_gap, 0., 1.),
                 bounded(self.softness, d.softness, 0.01, 2.),
-                0.,
+                bounded(self.crease_angle_degrees, d.crease_angle_degrees, 5., 180.)
+                    .to_radians()
+                    .cos(),
             ],
             detail: [
                 bounded(self.sky_strength, d.sky_strength, 0., 1.),
@@ -99,6 +103,25 @@ impl DepthOutline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn outline_consumes_only_the_compositions_authoritative_scene_depth() {
+        let shader = include_str!("../../shader/slang/depth_outline.slang");
+        assert!(shader.contains("scene_depth_tex[p]"));
+        assert!(!shader.contains("gfx_depth_tex"));
+        assert!(!shader.contains("compute_depth_tex"));
+        let composition = include_str!("../../shader/slang/composition.slang");
+        let main = composition.split("void main(").nth(1).unwrap();
+        assert!(
+            main.find("scene_depth_tex[coordinate] = sceneVisibleDepth")
+                .unwrap()
+                < main.find("#if RE_FLORA_GLASS_TRANSPORT").unwrap()
+        );
+        let glass = include_str!("../../shader/slang/glass_resolve.slang");
+        assert!(glass.contains(
+            "scene_depth_tex[coordinate] = min(scene_depth_tex[coordinate], frontDepth)"
+        ));
+    }
+
     #[test]
     fn invalid_saved_parameters_cannot_poison_the_shader() {
         let mut settings = Settings::default();

@@ -62,6 +62,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "depth_outline_crease_angle",
+        kind: "float",
+        label: "Crease angle threshold (degrees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "depth_outline_sky_strength",
         kind: "float",
         label: "Sky silhouette strength",
@@ -1444,6 +1450,7 @@ pub struct GuiAdjustables {
     pub depth_outline_relative_threshold: crate::gui_adjustables::FloatParam,
     pub depth_outline_minimum_gap: crate::gui_adjustables::FloatParam,
     pub depth_outline_softness: crate::gui_adjustables::FloatParam,
+    pub depth_outline_crease_angle: crate::gui_adjustables::FloatParam,
     pub depth_outline_sky_strength: crate::gui_adjustables::FloatParam,
     pub depth_outline_thin_strength: crate::gui_adjustables::FloatParam,
     pub grass_stem_rendering: crate::gui_adjustables::BoolParam,
@@ -1692,6 +1699,7 @@ impl GuiAdjustables {
         let mut depth_outline_relative_threshold_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut depth_outline_minimum_gap_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut depth_outline_softness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut depth_outline_crease_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut depth_outline_sky_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut depth_outline_thin_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_stem_rendering_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1961,6 +1969,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             depth_outline_softness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "depth_outline_crease_angle" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_crease_angle_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "depth_outline_sky_strength" => {
@@ -3504,6 +3519,7 @@ impl GuiAdjustables {
             depth_outline_relative_threshold: depth_outline_relative_threshold_field.expect("Missing parameter: depth_outline_relative_threshold"),
             depth_outline_minimum_gap: depth_outline_minimum_gap_field.expect("Missing parameter: depth_outline_minimum_gap"),
             depth_outline_softness: depth_outline_softness_field.expect("Missing parameter: depth_outline_softness"),
+            depth_outline_crease_angle: depth_outline_crease_angle_field.expect("Missing parameter: depth_outline_crease_angle"),
             depth_outline_sky_strength: depth_outline_sky_strength_field.expect("Missing parameter: depth_outline_sky_strength"),
             depth_outline_thin_strength: depth_outline_thin_strength_field.expect("Missing parameter: depth_outline_thin_strength"),
             grass_stem_rendering: grass_stem_rendering_field.expect("Missing parameter: grass_stem_rendering"),
@@ -3744,6 +3760,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "depth_outline_relative_threshold" => Some(&adjustables.depth_outline_relative_threshold),
         "depth_outline_minimum_gap" => Some(&adjustables.depth_outline_minimum_gap),
         "depth_outline_softness" => Some(&adjustables.depth_outline_softness),
+        "depth_outline_crease_angle" => Some(&adjustables.depth_outline_crease_angle),
         "depth_outline_sky_strength" => Some(&adjustables.depth_outline_sky_strength),
         "depth_outline_thin_strength" => Some(&adjustables.depth_outline_thin_strength),
         "flower_stem_cell_height_voxels" => Some(&adjustables.flower_stem_cell_height_voxels),
@@ -4026,6 +4043,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "depth_outline_relative_threshold" => Some(&mut adjustables.depth_outline_relative_threshold),
         "depth_outline_minimum_gap" => Some(&mut adjustables.depth_outline_minimum_gap),
         "depth_outline_softness" => Some(&mut adjustables.depth_outline_softness),
+        "depth_outline_crease_angle" => Some(&mut adjustables.depth_outline_crease_angle),
         "depth_outline_sky_strength" => Some(&mut adjustables.depth_outline_sky_strength),
         "depth_outline_thin_strength" => Some(&mut adjustables.depth_outline_thin_strength),
         "flower_stem_cell_height_voxels" => Some(&mut adjustables.flower_stem_cell_height_voxels),
