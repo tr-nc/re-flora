@@ -9,11 +9,11 @@ const GRID_DENSITY: f32 = 1.6;
 const POSES: [f32; 4] = [-10.0, 0.0, 10.0, 0.0];
 const STEP_SECONDS: f64 = 1.2;
 const SWAY_PHASES: usize = 16;
-const FLOWER_FADE_START_SECONDS: f64 = 0.4;
-const FLOWER_FADE_DURATION_SECONDS: f64 = 0.7;
-const FLOWER_STAGGER_SECONDS: f64 = 0.3;
-const TRANSITION_END_SECONDS: f64 =
-    FLOWER_FADE_START_SECONDS + FLOWER_FADE_DURATION_SECONDS + FLOWER_STAGGER_SECONDS;
+const CELL_FADE_DURATION_SECONDS: f64 = 0.5;
+const CELL_STAGGER_SECONDS: f64 = 0.65;
+const FIELD_END_SECONDS: f64 = CELL_STAGGER_SECONDS + CELL_FADE_DURATION_SECONDS;
+const TITLE_FADE_DURATION_SECONDS: f64 = 0.45;
+const TRANSITION_END_SECONDS: f64 = FIELD_END_SECONDS + TITLE_FADE_DURATION_SECONDS;
 
 #[derive(Clone, Copy)]
 struct Palette {
@@ -129,8 +129,6 @@ impl Splash {
         let scale = layout.cell / CELL;
         let [background, grid, cream, yellow, _] = self.palette.colors.map(rgb);
         let mut painter = ctx.layer_painter(layer).with_clip_rect(viewport);
-        painter.set_opacity(opacity.background);
-        painter.rect_filled(viewport, 0.0, background);
         let first = (viewport.min - layout.origin) / layout.cell;
         let last = (viewport.max - layout.origin) / layout.cell;
         let mut field = Mesh::default();
@@ -140,6 +138,10 @@ impl Splash {
                     continue;
                 }
                 let tile = layout.tile(column, row);
+                let alpha = opacity.cell(column, row);
+                // A cell's backing, grid and decoration disappear as one unit.
+                painter.set_opacity(alpha);
+                painter.rect_filled(tile, 0.0, background);
                 painter.rect_stroke(
                     tile.shrink(0.5 * scale),
                     0.0,
@@ -147,15 +149,14 @@ impl Splash {
                     egui::StrokeKind::Middle,
                 );
                 if (column + row).rem_euclid(3) == 0 {
-                    // Quiet-cell marks share the grid's dark color and fade.
-                    // Do not leave them floating over the scene with late flowers.
+                    // Quiet marks use the same alpha as their owning cell.
                     for (offset, size) in [
                         (Vec2::new(46.0, 47.0), Vec2::new(4.0, 2.0)),
                         (Vec2::new(48.0, 44.0), Vec2::new(2.0, 3.0)),
                     ] {
                         field.add_colored_rect(
                             Rect::from_min_size(tile.min + offset * scale, size * scale),
-                            grid.gamma_multiply(opacity.background),
+                            grid.gamma_multiply(alpha),
                         );
                     }
                     continue;
@@ -167,19 +168,21 @@ impl Splash {
                     &self.flowers[kind][sway_frame(group, seconds)],
                     tile.center(),
                     3.0 * scale,
-                    opacity.flower(column, row),
+                    alpha,
                 );
             }
         }
-        // The title is part of the grid: no white backing and no interior lines.
+        // The merged title backing is the last cell to clear. The wordmark
+        // stays fully visible until every backing, grid and flower is gone.
+        painter.set_opacity(opacity.background);
+        painter.rect_filled(layout.title, 0.0, background);
         painter.rect_stroke(
             layout.title.shrink(0.5 * scale),
             0.0,
             egui::Stroke::new(scale, grid),
             egui::StrokeKind::Middle,
         );
-        // Field colors already include their own premultiplied alpha (grid fade
-        // for quiet marks, staggered fade for flowers); do not fade them again.
+        // Decoration vertices already carry their cell alpha; do not fade twice.
         painter.set_opacity(1.0);
         painter.add(egui::Shape::mesh(field));
         painter.set_opacity(opacity.foreground);
@@ -205,14 +208,13 @@ impl Splash {
     }
 }
 
-/// Background/grid and title/underline fade together during [0, 1] seconds.
-/// Only flowers are delayed, with independently staggered starts.
-/// No position or scale changes.
+/// Whole cells fade in a stable random order, then the title/underline fade.
+/// The title backing finishes with the last cells. No position/scale changes.
 #[derive(Clone, Copy, Debug)]
 struct Opacity {
     background: f32,
     foreground: f32,
-    flower_fade: Option<(u64, f64)>,
+    cell_fade: Option<(u64, f64)>,
 }
 
 fn fade(t: f64) -> f32 {
@@ -223,32 +225,31 @@ fn fade(t: f64) -> f32 {
 impl Opacity {
     fn at(seconds: f64) -> Self {
         Self {
-            background: fade(seconds),
-            foreground: fade(seconds),
-            flower_fade: None,
+            background: fade((seconds - CELL_STAGGER_SECONDS) / CELL_FADE_DURATION_SECONDS),
+            foreground: fade((seconds - FIELD_END_SECONDS) / TITLE_FADE_DURATION_SECONDS),
+            cell_fade: Some((0, seconds)),
         }
     }
 
-    fn flower(self, column: i32, row: i32) -> f32 {
-        match self.flower_fade {
-            Some((seed, seconds)) => fade(
-                (seconds - FLOWER_FADE_START_SECONDS - flower_delay(seed, column, row))
-                    / FLOWER_FADE_DURATION_SECONDS,
-            ),
-            None => self.foreground,
+    fn cell(self, column: i32, row: i32) -> f32 {
+        match self.cell_fade {
+            Some((seed, seconds)) => {
+                fade((seconds - cell_delay(seed, column, row)) / CELL_FADE_DURATION_SECONDS)
+            }
+            None => 1.0,
         }
     }
 }
 
 /// Hash a fixed per-transition seed and logical cell coordinates. This keeps a
-/// flower's timing stable across repaints/resizes, including negative edge cells.
-fn flower_delay(seed: u64, column: i32, row: i32) -> f64 {
+/// cell's timing stable across repaints/resizes, including negative edge cells.
+fn cell_delay(seed: u64, column: i32, row: i32) -> f64 {
     let cell = ((column as u32 as u64) << 32) | row as u32 as u64;
     let mut hash = (seed ^ cell).wrapping_add(0x9e3779b97f4a7c15);
     hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
     hash ^= hash >> 31;
-    (hash >> 11) as f64 / (1u64 << 53) as f64 * FLOWER_STAGGER_SECONDS
+    (hash >> 11) as f64 / (1u64 << 53) as f64 * CELL_STAGGER_SECONDS
 }
 
 /// Moves the same splash above the real game render after loading completes.
@@ -256,7 +257,7 @@ fn flower_delay(seed: u64, column: i32, row: i32) -> f64 {
 /// so expensive first-frame GPU initialization cannot consume the whole fade.
 pub(crate) struct Transition {
     splash: Splash,
-    flower_seed: u64,
+    cell_seed: u64,
     first_presented: Option<Instant>,
     clear_frame_drawn: bool,
 }
@@ -265,7 +266,7 @@ impl Transition {
     pub(crate) fn new(splash: Splash) -> Self {
         Self {
             splash,
-            flower_seed: rand::random(),
+            cell_seed: rand::random(),
             first_presented: None,
             clear_frame_drawn: false,
         }
@@ -276,7 +277,7 @@ impl Transition {
             .first_presented
             .map_or(0.0, |start| start.elapsed().as_secs_f64());
         let opacity = Opacity {
-            flower_fade: Some((self.flower_seed, seconds)),
+            cell_fade: Some((self.cell_seed, seconds)),
             ..Opacity::at(seconds)
         };
         self.clear_frame_drawn = seconds >= TRANSITION_END_SECONDS;
@@ -301,11 +302,12 @@ impl Transition {
         if self.first_presented.is_none() {
             self.first_presented = Some(Instant::now());
             log::info!(
-                "[LOADING][SPLASH_TRANSITION] started background=0..1s title=0..1s flowers={}..{}s fade_duration={}s random_delay=0..{}s",
-                FLOWER_FADE_START_SECONDS,
+                "[LOADING][SPLASH_TRANSITION] started cells=0..{}s title={}..{}s cell_fade_duration={}s random_delay=0..{}s",
+                FIELD_END_SECONDS,
+                FIELD_END_SECONDS,
                 TRANSITION_END_SECONDS,
-                FLOWER_FADE_DURATION_SECONDS,
-                FLOWER_STAGGER_SECONDS,
+                CELL_FADE_DURATION_SECONDS,
+                CELL_STAGGER_SECONDS,
             );
         }
         if self.clear_frame_drawn {
@@ -408,47 +410,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flower_fades_are_stable_varied_and_finish_after_the_title() {
+    fn cell_fades_are_stable_varied_and_finish_before_the_title() {
         let mut delays = Vec::new();
         for row in -3..6 {
             for column in -3..10 {
-                let delay = flower_delay(42, column, row);
-                assert_eq!(delay, flower_delay(42, column, row));
-                assert!((0.0..FLOWER_STAGGER_SECONDS).contains(&delay));
+                let delay = cell_delay(42, column, row);
+                assert_eq!(delay, cell_delay(42, column, row));
+                assert!((0.0..CELL_STAGGER_SECONDS).contains(&delay));
                 delays.push(delay);
                 let alpha = |seconds| {
                     Opacity {
-                        flower_fade: Some((42, seconds)),
+                        cell_fade: Some((42, seconds)),
                         ..Opacity::at(seconds)
                     }
-                    .flower(column, row)
+                    .cell(column, row)
                 };
-                assert_eq!(alpha(FLOWER_FADE_START_SECONDS), 1.0);
-                assert!(
-                    (alpha(FLOWER_FADE_START_SECONDS + delay + FLOWER_FADE_DURATION_SECONDS * 0.5)
-                        - 0.5)
-                        .abs()
-                        < 0.00001
-                );
-                assert!(alpha(1.0) > 0.0, "flowers still outlive the title fade");
+                assert_eq!(alpha(0.0), 1.0);
+                assert!((alpha(delay + CELL_FADE_DURATION_SECONDS * 0.5) - 0.5).abs() < 0.00001);
+                assert_eq!(alpha(FIELD_END_SECONDS), 0.0);
+                assert_eq!(Opacity::at(FIELD_END_SECONDS).foreground, 1.0);
                 assert_eq!(alpha(TRANSITION_END_SECONDS), 0.0);
-                assert_eq!(alpha(1.4), 0.0, "flower fade must wrap up promptly");
                 let mut previous = 1.0;
                 for frame in 0..=160 {
                     let current = alpha(frame as f64 / 60.0);
                     assert!(current <= previous);
+                    if current > 0.0 {
+                        assert_eq!(Opacity::at(frame as f64 / 60.0).foreground, 1.0);
+                    }
                     previous = current;
                 }
             }
         }
         let low = delays.iter().copied().fold(f64::INFINITY, f64::min);
         let high = delays.iter().copied().fold(0.0, f64::max);
-        assert!(high - low > FLOWER_STAGGER_SECONDS * 0.66);
-        assert_ne!(flower_delay(42, 0, 0), flower_delay(43, 0, 0));
+        assert!(high - low > CELL_STAGGER_SECONDS * 0.66);
+        assert_ne!(cell_delay(42, 0, 0), cell_delay(43, 0, 0));
     }
 
     #[test]
-    fn quiet_cell_marks_fade_with_the_grid_not_the_flowers() {
+    fn quiet_cell_marks_fade_with_their_own_cell() {
         let ctx = Context::default();
         let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 576.0));
         let layout = Layout::new(viewport);
@@ -456,7 +456,7 @@ mod tests {
         let mut splash = Splash::new(PALETTES[0]);
         for seconds in [0.0, 0.5, 1.0, 1.5] {
             let opacity = Opacity {
-                flower_fade: Some((42, seconds)),
+                cell_fade: Some((42, seconds)),
                 ..Opacity::at(seconds)
             };
             let input = egui::RawInput {
@@ -479,7 +479,7 @@ mod tests {
                 .expect("quiet cell mark must be present in the painted field");
             assert_eq!(
                 mark.color,
-                rgb(PALETTES[0].colors[1]).gamma_multiply(opacity.background),
+                rgb(PALETTES[0].colors[1]).gamma_multiply(opacity.cell(0, 0)),
                 "dark grid decorations must not linger over the revealed scene at {seconds}s"
             );
         }
@@ -498,32 +498,18 @@ mod tests {
     }
 
     #[test]
-    fn transition_fades_background_and_title_together() {
-        for (time, background, foreground) in [
-            (0.0, 1.0, 1.0),
-            (0.5, 0.5, 0.5),
-            (1.0, 0.0, 0.0),
-            (1.5, 0.0, 0.0),
-            (2.0, 0.0, 0.0),
-            (10.0, 0.0, 0.0),
-        ] {
-            let opacity = Opacity::at(time);
-            assert!((opacity.background - background).abs() < 0.00001);
-            assert!((opacity.foreground - foreground).abs() < 0.00001);
-        }
+    fn title_fades_only_after_all_cells_have_cleared() {
+        assert_eq!(Opacity::at(0.0).background, 1.0);
+        assert_eq!(Opacity::at(FIELD_END_SECONDS).background, 0.0);
+        assert_eq!(Opacity::at(FIELD_END_SECONDS).foreground, 1.0);
+        let midpoint = FIELD_END_SECONDS + TITLE_FADE_DURATION_SECONDS * 0.5;
+        assert!((Opacity::at(midpoint).foreground - 0.5).abs() < 0.00001);
+        assert_eq!(Opacity::at(TRANSITION_END_SECONDS).foreground, 0.0);
         let mut previous = Opacity::at(0.0);
         for frame in 1..=120 {
             let current = Opacity::at(frame as f64 / 60.0);
             assert!(current.background <= previous.background);
             assert!(current.foreground <= previous.foreground);
-            assert_eq!(current.foreground, current.background);
-            let flowers = Opacity {
-                flower_fade: Some((42, frame as f64 / 60.0)),
-                ..current
-            };
-            if frame as f64 / 60.0 <= FLOWER_FADE_START_SECONDS {
-                assert_eq!(flowers.flower(0, 0), 1.0);
-            }
             previous = current;
         }
     }
@@ -549,7 +535,7 @@ mod tests {
         draw(&mut transition);
         assert!(
             !transition.clear_frame_drawn,
-            "late flowers must outlive the title fade"
+            "the title still fades after all cells have cleared"
         );
         transition.first_presented = Some(Instant::now() - std::time::Duration::from_secs(3));
         // Time alone does not end the transition before a clear frame is drawn.
