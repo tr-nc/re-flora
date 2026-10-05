@@ -443,15 +443,6 @@ impl GuiAdjustables {
     }
 }
 
-fn enforce_flora_natural_bend_order(adjustables: &mut GuiAdjustables) {
-    if adjustables.grass_natural_bend_max_voxels.value
-        < adjustables.grass_natural_bend_min_voxels.value
-    {
-        adjustables.grass_natural_bend_max_voxels.value =
-            adjustables.grass_natural_bend_min_voxels.value;
-    }
-}
-
 fn enforce_leaf_curve_order(adjustables: &mut GuiAdjustables) {
     if adjustables.leaf_paddle_amplitude_wind_full_strength.value
         < adjustables.leaf_paddle_amplitude_wind_start_strength.value
@@ -750,12 +741,6 @@ fn render_search_results(
                 .map(|field| field.value.to_bits());
             if before != after {
                 // Preserve custom editor constraints only on an actual edit, never on a query.
-                if matches!(
-                    param.id.as_str(),
-                    "grass_natural_bend_min_voxels" | "grass_natural_bend_max_voxels"
-                ) {
-                    enforce_flora_natural_bend_order(adjustables);
-                }
                 if param.id.starts_with("leaf_paddle_") {
                     enforce_leaf_curve_order(adjustables);
                 }
@@ -1015,14 +1000,12 @@ mod search_tests {
         let mut settings = DebugSettings::load();
         settings.search.query = "no_setting_has_this_unique_name".to_owned();
         let before = toml::to_string(&settings.config).unwrap();
-        settings.adjustables.grass_natural_bend_min_voxels.value = 4.;
         settings.adjustables.grass_natural_bend_max_voxels.value = 1.;
         let context = egui::Context::default();
         let _ = context.run_ui(Default::default(), |ui| {
             assert!(!settings.draw(ui, |_, _| {}));
         });
         assert!(!settings.search_has_results());
-        assert_eq!(settings.adjustables.grass_natural_bend_min_voxels.value, 4.);
         assert_eq!(settings.adjustables.grass_natural_bend_max_voxels.value, 1.);
         assert_eq!(toml::to_string(&settings.config).unwrap(), before);
     }

@@ -1,8 +1,8 @@
 //! Flora's display hierarchy. Stored sections, parameter IDs and values remain config-owned.
 //! Branches contain only categories; controls live in the terminal categories.
 use super::{
-    debug_groups, draw_leaf_curve_previews, enforce_flora_natural_bend_order,
-    enforce_leaf_curve_order, render_gui_param_from_config, GuiAdjustables,
+    debug_groups, draw_leaf_curve_previews, enforce_leaf_curve_order, render_gui_param_from_config,
+    GuiAdjustables,
 };
 use crate::app::gui_config_model::GuiSection;
 use crate::app::ui_text;
@@ -15,7 +15,6 @@ const DISTRIBUTION: &[&str] = &[
     "special_flora_outlier_chance",
 ];
 const GROUND_MOTION: &[&str] = &[
-    "grass_natural_bend_min_voxels",
     "grass_natural_bend_max_voxels",
     "flora_bend_height_power",
     "grass_vibration_amplitude_voxels",
@@ -89,9 +88,9 @@ pub(super) fn search_path(section: &str, id: &str) -> Option<&'static str> {
     match section {
         "Flora" if DISTRIBUTION.contains(&id) => Some("Flora / Planting / Distribution"),
         "Flora" if MODEL_FLOWERS.contains(&id) => Some("Flora / Ground Plants / Model Flowers"),
-        "Flora" if GROUND_MOTION[..2].contains(&id) => Some("Flora / Ground Plants / Rest Shape"),
+        "Flora" if GROUND_MOTION[..1].contains(&id) => Some("Flora / Ground Plants / Rest Shape"),
         "Flora" if GRASS_COLORS.contains(&id) => Some("Flora / Ground Plants / Grass Colors"),
-        "Flora" if GROUND_MOTION[2..].contains(&id) => Some("Wind / Response / Grass"),
+        "Flora" if GROUND_MOTION[1..].contains(&id) => Some("Wind / Response / Grass"),
         "Flora" if LEAF_MOTION.contains(&id) || LEAF_CURVES.contains(&id) => {
             Some("Wind / Response / Leaves")
         }
@@ -207,8 +206,7 @@ pub(super) fn render(
             }
         });
         category(ui, "Rest Shape", |ui| {
-            controls(ui, flora, &GROUND_MOTION[..2], adjustables);
-            enforce_flora_natural_bend_order(adjustables);
+            controls(ui, flora, &GROUND_MOTION[..1], adjustables);
         });
         category(ui, "Grass Colors", |ui| {
             controls(ui, flora, GRASS_COLORS, adjustables);
@@ -249,7 +247,7 @@ pub(super) fn render_wind(
         egui::CollapsingHeader::new("Grass")
             .default_open(true)
             .show(ui, |ui| {
-                controls(ui, flora, &GROUND_MOTION[2..3], adjustables);
+                controls(ui, flora, &GROUND_MOTION[1..2], adjustables);
                 if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
                     for (title, scale, kind) in [
                         (
@@ -270,7 +268,7 @@ pub(super) fn render_wind(
                 }
                 if !adjustables.flora_inertial_response.value {
                     ui_text::section(ui, "Direct grass vibration (inertia off)");
-                    controls(ui, flora, &GROUND_MOTION[3..], adjustables);
+                    controls(ui, flora, &GROUND_MOTION[2..], adjustables);
                 }
             });
         egui::CollapsingHeader::new("Leaves")

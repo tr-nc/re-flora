@@ -36,7 +36,6 @@ public struct U_GuiInput
     public float grass_vibration_amplitude_voxels;
     public float grass_vibration_primary_speed;
     public float grass_vibration_secondary_speed;
-    public float grass_natural_bend_min_voxels;
     public float grass_natural_bend_max_voxels;
     public float flora_bend_height_power;
     public float leaf_flutter_strength;

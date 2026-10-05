@@ -77,9 +77,10 @@ impl GuiConfigLoader {
         Self::retire_dither_setting(&mut config);
         Self::retire_cloud_settings(&mut config);
         for section in &mut config.section {
-            section
-                .param
-                .retain(|param| !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str()));
+            section.param.retain(|param| {
+                param.id != "grass_natural_bend_min_voxels"
+                    && !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str())
+            });
         }
         config
             .section
@@ -1004,6 +1005,54 @@ mod tests {
                 .flat_map(|s| &s.param)
                 .any(|p| p.id == "stem_band_mode"));
         }
+    }
+
+    #[test]
+    fn retired_natural_bend_minimum_is_ignored_and_not_saved() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let flora = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Flora")
+            .unwrap();
+        let maximum = flora
+            .param
+            .iter()
+            .find(|p| p.id == "grass_natural_bend_max_voxels")
+            .unwrap()
+            .clone();
+        let mut minimum = maximum.clone();
+        minimum.id = "grass_natural_bend_min_voxels".into();
+        minimum.value = super::GuiParamValue::Float {
+            value: 4.0,
+            min: Some(0.0),
+            max: Some(4.0),
+        };
+        flora.param.push(minimum);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+        assert!(!params
+            .iter()
+            .any(|p| p.id == "grass_natural_bend_min_voxels"));
+        assert_eq!(
+            params
+                .iter()
+                .find(|p| p.id == maximum.id)
+                .unwrap()
+                .value
+                .get_float(),
+            maximum.value.get_float()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("grass_natural_bend_min_voxels"));
     }
 
     #[test]

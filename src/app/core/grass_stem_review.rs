@@ -221,7 +221,6 @@ impl GrassStemReview {
             gui.flora_spawn_duration_seconds.value = 0.28;
             gui.flora_inertial_response.value = true;
             // Shared sampling quality is fixed unless the lifecycle fixture is active.
-            gui.grass_natural_bend_min_voxels.value = if self.curved { 4.0 } else { 0.0 };
             gui.grass_natural_bend_max_voxels.value = if self.curved { 4.0 } else { 2.0 };
         }
         app.render_flags.enable_flora = true;

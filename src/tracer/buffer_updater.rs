@@ -329,7 +329,6 @@ impl BufferUpdater {
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
             grass_vibration_secondary_speed: motion.grass_vibration_secondary_speed,
-            grass_natural_bend_min_voxels: motion.grass_natural_bend_min_voxels,
             grass_natural_bend_max_voxels: motion.grass_natural_bend_max_voxels,
             flora_bend_height_power: motion.bend_height_power,
             // Either endpoint can drive flutter (including a falling curve).

@@ -1408,17 +1408,6 @@ min = 0
 max = 1
 
 [[section.param]]
-id = "grass_natural_bend_min_voxels"
-kind = "float"
-label = "Flora Natural Bend Min (voxels)"
-type = "Float"
-
-[section.param.data]
-value = 0
-min = 0
-max = 4
-
-[[section.param]]
 id = "grass_natural_bend_max_voxels"
 kind = "float"
 label = "Flora Natural Bend Max (voxels)"

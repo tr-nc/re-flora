@@ -116,9 +116,9 @@ public float3 floraNaturalRestBend(U_GuiInput gui, uint seed,
     float3 bendDirection = float3(cos(directionAngle), 0.0, sin(directionAngle));
 
     float amountJitter = constructFloat01(wellonsHash(seed ^ 0x94D049BBu));
-    float bendMinimum = max(gui.grass_natural_bend_min_voxels, 0.0);
-    float bendMaximum = max(gui.grass_natural_bend_max_voxels, bendMinimum);
-    float tipBendVoxels = lerp(bendMinimum, bendMaximum, amountJitter);
+    // Natural rest bend always ranges from zero to the authored maximum.
+    float bendMaximum = max(gui.grass_natural_bend_max_voxels, 0.0);
+    float tipBendVoxels = bendMaximum * amountJitter;
 
     float bladeHeight = max(floraHeightVoxels, 1.0);
     float bendValue = floraBendHeightFactor(gui, clamp(heightFraction, 0.0, 1.0));
