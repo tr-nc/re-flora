@@ -253,6 +253,8 @@ impl GrassRasterPixels {
         indices: &Buffer,
         index_count: u32,
         pass: PushConstantGrassRasterPrepare,
+        mut profiler: Option<&mut re_flora_vkn::GpuProfiler>,
+        frame_slot: usize,
     ) {
         let extent = Extent2D::new(pass.extent[0], pass.extent[1]);
         let viewport = Viewport::from_extent(extent);
@@ -263,6 +265,15 @@ impl GrassRasterPixels {
                 height: extent.height,
             },
         };
+        if profiler.is_some() {
+            log::info!(
+                "[GRASS_PIXEL_BATCHES] frame_slot={} instances={} slot_side={} batches={}",
+                frame_slot,
+                pass.instance_count,
+                pass.slot_side,
+                pass.instance_count.div_ceil(capacity(pass.slot_side))
+            );
+        }
         let mut first = 0;
         while first < pass.instance_count {
             let count = (pass.instance_count - first).min(capacity(pass.slot_side));
@@ -283,114 +294,139 @@ impl GrassRasterPixels {
                 ("stem_raster_views", DescriptorResource::Buffer(&self.views)),
                 ("grass_band_pose_cache", DescriptorResource::Buffer(poses)),
             ];
-            self.prepare
-                .record_with_descriptors(
-                    cmdbuf,
-                    &resources,
-                    Extent3D::new(count, 1, 1),
-                    Some(bytemuck::bytes_of(&push)),
-                )
-                .unwrap();
-            for pipeline in [&self.clear, &self.mesh, &self.display, &self.continuous] {
-                pipeline.prepare_descriptor_resources(cmdbuf);
-            }
-            let clear = self
-                .clear
-                .prepare_draw_descriptors(cmdbuf, &resources[..1])
-                .unwrap();
-            let mesh = self
-                .mesh
-                .prepare_draw_descriptors(cmdbuf, &resources)
-                .unwrap();
-            // Initialize only the active cells. Full-atlas clears would turn
-            // population growth into needless O(instances * max_tile_area) work.
-            cmdbuf.use_buffer(&self.quad_indices, BufferUse::IndexRead);
-            cmdbuf.use_buffer(vertices, BufferUse::VertexRead);
-            cmdbuf.use_buffer(indices, BufferUse::IndexRead);
-            self.atlas.record_begin(cmdbuf, &[]);
-            let atlas_extent = Extent2D::new(ATLAS_SIDE, ATLAS_SIDE);
-            let atlas_scissor = vk::Rect2D {
-                offset: vk::Offset2D::default(),
-                extent: vk::Extent2D {
-                    width: ATLAS_SIDE,
-                    height: ATLAS_SIDE,
-                },
-            };
-            self.clear.record_viewport_scissor(
+            let (clear, mesh) = super::Tracer::with_gpu_scope(
+                profiler.as_deref_mut(),
+                frame_slot,
                 cmdbuf,
-                Viewport::from_extent(atlas_extent),
-                atlas_scissor,
+                "graphics.grass_pixels.prepare",
+                || {
+                    self.prepare
+                        .record_with_descriptors(
+                            cmdbuf,
+                            &resources,
+                            Extent3D::new(count, 1, 1),
+                            Some(bytemuck::bytes_of(&push)),
+                        )
+                        .unwrap();
+                    for pipeline in [&self.clear, &self.mesh, &self.display, &self.continuous] {
+                        pipeline.prepare_descriptor_resources(cmdbuf);
+                    }
+                    let clear = self
+                        .clear
+                        .prepare_draw_descriptors(cmdbuf, &resources[..1])
+                        .unwrap();
+                    let mesh = self
+                        .mesh
+                        .prepare_draw_descriptors(cmdbuf, &resources)
+                        .unwrap();
+                    // Initialize only the active cells. Full-atlas clears would turn
+                    // population growth into needless O(instances * max_tile_area) work.
+                    cmdbuf.use_buffer(&self.quad_indices, BufferUse::IndexRead);
+                    cmdbuf.use_buffer(vertices, BufferUse::VertexRead);
+                    cmdbuf.use_buffer(indices, BufferUse::IndexRead);
+                    (clear, mesh)
+                },
             );
             let instance = super::FloraInstanceResources::species_offset(push.species as usize)
                 + push.first_instance;
-            cmdbuf.bind_index_buffer_u32(&self.quad_indices);
-            self.clear.record_indexed_with_prepared_descriptors(
+            super::Tracer::with_gpu_scope(
+                profiler.as_deref_mut(),
+                frame_slot,
                 cmdbuf,
-                &clear,
-                6,
-                count,
-                0,
-                0,
-                instance,
-                Some(&push_info),
+                "graphics.grass_pixels.atlas",
+                || {
+                    self.atlas.record_begin(cmdbuf, &[]);
+                    let atlas_extent = Extent2D::new(ATLAS_SIDE, ATLAS_SIDE);
+                    let atlas_scissor = vk::Rect2D {
+                        offset: vk::Offset2D::default(),
+                        extent: vk::Extent2D {
+                            width: ATLAS_SIDE,
+                            height: ATLAS_SIDE,
+                        },
+                    };
+                    self.clear.record_viewport_scissor(
+                        cmdbuf,
+                        Viewport::from_extent(atlas_extent),
+                        atlas_scissor,
+                    );
+                    cmdbuf.bind_index_buffer_u32(&self.quad_indices);
+                    self.clear.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        &clear,
+                        6,
+                        count,
+                        0,
+                        0,
+                        instance,
+                        Some(&push_info),
+                    );
+                    cmdbuf.bind_index_buffer_u32(indices);
+                    cmdbuf.bind_vertex_buffers(0, &[vertices]);
+                    self.mesh.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        &mesh,
+                        index_count,
+                        count,
+                        0,
+                        0,
+                        instance,
+                        Some(&push_info),
+                    );
+                    self.atlas.record_end(cmdbuf);
+                },
             );
-            cmdbuf.bind_index_buffer_u32(indices);
-            cmdbuf.bind_vertex_buffers(0, &[vertices]);
-            self.mesh.record_indexed_with_prepared_descriptors(
+            super::Tracer::with_gpu_scope(
+                profiler.as_deref_mut(),
+                frame_slot,
                 cmdbuf,
-                &mesh,
-                index_count,
-                count,
-                0,
-                0,
-                instance,
-                Some(&push_info),
+                "graphics.grass_pixels.display",
+                || {
+                    let display = self
+                        .display
+                        .prepare_draw_descriptors(
+                            cmdbuf,
+                            &[
+                                ("stem_raster_views", DescriptorResource::Buffer(&self.views)),
+                                (
+                                    "stem_raster_color",
+                                    DescriptorResource::Texture(&self.atlas_color),
+                                ),
+                            ],
+                        )
+                        .unwrap();
+                    let continuous = self
+                        .continuous
+                        .prepare_draw_descriptors(cmdbuf, &resources)
+                        .unwrap();
+                    self.main_load.record_begin(cmdbuf, &[]);
+                    self.display
+                        .record_viewport_scissor(cmdbuf, viewport, scissor);
+                    cmdbuf.bind_index_buffer_u32(&self.quad_indices);
+                    self.display.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        &display,
+                        6,
+                        count,
+                        0,
+                        0,
+                        instance,
+                        Some(&display_push),
+                    );
+                    cmdbuf.bind_index_buffer_u32(indices);
+                    cmdbuf.bind_vertex_buffers(0, &[vertices]);
+                    self.continuous.record_indexed_with_prepared_descriptors(
+                        cmdbuf,
+                        &continuous,
+                        index_count,
+                        count,
+                        0,
+                        0,
+                        instance,
+                        Some(&push_info),
+                    );
+                    self.main_load.record_end(cmdbuf);
+                },
             );
-            self.atlas.record_end(cmdbuf);
-            let display = self
-                .display
-                .prepare_draw_descriptors(
-                    cmdbuf,
-                    &[
-                        ("stem_raster_views", DescriptorResource::Buffer(&self.views)),
-                        (
-                            "stem_raster_color",
-                            DescriptorResource::Texture(&self.atlas_color),
-                        ),
-                    ],
-                )
-                .unwrap();
-            let continuous = self
-                .continuous
-                .prepare_draw_descriptors(cmdbuf, &resources)
-                .unwrap();
-            self.main_load.record_begin(cmdbuf, &[]);
-            self.display
-                .record_viewport_scissor(cmdbuf, viewport, scissor);
-            cmdbuf.bind_index_buffer_u32(&self.quad_indices);
-            self.display.record_indexed_with_prepared_descriptors(
-                cmdbuf,
-                &display,
-                6,
-                count,
-                0,
-                0,
-                instance,
-                Some(&display_push),
-            );
-            cmdbuf.bind_index_buffer_u32(indices);
-            cmdbuf.bind_vertex_buffers(0, &[vertices]);
-            self.continuous.record_indexed_with_prepared_descriptors(
-                cmdbuf,
-                &continuous,
-                index_count,
-                count,
-                0,
-                0,
-                instance,
-                Some(&push_info),
-            );
-            self.main_load.record_end(cmdbuf);
             first += count;
         }
     }

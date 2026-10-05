@@ -81,7 +81,7 @@ try {
       const directory=path.join(output,name);fs.mkdirSync(directory,{recursive:true});
       const env={...process.env,RE_FLORA_STEM_BAND_MODE:String(mode.mode),RE_FLORA_GRASS_STEM_CAPTURE:directory,RE_FLORA_GRASS_BAND_POSE_REUSE:grassPoseReuse,
         RE_FLORA_GRASS_BAND_PIXELIZATION:mode.pixels?'1':'0',RE_FLORA_STEM_PIXEL_RESOLUTION:'45'};
-      for(const key of ['WAYLAND_DISPLAY','RE_FLORA_GRASS_STEM_REVIEW','RE_FLORA_CPU_STEM_REVIEW','RE_FLORA_CPU_STEM_NEAR','RE_FLORA_CLIMBING_REVIEW','RE_FLORA_GRASS_STEM_TRYOUT','RE_FLORA_FLOWER_MODEL_REVIEW','RE_FLORA_STEM_PIXEL_LIFECYCLE'])delete env[key];
+      for(const key of ['WAYLAND_DISPLAY','RE_FLORA_GRASS_STEM_REVIEW','RE_FLORA_CPU_STEM_REVIEW','RE_FLORA_CPU_STEM_NEAR','RE_FLORA_CLIMBING_REVIEW','RE_FLORA_GRASS_STEM_TRYOUT','RE_FLORA_FLOWER_MODEL_REVIEW','RE_FLORA_STEM_PIXEL_LIFECYCLE','RE_FLORA_STEM_PIXEL_PROFILE'])delete env[key];
       let caseName;
       if(job.source==='gpu') {
         caseName=`${job.scene}-${mode.ab}`;

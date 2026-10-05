@@ -1144,13 +1144,19 @@ impl App {
         );
         let frame_extent_generation = swapchain.frame_extent_generation();
         let frame_retirement_sink = frame_manager.retirement_sink();
+        let gpu_scope_capacity = if Tracer::grass_pixel_profile_requested() {
+            log::info!("[GRASS_PIXEL_PROFILE] saved=false purpose=phase_attribution requires=--perf capacity=1024");
+            1024
+        } else {
+            GPU_PROFILER_MAX_SCOPES_PER_FRAME
+        };
         let gpu_profiler = render
             .perf_logging
             .then(|| {
                 GpuProfiler::maybe_new(
                     &vulkan_ctx,
                     MAX_FRAMES_IN_FLIGHT,
-                    GPU_PROFILER_MAX_SCOPES_PER_FRAME,
+                    gpu_scope_capacity,
                     "PERF][GPU_PROFILER",
                 )
             })

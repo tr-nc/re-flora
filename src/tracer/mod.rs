@@ -3288,6 +3288,12 @@ impl Tracer {
         })
     }
 
+    /// Opt-in diagnostics: extra timestamps perturb timing, so keep them out of
+    /// ordinary rendering and authoritative candidate comparisons.
+    pub(crate) fn grass_pixel_profile_requested() -> bool {
+        std::env::var("RE_FLORA_STEM_PIXEL_PROFILE").as_deref() == Ok("1")
+    }
+
     fn with_gpu_scope<T>(
         gpu_profiler: Option<&mut GpuProfiler>,
         gpu_profiler_frame_slot: usize,
@@ -4426,6 +4432,7 @@ impl Tracer {
     ) {
         let raster_pixels =
             self.grass_stem_rendering && self.stem_band_mode != 0 && self.grass_band_pixelization;
+        let profile_pixel_phases = Self::grass_pixel_profile_requested();
         if raster_pixels {
             let pixels = self.grass_raster_pixels.get_or_insert_with(|| {
                 grass_raster_pixels::GrassRasterPixels::new(
@@ -5249,6 +5256,12 @@ impl Tracer {
                                 ),
                                 extent: [render_extent.width, render_extent.height],
                             },
+                            if profile_pixel_phases {
+                                gpu_profiler.as_deref_mut()
+                            } else {
+                                None
+                            },
+                            gpu_profiler_frame_slot,
                         );
                         render_target.record_begin(cmdbuf, &[]);
                         continue;
