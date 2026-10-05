@@ -1,0 +1,2390 @@
+{
+  "revision": "562299a267a6952a91b7605b75338c8644010295",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3060 Ti",
+    "vramMiB": 8192,
+    "driver": "580.159.04",
+    "cpu": "Intel Core i5-12600KF",
+    "platform": "Linux / native Vulkan",
+    "extent": [
+      2560,
+      1440
+    ]
+  },
+  "primaryRuns": 110,
+  "diagnosticSuiteRuns": 40,
+  "extraTimestampRuns": 8,
+  "savedConfigSha256": [
+    "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+    "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+  ],
+  "validation": {
+    "testedRevision": "f8b5298d",
+    "rust": {
+      "passed": 1365,
+      "ignored": 4,
+      "binaryPassed": 4,
+      "log": "target/stem-pixel-research/handoff-tests.log"
+    },
+    "vulkan": {
+      "passed": 57,
+      "log": "target/stem-pixel-research/final-vkn-tests.log"
+    },
+    "slang": {
+      "passed": 35,
+      "log": "target/stem-pixel-research/final-slang-tests.log"
+    },
+    "synchronization": {
+      "synchronizationValidation": true,
+      "duplicateLimit": 10000,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "results": [
+        {
+          "name": "startup",
+          "status": 0,
+          "validationErrors": 0,
+          "shutdownFailures": 0
+        },
+        {
+          "name": "resize",
+          "status": 0,
+          "validationErrors": 0,
+          "shutdownFailures": 0
+        },
+        {
+          "name": "grass-analytic-lifecycle",
+          "status": 0,
+          "validationErrors": 0,
+          "shutdownFailures": 0
+        },
+        {
+          "name": "grass-pixel-lifecycle",
+          "status": 0,
+          "validationErrors": 0,
+          "shutdownFailures": 0
+        },
+        {
+          "name": "grass-square-descriptor-stress",
+          "status": 0,
+          "validationErrors": 0,
+          "shutdownFailures": 0
+        }
+      ]
+    },
+    "nativeSmoke": {
+      "shutdownFailures": 0,
+      "log": "target/stem-pixel-research/handoff-smoke.log",
+      "inspectedLog": "target/stem-pixel-research/handoff-smoke-inspected.log"
+    },
+    "cpuFixtures": {
+      "runs": 4,
+      "log": "target/stem-pixel-research/final-cpu-quick.log"
+    },
+    "climbing": {
+      "prune": true,
+      "wait": true,
+      "regrow": true,
+      "rootRecovery": true,
+      "finite": true,
+      "drawScopeNonzero": true,
+      "log": "target/stem-pixel-research/final-wall.log"
+    },
+    "normalization": {
+      "requested": 16,
+      "effective": 32,
+      "nativeCandidates": 5,
+      "log": "target/stem-pixel-research/resolution-quick.log"
+    },
+    "failedDiagnosticSetup": {
+      "excluded": true,
+      "reason": "Authored-flora scenario does not activate the ordinary-world climbing wall review",
+      "log": "target/stem-pixel-research/final-climbing.log"
+    },
+    "html": {
+      "desktopWidth": 1280,
+      "mobileWidth": 390,
+      "horizontalOverflow": false,
+      "imagesLoaded": 4,
+      "brokenInternalAnchors": 0,
+      "wcag2a2aaViolations": 0,
+      "audit": "target/stem-pixel-research/report-a11y-final.json"
+    }
+  },
+  "continuousImageInvariance": [
+    {
+      "mode": "voxel",
+      "images": 8,
+      "uniqueImageHashes": [
+        "7e1457f58b46ad5fdb7b1886756770fa75d5b584bea43449039300c29ef356a5",
+        "13c060066c5d2524706b8d90e1dec65fd0149ebaab220bbdd45d438e8612c60f"
+      ],
+      "sameResolutionRepeatException": {
+        "changedPixels": 15,
+        "totalPixels": 3686400,
+        "normalizedRMSE": 0.00000408497
+      }
+    },
+    {
+      "mode": "analytic",
+      "images": 8,
+      "uniqueImageHashes": [
+        "9ee898c54cf514ed4371f31edebd63b8c4849e4a8bbe9986247315c182865f20"
+      ]
+    },
+    {
+      "mode": "square",
+      "images": 8,
+      "uniqueImageHashes": [
+        "745afb630d9ae46fcf61ef27640eabdf8e9cfe0dbdcf3ac77e4b316d81b14652"
+      ]
+    }
+  ],
+  "primary": [
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 45,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g3-near-both",
+          "source": "gpu",
+          "population": "2267, 1831",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 98,
+                "p95_us": 110
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6031,
+                "p95_us": 6868
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 151
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 240,
+                "p95_us": 260
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 565,
+                "p95_us": 625
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 146,
+                "p95_us": 180
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1554,
+                "p95_us": 1613
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6255,
+                "p95_us": 6868
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 112,
+                "p95_us": 115
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1665,
+                "p95_us": 1728
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 570,
+                "p95_us": 632
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 149,
+                "p95_us": 184
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 151
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6033,
+                "p95_us": 6839
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 157,
+                "p95_us": 164
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 302,
+                "p95_us": 316
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 553,
+                "p95_us": 627
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 146,
+                "p95_us": 191
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1944,
+                "p95_us": 1967
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6427,
+                "p95_us": 7049
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 105,
+                "p95_us": 108
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 2049,
+                "p95_us": 2074
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 569,
+                "p95_us": 648
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 147,
+                "p95_us": 194
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1263,
+                "p95_us": 1328
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6153,
+                "p95_us": 6890
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 128,
+                "p95_us": 134
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1392,
+                "p95_us": 1614
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 955,
+                "p95_us": 1023
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 145,
+                "p95_us": 173
+              }
+            }
+          }
+        },
+        {
+          "key": "gpu-g15-wide-both",
+          "source": "gpu",
+          "population": "45518, 36936",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 588,
+                "p95_us": 644
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 5996,
+                "p95_us": 6680
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 610,
+                "p95_us": 672
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1197,
+                "p95_us": 1322
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 608,
+                "p95_us": 684
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 145,
+                "p95_us": 182
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 2844,
+                "p95_us": 3128
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 7699,
+                "p95_us": 8527
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 550
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 3391,
+                "p95_us": 3699
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 604,
+                "p95_us": 662
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 171
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1193,
+                "p95_us": 1288
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6201,
+                "p95_us": 6815
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 626,
+                "p95_us": 671
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1826,
+                "p95_us": 1972
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 589,
+                "p95_us": 649
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 177
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 3067,
+                "p95_us": 3345
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 7926,
+                "p95_us": 8634
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 543,
+                "p95_us": 546
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 3610,
+                "p95_us": 3891
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 613,
+                "p95_us": 688
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 149,
+                "p95_us": 198
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 6529,
+                "p95_us": 7268
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 11523,
+                "p95_us": 12363
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 623,
+                "p95_us": 627
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 7152,
+                "p95_us": 7892
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 4445,
+                "p95_us": 4557
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 166,
+                "p95_us": 200
+              }
+            }
+          }
+        },
+        {
+          "key": "gpu-g15-far-both",
+          "source": "gpu",
+          "population": "45518, 36936",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 880,
+                "p95_us": 938
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6166,
+                "p95_us": 6935
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 556,
+                "p95_us": 592
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1437,
+                "p95_us": 1536
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 624,
+                "p95_us": 712
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 146,
+                "p95_us": 189
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 4024,
+                "p95_us": 4493
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 9191,
+                "p95_us": 9982
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 545,
+                "p95_us": 548
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 4569,
+                "p95_us": 5053
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 608,
+                "p95_us": 674
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 178
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1174,
+                "p95_us": 1232
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6477,
+                "p95_us": 7230
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 627,
+                "p95_us": 641
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1801,
+                "p95_us": 1864
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 586,
+                "p95_us": 642
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 172
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 4631,
+                "p95_us": 5104
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 9807,
+                "p95_us": 10626
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 549
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 5177,
+                "p95_us": 5657
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 617,
+                "p95_us": 684
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 146,
+                "p95_us": 185
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 9573,
+                "p95_us": 10319
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 14931,
+                "p95_us": 15747
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 626,
+                "p95_us": 630
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 10199,
+                "p95_us": 10948
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 4465,
+                "p95_us": 4595
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 174,
+                "p95_us": 205
+              }
+            }
+          }
+        },
+        {
+          "key": "gpu-g15-low-both",
+          "source": "gpu",
+          "population": "45518, 36936",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1404,
+                "p95_us": 1486
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6319,
+                "p95_us": 6834
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 547,
+                "p95_us": 575
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1951,
+                "p95_us": 2061
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 599,
+                "p95_us": 654
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 168
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1645,
+                "p95_us": 1994
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6529,
+                "p95_us": 7279
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 555
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 2191,
+                "p95_us": 2559
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 602,
+                "p95_us": 650
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 171
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1178,
+                "p95_us": 1272
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6224,
+                "p95_us": 6744
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 627,
+                "p95_us": 669
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1806,
+                "p95_us": 1945
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 577,
+                "p95_us": 643
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 186
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1787,
+                "p95_us": 1845
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6656,
+                "p95_us": 7283
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 545,
+                "p95_us": 548
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 2332,
+                "p95_us": 2394
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 601,
+                "p95_us": 650
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 166
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 4475,
+                "p95_us": 5201
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 9481,
+                "p95_us": 10359
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 626,
+                "p95_us": 637
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 5102,
+                "p95_us": 5837
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 4425,
+                "p95_us": 4580
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 164,
+                "p95_us": 195
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 45
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g3-near-both-r16",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 32,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g3-near-both",
+          "source": "gpu",
+          "population": "2267, 1831",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 99,
+                "p95_us": 109
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6027,
+                "p95_us": 6777
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 154
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 243,
+                "p95_us": 260
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 556,
+                "p95_us": 610
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 173
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1532,
+                "p95_us": 1601
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6230,
+                "p95_us": 6940
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 110,
+                "p95_us": 115
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1642,
+                "p95_us": 1716
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 576,
+                "p95_us": 638
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 148,
+                "p95_us": 186
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 154
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6070,
+                "p95_us": 6858
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 160,
+                "p95_us": 165
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 303,
+                "p95_us": 319
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 539,
+                "p95_us": 601
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 182
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 2136,
+                "p95_us": 2142
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6601,
+                "p95_us": 7102
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 105,
+                "p95_us": 106
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 2241,
+                "p95_us": 2248
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 561,
+                "p95_us": 625
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 184
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1256,
+                "p95_us": 1295
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6223,
+                "p95_us": 6852
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 131,
+                "p95_us": 135
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1389,
+                "p95_us": 1429
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 947,
+                "p95_us": 1030
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 172
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 16
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g3-near-both-r128",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 128,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g3-near-both",
+          "source": "gpu",
+          "population": "2267, 1831",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 101,
+                "p95_us": 109
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6053,
+                "p95_us": 6856
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 154
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 245,
+                "p95_us": 259
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 549,
+                "p95_us": 603
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 167
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1584,
+                "p95_us": 1603
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6239,
+                "p95_us": 6749
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 113,
+                "p95_us": 115
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1697,
+                "p95_us": 1719
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 564,
+                "p95_us": 630
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 186
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 151
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6080,
+                "p95_us": 6838
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 159,
+                "p95_us": 166
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 302,
+                "p95_us": 317
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 538,
+                "p95_us": 600
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 178
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1745,
+                "p95_us": 1763
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6352,
+                "p95_us": 6918
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 111,
+                "p95_us": 113
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1857,
+                "p95_us": 1876
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 559,
+                "p95_us": 640
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 145,
+                "p95_us": 189
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 5675,
+                "p95_us": 6411
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 10211,
+                "p95_us": 10948
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 118,
+                "p95_us": 119
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 5793,
+                "p95_us": 6528
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 3555,
+                "p95_us": 3704
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 159,
+                "p95_us": 185
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 128
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g3-near-both-r512",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 512,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g3-near-both",
+          "source": "gpu",
+          "population": "2267, 1831",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 100,
+                "p95_us": 109
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 5988,
+                "p95_us": 6861
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 150
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 243,
+                "p95_us": 258
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 551,
+                "p95_us": 604
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 169
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1592,
+                "p95_us": 1612
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6279,
+                "p95_us": 6799
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 114,
+                "p95_us": 115
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1707,
+                "p95_us": 1728
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 563,
+                "p95_us": 618
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 148,
+                "p95_us": 189
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 147,
+                "p95_us": 155
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6083,
+                "p95_us": 6906
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 161,
+                "p95_us": 166
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 308,
+                "p95_us": 321
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 537,
+                "p95_us": 589
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 164
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1624,
+                "p95_us": 1670
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6265,
+                "p95_us": 6841
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 111,
+                "p95_us": 114
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1737,
+                "p95_us": 1784
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 559,
+                "p95_us": 616
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 168
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 13648,
+                "p95_us": 14415
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 18217,
+                "p95_us": 19020
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 118,
+                "p95_us": 119
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 13766,
+                "p95_us": 14534
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 12094,
+                "p95_us": 12496
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 205,
+                "p95_us": 250
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 512
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g15-wide-both-r16",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 32,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g15-wide-both",
+          "source": "gpu",
+          "population": "45518, 36936",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 608,
+                "p95_us": 649
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6103,
+                "p95_us": 6824
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 631,
+                "p95_us": 671
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1241,
+                "p95_us": 1323
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 598,
+                "p95_us": 650
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 169
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 2846,
+                "p95_us": 3123
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 7704,
+                "p95_us": 8421
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 549
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 3393,
+                "p95_us": 3845
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 599,
+                "p95_us": 649
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 168
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1185,
+                "p95_us": 1281
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6220,
+                "p95_us": 6883
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 626,
+                "p95_us": 671
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1811,
+                "p95_us": 1956
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 580,
+                "p95_us": 645
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 180
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 3147,
+                "p95_us": 3175
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 7996,
+                "p95_us": 8808
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 556
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 3693,
+                "p95_us": 3955
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 593,
+                "p95_us": 643
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 140,
+                "p95_us": 166
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 6567,
+                "p95_us": 7299
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 11531,
+                "p95_us": 12332
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 623,
+                "p95_us": 627
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 7191,
+                "p95_us": 7924
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 4385,
+                "p95_us": 4567
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 166,
+                "p95_us": 201
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 16
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g15-wide-both-r128",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 128,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g15-wide-both",
+          "source": "gpu",
+          "population": "45518, 36936",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 605,
+                "p95_us": 650
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6129,
+                "p95_us": 6780
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 628,
+                "p95_us": 671
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1234,
+                "p95_us": 1324
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 594,
+                "p95_us": 652
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 139,
+                "p95_us": 165
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 2848,
+                "p95_us": 2881
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 7696,
+                "p95_us": 8375
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 550
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 3394,
+                "p95_us": 3652
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 607,
+                "p95_us": 666
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 183
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1171,
+                "p95_us": 1266
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6166,
+                "p95_us": 6784
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 626,
+                "p95_us": 683
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1797,
+                "p95_us": 1932
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 576,
+                "p95_us": 638
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 141,
+                "p95_us": 168
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 2963,
+                "p95_us": 3001
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 7816,
+                "p95_us": 8499
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 549
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 3509,
+                "p95_us": 3775
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 604,
+                "p95_us": 675
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 184
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 45144,
+                "p95_us": 45265
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 50006,
+                "p95_us": 50533
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 623,
+                "p95_us": 626
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 45769,
+                "p95_us": 45889
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 57815,
+                "p95_us": 59402
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 386,
+                "p95_us": 426
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 128
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g15-near-both",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 45,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g15-near-both",
+          "source": "gpu",
+          "population": "45518, 36936",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 1406,
+                "p95_us": 1468
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6413,
+                "p95_us": 6923
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 546,
+                "p95_us": 566
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1952,
+                "p95_us": 2037
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 603,
+                "p95_us": 669
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 184
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 4180,
+                "p95_us": 4467
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 9169,
+                "p95_us": 9917
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 545,
+                "p95_us": 548
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 4725,
+                "p95_us": 5191
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 593,
+                "p95_us": 646
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 166
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 915,
+                "p95_us": 984
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6171,
+                "p95_us": 6773
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 651,
+                "p95_us": 699
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 1568,
+                "p95_us": 1696
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 580,
+                "p95_us": 647
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 185
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 5167,
+                "p95_us": 5655
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 10179,
+                "p95_us": 10939
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 547,
+                "p95_us": 551
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 5715,
+                "p95_us": 6215
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 595,
+                "p95_us": 648
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 142,
+                "p95_us": 167
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 8115,
+                "p95_us": 8855
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 13212,
+                "p95_us": 14062
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 626,
+                "p95_us": 628
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 8741,
+                "p95_us": 9484
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 4363,
+                "p95_us": 4598
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 167,
+                "p95_us": 211
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 45
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g3-far-both",
+      "revision": "562299a267a6952a91b7605b75338c8644010295",
+      "grassPoseReuse": true,
+      "pixelCandidates": true,
+      "phaseProfile": false,
+      "stemResolution": 45,
+      "quick": false,
+      "repeats": 2,
+      "savedConfigSha256": [
+        "0a8a39aaba97258fcc61af871d65d05adf6245f53ca614a66ea5e8332b63472f",
+        "8a44bad83f784e5e87658ecfa3a755678065be34653e8464562c4c36115e47dc"
+      ],
+      "summary": [
+        {
+          "key": "gpu-g3-far-both",
+          "source": "gpu",
+          "population": "2267, 1831",
+          "modes": {
+            "voxel": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 30,
+                "p95_us": 36
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 5864,
+                "p95_us": 6691
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 143,
+                "p95_us": 156
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 173,
+                "p95_us": 192
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 573,
+                "p95_us": 626
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 146,
+                "p95_us": 169
+              }
+            },
+            "analytic": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 240,
+                "p95_us": 255
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6070,
+                "p95_us": 6731
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 152
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 384,
+                "p95_us": 407
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 570,
+                "p95_us": 637
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 193
+              }
+            },
+            "square": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 61,
+                "p95_us": 66
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6098,
+                "p95_us": 6917
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 165,
+                "p95_us": 171
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 226,
+                "p95_us": 236
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 543,
+                "p95_us": 624
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 193
+              }
+            },
+            "analytic-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 268,
+                "p95_us": 284
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6137,
+                "p95_us": 6842
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 151
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 412,
+                "p95_us": 435
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 567,
+                "p95_us": 625
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 145,
+                "p95_us": 186
+              }
+            },
+            "square-pixels": {
+              "graphics.flora": {
+                "samples": 592,
+                "p50_us": 685,
+                "p95_us": 720
+              },
+              "frame.render": {
+                "samples": 592,
+                "p50_us": 6102,
+                "p95_us": 6804
+              },
+              "graphics.flora_lighting_cache": {
+                "samples": 592,
+                "p50_us": 147,
+                "p95_us": 154
+              },
+              "grass.render_total": {
+                "samples": 592,
+                "p50_us": 832,
+                "p95_us": 874
+              },
+              "cpu.record": {
+                "samples": 592,
+                "p50_us": 962,
+                "p95_us": 1028
+              },
+              "cpu.submit": {
+                "samples": 592,
+                "p50_us": 144,
+                "p95_us": 168
+              }
+            }
+          }
+        }
+      ],
+      "requestedStemResolution": 45
+    }
+  ],
+  "diagnosticPhases": [
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g3-near-both-phases",
+      "key": "gpu-g3-near-both",
+      "resolution": 45,
+      "metrics": {
+        "graphics.flora": {
+          "samples": 592,
+          "p50_us": 1328,
+          "p95_us": 1366
+        },
+        "frame.render": {
+          "samples": 592,
+          "p50_us": 6269,
+          "p95_us": 6955
+        },
+        "graphics.flora_lighting_cache": {
+          "samples": 592,
+          "p50_us": 131,
+          "p95_us": 134
+        },
+        "graphics.grass_pixels.prepare": {
+          "samples": 592,
+          "p50_us": 186,
+          "p95_us": 192
+        },
+        "graphics.grass_pixels.atlas": {
+          "samples": 592,
+          "p50_us": 556,
+          "p95_us": 573
+        },
+        "graphics.grass_pixels.display": {
+          "samples": 592,
+          "p50_us": 554,
+          "p95_us": 571
+        },
+        "grass.render_total": {
+          "samples": 592,
+          "p50_us": 1459,
+          "p95_us": 1501
+        },
+        "cpu.record": {
+          "samples": 592,
+          "p50_us": 1035,
+          "p95_us": 1125
+        },
+        "cpu.submit": {
+          "samples": 592,
+          "p50_us": 298,
+          "p95_us": 334
+        }
+      },
+      "phaseTotal": {
+        "samples": 592,
+        "p50_us": 1302,
+        "p95_us": 1339
+      },
+      "unattributed": {
+        "samples": 592,
+        "p50_us": 23,
+        "p95_us": 28
+      },
+      "batches": {
+        "samples": 592,
+        "p50": 8,
+        "p95": 8
+      }
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g15-wide-both-phases",
+      "key": "gpu-g15-wide-both",
+      "resolution": 45,
+      "metrics": {
+        "graphics.flora": {
+          "samples": 592,
+          "p50_us": 6896,
+          "p95_us": 7375
+        },
+        "frame.render": {
+          "samples": 592,
+          "p50_us": 11781,
+          "p95_us": 12579
+        },
+        "graphics.flora_lighting_cache": {
+          "samples": 592,
+          "p50_us": 626,
+          "p95_us": 631
+        },
+        "graphics.grass_pixels.prepare": {
+          "samples": 592,
+          "p50_us": 2178,
+          "p95_us": 2425
+        },
+        "graphics.grass_pixels.atlas": {
+          "samples": 592,
+          "p50_us": 3074,
+          "p95_us": 3096
+        },
+        "graphics.grass_pixels.display": {
+          "samples": 592,
+          "p50_us": 1475,
+          "p95_us": 1518
+        },
+        "grass.render_total": {
+          "samples": 592,
+          "p50_us": 7525,
+          "p95_us": 8005
+        },
+        "cpu.record": {
+          "samples": 592,
+          "p50_us": 4908,
+          "p95_us": 5046
+        },
+        "cpu.submit": {
+          "samples": 592,
+          "p50_us": 356,
+          "p95_us": 405
+        }
+      },
+      "phaseTotal": {
+        "samples": 592,
+        "p50_us": 6710,
+        "p95_us": 7198
+      },
+      "unattributed": {
+        "samples": 592,
+        "p50_us": 177,
+        "p95_us": 196
+      },
+      "batches": {
+        "samples": 592,
+        "p50": 84,
+        "p95": 84
+      }
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g15-far-both-phases",
+      "key": "gpu-g15-far-both",
+      "resolution": 45,
+      "metrics": {
+        "graphics.flora": {
+          "samples": 592,
+          "p50_us": 9885,
+          "p95_us": 10512
+        },
+        "frame.render": {
+          "samples": 592,
+          "p50_us": 15135,
+          "p95_us": 15972
+        },
+        "graphics.flora_lighting_cache": {
+          "samples": 592,
+          "p50_us": 627,
+          "p95_us": 631
+        },
+        "graphics.grass_pixels.prepare": {
+          "samples": 592,
+          "p50_us": 2206,
+          "p95_us": 2478
+        },
+        "graphics.grass_pixels.atlas": {
+          "samples": 592,
+          "p50_us": 5828,
+          "p95_us": 5858
+        },
+        "graphics.grass_pixels.display": {
+          "samples": 592,
+          "p50_us": 1693,
+          "p95_us": 1985
+        },
+        "grass.render_total": {
+          "samples": 592,
+          "p50_us": 10511,
+          "p95_us": 11242
+        },
+        "cpu.record": {
+          "samples": 592,
+          "p50_us": 4895,
+          "p95_us": 5108
+        },
+        "cpu.submit": {
+          "samples": 592,
+          "p50_us": 361,
+          "p95_us": 414
+        }
+      },
+      "phaseTotal": {
+        "samples": 592,
+        "p50_us": 9712,
+        "p95_us": 10341
+      },
+      "unattributed": {
+        "samples": 592,
+        "p50_us": 170,
+        "p95_us": 186
+      },
+      "batches": {
+        "samples": 592,
+        "p50": 84,
+        "p95": 84
+      }
+    },
+    {
+      "directory": "target/stem-band-trials/full-gpu-square-pixels-g3-near-both-r512-phases",
+      "key": "gpu-g3-near-both",
+      "resolution": 512,
+      "metrics": {
+        "graphics.flora": {
+          "samples": 592,
+          "p50_us": 14723,
+          "p95_us": 15495
+        },
+        "frame.render": {
+          "samples": 592,
+          "p50_us": 19330,
+          "p95_us": 20169
+        },
+        "graphics.flora_lighting_cache": {
+          "samples": 592,
+          "p50_us": 118,
+          "p95_us": 119
+        },
+        "graphics.grass_pixels.prepare": {
+          "samples": 592,
+          "p50_us": 5450,
+          "p95_us": 6125
+        },
+        "graphics.grass_pixels.atlas": {
+          "samples": 592,
+          "p50_us": 6396,
+          "p95_us": 6438
+        },
+        "graphics.grass_pixels.display": {
+          "samples": 592,
+          "p50_us": 2262,
+          "p95_us": 2769
+        },
+        "grass.render_total": {
+          "samples": 592,
+          "p50_us": 14841,
+          "p95_us": 15612
+        },
+        "cpu.record": {
+          "samples": 592,
+          "p50_us": 13426,
+          "p95_us": 13853
+        },
+        "cpu.submit": {
+          "samples": 592,
+          "p50_us": 470,
+          "p95_us": 520
+        }
+      },
+      "phaseTotal": {
+        "samples": 592,
+        "p50_us": 14109,
+        "p95_us": 14882
+      },
+      "unattributed": {
+        "samples": 592,
+        "p50_us": 615,
+        "p95_us": 649
+      },
+      "batches": {
+        "samples": 592,
+        "p50": 259,
+        "p95": 259
+      }
+    }
+  ]
+}

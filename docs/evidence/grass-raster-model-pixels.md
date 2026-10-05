@@ -2,11 +2,18 @@
 
 Runtime visual candidate, not a default migration or a demonstrated universal performance win.
 
-## Try it
+**Historical measurements below describe the first pixel backend (`510b0304`), not
+current smooth/pixelized ablations.** The follow-up
+[HTML investigation](grass-pixelization-performance.html) contains the current
+modes, repaired Vulkan test/synchronization gates, controlled analytic ablation,
+backend phase measurements and cited released-game research. Taper/ribbon numbers
+remain historical; those modes have been removed from the active implementation.
 
-Run `RE_FLORA_GRASS_STEM_TRYOUT=1 cargo run --release -- --authored-flora-bench`, press **R**, and enable experimental grass in **Stem Geometry & Color Bands**. Select Square or Tapered Square. In **Stem Model Pixelization**, toggle **Grass: model-grid pixelization of raster stems (A/B)**. Unchecked is the existing plain mesh; checked is the new candidate. Samples per height controls the model grid. No Save is necessary for comparison.
+## Current runtime controls
 
-Analytic Reference keeps its old path; disabling experimental grass restores voxel rendering. CPU climbing stems and flower geometry are not converted by this checkbox. Ribbons also support the raster sampling path.
+Run `RE_FLORA_GRASS_STEM_TRYOUT=1 cargo run --release -- --authored-flora-bench`, press **R**, and enable experimental grass in **Stem Geometry & Color Bands**. Select **Analytic Reference** or **Square Color Bands**. In **Stem Model Pixelization**, toggle **Grass: model-grid pixelization (analytic and square stems)**. Unchecked uses continuous geometry sampling/depth; checked pixelizes the selected model's silhouette and sampled depth. This is the same saved checkbox for both remaining grass modes, not a geometry-mode change. Samples per height controls the model grid. No Save is necessary for comparison.
+
+Disabling experimental grass restores voxel rendering. Analytic Reference now obeys this checkbox rather than always pixelizing. CPU climbing stems and flower geometry are not converted by it; existing flower controls remain independent. Legacy saved geometry choices 2/3 normalize to Square in memory without rewriting unrelated saved settings.
 
 ## Implementation
 
@@ -18,7 +25,12 @@ An eye-plane singularity uses continuous mesh fallback for that plant, rather th
 
 The current atlas is 2048²: 64 MiB RGBA32F color/eye-depth plus 16 MiB D32 depth, allocated lazily and retained after toggling off. Active rectangles are cleared, and neighbouring tiles are clipped. Atlas/view buffers are bounded; framebuffer replacements are retired through frame fences on resize. Plain mesh pose reuse can be disabled independently, but pixelized mode requires prepared GPU poses.
 
-## Validation
+## Historical validation at the first pixel-backend stage
+
+The particle-artifact failure and acquire hazards listed here were subsequently
+reproduced and repaired, not suppressed. Current Vulkan tests and synchronization
+fixtures are documented in the [HTML follow-up](grass-pixelization-performance.html).
+
 
 - `cargo fmt --check`, `cargo check`, Release build.
 - `cargo test`: 1,364 passed, four ignored; Vulkan shared-push-range regression test passed separately.
@@ -29,11 +41,16 @@ The current atlas is 2048²: 64 MiB RGBA32F color/eye-depth plus 16 MiB D32 dept
 
 An optional **synchronization-validation** sweep is not clean: plain-mesh baseline and pixel lifecycle runs each reported 196 identical swapchain-acquire `WRITE_AFTER_READ` hazards during loading. Duplicate-message suppression was raised to 10,000. No atlas/view-buffer-specific hazards were reported. This reproduces a baseline problem; it is not a blanket synchronization-clean claim. Logs: `target/stem-raster-pixels/sync-{baseline,lifecycle-full}.log`.
 
-## Same-binary Release comparison
+## Historical same-binary Release comparison
 
-Measured revision: `510b0304678b3b7c9cb048781c7bacff4e1f0a24`, RTX 3060 Ti, 2560×1440. Later changes only improve the opt-in lifecycle fixture/logging; rendering and ordinary benchmark settings are unchanged. **56 successful serial runs**, two reverse-order repeats, **592 sampled frames per metric**, resolution 45, pose reuse enabled. Saved GUI/camera file hashes stayed unchanged during the suite. All runs passed normal Vulkan validation/shutdown checks.
+These analytic measurements had built-in pixelization; they were **not** a
+smooth analytic control. Current analytic pixelization on/off measurements must
+come from the follow-up suite, not this table.
 
-Reproduce: `cargo build --release && node scripts/validate-stem-band-candidates.mjs --suite gpu --pixels`. Raw data/screenshots: `target/stem-band-trials/full-gpu-pixels/{runs.json,summary.json}`. Contact sheet: `target/stem-raster-pixels/near-comparison.png`. Early experiments before capability/layout fixes are not acceptance measurements.
+
+Measured revision: `510b0304678b3b7c9cb048781c7bacff4e1f0a24`, RTX 3060 Ti, 2560×1440. The lifecycle/logging follow-ups at that stage did not change ordinary rendering. The later mode removal, shared analytic checkbox and correctness repairs are covered separately in the HTML follow-up. **56 successful serial runs**, two reverse-order repeats, **592 sampled frames per metric**, resolution 45, pose reuse enabled. Saved GUI/camera file hashes stayed unchanged during the suite. All runs passed normal Vulkan validation/shutdown checks.
+
+Historical invocation at the measured revision: `cargo build --release && node scripts/validate-stem-band-candidates.mjs --suite gpu --pixels`. The current script produces the remaining five smooth/pixelized controls, not this retired seven-candidate matrix. Raw data/screenshots: `target/stem-band-trials/full-gpu-pixels/{runs.json,summary.json}`. Contact sheet: `target/stem-raster-pixels/near-comparison.png`. Early experiments before capability/layout fixes are not acceptance measurements.
 
 ### Grass drawing/backend, p50 µs
 
@@ -70,7 +87,11 @@ For 82,454/wide, p50 µs:
 
 CPU recording is not isolated grass time. Submit/present is separate from recording and acquisition. These are not uncapped whole-game FPS measurements. GPU scope savings do not translate proportionally to frame gains, especially with shared/asynchronous work.
 
-## Result and remaining limits
+## Historical result and remaining limits
+
+This section records conclusions at the measured revision, before the later
+analytic ablation and phase diagnostics. See the HTML follow-up for current evidence.
+
 
 **Visual candidate delivered; mass-grass performance acceptance failed.** Small-near tapered pixelization is ~39% cheaper than analytic including shared preparation, but still ~4.8× plain taper's paired cost. Large-wide tapered pixelization is ~84% more expensive than analytic; paired p95 is 7,419 µs versus analytic 3,903 µs. Large-far and low also regress. Original/plain modes remain available and defaults have not migrated.
 

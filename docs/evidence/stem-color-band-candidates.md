@@ -1,5 +1,11 @@
 # Solid Color Band stem candidates
 
+**Historical three-candidate experiment.** Tapered square and crossed-ribbon
+modes were later removed at the user's request; the remaining raster geometry is
+Square Color Bands. Old timings and implementation descriptions below are retained
+as historical evidence, not current mode availability. See the
+[current HTML pixelization investigation](grass-pixelization-performance.html).
+
 ## Result and acceptance boundary
 
 Three runtime-selectable raster candidates now work for GPU grass and CPU-owned
