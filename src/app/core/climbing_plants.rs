@@ -454,20 +454,6 @@ impl App {
         }
         let review_mode = std::env::var("RE_FLORA_CLIMBING_REVIEW").ok();
         let review = review_mode.is_some();
-        if review {
-            if let Ok(mode) = std::env::var("RE_FLORA_STEM_BAND_MODE") {
-                let mode: u32 = mode.parse()?;
-                anyhow::ensure!(
-                    mode <= 1,
-                    "stem candidate must be 0 (analytic grass) or 1 (square bands)"
-                );
-                self.debug_settings
-                    .adjustables
-                    .cpu_stem_band_rendering
-                    .value = mode != 0;
-                self.debug_settings.adjustables.stem_band_mode.value = mode;
-            }
-        }
         let overhang_review = review_mode.as_deref() == Some("overhang");
         let review_fixture = if overhang_review {
             Some(Fixture::Inward)

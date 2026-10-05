@@ -9,12 +9,12 @@ import {parseArgs} from 'node:util';
 
 const suites = ['all', 'gpu', 'cpu'];
 const help = `Usage: node scripts/validate-stem-band-candidates.mjs [--suite ${suites.join('|')}] [--quick] [--pixels] [--resolution 8..512] [--scene CAMERA --grid ODD] [--phases]
-Compare original voxel/block rendering, analytic grass and square color bands. GPU grass uses production painting (3x3 and
+Compare original voxel/block rendering and square color bands. GPU grass uses production painting (3x3 and
 15x15); CPU fixtures animate branched flower-like and climbing-like paths.
 Requires cargo build --release, Vulkan display and GPU timestamps. Runs serially,
 hidden/muted, with fixed simulation time. Does not change saved settings.
 --suite selects the source paths to test (default all).
---pixels adds analytic and square model-pixelized candidates and focuses GPU coverage
+--pixels adds the square model-pixelized candidate and focuses GPU coverage
 on small-near and large-wide/far/low views. Use --suite gpu (or all), not cpu.
 --resolution requests model-grid samples (8..512, default 45); legacy 8..31
 requests normalize to the saved model-grid minimum 32. Artifact names, measurements
@@ -69,11 +69,10 @@ const percentile = (values,fraction) => {
   return sorted[Math.min(sorted.length-1,Math.floor(sorted.length*fraction))];
 };
 const summarize = values => ({samples:values.length,p50_us:percentile(values,.5),p95_us:percentile(values,.95)});
-const baseModesGPU = [{name:'voxel',mode:0,ab:'a'}, {name:'analytic',mode:0,ab:'b'},
-  {name:'square',mode:1,ab:'b'}];
+const baseModesGPU = [{name:'voxel',ab:'a'}, {name:'square',ab:'b'}];
 const modesGPU = [...baseModesGPU, ...(options.pixels ? [
-  {name:'analytic-pixels',mode:0,ab:'b',pixels:true}, {name:'square-pixels',mode:1,ab:'b',pixels:true}] : [])];
-const modesCPU = [{name:'blocks',mode:0,ab:'a'}, ...baseModesGPU.slice(2)];
+  {name:'square-pixels',ab:'b',pixels:true}] : [])];
+const modesCPU = [{name:'blocks',ab:'a'}, {name:'square',ab:'b'}];
 const jobs = [];
 if(options.suite!=='cpu') {
   const scenes=options.scene ? [[+(options.grid??3),options.scene]] : options.quick ? [[15,'wide-both']] : options.pixels ? [
@@ -100,7 +99,7 @@ try {
       const name=`${job.key}-${mode.name}-${repeat+1}`;
       console.log(`running ${name}`);
       const directory=path.join(output,name);fs.mkdirSync(directory,{recursive:true});
-      const env={...process.env,RE_FLORA_STEM_BAND_MODE:String(mode.mode),RE_FLORA_GRASS_STEM_CAPTURE:directory,RE_FLORA_GRASS_BAND_POSE_REUSE:grassPoseReuse,
+      const env={...process.env,RE_FLORA_GRASS_STEM_CAPTURE:directory,RE_FLORA_GRASS_BAND_POSE_REUSE:grassPoseReuse,
         RE_FLORA_GRASS_BAND_PIXELIZATION:mode.pixels?'1':'0',RE_FLORA_STEM_PIXEL_RESOLUTION:String(options.resolution)};
       for(const key of ['WAYLAND_DISPLAY','RE_FLORA_GRASS_STEM_REVIEW','RE_FLORA_CPU_STEM_REVIEW','RE_FLORA_CPU_STEM_NEAR','RE_FLORA_CLIMBING_REVIEW','RE_FLORA_GRASS_STEM_TRYOUT','RE_FLORA_FLOWER_MODEL_REVIEW','RE_FLORA_STEM_PIXEL_LIFECYCLE','RE_FLORA_STEM_PIXEL_PROFILE'])delete env[key];
       const phaseProfile=options.phases&&mode.name==='square-pixels';

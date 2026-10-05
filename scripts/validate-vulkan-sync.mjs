@@ -33,14 +33,11 @@ const hashes=()=>saved.map(file=>hash(fs.readFileSync(path.join(root,file))));
 const before=hashes();
 const jobs=[{name:'startup',args:['--auto-exit','0.5']},...(quick?[]:[
   {name:'resize',args:['--windowed','--resize-lifecycle-test','--auto-exit','0.5']},
-  {name:'grass-analytic-lifecycle',args:['--windowed','--perf','--authored-flora-bench'],env:{
-    RE_FLORA_GRASS_STEM_REVIEW:'mid-both-b',RE_FLORA_STEM_BAND_MODE:'0',
-    RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}},
   {name:'grass-pixel-lifecycle',args:['--windowed','--perf','--authored-flora-bench'],env:{
-    RE_FLORA_GRASS_STEM_REVIEW:'mid-both-b',RE_FLORA_STEM_BAND_MODE:'1',
+    RE_FLORA_GRASS_STEM_REVIEW:'mid-both-b',
     RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}},
   {name:'grass-square-descriptor-stress',args:['--windowed','--perf','--authored-flora-bench'],env:{
-    RE_FLORA_GRASS_STEM_REVIEW:'wide-both-b',RE_FLORA_GRASS_STEM_GRID:'15',RE_FLORA_STEM_BAND_MODE:'1',
+    RE_FLORA_GRASS_STEM_REVIEW:'wide-both-b',RE_FLORA_GRASS_STEM_GRID:'15',
     RE_FLORA_GRASS_BAND_PIXELIZATION:'1',RE_FLORA_GRASS_BAND_POSE_REUSE:'1',
     RE_FLORA_STEM_PIXEL_RESOLUTION:'128',RE_FLORA_STEM_SAMPLE_FRAMES:'60'}}])];
 const results=[];
@@ -63,7 +60,7 @@ try {
     assert.ok(!/\bERROR\b|VUID|hazard detected|panicked at|Validation (Error|Warning)/.test(log),`${job.name}: inspect its validation log`);
     if(job.name.startsWith('grass-')){
       assert.match(log,/\[GRASS_MODEL_PIXELS\] enabled=true/);
-      assert.match(log,new RegExp(`GRASS_MODEL_PIXELS\\].*backend=${job.env.RE_FLORA_STEM_BAND_MODE==='0'?'analytic':'hardware_raster'}`));
+      assert.match(log,/GRASS_MODEL_PIXELS\].*backend=hardware_raster/);
       assert.match(log,/GRASS_STEM_REVIEW\].*phase=complete/);
     }
     if(job.name.endsWith('lifecycle')){

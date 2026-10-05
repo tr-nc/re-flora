@@ -45,7 +45,7 @@ for(let repeat=0;repeat<2;repeat++)for(const scene of (repeat?scenes.toReversed(
   console.log(`running ${key}`);
   const env={...process.env,RUST_LOG:'info'};
   for(const k of Object.keys(env))if(k.startsWith('RE_FLORA_')||k==='WAYLAND_DISPLAY'||k.startsWith('VK_LAYER')||k==='VK_INSTANCE_LAYERS')delete env[k];
-  Object.assign(env,{RE_FLORA_GRASS_STEM_REVIEW:`${scene.camera}-b`,RE_FLORA_GRASS_STEM_GRID:String(scene.grid),RE_FLORA_STEM_BAND_MODE:'1',RE_FLORA_GRASS_BAND_POSE_REUSE:'1',RE_FLORA_GRASS_BAND_PIXELIZATION:variant.pixels?'1':'0',RE_FLORA_STEM_PIXEL_RESOLUTION:'45',RE_FLORA_STEM_SAMPLE_FRAMES:'300'});
+  Object.assign(env,{RE_FLORA_GRASS_STEM_REVIEW:`${scene.camera}-b`,RE_FLORA_GRASS_STEM_GRID:String(scene.grid),RE_FLORA_GRASS_BAND_POSE_REUSE:'1',RE_FLORA_GRASS_BAND_PIXELIZATION:variant.pixels?'1':'0',RE_FLORA_STEM_PIXEL_RESOLUTION:'45',RE_FLORA_STEM_SAMPLE_FRAMES:'300'});
   const res=spawnSync(variant.binary,['--hidden','--mute','--windowed','--perf','--authored-flora-bench',...(immediate?['--present-mode','immediate']:[])],{cwd:root,env,encoding:'utf8',maxBuffer:128*1024*1024});
   const log=(res.stdout??'')+(res.stderr??'');fs.writeFileSync(path.join(out,`${key}.log`),log);
   assert.equal(res.status,0,`${key}: runtime failed`);

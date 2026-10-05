@@ -13,7 +13,6 @@ pub(super) struct CpuStemReview {
     shape: String,
     plants: u32,
     experimental: bool,
-    candidate: u32,
     roots: Vec<Vec3>,
 }
 impl CpuStemReview {
@@ -40,19 +39,12 @@ impl CpuStemReview {
             ["a", "b"].contains(&parts[2]),
             "CPU path mode must be a or b"
         );
-        let candidate =
-            std::env::var("RE_FLORA_STEM_BAND_MODE").map_or(Ok(1), |v| v.parse::<u32>())?;
-        ensure!(
-            candidate <= 1,
-            "stem candidate must be 0 (analytic grass) or 1 (square bands)"
-        );
         Ok(Self {
             frame: 0,
             case: case.into(),
             shape: parts[0].into(),
             plants,
             experimental: parts[2] == "b",
-            candidate,
             roots: Vec::new(),
         })
     }
@@ -93,7 +85,6 @@ impl CpuStemReview {
                 .set_camera_pose_looking_at(target + offset, target),
             "CPU review camera"
         );
-        app.debug_settings.adjustables.stem_band_mode.value = self.candidate;
         app.debug_settings.adjustables.cpu_stem_band_rendering.value = self.experimental;
         let start = Instant::now();
         let time = frame as f32 / 60.;
@@ -216,8 +207,8 @@ impl CpuStemReview {
             }
         }
         if [0, 120, 420].contains(&frame) {
-            log::info!("[CPU_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={frame} plants={} bands={count} candidate={} growth={growing} saved=false",
-                self.case,if frame==0 { "start" } else if frame==120 { "sample" } else { "complete" },app.time_info.total_frame_count(),self.plants,self.candidate);
+            log::info!("[CPU_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={frame} plants={} bands={count} geometry=square_bands growth={growing} saved=false",
+                self.case,if frame==0 { "start" } else if frame==120 { "sample" } else { "complete" },app.time_info.total_frame_count(),self.plants);
         }
         Ok(frame == 420)
     }

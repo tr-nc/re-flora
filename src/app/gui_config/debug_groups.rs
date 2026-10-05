@@ -22,16 +22,16 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Stem Model Pixelization",
-        description: "Grass in both Analytic Reference and Square Color Bands: unchecked = continuous silhouette sampling; checked = model-anchored pixelized silhouette and depth. Analytic keeps ray intersections; square uses hardware-raster tiles and prepared poses. Flower sampling and CPU climbing stems are unchanged.",
+        description: "Grass square color bands use hardware rasterization and prepared poses on the scene-wide pixel grid. Flower sampling and CPU climbing stems are unchanged.",
         initially_open: false,
         params: &["grass_band_pixelization", "flower_stem_model_resolution"],
     },
     ControlGroup {
         parent: None,
         title: "Stem Geometry & Color Bands",
-        description: "Grass unchecked: original voxel geometry. Checked: selected stem geometry. Square bands have flat color and lighting, hardware depth and no spherical caps. All objects use the scene-wide pixel grid. Growth and wind stay live.",
+        description: "Grass unchecked: original voxel geometry. Checked: square color-band stems with flat color and lighting, hardware depth and no spherical caps. All objects use the scene-wide pixel grid. Growth and wind stay live.",
         initially_open: false,
-        params: &["grass_stem_rendering", "cpu_stem_band_rendering", "stem_band_mode", "grass_band_pose_reuse"],
+        params: &["grass_stem_rendering", "cpu_stem_band_rendering", "grass_band_pose_reuse"],
     },
     ControlGroup {
         parent: None,

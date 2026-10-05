@@ -213,7 +213,7 @@ value = false
 [[section.param]]
 id = "grass_band_pixelization"
 kind = "bool"
-label = "Grass: model-grid pixelization (analytic and square stems)"
+label = "Grass: model-grid pixelization (square stems)"
 type = "Bool"
 
 [section.param.data]
@@ -236,16 +236,6 @@ type = "Bool"
 
 [section.param.data]
 value = false
-
-[[section.param]]
-id = "stem_band_mode"
-kind = "choice"
-label = "Stem candidate (grass and CPU paths)"
-type = "Choice"
-
-[section.param.data]
-value = 1
-options = ["Analytic reference (grass only)", "Square color bands"]
 
 [[section.param]]
 id = "flower_stem_model_resolution"

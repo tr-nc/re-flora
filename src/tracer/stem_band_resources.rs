@@ -33,9 +33,6 @@ impl StemBandResources {
             shadow_changed: false,
         }
     }
-    pub fn invalidate_shadow(&mut self) {
-        self.shadow_changed = true;
-    }
     pub fn take_shadow_changed(&mut self) -> bool {
         std::mem::take(&mut self.shadow_changed)
     }

@@ -87,7 +87,6 @@ impl GuiConfigLoader {
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
-        Self::add_missing_param(&mut config, "Debug", "stem_band_mode");
         Self::migrate_stem_rendering_controls(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
@@ -198,13 +197,16 @@ impl GuiConfigLoader {
     }
 
     fn migrate_stem_rendering_controls(config: &mut GuiConfigFile) {
+        for section in &mut config.section {
+            section.param.retain(|p| p.id != "stem_band_mode");
+        }
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
         for schema in defaults
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .filter(|p| matches!(p.id.as_str(), "stem_band_mode" | "grass_band_pixelization"))
+            .filter(|p| p.id == "grass_band_pixelization")
         {
             for param in config
                 .section
@@ -213,17 +215,6 @@ impl GuiConfigLoader {
                 .filter(|p| p.id == schema.id)
             {
                 param.label.clone_from(&schema.label);
-                if let (
-                    GuiParamValue::Choice { value, options },
-                    GuiParamValue::Choice {
-                        options: current, ..
-                    },
-                ) = (&mut param.value, &schema.value)
-                {
-                    // Saved tapered/ribbon choices become the remaining square mode.
-                    *value = (*value).min(1);
-                    options.clone_from(current);
-                }
             }
         }
     }
@@ -971,16 +962,18 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn retired_stem_modes_normalize_before_validation_without_writing_saves() {
+    fn retired_stem_modes_are_removed_without_writing_saves() {
         for old_mode in 0..=3 {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-            let param = config
+            let section = config
                 .section
                 .iter_mut()
-                .flat_map(|s| &mut s.param)
-                .find(|p| p.id == "stem_band_mode")
+                .find(|s| s.name == "Debug")
                 .unwrap();
+            let mut param = section.param[0].clone();
+            param.id = "stem_band_mode".into();
+            param.kind = super::GuiParamKind::Choice;
             param.value = super::GuiParamValue::Choice {
                 value: old_mode,
                 options: vec![
@@ -990,21 +983,26 @@ mod tests {
                     "ribbon".into(),
                 ],
             };
+            section.param.push(param);
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("gui.toml");
             GuiConfigLoader::save_to_path(&config, &path).unwrap();
             let bytes = std::fs::read(&path).unwrap();
             let loaded = GuiConfigLoader::load_from_path(&path);
-            let param = loaded
+            assert!(!loaded
                 .section
                 .iter()
                 .flat_map(|s| &s.param)
-                .find(|p| p.id == "stem_band_mode")
-                .unwrap();
-            let (value, options) = param.value.get_choice().unwrap();
-            assert_eq!(value, old_mode.min(1));
-            assert_eq!(options.len(), 2);
+                .any(|p| p.id == "stem_band_mode"));
             assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let saved: GuiConfigFile =
+                toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(!saved
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == "stem_band_mode"));
         }
     }
 

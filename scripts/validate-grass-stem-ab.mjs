@@ -82,7 +82,7 @@ const summary = scenes.map(scene => {
   return { scene, grass: selected[0].grass, ...modes };
 });
 // A diagnostic regression alarm for the original tens-of-ms cliff, not a
-// release budget or a claim that analytic grass is faster than voxel grass.
+// release budget or a claim that square-band grass is faster than voxel grass.
 const low = summary.find(row => row.scene === 'low-both');
 assert.ok(low.b['graphics.flora'].p50_us < 5000, 'Near-plane regression: low-both B exceeds the 5ms diagnostic alarm.');
 fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({ resolution: '2560x1440 (check screenshot dimensions)', warmup_frames: 120, repeats: 2, summary }, null, 2));

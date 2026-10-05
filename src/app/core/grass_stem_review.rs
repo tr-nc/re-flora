@@ -15,7 +15,6 @@ pub(super) struct GrassStemReview {
     species_mode: u32,
     curved: bool,
     grid: u32,
-    candidate: u32,
     pose_reuse: bool,
     pixelization: bool,
     pixel_lifecycle: bool,
@@ -29,7 +28,6 @@ impl GrassStemReview {
         if let Ok(case) = std::env::var("RE_FLORA_GRASS_STEM_REVIEW") {
             let mut review = Self::parse(&case).expect("grass stem review case");
             review.grid = environment_uint("RE_FLORA_GRASS_STEM_GRID", 3);
-            review.candidate = environment_uint("RE_FLORA_STEM_BAND_MODE", 0);
             let reuse = environment_uint("RE_FLORA_GRASS_BAND_POSE_REUSE", 1);
             assert!(reuse <= 1, "pose reuse must be 0 or 1");
             review.pose_reuse = reuse != 0;
@@ -50,10 +48,6 @@ impl GrassStemReview {
             assert!(
                 (3..=15).contains(&review.grid) && review.grid % 2 == 1,
                 "grass grid must be odd, 3..15"
-            );
-            assert!(
-                review.candidate <= 1,
-                "stem candidate must be 0 (analytic) or 1 (square bands)"
             );
             assert!(
                 (60..=600).contains(&review.sample_frames),
@@ -104,7 +98,6 @@ impl GrassStemReview {
             species_mode,
             curved: parts[1] == "curved",
             grid: 3,
-            candidate: 0,
             pose_reuse: true,
             pixelization: false,
             pixel_lifecycle: false,
@@ -190,7 +183,6 @@ impl GrassStemReview {
         gui.grass_stem_rendering.value = self.experimental;
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
-            gui.stem_band_mode.value = self.candidate;
             gui.grass_band_pose_reuse.value = self.pose_reuse;
             gui.flora_growth_override_enabled.value = true;
             gui.flora_growth_override.value = if self.pixel_lifecycle {
@@ -262,9 +254,9 @@ impl GrassStemReview {
                 frame == 0 || counts.iter().all(|count| *count > 0),
                 "grass review has empty grass species: {counts:?}"
             );
-            log::info!("[GRASS_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={} grass={counts:?} camera={:?} target={:?} resolution={} saved=false grid={} candidate={}",
+            log::info!("[GRASS_STEM_REVIEW] case={} phase={} app_frame={} simulation_frame={} grass={counts:?} camera={:?} target={:?} resolution={} saved=false grid={} geometry=square_bands",
                 self.case, if frame == 0 { "start" } else if frame == warmup_frames { "sample" } else { "complete" },
-                app.time_info.total_frame_count(), frame, (target + offset).to_array(), target.to_array(), gui.flower_stem_model_resolution.value, self.grid, self.candidate);
+                app.time_info.total_frame_count(), frame, (target + offset).to_array(), target.to_array(), gui.flower_stem_model_resolution.value, self.grid);
         }
         Ok(frame == total_frames)
     }
