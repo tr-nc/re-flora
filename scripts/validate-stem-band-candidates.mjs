@@ -9,20 +9,19 @@ import {parseArgs} from 'node:util';
 
 const suites = ['all', 'gpu', 'cpu'];
 const help = `Usage: node scripts/validate-stem-band-candidates.mjs [--suite ${suites.join('|')}] [--quick] [--pixels]
-Compare original voxel/block rendering, analytic grass, square bands, tapered
-square bands and crossed ribbons. GPU grass uses production painting (3x3 and
+Compare original voxel/block rendering, analytic grass and square color bands. GPU grass uses production painting (3x3 and
 15x15); CPU fixtures animate branched flower-like and climbing-like paths.
 Requires cargo build --release, Vulkan display and GPU timestamps. Runs serially,
 hidden/muted, with fixed simulation time. Does not change saved settings.
 --suite selects the source paths to test (default all).
---pixels adds square/tapered model-pixelized candidates and focuses GPU coverage
+--pixels adds the square model-pixelized candidate and focuses GPU coverage
 on small-near and large-wide/far/low views. Use --suite gpu (or all), not cpu.
 The model-grid resolution is pinned to 45; ordinary candidates force pixels off.
 RE_FLORA_GRASS_BAND_POSE_REUSE=0 disables GPU pose reuse for a diagnostic comparison
 (default 1). This choice is recorded in summary.json.
 --quick uses one repeat and the high-population wide views; default uses two
 repeats in opposite order, near/low/mid/far grass and CPU growth/near coverage.
-Artifacts: target/stem-band-trials/{quick|full}-{suite}[-pixels]/{*.log,*.png,runs.json,summary.json}.
+Artifacts: target/stem-band-trials/{quick|full}-{suite}-square[-pixels]/{*.log,*.png,runs.json,summary.json}.
 Reruns overwrite that suite's artifacts. No automatic visual or release acceptance.
 Examples:
   node scripts/validate-stem-band-candidates.mjs --quick
@@ -38,7 +37,7 @@ try {
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 const root = path.resolve(import.meta.dirname,'..');
 const binary = path.join(root,'target/release/re-flora');
-const output = path.join(root,`target/stem-band-trials/${options.quick?'quick':'full'}-${options.suite}${options.pixels?'-pixels':''}`);
+const output = path.join(root,`target/stem-band-trials/${options.quick?'quick':'full'}-${options.suite}-square${options.pixels?'-pixels':''}`);
 const hash = data => createHash('sha256').update(data).digest('hex');
 const saved = ['config/gui.toml','config/camera_snapshots.toml'];
 const before = saved.map(file=>hash(fs.readFileSync(path.join(root,file))));
@@ -50,9 +49,9 @@ const percentile = (values,fraction) => {
 };
 const summarize = values => ({samples:values.length,p50_us:percentile(values,.5),p95_us:percentile(values,.95)});
 const baseModesGPU = [{name:'voxel',mode:0,ab:'a'}, {name:'analytic',mode:0,ab:'b'},
-  {name:'square',mode:1,ab:'b'}, {name:'taper',mode:2,ab:'b'}, {name:'ribbon',mode:3,ab:'b'}];
+  {name:'square',mode:1,ab:'b'}];
 const modesGPU = [...baseModesGPU, ...(options.pixels ? [
-  {name:'square-pixels',mode:1,ab:'b',pixels:true}, {name:'taper-pixels',mode:2,ab:'b',pixels:true}] : [])];
+  {name:'square-pixels',mode:1,ab:'b',pixels:true}] : [])];
 const modesCPU = [{name:'blocks',mode:0,ab:'a'}, ...baseModesGPU.slice(2)];
 const jobs = [];
 if(options.suite!=='cpu') {

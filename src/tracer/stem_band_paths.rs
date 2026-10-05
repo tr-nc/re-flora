@@ -33,7 +33,6 @@ pub fn path_bands(
     full_arc: f32,
     bands: u32,
     radius: f32,
-    mode: u32,
     palette: [Vec3; 2],
 ) -> Vec<StemBandInstance> {
     assert!(full_arc.is_finite() && full_arc > 0.0 && bands > 0);
@@ -66,17 +65,10 @@ pub fn path_bands(
             let (b, tangent_b, side_b) = at(end);
             let shading_arc = band as f32 * cell;
             let (shading_position, shading_normal) = ancestor_sample(points, index, shading_arc);
-            let taper = |s: f32| {
-                if mode == 2 {
-                    1. - 0.88 * (s / full_arc).clamp(0., 1.)
-                } else {
-                    1.
-                }
-            };
             let color = palette[0].lerp(palette[1], band as f32 / (bands - 1).max(1) as f32);
             result.push(StemBandInstance {
-                a_radius: a.extend(radius * taper(arc)).to_array(),
-                b_radius: b.extend(radius * taper(end)).to_array(),
+                a_radius: a.extend(radius).to_array(),
+                b_radius: b.extend(radius).to_array(),
                 tangent_a: tangent_a.to_array(),
                 tangent_b: tangent_b.to_array(),
                 side_a: side_a.to_array(),
@@ -129,8 +121,8 @@ mod tests {
             point(4., Some(2)),
         ];
         let palette = [Vec3::ZERO, Vec3::ONE];
-        let a = path_bands(&sparse, 4., 2, 0.5, 1, palette);
-        let b = path_bands(&dense, 4., 2, 0.5, 1, palette);
+        let a = path_bands(&sparse, 4., 2, 0.5, palette);
+        let b = path_bands(&dense, 4., 2, 0.5, palette);
         assert_eq!(a.len(), 2);
         assert_eq!(b.len(), 3);
         assert_eq!(b[0].color_srgb, b[1].color_srgb);
@@ -143,24 +135,16 @@ mod tests {
     #[test]
     fn growth_appends_without_recoloring_existing_material() {
         let palette = [Vec3::ZERO, Vec3::ONE];
-        let a = path_bands(
-            &[point(0., None), point(1., Some(0))],
-            4.,
-            4,
-            0.5,
-            2,
-            palette,
-        );
+        let a = path_bands(&[point(0., None), point(1., Some(0))], 4., 4, 0.5, palette);
         let b = path_bands(
             &[point(0., None), point(1., Some(0)), point(3., Some(1))],
             4.,
             4,
             0.5,
-            2,
             palette,
         );
         assert_eq!(a[0], b[0]);
-        assert!(b.last().unwrap().b_radius[3] < a[0].a_radius[3]);
+        assert_eq!(b.last().unwrap().b_radius[3], a[0].a_radius[3]);
     }
     #[test]
     fn deformation_changes_positions_not_material_bands() {
@@ -168,8 +152,8 @@ mod tests {
         let mut bent = points;
         bent[1].position.x = 2.;
         bent[1].tangent = Vec3::new(0.5, 1., 0.).normalize();
-        let a = path_bands(&points, 4., 4, 0.5, 1, [Vec3::ZERO, Vec3::ONE]);
-        let b = path_bands(&bent, 4., 4, 0.5, 1, [Vec3::ZERO, Vec3::ONE]);
+        let a = path_bands(&points, 4., 4, 0.5, [Vec3::ZERO, Vec3::ONE]);
+        let b = path_bands(&bent, 4., 4, 0.5, [Vec3::ZERO, Vec3::ONE]);
         assert_eq!(a.len(), b.len());
         for (a, b) in a.iter().zip(&b) {
             assert_eq!(a.color_srgb, b.color_srgb);

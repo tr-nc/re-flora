@@ -17,7 +17,7 @@ ModelRasterTileVertex main(Input input)
     uint height = uint(pose.position_height.w);
     if (band >= height || pose.color_valid.w == 0.0) return output;
     float3 world = grassBandWorldPoint(base + band, band, height,
-        raster_pass.voxel_count, gui_input.stem_band_mode, input.vertex);
+        raster_pass.voxel_count, input.vertex);
     output.position = modelRasterClip(view, camera_info.pos.xyz, world, object, raster_pass.slot_side);
     output.color = pose.color_valid.xyz;
     output.eye_depth = dot(world - camera_info.pos.xyz, view.normal_distance.xyz);

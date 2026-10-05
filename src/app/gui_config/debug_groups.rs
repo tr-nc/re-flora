@@ -15,7 +15,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Stem Model Pixelization",
-        description: "Raster grass modes 1–3: unchecked = plain mesh; checked = model-anchored raster tiles, pixelized silhouette and sampled depth, without ray/segment intersections. Uses GPU-prepared poses. Analytic mode and flowers keep their existing model grid; CPU climbing stems are unchanged.",
+        description: "Square raster grass: unchecked = plain mesh; checked = model-anchored raster tiles, pixelized silhouette and sampled depth, without ray/segment intersections. Uses GPU-prepared poses. Analytic mode and flowers keep their existing model grid; CPU climbing stems are unchanged.",
         initially_open: false,
         params: &["grass_band_pixelization", "flower_stem_model_resolution"],
     },

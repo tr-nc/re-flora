@@ -88,6 +88,7 @@ impl GuiConfigLoader {
         Self::migrate_flower_stem_selector(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::add_missing_param(&mut config, "Debug", "stem_band_mode");
+        Self::retire_stem_band_variants(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
@@ -194,6 +195,35 @@ impl GuiConfigLoader {
         );
 
         config
+    }
+
+    fn retire_stem_band_variants(config: &mut GuiConfigFile) {
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        let schema = defaults
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "stem_band_mode")
+            .expect("stem mode schema");
+        for param in config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .filter(|p| p.id == schema.id)
+        {
+            if let (
+                GuiParamValue::Choice { value, options },
+                GuiParamValue::Choice {
+                    options: current, ..
+                },
+            ) = (&mut param.value, &schema.value)
+            {
+                // Saved tapered/ribbon choices become the remaining square mode.
+                *value = (*value).min(1);
+                options.clone_from(current);
+            }
+        }
     }
 
     // Retire appearance selectors; the combined appearance is now permanent.
@@ -938,6 +968,44 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retired_stem_modes_normalize_before_validation_without_writing_saves() {
+        for old_mode in 0..=3 {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == "stem_band_mode")
+                .unwrap();
+            param.value = super::GuiParamValue::Choice {
+                value: old_mode,
+                options: vec![
+                    "analytic".into(),
+                    "square".into(),
+                    "taper".into(),
+                    "ribbon".into(),
+                ],
+            };
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            let param = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "stem_band_mode")
+                .unwrap();
+            let (value, options) = param.value.get_choice().unwrap();
+            assert_eq!(value, old_mode.min(1));
+            assert_eq!(options.len(), 2);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+    }
+
     #[test]
     fn retired_flora_color_variation_is_removed_from_legacy_saves() {
         use super::RETIRED_FLORA_COLOR_PARAMS;

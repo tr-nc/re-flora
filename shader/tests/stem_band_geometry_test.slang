@@ -33,6 +33,5 @@ export __extern_cpp int main() {
     if(any(isnan(pta))||any(isnan(ptb))||!close(pta,float3(0,1,0)))return 9;
     if(stemColorBand(0,10,8)!=0u||stemColorBand(10,10,8)!=7u)return 4;
     if(stemColorBand(2,10,8)!=1u||stemColorBand(2.5,10,8)!=2u)return 5;
-    if(abs(stemBandTaper(2u,1)-0.12)>1e-5||stemBandTaper(1u,1)!=1)return 6;
     return 0;
 }

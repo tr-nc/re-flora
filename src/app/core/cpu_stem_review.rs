@@ -42,7 +42,10 @@ impl CpuStemReview {
         );
         let candidate =
             std::env::var("RE_FLORA_STEM_BAND_MODE").map_or(Ok(1), |v| v.parse::<u32>())?;
-        ensure!(candidate <= 3, "stem candidate must be 0..3");
+        ensure!(
+            candidate <= 1,
+            "stem candidate must be 0 (analytic grass) or 1 (square bands)"
+        );
         Ok(Self {
             frame: 0,
             case: case.into(),
@@ -159,7 +162,6 @@ impl CpuStemReview {
                 0.18,
                 8,
                 0.65 / 256.,
-                if self.experimental { self.candidate } else { 1 },
                 [Vec3::new(0.08, 0.24, 0.04), Vec3::new(0.55, 0.72, 0.12)],
             ));
         }

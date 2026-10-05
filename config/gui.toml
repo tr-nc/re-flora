@@ -135,7 +135,7 @@ type = "Choice"
 
 [section.param.data]
 value = 1
-options = ["Analytic reference (grass only)", "Square color bands", "Tapered square color bands", "Crossed color-band ribbons"]
+options = ["Analytic reference (grass only)", "Square color bands"]
 
 [[section.param]]
 id = "flower_stem_model_resolution"

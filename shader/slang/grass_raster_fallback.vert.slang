@@ -17,7 +17,7 @@ StemBandVertex main(Input input)
     uint height = uint(pose.position_height.w);
     if (band >= height || pose.color_valid.w == 0.0) return output;
     float3 world = grassBandWorldPoint(base + band, band, height,
-        raster_pass.voxel_count, gui_input.stem_band_mode, input.vertex);
+        raster_pass.voxel_count, input.vertex);
     output.position = mul(camera_info.view_proj_mat, float4(world, 1));
     output.color = pose.color_valid.xyz;
     return output;

@@ -55,8 +55,7 @@ StemBandVertex main(VertexInput input) {
     float3 a,b,tangentA,tangentB;
     stemBandCenterFrames(pose.voxel_position,previousCenter,nextCenter,
         band>0u,hasNext,0.5/256.0,a,b,tangentA,tangentB);
-    float ra=0.5/256.0*stemBandTaper(gui_input.stem_band_mode,float(band)/float(height));
-    float rb=0.5/256.0*stemBandTaper(gui_input.stem_band_mode,float(band+1u)/float(height));
+    const float ra=0.5/256.0, rb=ra;
     float3 world=stemBandPoint(a,b,tangentA,tangentB,float3(1,0,0),float3(1,0,0),float2(ra),float2(rb),stemBandCorner(input.vertex));
     output.position=mul(camera_info.view_proj_mat,float4(world,1));
     float3 color=sampleFloraBaseColor(true,species,seed,int3(0,int(band),0),root,pose.color_gradient,info);

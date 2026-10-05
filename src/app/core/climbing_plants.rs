@@ -457,7 +457,10 @@ impl App {
         if review {
             if let Ok(mode) = std::env::var("RE_FLORA_STEM_BAND_MODE") {
                 let mode: u32 = mode.parse()?;
-                anyhow::ensure!(mode <= 3, "stem candidate must be 0..3");
+                anyhow::ensure!(
+                    mode <= 1,
+                    "stem candidate must be 0 (analytic grass) or 1 (square bands)"
+                );
                 self.debug_settings
                     .adjustables
                     .cpu_stem_band_rendering
@@ -784,7 +787,6 @@ impl App {
                 plant.max_live_arc() / 256.,
                 8,
                 0.45 / 256.,
-                self.debug_settings.adjustables.stem_band_mode.value,
                 [Vec3::new(0.22, 0.32, 0.07), Vec3::new(0.32, 0.52, 0.09)],
             );
             self.tracer.show_cpu_stem_bands(&bands)?;

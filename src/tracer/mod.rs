@@ -3068,7 +3068,7 @@ impl Tracer {
             log::info!("[GRASS_RASTER_PIXELS] enabled={} backend=hardware_raster tiles=streamed cpu_readback=0", vegetation.appearance.grass_band_pixelization);
         }
         self.grass_band_pixelization = vegetation.appearance.grass_band_pixelization;
-        let mode = vegetation.appearance.stem_band_mode.min(3);
+        let mode = vegetation.appearance.stem_band_mode.min(1);
         if self.stem_band_mode != mode {
             self.cpu_stem_band_resources.invalidate_shadow();
         }
@@ -3879,7 +3879,6 @@ impl Tracer {
             &self.resources.flower_models.stem_band_vertices,
             8 * 36,
         );
-        record_index(&self.resources.flower_models.stem_band_ribbon_indices);
         if self.cpu_stem_band_resources.count > 0 {
             record_instance(&self.cpu_stem_band_resources.instances);
         }
@@ -5180,11 +5179,7 @@ impl Tracer {
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
                 if analytic_grass && self.stem_band_mode != 0 {
                     let bands = &self.resources.flower_models;
-                    cmdbuf.bind_index_buffer_u32(if self.stem_band_mode == 3 {
-                        &bands.stem_band_ribbon_indices
-                    } else {
-                        &bands.stem_band_indices
-                    });
+                    cmdbuf.bind_index_buffer_u32(&bands.stem_band_indices);
                     cmdbuf.bind_vertex_buffers(0, &[&bands.stem_band_vertices]);
                 } else if analytic_grass {
                     cmdbuf.bind_index_buffer_u32(&self.resources.flower_models.flower_stem_indices);
@@ -5224,16 +5219,8 @@ impl Tracer {
                     if raster_pixels && analytic_grass {
                         render_target.record_end(cmdbuf);
                         let bands = &self.resources.flower_models;
-                        let index_count = if self.stem_band_mode == 3 {
-                            8 * 12
-                        } else {
-                            8 * 36
-                        };
-                        let indices = if self.stem_band_mode == 3 {
-                            &bands.stem_band_ribbon_indices
-                        } else {
-                            &bands.stem_band_indices
-                        };
+                        let index_count = 8 * 36;
+                        let indices = &bands.stem_band_indices;
                         self.grass_raster_pixels.as_ref().unwrap().record(
                             cmdbuf,
                             band_cache_buffer.as_ref().unwrap(),
@@ -5261,7 +5248,6 @@ impl Tracer {
                         if analytic_grass {
                             match self.stem_band_mode {
                                 0 => 6,
-                                3 => 8 * 12,
                                 _ => 8 * 36,
                             }
                         } else {
@@ -6093,11 +6079,7 @@ impl Tracer {
         let bands = &self.resources.flower_models;
         pipeline.record_bind(cmdbuf);
         pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-        cmdbuf.bind_index_buffer_u32(if self.stem_band_mode == 3 {
-            &bands.stem_band_ribbon_indices
-        } else {
-            &bands.stem_band_indices
-        });
+        cmdbuf.bind_index_buffer_u32(&bands.stem_band_indices);
         cmdbuf.bind_vertex_buffers(
             0,
             &[
@@ -6107,7 +6089,7 @@ impl Tracer {
         );
         pipeline.record_indexed(
             cmdbuf,
-            if self.stem_band_mode == 3 { 12 } else { 36 },
+            36,
             self.cpu_stem_band_resources.count,
             0,
             0,

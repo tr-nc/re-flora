@@ -47,7 +47,10 @@ impl GrassStemReview {
                 (3..=15).contains(&review.grid) && review.grid % 2 == 1,
                 "grass grid must be odd, 3..15"
             );
-            assert!(review.candidate <= 3, "stem candidate must be 0..3");
+            assert!(
+                review.candidate <= 1,
+                "stem candidate must be 0 (analytic) or 1 (square bands)"
+            );
             assert!(
                 (60..=600).contains(&review.sample_frames),
                 "sample frames must be 60..600"

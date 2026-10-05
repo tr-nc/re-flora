@@ -28,7 +28,7 @@ void main(uint3 id : SV_DispatchThreadID)
         for (uint corner = 0u; corner < 8u; corner++)
         {
             float3 p = grassBandWorldPoint(base + band, band, height,
-                pass.voxel_count, gui_input.stem_band_mode, corner);
+                pass.voxel_count, corner);
             lo = min(lo, p); hi = max(hi, p);
         }
     }
