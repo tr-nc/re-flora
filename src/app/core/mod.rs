@@ -49,6 +49,7 @@ mod player_tools;
 mod raster_tree_smoke;
 mod render_frame_input;
 mod screenshot;
+mod stone_preview;
 mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
@@ -495,6 +496,7 @@ pub struct App {
     flower_model_review: Option<flower_model_review::FlowerModelReview>,
     flower_model_bench: Option<flower_model_bench::FlowerModelBench>,
     apple_pixel_review_frame: Option<u32>,
+    stone_preview: stone_preview::State,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
     particle_forces: ParticleForces,
@@ -1585,6 +1587,7 @@ impl App {
             flower_model_review: flower_model_review::FlowerModelReview::from_env()?,
             flower_model_bench: flower_model_bench::FlowerModelBench::from_env()?,
             apple_pixel_review_frame: apple_pixel_review.then_some(0),
+            stone_preview: stone_preview::State::new()?,
             terrain_harvest_particle_handles,
             particle_forces,
 
@@ -3295,6 +3298,8 @@ impl App {
                     event_loop.exit();
                     return;
                 }
+                self.prepare_stone_preview()
+                    .expect("isolated native stone preview controls and finite rigid pose");
                 let time_of_day_changed_by_gui =
                     self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =

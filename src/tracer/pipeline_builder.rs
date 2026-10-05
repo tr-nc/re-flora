@@ -456,6 +456,24 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let stone_preview_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/stone/preview.vert",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
+        let stone_preview_frag_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/stone/preview.frag",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
+        let stone_contree_preview_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/stone/contree_preview.comp",
+            "main",
+        )
+        .map_err(anyhow::Error::msg)?;
         let geometry_preview_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/preview/geometry_preview.vert",
@@ -707,6 +725,9 @@ impl PipelineBuilder {
             static_scene_frag_sm,
             geometry_preview_vert_sm,
             geometry_preview_frag_sm,
+            stone_preview_vert_sm,
+            stone_preview_frag_sm,
+            stone_contree_preview_sm,
             environment_probe_visualization_vert_sm,
             raster_tree_vert_sm,
             raster_tree_frag_sm,
@@ -943,6 +964,17 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
+        let stone_contree_preview_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.stone_contree_preview_sm,
+            pool,
+        );
+        stone_contree_preview_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[resources, ddgi_volume, ddgi_voxel_visibility],
+            })
+            .expect("stone Contree environment descriptors");
         let tracer_shadow_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_shadow_sm,
@@ -1104,6 +1136,7 @@ impl PipelineBuilder {
             vegetation_response_ppl,
             leaf_handoff_ppl,
             post_processing_ppl,
+            stone_contree_preview_ppl,
         }
     }
 
@@ -1424,6 +1457,26 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
+        let stone_preview_ppl = Self::create_gfx_pipeline_uninitialized(
+            vulkan_ctx,
+            &shader_modules.stone_preview_vert_sm,
+            &shader_modules.stone_preview_frag_sm,
+            &render_passes.render_pass_color_and_depth,
+            None,
+            pool,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::BACK,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        stone_preview_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            })
+            .expect("stone mesh environment descriptors");
         let geometry_preview_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
             &shader_modules.geometry_preview_vert_sm,
@@ -1689,6 +1742,7 @@ impl PipelineBuilder {
             static_scene_glass_ppl,
             mower_ppl,
             geometry_preview_ppl,
+            stone_preview_ppl,
             environment_probe_visualization_depth_ppl,
             environment_probe_visualization_overlay_ppl,
             raster_tree_ppl,
@@ -1913,6 +1967,8 @@ macro_rules! declare_ddgi_consumer_registry {
 
 declare_ddgi_consumer_registry! {
     Tracer => Compute(compute.tracer_ppl),
+    StoneContreePreview => Compute(compute.stone_contree_preview_ppl),
+    StonePreview => Graphics(graphics.stone_preview_ppl),
     ButterflyTiles => Graphics(graphics.butterfly_tile_ppl),
     AppleTreeTiles => Graphics(graphics.apple_pixel_tree_ppl),
     FlowerTiles => Graphics(graphics.flower_pixel_ppl),
@@ -2373,6 +2429,22 @@ impl PipelineTopology {
                 "direct model extent descriptor update failed",
             );
         }
+        retire_graphics(
+            &self.graphics.stone_preview_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            },
+            "stone mesh extent descriptor update failed",
+        );
+        retire_compute(
+            &self.compute.stone_contree_preview_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            },
+            "stone Contree extent descriptor update failed",
+        );
         retire_graphics(
             &self.graphics.static_scene_ppl,
             DescriptorUpdate::All(&tracer_resources),
@@ -2859,6 +2931,9 @@ pub struct ShaderModules {
     pub static_scene_frag_sm: ShaderModule,
     pub geometry_preview_vert_sm: ShaderModule,
     pub geometry_preview_frag_sm: ShaderModule,
+    pub stone_preview_vert_sm: ShaderModule,
+    pub stone_preview_frag_sm: ShaderModule,
+    pub stone_contree_preview_sm: ShaderModule,
     pub environment_probe_visualization_vert_sm: ShaderModule,
     pub raster_tree_lighting_sm: ShaderModule,
     pub tree_skin_sm: ShaderModule,
@@ -2892,6 +2967,7 @@ pub struct ShaderModules {
 }
 
 pub struct ComputePipelines {
+    pub stone_contree_preview_ppl: ComputePipeline,
     pub ddgi_global_sky_filter_ppl: ComputePipeline,
     pub ddgi_octahedral_gutter_ppl: ComputePipeline,
     pub ddgi_probe_relocate_ppl: ComputePipeline,
@@ -2953,6 +3029,7 @@ pub struct GraphicsPipelines {
     pub static_scene_glass_ppl: GraphicsPipeline,
     pub mower_ppl: GraphicsPipeline,
     pub geometry_preview_ppl: GraphicsPipeline,
+    pub stone_preview_ppl: GraphicsPipeline,
     pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
     pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
     pub raster_tree_ppl: GraphicsPipeline,
@@ -2974,6 +3051,8 @@ pub struct GraphicsPipelines {
 
 impl GraphicsPipelines {
     pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
+        self.stone_preview_ppl
+            .begin_transient_descriptor_frame(frame_slot);
         self.apple_pixel_dynamic_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.butterfly_tile_ppl

@@ -85,6 +85,24 @@ impl GuiConfigLoader {
         config
             .section
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
+        for id in [
+            "stone_preview_enabled",
+            "stone_direct_triangles",
+            "stone_preview_focus",
+            "stone_preview_lift",
+            "stone_yaw",
+            "stone_kind",
+            "stone_seed",
+            "stone_width",
+            "stone_depth",
+            "stone_slab_thickness",
+            "stone_rock_height",
+            "stone_variation",
+            "stone_slab_edge_cut",
+            "stone_rock_facets",
+        ] {
+            Self::add_missing_param(&mut config, "Debug", id);
+        }
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         for id in [

@@ -92,6 +92,151 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "stone_preview_enabled"
+kind = "bool"
+label = "Stone preview: enabled"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "stone_direct_triangles"
+kind = "bool"
+label = "Stone: direct triangle rendering (A/B)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "stone_preview_focus"
+kind = "bool"
+label = "Stone preview: focus camera on enable"
+type = "Bool"
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "stone_preview_lift"
+kind = "float"
+label = "Stone preview: lift above garden (world units)"
+type = "Float"
+[section.param.data]
+value = 0.15
+min = 0
+max = 0.6
+
+[[section.param]]
+id = "stone_yaw"
+kind = "float"
+label = "Stone: rigid rotation (degrees)"
+type = "Float"
+[section.param.data]
+value = 0
+min = 0
+max = 360
+
+[[section.param]]
+id = "stone_kind"
+kind = "choice"
+label = "Stone type"
+type = "Choice"
+[section.param.data]
+value = 1
+options = ["Paving slab", "Landscape rock"]
+
+[[section.param]]
+id = "stone_seed"
+kind = "uint"
+label = "Stone model seed"
+type = "Uint"
+[section.param.data]
+value = 42
+min = 0
+max = 65535
+
+[[section.param]]
+id = "stone_width"
+kind = "float"
+label = "Stone width (world units)"
+type = "Float"
+[section.param.data]
+value = 0.24
+min = 0.04
+max = 0.42
+
+[[section.param]]
+id = "stone_depth"
+kind = "float"
+label = "Stone depth (world units)"
+type = "Float"
+[section.param.data]
+value = 0.22
+min = 0.04
+max = 0.42
+
+[[section.param]]
+id = "stone_slab_thickness"
+kind = "float"
+label = "Paving slab thickness (world units)"
+type = "Float"
+[section.param.enabled_if]
+param = "stone_kind"
+equals = 0
+[section.param.data]
+value = 0.035
+min = 0.012
+max = 0.09
+
+[[section.param]]
+id = "stone_rock_height"
+kind = "float"
+label = "Landscape rock height (world units)"
+type = "Float"
+[section.param.enabled_if]
+param = "stone_kind"
+equals = 1
+[section.param.data]
+value = 0.2
+min = 0.04
+max = 0.38
+
+[[section.param]]
+id = "stone_variation"
+kind = "float"
+label = "Stone silhouette variation"
+type = "Float"
+[section.param.data]
+value = 0.45
+min = 0
+max = 1
+
+[[section.param]]
+id = "stone_slab_edge_cut"
+kind = "float"
+label = "Paving slab corner cut"
+type = "Float"
+[section.param.enabled_if]
+param = "stone_kind"
+equals = 0
+[section.param.data]
+value = 0.18
+min = 0.06
+max = 0.34
+
+[[section.param]]
+id = "stone_rock_facets"
+kind = "uint"
+label = "Landscape rock cutting planes"
+type = "Uint"
+[section.param.enabled_if]
+param = "stone_kind"
+equals = 1
+[section.param.data]
+value = 18
+min = 8
+max = 24
+
+[[section.param]]
 id = "scene_pixel_ratio"
 kind = "choice"
 label = "Scene: final pixel resolution"

@@ -26,6 +26,90 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "stone_preview_enabled",
+        kind: "bool",
+        label: "Stone preview: enabled",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_direct_triangles",
+        kind: "bool",
+        label: "Stone: direct triangle rendering (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_preview_focus",
+        kind: "bool",
+        label: "Stone preview: focus camera on enable",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_preview_lift",
+        kind: "float",
+        label: "Stone preview: lift above garden (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_yaw",
+        kind: "float",
+        label: "Stone: rigid rotation (degrees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_kind",
+        kind: "choice",
+        label: "Stone type",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_seed",
+        kind: "uint",
+        label: "Stone model seed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_width",
+        kind: "float",
+        label: "Stone width (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_depth",
+        kind: "float",
+        label: "Stone depth (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_slab_thickness",
+        kind: "float",
+        label: "Paving slab thickness (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_rock_height",
+        kind: "float",
+        label: "Landscape rock height (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_variation",
+        kind: "float",
+        label: "Stone silhouette variation",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_slab_edge_cut",
+        kind: "float",
+        label: "Paving slab corner cut",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "stone_rock_facets",
+        kind: "uint",
+        label: "Landscape rock cutting planes",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "scene_pixel_ratio",
         kind: "choice",
         label: "Scene: final pixel resolution",
@@ -1402,6 +1486,20 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub stone_preview_enabled: crate::gui_adjustables::BoolParam,
+    pub stone_direct_triangles: crate::gui_adjustables::BoolParam,
+    pub stone_preview_focus: crate::gui_adjustables::BoolParam,
+    pub stone_preview_lift: crate::gui_adjustables::FloatParam,
+    pub stone_yaw: crate::gui_adjustables::FloatParam,
+    pub stone_kind: crate::gui_adjustables::ChoiceParam,
+    pub stone_seed: crate::gui_adjustables::UintParam,
+    pub stone_width: crate::gui_adjustables::FloatParam,
+    pub stone_depth: crate::gui_adjustables::FloatParam,
+    pub stone_slab_thickness: crate::gui_adjustables::FloatParam,
+    pub stone_rock_height: crate::gui_adjustables::FloatParam,
+    pub stone_variation: crate::gui_adjustables::FloatParam,
+    pub stone_slab_edge_cut: crate::gui_adjustables::FloatParam,
+    pub stone_rock_facets: crate::gui_adjustables::UintParam,
     pub scene_pixel_ratio: crate::gui_adjustables::ChoiceParam,
     pub scene_supersampling_enabled: crate::gui_adjustables::BoolParam,
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
@@ -1644,6 +1742,20 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut stone_preview_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut stone_direct_triangles_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut stone_preview_focus_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut stone_preview_lift_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_yaw_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_kind_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut stone_seed_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut stone_width_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_depth_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_slab_thickness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_rock_height_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_slab_edge_cut_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut stone_rock_facets_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut scene_pixel_ratio_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_supersampling_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
@@ -1877,6 +1989,96 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "stone_preview_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            stone_preview_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "stone_direct_triangles" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            stone_direct_triangles_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "stone_preview_focus" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            stone_preview_focus_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "stone_preview_lift" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_preview_lift_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_yaw" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_yaw_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_kind" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            stone_kind_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "stone_seed" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            stone_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_width" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_width_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_depth" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_depth_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_slab_thickness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_slab_thickness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_rock_height" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_rock_height_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_slab_edge_cut" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            stone_slab_edge_cut_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "stone_rock_facets" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            stone_rock_facets_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "scene_pixel_ratio" => {
                         if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
                             scene_pixel_ratio_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
@@ -3406,6 +3608,20 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            stone_preview_enabled: stone_preview_enabled_field.expect("Missing parameter: stone_preview_enabled"),
+            stone_direct_triangles: stone_direct_triangles_field.expect("Missing parameter: stone_direct_triangles"),
+            stone_preview_focus: stone_preview_focus_field.expect("Missing parameter: stone_preview_focus"),
+            stone_preview_lift: stone_preview_lift_field.expect("Missing parameter: stone_preview_lift"),
+            stone_yaw: stone_yaw_field.expect("Missing parameter: stone_yaw"),
+            stone_kind: stone_kind_field.expect("Missing parameter: stone_kind"),
+            stone_seed: stone_seed_field.expect("Missing parameter: stone_seed"),
+            stone_width: stone_width_field.expect("Missing parameter: stone_width"),
+            stone_depth: stone_depth_field.expect("Missing parameter: stone_depth"),
+            stone_slab_thickness: stone_slab_thickness_field.expect("Missing parameter: stone_slab_thickness"),
+            stone_rock_height: stone_rock_height_field.expect("Missing parameter: stone_rock_height"),
+            stone_variation: stone_variation_field.expect("Missing parameter: stone_variation"),
+            stone_slab_edge_cut: stone_slab_edge_cut_field.expect("Missing parameter: stone_slab_edge_cut"),
+            stone_rock_facets: stone_rock_facets_field.expect("Missing parameter: stone_rock_facets"),
             scene_pixel_ratio: scene_pixel_ratio_field.expect("Missing parameter: scene_pixel_ratio"),
             scene_supersampling_enabled: scene_supersampling_enabled_field.expect("Missing parameter: scene_supersampling_enabled"),
             scene_supersampling_quality: scene_supersampling_quality_field.expect("Missing parameter: scene_supersampling_quality"),
@@ -3642,6 +3858,14 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "stone_preview_lift" => Some(&adjustables.stone_preview_lift),
+        "stone_yaw" => Some(&adjustables.stone_yaw),
+        "stone_width" => Some(&adjustables.stone_width),
+        "stone_depth" => Some(&adjustables.stone_depth),
+        "stone_slab_thickness" => Some(&adjustables.stone_slab_thickness),
+        "stone_rock_height" => Some(&adjustables.stone_rock_height),
+        "stone_variation" => Some(&adjustables.stone_variation),
+        "stone_slab_edge_cut" => Some(&adjustables.stone_slab_edge_cut),
         "flower_stem_cell_height_voxels" => Some(&adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
@@ -3828,6 +4052,8 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 #[allow(dead_code)]
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
+        "stone_seed" => Some(&adjustables.stone_seed),
+        "stone_rock_facets" => Some(&adjustables.stone_rock_facets),
         "flower_stem_model_resolution" => Some(&adjustables.flower_stem_model_resolution),
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
@@ -3852,6 +4078,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
     match id {
+        "stone_kind" => Some(&adjustables.stone_kind),
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
@@ -3868,6 +4095,9 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "stone_preview_enabled" => Some(&adjustables.stone_preview_enabled),
+        "stone_direct_triangles" => Some(&adjustables.stone_direct_triangles),
+        "stone_preview_focus" => Some(&adjustables.stone_preview_focus),
         "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
         "grass_stem_rendering" => Some(&adjustables.grass_stem_rendering),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
@@ -3918,6 +4148,14 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "stone_preview_lift" => Some(&mut adjustables.stone_preview_lift),
+        "stone_yaw" => Some(&mut adjustables.stone_yaw),
+        "stone_width" => Some(&mut adjustables.stone_width),
+        "stone_depth" => Some(&mut adjustables.stone_depth),
+        "stone_slab_thickness" => Some(&mut adjustables.stone_slab_thickness),
+        "stone_rock_height" => Some(&mut adjustables.stone_rock_height),
+        "stone_variation" => Some(&mut adjustables.stone_variation),
+        "stone_slab_edge_cut" => Some(&mut adjustables.stone_slab_edge_cut),
         "flower_stem_cell_height_voxels" => Some(&mut adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&mut adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
@@ -4104,6 +4342,8 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 #[allow(dead_code)]
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
+        "stone_seed" => Some(&mut adjustables.stone_seed),
+        "stone_rock_facets" => Some(&mut adjustables.stone_rock_facets),
         "flower_stem_model_resolution" => Some(&mut adjustables.flower_stem_model_resolution),
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
@@ -4128,6 +4368,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
     match id {
+        "stone_kind" => Some(&mut adjustables.stone_kind),
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
@@ -4144,6 +4385,9 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "stone_preview_enabled" => Some(&mut adjustables.stone_preview_enabled),
+        "stone_direct_triangles" => Some(&mut adjustables.stone_direct_triangles),
+        "stone_preview_focus" => Some(&mut adjustables.stone_preview_focus),
         "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),
         "grass_stem_rendering" => Some(&mut adjustables.grass_stem_rendering),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),

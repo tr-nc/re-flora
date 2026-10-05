@@ -996,6 +996,87 @@ mod search_tests {
     }
 
     #[test]
+    fn stone_search_checkbox_edit_save_and_reload_are_the_real_saved_fields() {
+        let mut settings = DebugSettings::load();
+        assert!(!settings.adjustables.stone_preview_enabled.value);
+        assert!(!settings.adjustables.stone_direct_triangles.value);
+        settings.search.query = "stone direct triangle".to_owned();
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert_eq!(settings.search_matches, 1);
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| text_rect(&shape.shape, "Stone: direct triangle rendering (A/B)"))
+                .expect("search renders the declared A/B checkbox")
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.stone_direct_triangles.value);
+        settings.adjustables.stone_preview_enabled.value = true;
+        settings.adjustables.stone_kind.value = 0;
+        settings.adjustables.stone_seed.value = 65535;
+        settings.adjustables.stone_slab_thickness.value = 0.03125;
+        settings.adjustables.stone_yaw.value = 55.;
+        assert!(settings.is_dirty());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        assert!(!settings.is_dirty());
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.stone_preview_enabled.value);
+        assert!(loaded.adjustables.stone_direct_triangles.value);
+        assert_eq!(loaded.adjustables.stone_kind.value, 0);
+        assert_eq!(loaded.adjustables.stone_seed.value, 65535);
+        assert_eq!(loaded.adjustables.stone_slab_thickness.value, 0.03125);
+        assert_eq!(loaded.adjustables.stone_yaw.value, 55.);
+        assert!(loaded.search.query.is_empty());
+        assert_eq!(
+            loaded.adjustables.scene_pixel_ratio.value,
+            settings.adjustables.scene_pixel_ratio.value
+        );
+        for query in [
+            "paving slab",
+            "landscape rock",
+            "stone geometry",
+            "stone rendering",
+        ] {
+            let filter = SearchFilter::new(query);
+            assert!(loaded
+                .config
+                .section
+                .iter()
+                .any(|s| s.param.iter().any(|p| search_matches_param(
+                    &filter,
+                    &s.name,
+                    p,
+                    &param_search_path(&s.name, &p.id, true)
+                ))));
+        }
+    }
+
+    #[test]
     fn empty_results_do_not_modify_settings() {
         let mut settings = DebugSettings::load();
         settings.search.query = "no_setting_has_this_unique_name".to_owned();
