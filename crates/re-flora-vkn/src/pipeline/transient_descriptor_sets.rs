@@ -13,7 +13,12 @@ struct TransientDescriptorFrame<T = TransientDescriptorSlot> {
     used: usize,
 }
 impl<T> Default for TransientDescriptorFrame<T> {
-    fn default() -> Self { Self { slots: Vec::new(), used: 0 } }
+    fn default() -> Self {
+        Self {
+            slots: Vec::new(),
+            used: 0,
+        }
+    }
 }
 impl<T> TransientDescriptorFrame<T> {
     /// This slot's fence has completed. Drop unused tail descriptors (and their
@@ -22,6 +27,12 @@ impl<T> TransientDescriptorFrame<T> {
     fn begin(&mut self) {
         self.slots.truncate(self.used);
         self.used = 0;
+    }
+
+    /// Only sets already used in this recording may be shared. A cached set
+    /// from the previous fence cycle must first claim a new recording slot.
+    fn previous_active(&self) -> Option<&T> {
+        self.slots.get(self.used.checked_sub(1)?)
     }
 }
 
@@ -39,6 +50,12 @@ impl TransientDescriptorSets {
         self.frame_slots[frame_slot].begin();
         self.active_frame_slot = Some(frame_slot);
         self.next_slot = 0;
+    }
+
+    pub(super) fn previous_descriptor_set(&self, set_no: u32) -> Option<DescriptorSet> {
+        let frame = self.frame_slots.get(self.active_frame_slot?)?;
+        let slot = frame.previous_active()?;
+        (slot.set_no == set_no).then(|| slot.descriptor_set.clone())
     }
 
     pub(super) fn next_descriptor_set(
@@ -92,6 +109,22 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn previous_active_set_never_crosses_frame_or_unclaimed_slots() {
+        let mut frame = TransientDescriptorFrame {
+            slots: vec![11, 22, 33],
+            used: 0,
+        };
+        assert_eq!(frame.previous_active(), None);
+        frame.used = 1;
+        assert_eq!(frame.previous_active(), Some(&11));
+        frame.used = 2;
+        assert_eq!(frame.previous_active(), Some(&22));
+        frame.begin();
+        assert_eq!(frame.slots, vec![11, 22]);
+        assert_eq!(frame.previous_active(), None);
+    }
+
+    #[test]
     fn idle_bakes_and_shrinking_draws_release_owners_only_in_ready_slots() {
         let old = Arc::new(());
         let weak = Arc::downgrade(&old);
@@ -107,7 +140,10 @@ mod tests {
         frames[0].used = 1;
         frames[0].begin();
         assert_eq!(frames[0].slots.len(), 1);
-        assert!(weak.upgrade().is_some(), "pending slot still owns old resources");
+        assert!(
+            weak.upgrade().is_some(),
+            "pending slot still owns old resources"
+        );
         // Slot 1 becomes ready and records no bake. Its next ready cycle trims
         // all idle sets rather than pinning their source/direction buffers forever.
         frames[1].begin();

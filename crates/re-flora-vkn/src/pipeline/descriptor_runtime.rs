@@ -201,12 +201,6 @@ impl ReflectedDescriptorRuntime {
             .get_descriptor_set_layouts()
             .get(&set_no)
             .ok_or_else(|| anyhow::anyhow!("descriptor set {set_no} is not reflected"))?;
-        let descriptor_set = self.transient.lock().unwrap().next_descriptor_set(
-            set_no,
-            &self.descriptor_pool,
-            layout,
-            self.plan.pipeline_name(),
-        )?;
         for (name, _) in descriptors {
             let binding = self.plan.binding(name)?;
             anyhow::ensure!(
@@ -218,16 +212,35 @@ impl ReflectedDescriptorRuntime {
                 binding.set_no(),
             );
         }
-        let resources_match = descriptor_set.resources_match(descriptors.iter().map(
-            |(name, resource)| {
+        let resources_match = |set: &DescriptorSet| {
+            set.resources_match(descriptors.iter().map(|(name, resource)| {
                 let binding = self
                     .plan
                     .binding(name)
                     .expect("transient descriptor binding was validated");
                 (binding.binding_no(), *resource)
-            },
-        ));
-        if !resources_match {
+            }))
+        };
+        let descriptor_set = {
+            let mut transient = self.transient.lock().unwrap();
+            // Repeated batches often bind identical resources; only push constants
+            // change. Share the immutable previous set instead of consuming one
+            // pool slot per draw. Changed bindings always claim a distinct slot:
+            // never rewrite a descriptor already referenced by this recording.
+            match transient
+                .previous_descriptor_set(set_no)
+                .filter(&resources_match)
+            {
+                Some(set) => set,
+                None => transient.next_descriptor_set(
+                    set_no,
+                    &self.descriptor_pool,
+                    layout,
+                    self.plan.pipeline_name(),
+                )?,
+            }
+        };
+        if !resources_match(&descriptor_set) {
             let mut writes = Vec::with_capacity(descriptors.len());
             for (name, resource) in descriptors {
                 writes.push(self.plan.make_write(name, *resource)?);

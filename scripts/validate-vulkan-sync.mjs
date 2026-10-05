@@ -12,7 +12,8 @@ VK_LAYER_KHRONOS_validation synchronization checking enabled. Hidden and muted;
 no settings are saved. Requires cargo build --release, a Vulkan display and the
 Khronos validation layer. No errors/hazards may be suppressed or ignored.
 --quick checks ordinary startup only; default also checks resize and pixelized
-grass toggles, partial growth and post-render resize at several grid resolutions.
+grass toggles, partial growth, post-render resize at several grid resolutions,
+and 82,454 residents at resolution 128 (transient-descriptor exhaustion regression).
 Artifacts: target/vulkan-sync/{settings/vk_layer_settings.txt,*.log,summary.json}.
 Examples:
   cargo build --release && node scripts/validate-vulkan-sync.mjs
@@ -37,7 +38,11 @@ const jobs=[{name:'startup',args:['--auto-exit','0.5']},...(quick?[]:[
     RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}},
   {name:'grass-pixel-lifecycle',args:['--windowed','--perf','--authored-flora-bench'],env:{
     RE_FLORA_GRASS_STEM_REVIEW:'mid-both-b',RE_FLORA_STEM_BAND_MODE:'1',
-    RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}}])];
+    RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}},
+  {name:'grass-square-descriptor-stress',args:['--windowed','--perf','--authored-flora-bench'],env:{
+    RE_FLORA_GRASS_STEM_REVIEW:'wide-both-b',RE_FLORA_GRASS_STEM_GRID:'15',RE_FLORA_STEM_BAND_MODE:'1',
+    RE_FLORA_GRASS_BAND_PIXELIZATION:'1',RE_FLORA_GRASS_BAND_POSE_REUSE:'1',
+    RE_FLORA_STEM_PIXEL_RESOLUTION:'128',RE_FLORA_STEM_SAMPLE_FRAMES:'60'}}])];
 const results=[];
 try {
   fs.mkdirSync(settings,{recursive:true});
@@ -58,10 +63,16 @@ try {
     assert.ok(!/\bERROR\b|VUID|hazard detected|panicked at|Validation (Error|Warning)/.test(log),`${job.name}: inspect its validation log`);
     if(job.name.startsWith('grass-')){
       assert.match(log,/\[GRASS_MODEL_PIXELS\] enabled=true/);
-      assert.match(log,new RegExp(`GRASS_MODEL_PIXELS\\].*backend=${job.name==='grass-analytic-lifecycle'?'analytic':'hardware_raster'}`));
+      assert.match(log,new RegExp(`GRASS_MODEL_PIXELS\\].*backend=${job.env.RE_FLORA_STEM_BAND_MODE==='0'?'analytic':'hardware_raster'}`));
+      assert.match(log,/GRASS_STEM_REVIEW\].*phase=complete/);
+    }
+    if(job.name.endsWith('lifecycle')){
       assert.equal((log.match(/STEM_PIXEL_LIFECYCLE\].*resize=/g)??[]).length,3);
       assert.equal((log.match(/\[RESIZE\] published generation=/g)??[]).length,3);
       for(const resolution of [32,45,192,512])assert.match(log,new RegExp(`STEM_PIXEL_LIFECYCLE\\].*resolution=${resolution}`));
+    }
+    if(job.name==='grass-square-descriptor-stress'){
+      assert.match(log,/GRASS_STEM_REVIEW\].*phase=sample.*grass=\[45518, 36936\].*resolution=128/);
     }
     assert.deepEqual(hashes(),before,'Saved user settings changed');
     results.push({name:job.name,status:run.status,validationErrors:0,shutdownFailures:0});
