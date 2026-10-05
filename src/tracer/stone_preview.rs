@@ -246,6 +246,7 @@ impl Renderer {
         &self,
         cmd: &CommandBuffer,
         pipeline: &GraphicsPipeline,
+        view_bank: (&str, DescriptorResource<'_>),
     ) -> Result<Option<PreparedDraw>> {
         let frame = &self.frames[self.slot];
         let Some(request) = frame.request.filter(|r| r.direct) else {
@@ -258,10 +259,13 @@ impl Renderer {
         pipeline.prepare_descriptor_resources(cmd);
         let descriptors = pipeline.prepare_draw_descriptors(
             cmd,
-            &[(
-                "stone_triangles",
-                DescriptorResource::Buffer(&source.triangles),
-            )],
+            &[
+                (
+                    "stone_triangles",
+                    DescriptorResource::Buffer(&source.triangles),
+                ),
+                view_bank,
+            ],
         )?;
         let pose = Pose::new(request, [0; 2]);
         Ok(Some(PreparedDraw {
@@ -279,6 +283,24 @@ impl Renderer {
 mod tests {
     use super::*;
     use crate::stone_models::StoneKind;
+    #[test]
+    fn direct_stones_use_the_shared_view_bank_and_rigid_normal_frame() {
+        let shader = include_str!("../../shader/slang/stone_preview.vert.slang");
+        assert!(shader.contains("modelMeshViewFrame(stonePhysicalFrame(stone_pose), float3(0))"));
+        assert!(shader.contains("position = modelViewWorldPoint(rendered, local)"));
+        assert!(shader.contains("modelViewWorldVector(rendered, t.normal.xyz)"));
+        assert!(shader.contains("if (gui_input.model_view_quantization_enabled != 0u)"));
+        assert!(shader.contains("stoneWorldPoint(local, stone_pose)"));
+        assert!(!shader.contains("SV_Depth"));
+        let tracer = include_str!("mod.rs");
+        let direct = tracer.split("let prepared_stone =").nth(1).unwrap();
+        assert!(direct
+            .split("let prepared_dynamic_pixels")
+            .next()
+            .unwrap()
+            .contains("self.model_mesh_frame.view_bank_binding()"));
+    }
+
     #[test]
     fn direct_triangle_adapter_preserves_the_same_source_positions_normals_and_colors() {
         assert_eq!(std::mem::size_of::<Triangle>(), 80);

@@ -5097,7 +5097,11 @@ impl Tracer {
         }
         let prepared_stone = self
             .stone_preview
-            .prepare_direct(cmdbuf, &self.pipeline_topology.graphics().stone_preview_ppl)
+            .prepare_direct(
+                cmdbuf,
+                &self.pipeline_topology.graphics().stone_preview_ppl,
+                self.model_mesh_frame.view_bank_binding(),
+            )
             .expect("stone mesh descriptors and acquired-frame geometry");
         let prepared_dynamic_pixels = if self.dynamic_fruit_resources.instance_count > 0 {
             Some(

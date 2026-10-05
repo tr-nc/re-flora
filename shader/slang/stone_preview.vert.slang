@@ -1,5 +1,9 @@
 import stone_transform;
 import stone_lighting;
+import model_mesh_lighting;
+import model_mesh_view;
+import model_view_quantization;
+import model_pixel_types;
 struct StoneTriangle
 {
     float4 a;
@@ -23,9 +27,16 @@ Output main(uint vertex : SV_VulkanVertexID)
     StoneTriangle t = stone_triangles[vertex / 3u];
     uint corner = vertex % 3u;
     float3 local = t.a.xyz + (corner == 1u ? t.e1.xyz : corner == 2u ? t.e2.xyz : float3(0));
-    // Keep this one local->world seam for the controller's direction helper.
+    // Disabled preserves the original quaternion arithmetic exactly. Enabled
+    // uses the same immutable direction bank/count as flowers/apples/particles.
     float3 position = stoneWorldPoint(local, stone_pose);
     float3 normal = normalize(stoneRotate(t.normal.xyz, stone_pose.rotation));
+    if (gui_input.model_view_quantization_enabled != 0u)
+    {
+        ModelPixelFrame rendered = modelMeshViewFrame(stonePhysicalFrame(stone_pose), float3(0));
+        position = modelViewWorldPoint(rendered, local);
+        normal = normalize(modelViewWorldVector(rendered, t.normal.xyz));
+    }
     Output output;
     output.position = mul(camera_info.view_proj_mat, float4(position,1));
     output.color = float4(stoneShade(stone_pose.metadata.z,position,normal),1);

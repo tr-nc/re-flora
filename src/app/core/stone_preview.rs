@@ -13,6 +13,7 @@ pub(super) struct State {
     base: Option<Vec3>,
     was_enabled: bool,
     review: Option<String>,
+    style_review: Option<String>,
     frame: u32,
     phase: Option<u32>,
     gui_save: Option<GuiSaveReview>,
@@ -27,12 +28,24 @@ impl State {
         if let Some(mode) = review.as_deref() {
             ensure!(["voxel-rock","direct-rock","voxel-slab","direct-slab","cycle"].contains(&mode),"RE_FLORA_STONE_REVIEW must be voxel-rock, direct-rock, voxel-slab, direct-slab, or cycle");
         }
+        let style_review = std::env::var("RE_FLORA_STONE_STYLE_REVIEW").ok();
+        if let Some(style) = style_review.as_deref() {
+            ensure!(
+                ["a", "128", "256", "global", "combined", "cycle"].contains(&style),
+                "invalid RE_FLORA_STONE_STYLE_REVIEW"
+            );
+            ensure!(
+                review.is_some(),
+                "stone style fixture requires a stone review"
+            );
+        }
         let gui_save = std::env::var_os("RE_FLORA_STONE_GUI_SAVE_REVIEW").is_some();
         ensure!(!gui_save || review.is_some(), "stone GUI Save replay requires RE_FLORA_STONE_REVIEW and a backed-up worktree GUI config");
         Ok(Self {
             base: None,
             was_enabled: false,
             review,
+            style_review,
             frame: 0,
             phase: None,
             gui_save: gui_save.then_some(GuiSaveReview {
@@ -122,6 +135,15 @@ impl App {
                 0
             };
             self.stone_preview.frame += 1;
+            if self.stone_preview.frame == 1 && self.stone_preview.style_review.is_some() {
+                if let Some(size) = self
+                    .window_state
+                    .window()
+                    .request_inner_size(winit::dpi::PhysicalSize::new(1600, 900))
+                {
+                    self.queue_frame_extent(re_flora_vkn::Extent2D::new(size.width, size.height));
+                }
+            }
             let settings = &mut self.debug_settings.adjustables;
             settings.stone_preview_enabled.value = phase != 6;
             settings.stone_direct_triangles.value = if mode == "cycle" {
@@ -146,6 +168,32 @@ impl App {
                 settings.scene_supersampling_enabled.value = phase == 7 || phase == 8;
                 settings.scene_supersampling_quality.value = u32::from(phase == 8);
                 settings.scene_pixel_ratio.value = if phase == 7 { 2 } else { 3 };
+            }
+            if let Some(style) = self.stone_preview.style_review.as_deref() {
+                settings.model_view_quantization_enabled.value = match style {
+                    "128" | "256" | "combined" => true,
+                    "cycle" => phase % 3 != 0,
+                    _ => false,
+                };
+                settings.model_pixel_view_count.value =
+                    if style == "256" || (style == "cycle" && phase % 3 == 2) {
+                        256
+                    } else {
+                        128
+                    };
+                settings.ordered_dither_global.value =
+                    matches!(style, "global" | "combined") || (style == "cycle" && phase >= 7);
+                settings.ordered_dither_pattern.value = u32::from(phase == 9);
+                settings.ordered_dither_levels.value = 8;
+                settings.ordered_dither_strength.value = 1.;
+                if self.stone_preview.phase != Some(phase) {
+                    log::info!(
+                        "[STONE_STYLE_REVIEW] style={style} quantized={} count={} global={} bank_binding=19",
+                        settings.model_view_quantization_enabled.value,
+                        settings.model_pixel_view_count.value,
+                        settings.ordered_dither_global.value
+                    );
+                }
             }
             if self.stone_preview.phase != Some(phase) {
                 self.stone_preview.phase = Some(phase);
@@ -215,6 +263,7 @@ mod tests {
             base: None,
             was_enabled: false,
             review: Some("direct-rock".to_owned()),
+            style_review: None,
             frame: 2,
             phase: None,
             gui_save: Some(GuiSaveReview {

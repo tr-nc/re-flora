@@ -2,6 +2,7 @@
 // scene-wide grid. Private model buffers; no edits to the garden's world atlas.
 import stone_transform;
 import stone_lighting;
+import model_mesh_lighting;
 import contree_marching;
 import contree_node;
 import voxel_data;

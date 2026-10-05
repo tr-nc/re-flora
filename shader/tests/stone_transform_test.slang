@@ -1,4 +1,6 @@
 import stone_transform;
+import model_pixel_types;
+import model_view_quantization;
 export __extern_cpp int main()
 {
     StonePreviewPush pose;
@@ -20,6 +22,11 @@ export __extern_cpp int main()
         float3 world=stoneWorldPoint(local,pose);
         if (length(stoneLocalPoint(world,pose)-local)>1e-5) return 5;
         if (abs(length(stoneRotate(local,pose.rotation))-length(local))>1e-5) return 6;
+        ModelPixelFrame frame = stonePhysicalFrame(pose);
+        if (length(modelViewWorldPoint(frame,local)-world)>1e-5) return 7;
+        if (length(modelViewWorldPoint(frame,float3(0))-pose.translation.xyz)>1e-5) return 8;
+        if (abs(dot(cross(frame.axisX,frame.axisY),frame.axisZ)-1.0)>1e-5) return 9;
+        if (length(modelViewWorldVector(frame,float3(0,1,0))-stoneRotate(float3(0,1,0),pose.rotation))>1e-5) return 10;
     }
     return 0;
 }
