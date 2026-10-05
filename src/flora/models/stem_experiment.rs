@@ -26,6 +26,10 @@ impl Default for StemExperiment {
 }
 
 impl StemExperiment {
+    pub fn normalize_model_resolution(requested: u32) -> u32 {
+        requested.clamp(32, 512)
+    }
+
     pub fn normalized(self) -> Self {
         Self {
             cell_height_voxels: if self.cell_height_voxels.is_finite() {
@@ -33,7 +37,7 @@ impl StemExperiment {
             } else {
                 Self::default().cell_height_voxels
             },
-            model_resolution: self.model_resolution.clamp(32, 512),
+            model_resolution: Self::normalize_model_resolution(self.model_resolution),
             radius_scale: if self.radius_scale.is_finite() {
                 self.radius_scale.clamp(0.25, 10.)
             } else {

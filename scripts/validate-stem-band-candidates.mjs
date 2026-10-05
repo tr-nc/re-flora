@@ -16,7 +16,10 @@ hidden/muted, with fixed simulation time. Does not change saved settings.
 --suite selects the source paths to test (default all).
 --pixels adds analytic and square model-pixelized candidates and focuses GPU coverage
 on small-near and large-wide/far/low views. Use --suite gpu (or all), not cpu.
---resolution sets model-grid samples (8..512, default 45); ordinary candidates force pixels off.
+--resolution requests model-grid samples (8..512, default 45); legacy 8..31
+requests normalize to the saved model-grid minimum 32. Artifact names, measurements
+and fixture logs use the effective resolution; requested/effective values are both
+recorded. Ordinary candidates force pixels off.
 --scene selects one GPU camera: near-both, mid-both, wide-both, far-both, low-both,
   top-both or inside-both. Requires --suite gpu; --grid sets odd paint size 3..15
   (default 3 with --scene). --grid requires --scene.
@@ -45,7 +48,8 @@ try {
   if (!suites.includes(options.suite)) throw new Error(`--suite must be ${suites.join(', ')}, got ${options.suite}`);
   if (options.pixels && options.suite==='cpu') throw new Error('--pixels tests GPU grass; retry --suite gpu --pixels');
   if (!/^\d+$/.test(options.resolution) || +options.resolution<8 || +options.resolution>512) throw new Error('--resolution must be an integer 8..512');
-  options.resolution=+options.resolution;
+  options.requestedResolution=+options.resolution;
+  options.resolution=Math.max(32,options.requestedResolution);
   if (options.scene && (options.suite!=='gpu' || !['near-both','mid-both','wide-both','far-both','low-both','top-both','inside-both'].includes(options.scene))) throw new Error('--scene requires --suite gpu and a camera from the list below');
   if (options.grid && !options.scene) throw new Error('--grid requires --scene; e.g. --suite gpu --scene near-both --grid 3');
   if (options.grid && (!/^\d+$/.test(options.grid) || +options.grid<3 || +options.grid>15 || +options.grid%2!==1)) throw new Error('--grid must be an odd integer 3..15');
@@ -118,6 +122,7 @@ try {
       assert.ok(!/\bERROR\b|VUID|panicked at|Validation Error|Validation Warning/.test(log),`${name}: rendering errors`);
       assert.match(log,/\[SHUTDOWN\] phase=complete failures=0/);
       if(mode.pixels)assert.match(log,/\[GRASS_MODEL_PIXELS\] enabled=true/);
+      if(job.source==='gpu')assert.match(log,new RegExp(`FLOWER_STEM_SAMPLING\\].*model_resolution=${options.resolution}(?: |$)`),'Requested model-grid resolution did not reach normalized rendering');
       const marker=job.source==='gpu'?'GRASS_STEM_REVIEW':'CPU_STEM_REVIEW';
       const start=log.match(new RegExp(`\\[${marker}\\].*phase=sample app_frame=(\\d+)(.*)`));
       const end=log.match(new RegExp(`\\[${marker}\\].*phase=complete app_frame=(\\d+)(.*)`));
@@ -157,7 +162,7 @@ try {
       assert.equal(image.subarray(1,4).toString(),'PNG');
       const dimensions=[image.readUInt32BE(16),image.readUInt32BE(20)];
       assert.deepEqual(dimensions,[2560,1440],'Resolution changed; do not compare mixed resolutions');
-      const row={key:job.key,source:job.source,mode:mode.name,repeat:repeat+1,grassPixelization:!!mode.pixels,phaseProfile,stemResolution:options.resolution,population,dimensions,
+      const row={key:job.key,source:job.source,mode:mode.name,repeat:repeat+1,grassPixelization:!!mode.pixels,phaseProfile,requestedStemResolution:options.requestedResolution,stemResolution:options.resolution,population,dimensions,
         image:path.relative(root,path.join(directory,`${caseName}.png`)),imageSha256:hash(image),metrics,cpu};
       runs.push(row);checkSaved();
       fs.writeFileSync(path.join(output,'runs.json'),JSON.stringify(runs,null,2));
@@ -175,7 +180,7 @@ try {
     }))};
   });
   const revision=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim();
-  fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({revision,grassPoseReuse:grassPoseReuse==='1',pixelCandidates:options.pixels,phaseProfile:options.phases,stemResolution:options.resolution,quick:options.quick,repeats:options.quick?1:2,savedConfigSha256:before,summary},null,2));
+  fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({revision,grassPoseReuse:grassPoseReuse==='1',pixelCandidates:options.pixels,phaseProfile:options.phases,requestedStemResolution:options.requestedResolution,stemResolution:options.resolution,quick:options.quick,repeats:options.quick?1:2,savedConfigSha256:before,summary},null,2));
   console.log(JSON.stringify(summary,null,2));
 } catch(error) {
   console.error(`${error.message}\nArtifacts: ${output}\nInspect the failed log; cargo run --release -- --tail-latest-log 200`);

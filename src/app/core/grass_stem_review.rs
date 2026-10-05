@@ -42,6 +42,10 @@ impl GrassStemReview {
                 (8..=512).contains(&review.resolution),
                 "stem samples must be 8..512"
             );
+            // Legacy review requests below the saved model-grid minimum are
+            // accepted, but report/apply the effective value, not the request.
+            review.resolution =
+                crate::flora::models::StemExperiment::normalize_model_resolution(review.resolution);
             review.sample_frames = environment_uint("RE_FLORA_STEM_SAMPLE_FRAMES", 300);
             assert!(
                 (3..=15).contains(&review.grid) && review.grid % 2 == 1,
