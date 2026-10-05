@@ -69,6 +69,26 @@ pub enum AttachmentType {
     Depth,
 }
 
+fn attachment_scope(ty: &AttachmentType) -> (vk::PipelineStageFlags, vk::AccessFlags) {
+    match ty {
+        AttachmentType::Color => (vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE),
+        AttachmentType::Depth => (vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS, vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn attachment_scopes_cover_loads_blending_and_late_depth() {
+        let (_, color) = attachment_scope(&AttachmentType::Color);
+        assert!(color.contains(vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE));
+        let (depth_stages, depth) = attachment_scope(&AttachmentType::Depth);
+        assert!(depth.contains(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE));
+        assert!(depth_stages.contains(vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS));
+    }
+}
+
 pub struct AttachmentDescOuter {
     pub texture: Texture,
     pub load_op: vk::AttachmentLoadOp,
@@ -111,15 +131,17 @@ impl RenderPass {
                     attachment: attachment_descs.len() as u32 - 1,
                     layout: TextureLayout::COLOR_ATTACHMENT,
                 });
-                dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
-                pipeline_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
+                let (stage, access) = attachment_scope(&attachment.ty);
+                dst_access_mask |= access;
+                pipeline_stage_mask |= stage;
             } else if attachment.ty == AttachmentType::Depth {
                 subpass_desc.depth_stencil_attachment = Some(AttachmentReference {
                     attachment: attachment_descs.len() as u32 - 1,
                     layout: TextureLayout::DEPTH_STENCIL_ATTACHMENT,
                 });
-                dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
-                pipeline_stage_mask |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS;
+                let (stage, access) = attachment_scope(&attachment.ty);
+                dst_access_mask |= access;
+                pipeline_stage_mask |= stage;
             }
         }
 

@@ -167,7 +167,7 @@ impl VulkanContext {
         let waits = [SubmitWait::new(
             "swapchain.image_available",
             image_available,
-            PipelineWaitStage::ColorAttachmentOutput,
+            PipelineWaitStage::SwapchainImageAccess,
         )];
         let signals = [SubmitSignal::new("frame.render_finished", render_finished)];
         let desc = SubmitDesc::new(

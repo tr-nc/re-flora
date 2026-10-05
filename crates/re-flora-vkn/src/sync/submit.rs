@@ -1,6 +1,6 @@
 use ash::vk;
 
-use crate::{CommandBuffer, Fence, Semaphore};
+use crate::{CommandBuffer, Fence, PipelineStage, Semaphore};
 
 const MAX_SUBMIT_COMMAND_BUFFERS: usize = 8;
 const MAX_SUBMIT_WAITS: usize = 8;
@@ -14,20 +14,27 @@ const MAX_SUBMIT_SIGNALS: usize = 8;
 pub enum PipelineWaitStage {
     TopOfPipe,
     ColorAttachmentOutput,
+    /// Acquired images are first used by either a scene blit or the loading GUI.
+    SwapchainImageAccess,
     ComputeShader,
     Transfer,
     AllCommands,
 }
 
 impl PipelineWaitStage {
-    pub(crate) fn as_raw(self) -> vk::PipelineStageFlags {
+    pub(crate) fn pipeline_stage(self) -> PipelineStage {
         match self {
-            Self::TopOfPipe => vk::PipelineStageFlags::TOP_OF_PIPE,
-            Self::ColorAttachmentOutput => vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-            Self::ComputeShader => vk::PipelineStageFlags::COMPUTE_SHADER,
-            Self::Transfer => vk::PipelineStageFlags::TRANSFER,
-            Self::AllCommands => vk::PipelineStageFlags::ALL_COMMANDS,
+            Self::TopOfPipe => PipelineStage::TOP_OF_PIPE,
+            Self::ColorAttachmentOutput => PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            Self::SwapchainImageAccess => PipelineStage::TRANSFER | PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+            Self::ComputeShader => PipelineStage::COMPUTE_SHADER,
+            Self::Transfer => PipelineStage::TRANSFER,
+            Self::AllCommands => PipelineStage::ALL_COMMANDS,
         }
+    }
+
+    pub(crate) fn as_raw(self) -> vk::PipelineStageFlags {
+        self.pipeline_stage().as_raw()
     }
 }
 

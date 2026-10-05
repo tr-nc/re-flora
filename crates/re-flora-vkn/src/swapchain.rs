@@ -7,7 +7,7 @@ use ash::{
 use crate::{
     AcquiredFrame, AttachmentDesc, AttachmentReference, Extent2D, ExternalImage, Framebuffer,
     ImageView, ImageViewDesc, RenderPass, RenderPassDesc, RenderTarget, SubpassDesc, TextureLayout,
-    TextureTransition,
+    TextureTransition, MemoryAccess, PipelineWaitStage, ResourceState,
 };
 
 use super::{
@@ -285,7 +285,7 @@ impl Swapchain {
         record_image_transition_barrier(
             device.as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(TextureLayout::UNDEFINED, TextureLayout::TRANSFER_DST),
+            acquired_image_transition(TextureLayout::TRANSFER_DST),
             dst_raw_img,
             src_img.get_desc().get_aspect_mask(),
             0,
@@ -552,10 +552,7 @@ impl Swapchain {
         record_image_transition_barrier(
             self.vulkan_context.device().as_raw(),
             cmdbuf.as_raw(),
-            TextureTransition::from_layouts(
-                TextureLayout::UNDEFINED,
-                TextureLayout::COLOR_ATTACHMENT,
-            ),
+            acquired_image_transition(TextureLayout::COLOR_ATTACHMENT),
             image,
             vk::ImageAspectFlags::COLOR,
             0,
@@ -848,6 +845,16 @@ fn create_vulkan_swapchain(
     )
 }
 
+fn acquired_image_transition(layout: TextureLayout) -> TextureTransition {
+    // UNDEFINED discards old pixels, not the presentation engine's acquire read.
+    // The layout transition itself must execute after the same semantic wait
+    // edge used by submission. Leave unrelated shader stages free to overlap.
+    TextureTransition::new(
+        ResourceState::new(TextureLayout::UNDEFINED, PipelineWaitStage::SwapchainImageAccess.pipeline_stage(), MemoryAccess::empty()),
+        ResourceState::from_layout(layout),
+    )
+}
+
 fn create_vulkan_render_pass(device: Device, format: vk::Format) -> RenderPass {
     let color_attachment = AttachmentDesc {
         format,
@@ -909,9 +916,21 @@ fn create_vulkan_framebuffers(
 
 #[cfg(test)]
 mod tests {
-    use super::{choose_swapchain_extent, FrameExtentGeneration};
+    use super::{acquired_image_transition, choose_swapchain_extent, FrameExtentGeneration};
+    use crate::{PipelineStage, TextureLayout};
     use crate::Extent2D;
     use ash::vk;
+
+    #[test]
+    fn acquired_image_transition_waits_for_transfer_and_color_use() {
+        let wait = (PipelineStage::TRANSFER | PipelineStage::COLOR_ATTACHMENT_OUTPUT).as_raw();
+        for layout in [TextureLayout::TRANSFER_DST, TextureLayout::COLOR_ATTACHMENT] {
+            let transition = acquired_image_transition(layout);
+            assert_eq!(transition.src_stage(), wait, "discarding contents must not discard acquire ordering");
+            assert_eq!(transition.old_layout(), vk::ImageLayout::UNDEFINED);
+            assert!(transition.src_access().is_empty());
+        }
+    }
 
     #[test]
     fn frame_extent_uses_surface_current_extent() {

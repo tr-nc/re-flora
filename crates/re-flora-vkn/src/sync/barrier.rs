@@ -36,6 +36,7 @@ impl MemoryAccess {
     pub const VERTEX_ATTRIBUTE_READ: Self = Self(vk::AccessFlags::VERTEX_ATTRIBUTE_READ);
     pub const COLOR_ATTACHMENT_READ: Self = Self(vk::AccessFlags::COLOR_ATTACHMENT_READ);
     pub const COLOR_ATTACHMENT_WRITE: Self = Self(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+    pub const DEPTH_STENCIL_ATTACHMENT_READ: Self = Self(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ);
     pub const DEPTH_STENCIL_ATTACHMENT_WRITE: Self =
         Self(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
     pub const HOST_READ: Self = Self(vk::AccessFlags::HOST_READ);
@@ -245,7 +246,7 @@ impl ResourceState {
         Self::new(
             TextureLayout::DEPTH_STENCIL_ATTACHMENT,
             PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
-            MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            MemoryAccess::DEPTH_STENCIL_ATTACHMENT_READ | MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
         )
     }
 
@@ -546,11 +547,7 @@ fn texture_destination_state(layout: TextureLayout) -> ResourceState {
             PipelineStage::COLOR_ATTACHMENT_OUTPUT,
             MemoryAccess::COLOR_ATTACHMENT_READ | MemoryAccess::COLOR_ATTACHMENT_WRITE,
         ),
-        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => ResourceState::new(
-            TextureLayout::DEPTH_STENCIL_ATTACHMENT,
-            PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
-            MemoryAccess::DEPTH_STENCIL_ATTACHMENT_WRITE,
-        ),
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => ResourceState::depth_stencil_attachment(),
         vk::ImageLayout::PRESENT_SRC_KHR => ResourceState::new(
             TextureLayout::PRESENT_SRC,
             PipelineStage::BOTTOM_OF_PIPE,
