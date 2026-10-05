@@ -42,7 +42,9 @@ mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
 mod grass_band_cache;
+mod ordered_dither;
 pub(crate) mod scene_resolution;
+pub use ordered_dither::OrderedDitherSettings;
 mod stem_band_mesh;
 mod stem_band_paths;
 mod stem_band_resources;
@@ -780,12 +782,23 @@ mod glass_voxel_cache_contract_tests {
             cell_shading.contains(
                 "result.radiance = applyGlassCameraEffects(result.radiance, canonicalScreenUv);"
             ),
-            "camera effects on visible Glass must be owned by the canonical cell color"
+            "original camera effects on visible Glass must be owned by the canonical cell color"
         );
         assert!(
-            pixel_resolve.contains("else if (!resolvedGlassCell)\n        resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);"),
-            "pixel resolve may apply camera effects only when it did not resolve a Glass cell"
+            pixel_resolve.contains("else if (!resolvedGlassCell || orderedGlassCameraEffects())\n        resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);"),
+            "original resolve must retain cached effects; only active screen-pattern A/B may move camera effects to the final scene cell"
         );
+        assert!(cell_shading.contains("canonicalClip.w > 0.0 && !orderedGlassCameraEffects()"));
+        let camera_guard = shader
+            .split_once("bool orderedGlassCameraEffects()")
+            .unwrap()
+            .1
+            .split_once("float3 applyGlassCameraEffects")
+            .unwrap()
+            .0;
+        assert_eq!(camera_guard.matches("orderedDitherEnabled(").count(), 2);
+        assert!(camera_guard.contains("ORDERED_LENS_FLARE"));
+        assert!(camera_guard.contains("ORDERED_GOD_RAYS"));
         assert!(
             !pixel_resolve.contains("lerp("),
             "Glass pixel resolve must not blend the opaque pixel back over the cell color"
@@ -1491,6 +1504,7 @@ pub struct EnvironmentFrameInput {
     pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
+    pub ordered_dither: OrderedDitherSettings,
     pub sun: SunFrameInput,
     pub god_rays: GodRayFrameInput,
     pub starlight: StarlightFrameInput,
@@ -3059,6 +3073,7 @@ impl Tracer {
             self.scene_resolution.settings.pixel_stride(),
             self.scene_resolution.settings.resolve_mode(),
             dither_strength_lsb,
+            environment.ordered_dither,
         )?;
 
         BufferUpdater::update_voxel_colors(&self.resources, &authored_snapshot.voxel_palette)?;
@@ -3143,6 +3158,7 @@ impl Tracer {
             &materials,
             &vegetation,
             &environment,
+            &self.scene_resolution,
         )?;
 
         BufferUpdater::update_flora_growth_info(

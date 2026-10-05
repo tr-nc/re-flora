@@ -237,6 +237,18 @@ pub(super) fn freeze_render_frame_inputs(
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
+        ordered_dither: crate::tracer::OrderedDitherSettings::from_controls(
+            [
+                gui.ordered_dither_global.value,
+                gui.ordered_dither_god_rays.value,
+                gui.ordered_dither_lens_flare.value,
+                gui.ordered_dither_sky_background.value,
+                gui.ordered_dither_terrain_ambient.value,
+            ],
+            gui.ordered_dither_pattern.value,
+            gui.ordered_dither_levels.value,
+            gui.ordered_dither_strength.value,
+        ),
         sun: SunFrameInput {
             direction: live.sun_direction,
             size: gui.sun_size.value,
@@ -643,6 +655,7 @@ mod tests {
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,
+                ordered_dither: crate::tracer::OrderedDitherSettings::default(),
                 sun: SunFrameInput {
                     direction: live.sun_direction,
                     size: sun_size,

@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Re: Flora · 有序 Dither 原生 A/B 与研究</title>
+<style>
+:root{color-scheme:dark;--bg:#10181a;--panel:#1a2628;--edge:#3a5357;--ink:#ebf1e8;--muted:#b5c9c6;--accent:#edbd72}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 system-ui,sans-serif}main{max-width:1220px;margin:auto;padding:32px 24px 72px}h1{font-size:clamp(26px,4vw,44px);line-height:1.2}h2{margin-top:42px;color:var(--accent)}h3{font-size:18px;margin:12px 0}p{max-width:100ch}a{color:#b9e3ec}code{color:#edcb9c;overflow-wrap:anywhere}nav{display:flex;gap:20px;flex-wrap:wrap}.badge{display:inline-block;padding:3px 10px;border:1px solid var(--edge);border-radius:5px;font-size:14px}.notice{border-left:4px solid var(--accent);padding:12px 18px;background:var(--panel)}.controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--panel);padding:16px;border:1px solid var(--edge);border-radius:8px;margin:16px 0}.controls label{display:flex;align-items:center;gap:8px;flex-wrap:wrap}select,button{background:#27393c;color:var(--ink);border:1px solid #67858a;border-radius:5px;padding:8px;font:inherit}input[type=range]{accent-color:var(--accent);width:180px}input[type=checkbox]{accent-color:var(--accent)}button{cursor:pointer}output{min-width:2ch;color:var(--accent)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}.card{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:12px}.card p{font-size:14px;color:var(--muted);margin:8px 0}canvas{width:100%;display:block;image-rendering:pixelated;background:#071014}.matrix{display:grid;grid-template-columns:repeat(4,1fr);max-width:190px;margin:8px auto}.matrix span{text-align:center;font-size:12px;padding:4px;color:#10181a}.native-scroll{overflow:auto;border:1px solid var(--edge);border-radius:6px;background:#071014}.native-frame{position:relative;width:100%;line-height:0}.native-frame img{display:block;width:100%;height:auto;max-width:none;image-rendering:pixelated}.native-overlay{position:absolute;inset:0;clip-path:inset(0 0 0 50%)}.divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;pointer-events:none}.caption{display:flex;gap:20px;justify-content:space-between;color:var(--muted);font-size:14px;margin:10px 0}.native-preview{max-width:100%;height:auto;image-rendering:pixelated}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;min-width:650px}td,th{border:1px solid var(--edge);padding:12px;text-align:left;vertical-align:top}th{background:var(--panel)}li{margin-bottom:9px}.small{color:var(--muted);font-size:14px}details{background:var(--panel);padding:12px;margin:16px 0;border:1px solid var(--edge)}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}.error{color:#ffa59c}@media(max-width:600px){main{padding:20px 12px}.controls{gap:12px}.caption{display:block}}
+</style>
+</head>
+<body><main>
+<header>
+<span class="badge">原生 Release + 离线研究页</span> <span class="badge">默认关闭 · 未获视觉批准 · 未做性能验收</span>
+<h1>规律像素，而不只是<br>看不见的防色带噪声</h1>
+<p>Re: Flora 有序 dither 实验。保留原效果的运行时 A/B；Bayer 与聚簇 halftone 共用一个量化函数，按最终 Scene Pixel Sampling 像素格定位。<strong>真实游戏 PNG</strong> 与 <strong>Canvas 算法模拟</strong> 分开展示。此页没有 CDN、远程图片或在线依赖。</p>
+<nav><a href="#native">真实游戏比较</a><a href="#simulation">同源同色阶模拟</a><a href="#scope">作用范围</a><a href="#research">一手来源</a><a href="#validation">验证与限制</a><a href="ordered-dither.md">完整研究记录</a></nav>
+<p class="small">基线 <code>d9f5a66a</code> · 渲染实现 <code>5ab43c44</code> · 捕获日志本地日期 2026-10-06（UTC 2026-10-05） · NVIDIA RTX 3060 Ti / Vulkan / sRGB swapchain。</p>
+</header>
+
+<section id="native">
+<h2>1 · 真正的原生 Release A/B</h2>
+<p>下面只是显示已捕获的游戏 PNG，<strong>不是 Canvas 重绘或网页模拟</strong>。同一 App 进程依次切换真实保存字段：原效果 → global Bayer → halftone → 各局部开关 → global 优先 → 强度零 → 切回原效果。共同参数：8 个 brightness levels、强度 1、64:1 最终分辨率、4-to-1 source density、Contrast-aware resolve；“零强度”例外为 0。不同截图有动态世界/计数差异，不是冻结时间的全图逐像素对照。</p>
+<div class="controls">
+<label>原生场景 <select id="native-scene"><option value="garden">花园 / 地形接收天光</option><option value="sun">朝向太阳 / 可见 Lens Flare</option><option value="glass">实验玻璃 / 透明渲染路径</option></select></label>
+<label>A 图 <select id="native-a" aria-label="A 图"></select></label>
+<label>B 图 <select id="native-b" aria-label="B 图"></select></label>
+<label><input id="native-full" type="checkbox">原尺寸（避免缩放摩尔纹）</label>
+</div>
+<div class="native-scroll"><div id="native-frame" class="native-frame">
+<img id="native-a-img" src="ordered-dither-assets/garden/original.png" alt="A：花园原效果，原生 Release 截图" width="2560" height="1440">
+<div id="native-overlay" class="native-overlay"><img id="native-b-img" src="ordered-dither-assets/garden/global-bayer.png" alt="B：花园 global Bayer，原生 Release 截图" width="2560" height="1440"></div>
+<div id="native-divider" class="divider"></div>
+</div></div>
+<div class="controls"><label>拖动比较分界 <input id="native-split" type="range" min="0" max="100" value="50"><output id="split-value">50%</output></label><button id="native-swap" type="button">交换 A / B</button><span id="native-dimensions" class="small">2560 × 1440 原生截图</span></div>
+<div class="caption"><span id="caption-a">A：原效果</span><span id="caption-b">B：Global Bayer</span></div>
+<p id="native-note" class="notice">花园里 global 的格纹覆盖天空、树叶、树干与地形；右侧 Backpack 和下方 HUD 保持原生。单独天光只改变地形接收环境光，树叶不会随该局部开关被量化。</p>
+<p>实际观察：Bayer 有明显棋盘/交叉线；halftone 是更团簇的点/斜块。8 阶、强度 1 已很显眼，绝不是原 ±1 LSB 防色带噪声。God Rays 在此场景较强，会出现深蓝混合档；局部天光较温和。默认花园看不到明显 lens flare，<strong>已另拍朝向太阳的同进程比较</strong>，能看到 flare 周围有序明暗点。两种图案都可能遮盖细节、随物体移动产生 screen-fixed swimming；这是候选观察，不是美术认可。</p>
+<details><summary>原生 GUI：可搜索、保存、实时 A/B（英文控件）</summary><p>在 Debug Panel 搜索 <code>ordered dithering</code>；八个参数集中在一个组中。Pattern / Brightness levels / Strength 在前，受影响的场景/效果在后。所有 checkbox 默认未勾选，统一 Save 保存；搜索中的真实鼠标点击与保存重载有 Rust 回归测试。</p><img class="native-preview" src="ordered-dither-assets/controls.png" alt="真实 Debug Panel 截图：Ordered Dithering 的八个可搜索参数，默认 A/B 未勾选" width="2560" height="1440"></details>
+<details><summary>Partial blocks：1023 × 767 的真实原生截图</summary><p>16 阶段 native grid 测试覆盖四档 ratio、两种 source density、两种 resolve；该截图为奇数尺寸、16:1、Contrast-aware。右/下边缘 cell 被裁切而非拉伸。没有修改既有 barrier 或青边修复。</p><img class="native-preview" src="ordered-dither-assets/partial-blocks.png" alt="1023x767 原生 partial-block 截图" width="1023" height="767"></details>
+</section>
+
+<section id="simulation">
+<h2>2 · 同源图、同色阶的 pattern 比较</h2>
+<p class="notice"><strong>以下全部是 Canvas / JavaScript 算法模拟，不是 GPU 或游戏截图。</strong>输入为合成 encoded RGB；模拟 final display brightness 的量化，不模拟游戏 HDR 光照、tone-map、DDGI、透明合成或 Contrast-aware。不会把每通道独立取整拼成新色。</p>
+<div class="controls">
+<label>统一源图 <select id="sim-source"><option value="lighting">天光 / 光束 / 光晕 / 叶片合成示意</option><option value="gradient">灰阶与蓝色渐变</option></select></label>
+<label>模拟 brightness levels <input id="sim-levels" type="range" min="2" max="32" value="8"><output id="levels-value">8</output></label>
+<label>模拟强度 <input id="sim-strength" type="range" min="0" max="100" value="100"><output id="strength-value">1.00</output></label>
+<label><input id="sim-motion" type="checkbox">移动源图（pattern 固定）</label>
+<button id="sim-reset" type="button">重置模拟</button>
+</div>
+<p class="small">共用 320 × 180 个模拟 cell。色阶指最大 encoded RGB 分量的档数，不是全图颜色总数。低档位可能变黑，降低强度可混回原色；强度 0 时所有比较卡应等同源图。网页没有新增游戏里的调参模式。</p>
+<div id="sim-cards" class="grid"></div>
+<p id="sim-status" class="small" aria-live="polite"></p>
+<div class="grid">
+<div class="card"><h3>Bayer 4×4 rank</h3><div id="matrix-bayer" class="matrix" aria-label="Bayer rank 矩阵"></div><p>分散点，16 个不同 rank。原生候选；小尺度重复非常规整。</p></div>
+<div class="card"><h3>Halftone 4×4 rank</h3><div id="matrix-halftone" class="matrix" aria-label="Halftone rank 矩阵"></div><p>聚簇点，ImageMagick h4x4o 的 rank 顺序。原生候选；不是 blue noise。</p></div>
+<div class="card"><h3>量化只选一份颜色比例</h3><p><code>peak = max(encodedRGB)<br>q = (floor(peak·(N−1)) + [frac &gt; threshold])/(N−1)<br>RGB' = RGB · lerp(peak,q,strength)/peak</code></p><p>零强度/未开启在转换前 early-return。HDR 局部贡献先用扩展 sRGB 表示，阶继续延伸到 1 以上；最终 global 才在 tone-map 后的显示范围量化。</p></div>
+</div>
+</section>
+
+<section id="scope">
+<h2>3 · Sky background ≠ 蓝色天光</h2>
+<div class="table-scroll"><table><thead><tr><th>英文控件</th><th>实际作用位置 / 边界</th></tr></thead><tbody>
+<tr><td>Global scene dither (A/B)</td><td>所有 scene 渲染结果（地形、raster 模型/植被/粒子、光照、天空、玻璃、相机效果）合成并 tone-map / 完整 RGB resolve 之后；HUD / Debug UI 之后才绘制，不被量化。Global 开启时跳过所有局部量化和 legacy LSB，防止重复量化。</td></tr>
+<tr><td>God Rays dither (A/B)</td><td>temporal visibility 已完成后，在 composition / glass resolve 对最终 ray 混合 weight 做标量阶。保留 ray color 整份 tuple；pattern 不进入 history。</td></tr>
+<tr><td>Camera Lens Flare dither (A/B)</td><td>temporal HDR flare bilinear 采样后、相加前，按同一 RGB ray 做 brightness 阶。HDR 不在这里 tone-map、不截断到 1；玻璃缓存只在局部 A/B 开启时把相机效果移到最终 scene cell，原路径不变。</td></tr>
+<tr><td>Sky background dither (A/B)</td><td>可见天空/太阳/星空背景贡献。<strong>不是天光照明开关。</strong>不修改 authored sky radiance 或 DDGI atlas；透过玻璃的光照由 global 统一覆盖。</td></tr>
+<tr><td>Skylight / ambient: terrain dither (A/B)</td><td>正常 hybrid 地形接收的 diffuse environment（天空 + DDGI 反弹的混合量），在乘 albedo 前；不改变 direct/local/emission，不改变 physical capture。reference / diagnostics、植被/模型的 vertex/cached irradiance、玻璃间接光不由此局部开关控制。没有纯“蓝天空”buffer，因此不按蓝通道挑颜色假装分离光源；跨路径统一用 global。</td></tr>
+</tbody></table></div>
+<p>两种候选共享 <code>shader/slang/ordered_dither.slang</code>。局部坐标由 authoritative final coarse scene extent 映射；global 直接使用现有 <code>scenePixelCoordinate</code>。四档 ratio、两档 source density、两种 resolve、whole-color 青边修复和 native UI 保持不变。取消勾选与 Strength 0 等价；偏好仍保存，global 只是优先覆盖而不是删掉局部值。</p>
+<p><strong>证据边界：</strong>Contrast-aware 选已有整份 RGB，保证 resolve 不 splice source channels。Dither 会创造同一 encoded 色系的明暗档，不能再保证“最终颜色属于原样本集合”，也不是完整 indexed-palette 算法；感知色相可能随明暗改变。</p>
+</section>
+
+<section id="research">
+<h2>4 · 一手材料与研究结论</h2>
+<p>读取了以下正文/源代码，而不是把搜索摘要当审计。访问均成功，未出现 403；可变 main URL 只代表本次实际读到的实现，未审计完整项目或商业游戏私有源码。</p>
+<ol>
+<li><a href="https://dukope.com/devlogs/obra-dinn/tig-02/">Lucas Pope · Obra Dinn 2014-07（#181–194）</a>：作者区分 ordered 重复阈值与顺序误差扩散，亲自比较 Bayer / ordered blue noise，并讨论缩放、视频压缩。不能据此推断所有像素游戏都用同一种算法。</li>
+<li><a href="https://dukope.com/devlogs/obra-dinn/tig-32/">Lucas Pope · 2017-11（#767）</a>：8-bit grayscale → 1-bit；8×8 Bayer / 128×128 blue-noise；具体说明 screen offset、sphere mapping、supersampling 的运动稳定化折衷。<strong>本实验没有复刻 Obra Dinn 的稳定化</strong>，screen-fixed pattern 仍会 swim。</li>
+<li><a href="https://www.aseprite.org/api/command/ChangePixelFormat/">Aseprite 官方 API</a> 与 <a href="https://raw.githubusercontent.com/aseprite/aseprite/main/src/render/ordered_dither.cpp">ordered_dither.cpp</a>：实际检查 D2={0,2,3,1}、两个完整 palette index 的选择，以及 OrderedDither2 的混色搜索。它不是逐通道中位数；我们的 brightness 阶也不等同完整 palette 搜索。</li>
+<li><a href="https://raw.githubusercontent.com/ImageMagick/ImageMagick/main/config/thresholds.xml">ImageMagick thresholds.xml</a>：实际读取 o4x4 / h4x4o 数表和来源注释。实验只借 rank 顺序，规范化成 <code>(rank+0.5)/16</code>，不是照搬原文件 level/17。</li>
+<li><a href="https://bisqwit.iki.fi/story/howto/dither/jy/">Joel Yliluoma · Arbitrary-palette positional dithering</a>：审计开头、standard ordered 的 palette-spacing 限制及 algorithm 1 的完整颜色对/比例搜索。页面用了 Chrono Cross 源图作量化示例，<strong>不能说 Chrono Cross 原游戏采用该算法</strong>；未审计后续全部变体。</li>
+</ol>
+<p>项目选择：先用少量明确、便于在 runtime 比较的规律图案；不把 hash 叫 blue noise，不为重复阈值额外暴露无真实需求的 tile-size/seed 参数。亮度阶适应可编辑材质与 HDR 相机效果，成本/视觉均应实测；下一阶段若需要完整 palette，应单独建立稳定的 palette owner，而不是再次叠一层每通道 posterize。</p>
+</section>
+
+<section id="validation">
+<h2>5 · 可复现证据与已知限制</h2>
+<ul>
+<li><code>cargo fmt --check</code>、<code>CARGO_BUILD_JOBS=2 cargo check</code>、完整 <code>cargo test</code>、<code>python3 scripts/run_slang_tests.py</code> 与 <code>cargo build --release</code>。Slang CPU 35 项；Rust 1346 + library 4 项通过，3 ignored。生成字段/struct 从 source 自动再生，没有手改。</li>
+<li>隐藏静音 smoke 以及 garden / sun / glass / grid / GUI，共 <strong>50 张原生 PNG</strong>；grid / glass / sun 强制 Khronos validation，无 ERROR / panic / VUID，正常退出 <code>failures=0</code>。所有 GPU native 运行串行使用 <code>flock --close /tmp/re-flora-summer-gpu.lock</code>，没有启动可见游戏。</li>
+<li>真实像素 ROI：9 张花园图，每张左上 <code>1024×256</code> 的 4096 个 8×8 scene blocks 均内部一致；Backpack <code>500×650+1920+60</code> 的 RGBA hash 全相同。原效果、零强度、切回原效果的静态天空 ROI hash 也完全相同。范围仅限这些 ROI，不夸成动态全图 bit-exact。</li>
+<li>GUI 实际鼠标输入测试覆盖五个 A/B 搜索后点击、统一 Save / reload；通用遍历覆盖 pattern / levels / strength 持久化；旧文件/不完整 section 补缺省且保留原值。native runs 未写 gui.toml 或 camera snapshots。此页以独立 agent-browser 会话做了 offline 重载与实际控件操作，33 张 A/B 图片均加载，390px 无页面横向溢出，console/page errors 为空；会话已关闭。</li>
+<li><strong>没有专项 Release 性能测量或性能验收。</strong>截图 FPS / 单帧数值不当 benchmark。这里只做可用的视觉/正确性候选；未获用户视觉批准，尚未验证长时间移动、所有光照时段、所有物体/颜色组合或其他 GPU/平台。</li>
+</ul>
+<p>运行证据（SHA-256、阶段日志、命令、validation 模式）见 <a href="ordered-dither-assets/evidence.json">本地 evidence.json</a>。完整本工作区日志保留在 <code>target/ordered-dither-native/</code>，不跨 worktree 取日志。</p>
+<details><summary>复现命令与 GUI 比较方法</summary><pre><code>CARGO_BUILD_JOBS=2 cargo build --release
+node scripts/validate-ordered-dither.mjs smoke
+node scripts/validate-ordered-dither.mjs compare
+node scripts/validate-ordered-dither.mjs sun
+node scripts/validate-ordered-dither.mjs glass
+node scripts/validate-ordered-dither.mjs grid
+node scripts/validate-ordered-dither.mjs gui
+# 脚本拒绝已有 evidence 目录，避免混入旧截图；移到另一自有路径后重跑。
+# 强制 validation：用本机 Vulkan SDK 的 VK_LAYER_PATH，
+# 再设置 VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation。
+
+Debug Panel → Search: ordered dithering
+保持 Scene Pixel Sampling 同档位/同 density/同 resolve。
+先只勾 Global scene dither；在 Pattern 里切 Bayer / Halftone。
+再取消 Global，逐个比较 God Rays / Camera Lens Flare / terrain ambient。
+测试 Lens Flare 时朝向可见太阳；Sky background 不等于天光。
+Brightness levels 先 8，再 4 / 16；Strength 0 与取消勾选回原效果。
+点击统一 Save 保存偏好。没有自动启动可见游戏。</code></pre></details>
+</section>
+<footer class="small"><p>此页与相邻资源可直接通过 file:// 打开。图片缺失时请保留整个 <code>ordered-dither-assets/</code> 文件夹；不能只复制 HTML。研究材料版权属于原作者，链接仅作出处；本地游戏截图来自本实验。</p></footer>
+</main>
+<script>
+'use strict';
+const byId = id => document.getElementById(id);
+const cases = [
+ ['original','原效果（A）'],['global-bayer','Global Bayer'],['global-halftone','Global Halftone'],
+ ['god-rays','God Rays only'],['lens-flare','Camera Lens Flare only'],['terrain-ambient','Terrain skylight / ambient only'],
+ ['sky-background','Sky background only'],['local-combined','Local combined'],['global-overrides-local','Global overrides local'],
+ ['zero-strength','Strength 0（原路径）'],['original-return','切回原效果']
+];
+for (const id of ['native-a','native-b']) for (const [value,label] of cases) byId(id).add(new Option(label,value));
+byId('native-b').value = 'global-bayer';
+function updateNative() {
+ const scene = byId('native-scene').value;
+ for (const side of ['a','b']) {
+  const key = byId('native-'+side).value;
+  const label = cases.find(p => p[0] === key)[1];
+  const image = byId('native-'+side+'-img');
+  image.src = `ordered-dither-assets/${scene}/${key}.png`;
+  image.alt = `${side.toUpperCase()}：${label}，${scene} 原生 Release 截图`;
+  byId('caption-'+side).textContent = `${side.toUpperCase()}：${label}`;
+ }
+ byId('native-note').textContent = scene === 'sun'
+  ? '朝向太阳的真实相机 fixture：单独比较 Camera Lens Flare only 可看到光晕/flare 的有序点，不要用没有可见 flare 的花园视角推断效果无效。'
+  : scene === 'glass'
+  ? '原生实验玻璃：global 覆盖透明合成的最终颜色。局部 ray / flare 开启任一 A/B 时，整份相机效果组合移到最终 screen UV，包括未量化项的采样位置；全部关闭时保留原 canonical voxel cache 路径。'
+  : '花园里 global 的格纹覆盖天空、树叶、树干与地形；右侧 Backpack 和下方 HUD 保持原生。单独天光只改变地形接收环境光，树叶不会随该局部开关被量化。';
+ updateSize();
+}
+function updateSize() {
+ const image = byId('native-a-img');
+ byId('native-frame').style.width = byId('native-full').checked ? (image.naturalWidth || 2560)+'px' : '100%';
+ byId('native-dimensions').textContent = `${image.naturalWidth || 2560} × ${image.naturalHeight || 1440} 原生截图`;
+}
+function updateSplit() {
+ const value = +byId('native-split').value;
+ byId('native-overlay').style.clipPath = `inset(0 0 0 ${value}%)`;
+ byId('native-divider').style.left = value+'%';
+ byId('split-value').textContent = value+'%';
+}
+for (const id of ['native-a','native-b','native-scene']) byId(id).addEventListener('change',updateNative);
+byId('native-full').addEventListener('change',updateSize);
+byId('native-split').addEventListener('input',updateSplit);
+byId('native-swap').addEventListener('click',() => {const a=byId('native-a').value;byId('native-a').value=byId('native-b').value;byId('native-b').value=a;updateNative();});
+for (const id of ['native-a-img','native-b-img']) {
+ byId(id).addEventListener('load',updateSize);
+ byId(id).addEventListener('error',() => {byId('native-note').textContent='原生图片读取失败：请保留相邻 ordered-dither-assets 文件夹。';byId('native-note').classList.add('error');});
+}
+const bayer = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+const halftone = [6,12,10,3,11,15,13,7,9,14,5,1,4,8,2,0];
+const bayer2 = [0,2,3,1];
+for (const [id,matrix] of [['matrix-bayer',bayer],['matrix-halftone',halftone]]) for (const rank of matrix) {
+ const el=document.createElement('span');el.textContent=rank;el.style.background=`hsl(185 25% ${30+rank*3.5}%)`;byId(id).append(el);
+}
+const variants = [
+ ['source','统一源图（不量化）','模拟输入，不是游戏截图。'],
+ ['nearest','无空间 pattern 的亮度阶','仅网页参考；方便区分 posterize 与 dither。'],
+ ['bayer2','Bayer 2×2','仅网页参考；更短重复、可表达中间比例更少。'],
+ ['bayer','Bayer 4×4','原生候选的阈值顺序；模拟最后显示阶段。'],
+ ['halftone','Halftone 4×4','原生候选的阈值顺序；聚簇分布。'],
+ ['hash','静态 hash 阈值','仅网页参考，不是 blue noise，也不是基线 ±1 LSB 输出噪声。']
+];
+const canvases = [];
+for (const [mode,title,note] of variants) {
+ const article=document.createElement('article');article.className='card';
+ const h=document.createElement('h3');h.textContent=title;
+ const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;canvas.dataset.mode=mode;canvas.setAttribute('aria-label',title+'，Canvas 算法模拟');
+ const p=document.createElement('p');p.textContent=note;
+ article.append(h,canvas,p);byId('sim-cards').append(article);canvases.push([mode,canvas]);
+}
+function hash01(x,y) {
+ let h=(Math.imul(x,0x9e3779b9)+Math.imul(y,0x85ebca6b)+0x12345678)>>>0;
+ h^=h>>>16;h=Math.imul(h,0x7feb352d)>>>0;h^=h>>>15;return (h&65535)/65535;
+}
+function threshold(mode,x,y) {
+ if(mode==='nearest')return 0.5;
+ if(mode==='bayer2')return (bayer2[(y&1)*2+(x&1)]+0.5)/4;
+ if(mode==='hash')return hash01(x,y);
+ return ((mode==='halftone'?halftone:bayer)[(y&3)*4+(x&3)]+0.5)/16;
+}
+const clamp = v => Math.min(1,Math.max(0,v));
+function sourceColor(x,y,time) {
+ const u=x/319,v=y/179;
+ if(byId('sim-source').value==='gradient') {
+  const value=clamp(u+Math.sin(time)*0.10);
+  return v<0.5?[value,value,value]:[value*0.43,value*0.69,value];
+ }
+ const sx=u+Math.sin(time)*0.08;
+ let rgb=[0.16+v*0.31,0.33+v*0.29,0.66+v*0.15];
+ const glow=Math.exp(-((sx-0.72)**2+(v-0.23)**2)/0.009);
+ const ring=Math.exp(-((Math.hypot(sx-0.32,v-0.61)-0.16)**2)/0.0003)*0.28;
+ const ray=Math.max(0,Math.cos((sx-v*0.6)*44))*Math.exp(-Math.abs(sx-0.66)*2)*0.06;
+ rgb=rgb.map((c,i)=>clamp(c+glow*[0.65,0.51,0.18][i]+ring*[0.4,0.8,0.3][i]+ray));
+ const leaf=Math.hypot((sx-0.25)*1.5,(v-0.74)*2.5)<0.23;
+ if(leaf){const light=0.23+0.7*clamp((sx+v-0.55)*1.4);rgb=[0.45,0.76,0.18].map(c=>c*light);}
+ return rgb;
+}
+let frame=0, animate=false, raf=null, renders=0;
+function renderSimulation(time=0) {
+ const levels=+byId('sim-levels').value,strength=+byId('sim-strength').value/100,steps=levels-1;
+ byId('levels-value').textContent=levels;byId('strength-value').textContent=strength.toFixed(2);
+ const source=new Float32Array(320*180*3);
+ for(let y=0;y<180;y++)for(let x=0;x<320;x++)source.set(sourceColor(x,y,time),(y*320+x)*3);
+ for(const [mode,canvas] of canvases){
+  const ctx=canvas.getContext('2d'),img=ctx.createImageData(320,180);
+  for(let y=0;y<180;y++)for(let x=0;x<320;x++){
+   const i=y*320+x,c=[source[i*3],source[i*3+1],source[i*3+2]],peak=Math.max(...c);
+   let factor=1;
+   if(mode!=='source'&&strength>0&&peak>0){const scaled=peak*steps,low=Math.floor(scaled),q=(low+(scaled-low>threshold(mode,x,y)?1:0))/steps;factor=(peak+(q-peak)*strength)/peak;}
+   for(let k=0;k<3;k++)img.data[i*4+k]=Math.round(clamp(c[k]*factor)*255);img.data[i*4+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+ }
+ renders++;
+ byId('sim-status').textContent=`Canvas 模拟已绘制 · 同源图 · ${levels} 个 brightness levels · 强度 ${strength.toFixed(2)} · ${animate?'移动源图 / 固定 pattern':'静态'} · 更新 ${renders}`;
+ document.body.dataset.simReady='true';
+}
+function tick(){if(!animate)return;frame++;renderSimulation(frame/35);raf=requestAnimationFrame(tick);}
+for(const id of ['sim-source','sim-levels','sim-strength'])byId(id).addEventListener('input',()=>renderSimulation(animate?frame/35:0));
+byId('sim-motion').addEventListener('change',()=>{animate=byId('sim-motion').checked;if(raf)cancelAnimationFrame(raf);if(animate)tick();else renderSimulation();});
+byId('sim-reset').addEventListener('click',()=>{animate=false;byId('sim-motion').checked=false;if(raf)cancelAnimationFrame(raf);frame=0;byId('sim-source').value='lighting';byId('sim-levels').value='8';byId('sim-strength').value='100';renderSimulation();});
+updateNative();updateSplit();renderSimulation();
+</script>
+</body></html>

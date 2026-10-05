@@ -1724,7 +1724,20 @@ mod tests {
         assert!(!tracer.contains("sampleDdgiUnpublished"));
         assert!(tracer.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
-        assert!(tracer.contains("color = environmentIrradiance * albedo"));
+        assert!(
+            tracer.contains("float3 styledEnvironment = orderedDitherColor(environmentIrradiance,")
+        );
+        assert!(tracer.contains("color = styledEnvironment * albedo"));
+        // The optional presentation quantizer cannot change physical evidence.
+        assert!(
+            tracer
+                .rfind("environmentCaptureIrradiance = environmentIrradiance")
+                .unwrap()
+                < tracer
+                    .find("float3 styledEnvironment = orderedDitherColor")
+                    .unwrap()
+        );
+        assert!(!tracer.contains("environmentCaptureIrradiance = styledEnvironment"));
         assert!(tracer.contains("environmentCaptureIrradiance = environmentIrradiance"));
         assert!(tracer.contains(
             "directLight = lerp(surface.direct * albedo, directLight, normalConfidence)"

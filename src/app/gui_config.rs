@@ -844,6 +844,9 @@ fn render_section_controls(
         }
         return;
     }
+    if section.name == "Ordered Dithering" {
+        ui_text::hint(ui, "Unchecked or Strength 0: original. Global covers all scene paths after tone mapping, never HUD or Debug UI, and overrides local dither to avoid double quantization. Local effects use the final scene cell grid. Skylight / ambient affects normal hybrid terrain receivers (sky + bounced DDGI), not the sky background or vegetation/model lighting. Sky background is separate. Screen-fixed patterns may swim during motion; this candidate is not visually approved.");
+    }
     if section.name == "Sky" {
         ui_text::section(ui, "Scene lighting");
         for id in ["sun_luminance", "sky_light_strength"] {
@@ -1066,6 +1069,92 @@ mod search_tests {
             .shapes
             .iter()
             .any(|s| text_rect(&s.shape, "Model direction count").is_some()));
+    }
+
+    #[test]
+    fn ordered_dither_ab_is_searchable_clickable_and_saved() {
+        for query in [
+            "global scene dither",
+            "god rays dither",
+            "camera lens flare dither",
+            "sky background dither",
+            "skylight ambient terrain dither",
+        ] {
+            let mut settings = DebugSettings::load();
+            settings.search.query = query.to_owned();
+            let context = egui::Context::default();
+            let label = settings
+                .config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| {
+                    search_matches_param(&SearchFilter::new(query), "Ordered Dithering", p, "")
+                        && p.id.starts_with("ordered_dither_")
+                })
+                .unwrap()
+                .label
+                .clone();
+            let mut draw = |events| {
+                let output = context.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        settings.draw(ui, |_, _| {});
+                    },
+                );
+                assert_eq!(settings.search_matches, 1);
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|s| text_rect(&s.shape, &label))
+                    .unwrap()
+                    .center()
+            };
+            draw(vec![]);
+            let point = draw(vec![]);
+            for pressed in [true, false] {
+                draw(vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]);
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            settings.save_to_path(&path).unwrap();
+            let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            let param = reloaded
+                .config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.label == label)
+                .unwrap();
+            assert_eq!(param.value.get_bool(), Some(true));
+            assert!(reloaded.search.query.is_empty());
+        }
+        let config = GuiConfigLoader::load();
+        let section = config
+            .section
+            .iter()
+            .find(|s| s.name == "Ordered Dithering")
+            .unwrap();
+        assert_eq!(section.param.len(), 8);
+        for p in &section.param {
+            assert!(search_matches_param(
+                &SearchFilter::new("ordered dithering"),
+                &section.name,
+                p,
+                &param_search_path(&section.name, &p.id, true)
+            ));
+        }
     }
 
     #[test]
