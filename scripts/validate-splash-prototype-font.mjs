@@ -86,17 +86,19 @@ try {
   })()`));
   console.log(browser('eval', `(() => {
     const check=(ok,msg)=>{if(!ok)throw Error(msg)};
+    check(state.gridLineWidth===.5&&$('gridLineWidth').value==='0.5','Default grid width must be 0.5');
+    check($('presetCount').textContent===presets.length+' 套配色'&&!presets.some(p=>/原有|新设计/.test(p.note)),'Presets must have equal status');
     const strokes=[],stroke=ctx.strokeRect;
     ctx.strokeRect=function(...args){strokes.push({width:this.lineWidth,args});return stroke.apply(this,args)};
     try {
-      for(const value of [0,1,4]){
+      for(const value of [0,.5,1,4]){
         $('gridLineWidth').value=value;$('gridLineWidth').dispatchEvent(new Event('input'));strokes.length=0;draw();
         check(recipe().gridLineWidth===value,'Grid width not exported');
         check(value===0?strokes.length===0:strokes.length===geometry.length+1,'Grid and title border must share width setting');
         if(value>0)check(strokes.every(s=>Math.abs(s.width-value*layout().cell/96)<1e-6),'Wrong stroke width');
       }
     }finally{ctx.strokeRect=stroke}
-    $('gridLineWidth').value=1;$('gridLineWidth').dispatchEvent(new Event('input'));
+    $('gridLineWidth').value=.5;$('gridLineWidth').dispatchEvent(new Event('input'));
     const visible=t=>t.x>=0&&t.y>=0&&t.x+layout().cell<=width&&t.y+layout().cell<=height;
     const flowers=geometry.filter(t=>t.cellClass>0&&visible(t)),target=flowers[0],other=flowers[1],base=flowerAngle(target),otherBase=flowerAngle(other);
     function move(x,y){const r=canvas.getBoundingClientRect();canvas.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',clientX:r.left+x*r.width/width,clientY:r.top+y*r.height/height}))}
@@ -122,7 +124,7 @@ try {
     canvas.dispatchEvent(new PointerEvent('pointerleave'));for(let i=0;i<30;i++)advanceHover(.016);
     check(hoverResponses.size===0&&flowerAngle(target)===base,'Pointer leave must restore frozen baseline even with sway disabled');
     check(recipe().progress===.69,'Hover must not change progress');
-    return {status:'passed',gridWidths:[0,1,4],hoverDegrees:32,isolatedFlower:true,returnToBaseline:true};
+    return {status:'passed',gridWidths:[0,.5,1,4],hoverDegrees:32,isolatedFlower:true,returnToBaseline:true};
   })()`));
 } finally {
   try { browser('close'); } finally { rmSync(directory, { recursive: true, force: true }); }

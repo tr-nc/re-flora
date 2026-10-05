@@ -25,35 +25,36 @@
 <div class="footer"><div class="palette-nav"><button id="prev" aria-label="上一个配色">←</button><span id="presetLabel">01 / 藏绿</span><button id="next" aria-label="下一个配色">→</button></div><button id="png">导出画面 PNG</button></div>
 </main>
 <aside>
-<section><h2>01 / 配色手札 <span>原有 3 款 + 新设计 5 款</span></h2><div id="presets" class="presets"></div><p class="hint" id="paletteNote" style="margin-top:10px"></p></section>
+<section><h2>01 / 配色手札 <span id="presetCount"></span></h2><div id="presets" class="presets"></div><p class="hint" id="paletteNote" style="margin-top:10px"></p></section>
 <section><h2>02 / 花型 <span>五种随机混排 · 点击启用 / 停用</span></h2><button id="redistribute">重新随机分布</button><div id="flowers" class="flowers" style="margin-top:10px"></div><p id="flowerNote" class="hint" style="margin-top:10px"></p><p class="hint">花色与留空采用蓝噪声邻域排斥；不再按 3×3 分块限定数量。重播退场不改变分布。</p></section>
-<section><h2>03 / 比例与节奏 <span>仅用于 HTML 探索</span></h2><label class="range">网格密度<input id="density" type="range" min="1.1" max="2.2" step="0.05" value="1.6"><output id="densityValue">1.60</output></label><label class="range">格线粗细<input id="gridLineWidth" type="range" min="0" max="4" step="0.25" value="1"><output id="gridLineWidthValue">1.00</output></label><label class="range">花朵大小<input id="flowerScale" type="range" min="0.65" max="1.3" step="0.05" value="1"><output id="flowerScaleValue">1.00</output></label><label class="range">标题字号<input id="titleSize" type="range" min="42" max="70" step="1" value="60"><output id="titleSizeValue">60</output></label><label class="range">字间距<input id="letterSpacing" type="range" min="-2" max="12" step="0.5" value="7"><output id="letterSpacingValue">7.0</output></label><label class="range">标题高度<input id="titlePosition" type="range" min="0" max="1" step="0.01" value="0.5"><output id="titlePositionValue">0.50</output></label><p class="hint">0 = 最上方完整格子居中；1 = 最下方完整格子居中。整格对齐。</p><p class="hint">字间距默认 7.0；0 是原版排字。格线粗细随画面缩放，0 隐藏格线。悬停花朵会即时偏转，移开后恢复轻摆。</p><p class="hint" id="fontStatus">正在载入游戏字体 Pixelify Sans…</p><p class="hint">加载进度固定为 0.69（69%）。</p><p class="hint">格线与 L 型标记使用配色手札的预设色。先看五种花的混排，再比较整体配色。</p></section>
-<section><h2>04 / 带走这次选择 <span>不自动保存</span></h2><button id="export">下载方案 JSON</button><details><summary>查看当前参数 / 设计说明</summary><textarea id="recipe" readonly aria-label="当前 Splash 设计方案"></textarea><p>保留细网格的秩序，用约 1/3 的留空格减轻密度。花朵由独立绘制的 16px 色团构成；圆瓣与缺口瓣形成可比较的节奏，不添加细碎高光。原有配色和基准花型对应游戏；其余均为原创候选。</p><p>这是离线试验台。浏览器 Canvas 的字形度量和混色与 egui 略有差异，最终需在游戏里确认。新花型／配色不会自动同步到 Rust。</p></details></section>
+<section><h2>03 / 比例与节奏 <span>仅用于 HTML 探索</span></h2><label class="range">网格密度<input id="density" type="range" min="1.1" max="2.2" step="0.05" value="1.6"><output id="densityValue">1.60</output></label><label class="range">格线粗细<input id="gridLineWidth" type="range" min="0" max="4" step="0.25" value="0.5"><output id="gridLineWidthValue">0.50</output></label><label class="range">花朵大小<input id="flowerScale" type="range" min="0.65" max="1.3" step="0.05" value="1"><output id="flowerScaleValue">1.00</output></label><label class="range">标题字号<input id="titleSize" type="range" min="42" max="70" step="1" value="60"><output id="titleSizeValue">60</output></label><label class="range">字间距<input id="letterSpacing" type="range" min="-2" max="12" step="0.5" value="7"><output id="letterSpacingValue">7.0</output></label><label class="range">标题高度<input id="titlePosition" type="range" min="0" max="1" step="0.01" value="0.5"><output id="titlePositionValue">0.50</output></label><p class="hint">0 = 最上方完整格子居中；1 = 最下方完整格子居中。整格对齐。</p><p class="hint">字间距默认 7.0；0 是原版排字。格线粗细随画面缩放，0 隐藏格线。悬停花朵会即时偏转，移开后恢复轻摆。</p><p class="hint" id="fontStatus">正在载入游戏字体 Pixelify Sans…</p><p class="hint">加载进度固定为 0.69（69%）。</p><p class="hint">格线与 L 型标记使用配色手札的预设色。先看五种花的混排，再比较整体配色。</p></section>
+<section><h2>04 / 带走这次选择 <span>不自动保存</span></h2><button id="export">下载方案 JSON</button><details><summary>查看当前参数 / 设计说明</summary><textarea id="recipe" readonly aria-label="当前 Splash 设计方案"></textarea><p>保留细网格的秩序，用约 1/3 的留空格减轻密度。花朵由独立绘制的 16px 色团构成；圆瓣与缺口瓣形成可比较的节奏，不添加细碎高光。所有配色均为同等级方案，花型与色板均为本项目独立设计。</p><p>这是离线试验台。浏览器 Canvas 的字形度量和混色与 egui 略有差异，最终需在游戏里确认。新花型／配色不会自动同步到 Rust。</p></details></section>
 </aside></div>
 <button id="exitPreview">退出纯预览 · Esc</button>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
 const presets = [
- {id:'forest',name:'藏绿',colors:['#233f32','#2b4937','#2b4937','#eee2b8','#d9b764','#a38846','#eee2b8'],note:'游戏原有 · 深林底、麦穗黄。克制且最接近当前封面。'},
- {id:'moss',name:'苔绿',colors:['#374833','#40513a','#40513a','#e5ddbb','#c9ac65','#9b824a','#e5ddbb'],note:'游戏原有 · 更温暖的苔藓与亚麻，花朵像织物上的小刺绣。'},
- {id:'pond',name:'夜池',colors:['#203e3c','#294845','#294845','#e0e4d1','#bebc75','#8c9259','#e0e4d1'],note:'游戏原有 · 清冷青绿与银白，轻微黄色维持植物的温度。'},
- {id:'lavender',name:'暮色薰衣',colors:['#343343','#41404f','#626074','#ddd7e7','#b6a4cb','#82718f','#e5deed'],note:'新设计 · 蓝紫阴影、灰粉花瓣。不做糖果色，用低饱和保留安静感。'},
- {id:'clay',name:'陶土花园',colors:['#493931','#57453a','#786152','#eddfc6','#cd966b','#956a4d','#eddfc6'],note:'新设计 · 陶土与奶油。适合饱满圆瓣，比森林方案更像手作印花。'},
- {id:'bluehour',name:'蓝调时刻',colors:['#293c49','#344854','#526774','#e1e6df','#c9ba8c','#8e8260','#e1e6df'],note:'新设计 · 蓝灰与褪色金。让白花做主角，黄花只给一点温暖。'},
- {id:'olive',name:'橄榄书页',colors:['#41442e','#4d5036','#747651','#eae2c3','#c8bf7c','#8d884f','#eae2c3'],note:'新设计 · 烟草绿与旧书纸。短瓣花显得更稳重，适合紧密的网格。'},
- {id:'rose',name:'玫瑰灰',colors:['#493a40','#55464c','#796269','#edddd5','#c9a19a','#94716d','#edddd5'],note:'新设计 · 带灰的玫瑰与骨白。不增加高饱和红，让颜色有旧印刷的气息。'}
+ {id:'forest',name:'藏绿',colors:['#233f32','#2b4937','#2b4937','#eee2b8','#d9b764','#a38846','#eee2b8'],note:'深林底、麦穗黄。克制且最接近当前封面。'},
+ {id:'moss',name:'苔绿',colors:['#374833','#40513a','#40513a','#e5ddbb','#c9ac65','#9b824a','#e5ddbb'],note:'更温暖的苔藓与亚麻，花朵像织物上的小刺绣。'},
+ {id:'pond',name:'夜池',colors:['#203e3c','#294845','#294845','#e0e4d1','#bebc75','#8c9259','#e0e4d1'],note:'清冷青绿与银白，轻微黄色维持植物的温度。'},
+ {id:'lavender',name:'暮色薰衣',colors:['#343343','#41404f','#626074','#ddd7e7','#b6a4cb','#82718f','#e5deed'],note:'蓝紫阴影、灰粉花瓣。不做糖果色，用低饱和保留安静感。'},
+ {id:'clay',name:'陶土花园',colors:['#493931','#57453a','#786152','#eddfc6','#cd966b','#956a4d','#eddfc6'],note:'陶土与奶油。适合饱满圆瓣，比森林方案更像手作印花。'},
+ {id:'bluehour',name:'蓝调时刻',colors:['#293c49','#344854','#526774','#e1e6df','#c9ba8c','#8e8260','#e1e6df'],note:'蓝灰与褪色金。让白花做主角，黄花只给一点温暖。'},
+ {id:'olive',name:'橄榄书页',colors:['#41442e','#4d5036','#747651','#eae2c3','#c8bf7c','#8d884f','#eae2c3'],note:'烟草绿与旧书纸。短瓣花显得更稳重，适合紧密的网格。'},
+ {id:'rose',name:'玫瑰灰',colors:['#493a40','#55464c','#796269','#edddd5','#c9a19a','#94716d','#edddd5'],note:'带灰的玫瑰与骨白。不增加高饱和红，让颜色有旧印刷的气息。'}
 ];
+$('presetCount').textContent=presets.length+' 套配色';
 const shapes = [
- {id:'original-five',name:'原版五瓣',tag:'游戏基准',petals:5,length:2.9,breadth:2.2,radius:3.9,note:'圆润五瓣；暖色花的游戏基准。'},
- {id:'original-six',name:'原版六瓣',tag:'游戏基准',petals:6,length:2.8,breadth:1.85,radius:3.8,note:'较紧密的六瓣；冷色花的游戏基准。'},
+ {id:'original-five',name:'原版五瓣',tag:'五瓣',petals:5,length:2.9,breadth:2.2,radius:3.9,note:'圆润五瓣；暖色花的游戏基准。'},
+ {id:'original-six',name:'原版六瓣',tag:'六瓣',petals:6,length:2.8,breadth:1.85,radius:3.8,note:'较紧密的六瓣；冷色花的游戏基准。'},
  {id:'cosmos',name:'波斯菊',tag:'缺口 · 6瓣',petals:6,length:2.75,breadth:2.0,radius:3.7,notch:true,note:'花瓣顶端留一个细缺口，有纸剪的轻盈感；减小花心，让瓣间留白可见。'},
  {id:'buttercup',name:'金凤花',tag:'饱满 · 5瓣',petals:5,length:2.6,breadth:2.6,radius:3.6,note:'宽而短的花瓣、紧实轮廓。比原版更圆，适合陶土与苔绿。'},
  {id:'plum',name:'梅花',tag:'圆瓣 · 5瓣',petals:5,length:2.05,breadth:2.2,radius:3.85,note:'独立而饱满的圆瓣，轮廓更短、更像小印章。配纸色、玫瑰灰较温柔。'}
 ];
 const COLOR_KEYS = ['background','grid','mark','cream','yellow','center','title'];
 const PROGRESS = 0.69;
-let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,gridLineWidth:1,flowerScale:1,titleSize:60,titlePosition:.5,letterSpacing:7,motion:true,colors:{}};
+let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,gridLineWidth:.5,flowerScale:1,titleSize:60,titlePosition:.5,letterSpacing:7,motion:true,colors:{}};
 let distributionSeed=random64();
 let transitionTime=0,replayStart=null,seed=0n,width=0,height=0,dpr=1,dirty=true,geometry=[],pixelCache=new Map(),motionTime=0;
 const canvas=$('screen'),ctx=canvas.getContext('2d'),flowerImages=new Map(),hoverResponses=new Map();
