@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>re: flora · Splash Atelier</title>
 <style>
-@font-face{font-family:Pixelify;src:url('../../assets/font/PixelifySans-VariableFont_wght.ttf') format('truetype');font-display:swap}
+@font-face{font-family:Pixelify;src:url('../../assets/font/PixelifySans-VariableFont_wght.ttf') format('truetype');font-weight:400 700;font-display:block}
 :root{color-scheme:dark;--paper:#dcd9ca;--muted:#9b9e93;--line:#353c34;--accent:#d3dfab;--panel:#20271f}
 *{box-sizing:border-box}body{margin:0;background:#171d17;color:var(--paper);font:13px/1.6 system-ui,sans-serif}button,input,select{font:inherit}button,select{color:inherit;background:#283026;border:1px solid #45503f;border-radius:6px}button{cursor:pointer;padding:8px 12px}button:hover{border-color:var(--accent)}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}button[aria-pressed=true]{border-color:var(--accent);background:#374432;color:#f1f4df}button.primary{background:var(--accent);color:#20291c;border-color:var(--accent)}header{height:78px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--line);gap:16px}h1{font:26px Pixelify,monospace;letter-spacing:.03em;margin:0}header p{color:var(--muted);margin:0;font-size:11px}.badge{font-size:10px;letter-spacing:.15em;color:var(--accent)}.shell{display:grid;grid-template-columns:minmax(0,1fr) 338px;height:calc(100vh - 78px)}main{min-width:0;display:flex;flex-direction:column;padding:24px 26px 16px;gap:16px}.toolbar,.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.toolbar{justify-content:space-between}.toolbar select{padding:6px}.eyebrow{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}#stage{min-height:180px;flex:1;display:flex;align-items:center;justify-content:center;background:#111710;border:1px solid var(--line);border-radius:4px;overflow:hidden;position:relative}#screen{display:block;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:100%;height:100%}.monitor-label{position:absolute;bottom:12px;left:14px;color:#d8e1c5;background:#172318b0;padding:3px 8px;font-size:10px;pointer-events:none}.transport{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px}.transport .row{justify-content:space-between}.track{display:flex;align-items:center;gap:14px}.track input{flex:1;min-width:50px}input[type=range]{accent-color:var(--accent);cursor:pointer}output{font-variant-numeric:tabular-nums;min-width:42px;font-size:12px;color:var(--accent)}.hint{font-size:11px;color:var(--muted);margin:0}.phase{min-width:100px;text-align:right;color:var(--accent);font-size:11px}aside{background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:23px 20px 30px}section+section{border-top:1px solid var(--line);margin-top:20px;padding-top:18px}h2{font-size:12px;font-weight:600;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center}h2 span{color:var(--muted);font-size:10px;font-weight:400}.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.preset{padding:8px 6px;font-size:11px;display:grid;gap:6px;text-align:left}.swatches{display:flex;height:12px;overflow:hidden;border-radius:2px}.swatches i{flex:1}.flowers{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.flower{padding:7px 2px;font-size:10px;display:grid;justify-items:center;gap:4px;line-height:1.3}.flower canvas{width:40px;height:40px}.flower small{font-size:9px;color:var(--muted)}label.range{display:grid;grid-template-columns:70px 1fr 38px;gap:7px;margin:10px 0;font-size:11px;align-items:center}.check{display:flex;align-items:center;gap:6px;font-size:11px}input[type=checkbox]{accent-color:var(--accent)}details{margin-top:12px;font-size:11px;color:var(--muted)}summary{cursor:pointer}#recipe{width:100%;height:160px;margin-top:8px;background:#151c15;color:var(--paper);font:10px/1.6 monospace;border:1px solid var(--line);resize:vertical;padding:8px}.palette-nav{display:flex;gap:8px;align-items:center;justify-content:center;margin:0 auto;padding:5px 12px;border:1px solid var(--line);border-radius:30px;background:#242d21}.palette-nav button{border:0;background:none;padding:2px 7px}.palette-nav span{font-size:11px;min-width:100px;text-align:center}.preview-only header,.preview-only aside,.preview-only .toolbar,.preview-only .transport,.preview-only .footer{display:none}.preview-only .shell{height:100vh;display:block}.preview-only main{height:100vh;padding:0}.preview-only #stage{border:0;border-radius:0}.preview-only .monitor-label{display:none}#exitPreview{display:none;position:fixed;right:16px;top:16px;z-index:2;background:#172318cc}.preview-only #exitPreview{display:block}.footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.small{font-size:10px;color:var(--muted)}@media(max-width:900px){.shell{grid-template-columns:minmax(0,1fr) 280px}aside{padding:16px 12px}main{padding:16px 14px}}@media(max-width:650px){header{padding:12px 16px;height:auto}.shell{height:auto;display:block}main{height:75vh;min-height:520px;padding:15px}aside{border-left:0;border-top:1px solid var(--line)}.presets{grid-template-columns:repeat(3,1fr)}header .hint{display:none}}
 </style>
@@ -14,7 +14,7 @@
 <header><div><div class="badge">RE: FLORA / ART STUDY 02</div><h1>Splash Atelier</h1><p>像素花型 · 色彩层级 · 逐格退场</p></div><div class="row"><span class="hint">即时预览 · 不写入游戏配置</span><button id="preview">只看画面 ↗</button></div></header>
 <div class="shell">
 <main>
-<div class="toolbar"><div><div class="eyebrow">Composition B / live canvas</div><span class="hint">四格标题 · 局部 16 × 16 像素 · 离散轻摆</span></div><label class="check">画幅 <select id="aspect"><option value="auto">随窗口</option><option value="wide">16 : 9</option><option value="classic">5 : 3</option><option value="portrait">9 : 16</option></select></label></div>
+<div class="toolbar"><div><div class="eyebrow">Composition B / live canvas</div><span class="hint" id="layoutLabel">四格标题 · 局部 16 × 16 像素 · 离散轻摆</span></div><label class="check">画幅 <select id="aspect"><option value="auto">随窗口</option><option value="wide">16 : 9</option><option value="classic">5 : 3</option><option value="portrait">9 : 16</option></select></label></div>
 <div id="stage"><canvas id="screen" aria-label="Splash 网格与花朵实时预览"></canvas><span class="monitor-label" id="stageLabel">SPLASH / 编辑中</span></div>
 <div class="transport">
 <div class="row"><div class="row"><button class="primary" id="replay">重播退场 · 新随机顺序</button><button id="restore">恢复封面</button><label class="check"><input id="motion" type="checkbox" checked>轻摆</label></div><span class="phase" id="phase">封面</span></div>
@@ -24,9 +24,9 @@
 <div class="footer"><div class="palette-nav"><button id="prev" aria-label="上一个配色">←</button><span id="presetLabel">01 / 藏绿</span><button id="next" aria-label="下一个配色">→</button></div><button id="png">导出画面 PNG</button></div>
 </main>
 <aside>
-<section><h2>01 / 配色手札 <span>原有 3 款 + 新设计 6 款</span></h2><div id="presets" class="presets"></div><p class="hint" id="paletteNote" style="margin-top:10px"></p></section>
-<section><h2>02 / 花型 <span>五种随机混排 · 点击启用 / 停用</span></h2><button id="redistribute">重新随机分布</button><div id="flowers" class="flowers" style="margin-top:10px"></div><p id="flowerNote" class="hint" style="margin-top:10px"></p><p class="hint">花色与留空采用分层低差异随机；没有固定交替或斜纹。重播退场不改变分布。</p></section>
-<section><h2>03 / 比例与节奏 <span>仅用于 HTML 探索</span></h2><label class="range">网格密度<input id="density" type="range" min="1.1" max="2.2" step="0.05" value="1.6"><output id="densityValue">1.60</output></label><label class="range">花朵大小<input id="flowerScale" type="range" min="0.65" max="1.3" step="0.05" value="1"><output id="flowerScaleValue">1.00</output></label><label class="range">标题字号<input id="titleSize" type="range" min="42" max="70" step="1" value="60"><output id="titleSizeValue">60</output></label><label class="range">标题高度<input id="titlePosition" type="range" min="0" max="1" step="0.01" value="0.5"><output id="titlePositionValue">0.50</output></label><p class="hint">0 = 最上方完整格子居中；1 = 最下方完整格子居中。整格对齐。</p><p class="hint">加载进度固定为 0.69（69%）。</p><p class="hint">格线与 L 型标记使用配色手札的预设色。先看五种花的混排，再比较整体配色。</p></section>
+<section><h2>01 / 配色手札 <span>原有 3 款 + 新设计 5 款</span></h2><div id="presets" class="presets"></div><p class="hint" id="paletteNote" style="margin-top:10px"></p></section>
+<section><h2>02 / 花型 <span>五种随机混排 · 点击启用 / 停用</span></h2><button id="redistribute">重新随机分布</button><div id="flowers" class="flowers" style="margin-top:10px"></div><p id="flowerNote" class="hint" style="margin-top:10px"></p><p class="hint">花色与留空采用蓝噪声邻域排斥；不再按 3×3 分块限定数量。重播退场不改变分布。</p></section>
+<section><h2>03 / 比例与节奏 <span>仅用于 HTML 探索</span></h2><label class="range">网格密度<input id="density" type="range" min="1.1" max="2.2" step="0.05" value="1.6"><output id="densityValue">1.60</output></label><label class="range">花朵大小<input id="flowerScale" type="range" min="0.65" max="1.3" step="0.05" value="1"><output id="flowerScaleValue">1.00</output></label><label class="range">标题字号<input id="titleSize" type="range" min="42" max="70" step="1" value="60"><output id="titleSizeValue">60</output></label><label class="range">标题高度<input id="titlePosition" type="range" min="0" max="1" step="0.01" value="0.5"><output id="titlePositionValue">0.50</output></label><p class="hint">0 = 最上方完整格子居中；1 = 最下方完整格子居中。整格对齐。</p><label class="check" style="margin:12px 0"><input id="titleSplit" type="checkbox">标题：一格一个字母（A/B）</label><p class="hint">不勾选：原版四格标题。勾选：8 格，冒号独占一格，空格不占格。</p><p class="hint" id="fontStatus">正在载入游戏字体 Pixelify Sans…</p><p class="hint">加载进度固定为 0.69（69%）。</p><p class="hint">格线与 L 型标记使用配色手札的预设色。先看五种花的混排，再比较整体配色。</p></section>
 <section><h2>04 / 带走这次选择 <span>不自动保存</span></h2><button id="export">下载方案 JSON</button><details><summary>查看当前参数 / 设计说明</summary><textarea id="recipe" readonly aria-label="当前 Splash 设计方案"></textarea><p>保留细网格的秩序，用约 1/3 的留空格减轻密度。花朵由独立绘制的 16px 色团构成；圆瓣与缺口瓣形成可比较的节奏，不添加细碎高光。原有配色和基准花型对应游戏；其余均为原创候选。</p><p>这是离线试验台。浏览器 Canvas 的字形度量和混色与 egui 略有差异，最终需在游戏里确认。新花型／配色不会自动同步到 Rust。</p></details></section>
 </aside></div>
 <button id="exitPreview">退出纯预览 · Esc</button>
@@ -37,7 +37,6 @@ const presets = [
  {id:'forest',name:'藏绿',colors:['#233f32','#2b4937','#2b4937','#eee2b8','#d9b764','#a38846','#eee2b8'],note:'游戏原有 · 深林底、麦穗黄。克制且最接近当前封面。'},
  {id:'moss',name:'苔绿',colors:['#374833','#40513a','#40513a','#e5ddbb','#c9ac65','#9b824a','#e5ddbb'],note:'游戏原有 · 更温暖的苔藓与亚麻，花朵像织物上的小刺绣。'},
  {id:'pond',name:'夜池',colors:['#203e3c','#294845','#294845','#e0e4d1','#bebc75','#8c9259','#e0e4d1'],note:'游戏原有 · 清冷青绿与银白，轻微黄色维持植物的温度。'},
- {id:'herbarium',name:'植物标本',colors:['#e2dfcf','#d0cdb9','#a7aa8b','#f5eed9','#8b9866','#69774e','#536249'],note:'新设计 · 暖纸与鼠尾草。白花若太轻，可用白花颜色增加轮廓对比。'},
  {id:'lavender',name:'暮色薰衣',colors:['#343343','#41404f','#626074','#ddd7e7','#b6a4cb','#82718f','#e5deed'],note:'新设计 · 蓝紫阴影、灰粉花瓣。不做糖果色，用低饱和保留安静感。'},
  {id:'clay',name:'陶土花园',colors:['#493931','#57453a','#786152','#eddfc6','#cd966b','#956a4d','#eddfc6'],note:'新设计 · 陶土与奶油。适合饱满圆瓣，比森林方案更像手作印花。'},
  {id:'bluehour',name:'蓝调时刻',colors:['#293c49','#344854','#526774','#e1e6df','#c9ba8c','#8e8260','#e1e6df'],note:'新设计 · 蓝灰与褪色金。让白花做主角，黄花只给一点温暖。'},
@@ -53,10 +52,12 @@ const shapes = [
 ];
 const COLOR_KEYS = ['background','grid','mark','cream','yellow','center','title'];
 const PROGRESS = 0.69;
-let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,flowerScale:1,titleSize:60,titlePosition:.5,motion:true,colors:{}};
+let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,flowerScale:1,titleSize:60,titlePosition:.5,titleSplit:false,motion:true,colors:{}};
 let distributionSeed=random64();
 let transitionTime=0,replayStart=null,seed=0n,width=0,height=0,dpr=1,dirty=true,geometry=[],pixelCache=new Map(),motionTime=0;
 const canvas=$('screen'),ctx=canvas.getContext('2d');
+const TITLE_GLYPHS=Array.from('re:flora');
+let fontReady=false;
 const fade=t=>{t=Math.max(0,Math.min(1,t));return 1-t*t*(3-2*t)};
 const mod=(n,m)=>(n%m+m)%m;
 // Same splitmix64 cell-delay mapping as Rust; a replay gets one independent seed.
@@ -64,46 +65,119 @@ function cellHash(inputSeed,column,row){const mask=(1n<<64n)-1n;const cell=(BigI
 function cellDelay(column,row){return Number(cellHash(seed,column,row)>>11n)/9007199254740992*.65}
 function random64(){const words=crypto.getRandomValues(new Uint32Array(2));return (BigInt(words[0])<<32n)|BigInt(words[1])}
 function randomSeed(){seed=random64();rebuild()}
-// Stratified low-discrepancy sampling, not a blue-noise mask: each 3×3
-// block independently shuffles three quiet, three warm and three cream cells.
-// Coordinates (including negatives) fix the assignment across resize/repaint.
+// Multi-class blue-noise construction: minimize Gaussian same-class energy
+// on a torus. Swaps keep only global densities, never row/column/block quotas.
+// Gentle annealing avoids freezing the square lattice into a checker pattern.
+const BLUE_NOISE_SIZE=48,BLUE_NOISE_SIGMA=1.5,BLUE_NOISE_STEPS=40000;
+let blueNoiseKernel=null,blueNoiseCache=null;
+function noiseRandom(inputSeed){
+ let word=Number((inputSeed^(inputSeed>>32n))&0xffffffffn);
+ return ()=>{word=(word+0x6d2b79f5)|0;let t=Math.imul(word^(word>>>15),1|word);t^=t+Math.imul(t^(t>>>7),61|t);return ((t^(t>>>14))>>>0)/4294967296};
+}
+function noiseKernel(){
+ if(blueNoiseKernel)return blueNoiseKernel;
+ const size=BLUE_NOISE_SIZE,n=size*size,offsets=[];
+ for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){
+  if(dx||dy)offsets.push({dx,dy,weight:Math.exp(-(dx*dx+dy*dy)/(2*BLUE_NOISE_SIGMA**2))});
+ }
+ const neighbors=new Uint16Array(n*offsets.length);
+ for(let i=0;i<n;i++)for(let k=0;k<offsets.length;k++){
+  const o=offsets[k];neighbors[i*offsets.length+k]=mod(Math.floor(i/size)+o.dy,size)*size+mod(i%size+o.dx,size);
+ }
+ return blueNoiseKernel={offsets,neighbors};
+}
+function makeBlueNoise(inputSeed){
+ const size=BLUE_NOISE_SIZE,n=size*size,random=noiseRandom(inputSeed),classes=new Uint8Array(n);
+ const {offsets,neighbors}=noiseKernel(),count=offsets.length,potential=new Float64Array(n*3);
+ for(let i=0;i<n;i++)classes[i]=i%3;
+ for(let i=n-1;i>0;i--){const j=Math.floor(random()*(i+1));[classes[i],classes[j]]=[classes[j],classes[i]]}
+ for(let i=0;i<n;i++)for(let k=0;k<count;k++)potential[classes[i]*n+neighbors[i*count+k]]+=offsets[k].weight;
+ for(let step=0;step<BLUE_NOISE_STEPS;step++){
+  const i=Math.floor(random()*n),j=Math.floor(random()*n),a=classes[i],b=classes[j];
+  if(a===b)continue;
+  let dx=Math.abs(i%size-j%size),dy=Math.abs(Math.floor(i/size)-Math.floor(j/size));
+  dx=Math.min(dx,size-dx);dy=Math.min(dy,size-dy);
+  const pair=dx<=5&&dy<=5?Math.exp(-(dx*dx+dy*dy)/(2*BLUE_NOISE_SIGMA**2)):0;
+  const delta=potential[b*n+i]+potential[a*n+j]-potential[a*n+i]-potential[b*n+j]-2*pair;
+  const temperature=.12*Math.pow(.04,step/BLUE_NOISE_STEPS);
+  if(delta>0&&random()>=Math.exp(-delta/temperature))continue;
+  for(let k=0;k<count;k++){
+   const ni=neighbors[i*count+k],nj=neighbors[j*count+k],weight=offsets[k].weight;
+   potential[a*n+ni]-=weight;potential[b*n+ni]+=weight;
+   potential[b*n+nj]-=weight;potential[a*n+nj]+=weight;
+  }
+  classes[i]=b;classes[j]=a;
+ }
+ return classes;
+}
 function cellClass(column,row){
- const bx=Math.floor(column/3)*3,by=Math.floor(row/3)*3,index=mod(row,3)*3+mod(column,3),priority=cellHash(distributionSeed,column,row);
- let rank=0;
- for(let other=0;other<9;other++){const value=cellHash(distributionSeed,bx+other%3,by+Math.floor(other/3));if(value<priority||(value===priority&&other<index))rank++}
- return Math.floor(rank/3);
+ if(!blueNoiseCache||blueNoiseCache.seed!==distributionSeed)blueNoiseCache={seed:distributionSeed,classes:makeBlueNoise(distributionSeed)};
+ return blueNoiseCache.classes[mod(row,BLUE_NOISE_SIZE)*BLUE_NOISE_SIZE+mod(column,BLUE_NOISE_SIZE)];
 }
 function cellShape(column,row){const hash=cellHash(distributionSeed^0xd1b54a32d192ed03n,column,row);return state.enabledShapes[Number(hash%BigInt(state.enabledShapes.length))]}
 function layout(){
  const cell=Math.max(.01,Math.min(width/10,height/6)/state.density),ox=width/2-5*cell,oy=height/2-3*cell;
  const first=Math.ceil(-oy/cell),last=Math.max(first,Math.floor((height-oy)/cell)-1);
  const titleRow=Math.floor(first+state.titlePosition*(last-first)+1e-9);
- return {cell,ox,oy,titleRow};
+ const titleCells=state.titleSplit?TITLE_GLYPHS.length:4,titleColumn=5-titleCells/2;
+ return {cell,ox,oy,titleRow,titleCells,titleColumn};
 }
 function pixels(id){if(pixelCache.has(id))return pixelCache.get(id);const s=shapes.find(s=>s.id===id),result=[];for(let y=0;y<16;y++)for(let x=0;x<16;x++){const dx=x-7.5,dy=y-7.5;let petal=false;for(let i=0;i<s.petals;i++){const a=-Math.PI/2+i*2*Math.PI/s.petals,u=dx*Math.cos(a)+dy*Math.sin(a),v=-dx*Math.sin(a)+dy*Math.cos(a);const shape=((u-s.radius)/s.length)**2+(v/s.breadth)**2;if(shape<=1&&!(s.notch&&u>s.radius+1.8&&Math.abs(v)<.6))petal=true}const center=dx*dx+dy*dy<=3;if(petal||center)result.push({x:x-8,y:y-8,color:center?(dx+dy<0?'yellow':'center'):'petal'})}pixelCache.set(id,result);return result}
 function drawFlower(c,id,cx,cy,size,angle,petal,alpha=1){c.save();c.globalAlpha=alpha;c.translate(cx,cy);c.rotate(angle);c.scale(size,size);// Fill all same-color quads as one path to avoid Canvas antialias seams between adjacent pixels.
 for(const key of ['petal','yellow','center']){c.fillStyle=key==='petal'?petal:state.colors[key];c.beginPath();for(const p of pixels(id))if(p.color===key)c.rect(p.x,p.y,1,1);c.fill()}c.restore()}
-function rebuild(){if(!width||!height)return;const {cell,ox,oy,titleRow}=layout();geometry=[];for(let row=Math.floor(-oy/cell);row<Math.ceil((height-oy)/cell);row++)for(let col=Math.floor(-ox/cell);col<Math.ceil((width-ox)/cell);col++){if(col>=3&&col<7&&row===titleRow)continue;geometry.push({col,row,x:ox+col*cell,y:oy+row*cell,delay:cellDelay(col,row),group:mod(col+row*7,16),cellClass:cellClass(col,row),shape:cellShape(col,row)})}dirty=true}
+function rebuild(){if(!width||!height)return;const {cell,ox,oy,titleRow,titleCells,titleColumn}=layout();geometry=[];for(let row=Math.floor(-oy/cell);row<Math.ceil((height-oy)/cell);row++)for(let col=Math.floor(-ox/cell);col<Math.ceil((width-ox)/cell);col++){if(col>=titleColumn&&col<titleColumn+titleCells&&row===titleRow)continue;geometry.push({col,row,x:ox+col*cell,y:oy+row*cell,delay:cellDelay(col,row),group:mod(col+row*7,16),cellClass:cellClass(col,row),shape:cellShape(col,row)})}dirty=true}
 function resize(){let w=$('stage').clientWidth,h=$('stage').clientHeight;const ratios={wide:16/9,classic:5/3,portrait:9/16},ratio=ratios[$('aspect').value];if(ratio){w=Math.min(w,h*ratio);h=w/ratio}dpr=Math.min(window.devicePixelRatio||1,3);width=Math.max(1,w);height=Math.max(1,h);canvas.style.width=width+'px';canvas.style.height=height+'px';canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);rebuild()}
 function underlay(){const g=ctx.createLinearGradient(0,0,0,height);g.addColorStop(0,'#adc0b1');g.addColorStop(1,'#71896f');ctx.fillStyle=g;ctx.fillRect(0,0,width,height);ctx.fillStyle='#859d7c';ctx.beginPath();ctx.moveTo(0,height*.62);ctx.bezierCurveTo(width*.28,height*.2,width*.56,height*.8,width,height*.44);ctx.lineTo(width,height);ctx.lineTo(0,height);ctx.fill();ctx.fillStyle='#597751';ctx.beginPath();ctx.moveTo(0,height*.84);ctx.bezierCurveTo(width*.3,height*.57,width*.65,height*.98,width,height*.64);ctx.lineTo(width,height);ctx.lineTo(0,height);ctx.fill();ctx.fillStyle='#425e40';for(let i=0;i<28;i++){let x=width*i/27,y=height*(.83+Math.sin(i*1.9)*.1);ctx.fillRect(x,y,3,12);ctx.fillRect(x+3,y-2,4,4)}}
-function draw(){ctx.setTransform(dpr,0,0,dpr,0,0);ctx.globalAlpha=1;underlay();const c=state.colors,{cell,ox,oy,titleRow}=layout(),scale=cell/96,t=transitionTime;
+function drawTitle(colors,l,scale,time){
+ const {cell,ox,oy,titleRow,titleCells,titleColumn}=l,x=ox+titleColumn*cell,y=oy+titleRow*cell;
+ ctx.globalAlpha=fade((time-.65)/.5);ctx.fillStyle=colors.background;ctx.strokeStyle=colors.grid;ctx.lineWidth=scale;
+ const regions=state.titleSplit?titleCells:1,regionWidth=state.titleSplit?cell:titleCells*cell;
+ for(let i=0;i<regions;i++){
+  const left=x+i*regionWidth;
+  ctx.fillRect(left,y,regionWidth,cell);
+  ctx.strokeRect(left+.5*scale,y+.5*scale,regionWidth-scale,cell-scale);
+ }
+ // Do not silently substitute another typeface while the game font loads.
+ if(!fontReady)return;
+ ctx.globalAlpha=fade((time-1.15)/.45);ctx.font=`400 ${state.titleSize*scale}px Pixelify`;ctx.textAlign='left';ctx.textBaseline='alphabetic';
+ const ink=text=>{const m=ctx.measureText(text);return {left:m.actualBoundingBoxLeft,right:m.actualBoundingBoxRight,ascent:m.actualBoundingBoxAscent,descent:m.actualBoundingBoxDescent}};
+ const gap=10*scale,line=3*scale;let lineX,lineY,lineWidth;
+ ctx.fillStyle=colors.title;
+ if(state.titleSplit){
+  const metrics=TITLE_GLYPHS.map(ink),maxHeight=Math.max(...metrics.map(m=>m.ascent+m.descent));
+  const centerY=y+cell/2-(gap+line)/2;
+  TITLE_GLYPHS.forEach((glyph,i)=>{
+   const m=metrics[i],width=m.left+m.right;
+   ctx.fillText(glyph,x+i*cell+(cell-width)/2+m.left,centerY+(m.ascent-m.descent)/2);
+  });
+  lineX=x+12*scale;lineWidth=titleCells*cell-24*scale;lineY=centerY+maxHeight/2+gap;
+ }else{
+  const text='re: flora',m=ink(text),width=m.left+m.right,height=m.ascent+m.descent;
+  const top=y+(cell-height-gap-line)/2;
+  lineX=x+(titleCells*cell-width)/2;lineWidth=width;lineY=top+height+gap;
+  ctx.fillText(text,lineX+m.left,top+m.ascent);
+ }
+ ctx.fillStyle=colors.grid;ctx.fillRect(lineX,lineY,lineWidth,line);
+ ctx.fillStyle=colors.yellow;ctx.fillRect(lineX,lineY,lineWidth*PROGRESS,line);
+}
+function draw(){ctx.setTransform(dpr,0,0,dpr,0,0);ctx.globalAlpha=1;underlay();const c=state.colors,l=layout(),{cell}=l,scale=cell/96,t=transitionTime;
 for(const tile of geometry){const alpha=fade((t-tile.delay)/.5);ctx.globalAlpha=alpha;ctx.fillStyle=c.background;ctx.fillRect(tile.x,tile.y,cell,cell);ctx.strokeStyle=c.grid;ctx.lineWidth=scale;ctx.strokeRect(tile.x+.5*scale,tile.y+.5*scale,cell-scale,cell-scale);if(tile.cellClass===0){ctx.fillStyle=c.mark;ctx.fillRect(tile.x+46*scale,tile.y+47*scale,4*scale,2*scale);ctx.fillRect(tile.x+48*scale,tile.y+44*scale,2*scale,3*scale)}else{const frame=mod(Math.floor((motionTime+tile.group*1.2/16)/1.2),4),angle=[-10,0,10,0][frame]*Math.PI/180;drawFlower(ctx,tile.shape,tile.x+cell/2,tile.y+cell/2,3*scale*state.flowerScale,angle,tile.cellClass===1?c.yellow:c.cream,alpha)}}
-const x=ox+3*cell,y=oy+titleRow*cell;ctx.globalAlpha=fade((t-.65)/.5);ctx.fillStyle=c.background;ctx.fillRect(x,y,4*cell,cell);ctx.strokeStyle=c.grid;ctx.lineWidth=scale;ctx.strokeRect(x+.5*scale,y+.5*scale,4*cell-scale,cell-scale);
-ctx.globalAlpha=fade((t-1.15)/.45);ctx.font=`${state.titleSize*scale}px Pixelify, monospace`;ctx.textAlign='left';ctx.textBaseline='alphabetic';const text='re: flora',m=ctx.measureText(text),left=m.actualBoundingBoxLeft||0,right=m.actualBoundingBoxRight||m.width,ascent=m.actualBoundingBoxAscent||state.titleSize*scale*.72,descent=m.actualBoundingBoxDescent||0,inkWidth=left+right,inkHeight=ascent+descent,gap=10*scale,line=3*scale,top=y+(cell-inkHeight-gap-line)/2,inkX=x+(4*cell-inkWidth)/2;ctx.fillStyle=c.title;ctx.fillText(text,inkX+left,top+ascent);ctx.fillStyle=c.grid;ctx.fillRect(inkX,top+inkHeight+gap,inkWidth,line);ctx.fillStyle=c.yellow;ctx.fillRect(inkX,top+inkHeight+gap,inkWidth*PROGRESS,line);ctx.globalAlpha=1;
+drawTitle(c,l,scale,t);ctx.globalAlpha=1;
 $('phase').textContent=t===0?'封面':t<1.15?'格子错落淡出':t<1.6?'仅标题淡出':'退场完成';$('stageLabel').textContent=t===0?'SPLASH / 编辑中':'UNDERLAY / 示意场景';dirty=false}
-function recipe(){return {prototype:'re-flora-splash-v2',preset:presets[currentPreset].id,...state,progress:PROGRESS,distribution:{method:'stratified-3x3',seed:distributionSeed.toString()},transition:{cellFadeSeconds:.5,cellStaggerSeconds:.65,titleStartSeconds:1.15,titleFadeSeconds:.45,seed:seed.toString()},note:'HTML 设计候选；不会自动修改游戏配置'}}
-function refresh(resetTransition=false){if(resetTransition){transitionTime=0;replayStart=null;$('timeline').value=0;$('timeLabel').textContent='0.00s'}dirty=true;$('recipe').value=JSON.stringify(recipe(),null,2);for(const s of shapes){const b=$('shape-'+s.id);b.setAttribute('aria-pressed',state.enabledShapes.includes(s.id));const mini=b.querySelector('canvas'),c=mini.getContext('2d');c.clearRect(0,0,80,80);drawFlower(c,s.id,40,40,4,0,state.colors.yellow)}$('flowerNote').textContent=`混排：${shapes.filter(s=>state.enabledShapes.includes(s.id)).map(s=>s.name).join(' / ')}。每种花都可随机使用黄、白两色。`}
+function recipe(){return {prototype:'re-flora-splash-v4',preset:presets[currentPreset].id,...state,progress:PROGRESS,font:{family:'Pixelify Sans',weight:400,path:'assets/font/PixelifySans-VariableFont_wght.ttf'},distribution:{method:'multiclass-blue-noise',size:BLUE_NOISE_SIZE,sigma:BLUE_NOISE_SIGMA,steps:BLUE_NOISE_STEPS,seed:distributionSeed.toString()},transition:{cellFadeSeconds:.5,cellStaggerSeconds:.65,titleStartSeconds:1.15,titleFadeSeconds:.45,seed:seed.toString()},note:'HTML 设计候选；不会自动修改游戏配置'}}
+function refresh(resetTransition=false){if(resetTransition){transitionTime=0;replayStart=null;$('timeline').value=0;$('timeLabel').textContent='0.00s'}dirty=true;$('layoutLabel').textContent=(state.titleSplit?'八格分字标题':'四格标题')+' · 局部 16 × 16 像素 · 离散轻摆';$('recipe').value=JSON.stringify(recipe(),null,2);for(const s of shapes){const b=$('shape-'+s.id);b.setAttribute('aria-pressed',state.enabledShapes.includes(s.id));const mini=b.querySelector('canvas'),c=mini.getContext('2d');c.clearRect(0,0,80,80);drawFlower(c,s.id,40,40,4,0,state.colors.yellow)}$('flowerNote').textContent=`混排：${shapes.filter(s=>state.enabledShapes.includes(s.id)).map(s=>s.name).join(' / ')}。每种花都可随机使用黄、白两色。`}
 function applyPreset(index,updateUrl=true){currentPreset=mod(index,presets.length);const p=presets[currentPreset];COLOR_KEYS.forEach((key,i)=>{state.colors[key]=p.colors[i]});for(let i=0;i<presets.length;i++)$('preset-'+presets[i].id).setAttribute('aria-pressed',i===currentPreset);$('presetLabel').textContent=String(currentPreset+1).padStart(2,'0')+' / '+p.name;$('paletteNote').textContent=p.note;if(updateUrl){const url=new URL(location.href);url.searchParams.set('variant',p.id);history.replaceState(null,'',url)}refresh(true)}
 for(const p of presets){const b=document.createElement('button');b.id='preset-'+p.id;b.className='preset';b.setAttribute('aria-pressed','false');b.innerHTML=`<span class="swatches">${[p.colors[0],p.colors[1],p.colors[3],p.colors[4]].map(c=>`<i style="background:${c}"></i>`).join('')}</span><span>${p.name}</span>`;b.onclick=()=>applyPreset(presets.indexOf(p));$('presets').append(b)}
 for(const s of shapes){const b=document.createElement('button');b.id='shape-'+s.id;b.className='flower';b.setAttribute('aria-pressed','false');b.innerHTML=`<canvas width="80" height="80" aria-hidden="true"></canvas><span>${s.name}</span><small>${s.tag}</small>`;b.onclick=()=>{if(state.enabledShapes.includes(s.id)){if(state.enabledShapes.length===1)return;state.enabledShapes=state.enabledShapes.filter(id=>id!==s.id)}else state.enabledShapes=shapes.filter(shape=>shape.id===s.id||state.enabledShapes.includes(shape.id)).map(shape=>shape.id);rebuild();refresh(true)};$('flowers').append(b)}
 $('redistribute').onclick=()=>{distributionSeed=random64();rebuild();refresh(true)};
 for(const key of ['density','flowerScale','titleSize','titlePosition'])$(key).oninput=()=>{state[key]=Number($(key).value);$(key+'Value').textContent=key==='titleSize'?state[key]:state[key].toFixed(2);if(key==='density'||key==='titlePosition')rebuild();refresh(true)};
+$('titleSplit').onchange=()=>{state.titleSplit=$('titleSplit').checked;rebuild();refresh(true)};
 $('motion').onchange=()=>{state.motion=$('motion').checked;refresh()};$('aspect').onchange=resize;
 $('replay').onclick=()=>{randomSeed();transitionTime=0;replayStart=performance.now();refresh()};$('restore').onclick=()=>{transitionTime=0;replayStart=null;$('timeline').value=0;$('timeLabel').textContent='0.00s';refresh()};$('timeline').oninput=()=>{replayStart=null;transitionTime=Number($('timeline').value);$('timeLabel').textContent=transitionTime.toFixed(2)+'s';refresh()};
 $('prev').onclick=()=>applyPreset(currentPreset-1);$('next').onclick=()=>applyPreset(currentPreset+1);
 function preview(on){document.body.classList.toggle('preview-only',on);resize()}$('preview').onclick=()=>preview(true);$('exitPreview').onclick=()=>preview(false);document.addEventListener('keydown',e=>{if(e.key==='Escape')preview(false);if(e.target.closest('input,textarea,select,button,[contenteditable]'))return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();applyPreset(currentPreset+(e.key==='ArrowLeft'?-1:1))}});
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}$('export').onclick=()=>download(new Blob([JSON.stringify(recipe(),null,2)],{type:'application/json'}),'splash-'+presets[currentPreset].id+'.json');$('png').onclick=()=>{draw();canvas.toBlob(blob=>{if(blob)download(blob,'splash-'+presets[currentPreset].id+'.png')})};
-const query=new URLSearchParams(location.search).get('variant'),initial=presets.findIndex(p=>p.id===query);applyPreset(initial<0?0:initial,false);randomSeed();refresh();new ResizeObserver(resize).observe($('stage'));document.fonts.ready.then(()=>{dirty=true});
+const query=new URLSearchParams(location.search).get('variant'),initial=presets.findIndex(p=>p.id===query);applyPreset(initial<0?0:initial,false);randomSeed();refresh();new ResizeObserver(resize).observe($('stage'));document.fonts.load('400 60px Pixelify','re: flora').then(loaded=>{fontReady=loaded.length>0;$('fontStatus').textContent=fontReady?'字体：游戏同款 Pixelify Sans · Regular 400':'游戏字体加载失败，请从仓库根目录提供此页面。';dirty=true}).catch(()=>{$('fontStatus').textContent='游戏字体加载失败，请检查 assets/font 路径。';dirty=true});
 let lastFrame=performance.now();function tick(now){if(state.motion)motionTime+=(now-lastFrame)/1000;lastFrame=now;if(replayStart!==null){transitionTime=Math.min(1.6,(now-replayStart)/1000);$('timeline').value=transitionTime;$('timeLabel').textContent=transitionTime.toFixed(2)+'s';dirty=true;if(transitionTime>=1.6){replayStart=null;refresh()}}if(dirty||state.motion)draw();requestAnimationFrame(tick)}requestAnimationFrame(tick);
 </script>
 </body>
