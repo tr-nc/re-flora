@@ -92,6 +92,103 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "depth_outline_enabled"
+kind = "bool"
+label = "Scene: depth outlines"
+type = "Bool"
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "depth_outline_strength"
+kind = "float"
+label = "Outline strength"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 0.25
+min = 0
+max = 1
+
+[[section.param]]
+id = "depth_outline_color"
+kind = "color"
+label = "Outline color"
+type = "Color"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = "#141E24"
+
+[[section.param]]
+id = "depth_outline_relative_threshold"
+kind = "float"
+label = "Depth discontinuity threshold (relative)"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 0.04
+min = 0.001
+max = 0.5
+
+[[section.param]]
+id = "depth_outline_minimum_gap"
+kind = "float"
+label = "Minimum depth gap (world units)"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 0.004
+min = 0
+max = 0.1
+
+[[section.param]]
+id = "depth_outline_softness"
+kind = "float"
+label = "Outline threshold softness"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 0.5
+min = 0.01
+max = 2
+
+[[section.param]]
+id = "depth_outline_sky_strength"
+kind = "float"
+label = "Sky silhouette strength"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 0.6
+min = 0
+max = 1
+
+[[section.param]]
+id = "depth_outline_thin_strength"
+kind = "float"
+label = "Thin detail strength (grass and leaves)"
+type = "Float"
+[section.param.enabled_if]
+param = "depth_outline_enabled"
+equals = true
+[section.param.data]
+value = 0.25
+min = 0
+max = 1
+
+[[section.param]]
 id = "grass_stem_rendering"
 kind = "bool"
 label = "Experimental grass stem rendering (tall and short)"

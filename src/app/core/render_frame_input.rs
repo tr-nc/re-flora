@@ -235,6 +235,16 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
+        depth_outline: crate::tracer::depth_outline::Settings {
+            enabled: gui.depth_outline_enabled.value,
+            strength: gui.depth_outline_strength.value,
+            color: color_to_vec3(gui.depth_outline_color.value).to_array(),
+            relative_threshold: gui.depth_outline_relative_threshold.value,
+            minimum_gap: gui.depth_outline_minimum_gap.value,
+            softness: gui.depth_outline_softness.value,
+            sky_strength: gui.depth_outline_sky_strength.value,
+            thin_strength: gui.depth_outline_thin_strength.value,
+        },
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
@@ -282,6 +292,49 @@ pub(super) fn freeze_render_frame_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_outline_snapshot_preserves_saved_controls() {
+        let mut settings = DebugSettings::load();
+        let gui = &mut settings.adjustables;
+        gui.depth_outline_enabled.value = false;
+        gui.depth_outline_strength.value = 0.75;
+        gui.depth_outline_color.value = Color32::from_rgb(51, 102, 153);
+        gui.depth_outline_relative_threshold.value = 0.12;
+        gui.depth_outline_minimum_gap.value = 0.02;
+        gui.depth_outline_softness.value = 0.8;
+        gui.depth_outline_sky_strength.value = 0.3;
+        gui.depth_outline_thin_strength.value = 0.1;
+        let frame = freeze_render_frame_inputs(
+            &settings,
+            LiveRenderFrameFacts {
+                world_tick_seconds: 0.1,
+                flora_tick: 0,
+                visual_time_since_start: 0.,
+                sun_direction: Vec3::Y,
+                sun_altitude: 0.,
+                sun_azimuth: 0.,
+                terrain_edit_preview_center: None,
+                terrain_edit_preview_radius: 0.,
+                terrain_edit_preview_shape: TerrainEditPreviewShape::Sphere,
+                terrain_edit_preview_color: Vec3::ZERO,
+                terrain_edit_preview_alpha: 0.,
+            },
+        );
+        assert_eq!(
+            frame.environment.depth_outline,
+            crate::tracer::depth_outline::Settings {
+                enabled: false,
+                strength: 0.75,
+                color: [0.2, 0.4, 0.6],
+                relative_threshold: 0.12,
+                minimum_gap: 0.02,
+                softness: 0.8,
+                sky_strength: 0.3,
+                thin_strength: 0.1,
+            }
+        );
+    }
 
     #[test]
     fn startup_cache_uses_saved_model_and_particle_resolutions() {
@@ -644,6 +697,7 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
+                depth_outline: crate::tracer::depth_outline::Settings::default(),
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,

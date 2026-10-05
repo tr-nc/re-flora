@@ -14,6 +14,13 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Scene Depth Outlines",
+        description: "One internal scene pixel, before nearest upscaling; UI stays untouched. Relative threshold and minimum gap reject small depth changes; opposing gradients reject planar slopes. Sky outlines stay inside objects. Thin detail strength protects grass/leaves. Lower strength for subtle separation. Depth alone does not outline same-depth colors or every crease; camera movement can still reveal the native pixel grid.",
+        initially_open: false,
+        params: &["depth_outline_enabled", "depth_outline_strength", "depth_outline_color", "depth_outline_relative_threshold", "depth_outline_minimum_gap", "depth_outline_softness", "depth_outline_sky_strength", "depth_outline_thin_strength"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Stem Model Pixelization",
         description: "Grass in both Analytic Reference and Square Color Bands: unchecked = continuous silhouette sampling; checked = model-anchored pixelized silhouette and depth. Analytic keeps ray intersections; square uses hardware-raster tiles and prepared poses. Flower sampling and CPU climbing stems are unchanged.",
         initially_open: false,

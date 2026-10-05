@@ -26,6 +26,54 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "depth_outline_enabled",
+        kind: "bool",
+        label: "Scene: depth outlines",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_strength",
+        kind: "float",
+        label: "Outline strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_color",
+        kind: "color",
+        label: "Outline color",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_relative_threshold",
+        kind: "float",
+        label: "Depth discontinuity threshold (relative)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_minimum_gap",
+        kind: "float",
+        label: "Minimum depth gap (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_softness",
+        kind: "float",
+        label: "Outline threshold softness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_sky_strength",
+        kind: "float",
+        label: "Sky silhouette strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "depth_outline_thin_strength",
+        kind: "float",
+        label: "Thin detail strength (grass and leaves)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "grass_stem_rendering",
         kind: "bool",
         label: "Experimental grass stem rendering (tall and short)",
@@ -1390,6 +1438,14 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub depth_outline_enabled: crate::gui_adjustables::BoolParam,
+    pub depth_outline_strength: crate::gui_adjustables::FloatParam,
+    pub depth_outline_color: crate::gui_adjustables::ColorParam,
+    pub depth_outline_relative_threshold: crate::gui_adjustables::FloatParam,
+    pub depth_outline_minimum_gap: crate::gui_adjustables::FloatParam,
+    pub depth_outline_softness: crate::gui_adjustables::FloatParam,
+    pub depth_outline_sky_strength: crate::gui_adjustables::FloatParam,
+    pub depth_outline_thin_strength: crate::gui_adjustables::FloatParam,
     pub grass_stem_rendering: crate::gui_adjustables::BoolParam,
     pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
     pub grass_band_pose_reuse: crate::gui_adjustables::BoolParam,
@@ -1630,6 +1686,14 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut depth_outline_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut depth_outline_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut depth_outline_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut depth_outline_relative_threshold_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut depth_outline_minimum_gap_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut depth_outline_softness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut depth_outline_sky_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut depth_outline_thin_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_stem_rendering_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pose_reuse_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -1861,6 +1925,58 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "depth_outline_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            depth_outline_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "depth_outline_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "depth_outline_color" => {
+                        if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
+                            depth_outline_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
+                        }
+                    }
+                    "depth_outline_relative_threshold" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_relative_threshold_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "depth_outline_minimum_gap" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_minimum_gap_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "depth_outline_softness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_softness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "depth_outline_sky_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_sky_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "depth_outline_thin_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            depth_outline_thin_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "grass_stem_rendering" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_stem_rendering_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3382,6 +3498,14 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            depth_outline_enabled: depth_outline_enabled_field.expect("Missing parameter: depth_outline_enabled"),
+            depth_outline_strength: depth_outline_strength_field.expect("Missing parameter: depth_outline_strength"),
+            depth_outline_color: depth_outline_color_field.expect("Missing parameter: depth_outline_color"),
+            depth_outline_relative_threshold: depth_outline_relative_threshold_field.expect("Missing parameter: depth_outline_relative_threshold"),
+            depth_outline_minimum_gap: depth_outline_minimum_gap_field.expect("Missing parameter: depth_outline_minimum_gap"),
+            depth_outline_softness: depth_outline_softness_field.expect("Missing parameter: depth_outline_softness"),
+            depth_outline_sky_strength: depth_outline_sky_strength_field.expect("Missing parameter: depth_outline_sky_strength"),
+            depth_outline_thin_strength: depth_outline_thin_strength_field.expect("Missing parameter: depth_outline_thin_strength"),
             grass_stem_rendering: grass_stem_rendering_field.expect("Missing parameter: grass_stem_rendering"),
             grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
             grass_band_pose_reuse: grass_band_pose_reuse_field.expect("Missing parameter: grass_band_pose_reuse"),
@@ -3616,6 +3740,12 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "depth_outline_strength" => Some(&adjustables.depth_outline_strength),
+        "depth_outline_relative_threshold" => Some(&adjustables.depth_outline_relative_threshold),
+        "depth_outline_minimum_gap" => Some(&adjustables.depth_outline_minimum_gap),
+        "depth_outline_softness" => Some(&adjustables.depth_outline_softness),
+        "depth_outline_sky_strength" => Some(&adjustables.depth_outline_sky_strength),
+        "depth_outline_thin_strength" => Some(&adjustables.depth_outline_thin_strength),
         "flower_stem_cell_height_voxels" => Some(&adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
@@ -3841,6 +3971,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "depth_outline_enabled" => Some(&adjustables.depth_outline_enabled),
         "grass_stem_rendering" => Some(&adjustables.grass_stem_rendering),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
@@ -3868,6 +3999,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code)]
 pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ColorParam> {
     match id {
+        "depth_outline_color" => Some(&adjustables.depth_outline_color),
         "sun_color" => Some(&adjustables.sun_color),
         "glass_tint" => Some(&adjustables.glass_tint),
         "model_flower_stem_bottom_color" => Some(&adjustables.model_flower_stem_bottom_color),
@@ -3890,6 +4022,12 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "depth_outline_strength" => Some(&mut adjustables.depth_outline_strength),
+        "depth_outline_relative_threshold" => Some(&mut adjustables.depth_outline_relative_threshold),
+        "depth_outline_minimum_gap" => Some(&mut adjustables.depth_outline_minimum_gap),
+        "depth_outline_softness" => Some(&mut adjustables.depth_outline_softness),
+        "depth_outline_sky_strength" => Some(&mut adjustables.depth_outline_sky_strength),
+        "depth_outline_thin_strength" => Some(&mut adjustables.depth_outline_thin_strength),
         "flower_stem_cell_height_voxels" => Some(&mut adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&mut adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
@@ -4115,6 +4253,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "depth_outline_enabled" => Some(&mut adjustables.depth_outline_enabled),
         "grass_stem_rendering" => Some(&mut adjustables.grass_stem_rendering),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
@@ -4142,6 +4281,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code)]
 pub fn get_color_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ColorParam> {
     match id {
+        "depth_outline_color" => Some(&mut adjustables.depth_outline_color),
         "sun_color" => Some(&mut adjustables.sun_color),
         "glass_tint" => Some(&mut adjustables.glass_tint),
         "model_flower_stem_bottom_color" => Some(&mut adjustables.model_flower_stem_bottom_color),
