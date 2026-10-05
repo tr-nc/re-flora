@@ -1,5 +1,6 @@
 import color;
 import dither;
+import ordered_dither;
 import tone_mapping;
 import scene_pixel_filter;
 import scene_pixel_style;
@@ -10,6 +11,8 @@ struct U_PostProcessingInfo
     uint pixel_stride;
     uint resolve_mode;
     float dither_strength_lsb;
+    uint4 ordered_dither;
+    float ordered_dither_strength;
 };
 
 [[vk::binding(1, 0)]]
@@ -89,9 +92,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint3 localId : SV_Group
         finalColor = resolveScenePixel(pixel, axis);
     }
 
+    bool globalDither = orderedDitherEnabled(post_processing_info.ordered_dither,
+        post_processing_info.ordered_dither_strength, ORDERED_GLOBAL);
+    finalColor = orderedDitherColor(finalColor, pixel, post_processing_info.ordered_dither,
+        post_processing_info.ordered_dither_strength, ORDERED_GLOBAL);
+
     // Dither also belongs to the final coarse cell, not individual screen pixels.
     float ditherOffset = getDitherOffset(pixel, post_processing_info.dither_strength_lsb);
-    if (post_processing_info.dither_strength_lsb > 0.0)
+    if (!globalDither && post_processing_info.dither_strength_lsb > 0.0)
     {
         float3 encodedColor = linearToSrgb(finalColor);
         encodedColor = max(encodedColor + ditherOffset.xxx, float3(0.0));

@@ -918,6 +918,11 @@ pub struct GuiInput {
     pub glass_glint_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
+    pub _pad7: [u8; 12],
+    pub ordered_dither: [u32; 4],
+    pub ordered_dither_strength: f32,
+    pub _pad8: [u8; 4],
+    pub ordered_pixel_extent: [u32; 2],
     pub world_tick_seconds: f32,
     pub grass_vibration_amplitude_voxels: f32,
     pub grass_vibration_primary_speed: f32,
@@ -948,7 +953,7 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
-    pub _pad7: [u8; 4],
+    pub _pad9: [u8; 8],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).
@@ -1068,6 +1073,9 @@ pub struct PostProcessingInfo {
     pub pixel_stride: u32,
     pub resolve_mode: u32,
     pub dither_strength_lsb: f32,
+    pub ordered_dither: [u32; 4],
+    pub ordered_dither_strength: f32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `U_RegionInfo` (native Slang source of truth).

@@ -626,6 +626,80 @@ min = 0
 max = 100
 
 [[section]]
+name = "Ordered Dithering"
+
+[[section.param]]
+id = "ordered_dither_pattern"
+kind = "choice"
+label = "Pattern"
+type = "Choice"
+[section.param.data]
+value = 0
+options = ["Bayer 4x4 (dispersed)", "Halftone 4x4 (clustered)"]
+
+[[section.param]]
+id = "ordered_dither_levels"
+kind = "uint"
+label = "Brightness levels (not palette colors)"
+type = "Uint"
+[section.param.data]
+value = 8
+min = 2
+max = 32
+step = 1
+
+[[section.param]]
+id = "ordered_dither_strength"
+kind = "float"
+label = "Strength (0 = original)"
+type = "Float"
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[section.param]]
+id = "ordered_dither_global"
+kind = "bool"
+label = "Global scene dither (A/B)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "ordered_dither_god_rays"
+kind = "bool"
+label = "God Rays dither (A/B)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "ordered_dither_lens_flare"
+kind = "bool"
+label = "Camera Lens Flare dither (A/B)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "ordered_dither_sky_background"
+kind = "bool"
+label = "Sky background dither (A/B)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "ordered_dither_terrain_ambient"
+kind = "bool"
+label = "Skylight / ambient: terrain dither (A/B)"
+type = "Bool"
+[section.param.data]
+value = false
+
+[[section]]
 name = "Sky"
 
 [[section.param]]

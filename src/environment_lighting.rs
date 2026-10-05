@@ -915,9 +915,20 @@ mod tests {
         assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
-        // Display the newest physical estimate, including while terrain edits are
-        // pending. Do not substitute a brush-local constant for the sampled light.
-        assert!(terrain.contains("color = environmentIrradiance * albedo"));
+        // The presentation-only A/B derives from the newest physical estimate,
+        // never a brush-local constant or a second sampled field. The shared
+        // quantizer returns this input untouched when unchecked/strength zero.
+        assert!(terrain
+            .contains("float3 styledEnvironment = orderedDitherColor(environmentIrradiance,"));
+        assert!(terrain.contains("color = styledEnvironment * albedo"));
+        assert!(
+            terrain
+                .rfind("environmentCaptureIrradiance = environmentIrradiance")
+                .unwrap()
+                < terrain
+                    .find("float3 styledEnvironment = orderedDitherColor")
+                    .unwrap()
+        );
         assert!(
             terrain.contains("lerp(surface.environment, environmentIrradiance, normalConfidence)")
         );

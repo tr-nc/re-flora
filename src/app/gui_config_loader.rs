@@ -75,6 +75,7 @@ impl GuiConfigLoader {
         });
 
         Self::retire_dither_setting(&mut config);
+        Self::add_missing_section_params(&mut config, "Ordered Dithering");
         Self::retire_cloud_settings(&mut config);
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -2639,6 +2640,50 @@ mod tests {
                     .map(|message| (*message).to_owned())
             })
             .unwrap()
+    }
+
+    #[test]
+    fn ordered_dither_migration_preserves_old_settings_and_partial_preferences() {
+        use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
+        let mut original: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        original.section.retain(|s| s.name != "Ordered Dithering");
+        let before = toml::to_string(&original).unwrap();
+        GuiConfigLoader::add_missing_section_params(&mut original, "Ordered Dithering");
+        let ordered = original
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Ordered Dithering")
+            .unwrap();
+        assert_eq!(ordered.param.len(), 8);
+        for p in &ordered.param {
+            if matches!(p.kind, GuiParamKind::Bool) {
+                assert_eq!(p.value.get_bool(), Some(false));
+            }
+        }
+        ordered.param.retain(|p| p.id == "ordered_dither_levels");
+        if let GuiParamValue::Uint { value, .. } = &mut ordered.param[0].value {
+            *value = 5;
+        }
+        GuiConfigLoader::add_missing_section_params(&mut original, "Ordered Dithering");
+        assert_eq!(
+            original
+                .section
+                .iter()
+                .find(|s| s.name == "Ordered Dithering")
+                .unwrap()
+                .param[0]
+                .value
+                .get_uint()
+                .unwrap()
+                .0,
+            5
+        );
+        let once = toml::to_string(&original).unwrap();
+        GuiConfigLoader::add_missing_section_params(&mut original, "Ordered Dithering");
+        assert_eq!(once, toml::to_string(&original).unwrap());
+        original.section.retain(|s| s.name != "Ordered Dithering");
+        assert_eq!(before, toml::to_string(&original).unwrap());
     }
 
     #[test]

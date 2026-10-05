@@ -31,6 +31,7 @@ mod lifecycle;
 mod lighting_mode_acceptance;
 mod model_cache_review;
 mod mower;
+mod ordered_dither_review;
 mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
@@ -413,6 +414,7 @@ pub struct App {
     pending_frame_extent: Option<Extent2D>,
     resize_lifecycle_test: Option<ResizeLifecycleTest>,
     scene_supersampling_review: Option<scene_supersampling::SceneSupersamplingReview>,
+    ordered_dither_review: Option<ordered_dither_review::OrderedDitherReview>,
     egui_texture_lifecycle_test: Option<EguiTextureLifecycleTest>,
     swapchain: Swapchain,
     window_state: WindowState,
@@ -1524,6 +1526,7 @@ impl App {
             }),
             scene_supersampling_review:
                 scene_supersampling::SceneSupersamplingReview::from_environment(),
+            ordered_dither_review: ordered_dither_review::OrderedDitherReview::from_environment(),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
             world_clock,
@@ -2353,6 +2356,13 @@ impl App {
                     self.on_resize();
                 }
                 if self.advance_scene_supersampling_review() {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+                if self
+                    .advance_ordered_dither_review()
+                    .expect("ordered dither native review")
+                {
                     self.on_terminate(event_loop);
                     return;
                 }
