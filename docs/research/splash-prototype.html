@@ -27,7 +27,7 @@
 <aside>
 <section><h2>01 / 配色手札 <span>原有 3 款 + 新设计 5 款</span></h2><div id="presets" class="presets"></div><p class="hint" id="paletteNote" style="margin-top:10px"></p></section>
 <section><h2>02 / 花型 <span>五种随机混排 · 点击启用 / 停用</span></h2><button id="redistribute">重新随机分布</button><div id="flowers" class="flowers" style="margin-top:10px"></div><p id="flowerNote" class="hint" style="margin-top:10px"></p><p class="hint">花色与留空采用蓝噪声邻域排斥；不再按 3×3 分块限定数量。重播退场不改变分布。</p></section>
-<section><h2>03 / 比例与节奏 <span>仅用于 HTML 探索</span></h2><label class="range">网格密度<input id="density" type="range" min="1.1" max="2.2" step="0.05" value="1.6"><output id="densityValue">1.60</output></label><label class="range">花朵大小<input id="flowerScale" type="range" min="0.65" max="1.3" step="0.05" value="1"><output id="flowerScaleValue">1.00</output></label><label class="range">标题字号<input id="titleSize" type="range" min="42" max="70" step="1" value="60"><output id="titleSizeValue">60</output></label><label class="range">标题高度<input id="titlePosition" type="range" min="0" max="1" step="0.01" value="0.5"><output id="titlePositionValue">0.50</output></label><p class="hint">0 = 最上方完整格子居中；1 = 最下方完整格子居中。整格对齐。</p><label class="check" style="margin:12px 0"><input id="titleSplit" type="checkbox">标题：一格一个字母（A/B）</label><p class="hint">不勾选：原版四格标题。勾选：8 格，冒号独占一格，空格不占格。</p><p class="hint" id="fontStatus">正在载入游戏字体 Pixelify Sans…</p><p class="hint">加载进度固定为 0.69（69%）。</p><p class="hint">格线与 L 型标记使用配色手札的预设色。先看五种花的混排，再比较整体配色。</p></section>
+<section><h2>03 / 比例与节奏 <span>仅用于 HTML 探索</span></h2><label class="range">网格密度<input id="density" type="range" min="1.1" max="2.2" step="0.05" value="1.6"><output id="densityValue">1.60</output></label><label class="range">花朵大小<input id="flowerScale" type="range" min="0.65" max="1.3" step="0.05" value="1"><output id="flowerScaleValue">1.00</output></label><label class="range">标题字号<input id="titleSize" type="range" min="42" max="70" step="1" value="60"><output id="titleSizeValue">60</output></label><label class="range">字间距<input id="letterSpacing" type="range" min="-2" max="12" step="0.5" value="0"><output id="letterSpacingValue">0.0</output></label><label class="range">标题高度<input id="titlePosition" type="range" min="0" max="1" step="0.01" value="0.5"><output id="titlePositionValue">0.50</output></label><p class="hint">0 = 最上方完整格子居中；1 = 最下方完整格子居中。整格对齐。</p><p class="hint">字间距 0 保留原版排字；向右更疏，向左更紧，随画面比例缩放。</p><p class="hint" id="fontStatus">正在载入游戏字体 Pixelify Sans…</p><p class="hint">加载进度固定为 0.69（69%）。</p><p class="hint">格线与 L 型标记使用配色手札的预设色。先看五种花的混排，再比较整体配色。</p></section>
 <section><h2>04 / 带走这次选择 <span>不自动保存</span></h2><button id="export">下载方案 JSON</button><details><summary>查看当前参数 / 设计说明</summary><textarea id="recipe" readonly aria-label="当前 Splash 设计方案"></textarea><p>保留细网格的秩序，用约 1/3 的留空格减轻密度。花朵由独立绘制的 16px 色团构成；圆瓣与缺口瓣形成可比较的节奏，不添加细碎高光。原有配色和基准花型对应游戏；其余均为原创候选。</p><p>这是离线试验台。浏览器 Canvas 的字形度量和混色与 egui 略有差异，最终需在游戏里确认。新花型／配色不会自动同步到 Rust。</p></details></section>
 </aside></div>
 <button id="exitPreview">退出纯预览 · Esc</button>
@@ -53,11 +53,10 @@ const shapes = [
 ];
 const COLOR_KEYS = ['background','grid','mark','cream','yellow','center','title'];
 const PROGRESS = 0.69;
-let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,flowerScale:1,titleSize:60,titlePosition:.5,titleSplit:false,motion:true,colors:{}};
+let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,flowerScale:1,titleSize:60,titlePosition:.5,letterSpacing:0,motion:true,colors:{}};
 let distributionSeed=random64();
 let transitionTime=0,replayStart=null,seed=0n,width=0,height=0,dpr=1,dirty=true,geometry=[],pixelCache=new Map(),motionTime=0;
 const canvas=$('screen'),ctx=canvas.getContext('2d');
-const TITLE_GLYPHS=Array.from('re:flora');
 let fontReady=false;
 const fade=t=>{t=Math.max(0,Math.min(1,t));return 1-t*t*(3-2*t)};
 const mod=(n,m)=>(n%m+m)%m;
@@ -120,7 +119,7 @@ function layout(){
  const cell=Math.max(.01,Math.min(width/10,height/6)/state.density),ox=width/2-5*cell,oy=height/2-3*cell;
  const first=Math.ceil(-oy/cell),last=Math.max(first,Math.floor((height-oy)/cell)-1);
  const titleRow=Math.floor(first+state.titlePosition*(last-first)+1e-9);
- const titleCells=state.titleSplit?TITLE_GLYPHS.length:4,titleColumn=5-titleCells/2;
+ const titleCells=4,titleColumn=3;
  return {cell,ox,oy,titleRow,titleCells,titleColumn};
 }
 function pixels(id){if(pixelCache.has(id))return pixelCache.get(id);const s=shapes.find(s=>s.id===id),result=[];for(let y=0;y<16;y++)for(let x=0;x<16;x++){const dx=x-7.5,dy=y-7.5;let petal=false;for(let i=0;i<s.petals;i++){const a=-Math.PI/2+i*2*Math.PI/s.petals,u=dx*Math.cos(a)+dy*Math.sin(a),v=-dx*Math.sin(a)+dy*Math.cos(a);const shape=((u-s.radius)/s.length)**2+(v/s.breadth)**2;if(shape<=1&&!(s.notch&&u>s.radius+1.8&&Math.abs(v)<.6))petal=true}const center=dx*dx+dy*dy<=3;if(petal||center)result.push({x:x-8,y:y-8,color:center?(dx+dy<0?'yellow':'center'):'petal'})}pixelCache.set(id,result);return result}
@@ -129,50 +128,49 @@ for(const key of ['petal','yellow','center']){c.fillStyle=key==='petal'?petal:st
 function rebuild(){if(!width||!height)return;const {cell,ox,oy,titleRow,titleCells,titleColumn}=layout();geometry=[];for(let row=Math.floor(-oy/cell);row<Math.ceil((height-oy)/cell);row++)for(let col=Math.floor(-ox/cell);col<Math.ceil((width-ox)/cell);col++){if(col>=titleColumn&&col<titleColumn+titleCells&&row===titleRow)continue;geometry.push({col,row,x:ox+col*cell,y:oy+row*cell,delay:cellDelay(col,row),group:mod(col+row*7,16),cellClass:cellClass(col,row),shape:cellShape(col,row)})}dirty=true}
 function resize(){let w=$('stage').clientWidth,h=$('stage').clientHeight;const ratios={wide:16/9,classic:5/3,portrait:9/16},ratio=ratios[$('aspect').value];if(ratio){w=Math.min(w,h*ratio);h=w/ratio}dpr=Math.min(window.devicePixelRatio||1,3);width=Math.max(1,w);height=Math.max(1,h);canvas.style.width=width+'px';canvas.style.height=height+'px';canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);rebuild()}
 function underlay(){const g=ctx.createLinearGradient(0,0,0,height);g.addColorStop(0,'#adc0b1');g.addColorStop(1,'#71896f');ctx.fillStyle=g;ctx.fillRect(0,0,width,height);ctx.fillStyle='#859d7c';ctx.beginPath();ctx.moveTo(0,height*.62);ctx.bezierCurveTo(width*.28,height*.2,width*.56,height*.8,width,height*.44);ctx.lineTo(width,height);ctx.lineTo(0,height);ctx.fill();ctx.fillStyle='#597751';ctx.beginPath();ctx.moveTo(0,height*.84);ctx.bezierCurveTo(width*.3,height*.57,width*.65,height*.98,width,height*.64);ctx.lineTo(width,height);ctx.lineTo(0,height);ctx.fill();ctx.fillStyle='#425e40';for(let i=0;i<28;i++){let x=width*i/27,y=height*(.83+Math.sin(i*1.9)*.1);ctx.fillRect(x,y,3,12);ctx.fillRect(x+3,y-2,4,4)}}
+// Measure and paint through the same tracking path, so the centered wordmark
+// and its underline share actual ink bounds. Zero spacing preserves native text.
+function trackedTitle(text,spacing,context=ctx){
+ const bounds=m=>({left:-m.actualBoundingBoxLeft,right:m.actualBoundingBoxRight,ascent:m.actualBoundingBoxAscent,descent:m.actualBoundingBoxDescent});
+ if('letterSpacing' in context||spacing===0){
+  if('letterSpacing' in context)context.letterSpacing=spacing+'px';
+  return {ink:bounds(context.measureText(text)),paint:(x,y)=>context.fillText(text,x,y)};
+ }
+ // Older Canvas implementations: retain pair kerning using prefix advances.
+ const glyphs=Array.from(text).map((glyph,i)=>{
+  const metrics=context.measureText(glyph);
+  const offset=context.measureText(text.slice(0,i+1)).width-metrics.width+i*spacing;
+  return {glyph,offset,ink:bounds(metrics)};
+ });
+ const ink={left:Math.min(...glyphs.map(g=>g.offset+g.ink.left)),right:Math.max(...glyphs.map(g=>g.offset+g.ink.right)),ascent:Math.max(...glyphs.map(g=>g.ink.ascent)),descent:Math.max(...glyphs.map(g=>g.ink.descent))};
+ return {ink,paint:(x,y)=>glyphs.forEach(g=>context.fillText(g.glyph,x+g.offset,y))};
+}
 function drawTitle(colors,l,scale,time){
  const {cell,ox,oy,titleRow,titleCells,titleColumn}=l,x=ox+titleColumn*cell,y=oy+titleRow*cell;
  ctx.globalAlpha=fade((time-.65)/.5);ctx.fillStyle=colors.background;ctx.strokeStyle=colors.grid;ctx.lineWidth=scale;
- const regions=state.titleSplit?titleCells:1,regionWidth=state.titleSplit?cell:titleCells*cell;
- for(let i=0;i<regions;i++){
-  const left=x+i*regionWidth;
-  ctx.fillRect(left,y,regionWidth,cell);
-  ctx.strokeRect(left+.5*scale,y+.5*scale,regionWidth-scale,cell-scale);
- }
+ ctx.fillRect(x,y,titleCells*cell,cell);
+ ctx.strokeRect(x+.5*scale,y+.5*scale,titleCells*cell-scale,cell-scale);
  // Do not silently substitute another typeface while the game font loads.
  if(!fontReady)return;
  ctx.globalAlpha=fade((time-1.15)/.45);ctx.font=`400 ${state.titleSize*scale}px Pixelify`;ctx.textAlign='left';ctx.textBaseline='alphabetic';
- const ink=text=>{const m=ctx.measureText(text);return {left:m.actualBoundingBoxLeft,right:m.actualBoundingBoxRight,ascent:m.actualBoundingBoxAscent,descent:m.actualBoundingBoxDescent}};
- const gap=10*scale,line=3*scale;let lineX,lineY,lineWidth;
- ctx.fillStyle=colors.title;
- if(state.titleSplit){
-  const metrics=TITLE_GLYPHS.map(ink),maxHeight=Math.max(...metrics.map(m=>m.ascent+m.descent));
-  const centerY=y+cell/2-(gap+line)/2;
-  TITLE_GLYPHS.forEach((glyph,i)=>{
-   const m=metrics[i],width=m.left+m.right;
-   ctx.fillText(glyph,x+i*cell+(cell-width)/2+m.left,centerY+(m.ascent-m.descent)/2);
-  });
-  lineX=x+12*scale;lineWidth=titleCells*cell-24*scale;lineY=centerY+maxHeight/2+gap;
- }else{
-  const text='re: flora',m=ink(text),width=m.left+m.right,height=m.ascent+m.descent;
-  const top=y+(cell-height-gap-line)/2;
-  lineX=x+(titleCells*cell-width)/2;lineWidth=width;lineY=top+height+gap;
-  ctx.fillText(text,lineX+m.left,top+m.ascent);
- }
- ctx.fillStyle=colors.grid;ctx.fillRect(lineX,lineY,lineWidth,line);
- ctx.fillStyle=colors.yellow;ctx.fillRect(lineX,lineY,lineWidth*PROGRESS,line);
+ const text='re: flora',tracked=trackedTitle(text,state.letterSpacing*scale),m=tracked.ink;
+ const width=m.right-m.left,height=m.ascent+m.descent,gap=10*scale,line=3*scale;
+ const top=y+(cell-height-gap-line)/2,lineX=x+(titleCells*cell-width)/2,lineY=top+height+gap;
+ ctx.fillStyle=colors.title;tracked.paint(lineX-m.left,top+m.ascent);
+ ctx.fillStyle=colors.grid;ctx.fillRect(lineX,lineY,width,line);
+ ctx.fillStyle=colors.yellow;ctx.fillRect(lineX,lineY,width*PROGRESS,line);
 }
 function draw(){ctx.setTransform(dpr,0,0,dpr,0,0);ctx.globalAlpha=1;underlay();const c=state.colors,l=layout(),{cell}=l,scale=cell/96,t=transitionTime;
 for(const tile of geometry){const alpha=fade((t-tile.delay)/.5);ctx.globalAlpha=alpha;ctx.fillStyle=c.background;ctx.fillRect(tile.x,tile.y,cell,cell);ctx.strokeStyle=c.grid;ctx.lineWidth=scale;ctx.strokeRect(tile.x+.5*scale,tile.y+.5*scale,cell-scale,cell-scale);if(tile.cellClass===0){ctx.fillStyle=c.mark;ctx.fillRect(tile.x+46*scale,tile.y+47*scale,4*scale,2*scale);ctx.fillRect(tile.x+48*scale,tile.y+44*scale,2*scale,3*scale)}else{const frame=mod(Math.floor((motionTime+tile.group*1.2/16)/1.2),4),angle=[-10,0,10,0][frame]*Math.PI/180;drawFlower(ctx,tile.shape,tile.x+cell/2,tile.y+cell/2,3*scale*state.flowerScale,angle,tile.cellClass===1?c.yellow:c.cream,alpha)}}
 drawTitle(c,l,scale,t);ctx.globalAlpha=1;
 $('phase').textContent=t===0?'封面':t<1.15?'格子错落淡出':t<1.6?'仅标题淡出':'退场完成';$('stageLabel').textContent=t===0?'SPLASH / 编辑中':'UNDERLAY / 示意场景';dirty=false}
-function recipe(){return {prototype:'re-flora-splash-v4',preset:presets[currentPreset].id,...state,progress:PROGRESS,font:{family:'Pixelify Sans',weight:400,embedded:true,path:'assets/font/PixelifySans-VariableFont_wght.ttf'},distribution:{method:'multiclass-blue-noise',size:BLUE_NOISE_SIZE,sigma:BLUE_NOISE_SIGMA,steps:BLUE_NOISE_STEPS,seed:distributionSeed.toString()},transition:{cellFadeSeconds:.5,cellStaggerSeconds:.65,titleStartSeconds:1.15,titleFadeSeconds:.45,seed:seed.toString()},note:'HTML 设计候选；不会自动修改游戏配置'}}
-function refresh(resetTransition=false){if(resetTransition){transitionTime=0;replayStart=null;$('timeline').value=0;$('timeLabel').textContent='0.00s'}dirty=true;$('layoutLabel').textContent=(state.titleSplit?'八格分字标题':'四格标题')+' · 局部 16 × 16 像素 · 离散轻摆';$('recipe').value=JSON.stringify(recipe(),null,2);for(const s of shapes){const b=$('shape-'+s.id);b.setAttribute('aria-pressed',state.enabledShapes.includes(s.id));const mini=b.querySelector('canvas'),c=mini.getContext('2d');c.clearRect(0,0,80,80);drawFlower(c,s.id,40,40,4,0,state.colors.yellow)}$('flowerNote').textContent=`混排：${shapes.filter(s=>state.enabledShapes.includes(s.id)).map(s=>s.name).join(' / ')}。每种花都可随机使用黄、白两色。`}
+function recipe(){return {prototype:'re-flora-splash-v5',preset:presets[currentPreset].id,...state,progress:PROGRESS,font:{family:'Pixelify Sans',weight:400,embedded:true,path:'assets/font/PixelifySans-VariableFont_wght.ttf'},distribution:{method:'multiclass-blue-noise',size:BLUE_NOISE_SIZE,sigma:BLUE_NOISE_SIGMA,steps:BLUE_NOISE_STEPS,seed:distributionSeed.toString()},transition:{cellFadeSeconds:.5,cellStaggerSeconds:.65,titleStartSeconds:1.15,titleFadeSeconds:.45,seed:seed.toString()},note:'HTML 设计候选；不会自动修改游戏配置'}}
+function refresh(resetTransition=false){if(resetTransition){transitionTime=0;replayStart=null;$('timeline').value=0;$('timeLabel').textContent='0.00s'}dirty=true;$('recipe').value=JSON.stringify(recipe(),null,2);for(const s of shapes){const b=$('shape-'+s.id);b.setAttribute('aria-pressed',state.enabledShapes.includes(s.id));const mini=b.querySelector('canvas'),c=mini.getContext('2d');c.clearRect(0,0,80,80);drawFlower(c,s.id,40,40,4,0,state.colors.yellow)}$('flowerNote').textContent=`混排：${shapes.filter(s=>state.enabledShapes.includes(s.id)).map(s=>s.name).join(' / ')}。每种花都可随机使用黄、白两色。`}
 function applyPreset(index,updateUrl=true){currentPreset=mod(index,presets.length);const p=presets[currentPreset];COLOR_KEYS.forEach((key,i)=>{state.colors[key]=p.colors[i]});for(let i=0;i<presets.length;i++)$('preset-'+presets[i].id).setAttribute('aria-pressed',i===currentPreset);$('presetLabel').textContent=String(currentPreset+1).padStart(2,'0')+' / '+p.name;$('paletteNote').textContent=p.note;if(updateUrl){const url=new URL(location.href);url.searchParams.set('variant',p.id);history.replaceState(null,'',url)}refresh(true)}
 for(const p of presets){const b=document.createElement('button');b.id='preset-'+p.id;b.className='preset';b.setAttribute('aria-pressed','false');b.innerHTML=`<span class="swatches">${[p.colors[0],p.colors[1],p.colors[3],p.colors[4]].map(c=>`<i style="background:${c}"></i>`).join('')}</span><span>${p.name}</span>`;b.onclick=()=>applyPreset(presets.indexOf(p));$('presets').append(b)}
 for(const s of shapes){const b=document.createElement('button');b.id='shape-'+s.id;b.className='flower';b.setAttribute('aria-pressed','false');b.innerHTML=`<canvas width="80" height="80" aria-hidden="true"></canvas><span>${s.name}</span><small>${s.tag}</small>`;b.onclick=()=>{if(state.enabledShapes.includes(s.id)){if(state.enabledShapes.length===1)return;state.enabledShapes=state.enabledShapes.filter(id=>id!==s.id)}else state.enabledShapes=shapes.filter(shape=>shape.id===s.id||state.enabledShapes.includes(shape.id)).map(shape=>shape.id);rebuild();refresh(true)};$('flowers').append(b)}
 $('redistribute').onclick=()=>{distributionSeed=random64();rebuild();refresh(true)};
-for(const key of ['density','flowerScale','titleSize','titlePosition'])$(key).oninput=()=>{state[key]=Number($(key).value);$(key+'Value').textContent=key==='titleSize'?state[key]:state[key].toFixed(2);if(key==='density'||key==='titlePosition')rebuild();refresh(true)};
-$('titleSplit').onchange=()=>{state.titleSplit=$('titleSplit').checked;rebuild();refresh(true)};
+for(const key of ['density','flowerScale','titleSize','titlePosition','letterSpacing'])$(key).oninput=()=>{state[key]=Number($(key).value);$(key+'Value').textContent=key==='titleSize'?state[key]:state[key].toFixed(key==='letterSpacing'?1:2);if(key==='density'||key==='titlePosition')rebuild();refresh(true)};
 $('motion').onchange=()=>{state.motion=$('motion').checked;refresh()};$('aspect').onchange=resize;
 $('replay').onclick=()=>{randomSeed();transitionTime=0;replayStart=performance.now();refresh()};$('restore').onclick=()=>{transitionTime=0;replayStart=null;$('timeline').value=0;$('timeLabel').textContent='0.00s';refresh()};$('timeline').oninput=()=>{replayStart=null;transitionTime=Number($('timeline').value);$('timeLabel').textContent=transitionTime.toFixed(2)+'s';refresh()};
 $('prev').onclick=()=>applyPreset(currentPreset-1);$('next').onclick=()=>applyPreset(currentPreset+1);

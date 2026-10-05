@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser regression: a copied, standalone demo must draw both title modes.
+// Browser regression: standalone game-font title and adjustable tracking.
 // Requires agent-browser and its Chromium installation; not a cargo test.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -31,21 +31,27 @@ try {
     const drawn = [];
     ctx.fillText = function(...args) { drawn.push(args[0]); return original.apply(this, args); };
     try {
-      for (const split of [false, true]) {
-        $('titleSplit').checked = split;
-        $('titleSplit').dispatchEvent(new Event('change'));
+      check(!$('titleSplit') && !('titleSplit' in state), 'Removed split-title mode must not remain');
+      const widths = [];
+      for (const spacing of [-2, 0, 6, 12]) {
+        $('letterSpacing').value = spacing;
+        $('letterSpacing').dispatchEvent(new Event('input'));
         drawn.length = 0; draw();
-        check(drawn.join('') === (split ? 're:flora' : 're: flora'), 'Title draw calls missing');
-        check(drawn.length === (split ? 8 : 1), 'Wrong number of title glyphs');
+        check(drawn.join('') === 're: flora' && drawn.length === 1, 'Original wordmark must render as one text run');
+        check(recipe().letterSpacing === spacing, 'Tracking not exported');
+        const measured = trackedTitle('re: flora', spacing * layout().cell / 96).ink;
+        widths.push(measured.right - measured.left);
         const l = layout(), x = Math.ceil((l.ox + l.titleColumn*l.cell)*dpr), y = Math.ceil((l.oy + l.titleRow*l.cell)*dpr);
         const image = ctx.getImageData(x, y, Math.floor(l.titleCells*l.cell*dpr)-1, Math.floor(l.cell*dpr)-1);
         const hex = state.colors.title.slice(1), color = [0,2,4].map(i => parseInt(hex.slice(i,i+2),16));
         let ink = 0;
         for (let i=0;i<image.data.length;i+=4) if(color.every((v,c)=>image.data[i+c]===v)) ink++;
-        check(ink > 10, 'No visible title pixels in mode ' + split);
+        check(ink > 10, 'No visible title pixels at spacing ' + spacing);
       }
+      check(widths.every((width, i) => i === 0 || width > widths[i-1]), 'Tracking slider must widen actual text');
+      check(layout().titleCells === 4, 'Wordmark must keep the original four-cell region');
     } finally { ctx.fillText = original; }
-    return { status: 'passed', standalone: true, modes: ['original', 'one glyph per cell'], font: $('fontStatus').textContent };
+    return { status: 'passed', standalone: true, tracking: [-2, 0, 6, 12], font: $('fontStatus').textContent };
   })()`));
 } finally {
   try { browser('close'); } finally { rmSync(directory, { recursive: true, force: true }); }
