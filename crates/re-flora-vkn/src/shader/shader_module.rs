@@ -1168,7 +1168,7 @@ mod tests {
 
     #[test]
     fn particle_vertex_shader_reflects_one_compact_mesh_input_before_instances() {
-        let shader_path = "shader/particles/particle_lod_textured.vert";
+        let shader_path = "shader/particles/particle_billboard.vert";
         let artifact = find_precompiled_shader(shader_path)
             .unwrap_or_else(|| panic!("missing precompiled shader {shader_path}"));
         let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
@@ -1182,12 +1182,20 @@ mod tests {
 
         assert_eq!(
             inputs.iter().map(|input| input.location).collect::<Vec<_>>(),
-            vec![0, 2, 3, 4, 5, 6],
+            vec![0, 2, 3, 4, 5, 6, 7],
             "{shader_path} must expose one compact mesh input followed by instance inputs"
         );
         assert_eq!(
-            inputs[5].format,
-            spirv_reflect::types::ReflectFormat::R32G32B32A32_SFLOAT
+            inputs.iter().map(|input| input.format).collect::<Vec<_>>(),
+            vec![
+                spirv_reflect::types::ReflectFormat::R32_UINT,
+                spirv_reflect::types::ReflectFormat::R32G32B32_SFLOAT,
+                spirv_reflect::types::ReflectFormat::R32_SFLOAT,
+                spirv_reflect::types::ReflectFormat::R32G32B32A32_SFLOAT,
+                spirv_reflect::types::ReflectFormat::R32_UINT,
+                spirv_reflect::types::ReflectFormat::R32G32B32A32_SFLOAT,
+                spirv_reflect::types::ReflectFormat::R32G32B32A32_SFLOAT,
+            ]
         );
     }
 }
