@@ -56,7 +56,7 @@ const PROGRESS = 0.69;
 let currentPreset=0,state={enabledShapes:shapes.map(s=>s.id),density:1.6,flowerScale:1,titleSize:60,titlePosition:.5,letterSpacing:0,motion:true,colors:{}};
 let distributionSeed=random64();
 let transitionTime=0,replayStart=null,seed=0n,width=0,height=0,dpr=1,dirty=true,geometry=[],pixelCache=new Map(),motionTime=0;
-const canvas=$('screen'),ctx=canvas.getContext('2d');
+const canvas=$('screen'),ctx=canvas.getContext('2d'),flowerImages=new Map();
 let fontReady=false;
 const fade=t=>{t=Math.max(0,Math.min(1,t));return 1-t*t*(3-2*t)};
 const mod=(n,m)=>(n%m+m)%m;
@@ -123,8 +123,28 @@ function layout(){
  return {cell,ox,oy,titleRow,titleCells,titleColumn};
 }
 function pixels(id){if(pixelCache.has(id))return pixelCache.get(id);const s=shapes.find(s=>s.id===id),result=[];for(let y=0;y<16;y++)for(let x=0;x<16;x++){const dx=x-7.5,dy=y-7.5;let petal=false;for(let i=0;i<s.petals;i++){const a=-Math.PI/2+i*2*Math.PI/s.petals,u=dx*Math.cos(a)+dy*Math.sin(a),v=-dx*Math.sin(a)+dy*Math.cos(a);const shape=((u-s.radius)/s.length)**2+(v/s.breadth)**2;if(shape<=1&&!(s.notch&&u>s.radius+1.8&&Math.abs(v)<.6))petal=true}const center=dx*dx+dy*dy<=3;if(petal||center)result.push({x:x-8,y:y-8,color:center?(dx+dy<0?'yellow':'center'):'petal'})}pixelCache.set(id,result);return result}
-function drawFlower(c,id,cx,cy,size,angle,petal,alpha=1){c.save();c.globalAlpha=alpha;c.translate(cx,cy);c.rotate(angle);c.scale(size,size);// Fill all same-color quads as one path to avoid Canvas antialias seams between adjacent pixels.
-for(const key of ['petal','yellow','center']){c.fillStyle=key==='petal'?petal:state.colors[key];c.beginPath();for(const p of pixels(id))if(p.color===key)c.rect(p.x,p.y,1,1);c.fill()}c.restore()}
+function flowerImage(id,petal){
+ const key=[id,petal,state.colors.yellow,state.colors.center].join('|');
+ if(flowerImages.has(key))return flowerImages.get(key);
+ // Composite colors on an opaque local silhouette before rotation. Separate
+ // antialiased color paths on the scene leaked the dark background at seams.
+ const image=document.createElement('canvas');image.width=128;image.height=128;
+ const local=image.getContext('2d');local.scale(8,8);local.translate(8,8);
+ local.fillStyle=petal;local.beginPath();
+ for(const p of pixels(id))local.rect(p.x,p.y,1,1);
+ local.fill();
+ for(const color of ['yellow','center']){
+  local.fillStyle=state.colors[color];local.beginPath();
+  for(const p of pixels(id))if(p.color===color)local.rect(p.x,p.y,1,1);
+  local.fill();
+ }
+ flowerImages.set(key,image);return image;
+}
+function drawFlower(c,id,cx,cy,size,angle,petal,alpha=1){
+ c.save();c.globalAlpha=alpha;c.translate(cx,cy);c.rotate(angle);c.scale(size,size);
+ // Apply cell opacity once to the finished flower, not separately per color.
+ c.drawImage(flowerImage(id,petal),-8,-8,16,16);c.restore();
+}
 function rebuild(){if(!width||!height)return;const {cell,ox,oy,titleRow,titleCells,titleColumn}=layout();geometry=[];for(let row=Math.floor(-oy/cell);row<Math.ceil((height-oy)/cell);row++)for(let col=Math.floor(-ox/cell);col<Math.ceil((width-ox)/cell);col++){if(col>=titleColumn&&col<titleColumn+titleCells&&row===titleRow)continue;geometry.push({col,row,x:ox+col*cell,y:oy+row*cell,delay:cellDelay(col,row),group:mod(col+row*7,16),cellClass:cellClass(col,row),shape:cellShape(col,row)})}dirty=true}
 function resize(){let w=$('stage').clientWidth,h=$('stage').clientHeight;const ratios={wide:16/9,classic:5/3,portrait:9/16},ratio=ratios[$('aspect').value];if(ratio){w=Math.min(w,h*ratio);h=w/ratio}dpr=Math.min(window.devicePixelRatio||1,3);width=Math.max(1,w);height=Math.max(1,h);canvas.style.width=width+'px';canvas.style.height=height+'px';canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);rebuild()}
 function underlay(){const g=ctx.createLinearGradient(0,0,0,height);g.addColorStop(0,'#adc0b1');g.addColorStop(1,'#71896f');ctx.fillStyle=g;ctx.fillRect(0,0,width,height);ctx.fillStyle='#859d7c';ctx.beginPath();ctx.moveTo(0,height*.62);ctx.bezierCurveTo(width*.28,height*.2,width*.56,height*.8,width,height*.44);ctx.lineTo(width,height);ctx.lineTo(0,height);ctx.fill();ctx.fillStyle='#597751';ctx.beginPath();ctx.moveTo(0,height*.84);ctx.bezierCurveTo(width*.3,height*.57,width*.65,height*.98,width,height*.64);ctx.lineTo(width,height);ctx.lineTo(0,height);ctx.fill();ctx.fillStyle='#425e40';for(let i=0;i<28;i++){let x=width*i/27,y=height*(.83+Math.sin(i*1.9)*.1);ctx.fillRect(x,y,3,12);ctx.fillRect(x+3,y-2,4,4)}}

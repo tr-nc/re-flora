@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser regression: standalone game-font title and adjustable tracking.
+// Browser regressions: standalone game-font title, tracking and flower seams.
 // Requires agent-browser and its Chromium installation; not a cargo test.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -52,6 +52,32 @@ try {
       check(layout().titleCells === 4, 'Wordmark must keep the original four-cell region');
     } finally { ctx.fillText = original; }
     return { status: 'passed', standalone: true, tracking: [-2, 0, 6, 12], font: $('fontStatus').textContent };
+  })()`));
+  console.log(browser('eval', `(() => {
+    const results = [];
+    for (const degrees of [-10, 0, 10]) for (const size of [1, 1.5, 2, 3]) for (const alpha of [1, .5]) {
+      const canvas = document.createElement('canvas'); canvas.width = 100; canvas.height = 100;
+      const context = canvas.getContext('2d'), angle = degrees*Math.PI/180, center = 50.2;
+      drawFlower(context, 'original-six', center, center, size, angle, state.colors.cream, alpha);
+      const data = context.getImageData(0, 0, 100, 100).data;
+      let minimum = 255;
+      for (let y=40;y<60;y++) for (let x=40;x<60;x++) {
+        const dx=x+.5-center, dy=y+.5-center;
+        const u=(dx*Math.cos(angle)+dy*Math.sin(angle))/size, v=(-dx*Math.sin(angle)+dy*Math.cos(angle))/size;
+        if(u*u+v*v<4) minimum=Math.min(minimum,data[(y*100+x)*4+3]);
+      }
+      if (minimum !== Math.round(255*alpha)) throw Error('Six-petal flower core opacity is inconsistent: angle='+degrees+', size='+size+', fade='+alpha+', alpha='+minimum);
+      results.push({degrees,size,fade:alpha,minimumCoreAlpha:minimum});
+    }
+    for (const shape of shapes) {
+      const image = flowerImage(shape.id, state.colors.cream), local = image.getContext('2d');
+      const authored = new Map(pixels(shape.id).map(p => [(p.y+8)*16+p.x+8, p]));
+      for(let y=0;y<16;y++)for(let x=0;x<16;x++){
+        const alpha=local.getImageData(x*8+4,y*8+4,1,1).data[3];
+        if(alpha !== (authored.has(y*16+x)?255:0))throw Error('Local flower silhouette changed: '+shape.id);
+      }
+    }
+    return {status:'passed',sixPetalCoverageCases:results.length,originalSilhouettes:shapes.length};
   })()`));
 } finally {
   try { browser('close'); } finally { rmSync(directory, { recursive: true, force: true }); }
