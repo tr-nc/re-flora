@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser regressions: standalone game-font title, tracking and flower seams.
+// Browser regressions: standalone title, tracking, grid, hover and flower seams.
 // Requires agent-browser and its Chromium installation; not a cargo test.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -26,6 +26,7 @@ try {
   console.log(browser('eval', `(() => {
     const check = (ok, message) => { if (!ok) throw Error(message); };
     check(fontReady && document.fonts.check('400 60px Pixelify'), 'Game font did not load in standalone HTML');
+    check(state.letterSpacing === 7 && $('letterSpacing').value === '7' && $('letterSpacingValue').textContent === '7.0', 'Default tracking must be 7.0');
     state.motion = false; transitionTime = 0; replayStart = null;
     const original = ctx.fillText;
     const drawn = [];
@@ -55,7 +56,7 @@ try {
   })()`));
   console.log(browser('eval', `(() => {
     const results = [];
-    for (const degrees of [-10, 0, 10]) for (const size of [1, 1.5, 2, 3]) for (const alpha of [1, .5]) {
+    for (const degrees of [-32, -10, 0, 10, 32]) for (const size of [1, 1.5, 2, 3]) for (const alpha of [1, .5]) {
       const canvas = document.createElement('canvas'); canvas.width = 100; canvas.height = 100;
       const context = canvas.getContext('2d'), angle = degrees*Math.PI/180, center = 50.2;
       drawFlower(context, 'original-six', center, center, size, angle, state.colors.cream, alpha);
@@ -82,6 +83,46 @@ try {
       }
     }
     return {status:'passed',sixPetalCoverageCases:results.length,validatedSilhouettes:shapes.length,plumInteriorHolesFilled:2};
+  })()`));
+  console.log(browser('eval', `(() => {
+    const check=(ok,msg)=>{if(!ok)throw Error(msg)};
+    const strokes=[],stroke=ctx.strokeRect;
+    ctx.strokeRect=function(...args){strokes.push({width:this.lineWidth,args});return stroke.apply(this,args)};
+    try {
+      for(const value of [0,1,4]){
+        $('gridLineWidth').value=value;$('gridLineWidth').dispatchEvent(new Event('input'));strokes.length=0;draw();
+        check(recipe().gridLineWidth===value,'Grid width not exported');
+        check(value===0?strokes.length===0:strokes.length===geometry.length+1,'Grid and title border must share width setting');
+        if(value>0)check(strokes.every(s=>Math.abs(s.width-value*layout().cell/96)<1e-6),'Wrong stroke width');
+      }
+    }finally{ctx.strokeRect=stroke}
+    $('gridLineWidth').value=1;$('gridLineWidth').dispatchEvent(new Event('input'));
+    const visible=t=>t.x>=0&&t.y>=0&&t.x+layout().cell<=width&&t.y+layout().cell<=height;
+    const flowers=geometry.filter(t=>t.cellClass>0&&visible(t)),target=flowers[0],other=flowers[1],base=flowerAngle(target),otherBase=flowerAngle(other);
+    function move(x,y){const r=canvas.getBoundingClientRect();canvas.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',clientX:r.left+x*r.width/width,clientY:r.top+y*r.height/height}))}
+    const cell=layout().cell;
+    const originalWidth=canvas.style.width,originalHeight=canvas.style.height;
+    canvas.style.width=width*.5+'px';canvas.style.height=height*.5+'px';
+    move(target.x+cell*.55,target.y+cell/2);advanceHover(.016);
+    check(hoveredKey===target.col+','+target.row,'Pointer hit must respect scaled/letterboxed canvas bounds');
+    canvas.style.width=originalWidth;canvas.style.height=originalHeight;
+    clearHover();hoverResponses.clear();hoveredKey=null;
+    move(target.x+cell*.55,target.y+cell/2);advanceHover(.016);
+    check(hoveredKey===target.col+','+target.row&&Math.abs(flowerAngle(target)-base)>.01,'Hover feedback must start immediately');
+    for(let i=0;i<30;i++)advanceHover(.016);
+    check(flowerAngle(target)>30*Math.PI/180,'Hover angle must exceed ordinary sway');
+    check(flowerAngle(other)===otherBase,'Other flowers must stay untouched');
+    canvas.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch'}));advanceHover(.016);
+    check(hoveredKey===null&&hoverPointer===null,'Touch must clear, not retain, mouse hover');
+    move(target.x+cell*.45,target.y+cell/2);for(let i=0;i<30;i++)advanceHover(.016);
+    check(flowerAngle(target)<-30*Math.PI/180,'Hover direction must follow pointer side');
+    move(target.x+cell*.05,target.y+cell*.05);advanceHover(.016);check(hoveredKey===null,'Whole cell must not count as flower hit');
+    const quiet=geometry.find(t=>t.cellClass===0&&visible(t));move(quiet.x+cell/2,quiet.y+cell/2);advanceHover(.016);check(hoveredKey===null,'Quiet mark must not tilt');
+    const l=layout();move(l.ox+(l.titleColumn+.5)*cell,l.oy+(l.titleRow+.5)*cell);advanceHover(.016);check(hoveredKey===null,'Title must not tilt');
+    canvas.dispatchEvent(new PointerEvent('pointerleave'));for(let i=0;i<30;i++)advanceHover(.016);
+    check(hoverResponses.size===0&&flowerAngle(target)===base,'Pointer leave must restore frozen baseline even with sway disabled');
+    check(recipe().progress===.69,'Hover must not change progress');
+    return {status:'passed',gridWidths:[0,1,4],hoverDegrees:32,isolatedFlower:true,returnToBaseline:true};
   })()`));
 } finally {
   try { browser('close'); } finally { rmSync(directory, { recursive: true, force: true }); }
