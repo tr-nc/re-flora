@@ -2,6 +2,7 @@ module tracer_types;
 
 public struct U_GuiInput
 {
+    public uint grass_stem_pixelization; // shared analytic/raster presentation control; flower policy remains separate
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public uint raster_tree_static;

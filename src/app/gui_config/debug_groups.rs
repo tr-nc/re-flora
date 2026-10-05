@@ -15,14 +15,14 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Stem Model Pixelization",
-        description: "Square raster grass: unchecked = plain mesh; checked = model-anchored raster tiles, pixelized silhouette and sampled depth, without ray/segment intersections. Uses GPU-prepared poses. Analytic mode and flowers keep their existing model grid; CPU climbing stems are unchanged.",
+        description: "Grass in both Analytic Reference and Square Color Bands: unchecked = continuous silhouette sampling; checked = model-anchored pixelized silhouette and depth. Analytic keeps ray intersections; square uses hardware-raster tiles and prepared poses. Flower sampling and CPU climbing stems are unchanged.",
         initially_open: false,
         params: &["grass_band_pixelization", "flower_stem_model_resolution"],
     },
     ControlGroup {
         parent: None,
         title: "Stem Geometry & Color Bands",
-        description: "Grass unchecked: original voxel mesh. Checked: selected candidate. Raster bands have flat color and lighting, real depth and no spherical caps; analytic reference retains model pixelization. Growth and wind stay live.",
+        description: "Grass unchecked: original voxel mesh. Checked: selected candidate. Square bands have flat color and lighting, real depth and no spherical caps. The shared pixelization checkbox controls both analytic and square grass. Growth and wind stay live.",
         initially_open: false,
         params: &["grass_stem_rendering", "cpu_stem_band_rendering", "stem_band_mode", "grass_band_pose_reuse"],
     },

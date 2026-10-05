@@ -14,7 +14,7 @@ Compare original voxel/block rendering, analytic grass and square color bands. G
 Requires cargo build --release, Vulkan display and GPU timestamps. Runs serially,
 hidden/muted, with fixed simulation time. Does not change saved settings.
 --suite selects the source paths to test (default all).
---pixels adds the square model-pixelized candidate and focuses GPU coverage
+--pixels adds analytic and square model-pixelized candidates and focuses GPU coverage
 on small-near and large-wide/far/low views. Use --suite gpu (or all), not cpu.
 The model-grid resolution is pinned to 45; ordinary candidates force pixels off.
 RE_FLORA_GRASS_BAND_POSE_REUSE=0 disables GPU pose reuse for a diagnostic comparison
@@ -51,7 +51,7 @@ const summarize = values => ({samples:values.length,p50_us:percentile(values,.5)
 const baseModesGPU = [{name:'voxel',mode:0,ab:'a'}, {name:'analytic',mode:0,ab:'b'},
   {name:'square',mode:1,ab:'b'}];
 const modesGPU = [...baseModesGPU, ...(options.pixels ? [
-  {name:'square-pixels',mode:1,ab:'b',pixels:true}] : [])];
+  {name:'analytic-pixels',mode:0,ab:'b',pixels:true}, {name:'square-pixels',mode:1,ab:'b',pixels:true}] : [])];
 const modesCPU = [{name:'blocks',mode:0,ab:'a'}, ...baseModesGPU.slice(2)];
 const jobs = [];
 if(options.suite!=='cpu') {
@@ -98,7 +98,7 @@ try {
       assert.equal(result.status,0,`${name}: ${result.error??log.slice(-3000)}; inspect its log and retry --suite ${job.source}`);
       assert.ok(!/\bERROR\b|VUID|panicked at|Validation Error|Validation Warning/.test(log),`${name}: rendering errors`);
       assert.match(log,/\[SHUTDOWN\] phase=complete failures=0/);
-      if(mode.pixels)assert.match(log,/\[GRASS_RASTER_PIXELS\] enabled=true/);
+      if(mode.pixels)assert.match(log,/\[GRASS_MODEL_PIXELS\] enabled=true/);
       const marker=job.source==='gpu'?'GRASS_STEM_REVIEW':'CPU_STEM_REVIEW';
       const start=log.match(new RegExp(`\\[${marker}\\].*phase=sample app_frame=(\\d+)(.*)`));
       const end=log.match(new RegExp(`\\[${marker}\\].*phase=complete app_frame=(\\d+)(.*)`));

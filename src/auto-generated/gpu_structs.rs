@@ -894,6 +894,7 @@ pub struct GodRayInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GuiInput {
+    pub grass_stem_pixelization: u32,
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
     pub raster_tree_static: u32,
@@ -904,7 +905,7 @@ pub struct GuiInput {
     pub path_tracing_max_bounces: u32,
     pub terrain_ray_origin_offset_world: f32,
     pub terrain_self_shadow_tolerance_voxels: f32,
-    pub _pad0: [u8; 8],
+    pub _pad0: [u8; 4],
     pub flower_stem_bottom: [f32; 3],
     pub _pad1: [u8; 4],
     pub flower_stem_tip: [f32; 3],

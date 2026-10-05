@@ -32,6 +32,9 @@ const hashes=()=>saved.map(file=>hash(fs.readFileSync(path.join(root,file))));
 const before=hashes();
 const jobs=[{name:'startup',args:['--auto-exit','0.5']},...(quick?[]:[
   {name:'resize',args:['--windowed','--resize-lifecycle-test','--auto-exit','0.5']},
+  {name:'grass-analytic-lifecycle',args:['--windowed','--perf','--authored-flora-bench'],env:{
+    RE_FLORA_GRASS_STEM_REVIEW:'mid-both-b',RE_FLORA_STEM_BAND_MODE:'0',
+    RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}},
   {name:'grass-pixel-lifecycle',args:['--windowed','--perf','--authored-flora-bench'],env:{
     RE_FLORA_GRASS_STEM_REVIEW:'mid-both-b',RE_FLORA_STEM_BAND_MODE:'1',
     RE_FLORA_STEM_PIXEL_LIFECYCLE:'1',RE_FLORA_STEM_SAMPLE_FRAMES:'120'}}])];
@@ -53,8 +56,9 @@ try {
     assert.equal(run.status,0,`${job.name}: ${run.error??'native run failed'}`);
     assert.match(log,/\[SHUTDOWN\] phase=complete failures=0/,`${job.name}: incomplete shutdown`);
     assert.ok(!/\bERROR\b|VUID|hazard detected|panicked at|Validation (Error|Warning)/.test(log),`${job.name}: inspect its validation log`);
-    if(job.name==='grass-pixel-lifecycle'){
-      assert.match(log,/\[GRASS_RASTER_PIXELS\] enabled=true/);
+    if(job.name.startsWith('grass-')){
+      assert.match(log,/\[GRASS_MODEL_PIXELS\] enabled=true/);
+      assert.match(log,new RegExp(`GRASS_MODEL_PIXELS\\].*backend=${job.name==='grass-analytic-lifecycle'?'analytic':'hardware_raster'}`));
       assert.equal((log.match(/STEM_PIXEL_LIFECYCLE\].*resize=/g)??[]).length,3);
       assert.equal((log.match(/\[RESIZE\] published generation=/g)??[]).length,3);
       for(const resolution of [32,45,192,512])assert.match(log,new RegExp(`STEM_PIXEL_LIFECYCLE\\].*resolution=${resolution}`));

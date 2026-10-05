@@ -34,7 +34,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "grass_band_pixelization",
         kind: "bool",
-        label: "Grass: model-grid pixelization of raster stems (A/B)",
+        label: "Grass: model-grid pixelization (analytic and square stems)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",

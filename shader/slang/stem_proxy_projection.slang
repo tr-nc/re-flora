@@ -17,7 +17,8 @@ public StemProjection projectStemProxy(uint vertex,U_CameraInfo camera,
     float3 root,float scale,float2 yaw,float3 lo,float3 hi,float3 center,float height,uint resolution,bool pixelized) {
     StemProjection p;
     p.position=float4(2,2,2,1);p.ray=float3(0,0,1);
-    p.grid.center=float3(0);p.grid.cell=1.0;
+    // A disabled lattice is a true identity for both ray sampling and depth remapping.
+    p.grid.center=float3(0);p.grid.cell=0.0;
     p.grid.x=float3(1,0,0);p.grid.y=float3(0,1,0);p.grid.normal=float3(0,0,-1);
     if(scale<=1e-7)return p;
     if(pixelized) {

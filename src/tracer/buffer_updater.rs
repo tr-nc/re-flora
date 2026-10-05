@@ -284,6 +284,7 @@ impl BufferUpdater {
         let stems = appearance.stem_experiment.normalized();
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
+            grass_stem_pixelization: u32::from(appearance.grass_band_pixelization),
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,

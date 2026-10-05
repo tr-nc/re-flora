@@ -103,7 +103,7 @@ value = false
 [[section.param]]
 id = "grass_band_pixelization"
 kind = "bool"
-label = "Grass: model-grid pixelization of raster stems (A/B)"
+label = "Grass: model-grid pixelization (analytic and square stems)"
 type = "Bool"
 
 [section.param.data]

@@ -3064,8 +3064,19 @@ impl Tracer {
         }
         self.grass_stem_rendering = vegetation.appearance.grass_stem_rendering;
         self.grass_band_pose_reuse = vegetation.appearance.grass_band_pose_reuse;
-        if self.grass_band_pixelization != vegetation.appearance.grass_band_pixelization {
-            log::info!("[GRASS_RASTER_PIXELS] enabled={} backend=hardware_raster tiles=streamed cpu_readback=0", vegetation.appearance.grass_band_pixelization);
+        if self.grass_band_pixelization != vegetation.appearance.grass_band_pixelization
+            || self.stem_band_mode != vegetation.appearance.stem_band_mode
+        {
+            log::info!(
+                "[GRASS_MODEL_PIXELS] enabled={} active={} backend={} cpu_readback=0",
+                vegetation.appearance.grass_band_pixelization,
+                self.grass_stem_rendering && vegetation.appearance.grass_band_pixelization,
+                if vegetation.appearance.stem_band_mode == 0 {
+                    "analytic"
+                } else {
+                    "hardware_raster"
+                }
+            );
         }
         self.grass_band_pixelization = vegetation.appearance.grass_band_pixelization;
         let mode = vegetation.appearance.stem_band_mode.min(1);

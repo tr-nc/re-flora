@@ -88,7 +88,7 @@ impl GuiConfigLoader {
         Self::migrate_flower_stem_selector(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::add_missing_param(&mut config, "Debug", "stem_band_mode");
-        Self::retire_stem_band_variants(&mut config);
+        Self::migrate_stem_rendering_controls(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
@@ -197,31 +197,33 @@ impl GuiConfigLoader {
         config
     }
 
-    fn retire_stem_band_variants(config: &mut GuiConfigFile) {
+    fn migrate_stem_rendering_controls(config: &mut GuiConfigFile) {
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
-        let schema = defaults
+        for schema in defaults
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .find(|p| p.id == "stem_band_mode")
-            .expect("stem mode schema");
-        for param in config
-            .section
-            .iter_mut()
-            .flat_map(|s| &mut s.param)
-            .filter(|p| p.id == schema.id)
+            .filter(|p| matches!(p.id.as_str(), "stem_band_mode" | "grass_band_pixelization"))
         {
-            if let (
-                GuiParamValue::Choice { value, options },
-                GuiParamValue::Choice {
-                    options: current, ..
-                },
-            ) = (&mut param.value, &schema.value)
+            for param in config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .filter(|p| p.id == schema.id)
             {
-                // Saved tapered/ribbon choices become the remaining square mode.
-                *value = (*value).min(1);
-                options.clone_from(current);
+                param.label.clone_from(&schema.label);
+                if let (
+                    GuiParamValue::Choice { value, options },
+                    GuiParamValue::Choice {
+                        options: current, ..
+                    },
+                ) = (&mut param.value, &schema.value)
+                {
+                    // Saved tapered/ribbon choices become the remaining square mode.
+                    *value = (*value).min(1);
+                    options.clone_from(current);
+                }
             }
         }
     }
