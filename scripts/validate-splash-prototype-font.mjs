@@ -69,6 +69,10 @@ try {
       if (minimum !== Math.round(255*alpha)) throw Error('Six-petal flower core opacity is inconsistent: angle='+degrees+', size='+size+', fade='+alpha+', alpha='+minimum);
       results.push({degrees,size,fade:alpha,minimumCoreAlpha:minimum});
     }
+    const plum = flowerImage('plum', state.colors.cream).getContext('2d');
+    for (const [x,y] of [[6,6],[9,6]]) {
+      if (plum.getImageData(x*8+4,y*8+4,1,1).data[3] !== 255) throw Error('Plum has a transparent dark dot at '+x+','+y);
+    }
     for (const shape of shapes) {
       const image = flowerImage(shape.id, state.colors.cream), local = image.getContext('2d');
       const authored = new Map(pixels(shape.id).map(p => [(p.y+8)*16+p.x+8, p]));
@@ -77,7 +81,7 @@ try {
         if(alpha !== (authored.has(y*16+x)?255:0))throw Error('Local flower silhouette changed: '+shape.id);
       }
     }
-    return {status:'passed',sixPetalCoverageCases:results.length,originalSilhouettes:shapes.length};
+    return {status:'passed',sixPetalCoverageCases:results.length,validatedSilhouettes:shapes.length,plumInteriorHolesFilled:2};
   })()`));
 } finally {
   try { browser('close'); } finally { rmSync(directory, { recursive: true, force: true }); }

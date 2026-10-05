@@ -122,7 +122,24 @@ function layout(){
  const titleCells=4,titleColumn=3;
  return {cell,ox,oy,titleRow,titleCells,titleColumn};
 }
-function pixels(id){if(pixelCache.has(id))return pixelCache.get(id);const s=shapes.find(s=>s.id===id),result=[];for(let y=0;y<16;y++)for(let x=0;x<16;x++){const dx=x-7.5,dy=y-7.5;let petal=false;for(let i=0;i<s.petals;i++){const a=-Math.PI/2+i*2*Math.PI/s.petals,u=dx*Math.cos(a)+dy*Math.sin(a),v=-dx*Math.sin(a)+dy*Math.cos(a);const shape=((u-s.radius)/s.length)**2+(v/s.breadth)**2;if(shape<=1&&!(s.notch&&u>s.radius+1.8&&Math.abs(v)<.6))petal=true}const center=dx*dx+dy*dy<=3;if(petal||center)result.push({x:x-8,y:y-8,color:center?(dx+dy<0?'yellow':'center'):'petal'})}pixelCache.set(id,result);return result}
+function pixels(id){if(pixelCache.has(id))return pixelCache.get(id);const s=shapes.find(s=>s.id===id),result=[];for(let y=0;y<16;y++)for(let x=0;x<16;x++){const dx=x-7.5,dy=y-7.5;let petal=false;for(let i=0;i<s.petals;i++){const a=-Math.PI/2+i*2*Math.PI/s.petals,u=dx*Math.cos(a)+dy*Math.sin(a),v=-dx*Math.sin(a)+dy*Math.cos(a);const shape=((u-s.radius)/s.length)**2+(v/s.breadth)**2;if(shape<=1&&!(s.notch&&u>s.radius+1.8&&Math.abs(v)<.6))petal=true}const center=dx*dx+dy*dy<=3;if(petal||center)result.push({x:x-8,y:y-8,color:center?(dx+dy<0?'yellow':'center'):'petal'})}sealFlowerInterior(result);pixelCache.set(id,result);return result}
+// Rasterized petals can enclose single-pixel gaps around the center. Fill only
+// empty pixels disconnected from the outside; keep open petal gaps/notches.
+function sealFlowerInterior(result){
+ const occupied=new Uint8Array(256),outside=new Uint8Array(256),queue=[];
+ for(const p of result)occupied[(p.y+8)*16+p.x+8]=1;
+ for(let i=0;i<256;i++){
+  if((i<16||i>=240||i%16===0||i%16===15)&&!occupied[i]){outside[i]=1;queue.push(i)}
+ }
+ for(let k=0;k<queue.length;k++){
+  const i=queue[k],x=i%16,y=Math.floor(i/16);
+  for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){
+   const nx=x+dx,ny=y+dy,j=ny*16+nx;
+   if(nx>=0&&nx<16&&ny>=0&&ny<16&&!occupied[j]&&!outside[j]){outside[j]=1;queue.push(j)}
+  }
+ }
+ for(let i=0;i<256;i++)if(!occupied[i]&&!outside[i])result.push({x:i%16-8,y:Math.floor(i/16)-8,color:'petal'});
+}
 function flowerImage(id,petal){
  const key=[id,petal,state.colors.yellow,state.colors.center].join('|');
  if(flowerImages.has(key))return flowerImages.get(key);
