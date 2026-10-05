@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Re: Flora · 像素风格与花园石材实验</title>
+<style>
+:root{color-scheme:dark;font:16px/1.7 system-ui,sans-serif;background:#17231e;color:#e7eadb}body{max-width:1000px;margin:auto;padding:28px}h1{line-height:1.3}article{margin:20px 0;padding:22px;border:1px solid #61755d;border-radius:12px;background:#25342b}a{color:#e4bf7d}code{color:#c1dbbc}small{color:#bcc8b8}li{margin:8px 0}
+</style>
+<h1>Re: Flora · 像素风格与花园石材实验</h1>
+<p>三个 GPT 6.1 SOL · max Dispatch Worker 从同一 main 基线独立完成研究和原生实验，再在 main 集成。所有新候选默认关闭，可在 Debug Panel 保存、搜索和运行时 A/B；不以离线模拟代替游戏结果。</p>
+<article>
+<h2>1 · 规律 pattern / ordered dither</h2>
+<p><a href="ordered-dither.html">打开离线交互对照与真实游戏截图</a> · <a href="ordered-dither.md">一手研究与实验结论</a></p>
+<p>Debug 搜索 <code>ordered dithering</code>：global、God Rays、Camera Lens Flare、Sky background、Skylight / ambient: terrain。共享 Bayer/Halftone、亮度阶数和强度。Global 优先且只量化一次，覆盖合成后的所有场景；HUD/UI 保持原生。蓝色环境光的独立局部开关只覆盖正常 hybrid 地形接收的环境项，不能说所有植被/模型天光都被独立处理。</p>
+</article>
+<article>
+<h2>2 · 随机 low-poly 石板 / 景观石</h2>
+<p><a href="procedural-stone-gallery.html">打开种子模型、OBJ 与原生双路径对照</a> · <a href="procedural-stone-models.md">研究、算法与实验结论</a></p>
+<p>权威源为可导出的 ordinary triangle solid，而非 voxel。Debug 搜索 <code>stone geometry</code> / <code>stone rendering</code>：选类型/seed/几何，再切同一 source 的 voxel→Contree 或 direct triangles。预览不写庭院地形，不包括 collider、铺设工具或背包玩法。</p>
+</article>
+<article>
+<h2>3 · 模型有限方向风格</h2>
+<p><a href="model-view-quantization.md">历史审计、公共接口及原生证据</a> · <a href="../evidence/model-view-quantization/native-ab-128-256.png">连续 / 128 / 256 对照</a></p>
+<p>Debug 搜索 <code>model view</code>：<code>Models: quantized views (A/B)</code> 与唯一 direction count。花头、attached/dynamic 苹果、mesh 蝴蝶/落叶，以及 direct 石材复用同一球面方向 bank。不是全局相机或模拟 pose snapping。既有保存 count 保留，常用比较可直接输入 128/256。</p>
+</article>
+<h2>集成验证与尚未验收</h2>
+<ul>
+<li><a href="../evidence/stone-style-integration.md">石材 × 方向 × 全局 dither 的闭环证据</a>：1365 app + 4 library Rust tests 通过，5 ignored；37 Slang CPU tests；Release build、native 双路径、开关/count、extent 生命周期、同 binary GUI 保存重启及 Vulkan 同步验证通过。</li>
+<li>各页明确区分 Canvas 模拟、权威 Rust 模型和 native framebuffer；图片已纳入仓库，不依赖 Worker 的临时目录或 CDN。</li>
+<li>这不是最终美术/运动/性能批准。屏幕固定 dither 可能 swimming，有限方向可能 bin 跳变，逐 vertex O(N) 有未测成本，石材原生分面明暗偏弱；既有 physics hitch 警告未处理。请先看实际效果，再决定是否优化或采用。</li>
+</ul>
+<small>离线打开本文件，并保留旁边的研究与图片目录。主工作区 Release 已构建；不自动启动可见游戏。</small>
+</html>

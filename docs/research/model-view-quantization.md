@@ -51,7 +51,7 @@ float3 normal = normalize(modelViewWorldVector(rendered, localNormal));
 在 stone 的 `prepare_draw_descriptors` resources 中追加
 `self.model_mesh_frame.view_bank_binding()`：名 `model_view_azimuths`、set 1/binding 19、512 个 `float4`（8192 bytes）。在 loading warmup 完成后调用；buffer 不因 count、shape 或 resize 替换，整个 renderer 生命周期由 ModelMeshFrame 持有。共享现有 set 0 的 `U_GuiInput` / `U_CameraInfo`，读 `model_view_quantization_enabled` 与唯一 `model_pixel_view_count`，不新增 stone count、不重写 nearest math。若独立 renderer 不便借 bank，可用同一个 Rust producer 创建 immutable bank，但不要另造公式/设置 owner。
 
-纯 helper `quantizeModelView(physical, localPivot, cameraPosition, enabled, requestedCount, bank)` 也可供不采用上述 bindings 的 Adapter 调用；`bank` 实现 `IModelViewBank`。skew/nonuniform scale 需先烘焙进 canonical positions，并以 inverse-transpose 处理 normals，不能传不正交的 axes 冒充 rigid frame。stone vertex 最终接线由控制器完成，本 Worker 没有修改 stone checkout/生成器。
+纯 helper `quantizeModelView(physical, localPivot, cameraPosition, enabled, requestedCount, bank)` 也可供不采用上述 bindings 的 Adapter 调用；`bank` 实现 `IModelViewBank`。skew/nonuniform scale 需先烘焙进 canonical positions，并以 inverse-transpose 处理 normals，不能传不正交的 axes 冒充 rigid frame。Worker 未修改 stone checkout/生成器；控制器已在 main 接入 direct stone vertex，复用此公共 frame 和相同 bank/count。其原生覆盖对照与 global-dither 联合验证见[石材集成证据](../evidence/stone-style-integration.md)。
 
 ## 验证结果
 
