@@ -1,8 +1,12 @@
-// Direct triangles at scene resolution. No tiles, per-view surfaces or SV_Depth.
+// Direct triangles at scene resolution. Optional rigid finite-view orientation;
+// no tiles, per-view surfaces or fragment-depth reconstruction.
 module model_mesh;
 import model_bake_triangle;
 import model_mesh_lighting;
 import model_mesh_types;
+import model_mesh_view;
+import model_view_quantization;
+import model_pixel_types;
 import color;
 import flora_shadow;
 import environment_lighting;
@@ -26,8 +30,12 @@ public ModelMeshOutput appleMeshVertex(uint vertex,uint4 range,ApplePixelVertex 
     if(vertex>=range.y*3u)return emptyModelMeshVertex();
     ButterflyMeshTriangle t=model_mesh_triangles[range.x+vertex/3u];
     float3 point=meshPoint(t,vertex%3u),n=meshNormal(t,vertex%3u);
-    float3 position=pose.center+pose.scale*(pose.axisX*point.x+pose.axisY*point.y+pose.axisZ*point.z);
-    float3 normal=normalize(pose.axisX*n.x+pose.axisY*n.y+pose.axisZ*n.z);
+    ModelPixelFrame physical;
+    physical.center=pose.center;physical.scale=pose.scale;
+    physical.axisX=pose.axisX;physical.axisY=pose.axisY;physical.axisZ=pose.axisZ;
+    ModelPixelFrame rendered=modelMeshViewFrame(physical,float3(0));
+    float3 position=modelViewWorldPoint(rendered,point);
+    float3 normal=normalize(modelViewWorldVector(rendered,n));
     uint material=uint(t.uv2.z+0.5);
     float3 srgb=material==0u?float3(203,48,47)/255.0:material==1u?float3(116,80,46)/255.0:float3(77,145,62)/255.0;
     ModelMeshOutput output;output.position=mul(camera_info.view_proj_mat,float4(position,1));

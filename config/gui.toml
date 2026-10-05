@@ -241,13 +241,22 @@ max = 64
 [[section.param]]
 id = "model_pixel_view_count"
 kind = "uint"
-label = "Dynamic Pixel Model View Count"
+label = "Model direction count (128 / 256 or custom)"
 type = "Uint"
 
 [section.param.data]
 value = 32
 min = 8
 max = 512
+
+[[section.param]]
+id = "model_view_quantization_enabled"
+kind = "bool"
+label = "Models: quantized views (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
 
 [[section.param]]
 id = "raster_tree_wind"
@@ -1204,17 +1213,6 @@ type = "Uint"
 value = 16
 min = 8
 max = 64
-
-[[section.param]]
-id = "model_flower_view_count"
-kind = "uint"
-label = "Flower View Count (Static)"
-type = "Uint"
-
-[section.param.data]
-value = 263
-min = 8
-max = 512
 
 [[section.param]]
 id = "model_flower_head_scale"

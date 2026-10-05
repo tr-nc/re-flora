@@ -16,9 +16,15 @@ pub(super) struct FlowerModelReview {
     last_anchor: Option<PlantableSurfaceAnchor>,
 }
 impl FlowerModelReview {
+    pub(super) fn target(&self) -> Option<Vec3> {
+        self.target
+    }
+
     pub fn from_env() -> Result<Option<Self>> {
-        let Ok(mode) = std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") else {
-            return Ok(None);
+        let mode = match std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") {
+            Ok(mode) => mode,
+            Err(_) if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some() => "a".to_owned(),
+            Err(_) => return Ok(None),
         };
         ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far"].contains(&mode.as_str()),
             "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/model-pixelization combinations with live wind and camera sweep), or stem-continuous/surface/combined/model/model-far (fixed camera)");
@@ -65,9 +71,8 @@ impl App {
         };
         let settings = &mut self.debug_settings.adjustables;
         settings.model_flower_pixel_resolution.value = resolution;
-        // Dynamic models and static flowers have independently saved view counts.
+        // Native modeled objects share one saved view count.
         settings.model_pixel_view_count.value = 32;
-        settings.model_flower_view_count.value = 256;
         settings.model_flower_head_scale.value = if controls {
             control.shape.head_scale
         } else {

@@ -7,7 +7,8 @@ public struct U_GuiInput
     public float flora_growth_override;
     public uint raster_tree_static;
     public uint apple_pixel_resolution;
-    public uint model_pixel_view_count; // shared 8..512; zero reserved for numerical oracle
+    public uint model_pixel_view_count; // one actual-N sphere, shared by native models (8..512)
+    public uint model_view_quantization_enabled; // unchecked = original continuous triangle poses
     public uint model_pixel_cache_review; // explicit cache-consumption telemetry only; never a rendering mode
     public uint path_tracing_reference;
     public uint path_tracing_max_bounces;

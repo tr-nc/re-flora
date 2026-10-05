@@ -208,6 +208,15 @@ impl ButterflyMeshRenderer {
     pub fn count(&self) -> u32 {
         self.instances.len() as u32
     }
+
+    pub(super) fn model_counts(&self) -> (u32, u32) {
+        let leaves = self
+            .instances
+            .iter()
+            .filter(|i| i.metadata[3] & LEAF_MODEL_FLAG != 0)
+            .count() as u32;
+        (self.count() - leaves, leaves)
+    }
     fn prepare(
         &mut self,
         snapshots: &[ParticleSnapshot],

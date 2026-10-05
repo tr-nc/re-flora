@@ -45,7 +45,7 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
         ],
         flowers: crate::flora::models::Settings {
             resolution: gui.model_flower_pixel_resolution.value,
-            views: gui.model_flower_view_count.value,
+            views: gui.model_pixel_view_count.value,
             shape: crate::flora::models::Shape {
                 head_scale: gui.model_flower_head_scale.value,
                 height_scale: gui.model_flower_height_scale.value,
@@ -69,6 +69,7 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_history_retention: gui.ddgi_history_retention.value,
         apple_pixel_resolution: model_cache.apple_resolution,
         model_pixel_view_count: model_cache.views,
+        model_view_quantization_enabled: gui.model_view_quantization_enabled.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -290,14 +291,14 @@ mod tests {
         gui.falling_leaf_pixel_resolution.value = 22;
         gui.butterfly_pixel_resolution.value = 16;
         gui.model_flower_pixel_resolution.value = 35;
-        gui.model_flower_view_count.value = 256;
+        gui.model_view_quantization_enabled.value = true;
         gui.model_flower_head_scale.value = 1.25;
         let cache = model_cache_inputs(&settings);
         assert_eq!(cache.views, 64);
         assert_eq!(cache.apple_resolution, 24);
         assert_eq!(cache.particle_resolutions, [22, 16]);
         assert_eq!(cache.flowers.resolution, 35);
-        assert_eq!(cache.flowers.views, 256);
+        assert_eq!(cache.flowers.views, 64);
         assert_eq!(cache.flowers.shape.head_scale, 1.25);
     }
 
@@ -342,7 +343,7 @@ mod tests {
         }
 
         gui.model_flower_pixel_resolution.value = 24;
-        gui.model_flower_view_count.value = 257;
+        gui.model_view_quantization_enabled.value = true;
         gui.model_flower_head_scale.value = 1.5;
         gui.model_flower_height_scale.value = 0.75;
         gui.model_flower_height_variance.value = 0.09;
@@ -473,6 +474,7 @@ mod tests {
                 ddgi_history_retention,
                 apple_pixel_resolution: 24,
                 model_pixel_view_count: 37,
+                model_view_quantization_enabled: true,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,
@@ -506,7 +508,7 @@ mod tests {
                 appearance: FloraAppearanceFrameInput {
                     model_flowers: crate::flora::models::Settings {
                         resolution: 24,
-                        views: 257,
+                        views: 37,
                         shape: crate::flora::models::Shape {
                             head_scale: 1.5,
                             height_scale: 0.75,

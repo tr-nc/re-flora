@@ -30,6 +30,7 @@ pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
 mod model_cache_review;
+mod model_view_review;
 mod mower;
 mod rooftop_scene;
 mod scene_supersampling;
@@ -493,6 +494,7 @@ pub struct App {
     particle_snapshots: Vec<ParticleSnapshot>,
     fallen_leaf_review: Option<fallen_leaf_review::FallenLeafReview>,
     flower_model_review: Option<flower_model_review::FlowerModelReview>,
+    model_view_review: Option<model_view_review::ModelViewReview>,
     flower_model_bench: Option<flower_model_bench::FlowerModelBench>,
     apple_pixel_review_frame: Option<u32>,
     #[allow(dead_code)]
@@ -1332,6 +1334,12 @@ impl App {
         } else {
             Vec3::new(editable_center.x, 0.2, editable_center.z)
         };
+        let model_view_review = model_view_review::ModelViewReview::from_environment()?;
+        if model_view_review.is_some() {
+            debug_settings.tree.desc.branching.seed = 9_173;
+            debug_settings.adjustables.tree_age.value = 1.;
+            debug_settings.adjustables.fruit_cycle.value = 0.7;
+        }
         let apple_pixel_review =
             std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("resolution");
         if apple_pixel_review {
@@ -1583,6 +1591,7 @@ impl App {
             particle_snapshots,
             fallen_leaf_review: fallen_leaf_review::FallenLeafReview::from_env()?,
             flower_model_review: flower_model_review::FlowerModelReview::from_env()?,
+            model_view_review,
             flower_model_bench: flower_model_bench::FlowerModelBench::from_env()?,
             apple_pixel_review_frame: apple_pixel_review.then_some(0),
             terrain_harvest_particle_handles,
@@ -2512,6 +2521,8 @@ impl App {
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
                 self.prepare_apple_pixel_review();
+                self.prepare_model_view_review()
+                    .expect("model view quantization review fixture");
                 self.prepare_flower_model_bench()
                     .expect("flower model benchmark fixture");
                 if self.flora_showcase_review_pending

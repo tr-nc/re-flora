@@ -1,5 +1,8 @@
 import butterfly_mesh_types;
 import model_mesh;
+import model_mesh_view;
+import model_view_quantization;
+import model_pixel_types;
 import leaf_lighting;
 import model_bake_triangle;
 import model_mesh_lighting;
@@ -18,6 +21,17 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint index:SV_VulkanInstanceI
     float3 normal=normalize(rotateMeshPose(instance.view_orientation,meshNormal(t,vertex%3u)));
     float3 position=instance.position_size.xyz+rotateMeshPose(instance.view_orientation,meshPoint(t,vertex%3u))
         *instance.position_size.w*(1.53125/3.4);
+    if(gui_input.model_view_quantization_enabled!=0u) {
+        ModelPixelFrame physical;
+        physical.center=instance.position_size.xyz;
+        physical.scale=instance.position_size.w*(1.53125/3.4);
+        physical.axisX=rotateMeshPose(instance.view_orientation,float3(1,0,0));
+        physical.axisY=rotateMeshPose(instance.view_orientation,float3(0,1,0));
+        physical.axisZ=rotateMeshPose(instance.view_orientation,float3(0,0,1));
+        ModelPixelFrame rendered=modelMeshViewFrame(physical,float3(0));
+        normal=normalize(modelViewWorldVector(rendered,meshNormal(t,vertex%3u)));
+        position=modelViewWorldPoint(rendered,meshPoint(t,vertex%3u));
+    }
     float3 color;
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,position,normal);
     float3 ambient=sampleDiffuseEnvironment(gui_input,shading_info,position,normal);

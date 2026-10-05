@@ -2,6 +2,7 @@ import flower_model;
 import flora_types;
 import flower_palette;
 import model_mesh;
+import model_mesh_view;
 import model_cache_types;
 import model_pixel_types;
 import model_bake_triangle;
@@ -11,8 +12,10 @@ import model_mesh_types;
 ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint head:SV_VulkanInstanceID) {
     uint count=flowerPartCount();
     FlowerModelPart part=flowerPart(1u+head%count);
-    ModelPixelFrame frame=flowerPlantFrame(head/count);
-    if(vertex>=part.range.y*3u||frame.scale<=1e-7)return emptyModelMeshVertex();
+    ModelPixelFrame physical=flowerPlantFrame(head/count);
+    if(vertex>=part.range.y*3u||physical.scale<=1e-7)return emptyModelMeshVertex();
+    // One historical head-center pivot for its complete authored rigid range.
+    ModelPixelFrame frame=modelMeshViewFrame(physical,part.center_radius.xyz);
     ButterflyMeshTriangle t=model_mesh_triangles[part.range.x+vertex/3u];
     uint corner=vertex%3u;
     float3 position=modelPixelWorld(frame,meshPoint(t,corner));

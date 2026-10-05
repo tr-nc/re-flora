@@ -906,8 +906,10 @@ mod search_tests {
             param_search_path("Flora", "grass_vibration_primary_speed", true)
                 .contains("Wind / Response / Grass")
         );
-        assert!(param_search_path("Flora", "model_flower_view_count", true)
-            .starts_with("Pixel Models — Global"));
+        assert_eq!(
+            param_search_path("Debug", "model_pixel_view_count", true),
+            "Model View Quantization"
+        );
         let mut future = dirt.clone();
         future.id = "internal_opaque_123".to_owned();
         future.label = "Future telescope clarity".to_owned();
@@ -993,6 +995,77 @@ mod search_tests {
         let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert!(reloaded.adjustables.rooftop_voxel_scene.value);
         assert!(reloaded.search.query.is_empty());
+    }
+
+    #[test]
+    fn model_view_checkbox_is_searchable_live_and_saves_with_one_count() {
+        let mut settings = DebugSettings::load();
+        settings.adjustables.model_view_quantization_enabled.value = false;
+        settings.search.query = "quantized views".to_owned();
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert_eq!(settings.search_matches, 1);
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| text_rect(&shape.shape, "Models: quantized views (A/B)"))
+                .unwrap()
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.model_view_quantization_enabled.value);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for count in [128, 256] {
+            settings.adjustables.model_pixel_view_count.value = count;
+            settings.save_to_path(&path).unwrap();
+            let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert!(reloaded.adjustables.model_view_quantization_enabled.value);
+            assert_eq!(reloaded.adjustables.model_pixel_view_count.value, count);
+            assert_eq!(
+                reloaded
+                    .config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .filter(|p| p.id == "model_pixel_view_count")
+                    .count(),
+                1
+            );
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("model_flower_view_count"));
+        }
+        settings.search.query = "direction 128 256".to_owned();
+        let output = context.run_ui(Default::default(), |ui| {
+            settings.draw(ui, |_, _| {});
+        });
+        assert_eq!(settings.search_matches, 1);
+        assert!(output
+            .shapes
+            .iter()
+            .any(|s| text_rect(&s.shape, "Model direction count").is_some()));
     }
 
     #[test]

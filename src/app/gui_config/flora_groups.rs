@@ -59,8 +59,7 @@ const LEAF_FREQUENCY_CURVE: &[&str] = &[
     "leaf_flutter_frequency_full",
     "leaf_flutter_frequency_knee",
 ];
-const MODEL_FLOWER_PIXEL_CONTROLS: &[&str] =
-    &["model_flower_pixel_resolution", "model_flower_view_count"];
+const MODEL_FLOWER_PIXEL_CONTROLS: &[&str] = &["model_flower_pixel_resolution"];
 // Schema ownership remains Flora; presented under stem geometry and shading.
 pub(super) const STEM_CONTROLS: &[&str] = &[
     "model_flower_voxel_scale",

@@ -59,10 +59,17 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Pixel Models — Global",
-        description: "Pixel-model cache settings for all affected objects. Dynamic models share one view count; flower heads have a separate static count. More views or pixels use more GPU cache memory.",
+        title: "Model View Quantization",
+        description: "Unchecked: original continuous triangle views. Checked: nearest model-local direction from one finite sphere bank. Applies to flower heads, attached and fallen apples, mesh butterflies and modeled leaves. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions. Art and motion stability are not yet approved.",
         initially_open: false,
-        params: &["model_pixel_view_count", "apple_pixel_resolution"],
+        params: &["model_view_quantization_enabled", "model_pixel_view_count"],
+    },
+    ControlGroup {
+        parent: None,
+        title: "Pixel Models — Global",
+        description: "Retired per-model pixel resolutions.",
+        initially_open: false,
+        params: &["apple_pixel_resolution"],
     },
     ControlGroup {
         parent: Some("Wind"),
@@ -108,8 +115,6 @@ const GROUPS: &[ControlGroup] = &[
 // Presentation-only ownership. Keep IDs and stored sections unchanged so old
 // saves and generated settings continue to work. Render each control once.
 const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
-    ("Debug", "model_pixel_view_count"),
-    ("Flora", "model_flower_view_count"),
     ("Debug", "apple_pixel_resolution"),
     ("Butterflies", "butterfly_pixel_resolution"),
     ("Falling Leaves", "falling_leaf_pixel_resolution"),
@@ -124,7 +129,6 @@ pub(super) fn retired_pixel_control(id: &str) -> bool {
         "grass_band_pixelization"
             | "flower_stem_model_resolution"
             | "flower_stem_cell_height_voxels"
-            | "model_pixel_view_count"
             | "model_flower_view_count"
             | "apple_pixel_resolution"
             | "butterfly_pixel_resolution"
@@ -139,12 +143,7 @@ pub(super) fn is_pixel_model_control(section: &str, id: &str) -> bool {
 
 pub(super) fn search_path(section: &str, id: &str) -> Option<String> {
     if is_pixel_model_control(section, id) {
-        let category = if PIXEL_MODEL_CONTROLS[..2].contains(&(section, id)) {
-            "Direction Views"
-        } else {
-            "Pixels per Model"
-        };
-        return Some(format!("Pixel Models — Global / {category}"));
+        return Some("Pixel Models — Global / Pixels per Model".to_owned());
     }
     if section != "Debug" {
         return None;
@@ -224,30 +223,9 @@ pub(super) fn render(
                 }
                 ui_text::hint(ui, group.description);
                 ui.add_space(4.0);
-                if group.title == "Pixel Models — Global" {
-                    for (title, controls) in [
-                        ("Direction Views", &PIXEL_MODEL_CONTROLS[..2]),
-                        ("Pixels per Model", &PIXEL_MODEL_CONTROLS[2..6]),
-                    ] {
-                        ui_text::section(ui, title);
-                        for &(section_name, id) in controls {
-                            if let Some(owner) = config.iter().find(|s| s.name == section_name) {
-                                if let Some(param) = owner.param.iter().find(|p| p.id == id) {
-                                    render_gui_param_from_config(
-                                        ui,
-                                        param,
-                                        &owner.name,
-                                        adjustables,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    for id in group.params {
-                        if let Some(param) = section.param.iter().find(|param| param.id == *id) {
-                            render_gui_param_from_config(ui, param, &section.name, adjustables);
-                        }
+                for id in group.params {
+                    if let Some(param) = section.param.iter().find(|param| param.id == *id) {
+                        render_gui_param_from_config(ui, param, &section.name, adjustables);
                     }
                 }
             });
@@ -397,17 +375,31 @@ mod tests {
     }
 
     #[test]
-    fn pixel_model_global_collects_sampling_for_every_object() {
+    fn model_view_controls_have_one_live_adjustment_first_owner() {
+        let group = GROUPS
+            .iter()
+            .find(|g| g.title == "Model View Quantization")
+            .unwrap();
+        for id in ["model_view_quantization_enabled", "model_pixel_view_count"] {
+            assert_eq!(
+                search_path("Debug", id).as_deref(),
+                Some("Model View Quantization")
+            );
+            assert_eq!(GROUPS.iter().filter(|g| g.params.contains(&id)).count(), 1);
+            assert!(!retired_pixel_control(id));
+        }
+        assert_eq!(group.parent, None);
+    }
+
+    #[test]
+    fn retired_pixel_resolutions_are_not_live_view_controls() {
         let global = GROUPS
             .iter()
             .find(|g| g.title == "Pixel Models — Global")
             .unwrap();
         assert_eq!(global.parent, None);
-        assert_eq!(
-            global.params,
-            &["model_pixel_view_count", "apple_pixel_resolution"]
-        );
-        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 6);
+        assert_eq!(global.params, &["apple_pixel_resolution"]);
+        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 4);
         let config: crate::app::gui_config_model::GuiConfigFile =
             toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
         for &(section, id) in PIXEL_MODEL_CONTROLS {
@@ -428,15 +420,12 @@ mod tests {
                     .iter()
                     .map(move |p| (s.name.as_str(), p.id.as_str()))
             })
-            .filter(|(_, id)| {
-                id.ends_with("pixel_resolution")
-                    || matches!(*id, "model_pixel_view_count" | "model_flower_view_count")
-            })
+            .filter(|(_, id)| id.ends_with("pixel_resolution"))
             .collect::<BTreeSet<_>>();
         assert_eq!(
             model_controls,
             PIXEL_MODEL_CONTROLS.iter().copied().collect(),
-            "new pixel model sampling controls need a Pixel Models owner"
+            "retired model pixel resolutions must not gain new live owners"
         );
     }
 

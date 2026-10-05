@@ -5,6 +5,7 @@ use super::{
     butterfly_mesh::{ButterflyMeshRenderer, ButterflyMeshSettings, LeafModelSettings},
     dynamic_fruit_resources::DynamicFruitRendererResources,
     model_geometry::{self, Source},
+    model_pixel_views,
     pipeline_builder::{ComputePipelines, GraphicsPipelines},
     resources::TracerResources,
     PushConstantFlora,
@@ -147,6 +148,9 @@ pub(super) struct ModelMeshFrame {
     frames: Vec<Frame>,
     slot: usize,
     particles: ButterflyMeshRenderer,
+    view_azimuths: Option<Arc<Buffer>>,
+    view_settings: Option<(bool, u32)>,
+    review_draws: u8,
 }
 impl ModelMeshFrame {
     pub fn new(context: &VulkanContext, allocator: Allocator) -> Self {
@@ -157,6 +161,26 @@ impl ModelMeshFrame {
             frames: Vec::new(),
             slot: 0,
             particles: ButterflyMeshRenderer::default(),
+            view_azimuths: None,
+            view_settings: None,
+            review_draws: 0,
+        }
+    }
+    pub fn set_view_settings(&mut self, enabled: bool, requested: u32) {
+        let settings = (enabled, model_pixel_views::runtime_count(requested));
+        if self.view_settings != Some(settings) {
+            self.view_settings = Some(settings);
+            self.review_draws = 0;
+            log::info!("[MODEL_VIEW_QUANTIZATION] enabled={} count={} bank=actual_n_fibonacci selection=nearest_dot roll=continuous pivot=per_object depth=hardware simulation=unchanged", settings.0, settings.1);
+        }
+    }
+    fn review_draw(&mut self, bit: u8, object: &str, count: u32) {
+        if count > 0
+            && self.review_draws & bit == 0
+            && std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
+        {
+            self.review_draws |= bit;
+            log::info!("[MODEL_VIEW_DRAW] object={object} instances={count} shader=native_triangle bank_binding=19 settings={:?}", self.view_settings);
         }
     }
     pub fn begin_frame(&mut self, slot: usize, _: &ComputePipelines, _: &GraphicsPipelines) {
@@ -184,6 +208,18 @@ impl ModelMeshFrame {
         Ok(true)
     }
     fn ensure_geometry(&mut self, shape: models::Shape) -> Result<()> {
+        if self.view_azimuths.is_none() {
+            let bank = model_pixel_views::azimuths();
+            let buffer = Arc::new(Buffer::try_new_sized(
+                self.device.clone(),
+                self.allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::CpuToGpu,
+                std::mem::size_of_val(bank.as_slice()) as u64,
+            )?);
+            buffer.fill_range_with_raw_u8(0, bytemuck::cast_slice(&bank))?;
+            self.view_azimuths = Some(buffer);
+        }
         if self.active.as_ref().is_none_or(|g| g.shape != shape) {
             self.active = Some(Arc::new(Geometry::new(
                 &self.device,
@@ -233,6 +269,11 @@ impl ModelMeshFrame {
         _: Mat4,
         _: Mat4,
     ) -> Result<PreparedModelMeshes> {
+        if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some() {
+            let (butterflies, leaves) = self.particles.model_counts();
+            self.review_draw(1, "mesh_butterflies", butterflies);
+            self.review_draw(2, "mesh_leaves", leaves);
+        }
         let frame = &mut self.frames[self.slot];
         self.particles.publish_mesh_frame(|bytes| {
             let buffer = Arc::new(Buffer::try_new_sized(
@@ -260,15 +301,30 @@ impl ModelMeshFrame {
             .unwrap();
         self.prepare(cmd, pass, self.particles.count(), vertices, resources, None)
     }
-    fn prepare(
-        &self,
+    /// Shared native-model/stone seam. Call after loading-time warmup (or
+    /// ensure_geometry). The immutable bank is never replaced on count/resize
+    /// changes and remains owned by this frame module until renderer shutdown.
+    pub(super) fn view_bank_binding(&self) -> (&'static str, DescriptorResource<'_>) {
+        (
+            "model_view_azimuths",
+            DescriptorResource::Buffer(
+                self.view_azimuths
+                    .as_ref()
+                    .expect("model view bank initialized by warmup"),
+            ),
+        )
+    }
+
+    fn prepare<'a>(
+        &'a self,
         cmd: &CommandBuffer,
         pass: MeshPass<'_>,
         count: u32,
         vertices: u32,
-        resources: Vec<(&str, DescriptorResource<'_>)>,
+        mut resources: Vec<(&str, DescriptorResource<'a>)>,
         push: Option<PushConstantInfo>,
     ) -> Result<PreparedModelMeshes> {
+        resources.push(self.view_bank_binding());
         cmd.use_buffer(&self.active.as_ref().unwrap().indices, BufferUse::IndexRead);
         Ok(PreparedModelMeshes {
             pipeline: pass.display.clone(),
@@ -287,6 +343,7 @@ impl ModelMeshFrame {
         pose: &[(&str, DescriptorResource<'_>)],
         push: PushConstantFlora,
     ) -> Result<PreparedModelMeshes> {
+        self.review_draw(4, "attached_apples", count);
         let g = self.active.as_ref().unwrap();
         let mut resources = g.bindings().to_vec();
         resources.extend_from_slice(pose);
@@ -311,6 +368,7 @@ impl ModelMeshFrame {
         push: crate::generated::gpu_structs::PushConstantFlowerPixel,
         pose: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
+        self.review_draw(8, "flower_heads", count);
         let g = self.active.as_ref().unwrap();
         let mut resources = g.bindings().to_vec();
         resources.extend_from_slice(pose);
@@ -358,6 +416,7 @@ impl ModelMeshFrame {
         fruit: &DynamicFruitRendererResources,
         _: u32,
     ) -> Result<PreparedModelMeshes> {
+        self.review_draw(16, "dynamic_apples", fruit.instance_count);
         let g = self.active.as_ref().unwrap();
         let mut resources = g.bindings().to_vec();
         resources.push((

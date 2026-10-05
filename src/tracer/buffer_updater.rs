@@ -298,6 +298,7 @@ impl BufferUpdater {
             model_pixel_view_count: super::model_pixel_views::runtime_count(
                 terrain.model_pixel_view_count,
             ),
+            model_view_quantization_enabled: u32::from(terrain.model_view_quantization_enabled),
             apple_pixel_resolution: terrain
                 .apple_pixel_resolution
                 .clamp(8, super::apple_pixel::MAX_APPLE_RESOLUTION),
