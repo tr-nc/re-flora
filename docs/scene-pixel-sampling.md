@@ -1,5 +1,7 @@
 # Scene pixel sampling
 
+> This documents the current box-average experiment, not an approved artistic pixelization result. The clarified goal is higher-resolution scene input followed by a style-oriented low-resolution pixel shader, rather than antialiasing itself. See [the pixelization research](research/high-resolution-pixelization.md) for candidate color/outline rules and their limits.
+
 Open **Debug → Scene Pixel Sampling**. These are saved controls, not game-startup flags.
 
 ## Final pixel resolution
