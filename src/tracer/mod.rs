@@ -1591,6 +1591,7 @@ pub struct Tracer {
     vulkan_ctx: VulkanContext,
 
     desc: TracerDesc,
+    scene_resolution: scene_resolution::SceneResolution,
     chunk_bound: UAabb3,
 
     allocator: Allocator,
@@ -1830,7 +1831,9 @@ impl Tracer {
         desc: TracerDesc,
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
-        let render_extent = Self::get_render_extent(screen_extent, desc.scaling_factor);
+        let scene_resolution =
+            scene_resolution::SceneResolution::new(screen_extent, desc.scaling_factor, false);
+        let render_extent = scene_resolution.render_extent;
         let (camera_position, camera_yaw_deg, camera_pitch_deg) =
             Self::default_camera_pose_for_bound(chunk_bound, desc.default_camera_look_at);
 
@@ -1960,6 +1963,7 @@ impl Tracer {
         Ok(Self {
             vulkan_ctx,
             desc,
+            scene_resolution,
             chunk_bound,
             allocator,
             resources,
@@ -2673,27 +2677,94 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
     ) {
-        let screen_extent = frame_extent_generation.extent();
-        let render_extent = Self::get_render_extent(screen_extent, self.desc.scaling_factor);
+        let resolution = scene_resolution::SceneResolution::new(
+            frame_extent_generation.extent(),
+            self.desc.scaling_factor,
+            self.scene_supersampling_enabled(),
+        );
+        self.publish_scene_resolution(
+            resolution,
+            frame_extent_generation,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+        );
+    }
+
+    pub fn scene_supersampling_enabled(&self) -> bool {
+        self.scene_resolution.supersampling_enabled()
+    }
+
+    /// The app drains submitted frames before changing the scene's sampling grid.
+    pub fn set_scene_supersampling(
+        &mut self,
+        enabled: bool,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
+    ) {
+        if enabled == self.scene_supersampling_enabled() {
+            return;
+        }
+        let frame_extent_generation = self.frame_extent_generation();
+        let resolution = scene_resolution::SceneResolution::new(
+            frame_extent_generation.extent(),
+            self.desc.scaling_factor,
+            enabled,
+        );
+        self.publish_scene_resolution(
+            resolution,
+            frame_extent_generation,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+        );
+    }
+
+    fn publish_scene_resolution(
+        &mut self,
+        resolution: scene_resolution::SceneResolution,
+        frame_extent_generation: FrameExtentGeneration,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
+    ) {
+        let render_extent = resolution.render_extent;
         self.camera.on_resize(render_extent);
 
         let descriptor_generation = self.next_descriptor_generation();
         let active_ddgi = self.ddgi_runtime.active_resources();
-        self.pipeline_topology.publish_extent_generation(
-            &self.vulkan_ctx,
-            self.allocator.clone(),
-            &mut self.resources,
-            render_extent,
-            frame_extent_generation,
-            self.desc.environment_irradiance_capture_enabled,
-            descriptor_generation,
-            contree_builder_resources,
-            scene_accel_resources,
-            plain_builder_resources,
-            &active_ddgi,
-            &self.ddgi_voxel_visibility,
-        );
-
+        if frame_extent_generation == self.pipeline_topology.frame_extent_generation() {
+            self.pipeline_topology.publish_render_extent(
+                &self.vulkan_ctx,
+                self.allocator.clone(),
+                &mut self.resources,
+                render_extent,
+                self.desc.environment_irradiance_capture_enabled,
+                descriptor_generation,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                &active_ddgi,
+                &self.ddgi_voxel_visibility,
+            );
+        } else {
+            self.pipeline_topology.publish_extent_generation(
+                &self.vulkan_ctx,
+                self.allocator.clone(),
+                &mut self.resources,
+                render_extent,
+                frame_extent_generation,
+                self.desc.environment_irradiance_capture_enabled,
+                descriptor_generation,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                &active_ddgi,
+                &self.ddgi_voxel_visibility,
+            );
+        }
+        self.scene_resolution = resolution;
         self.god_ray_history_valid = false;
         self.lens_flare_history_valid = false;
     }
@@ -2824,12 +2895,6 @@ impl Tracer {
             retired_active,
         ));
         Ok(())
-    }
-
-    // create a lower resolution texture for rendering, for better performance,
-    // less memory usage, and stylized rendering
-    fn get_render_extent(screen_extent: Extent2D, scaling_factor: f32) -> Extent2D {
-        scene_resolution::render_extent(screen_extent, scaling_factor)
     }
 
     pub fn get_screen_output_tex(&self) -> &Texture {
@@ -2993,7 +3058,7 @@ impl Tracer {
 
         BufferUpdater::update_post_processing_info(
             &self.resources,
-            self.desc.scaling_factor,
+            self.scene_resolution.samples_per_axis,
             dither_strength_lsb,
         )?;
 

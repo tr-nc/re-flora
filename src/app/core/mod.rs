@@ -32,6 +32,7 @@ mod lighting_mode_acceptance;
 mod model_cache_review;
 mod mower;
 mod rooftop_scene;
+mod scene_supersampling;
 mod snapshot_controls;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
@@ -411,6 +412,7 @@ pub struct App {
     splash_transition: Option<loading::SplashTransition>,
     pending_frame_extent: Option<Extent2D>,
     resize_lifecycle_test: Option<ResizeLifecycleTest>,
+    scene_supersampling_review: Option<scene_supersampling::SceneSupersamplingReview>,
     egui_texture_lifecycle_test: Option<EguiTextureLifecycleTest>,
     swapchain: Swapchain,
     window_state: WindowState,
@@ -1512,6 +1514,8 @@ impl App {
                 complete: false,
                 publication_count_at_requests_complete: None,
             }),
+            scene_supersampling_review:
+                scene_supersampling::SceneSupersamplingReview::from_environment(),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
             world_clock,
@@ -2340,6 +2344,11 @@ impl App {
                 if self.pending_frame_extent.is_some() {
                     self.on_resize();
                 }
+                if self.advance_scene_supersampling_review() {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+                self.sync_scene_supersampling();
 
                 self.window_state.maintain_cursor_grab();
 

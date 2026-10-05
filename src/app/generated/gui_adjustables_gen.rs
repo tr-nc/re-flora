@@ -26,6 +26,12 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "scene_supersampling_enabled",
+        kind: "bool",
+        label: "Scene: 2x supersampling (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "depth_outline_enabled",
         kind: "bool",
         label: "Scene: depth outlines",
@@ -1432,6 +1438,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub scene_supersampling_enabled: crate::gui_adjustables::BoolParam,
     pub depth_outline_enabled: crate::gui_adjustables::BoolParam,
     pub depth_outline_strength: crate::gui_adjustables::FloatParam,
     pub depth_outline_color: crate::gui_adjustables::ColorParam,
@@ -1679,6 +1686,7 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut scene_supersampling_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut depth_outline_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut depth_outline_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut depth_outline_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -1917,6 +1925,11 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "scene_supersampling_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            scene_supersampling_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "depth_outline_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             depth_outline_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3485,6 +3498,7 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            scene_supersampling_enabled: scene_supersampling_enabled_field.expect("Missing parameter: scene_supersampling_enabled"),
             depth_outline_enabled: depth_outline_enabled_field.expect("Missing parameter: depth_outline_enabled"),
             depth_outline_strength: depth_outline_strength_field.expect("Missing parameter: depth_outline_strength"),
             depth_outline_color: depth_outline_color_field.expect("Missing parameter: depth_outline_color"),
@@ -3956,6 +3970,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
         "depth_outline_enabled" => Some(&adjustables.depth_outline_enabled),
         "grass_stem_rendering" => Some(&adjustables.grass_stem_rendering),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
@@ -4237,6 +4252,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),
         "depth_outline_enabled" => Some(&mut adjustables.depth_outline_enabled),
         "grass_stem_rendering" => Some(&mut adjustables.grass_stem_rendering),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),

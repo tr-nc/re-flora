@@ -1064,7 +1064,7 @@ pub struct PlayerColliderInfo {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PostProcessingInfo {
-    pub scaling_factor: f32,
+    pub samples_per_axis: u32,
     pub dither_strength_lsb: f32,
     pub _pad0: [u8; 8],
 }

@@ -2113,6 +2113,70 @@ impl PipelineTopology {
             "pipeline topology frame extent generation must advance exactly once"
         );
 
+        self.replace_extent_generation(
+            vulkan_ctx,
+            allocator,
+            resources,
+            render_extent,
+            frame_extent_generation,
+            environment_irradiance_capture_enabled,
+            descriptor_generation,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+            active_ddgi_volume,
+            ddgi_voxel_visibility,
+        );
+    }
+
+    /// Changes scene sampling without creating a new swapchain generation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn publish_render_extent(
+        &mut self,
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        resources: &mut TracerResources,
+        render_extent: Extent2D,
+        environment_irradiance_capture_enabled: bool,
+        descriptor_generation: u64,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
+        active_ddgi_volume: &DdgiActiveResources<'_>,
+        ddgi_voxel_visibility: &DdgiVoxelVisibility,
+    ) {
+        self.replace_extent_generation(
+            vulkan_ctx,
+            allocator,
+            resources,
+            render_extent,
+            self.frame_extent_generation,
+            environment_irradiance_capture_enabled,
+            descriptor_generation,
+            contree_builder_resources,
+            scene_accel_resources,
+            plain_builder_resources,
+            active_ddgi_volume,
+            ddgi_voxel_visibility,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn replace_extent_generation(
+        &mut self,
+        vulkan_ctx: &VulkanContext,
+        allocator: Allocator,
+        resources: &mut TracerResources,
+        render_extent: Extent2D,
+        frame_extent_generation: FrameExtentGeneration,
+        environment_irradiance_capture_enabled: bool,
+        descriptor_generation: u64,
+        contree_builder_resources: &ContreeBuilderResources,
+        scene_accel_resources: &SceneAccelBuilderResources,
+        plain_builder_resources: &PlainBuilderResources,
+        active_ddgi_volume: &DdgiActiveResources<'_>,
+        ddgi_voxel_visibility: &DdgiVoxelVisibility,
+    ) {
         let retired_resources = resources.replace_extent_dependent_resources(
             vulkan_ctx.device().clone(),
             allocator,

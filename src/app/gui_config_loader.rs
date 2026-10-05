@@ -87,6 +87,7 @@ impl GuiConfigLoader {
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
+        Self::add_missing_param(&mut config, "Debug", "scene_supersampling_enabled");
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::migrate_stem_rendering_controls(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
@@ -1103,6 +1104,64 @@ mod tests {
         assert!(!saved.contains("FloraVariation"));
         for id in RETIRED_FLORA_COLOR_PARAMS {
             assert!(!saved.contains(id));
+        }
+    }
+
+    #[test]
+    fn older_saves_get_disabled_supersampling_and_saved_choices_survive_reload() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for saved in [None, Some(false), Some(true)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let debug = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap();
+            if let Some(value) = saved {
+                debug
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "scene_supersampling_enabled")
+                    .unwrap()
+                    .value = GuiParamValue::Bool { value };
+            } else {
+                debug
+                    .param
+                    .retain(|p| p.id != "scene_supersampling_enabled");
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "loading must not save"
+            );
+            let gui = crate::app::GuiAdjustables::from_config(&loaded);
+            assert_eq!(
+                gui.scene_supersampling_enabled.value,
+                saved.unwrap_or(false)
+            );
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                crate::app::GuiAdjustables::from_config(&reloaded)
+                    .scene_supersampling_enabled
+                    .value,
+                saved.unwrap_or(false)
+            );
+            assert_eq!(
+                reloaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .filter(|p| p.id == "scene_supersampling_enabled")
+                    .count(),
+                1
+            );
         }
     }
 

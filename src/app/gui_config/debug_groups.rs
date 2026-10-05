@@ -14,8 +14,15 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Scene Pixel Sampling",
+        description: "Unchecked: original one-sample scene pixels. Checked: render twice each dimension and average 2x2 linear-color samples before nearest upscaling. Displayed pixel size and native UI stay unchanged. Uses four times as many scene samples; edges and depth outlines may become softer. Switching briefly waits for submitted frames. Saved with other settings.",
+        initially_open: false,
+        params: &["scene_supersampling_enabled"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Scene Depth Outlines",
-        description: "One internal scene pixel, before nearest upscaling; UI stays untouched. All renderers share final scene depth. Relative threshold and minimum gap control occlusion; crease angle detects continuous terrain/model folds in either direction (180 disables creases). Planar slopes are rejected. Sky outlines stay inside objects. Thin detail strength protects grass/leaves. Same-depth color borders and subpixel details are not recovered.",
+        description: "One internal sampling pixel, before scene filtering and nearest upscaling; UI stays untouched. All renderers share final scene depth. Relative threshold and minimum gap control occlusion; crease angle detects continuous terrain/model folds in either direction (180 disables creases). Planar slopes are rejected. Sky outlines stay inside objects. Thin detail strength protects grass/leaves. Same-depth color borders and subpixel details are not recovered.",
         initially_open: false,
         params: &["depth_outline_enabled", "depth_outline_strength", "depth_outline_color", "depth_outline_relative_threshold", "depth_outline_minimum_gap", "depth_outline_softness", "depth_outline_crease_angle", "depth_outline_sky_strength", "depth_outline_thin_strength"],
     },
@@ -272,6 +279,23 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
+    fn supersampling_has_one_searchable_adjustment_first_owner() {
+        let id = "scene_supersampling_enabled";
+        assert_eq!(
+            search_path("Debug", id).as_deref(),
+            Some("Scene Pixel Sampling")
+        );
+        assert_eq!(
+            GROUPS
+                .iter()
+                .filter(|group| group.params.contains(&id))
+                .count(),
+            1
+        );
+        assert!(!retired_pixel_control(id));
+    }
+
+    #[test]
     fn stem_controls_keep_tuning_without_retired_switches_or_hints() {
         let group = GROUPS
             .iter()
@@ -457,6 +481,13 @@ mod tests {
                 group.title
             );
         }
+        assert_eq!(
+            text.lines()
+                .filter(|line| *line == "Scene: 2x supersampling (A/B)")
+                .count(),
+            1,
+            "the saved sampling checkbox must be drawn exactly once",
+        );
         for category in [
             "Rendering & Lighting",
             "World & Simulation",

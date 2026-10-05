@@ -92,6 +92,15 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "scene_supersampling_enabled"
+kind = "bool"
+label = "Scene: 2x supersampling (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "depth_outline_enabled"
 kind = "bool"
 label = "Scene: depth outlines"

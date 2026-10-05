@@ -1,10 +1,11 @@
 import color;
 import dither;
 import tone_mapping;
+import scene_pixel_filter;
 
 struct U_PostProcessingInfo
 {
-    float scaling_factor;
+    uint samples_per_axis;
     float dither_strength_lsb;
 };
 
@@ -36,12 +37,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint inputWidth;
     uint inputHeight;
     composited_tex.GetDimensions(inputWidth, inputHeight);
-    float2 scalingFactor = float2(inputWidth, inputHeight) / float2(outputWidth, outputHeight);
-    // Point sampling of the scene's actual low-resolution target. UI is
-    // composited later at native resolution; no per-model pixel lattice.
-    int2 mappedUvi = min(int2((float2(uvi) + 0.5) * scalingFactor),
-                        int2(inputWidth, inputHeight) - 1);
-    float3 finalColor = composited_tex[mappedUvi].rgb;
+    uint samplesPerAxis = post_processing_info.samples_per_axis;
+    uint2 pixelExtent = scenePixelExtent(uint2(inputWidth, inputHeight), samplesPerAxis);
+    int2 mappedUvi = scenePixelCoordinate(uvi, uint2(outputWidth, outputHeight), pixelExtent);
+    float3 finalColor;
+    if (samplesPerAxis == 2u)
+    {
+        int2 source = mappedUvi * 2;
+        finalColor = scenePixelBoxAverage(
+            composited_tex[source].rgb,
+            composited_tex[source + int2(1, 0)].rgb,
+            composited_tex[source + int2(0, 1)].rgb,
+            composited_tex[source + int2(1, 1)].rgb);
+    }
+    else
+    {
+        // Preserve the original point-sampled mode for runtime A/B comparison.
+        finalColor = composited_tex[mappedUvi].rgb;
+    }
     finalColor = toneMapForDisplay(finalColor);
 
     // Keep the whole enlarged scene pixel one color, including display dither.
