@@ -4836,15 +4836,12 @@ impl Tracer {
                         LodState::Lod1 => &self.pipeline_topology.graphics().flora_lod_ppl,
                     }
                 };
-                let resources = if self.grass_stem_rendering
-                    && self.stem_band_mode != 0
-                    && band_cache_buffer.is_some()
-                    && species::is_grass_species_index(batch.species_index() as u32)
-                {
-                    vec![(
-                        "grass_band_pose_cache",
-                        DescriptorResource::Buffer(band_cache_buffer.as_ref().unwrap()),
-                    )]
+                let resources = if let Some(buffer) = band_cache_buffer.as_ref().filter(|_| {
+                    self.grass_stem_rendering
+                        && self.stem_band_mode != 0
+                        && species::is_grass_species_index(batch.species_index() as u32)
+                }) {
+                    vec![("grass_band_pose_cache", DescriptorResource::Buffer(buffer))]
                 } else {
                     vec![
                         (
@@ -4911,9 +4908,7 @@ impl Tracer {
                                         .graphics()
                                         .apple_pixel_tree_ppl,
                                 },
-                                batch.tree_id(),
                                 batch.instance_count(),
-                                self.apple_pixel_resolution,
                                 &resources,
                                 flora_push_constant(
                                     time,

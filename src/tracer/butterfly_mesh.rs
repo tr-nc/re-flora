@@ -2,11 +2,9 @@
 //! Both generate one sample per tile texel, then display through the same lookup
 //! shader as apples. Visible tiles are compact, resolution-sized and batched;
 //! no maximum-resolution allocation is reserved for inactive particle slots.
-#[cfg(test)]
-use super::model_pixel_bounds;
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Quat, Vec3};
+use glam::{Quat, Vec3};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
 
@@ -361,41 +359,6 @@ impl ButterflyMeshRenderer {
             .map(|&index| self.instances[index as usize])
             .collect::<Vec<_>>();
         publish(bytemuck::cast_slice(&ordered))
-    }
-
-    /// Publish pose/visibility only, after the camera is final. No geometry stream.
-    #[cfg(test)]
-    pub fn prepare_pixel_frame(
-        &mut self,
-        view: Mat4,
-        projection: Mat4,
-        publish: impl FnOnce(&[u8], &[u8]) -> Result<()>,
-    ) -> Result<()> {
-        // Pack only visible tiles, at their own resolution, instead of reserving
-        // PARTICLE_CAPACITY * 64². The fragment path never samples geometry.
-        for instance in &mut self.instances {
-            let bounds = model_pixel_bounds::tile_bounds(
-                Vec3::from_slice(&instance.position_size),
-                instance.position_size[3],
-                view,
-                projection,
-            );
-            let visible = !(bounds.x > 1. || bounds.y > 1. || bounds.z < -1. || bounds.w < -1.);
-            instance.tile[1] = u32::from(visible);
-        }
-        self.publish_pixel_frame(|instances, draw_order| {
-            publish(
-                bytemuck::cast_slice(instances),
-                bytemuck::cast_slice(draw_order),
-            )
-        })?;
-        self.dispatch_resolution = self
-            .instances
-            .iter()
-            .map(|i| i.metadata[2])
-            .max()
-            .unwrap_or(8);
-        Ok(())
     }
 
     #[cfg(test)]

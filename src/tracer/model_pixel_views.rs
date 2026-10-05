@@ -8,12 +8,14 @@ pub fn runtime_count(requested: u32) -> u32 {
     requested.clamp(MIN_VIEWS, MAX_VIEWS)
 }
 
-pub fn azimuth(index: u32) -> [f32; 4] {
+#[cfg(test)]
+fn azimuth(index: u32) -> [f32; 4] {
     let angle = index as f32 * (std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()));
     [angle.cos(), angle.sin(), 0., 0.]
 }
 /// Every bank uses the same runtime count; smaller counts need their own latitude spacing.
-pub fn azimuths(count: u32) -> Vec<[f32; 4]> {
+#[cfg(test)]
+fn azimuths(count: u32) -> Vec<[f32; 4]> {
     assert!((MIN_VIEWS..=MAX_VIEWS).contains(&count));
     (0..count).map(azimuth).collect()
 }

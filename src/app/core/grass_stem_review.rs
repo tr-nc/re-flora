@@ -217,7 +217,7 @@ impl GrassStemReview {
                         .request_inner_size(winit::dpi::PhysicalSize::new(width, height));
                     log::info!("[STEM_PIXEL_LIFECYCLE] frame={frame} resize={width}x{height} accepted={accepted:?} saved=false");
                 }
-                if frame % 40 == 0 {
+                if frame.is_multiple_of(40) {
                     log::info!(
                         "[STEM_PIXEL_LIFECYCLE] frame={frame} enabled={} resolution={} growth={} saved=false",
                         gui.grass_band_pixelization.value,

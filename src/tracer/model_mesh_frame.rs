@@ -206,7 +206,6 @@ impl ModelMeshFrame {
     ) -> Result<()> {
         self.ensure_geometry(flowers.shape)
     }
-    pub fn finish_cache(&mut self, _: &CommandBuffer) {}
     pub fn flower_culling_padding(&self, scale: f32, overshoot: f32) -> (Vec3, Vec3) {
         self.active
             .as_ref()
@@ -284,9 +283,7 @@ impl ModelMeshFrame {
         &mut self,
         cmd: &CommandBuffer,
         pass: MeshPass<'_>,
-        _: u32,
         count: u32,
-        _: u32,
         pose: &[(&str, DescriptorResource<'_>)],
         push: PushConstantFlora,
     ) -> Result<PreparedModelMeshes> {

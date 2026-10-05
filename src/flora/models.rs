@@ -141,6 +141,7 @@ pub struct Part {
 }
 #[derive(Clone)]
 pub struct Flower {
+    #[cfg(test)]
     pub id: String,
     pub cache_family: String,
     pub palette: [[u8; 3]; HEAD_PALETTE_SIZE],
@@ -374,6 +375,7 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 .fold(0f32, f32::max)
                 * 1.06;
             Ok(Flower {
+                #[cfg(test)]
                 id: source.id,
                 cache_family: source.cache_family,
                 palette,

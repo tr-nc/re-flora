@@ -2239,16 +2239,14 @@ impl PipelineTopology {
             );
         }
 
-        for pipeline in [&self.compute.leaf_handoff_ppl] {
-            retire_compute(
-                pipeline,
-                DescriptorUpdate::SetContaining {
-                    anchor: "gui_input",
-                    providers: &all_resources,
-                },
-                "model tile extent descriptor update failed",
-            );
-        }
+        retire_compute(
+            &self.compute.leaf_handoff_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &all_resources,
+            },
+            "model tile extent descriptor update failed",
+        );
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(

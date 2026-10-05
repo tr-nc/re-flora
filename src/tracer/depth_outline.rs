@@ -124,11 +124,13 @@ mod tests {
 
     #[test]
     fn invalid_saved_parameters_cannot_poison_the_shader() {
-        let mut settings = Settings::default();
-        settings.strength = f32::NAN;
-        settings.color = [f32::INFINITY, -1., 2.];
-        settings.relative_threshold = 0.;
-        settings.softness = -2.;
+        let settings = Settings {
+            strength: f32::NAN,
+            color: [f32::INFINITY, -1., 2.],
+            relative_threshold: 0.,
+            softness: -2.,
+            ..Settings::default()
+        };
         let p = settings.parameters();
         assert_eq!(p.color_strength[3], 0.25);
         assert_eq!(&p.color_strength[1..3], &[0., 1.]);
