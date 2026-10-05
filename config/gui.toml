@@ -143,19 +143,22 @@ id = "depth_outline_enabled"
 kind = "bool"
 label = "Scene: depth outlines"
 type = "Bool"
+
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "depth_outline_strength"
 kind = "float"
 label = "Outline strength"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 0.25
+value = 0.58
 min = 0
 max = 1
 
@@ -164,22 +167,26 @@ id = "depth_outline_color"
 kind = "color"
 label = "Outline color"
 type = "Color"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = "#141E24"
+value = "#432424"
 
 [[section.param]]
 id = "depth_outline_relative_threshold"
 kind = "float"
 label = "Depth discontinuity threshold (relative)"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 0.04
+value = 0.001
 min = 0.001
 max = 0.5
 
@@ -188,11 +195,13 @@ id = "depth_outline_minimum_gap"
 kind = "float"
 label = "Minimum depth gap (world units)"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 0.004
+value = 0.013
 min = 0
 max = 0.1
 
@@ -201,11 +210,13 @@ id = "depth_outline_softness"
 kind = "float"
 label = "Outline threshold softness"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 0.5
+value = 2
 min = 0.01
 max = 2
 
@@ -214,11 +225,13 @@ id = "depth_outline_crease_angle"
 kind = "float"
 label = "Crease angle threshold (degrees)"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 45
+value = 77
 min = 5
 max = 180
 
@@ -227,11 +240,13 @@ id = "depth_outline_sky_strength"
 kind = "float"
 label = "Sky silhouette strength"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 0.6
+value = 1
 min = 0
 max = 1
 
@@ -240,11 +255,13 @@ id = "depth_outline_thin_strength"
 kind = "float"
 label = "Thin detail strength (grass and leaves)"
 type = "Float"
+
 [section.param.enabled_if]
 param = "depth_outline_enabled"
 equals = true
+
 [section.param.data]
-value = 0.25
+value = 1
 min = 0
 max = 1
 
@@ -255,7 +272,7 @@ label = "Experimental grass stem rendering (tall and short)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "grass_band_pixelization"
@@ -291,7 +308,7 @@ label = "Stem Pixelization: samples per height (grass and flowers)"
 type = "Uint"
 
 [section.param.data]
-value = 103
+value = 45
 min = 32
 max = 512
 
@@ -302,7 +319,7 @@ label = "Flower stems: shading block height (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 1.05
 min = 0.1
 max = 4
 
@@ -1311,7 +1328,7 @@ label = "Pixels per Flower Head"
 type = "Uint"
 
 [section.param.data]
-value = 35
+value = 16
 min = 8
 max = 64
 
@@ -1322,7 +1339,7 @@ label = "Flower View Count (Static)"
 type = "Uint"
 
 [section.param.data]
-value = 256
+value = 263
 min = 8
 max = 512
 
@@ -1333,7 +1350,7 @@ label = "Model Flower Complete Head Size"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0.6
 min = 0.25
 max = 4
 
@@ -1344,7 +1361,7 @@ label = "Stem Height Multiplier Mean"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 0.6
 min = 0.25
 max = 4
 
@@ -1355,7 +1372,7 @@ label = "Stem Height Multiplier Variance"
 type = "Float"
 
 [section.param.data]
-value = 0.01
+value = 0.1
 min = 0
 max = 1
 
@@ -1366,7 +1383,7 @@ label = "Flower stems: base dimension scale"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 1
 min = 0.2
 max = 4
 
@@ -1461,7 +1478,7 @@ label = "Flora Natural Bend Max (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 0.35
 min = 0
 max = 4
 
@@ -1637,7 +1654,7 @@ label = "Bottom Dark"
 type = "Color"
 
 [section.param.data]
-value = "#364B00"
+value = "#005721"
 
 [[section.param]]
 id = "grass_bottom_light_color"
@@ -1646,7 +1663,7 @@ label = "Bottom Light"
 type = "Color"
 
 [section.param.data]
-value = "#41AE00"
+value = "#00793A"
 
 [[section.param]]
 id = "grass_tip_dark_color"
@@ -1655,7 +1672,7 @@ label = "Tip Dark"
 type = "Color"
 
 [section.param.data]
-value = "#B6B700"
+value = "#739200"
 
 [[section.param]]
 id = "grass_tip_light_color"
@@ -1664,7 +1681,7 @@ label = "Tip Light"
 type = "Color"
 
 [section.param.data]
-value = "#97C200"
+value = "#A1C400"
 
 [[section]]
 name = "WaterSimulation"
@@ -2110,7 +2127,7 @@ label = "Connection Strength Multiplier"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 4
 min = 0.1
 max = 4
 
@@ -2182,7 +2199,7 @@ param = "falling_leaf_mesh"
 equals = true
 
 [section.param.data]
-value = 22
+value = 16
 min = 8
 max = 64
 
