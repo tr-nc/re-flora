@@ -212,8 +212,6 @@ pub(in crate::app::core) struct WaterParticleFrame {
     revision: u64,
     particles: Vec<WaterSimParticleSnapshot>,
     sim_time_seconds: f32,
-    worker_update_ms: f32,
-    worker_substeps: u32,
 }
 
 impl WaterParticleFrame {
@@ -375,31 +373,6 @@ impl AsyncWaterSim {
 
     pub(super) fn latest_particle_frame(&self) -> Option<&WaterParticleFrame> {
         self.latest_frame.as_ref()
-    }
-
-    pub(super) fn status_text(&self, handoff_main_thread_ms: Option<f32>) -> String {
-        let Some(frame) = self.latest_frame.as_ref() else {
-            return "Water sim thread: --".to_owned();
-        };
-        match handoff_main_thread_ms {
-            Some(handoff_ms) => format!(
-                "Water sim thread: handoff {:.3} ms, worker {:.3} ms, substeps {}, frame {}, particles {}, sim {:.2}s",
-                handoff_ms,
-                frame.worker_update_ms,
-                frame.worker_substeps,
-                frame.revision(),
-                frame.particles().len(),
-                frame.sim_time_seconds(),
-            ),
-            None => format!(
-                "Water sim thread: worker {:.3} ms, substeps {}, frame {}, particles {}, sim {:.2}s",
-                frame.worker_update_ms,
-                frame.worker_substeps,
-                frame.revision(),
-                frame.particles().len(),
-                frame.sim_time_seconds(),
-            ),
-        }
     }
 
     pub(super) fn terrain_collider_set(&self) -> Option<&WaterTerrainColliderSet> {
@@ -564,7 +537,7 @@ fn run_water_sim_thread(
     let mut next_frame_revision = 0u64;
     let mut frame_schedule = WaterParticleFrameSchedule::default();
     let mut thread_perf_stats = WaterThreadPerfStats::default();
-    let _ = publish_water_particle_frame(&sim, &shared, next_frame_revision, 0.0, 0, false);
+    let _ = publish_water_particle_frame(&sim, &shared, next_frame_revision, false);
     next_frame_revision = next_frame_revision
         .checked_add(1)
         .expect("water particle frame revision overflowed");
@@ -602,8 +575,6 @@ fn run_water_sim_thread(
         } else {
             thread_perf_stats.reset();
         }
-        let sim_update_start = Instant::now();
-        let sim_time_before = sim.sim_time_seconds;
         if runtime_options.enabled {
             sim.update_with_max_substeps(
                 dt,
@@ -611,19 +582,12 @@ fn run_water_sim_thread(
                 runtime_options.max_substeps_per_tick,
             );
         }
-        let worker_update_ms = sim_update_start.elapsed().as_secs_f32() * 1000.0;
-        let substep_dt = sim.config.substep_dt.max(1.0e-6);
-        let worker_substeps =
-            ((sim.sim_time_seconds - sim_time_before).max(0.0) / substep_dt).round() as u32;
-
         if last_publish.elapsed() >= runtime_options.snapshot_interval {
             if frame_schedule.should_publish(runtime_options) {
                 let publish_report = publish_water_particle_frame(
                     &sim,
                     &shared,
                     next_frame_revision,
-                    worker_update_ms,
-                    worker_substeps,
                     runtime_options.perf_logging,
                 );
                 if runtime_options.perf_logging {
@@ -775,8 +739,6 @@ fn publish_water_particle_frame(
     sim: &PondWaterSim,
     shared: &Arc<Mutex<WaterSimThreadShared>>,
     frame_revision: u64,
-    worker_update_ms: f32,
-    worker_substeps: u32,
     collect_perf: bool,
 ) -> WaterFramePublishReport {
     let total_start = collect_perf.then(Instant::now);
@@ -793,8 +755,6 @@ fn publish_water_particle_frame(
         revision: frame_revision,
         particles,
         sim_time_seconds: sim.sim_time_seconds,
-        worker_update_ms,
-        worker_substeps,
     };
 
     let lock_start = collect_perf.then(Instant::now);
@@ -915,7 +875,7 @@ mod tests {
         }
         let shared = Arc::new(Mutex::new(WaterSimThreadShared::default()));
 
-        let report = publish_water_particle_frame(&sim, &shared, 11, 1.0, 2, false);
+        let report = publish_water_particle_frame(&sim, &shared, 11, false);
         let frame = shared.lock().unwrap().latest_frame.clone().unwrap();
 
         assert_eq!(report.frame_revision, 11);
@@ -928,8 +888,6 @@ mod tests {
             assert_eq!(published.position_ws, source.x);
             assert_eq!(published.velocity, source.v);
         }
-        assert_eq!(frame.worker_update_ms, 1.0);
-        assert_eq!(frame.worker_substeps, 2);
         assert_eq!(report.total_ms, 0.0);
         assert_eq!(report.lock_ms, 0.0);
     }
@@ -943,13 +901,13 @@ mod tests {
         for particle in &mut sim.particles {
             particle.x = Vec3::splat(1.0);
         }
-        publish_water_particle_frame(&sim, &shared, 1, 0.0, 1, false);
+        publish_water_particle_frame(&sim, &shared, 1, false);
 
         sim.sim_time_seconds = 2.0;
         for particle in &mut sim.particles {
             particle.x = Vec3::splat(2.0);
         }
-        publish_water_particle_frame(&sim, &shared, 2, 0.0, 1, false);
+        publish_water_particle_frame(&sim, &shared, 2, false);
 
         let frame = shared.lock().unwrap().latest_frame.clone().unwrap();
         assert_eq!(frame.revision(), 2);
@@ -1051,8 +1009,6 @@ mod tests {
                 4
             ],
             sim_time_seconds,
-            worker_update_ms: 0.0,
-            worker_substeps: 1,
         }
     }
 }

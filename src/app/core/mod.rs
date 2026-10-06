@@ -150,8 +150,8 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
     FloraPaintPanelEntry, ItemPanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
-    CUSTOM_GUI_FONT_PATH, FLOWER_ACCENT, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX,
-    HOE_TOOL_ACCENT, ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
+    CUSTOM_GUI_FONT_PATH, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
+    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
@@ -475,7 +475,6 @@ pub struct App {
     player_tools: PlayerToolRuntime,
     mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
-    water_particle_handoff_main_thread_ms: Option<f32>,
 
     terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
@@ -1580,7 +1579,6 @@ impl App {
                 tools
             },
             voxel_backpack: VoxelBackpack::default(),
-            water_particle_handoff_main_thread_ms: None,
             terrain_moisture: TerrainMoistureRuntime::new(world_chunk_dim),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
@@ -2640,14 +2638,6 @@ impl App {
                 } else {
                     self.tracer.clear_tree_geometry_preview();
                 }
-                let water_status_text = self
-                    .water
-                    .status_text(self.water_particle_handoff_main_thread_ms);
-                let placeable_hint = format!(
-                    "Place: {} (Z/X or bottom bar) · Water: 6 + LMB · Inspector: 7 · Till: 8 + LMB · sprinklers {}",
-                    self.current_placeable_label(),
-                    self.sprinklers.len()
-                );
                 let soil_inspector_panel_text = if self.is_soil_inspector_selected() {
                     Some(match terrain_edit_hover {
                         Some(hover) if hover.is_editable => {
@@ -2686,7 +2676,6 @@ impl App {
                     let scale_factor = self.window_state.window().scale_factor() as f32;
                     egui::pos2(cursor.x / scale_factor + 18.0, cursor.y / scale_factor)
                 });
-                let status_bar_text = format!("{}\n{}", water_status_text, placeable_hint);
                 let hide_terrain_edit_preview = self
                     .launch_owners
                     .test_scene_frame_plan()
@@ -3076,41 +3065,6 @@ impl App {
                                 });
                         }
 
-                        egui::Area::new("status_bar_panel".into())
-                            .anchor(egui::Align2::LEFT_BOTTOM, egui::Vec2::new(16.0, -16.0))
-                            .show(ctx, |ui| {
-                                let status_bar_frame = egui::containers::Frame {
-                                    fill: PANEL_DARK,
-                                    inner_margin: egui::Margin::symmetric(10, 8),
-                                    corner_radius: egui::CornerRadius::same(0),
-                                    shadow: egui::epaint::Shadow {
-                                        offset: [4, 4],
-                                        blur: 0,
-                                        spread: 0,
-                                        color: SHADOW_COLOR,
-                                    },
-                                    stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
-                                    ..Default::default()
-                                };
-
-                                status_bar_frame.show(ui, |ui| {
-                                    ui.set_max_width(420.0);
-                                    ui.label(
-                                        RichText::new("Status Bar")
-                                            .color(GOLD_ACCENT)
-                                            .monospace()
-                                            .size(12.0),
-                                    );
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        RichText::new(status_bar_text.as_str())
-                                            .color(SAGE_ACCENT)
-                                            .monospace()
-                                            .size(11.0),
-                                    );
-                                });
-                            });
-
                         if self.frame_timing_panel_visible {
                             draw_frame_timing_panel(
                                 ctx,
@@ -3336,13 +3290,9 @@ impl App {
                 }
                 if self.render_flags.enable_particles {
                     if self.water.is_running() {
-                        let water_handoff_start = Instant::now();
-                        self.update_water_sim(frame_delta_time, world_tick_seconds);
-                        let elapsed_ms = water_handoff_start.elapsed().as_secs_f32() * 1000.0;
-                        self.water_particle_handoff_main_thread_ms = Some(elapsed_ms);
-                        cpu_timings.add_ms(FrameCpuScope::WaterHandoff, elapsed_ms);
-                    } else {
-                        self.water_particle_handoff_main_thread_ms = None;
+                        cpu_timings.time(FrameCpuScope::WaterHandoff, || {
+                            self.update_water_sim(frame_delta_time, world_tick_seconds);
+                        });
                     }
                     cpu_timings.time(FrameCpuScope::Particles, || {
                         self.update_particle_simulation(frame_delta_time);
@@ -4142,6 +4092,29 @@ mod tests {
         event::ElementState,
         keyboard::{KeyCode, PhysicalKey},
     };
+
+    #[test]
+    fn status_bar_and_its_presentation_state_are_retired_without_removing_perf_logs() {
+        let source = include_str!("mod.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        for retired in [
+            "status_bar_panel",
+            "Status Bar",
+            "water_particle_handoff_main_thread_ms",
+            "current_placeable_label",
+        ] {
+            assert!(!production.contains(retired));
+        }
+        assert!(production.contains("fps_chart::draw("));
+        assert!(production.contains("cpu_timings.time(FrameCpuScope::WaterHandoff"));
+        assert!(production.contains("[PERF][FRAME]"));
+        let water = include_str!("water/runtime.rs");
+        assert!(!water.contains("fn status_text("));
+        assert!(!water.contains("worker_update_ms"));
+        assert!(!water.contains("worker_substeps"));
+        assert!(water.contains("[PERF][WATER_THREAD]"));
+        assert!(!include_str!("water/coordinator.rs").contains("fn status_text("));
+    }
 
     #[test]
     fn focused_gui_text_input_reserves_global_keyboard_shortcuts() {

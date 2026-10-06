@@ -51,15 +51,6 @@ pub(super) enum PlaceableKind {
     Sprinkler,
 }
 
-impl PlaceableKind {
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::Tree => "Tree",
-            Self::Sprinkler => "Sprinkler",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 struct SprinklerRecord {
     id: u32,
@@ -637,10 +628,6 @@ impl App {
 
     pub(super) fn current_placeable_kind(&self) -> PlaceableKind {
         self.player_tools.selected_placeable()
-    }
-
-    pub(super) fn current_placeable_label(&self) -> &'static str {
-        self.current_placeable_kind().label()
     }
 
     pub(super) fn remove_sprinklers_in_brush(&mut self, edit: TerrainBrushEdit) -> Result<usize> {

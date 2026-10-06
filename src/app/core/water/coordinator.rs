@@ -142,10 +142,6 @@ impl WaterRuntime {
         self.sim.latest_particle_frame()
     }
 
-    pub(in crate::app::core) fn status_text(&self, handoff_main_thread_ms: Option<f32>) -> String {
-        self.sim.status_text(handoff_main_thread_ms)
-    }
-
     pub(in crate::app::core) fn observe_visible_terrain(&mut self, chunk_dim: UVec3) {
         let bounds = self.sim.config.collider;
         self.terrain
