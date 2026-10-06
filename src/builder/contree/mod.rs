@@ -2243,6 +2243,122 @@ mod tests {
         }
     }
 
+    #[test]
+    fn terrain_corner_pick_does_not_jump_to_distant_surface() {
+        // Surface contrees omit solid interiors. The near surface touches the
+        // diagonal ray at a voxel corner; a farther surface is also on the ray.
+        let chunk = UVec3::ZERO;
+        let cache = leaf_cache(chunk, &[(UVec3::new(2, 3, 3), 2), (UVec3::ZERO, 3)]);
+        let snapshot = voxel_snapshot(
+            UVec3::ONE,
+            UVec3::splat(4),
+            &[chunk],
+            &[(chunk, cache)],
+            &[],
+            &[],
+        );
+        let hit = snapshot
+            .query_terrain_ray_cpu(Vec3::splat(0.875), -Vec3::ONE)
+            .expect("corner ray should hit the near surface");
+        assert_eq!(hit.voxel_type, 2, "terrain pick jumped to {hit:?}");
+        assert!(
+            hit.position.distance(Vec3::splat(0.75)) < 1e-5,
+            "terrain pick jumped to {hit:?}",
+        );
+    }
+
+    #[test]
+    fn terrain_edge_pick_does_not_jump_to_distant_surface() {
+        for moving_axes in [
+            Vec3::new(1., 1., 0.),
+            Vec3::new(1., 0., 1.),
+            Vec3::new(0., 1., 1.),
+            Vec3::ONE,
+        ] {
+            for mirrored in [false, true] {
+                let first_axis = (0..3).find(|&axis| moving_axes[axis] != 0.).unwrap();
+                let mut near_cell = UVec3::splat(3);
+                near_cell[first_axis] = 2;
+                let far_cell = UVec3::splat(3) - moving_axes.as_uvec3() * 3;
+                let mut origin = Vec3::splat(0.875);
+                let mut expected = origin - moving_axes * 0.125;
+                let mut direction = -moving_axes;
+                let (near_cell, far_cell) = if mirrored {
+                    origin = Vec3::ONE - origin;
+                    expected = Vec3::ONE - expected;
+                    direction = -direction;
+                    (UVec3::splat(3) - near_cell, UVec3::splat(3) - far_cell)
+                } else {
+                    (near_cell, far_cell)
+                };
+                let chunk = UVec3::ZERO;
+                let snapshot = voxel_snapshot(
+                    UVec3::ONE,
+                    UVec3::splat(4),
+                    &[chunk],
+                    &[(chunk, leaf_cache(chunk, &[(near_cell, 2), (far_cell, 3)]))],
+                    &[],
+                    &[],
+                );
+                let hit = snapshot.query_terrain_ray_cpu(origin, direction).unwrap();
+                assert_eq!(hit.voxel_type, 2, "direction={direction:?} hit={hit:?}");
+                assert!(
+                    hit.position.distance(expected) < DDA_EPSILON * 2.,
+                    "direction={direction:?} hit={hit:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_terrain_corner_pick_does_not_jump_to_another_chunk() {
+        // Put a four-voxel brick at the high corner of a native 256^3 chunk.
+        // Three internal levels exercise descent and ascent, not just a root leaf.
+        let upper_brick = |chunk, entries: &[(UVec3, u32)]| {
+            let mut cache = Arc::try_unwrap(leaf_cache(chunk, entries)).unwrap();
+            let leaf = cache.nodes[0];
+            cache.nodes = (1..=3)
+                .map(|child| CpuContreeNode {
+                    packed_0: child << 1,
+                    child_mask_lo: 0,
+                    child_mask_hi: 1 << 31,
+                })
+                .collect();
+            cache.nodes.push(leaf);
+            Arc::new(cache)
+        };
+        let near_chunk = UVec3::ONE;
+        let far_chunk = UVec3::ZERO;
+        let snapshot = voxel_snapshot(
+            UVec3::splat(2),
+            UVec3::splat(256),
+            &[near_chunk, far_chunk],
+            &[
+                (
+                    near_chunk,
+                    upper_brick(near_chunk, &[(UVec3::new(2, 3, 3), 2)]),
+                ),
+                (far_chunk, upper_brick(far_chunk, &[(UVec3::splat(3), 3)])),
+            ],
+            &[],
+            &[],
+        );
+        let origin = Vec3::splat(1. + 255.5 / 256.);
+        let hit = snapshot.query_terrain_ray_cpu(origin, -Vec3::ONE).unwrap();
+        assert_eq!(hit.voxel_type, 2, "terrain pick jumped to {hit:?}");
+        assert!(
+            hit.position.distance(Vec3::splat(1. + 255. / 256.)) < 1e-5,
+            "{hit:?}"
+        );
+
+        // An intentionally excluded near material must still allow the far hit.
+        let filtered = snapshot
+            .query_terrain_ray_cpu_filtered(origin, -Vec3::ONE, 1 << 3)
+            .unwrap();
+        assert_eq!(filtered.voxel_type, 3);
+        assert!(filtered.position.distance(Vec3::ONE) < 1e-5, "{filtered:?}");
+    }
+
     fn leaf_cache(chunk_idx: UVec3, entries: &[(UVec3, u32)]) -> Arc<CpuChunkCache> {
         let mut entries = entries.to_vec();
         entries.sort_by_key(|(voxel, _)| voxel.x + voxel.z * 4 + voxel.y * 16);
@@ -3216,11 +3332,12 @@ fn march_contree_cpu(
         let side_dist = (cell_min - origin) * inv_dir;
         let tmax = side_dist.x.min(side_dist.y.min(side_dist.z));
 
-        let side_mask = [
-            tmax >= side_dist.x,
-            tmax >= side_dist.y,
-            tmax >= side_dist.z,
-        ];
+        // Match contreeAdvanceSideMask in the renderer: crossing every tied
+        // axis skips face-adjacent surface cells at voxel edges/corners. The
+        // contree omits interiors, so that can turn a near pick into a far hit.
+        let advance_x = side_dist.x <= side_dist.y && side_dist.x <= side_dist.z;
+        let advance_y = !advance_x && side_dist.y <= side_dist.z;
+        let side_mask = [advance_x, advance_y, !advance_x && !advance_y];
         let base = [
             cell_min.x.to_bits() as i32,
             cell_min.y.to_bits() as i32,
