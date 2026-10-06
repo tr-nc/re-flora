@@ -60,7 +60,8 @@ mod tests {
             StaticVoxelBrickId(IVec3::ZERO),
             1,
             BrickOccupancy::from_filled_voxels((0..32).flat_map(|x| {
-                (0..32).flat_map(move |z| (0..16).map(move |y| UVec3::new(x, y, z)))
+                // 32-deep solid volume fully contains the 24-voxel-tall body.
+                (0..32).flat_map(move |z| (0..32).map(move |y| UVec3::new(x, y, z)))
             })),
         );
         let feet = Vec3::new(16., 0., 16.) / 256.;
