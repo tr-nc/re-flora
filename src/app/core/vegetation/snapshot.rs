@@ -71,9 +71,17 @@ impl TreeSnapshot {
             );
             let branching =
                 u64::from(branch.branch_count_max + u32::from(branch.continue_main_axis)).max(1);
-            let budget = branching
-                .checked_pow(branch.iterations)
-                .and_then(|n| n.checked_mul(u64::from(desc.subdivision_count_max.max(1))))
+            let segment_budget =
+                if desc.species == crate::tree_gen::TreeSpecies::Conifer && desc.axis_model {
+                    // Bounded authored axes do not inherit the recursive generator's exponential cost.
+                    crate::tree_gen::MAX_AXIS_SEGMENTS as u64
+                } else {
+                    branching
+                        .checked_pow(branch.iterations)
+                        .context("saved tree complexity overflow")?
+                };
+            let budget = segment_budget
+                .checked_mul(u64::from(desc.subdivision_count_max.max(1)))
                 .context("saved tree complexity overflow")?;
             total_budget = total_budget
                 .checked_add(budget)

@@ -1532,6 +1532,8 @@ mod tests {
                 }
                 Value::String(v) if v == "Darting" => Value::from("Original"),
                 Value::String(v) if v == "Original" => Value::from("Darting"),
+                Value::String(v) if v == "garden_tree" => Value::from("conifer"),
+                Value::String(v) if v == "conifer" => Value::from("garden_tree"),
                 _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
             };
             let mut settings = DebugSettings::load();

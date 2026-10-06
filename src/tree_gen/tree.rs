@@ -21,6 +21,9 @@ fn mature_tree_growth_age() -> f32 {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TreeDesc {
+    pub species: super::TreeSpecies,
+    /// Per-individual A/B architecture, retained by garden snapshots.
+    pub axis_model: bool,
     pub branching: BranchingDesc,
     #[serde(skip, default = "mature_tree_growth_age")]
     pub growth_age: f32,
@@ -74,6 +77,8 @@ pub fn default_tree_branching_desc() -> BranchingDesc {
 impl Default for TreeDesc {
     fn default() -> Self {
         TreeDesc {
+            species: super::TreeSpecies::GardenTree,
+            axis_model: false,
             branching: default_tree_branching_desc(),
             growth_age: mature_tree_growth_age(),
             size: TREE_DEFAULT_SIZE,
@@ -145,6 +150,7 @@ pub struct LeafPlacement {
 #[derive(Debug)]
 struct BuiltObjects {
     branches: Vec<BranchSegment>,
+    axis_segments: Vec<super::AxisSegment>,
     trunk_branches: Vec<usize>,
     leaf_branches: Vec<usize>,
     trunks: Vec<RoundCone>,
@@ -183,6 +189,12 @@ impl Tree {
         &self.built_objects.branches
     }
 
+    /// Explicit axis identity, local arc position, branch order and radii for the axis model.
+    /// Legacy skeletons return an empty slice; their existing recursive semantics are unchanged.
+    pub fn axis_segments(&self) -> &[super::AxisSegment] {
+        &self.built_objects.axis_segments
+    }
+
     /// Branch ownership for every rendered trunk cone, in `trunks()` order.
     pub fn trunk_branch_indices(&self) -> &[usize] {
         &self.built_objects.trunk_branches
@@ -214,19 +226,46 @@ impl Tree {
         let mut subdivision_rng =
             StdRng::seed_from_u64(branching_desc.seed ^ 0x63D8_3595_B529_7A4D);
         let base_thickness = desc.trunk_thickness * desc.size;
-        let skeleton = generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng);
+        let (segments, axis_segments) =
+            if desc.species == super::TreeSpecies::Conifer && desc.axis_model {
+                let skeleton = super::axis::conifer(desc);
+                (skeleton.segments, skeleton.metadata)
+            } else {
+                (
+                    generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng).segments,
+                    Vec::new(),
+                )
+            };
         let visible_branch_levels =
             visible_branch_levels(desc.growth_age, branching_desc.iterations);
 
         let leaf_level = visible_branch_levels
             .saturating_sub(desc.leaf_offset)
             .max(1);
-        let leaf_anchors = skeleton
-            .segments
+        let visible = |index: usize| {
+            if axis_segments.is_empty() {
+                segments[index].level < visible_branch_levels
+            } else {
+                axis_segments[index].reveal_age <= desc.growth_age.clamp(0., 1.)
+            }
+        };
+        let last_visible_trunk = axis_segments
             .iter()
             .enumerate()
-            .filter(|(_, segment)| segment.level < visible_branch_levels)
-            .filter(|(_, segment)| segment.level.saturating_add(1) == leaf_level)
+            .filter(|(i, meta)| meta.order == 0 && visible(*i))
+            .map(|(i, _)| i)
+            .last();
+        let leaf_anchors = segments
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| visible(*i))
+            .filter(|(i, segment)| {
+                if axis_segments.is_empty() {
+                    segment.level.saturating_add(1) == leaf_level
+                } else {
+                    axis_segments[*i].order == 2 || Some(*i) == last_visible_trunk
+                }
+            })
             .map(|(branch_index, segment)| {
                 let direction = (segment.end - segment.start).normalize_or_zero();
                 (branch_index, segment.end, direction)
@@ -241,15 +280,19 @@ impl Tree {
 
         let mut trunks = Vec::new();
         let mut trunk_branches = Vec::new();
-        for (branch_index, segment) in skeleton
-            .segments
-            .iter()
-            .enumerate()
-            .filter(|(_, segment)| segment.level < visible_branch_levels)
-        {
+        for (branch_index, segment) in segments.iter().enumerate().filter(|(i, _)| visible(*i)) {
             let first_cone = trunks.len();
-            let thickness_start = Self::thickness_at_level(desc, base_thickness, segment.level);
-            let thickness_end = Self::thickness_at_level(desc, base_thickness, segment.level + 1);
+            let (thickness_start, thickness_end) = if axis_segments.is_empty() {
+                (
+                    Self::thickness_at_level(desc, base_thickness, segment.level),
+                    Self::thickness_at_level(desc, base_thickness, segment.level + 1),
+                )
+            } else {
+                (
+                    axis_segments[branch_index].radius_start,
+                    axis_segments[branch_index].radius_end,
+                )
+            };
             let cone = RoundCone::new(
                 thickness_start.max(0.),
                 segment.start,
@@ -265,7 +308,8 @@ impl Tree {
         }
 
         BuiltObjects {
-            branches: skeleton.segments,
+            branches: segments,
+            axis_segments,
             trunk_branches,
             leaf_branches,
             trunks,
@@ -440,6 +484,60 @@ fn subdivide_trunk_segment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn axis_age_preserves_identity_and_reveals_connected_branches() {
+        let desc = super::super::TreeSpecies::Conifer.mature_desc(&TreeDesc::default());
+        let mature = Tree::new(desc.clone());
+        let mut previous = 0;
+        for age in [0., 0.25, 0.5, 0.75, 1.] {
+            let tree = Tree::new(desc.at_age(age));
+            assert_eq!(tree.branches().len(), mature.branches().len());
+            assert!(tree.trunks().len() >= previous);
+            previous = tree.trunks().len();
+            let visible = tree.trunk_branch_indices();
+            for &i in visible {
+                if let Some(parent) = tree.branches()[i].parent {
+                    assert!(visible.contains(&parent));
+                }
+                assert_eq!(
+                    tree.axis_segments()[i].axis_id,
+                    mature.axis_segments()[i].axis_id
+                );
+                assert_eq!(tree.branches()[i].parent, mature.branches()[i].parent);
+            }
+            assert_eq!(
+                tree.relative_leaf_placements().len(),
+                tree.leaf_branch_indices().len()
+            );
+            for (leaf, &i) in tree
+                .relative_leaf_placements()
+                .iter()
+                .zip(tree.leaf_branch_indices())
+            {
+                assert!(visible.contains(&i));
+                assert_eq!(leaf.anchor, tree.branches()[i].end);
+            }
+            crate::tree_gen::pose::TreePose::new(tree.branches(), Vec3::ZERO).unwrap();
+        }
+        assert_eq!(previous, mature.branches().len());
+    }
+
+    #[test]
+    fn species_seed_and_architecture_round_trip_and_old_trees_default_to_garden() {
+        let desc = super::super::TreeSpecies::Conifer.mature_desc(&TreeDesc::default());
+        let json = serde_json::to_string(&desc).unwrap();
+        let restored: TreeDesc = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, desc);
+        assert_eq!(Tree::new(restored).branches(), Tree::new(desc).branches());
+        let mut old = serde_json::to_value(TreeDesc::default()).unwrap();
+        old.as_object_mut().unwrap().remove("species");
+        old.as_object_mut().unwrap().remove("axis_model");
+        assert_eq!(
+            serde_json::from_value::<TreeDesc>(old).unwrap(),
+            TreeDesc::default()
+        );
+    }
 
     #[test]
     fn branch_bindings_survive_subdivision_and_age() {
