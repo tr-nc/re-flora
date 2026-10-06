@@ -409,10 +409,9 @@ label = "Apples: size scale (attached and fallen)"
 type = "Float"
 
 [section.param.data]
-value = 1.0
+value = 1
 min = 0.25
-max = 2.0
-step = 0.05
+max = 2
 
 [[section.param]]
 id = "apple_directional_lighting"
@@ -421,7 +420,7 @@ label = "Apples: directional sunlight (A/B)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "apple_environment_fill"
@@ -434,10 +433,9 @@ param = "apple_directional_lighting"
 equals = true
 
 [section.param.data]
-value = 1.0
-min = 0.0
+value = 1.5
+min = 0
 max = 1.5
-step = 0.05
 
 [[section.param]]
 id = "apple_light_bands"
@@ -450,7 +448,7 @@ param = "apple_directional_lighting"
 equals = true
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "apple_color_patches"
@@ -477,7 +475,7 @@ label = "Apples: live sun highlight (A/B)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "apple_cache_enabled"
@@ -934,7 +932,6 @@ equals = true
 value = 12
 min = 2
 max = 32
-step = 1
 
 [[section.param]]
 id = "ordered_dither_strength"
@@ -950,7 +947,6 @@ equals = true
 value = 0.2
 min = 0
 max = 1
-step = 0.05
 
 [[section]]
 name = "Sky"
