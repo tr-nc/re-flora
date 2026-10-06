@@ -47,6 +47,13 @@ impl EditableTerrainBounds {
         point.x >= min.x && point.z >= min.y && point.x < max.x && point.z < max.y
     }
 
+    pub(crate) fn voxel_bounds(self, voxels_per_chunk: UVec3) -> crate::geom::UAabb3 {
+        crate::geom::UAabb3::new(
+            self.chunk_min * voxels_per_chunk,
+            self.chunk_max_exclusive * voxels_per_chunk,
+        )
+    }
+
     pub(crate) fn contains_brush_endpoint(self, edit: TerrainBrushEdit) -> bool {
         self.contains_point_xz(edit.end)
     }

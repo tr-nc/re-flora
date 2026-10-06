@@ -54,6 +54,7 @@ pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 9;
 pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const MOWER_SLOT_INDEX: usize = 11;
+pub(crate) const SOIL_DEPOSITION_SLOT_INDEX: usize = 12;
 pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
@@ -821,6 +822,8 @@ fn draw_tool_panel_slot(
     let (rect, response) = ui.allocate_exact_size(theme.slot_size, sense);
     let response = if slot.index == MOWER_SLOT_INDEX && slot.label == "Mower" {
         response.on_hover_text("Mower [L]\nEdit/cursor mode only (after camera transitions finish).\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
+    } else if slot.index == SOIL_DEPOSITION_SLOT_INDEX && slot.label == "Soil" {
+        response.on_hover_text("Soil [B]\nHold LMB: gradually cover and build up soil.\nMouse wheel: spread radius, not soil volume.\nUses collected Dirt; the rooftop proof supplies unlimited soil.\nAdds new soil without fertilizing or replacing existing ground.")
     } else {
         response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint))
     };

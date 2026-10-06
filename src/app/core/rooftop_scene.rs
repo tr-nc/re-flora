@@ -885,6 +885,128 @@ impl App {
         log::info!("[ROOFTOP][CHECK] production_rmb_placement=true backpack_preserved=true");
         self.validate_rooftop_voxel_ab()?;
         self.validate_rooftop_capsule_edits()?;
+        self.validate_rooftop_deposition()?;
+        Ok(())
+    }
+
+    // Opt-in real atlas/publication/input fixture, never a normal startup unit test.
+    fn validate_rooftop_deposition(&mut self) -> Result<()> {
+        let center = Vec3::new(320., SOIL_MIN.y as f32, 300.) / 256.;
+        let edit = TerrainBrushEdit {
+            start: center,
+            end: center,
+            radius: 0.03,
+        };
+        let offset = UVec3::new(280, SOIL_MIN.y - 1, 260);
+        let dim = UVec3::new(80, SOIL_MAX.y - offset.y, 80);
+        let before = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        let count = |data: &[u8]| {
+            data.iter()
+                .filter(|v| **v & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8)
+                .count()
+        };
+        let height = |data: &[u8]| {
+            data.iter()
+                .enumerate()
+                .filter(|(_, v)| **v & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8)
+                .map(|(i, _)| offset.y + (i as u32 / dim.x) % dim.y)
+                .max()
+                .unwrap_or(offset.y)
+        };
+        let initial = self.apply_soil_deposition(edit, 128, 1)?;
+        let thin = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        anyhow::ensure!(
+            initial.added == 128 && count(&thin) - count(&before) == 128,
+            "first soil dose was not finite and exact"
+        );
+        let mut total = initial.added;
+        for seed in 2..=9 {
+            total += self.apply_soil_deposition(edit, 512, seed)?.added;
+        }
+        let thick = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        anyhow::ensure!(
+            count(&thick) - count(&before) == total as usize,
+            "deposition lost or duplicated soil"
+        );
+        anyhow::ensure!(
+            height(&thick) > height(&thin)
+                && height(&thick) > SOIL_MIN.y + (edit.radius * 256.).ceil() as u32,
+            "deposition retained a brush-height cap"
+        );
+        anyhow::ensure!(
+            before
+                .iter()
+                .zip(&thick)
+                .enumerate()
+                .all(|(i, (old, new))| {
+                    (*old & VOXEL_TYPE_MASK == 0 || old == new)
+                        && ((i as u32 / dim.x) % dim.y != 0 || old == new)
+                }),
+            "deposition overwrote old material or crossed the model floor"
+        );
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        anyhow::ensure!(
+            self.contree_builder
+                .query_terrain_ray_cpu(center + Vec3::Y * 0.3, Vec3::NEG_Y)
+                .is_some_and(|hit| hit.voxel_type == VOXEL_TYPE_DIRT),
+            "deposited soil was not published"
+        );
+
+        let opening = self.tracer.camera_pose();
+        let cursor = self.cursor_position_physical;
+        let slot = self.player_tools.selected_item_panel_display_slot();
+        let radius = self.player_tools.terrain_edit_radius;
+        let inventory: Vec<_> = self
+            .voxel_backpack
+            .snapshot()
+            .iter()
+            .map(|e| e.count)
+            .collect();
+        self.player_tools
+            .select_item_panel_slot(ui_style::SOIL_DEPOSITION_SLOT_INDEX);
+        self.player_tools.terrain_edit_radius = edit.radius;
+        let extent = self.window_state.window_extent();
+        self.cursor_position_physical = Some(Vec2::new(
+            extent.width as f32 / 2.,
+            extent.height as f32 / 2.,
+        ));
+        self.tracer
+            .set_camera_pose_looking_at(opening.position, center);
+        self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Pressed);
+        let Some(PlayerToolPointerAction::Continuous(action)) =
+            self.player_tools.begin_pointer_action(MouseButton::Left)
+        else {
+            anyhow::bail!("Soil LMB did not resolve to an action");
+        };
+        anyhow::ensure!(
+            action == player_tools::ContinuousTerrainToolAction::SoilDeposit,
+            "Soil invoked the geometry brush"
+        );
+        self.execute_continuous_terrain_tool_action(action, Instant::now());
+        self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Released);
+        self.refresh_terrain_edit_hold_from_mouse_buttons();
+        let after_pointer = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        anyhow::ensure!(
+            count(&after_pointer) > count(&thick),
+            "production Soil pointer path deposited nothing"
+        );
+        anyhow::ensure!(
+            inventory
+                == self
+                    .voxel_backpack
+                    .snapshot()
+                    .iter()
+                    .map(|e| e.count)
+                    .collect::<Vec<_>>(),
+            "unlimited Soil mutated normal inventory"
+        );
+        self.player_tools.select_item_panel_slot(slot);
+        self.player_tools.terrain_edit_radius = radius;
+        self.cursor_position_physical = cursor;
+        self.tracer.apply_camera_pose(opening);
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true backpack_preserved=true",
+            initial.added, total, height(&thin), height(&thick));
         Ok(())
     }
 

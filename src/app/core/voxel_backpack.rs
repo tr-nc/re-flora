@@ -106,7 +106,7 @@ pub(super) struct VoxelBackpack {
 }
 
 impl VoxelBackpack {
-    fn count(&self, voxel: BackpackVoxel) -> u32 {
+    pub(super) fn count(&self, voxel: BackpackVoxel) -> u32 {
         self.counts[voxel.index()]
     }
 

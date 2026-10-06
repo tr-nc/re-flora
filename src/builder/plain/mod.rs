@@ -786,6 +786,45 @@ impl PlainBuilder {
         )
     }
 
+    /// Plan against authoritative 3D occupancy, then upload one bounded deposition batch.
+    /// This does not replace any old material or soil properties.
+    pub(crate) fn deposit_soil(
+        &mut self,
+        request: crate::terrain_deposition::DepositionRequest,
+        legal: UAabb3,
+        support_floor: Option<u32>,
+    ) -> Result<crate::terrain_deposition::DepositionResult> {
+        let start = Instant::now();
+        let Some(sample) = request.sampling_bounds(legal) else {
+            return Ok(crate::terrain_deposition::DepositionResult::default());
+        };
+        let dim = sample.max() - sample.min();
+        let mut data = self.read_chunk_atlas_region(sample.min(), dim)?;
+        let result = crate::terrain_deposition::deposit(
+            &mut data,
+            sample.min(),
+            dim,
+            support_floor,
+            request,
+        );
+        if let Some(changed) = result.changed {
+            let write_dim = changed.max() - changed.min() + UVec3::ONE;
+            let write_data =
+                extract_volume_region_u8(&data, dim, changed.min() - sample.min(), write_dim);
+            self.write_chunk_atlas_region(changed.min(), write_dim, &write_data)?;
+            self.mark_all_solid_workgroups_dirty();
+        }
+        log::info!(
+            "[SOIL_DEPOSITION] requested={} added={} sample={:?} changed={:?} total={:.2}ms",
+            request.volume,
+            result.added,
+            dim,
+            result.changed,
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        Ok(result)
+    }
+
     pub fn mark_all_solid_workgroups_dirty(&self) {
         execute_one_time_command(
             self.vulkan_ctx.device(),

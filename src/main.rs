@@ -26,6 +26,7 @@ mod resource;
 mod run_log;
 mod scene_query;
 mod stone_models;
+mod terrain_deposition;
 mod terrain_material;
 #[allow(dead_code)]
 mod terrain_persistence;

@@ -2591,6 +2591,42 @@ type = "Color"
 value = "#7A7D80"
 
 [[section]]
+name = "Soil Deposition"
+
+[[section.param]]
+id = "soil_deposition_rate"
+kind = "float"
+label = "Soil volume per second (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 6000
+min = 100
+max = 64000
+
+[[section.param]]
+id = "soil_deposition_clump_radius"
+kind = "uint"
+label = "Soil clump radius (voxels)"
+type = "Uint"
+
+[section.param.data]
+value = 2
+min = 1
+max = 4
+
+[[section.param]]
+id = "soil_deposition_repose_slope"
+kind = "float"
+label = "Soil pile slope (rise / run)"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.25
+max = 2.0
+
+[[section]]
 name = "Terrain Material"
 
 [[section.param]]

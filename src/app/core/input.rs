@@ -709,6 +709,7 @@ impl App {
             ContinuousTerrainToolAction::HoeTrim => self.try_hoe_trim(now),
             ContinuousTerrainToolAction::Water => self.try_watering_brush(now),
             ContinuousTerrainToolAction::Till => self.try_tiller_brush(now),
+            ContinuousTerrainToolAction::SoilDeposit => self.try_soil_deposition(now),
         }
     }
 
@@ -811,7 +812,9 @@ impl App {
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_place_tool_selected() {
+        if self.player_tools.selected_tool() == PlayerTool::Soil {
+            TerrainEditPreviewShape::SurfaceCircle
+        } else if self.is_place_tool_selected() {
             match self.current_placeable_kind() {
                 PlaceableKind::Tree | PlaceableKind::Sprinkler => {
                     TerrainEditPreviewShape::SurfaceCircle
@@ -956,6 +959,7 @@ impl App {
             .filter(|hit| {
                 // A bare model surface is an Edit support, not a plantable voxel substrate.
                 self.is_shovel_selected()
+                    || self.player_tools.selected_tool() == PlayerTool::Soil
                     || self.rooftop_scene.as_ref().is_none_or(|s| {
                         s.ray_hit(origin, direction)
                             .is_none_or(|p| p.distance(*hit) > 1e-5)

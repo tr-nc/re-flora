@@ -37,6 +37,7 @@ mod ordered_dither_review;
 mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
+mod soil_deposition;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -2285,6 +2286,9 @@ impl App {
                         PhysicalKey::Code(KeyCode::Digit8) => Some(7),
                         PhysicalKey::Code(KeyCode::Digit9) => Some(ui_style::WIND_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyL) => Some(ui_style::MOWER_SLOT_INDEX),
+                        PhysicalKey::Code(KeyCode::KeyB) => {
+                            Some(ui_style::SOIL_DEPOSITION_SLOT_INDEX)
+                        }
                         _ => None,
                     };
 
@@ -2946,6 +2950,15 @@ impl App {
                                 category: Some("CARE"),
                                 icon: item_panel_tiller_icon.as_ref(),
                                 accent: TILLER_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: ui_style::SOIL_DEPOSITION_SLOT_INDEX,
+                                label: "Soil",
+                                key_hint: "B",
+                                category: Some("TOOLS"),
+                                icon: None,
+                                accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {

@@ -1375,6 +1375,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Soil Deposition",
+        id: "soil_deposition_rate",
+        kind: "float",
+        label: "Soil volume per second (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Soil Deposition",
+        id: "soil_deposition_clump_radius",
+        kind: "uint",
+        label: "Soil clump radius (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Soil Deposition",
+        id: "soil_deposition_repose_slope",
+        kind: "float",
+        label: "Soil pile slope (rise / run)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Terrain Material",
         id: "terrain_soil_strength",
         kind: "float",
@@ -1765,6 +1783,9 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
+    pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
+    pub soil_deposition_clump_radius: crate::gui_adjustables::UintParam,
+    pub soil_deposition_repose_slope: crate::gui_adjustables::FloatParam,
     pub terrain_soil_strength: crate::gui_adjustables::FloatParam,
     pub terrain_rock_strength: crate::gui_adjustables::FloatParam,
     pub terrain_material_seed: crate::gui_adjustables::UintParam,
@@ -2030,6 +2051,9 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut soil_deposition_clump_radius_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut soil_deposition_repose_slope_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_soil_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_rock_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_material_seed_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -3540,6 +3564,27 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "soil_deposition_rate" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            soil_deposition_rate_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "soil_deposition_clump_radius" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            soil_deposition_clump_radius_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "soil_deposition_repose_slope" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            soil_deposition_repose_slope_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "terrain_soil_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -3956,6 +4001,9 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
+            soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
+            soil_deposition_clump_radius: soil_deposition_clump_radius_field.expect("Missing parameter: soil_deposition_clump_radius"),
+            soil_deposition_repose_slope: soil_deposition_repose_slope_field.expect("Missing parameter: soil_deposition_repose_slope"),
             terrain_soil_strength: terrain_soil_strength_field.expect("Missing parameter: terrain_soil_strength"),
             terrain_rock_strength: terrain_rock_strength_field.expect("Missing parameter: terrain_rock_strength"),
             terrain_material_seed: terrain_material_seed_field.expect("Missing parameter: terrain_material_seed"),
@@ -4147,6 +4195,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_frequency" => Some(&adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
+        "soil_deposition_rate" => Some(&adjustables.soil_deposition_rate),
+        "soil_deposition_repose_slope" => Some(&adjustables.soil_deposition_repose_slope),
         "terrain_soil_strength" => Some(&adjustables.terrain_soil_strength),
         "terrain_rock_strength" => Some(&adjustables.terrain_rock_strength),
         "headbob_vertical_amp" => Some(&adjustables.headbob_vertical_amp),
@@ -4205,6 +4255,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
+        "soil_deposition_clump_radius" => Some(&adjustables.soil_deposition_clump_radius),
         "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
         _ => None,
     }
@@ -4446,6 +4497,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_frequency" => Some(&mut adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&mut adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
+        "soil_deposition_rate" => Some(&mut adjustables.soil_deposition_rate),
+        "soil_deposition_repose_slope" => Some(&mut adjustables.soil_deposition_repose_slope),
         "terrain_soil_strength" => Some(&mut adjustables.terrain_soil_strength),
         "terrain_rock_strength" => Some(&mut adjustables.terrain_rock_strength),
         "headbob_vertical_amp" => Some(&mut adjustables.headbob_vertical_amp),
@@ -4504,6 +4557,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
+        "soil_deposition_clump_radius" => Some(&mut adjustables.soil_deposition_clump_radius),
         "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
         _ => None,
     }

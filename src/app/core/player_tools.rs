@@ -18,6 +18,7 @@ pub(super) enum PlayerTool {
     Mower,
     Staff,
     Shovel,
+    Soil,
     Smooth,
     Hoe,
     Watering,
@@ -34,6 +35,7 @@ impl PlayerTool {
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
             STAFF_SLOT_INDEX => Some(Self::Staff),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
+            super::ui_style::SOIL_DEPOSITION_SLOT_INDEX => Some(Self::Soil),
             SMOOTH_SLOT_INDEX => Some(Self::Smooth),
             HOE_SLOT_INDEX => Some(Self::Hoe),
             WATERING_SLOT_INDEX => Some(Self::Watering),
@@ -51,6 +53,7 @@ impl PlayerTool {
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
             Self::Staff => STAFF_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
+            Self::Soil => super::ui_style::SOIL_DEPOSITION_SLOT_INDEX,
             Self::Smooth => SMOOTH_SLOT_INDEX,
             Self::Hoe => HOE_SLOT_INDEX,
             Self::Watering => WATERING_SLOT_INDEX,
@@ -86,6 +89,7 @@ impl PlayerToolSelectionUpdate {
 pub(super) enum ContinuousTerrainToolAction {
     ShovelDig,
     ShovelPlace,
+    SoilDeposit,
     Smooth,
     StaffRegenerate,
     StaffRemove,
@@ -100,6 +104,7 @@ impl ContinuousTerrainToolAction {
             self,
             Self::ShovelDig
                 | Self::ShovelPlace
+                | Self::SoilDeposit
                 | Self::HoeTrim
                 | Self::StaffRegenerate
                 | Self::StaffRemove
@@ -115,6 +120,7 @@ use crate::app::brush_stroke::BrushStroke as TerrainStroke;
 struct TerrainStrokeRuntime {
     shovel_dig: TerrainStroke,
     shovel_place: TerrainStroke,
+    soil_deposit: TerrainStroke,
     smooth: TerrainStroke,
     staff_regenerate: TerrainStroke,
     staff_remove: TerrainStroke,
@@ -131,6 +137,7 @@ impl TerrainStrokeRuntime {
         match action {
             ContinuousTerrainToolAction::ShovelDig => &self.shovel_dig,
             ContinuousTerrainToolAction::ShovelPlace => &self.shovel_place,
+            ContinuousTerrainToolAction::SoilDeposit => &self.soil_deposit,
             ContinuousTerrainToolAction::Smooth => &self.smooth,
             ContinuousTerrainToolAction::StaffRegenerate => &self.staff_regenerate,
             ContinuousTerrainToolAction::StaffRemove => &self.staff_remove,
@@ -144,6 +151,7 @@ impl TerrainStrokeRuntime {
         match action {
             ContinuousTerrainToolAction::ShovelDig => &mut self.shovel_dig,
             ContinuousTerrainToolAction::ShovelPlace => &mut self.shovel_place,
+            ContinuousTerrainToolAction::SoilDeposit => &mut self.soil_deposit,
             ContinuousTerrainToolAction::Smooth => &mut self.smooth,
             ContinuousTerrainToolAction::StaffRegenerate => &mut self.staff_regenerate,
             ContinuousTerrainToolAction::StaffRemove => &mut self.staff_remove,
@@ -187,6 +195,7 @@ impl TerrainStrokeRuntime {
         for action in [
             ContinuousTerrainToolAction::ShovelDig,
             ContinuousTerrainToolAction::ShovelPlace,
+            ContinuousTerrainToolAction::SoilDeposit,
             ContinuousTerrainToolAction::HoeTrim,
             ContinuousTerrainToolAction::StaffRegenerate,
             ContinuousTerrainToolAction::StaffRemove,
@@ -329,6 +338,7 @@ pub(super) struct PlayerToolRuntime {
     selected_placeable: PlaceableKind,
     pointer: ToolPointerState,
     strokes: TerrainStrokeRuntime,
+    soil_flow: crate::terrain_deposition::DepositionFlow,
     pub(super) terrain_edit_radius: f32,
     pub(super) flora_paint_selection_index: usize,
     pub(super) terrain_edit_loop_sound: Option<Uuid>,
@@ -343,6 +353,7 @@ impl Default for PlayerToolRuntime {
             selected_placeable: PlaceableKind::Tree,
             pointer: ToolPointerState::default(),
             strokes: TerrainStrokeRuntime::default(),
+            soil_flow: crate::terrain_deposition::DepositionFlow::default(),
             terrain_edit_radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
             flora_paint_selection_index: 0,
             terrain_edit_loop_sound: None,
@@ -458,7 +469,9 @@ impl PlayerToolRuntime {
         if state == ElementState::Released {
             match button {
                 MouseButton::Left => {
+                    self.soil_flow.reset();
                     for action in [
+                        ContinuousTerrainToolAction::SoilDeposit,
                         ContinuousTerrainToolAction::ShovelDig,
                         ContinuousTerrainToolAction::HoeTrim,
                         ContinuousTerrainToolAction::StaffRegenerate,
@@ -488,7 +501,7 @@ impl PlayerToolRuntime {
         let action = self.pointer_action_for_button(button)?;
         if let PlayerToolPointerAction::Continuous(continuous) = action {
             if continuous.tracks_path() {
-                self.strokes.restart(continuous);
+                self.restart_stroke(continuous);
             }
             self.pointer = ToolPointerState::Continuous(
                 buttons
@@ -522,12 +535,14 @@ impl PlayerToolRuntime {
     pub(super) fn cancel_continuous_hold(&mut self) {
         self.pointer = ToolPointerState::idle(self.pointer.buttons());
         self.strokes.interrupt_paths();
+        self.soil_flow.reset();
     }
 
     pub(super) fn finish_pointer_release(&mut self) -> bool {
         let active = self.continuous_hold_active();
         if !active {
             self.strokes.interrupt_paths();
+            self.soil_flow.reset();
         }
         active
     }
@@ -558,6 +573,7 @@ impl PlayerToolRuntime {
             (PlayerTool::Shovel, MouseButton::Right) => {
                 Some(ContinuousTerrainToolAction::ShovelPlace)
             }
+            (PlayerTool::Soil, MouseButton::Left) => Some(ContinuousTerrainToolAction::SoilDeposit),
             (PlayerTool::Smooth, MouseButton::Left) => Some(ContinuousTerrainToolAction::Smooth),
             (PlayerTool::Staff, MouseButton::Left) => {
                 Some(ContinuousTerrainToolAction::StaffRegenerate)
@@ -609,14 +625,32 @@ impl PlayerToolRuntime {
 
     pub(super) fn defer_stroke(&mut self, action: ContinuousTerrainToolAction, now: Instant) {
         self.strokes.defer(action, now);
+        if action == ContinuousTerrainToolAction::SoilDeposit {
+            self.soil_flow.reset();
+        }
     }
 
     pub(super) fn interrupt_stroke(&mut self, action: ContinuousTerrainToolAction) {
         self.strokes.interrupt(action);
+        if action == ContinuousTerrainToolAction::SoilDeposit {
+            self.soil_flow.reset();
+        }
     }
 
     pub(super) fn restart_stroke(&mut self, action: ContinuousTerrainToolAction) {
         self.strokes.restart(action);
+        if action == ContinuousTerrainToolAction::SoilDeposit {
+            self.soil_flow.reset();
+        }
+    }
+
+    pub(super) fn soil_deposition_budget(
+        &mut self,
+        now: Instant,
+        rate: f32,
+        quantum: Duration,
+    ) -> (u32, u32) {
+        self.soil_flow.take(now, rate, quantum)
     }
 
     pub(super) fn flora_paint_dab(
@@ -658,6 +692,10 @@ mod tests {
             (super::HAND_SLOT_INDEX, PlayerTool::Hand),
             (super::STAFF_SLOT_INDEX, PlayerTool::Staff),
             (super::SHOVEL_SLOT_INDEX, PlayerTool::Shovel),
+            (
+                super::super::ui_style::SOIL_DEPOSITION_SLOT_INDEX,
+                PlayerTool::Soil,
+            ),
             (super::SMOOTH_SLOT_INDEX, PlayerTool::Smooth),
             (super::HOE_SLOT_INDEX, PlayerTool::Hoe),
             (super::WATERING_SLOT_INDEX, PlayerTool::Watering),
@@ -698,6 +736,44 @@ mod tests {
         let mut runtime = PlayerToolRuntime::default();
         assert!(!runtime.select_item_panel_slot(usize::MAX).changed());
         assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+    }
+
+    #[test]
+    fn soil_has_its_own_action_and_release_resets_flow_and_path() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(super::super::ui_style::SOIL_DEPOSITION_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Left),
+            Some(PlayerToolPointerAction::Continuous(
+                ContinuousTerrainToolAction::SoilDeposit
+            ))
+        );
+        assert!(!runtime.has_secondary_pointer_action());
+        let now = Instant::now();
+        let quantum = Duration::from_millis(80);
+        assert_eq!(runtime.soil_deposition_budget(now, 1000., quantum).0, 80);
+        runtime.record_stroke_dab(ContinuousTerrainToolAction::SoilDeposit, now, Vec3::ZERO);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
+        runtime.finish_pointer_release();
+        assert_eq!(
+            runtime.previous_stroke_center(ContinuousTerrainToolAction::SoilDeposit),
+            None
+        );
+        assert_eq!(
+            runtime
+                .soil_deposition_budget(now + Duration::from_secs(10), 1000., quantum)
+                .0,
+            80
+        );
+        runtime.select_item_panel_slot(super::SHOVEL_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Right, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Right),
+            Some(PlayerToolPointerAction::Continuous(
+                ContinuousTerrainToolAction::ShovelPlace
+            ))
+        );
     }
 
     #[test]
