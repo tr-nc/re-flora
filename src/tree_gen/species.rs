@@ -22,7 +22,12 @@ impl TreeSpecies {
 
     pub fn mature_desc(self, authored: &TreeDesc) -> TreeDesc {
         match self {
-            Self::GardenTree => authored.clone(),
+            Self::GardenTree => {
+                let mut desc = authored.clone();
+                desc.species = Self::GardenTree;
+                desc.axis_model = false;
+                desc
+            }
             Self::Conifer => {
                 // The recursive parameters are the A-mode comparison, not the axis architecture.
                 let mut desc = TreeDesc::default();

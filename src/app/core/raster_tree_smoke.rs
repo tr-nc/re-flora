@@ -200,7 +200,15 @@ impl RasterTreeSmoke {
                 app.tracer.validate_gpu_tree_lighting(true)?;
             }
             160 => {
-                log::info!("[TREE][RASTER_SMOKE] passed raster_trees=true authored_thin_geometry=true hybrid_lighting=true authored_geometry_restored=true stiffness_sweep=true age_rebuild=true remove=true replace=true color_draws={}",app.tracer.raster_trees.color_draws);
+                app.exercise_conifer_model_smoke()?;
+                app.debug_settings.adjustables.raster_tree_wind.value = true;
+            }
+            175 => {
+                app.validate_tree_poses()?;
+                app.validate_tree_surface_pose()?;
+                app.tracer.validate_gpu_tree_surface()?;
+                app.tracer.validate_gpu_tree_lighting(true)?;
+                log::info!("[TREE][RASTER_SMOKE] passed raster_trees=true authored_thin_geometry=true hybrid_lighting=true authored_geometry_restored=true stiffness_sweep=true age_rebuild=true remove=true replace=true conifer=true color_draws={}",app.tracer.raster_trees.color_draws);
                 return Ok(true);
             }
             _ => {}

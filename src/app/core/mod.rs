@@ -1386,10 +1386,8 @@ impl App {
                     .value,
             ),
         )?;
-        let mut tree_placement_preview_desc = debug_settings
-            .tree
-            .desc
-            .at_age(debug_settings.adjustables.tree_age.value);
+        let mut tree_placement_preview_desc =
+            crate::tree_gen::TreeSpecies::GardenTree.mature_desc(&debug_settings.tree.desc);
         tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         let mut render_flags = render.flags.clone();
         if render_flags.enable_flora {
@@ -1673,29 +1671,37 @@ impl App {
     }
 
     fn rebuild_tree_placement_preview(&mut self) -> Result<()> {
-        let mesh = build_tree_preview_mesh(&self.tree_placement_preview_desc);
+        // Keep the placement description mature. Apply age once to the preview, just as
+        // TreePlacementService does at publication; never plant an already-aged description.
+        let mesh = build_tree_preview_mesh(
+            &self
+                .tree_placement_preview_desc
+                .at_age(self.debug_settings.adjustables.tree_age.value),
+        );
         self.tracer.upload_tree_geometry_preview(&mesh)
+    }
+
+    fn placement_tree_description(&self) -> TreeDesc {
+        let mut desc = self
+            .player_tools
+            .planting
+            .tree_species
+            .mature_desc(&self.debug_settings.tree.desc);
+        if desc.species == crate::tree_gen::TreeSpecies::Conifer {
+            desc.axis_model = self.debug_settings.tree.conifer_axis_model;
+        }
+        desc
     }
 
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
         let seed = self.tree_placement_preview_desc.branching.seed;
-        self.tree_placement_preview_desc = self
-            .player_tools
-            .planting
-            .tree_species
-            .mature_desc(&self.debug_settings.tree.desc)
-            .at_age(self.debug_settings.adjustables.tree_age.value);
+        self.tree_placement_preview_desc = self.placement_tree_description();
         self.tree_placement_preview_desc.branching.seed = seed;
         self.rebuild_tree_placement_preview()
     }
 
     pub(super) fn advance_tree_placement_preview(&mut self) -> Result<()> {
-        self.tree_placement_preview_desc = self
-            .player_tools
-            .planting
-            .tree_species
-            .mature_desc(&self.debug_settings.tree.desc)
-            .at_age(self.debug_settings.adjustables.tree_age.value);
+        self.tree_placement_preview_desc = self.placement_tree_description();
         self.tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         self.rebuild_tree_placement_preview()
     }
@@ -2508,6 +2514,7 @@ impl App {
                     self.tracer.handle_mouse(mouse_delta);
                 }
 
+                let conifer_axis_before_gui = self.debug_settings.tree.conifer_axis_model;
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
                 let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
@@ -3156,7 +3163,15 @@ impl App {
                         log::error!("Failed to refresh attached fruits after cycle scrub: {err:#}");
                     }
                 }
-                if tree_desc_changed || tree_age_changed {
+                let conifer_axis_changed =
+                    self.debug_settings.tree.conifer_axis_model != conifer_axis_before_gui;
+                if conifer_axis_changed {
+                    if let Err(err) = self.update_conifer_model_from_gui() {
+                        self.debug_settings.tree.conifer_axis_model = conifer_axis_before_gui;
+                        log::error!("Failed to switch conifer architecture: {err:#}");
+                    }
+                }
+                if tree_desc_changed || tree_age_changed || conifer_axis_changed {
                     if let Err(err) = self.sync_tree_placement_preview_from_gui() {
                         log::error!("Failed to rebuild tree geometry preview: {err}");
                     }

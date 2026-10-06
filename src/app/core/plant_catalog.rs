@@ -1,6 +1,6 @@
 //! Grow's catalog and session selection, independent of toolbar slots and render backends.
 use crate::flora::species::{self, FloraPaintSelection};
-use crate::tree_gen::TreeDesc;
+pub(crate) use crate::tree_gen::TreeSpecies;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) enum PlantType {
@@ -31,30 +31,6 @@ impl PlantType {
                 .copied()
                 .map(PlantVariety::Tree)
                 .collect(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum TreeSpecies {
-    #[default]
-    GardenTree,
-}
-
-impl TreeSpecies {
-    pub(crate) const ALL: [Self; 1] = [Self::GardenTree];
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::GardenTree => "Garden Tree",
-        }
-    }
-
-    /// Species authoring seam: the existing variety keeps the live authored tree unchanged.
-    /// Future species resolve their own mature description here, before age and seed are applied.
-    pub(crate) fn mature_desc(self, authored: &TreeDesc) -> TreeDesc {
-        match self {
-            Self::GardenTree => authored.clone(),
         }
     }
 }
@@ -143,7 +119,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_preserves_all_flora_and_has_one_existing_tree() {
+    fn catalog_preserves_all_flora_and_registers_both_tree_species() {
+        use crate::tree_gen::TreeDesc;
         assert_eq!(
             PlantType::Flora.varieties(),
             species::PLAYER_FLORA_PAINT_SELECTIONS
@@ -154,7 +131,10 @@ mod tests {
         );
         assert_eq!(
             PlantType::Tree.varieties(),
-            vec![PlantVariety::Tree(TreeSpecies::GardenTree)]
+            vec![
+                PlantVariety::Tree(TreeSpecies::GardenTree),
+                PlantVariety::Tree(TreeSpecies::Conifer)
+            ]
         );
         let authored = TreeDesc::default();
         assert_eq!(TreeSpecies::GardenTree.mature_desc(&authored), authored);
@@ -166,7 +146,21 @@ mod tests {
         let flower = PlantVariety::Flora(species::PLAYER_FLORA_PAINT_SELECTIONS[1]);
         assert!(selection.select_variety(flower));
         assert!(selection.select_type(PlantType::Tree));
-        assert_eq!(selection.next_variety(), selection.variety());
+        assert_eq!(
+            selection.next_variety(),
+            PlantVariety::Tree(TreeSpecies::Conifer)
+        );
+        assert!(selection.select_variety(selection.next_variety()));
+        assert_eq!(
+            selection.next_variety(),
+            PlantVariety::Tree(TreeSpecies::GardenTree)
+        );
+        assert!(selection.select_type(PlantType::Flora));
+        assert!(selection.select_type(PlantType::Tree));
+        assert_eq!(
+            selection.variety(),
+            PlantVariety::Tree(TreeSpecies::Conifer)
+        );
         assert!(selection.select_type(PlantType::Flora));
         assert_eq!(selection.variety(), flower);
         assert!(

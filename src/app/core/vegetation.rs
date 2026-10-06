@@ -1014,8 +1014,8 @@ impl PreparedTreePublication {
                 leaf_render_local_positions: compiled.leaf_render_local_positions,
                 fruit_specs: compiled.fruit_specs,
                 canopy_acoustic_descriptor: compiled.canopy_acoustic_descriptor,
-                pose: crate::tree_gen::pose::TreePose::new(
-                    compiled.rest_tree.branches(),
+                pose: crate::tree_gen::pose::TreePose::for_tree(
+                    &compiled.rest_tree,
                     compiled.tree_pos,
                 )
                 .expect("generated tree must have valid connected topology"),
@@ -1289,6 +1289,7 @@ impl GardenTrees {
         self.previous_bound
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         self.records.len()
     }
@@ -2400,6 +2401,76 @@ impl App {
         }
     }
 
+    /// Extend the existing hidden raster acceptance with real mixed-species publications.
+    pub(super) fn exercise_conifer_model_smoke(&mut self) -> Result<()> {
+        use crate::tree_gen::TreeSpecies;
+        let original: HashMap<_, _> = self
+            .trees
+            .records
+            .iter()
+            .map(|(&id, record)| (id, record.mature_desc.clone()))
+            .collect();
+        self.debug_settings.adjustables.tree_age.value = 0.5;
+        self.update_all_tree_ages_from_gui()?;
+        self.select_plant_variety(super::plant_catalog::PlantVariety::Tree(
+            TreeSpecies::Conifer,
+        ));
+        self.advance_tree_placement_preview()?;
+        let desc = self.tree_placement_preview_desc.clone();
+        anyhow::ensure!(
+            desc.growth_age == 1. && desc.axis_model,
+            "placement must retain a mature axis description"
+        );
+        self.add_tree(
+            desc.clone(),
+            TreePlacement::World(self.debug_tree_pos + Vec3::X * 0.45),
+            TreeAddOptions::default().with_new_id(),
+        )?;
+        let id = *self
+            .trees
+            .records
+            .iter()
+            .find(|(_, record)| record.mature_desc == desc)
+            .context("planted conifer missing canonical identity")?
+            .0;
+        let expected = Tree::new(desc.at_age(0.5));
+        anyhow::ensure!(
+            self.trees.records[&id].rest_tree.branches() == expected.branches(),
+            "preview/placement applied age differently"
+        );
+        for enabled in [false, true] {
+            self.debug_settings.tree.conifer_axis_model = enabled;
+            self.update_conifer_model_from_gui()?;
+            let record = &self.trees.records[&id];
+            anyhow::ensure!(
+                record.mature_desc.species == TreeSpecies::Conifer
+                    && record.mature_desc.branching.seed == desc.branching.seed,
+                "A/B changed species or individual seed"
+            );
+            anyhow::ensure!(
+                !record.rest_tree.axis_segments().is_empty() == enabled,
+                "A/B did not switch planted geometry"
+            );
+            anyhow::ensure!(record.fruit_specs.is_empty(), "conifer grew apples");
+            for (&id, before) in &original {
+                anyhow::ensure!(
+                    self.trees.records[&id].mature_desc == *before,
+                    "conifer A/B changed a Garden Tree"
+                );
+            }
+        }
+        self.debug_settings.adjustables.tree_age.value = 1.;
+        self.update_all_tree_ages_from_gui()?;
+        let snapshot = self.capture_tree_snapshot();
+        let prepared = self.prepare_tree_snapshot(&snapshot)?;
+        self.restore_tree_snapshot(prepared)?;
+        self.verify_restored_tree_rendering(&snapshot)?;
+        self.sync_tree_placement_preview_from_gui()?;
+        log::info!("[TREE][CONIFER_SMOKE] passed mixed_species=true persistent_seed=true age_once=true AB_planted_geometry=true snapshot_restore=true axis_segments={} leaf_instances={}",
+            self.trees.records[&id].rest_tree.branches().len(), self.trees.records[&id].leaf_render_positions.len());
+        Ok(())
+    }
+
     pub(super) fn update_tuned_tree_from_gui(&mut self) -> Result<()> {
         self.replace_single_tree(self.debug_settings.tree.desc.clone(), self.debug_tree_pos)
     }
@@ -2465,6 +2536,31 @@ impl App {
 
     pub(super) fn update_all_tree_ages_from_gui(&mut self) -> Result<()> {
         let records = self.trees.take_age_rebuild_sources();
+        self.rebuild_tree_records(records)
+    }
+
+    pub(super) fn update_conifer_model_from_gui(&mut self) -> Result<()> {
+        let enabled = self.debug_settings.tree.conifer_axis_model;
+        let records = self
+            .trees
+            .records
+            .iter()
+            .filter_map(|(&id, record)| {
+                if record.mature_desc.species != crate::tree_gen::TreeSpecies::Conifer
+                    || record.mature_desc.axis_model == enabled
+                {
+                    return None;
+                }
+                let mut record = record.clone();
+                record.mature_desc.axis_model = enabled;
+                Some((id, record))
+            })
+            .collect();
+        self.rebuild_tree_records(records)
+    }
+
+    fn rebuild_tree_records(&mut self, mut records: Vec<(u32, TreeRecord)>) -> Result<()> {
+        records.sort_unstable_by_key(|(id, _)| *id);
         if records.is_empty() {
             return Ok(());
         }
@@ -2525,7 +2621,7 @@ impl App {
 
         log::info!(
             "Rebuilt {} trees at global age {:.3} across {} chunks",
-            self.trees.len(),
+            receipts.len(),
             tree_age,
             rebuild_chunk_ids.len(),
         );

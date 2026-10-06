@@ -327,6 +327,40 @@ mod tests {
     }
 
     #[test]
+    fn mixed_species_snapshot_preserves_identity_seed_and_both_architectures() {
+        let mut snapshot = fixture();
+        for (id, axis_model) in [(8, true), (9, false)] {
+            let mut desc = crate::tree_gen::TreeSpecies::Conifer.mature_desc(&TreeDesc::default());
+            desc.branching.seed = 811 + id as u64;
+            desc.axis_model = axis_model;
+            snapshot.trees.push(SavedTree {
+                id,
+                position: [0.5 + (id - 7) as f32 * 0.5, 0.5, 0.5],
+                mature_desc: desc,
+            });
+        }
+        let decoded: TreeSnapshot =
+            serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        assert_eq!(snapshot, decoded);
+        let prepared = decoded
+            .prepare(1, CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET)
+            .unwrap();
+        for (saved, published) in snapshot.trees.iter().zip(prepared.publications.iter()) {
+            assert_eq!(saved.mature_desc, published.record.mature_desc);
+            assert_eq!(saved.id, published.tree_id);
+            let expected = Tree::new(saved.mature_desc.at_age(snapshot.age));
+            assert_eq!(expected.branches(), published.record.rest_tree.branches());
+            if saved.mature_desc.species == crate::tree_gen::TreeSpecies::Conifer {
+                assert!(published.record.fruit_specs.is_empty());
+                assert_eq!(
+                    !published.record.rest_tree.axis_segments().is_empty(),
+                    saved.mature_desc.axis_model
+                );
+            }
+        }
+    }
+
+    #[test]
     fn invalid_tree_data_is_rejected_before_compilation() {
         let mut snapshot = fixture();
         snapshot.age = f32::NAN;
