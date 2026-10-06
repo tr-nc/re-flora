@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 mod fruit_ground_trace;
 mod surface_motion;
+mod walk_recovery;
 use fruit_ground_trace::FruitGroundTrace;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
@@ -292,6 +293,17 @@ impl TerrainPhysics {
             fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
             ground_trace: FruitGroundTrace::from_env(),
         }
+    }
+
+    pub(super) fn recover_walk_entry(
+        &mut self,
+        eye: Vec3,
+        height: f32,
+    ) -> anyhow::Result<Option<Vec3>> {
+        Ok(
+            walk_recovery::recover(&mut self.collision_world, eye - Vec3::Y * height)?
+                .map(|feet| feet + Vec3::Y * height),
+        )
     }
 
     pub(super) fn move_player_capsule(

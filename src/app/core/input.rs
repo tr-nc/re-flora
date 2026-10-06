@@ -217,6 +217,7 @@ impl App {
         sim_time_seconds: f64,
     ) -> Vec<crate::gameplay::camera::FootstepEvent> {
         self.review_camera_zoom();
+        self.review_walk_entry();
         if self.camera_control.zoom_in_progress() {
             if !self.blocking_panel_open() {
                 let step = self
@@ -249,6 +250,33 @@ impl App {
         if self.is_free_fly_camera_mode() {
             self.tracer.update_fly_camera(frame_delta_time);
         } else if self.is_walk_camera_mode() {
+            if self.camera_control.take_walk_entry_check() {
+                let eye = self.tracer.camera_position();
+                let height = self
+                    .tracer
+                    .prepare_walk_camera_movement(0., 0.)
+                    .camera_height;
+                match self.terrain_physics.recover_walk_entry(eye, height) {
+                    Ok(Some(safe_eye)) => {
+                        if safe_eye != eye {
+                            let front = self.tracer.camera_front();
+                            self.tracer
+                                .set_camera_pose_looking_at(safe_eye, safe_eye + front);
+                        }
+                        self.tracer.reset_camera_velocity();
+                        log::info!(
+                            "[WALK_ENTRY] accepted original={eye:?} safe={safe_eye:?} capsule=true"
+                        );
+                    }
+                    result => {
+                        log::warn!("[WALK_ENTRY] rejected; remaining in free flight: {result:?}");
+                        self.camera_control.apply_snapshot_mode(true);
+                        self.tracer.reset_camera_velocity();
+                        self.sync_cursor_with_panels();
+                        return self.tracer.take_footstep_events();
+                    }
+                }
+            }
             if frame_delta_time > f32::EPSILON && frame_delta_time.is_finite() {
                 let request = self
                     .tracer
@@ -431,6 +459,51 @@ impl App {
                 }
             } else {
                 self.camera_control.queue_mouse_wheel_dolly(scroll_lines);
+            }
+        }
+    }
+
+    fn review_walk_entry(&mut self) {
+        let Some(frame) = self.camera_control.walk_entry_review else {
+            return;
+        };
+        self.camera_control.walk_entry_review = Some(frame + 1);
+        if matches!(frame, 0 | 30) {
+            let center = super::camera_control::ORBIT_CAMERA_DEFAULT_FOCUS;
+            let hit = self
+                .query_terrain_ray_cpu(Vec3::new(center.x, 2., center.z), Vec3::NEG_Y)
+                .expect("walk review needs terrain");
+            let height = self
+                .tracer
+                .prepare_walk_camera_movement(0., 0.)
+                .camera_height;
+            let mut pose = self.tracer.camera_pose();
+            pose.position = hit.position + Vec3::Y * (height - 0.025);
+            self.tracer.apply_camera_pose(pose);
+            self.camera_control.apply_snapshot_mode(true);
+            self.toggle_camera_control_mode();
+        } else if matches!(frame, 1 | 31) {
+            assert!(
+                self.is_walk_camera_mode(),
+                "embedded walking entry should recover"
+            );
+            let eye = self.tracer.camera_position();
+            let height = self
+                .tracer
+                .prepare_walk_camera_movement(0., 0.)
+                .camera_height;
+            assert_eq!(
+                self.terrain_physics
+                    .recover_walk_entry(eye, height)
+                    .unwrap(),
+                Some(eye),
+                "published camera must already be clear"
+            );
+            log::info!(
+                "[WALK_ENTRY_REVIEW] passed frame={frame} recovered=true whole_capsule=true"
+            );
+            if frame == 31 {
+                self.camera_control.walk_entry_review = None;
             }
         }
     }

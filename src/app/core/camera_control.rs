@@ -220,10 +220,12 @@ pub(super) struct OrbitMotion {
 
 pub(super) struct CameraControlRuntime {
     mode: CameraControlMode,
+    walk_entry_pending: bool,
     zoom_transition: Option<ZoomTransition>,
 
     // Opt-in native input/physics diagnostic; never a persisted setting.
     pub(super) zoom_review: Option<(u8, u32)>,
+    pub(super) walk_entry_review: Option<u32>,
     debug_return_mode: Option<CameraControlMode>,
     orbit_focus: Vec3,
     keyboard_pan: OrbitKeyboardPanInput,
@@ -239,9 +241,12 @@ impl Default for CameraControlRuntime {
     fn default() -> Self {
         Self {
             mode: CameraControlMode::default(),
+            walk_entry_pending: false,
             zoom_transition: None,
             zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1"))
                 .then_some((0, 0)),
+            walk_entry_review: (std::env::var("RE_FLORA_WALK_ENTRY_REVIEW").as_deref() == Ok("1"))
+                .then_some(0),
             debug_return_mode: None,
             orbit_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             keyboard_pan: OrbitKeyboardPanInput::default(),
@@ -290,6 +295,7 @@ impl CameraControlRuntime {
         self.zoom_transition = None;
         self.debug_return_mode = None;
         self.mode = self.mode.next();
+        self.walk_entry_pending = self.mode == CameraControlMode::Walk;
         self.is_orbit_edit()
     }
 
@@ -301,8 +307,13 @@ impl CameraControlRuntime {
         } else {
             CameraControlMode::Walk
         };
+        self.walk_entry_pending = !fly_mode;
         self.accumulated_mouse_delta = Vec2::ZERO;
         self.smoothed_mouse_delta = Vec2::ZERO;
+    }
+
+    pub(super) fn take_walk_entry_check(&mut self) -> bool {
+        self.is_walk() && std::mem::take(&mut self.walk_entry_pending)
     }
 
     pub(super) fn set_orbit_focus(&mut self, focus: Vec3) {
@@ -606,6 +617,7 @@ impl CameraControlRuntime {
             } else {
                 CameraControlMode::OrbitEdit
             };
+            self.walk_entry_pending = self.mode == CameraControlMode::Walk;
             self.zoom_transition = None;
             self.accumulated_mouse_delta = Vec2::ZERO;
             self.smoothed_mouse_delta = Vec2::ZERO;
@@ -768,6 +780,19 @@ fn valid_terrain_focus(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_walk_entry_requests_one_safety_check() {
+        let mut runtime = CameraControlRuntime::default();
+        runtime.cycle_mode();
+        runtime.cycle_mode();
+        assert!(runtime.take_walk_entry_check());
+        assert!(!runtime.take_walk_entry_check());
+        runtime.apply_snapshot_mode(false);
+        assert!(runtime.take_walk_entry_check());
+        runtime.apply_snapshot_mode(true);
+        assert!(!runtime.take_walk_entry_check());
+    }
 
     fn assert_near(actual: f32, expected: f32) {
         assert!(

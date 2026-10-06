@@ -693,6 +693,23 @@ impl CollisionWorld {
 
     /// Pick voxel terrain and fixed model surfaces from the character controller's static world.
     /// Dynamic fruit and sensors are excluded just as they are for character movement.
+    /// Tests the complete upright character volume against the same published
+    /// collision geometry as movement. A ray or a zero-length movement is not
+    /// sufficient to validate a controller spawned inside solid terrain.
+    pub fn capsule_character_is_clear(&mut self, center: Vec3, radius: f32, half_height: f32) -> Result<bool, CapsuleCharacterMoveError> {
+        validate_capsule_character_move(CapsuleCharacterMove {
+            center, radius, half_height, desired_translation: Vec3::ZERO, dt: 1. / 60.,
+        })?;
+        self.sync_capsule_character_broad_phase();
+        let shape = SharedShape::capsule_y(half_height, radius);
+        let queries = self.capsule_character_broad_phase.as_query_pipeline(
+            self.physics.narrow_phase.query_dispatcher(), &self.physics.bodies,
+            &self.physics.colliders, QueryFilter::default().exclude_sensors(),
+        );
+        let clear = queries.intersect_shape(Pose::from_translation(to_rapier_vec(center)), shape.as_ref()).next().is_none();
+        Ok(clear)
+    }
+
     pub fn cast_character_surface_ray(&mut self, origin: Vec3, direction: Vec3, max_distance: f32) -> Option<CharacterSurfaceRayHit> {
         if !origin.is_finite() || !direction.is_finite() || !max_distance.is_finite() || max_distance <= 0. {
             return None;
