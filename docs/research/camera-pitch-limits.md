@@ -16,12 +16,20 @@ The same file also contains `fov = 45`: that is the lens field of view, **not** 
 
 Engine-side pitch limits are also an explicit supported mechanism, e.g. Unreal's [PlayerCameraManager](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/APlayerCameraManager) and `LimitViewPitch`. Engine support is not evidence of a particular shipped game's camera settings.
 
-## Re: Flora recommendation (not implemented)
+## Re: Flora recommendation
 
 Clarify the angle convention first: 0 degrees is horizontal, 45 degrees is an oblique downward view, and 90 degrees is straight down. Restricting upward head pitch is a different policy from restricting high-elevation/top-down grass viewing.
 
-If the problem is grass appearing poor from increasingly overhead views, test an orbit/edit elevation ceiling of 45 degrees while retaining free horizontal rotation, panning, and zoom. Do not indiscriminately change the shared camera pitch clamp: Walking, free flight, and orbit have different purposes. Current orbit elevation permits approximately 87.7 degrees; the generic free-look clamp permits approximately +/-89.4 degrees.
+If the problem is grass appearing poor from increasingly overhead views, test an orbit/edit elevation ceiling of 45 degrees while retaining free horizontal rotation, panning, and zoom. Do not indiscriminately change the shared camera pitch clamp: Walking, free flight, and orbit have different purposes. Before implementation, orbit elevation permitted approximately 87.7 degrees; the generic free-look clamp permits approximately +/-89.4 degrees.
 
 A limit alone cannot protect appearance if camera position is independently unrestricted: a player can move above the garden and choose another focus point. Visual testing should therefore check the actual undesirable viewpoint and not confuse camera height with pitch. Existing snapshots and zoom/mode transitions must respect any future per-mode policy as well as mouse input.
 
-For any implementation, avoid accumulating vertical mouse/smoothing displacement beyond the bound, so reversing input responds immediately. 45 degrees is a proposed artistic test value, not a research-derived requirement. No gameplay, settings, snapshots, or rendering code was changed for this investigation.
+For any implementation, avoid accumulating vertical mouse/smoothing displacement beyond the bound, so reversing input responds immediately. 45 degrees is a proposed artistic test value, not a research-derived requirement. The initial investigation changed no gameplay code.
+
+## Implemented after player approval
+
+`camera_orbit_max_elevation` is now a declarative saved float in Debug / Camera View, default **45 degrees**, adjustable **5–87.7 degrees**. Search `camera` or `maximum downward angle`. It uses the existing unified Save and generated typed binding. Older saves acquire the default in memory without being automatically rewritten.
+
+Orbit poses and pending mouse rotation use the same derived limit. Lowering the slider or entering primary orbit/edit mode with an over-limit pose corrects elevation while retaining focus, azimuth and orbit distance (within existing distance bounds). Zoom return targets honor limits below the usual 25-degree edit return. Walking/free-flight look limits are unchanged; opening Debug temporarily from free flight does not itself reposition that camera, while an orbit gesture still obeys the limit. Zoom interpolation is allowed to start at a Walking pose outside the orbit range.
+
+Tests cover multiple live limits, immediate reverse input at the bound, old-file loading without a write, save/reload of 60 degrees, and a 10-degree zoom return target. A native hidden fixture changes the actual saved-field-bound control in memory through 45 / 25 / 60 degrees and verifies the corrected camera pose; fixture changes are not saved.

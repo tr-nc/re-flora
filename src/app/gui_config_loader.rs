@@ -104,6 +104,7 @@ impl GuiConfigLoader {
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
+        Self::add_missing_param(&mut config, "Debug", "camera_orbit_max_elevation");
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         Self::migrate_model_view_quantization(&mut config);
@@ -1238,6 +1239,45 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn orbit_limit_is_added_to_old_saves_without_writing_and_round_trips() {
+        use super::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| p.id != "camera_orbit_max_elevation");
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("gui.toml");
+        let old = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, &old).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        let param = loaded
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "camera_orbit_max_elevation")
+            .unwrap();
+        if let GuiParamValue::Float { value, .. } = &mut param.value {
+            assert_eq!(*value, 45.);
+            *value = 60.;
+        } else {
+            panic!("orbit limit must be a saved float");
+        }
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        let param = reloaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "camera_orbit_max_elevation")
+            .unwrap();
+        assert!(matches!(param.value, GuiParamValue::Float { value, .. } if value == 60.));
+    }
+
     #[test]
     fn retired_stem_modes_are_removed_without_writing_saves() {
         for old_mode in 0..=3 {

@@ -153,9 +153,9 @@ impl ZoomTransition {
     }
 }
 
-pub(super) fn edit_pose_from_walk(pose: CameraPose) -> CameraPose {
+pub(super) fn edit_pose_from_walk(pose: CameraPose, max_elevation: f32) -> CameraPose {
     let yaw = pose.yaw_deg.to_radians();
-    let elevation = 25_f32.to_radians();
+    let elevation = 25_f32.to_radians().min(max_elevation);
     let horizontal = WALK_EXIT_ORBIT_DISTANCE * elevation.cos();
     CameraPose {
         position: pose.position
@@ -164,7 +164,7 @@ pub(super) fn edit_pose_from_walk(pose: CameraPose) -> CameraPose {
                 WALK_EXIT_ORBIT_DISTANCE * elevation.sin(),
                 yaw.cos() * horizontal,
             ),
-        pitch_deg: -25.,
+        pitch_deg: -elevation.to_degrees(),
         ..pose
     }
 }
@@ -182,21 +182,41 @@ mod tests {
     }
     #[test]
     fn walking_exit_ignores_pitch_and_preserves_yaw_and_fov() {
-        let target = edit_pose_from_walk(pose(0.));
+        let target = edit_pose_from_walk(pose(0.), 45_f32.to_radians());
         for pitch in [-89., -45., 0., 45., 89.] {
-            assert_eq!(edit_pose_from_walk(pose(pitch)), target);
+            assert_eq!(
+                edit_pose_from_walk(pose(pitch), 45_f32.to_radians()),
+                target
+            );
             let offset = target.position - pose(pitch).position;
             let elevation = offset.y.atan2(glam::Vec2::new(offset.x, offset.z).length());
             assert!((elevation.to_degrees() - 25.).abs() < 1e-5);
-            assert_eq!(target.pitch_deg, -25.);
+            assert!((target.pitch_deg + 25.).abs() < 1e-5);
             assert!((offset.length() - WALK_EXIT_ORBIT_DISTANCE).abs() < 1e-6);
         }
     }
     #[test]
+    fn edit_return_respects_limits_below_the_usual_twenty_five_degrees() {
+        let target = edit_pose_from_walk(pose(80.), 10_f32.to_radians());
+        assert!((target.pitch_deg + 10.).abs() < 1e-5);
+        let offset = target.position - pose(80.).position;
+        assert!(
+            (offset
+                .y
+                .atan2(glam::Vec2::new(offset.x, offset.z).length())
+                .to_degrees()
+                - 10.)
+                .abs()
+                < 1e-5
+        );
+    }
+
+    #[test]
     fn level_and_upward_views_start_with_planar_withdrawal_not_vertical_float() {
         for pitch in [0., 45., 89.] {
             let p = pose(pitch);
-            let transition = ZoomTransition::new(p, edit_pose_from_walk(p), false);
+            let transition =
+                ZoomTransition::new(p, edit_pose_from_walk(p, 45_f32.to_radians()), false);
             let (start, tangent) = transition.lift_curve(0.);
             assert_eq!(start, p.position);
             assert_eq!(tangent.y, 0.);
@@ -209,7 +229,7 @@ mod tests {
     fn lift_is_monotone_and_rear_axis_matches_path_after_alignment() {
         for pitch in [-89., -45., 0., 45., 89.] {
             let start = pose(pitch);
-            let end = edit_pose_from_walk(start);
+            let end = edit_pose_from_walk(start, 45_f32.to_radians());
             let mut transition = ZoomTransition::new(start, end, false);
             let mut last = start.position;
             for i in 1..100 {
@@ -233,7 +253,11 @@ mod tests {
     fn whole_pose_speed_eases_at_both_ends_and_peaks_near_the_middle() {
         for pitch in [-89., 0., 80.] {
             let start = pose(pitch);
-            let mut transition = ZoomTransition::new(start, edit_pose_from_walk(start), false);
+            let mut transition = ZoomTransition::new(
+                start,
+                edit_pose_from_walk(start, 45_f32.to_radians()),
+                false,
+            );
             let mut last = start;
             let mut speeds = Vec::new();
             for _ in 0..100 {
@@ -274,7 +298,7 @@ mod tests {
         };
         let end = CameraPose {
             yaw_deg: -179.,
-            ..edit_pose_from_walk(start)
+            ..edit_pose_from_walk(start, 45_f32.to_radians())
         };
         let mut a = ZoomTransition::new(start, end, false);
         assert!(a.advance(f32::NAN).0.position.distance(start.position) < 1e-6);

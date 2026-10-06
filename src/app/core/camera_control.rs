@@ -220,12 +220,15 @@ pub(super) struct OrbitMotion {
 
 pub(super) struct CameraControlRuntime {
     mode: CameraControlMode,
+    // Derived each frame from the saved GUI control, never an editable owner.
+    max_orbit_elevation: f32,
     walk_entry_pending: bool,
     zoom_transition: Option<ZoomTransition>,
 
     // Opt-in native input/physics diagnostic; never a persisted setting.
     pub(super) zoom_review: Option<(u8, u32)>,
     pub(super) walk_entry_review: Option<u32>,
+    pub(super) orbit_limit_review: Option<u32>,
     debug_return_mode: Option<CameraControlMode>,
     orbit_focus: Vec3,
     keyboard_pan: OrbitKeyboardPanInput,
@@ -241,12 +244,16 @@ impl Default for CameraControlRuntime {
     fn default() -> Self {
         Self {
             mode: CameraControlMode::default(),
+            max_orbit_elevation: ORBIT_CAMERA_MAX_ELEVATION_RAD,
             walk_entry_pending: false,
             zoom_transition: None,
             zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1"))
                 .then_some((0, 0)),
             walk_entry_review: (std::env::var("RE_FLORA_WALK_ENTRY_REVIEW").as_deref() == Ok("1"))
                 .then_some(0),
+            orbit_limit_review: (std::env::var("RE_FLORA_ORBIT_LIMIT_REVIEW").as_deref()
+                == Ok("1"))
+            .then_some(0),
             debug_return_mode: None,
             orbit_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             keyboard_pan: OrbitKeyboardPanInput::default(),
@@ -261,6 +268,31 @@ impl Default for CameraControlRuntime {
 }
 
 impl CameraControlRuntime {
+    pub(super) fn set_orbit_elevation_limit(&mut self, degrees: f32) {
+        let limit = if degrees.is_finite() {
+            degrees
+                .to_radians()
+                .clamp(0., ORBIT_CAMERA_MAX_ELEVATION_RAD)
+        } else {
+            0.
+        };
+        if limit != self.max_orbit_elevation {
+            self.max_orbit_elevation = limit;
+            self.rotation_smoother.reset();
+        }
+    }
+
+    pub(super) fn orbit_limit_correction(&self, position: Vec3) -> Option<(Vec3, Vec3)> {
+        // Opening Debug from free flight borrows orbit input without moving the
+        // free-flight camera. A real orbit gesture still uses the configured cap.
+        if !self.is_orbit_edit() || self.debug_return_mode.is_some() || self.zoom_in_progress() {
+            return None;
+        }
+        let (azimuth, elevation, distance) = self.orbit_spherical(position);
+        (elevation > self.max_orbit_elevation + 1e-6)
+            .then(|| self.orbit_pose(azimuth, elevation, distance))
+    }
+
     pub(super) fn is_free_look(&self) -> bool {
         matches!(
             self.mode,
@@ -382,7 +414,7 @@ impl CameraControlRuntime {
     pub(super) fn orbit_pose(&self, azimuth: f32, elevation: f32, distance: f32) -> (Vec3, Vec3) {
         let azimuth = if azimuth.is_finite() { azimuth } else { 0.0 };
         let elevation = if elevation.is_finite() {
-            elevation.clamp(0.0, ORBIT_CAMERA_MAX_ELEVATION_RAD)
+            elevation.clamp(0.0, self.max_orbit_elevation)
         } else {
             0.0
         };
@@ -572,6 +604,7 @@ impl CameraControlRuntime {
                     current_elevation,
                     self.rotation_smoother.pending_delta().y,
                     rotation_delta.y,
+                    self.max_orbit_elevation,
                 );
                 self.rotation_smoother.add_delta(rotation_delta);
             }
@@ -603,7 +636,7 @@ impl CameraControlRuntime {
         self.orbit_focus = start.position;
         self.zoom_transition = Some(ZoomTransition::new(
             start,
-            edit_pose_from_walk(start),
+            edit_pose_from_walk(start, self.max_orbit_elevation),
             false,
         ));
     }
@@ -708,10 +741,11 @@ fn clamp_orbit_elevation_delta(
     current_elevation: f32,
     pending_elevation_delta: f32,
     requested_elevation_delta: f32,
+    maximum: f32,
 ) -> f32 {
     let target_elevation =
         (current_elevation + pending_elevation_delta + requested_elevation_delta)
-            .clamp(0.0, ORBIT_CAMERA_MAX_ELEVATION_RAD);
+            .clamp(0.0, maximum);
     target_elevation - current_elevation - pending_elevation_delta
 }
 
@@ -780,6 +814,31 @@ fn valid_terrain_focus(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_limit_controls_pose_live_correction_and_input_bounds() {
+        let mut runtime = CameraControlRuntime::default();
+        for degrees in [45_f32, 25., 60., 87.7] {
+            runtime.set_orbit_elevation_limit(degrees);
+            let max = degrees.to_radians();
+            let position = runtime.orbit_focus + Vec3::Y * 1.8 + Vec3::Z * 0.4;
+            if degrees < 80. {
+                let (corrected, focus) = runtime.orbit_limit_correction(position).unwrap();
+                let (_, angle, _) = orbit_offset_to_spherical(corrected - focus);
+                assert_near(angle, max);
+            }
+            let (position, focus) = runtime.orbit_pose(0.7, 89_f32.to_radians(), 1.5);
+            let (_, angle, distance) = orbit_offset_to_spherical(position - focus);
+            assert_near(angle, max);
+            assert_near(distance, 1.5);
+            assert_near(clamp_orbit_elevation_delta(max, 0., 100., max), 0.);
+            assert_near(clamp_orbit_elevation_delta(max, 0., -0.1, max), -0.1);
+        }
+        runtime.apply_snapshot_mode(false);
+        assert!(runtime.orbit_limit_correction(Vec3::Y).is_none());
+        runtime.apply_snapshot_mode(true);
+        assert!(runtime.orbit_limit_correction(Vec3::Y).is_none());
+    }
 
     #[test]
     fn every_walk_entry_requests_one_safety_check() {
@@ -922,11 +981,11 @@ mod tests {
     #[test]
     fn orbit_rotation_smoothing_respects_elevation_limits() {
         let max = ORBIT_CAMERA_MAX_ELEVATION_RAD;
-        assert_near(clamp_orbit_elevation_delta(max - 0.1, 0.0, 0.3), 0.1);
-        assert_near(clamp_orbit_elevation_delta(0.1, 0.0, -0.3), -0.1);
-        assert_near(clamp_orbit_elevation_delta(0.0, 0.0, -0.3), 0.0);
-        assert_near(clamp_orbit_elevation_delta(0.2, -0.1, -0.3), -0.1);
-        assert_near(clamp_orbit_elevation_delta(max - 0.2, 0.1, 0.3), 0.1);
+        assert_near(clamp_orbit_elevation_delta(max - 0.1, 0.0, 0.3, max), 0.1);
+        assert_near(clamp_orbit_elevation_delta(0.1, 0.0, -0.3, max), -0.1);
+        assert_near(clamp_orbit_elevation_delta(0.0, 0.0, -0.3, max), 0.0);
+        assert_near(clamp_orbit_elevation_delta(0.2, -0.1, -0.3, max), -0.1);
+        assert_near(clamp_orbit_elevation_delta(max - 0.2, 0.1, 0.3, max), 0.1);
     }
 
     #[test]

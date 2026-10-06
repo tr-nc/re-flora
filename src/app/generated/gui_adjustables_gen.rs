@@ -26,6 +26,12 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "camera_orbit_max_elevation",
+        kind: "float",
+        label: "Orbit camera: maximum downward angle (Degrees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "stone_preview_enabled",
         kind: "bool",
         label: "Stone preview: enabled",
@@ -1498,6 +1504,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
+    pub camera_orbit_max_elevation: crate::gui_adjustables::FloatParam,
     pub stone_preview_enabled: crate::gui_adjustables::BoolParam,
     pub stone_direct_triangles: crate::gui_adjustables::BoolParam,
     pub stone_preview_focus: crate::gui_adjustables::BoolParam,
@@ -1756,6 +1763,7 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
+        let mut camera_orbit_max_elevation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut stone_preview_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut stone_direct_triangles_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut stone_preview_focus_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2005,6 +2013,13 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
+                    "camera_orbit_max_elevation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            camera_orbit_max_elevation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "stone_preview_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             stone_preview_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3634,6 +3649,7 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
+            camera_orbit_max_elevation: camera_orbit_max_elevation_field.expect("Missing parameter: camera_orbit_max_elevation"),
             stone_preview_enabled: stone_preview_enabled_field.expect("Missing parameter: stone_preview_enabled"),
             stone_direct_triangles: stone_direct_triangles_field.expect("Missing parameter: stone_direct_triangles"),
             stone_preview_focus: stone_preview_focus_field.expect("Missing parameter: stone_preview_focus"),
@@ -3886,6 +3902,7 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
+        "camera_orbit_max_elevation" => Some(&adjustables.camera_orbit_max_elevation),
         "stone_preview_lift" => Some(&adjustables.stone_preview_lift),
         "stone_yaw" => Some(&adjustables.stone_yaw),
         "stone_width" => Some(&adjustables.stone_width),
@@ -4178,6 +4195,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
+        "camera_orbit_max_elevation" => Some(&mut adjustables.camera_orbit_max_elevation),
         "stone_preview_lift" => Some(&mut adjustables.stone_preview_lift),
         "stone_yaw" => Some(&mut adjustables.stone_yaw),
         "stone_width" => Some(&mut adjustables.stone_width),

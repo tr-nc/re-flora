@@ -92,6 +92,17 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
+id = "camera_orbit_max_elevation"
+kind = "float"
+label = "Orbit camera: maximum downward angle (Degrees)"
+type = "Float"
+
+[section.param.data]
+value = 45
+min = 5
+max = 87.7
+
+[[section.param]]
 id = "stone_preview_enabled"
 kind = "bool"
 label = "Stone preview: enabled"

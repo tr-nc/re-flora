@@ -14,6 +14,13 @@ struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Camera View",
+        description: "Limit the orbit/edit camera's downward viewing angle: 0 is horizontal, 90 is directly overhead. Live changes retain the focus and distance. Walking and free-flight look angles are unchanged. Saved with the unified Save button.",
+        initially_open: false,
+        params: &["camera_orbit_max_elevation"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Stone Geometry",
         description: "Deterministic closed triangle models, not voxel source data. Slabs have broad flat tops and bottoms with corner cuts and narrow chamfers; rocks use bounded asymmetric cutting planes. Slab thickness is limited to 30% of the short edge. All dimensions use garden world units (256 terrain voxels per unit). These are visual candidates, not approved art.",
         initially_open: false,

@@ -216,6 +216,19 @@ impl App {
         frame_delta_time: f32,
         sim_time_seconds: f64,
     ) -> Vec<crate::gameplay::camera::FootstepEvent> {
+        self.review_orbit_limit();
+        self.camera_control.set_orbit_elevation_limit(
+            self.debug_settings
+                .adjustables
+                .camera_orbit_max_elevation
+                .value,
+        );
+        if let Some((position, focus)) = self
+            .camera_control
+            .orbit_limit_correction(self.tracer.camera_position())
+        {
+            self.tracer.set_camera_pose_looking_at(position, focus);
+        }
         self.review_camera_zoom();
         self.review_walk_entry();
         if self.camera_control.zoom_in_progress() {
@@ -459,6 +472,36 @@ impl App {
                 }
             } else {
                 self.camera_control.queue_mouse_wheel_dolly(scroll_lines);
+            }
+        }
+    }
+
+    fn review_orbit_limit(&mut self) {
+        let Some(frame) = self.camera_control.orbit_limit_review else {
+            return;
+        };
+        self.camera_control.orbit_limit_review = Some(frame + 1);
+        let stage = (frame / 20).min(2) as usize;
+        let degrees = [45_f32, 25., 60.][stage];
+        if frame.is_multiple_of(20) && frame <= 40 {
+            self.debug_settings
+                .adjustables
+                .camera_orbit_max_elevation
+                .value = degrees;
+            let focus = self
+                .camera_control
+                .flora_showcase_center(self.tracer.camera_position());
+            let angle = 80_f32.to_radians();
+            self.tracer
+                .set_camera_pose_looking_at(focus + Vec3::new(0., angle.sin(), angle.cos()), focus);
+        } else if matches!(frame, 1 | 21 | 41) {
+            let (_, angle, _) = self
+                .camera_control
+                .orbit_spherical(self.tracer.camera_position());
+            assert!((angle.to_degrees() - degrees).abs() < 0.01);
+            log::info!("[ORBIT_LIMIT_REVIEW] passed stage={stage} limit={degrees} elevation={} saved=false", angle.to_degrees());
+            if frame == 41 {
+                self.camera_control.orbit_limit_review = None;
             }
         }
     }
