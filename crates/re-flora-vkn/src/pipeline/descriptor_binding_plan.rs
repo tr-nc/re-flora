@@ -224,6 +224,10 @@ impl DescriptorBindingPlan {
         &self.pipeline_name
     }
 
+    pub(crate) fn resource_names(&self) -> impl Iterator<Item = &str> {
+        self.bindings_by_name.keys().map(String::as_str)
+    }
+
     pub(crate) fn binding(&self, name: &str) -> Result<&DescriptorBinding> {
         self.bindings_by_name.get(name).ok_or_else(|| {
             anyhow!(

@@ -324,6 +324,10 @@ impl ReflectedDescriptorRuntime {
         descriptor_set.record_resource_uses(cmdbuf);
     }
 
+    pub(super) fn resource_names(&self) -> impl Iterator<Item = &str> {
+        self.plan.resource_names()
+    }
+
     pub(super) fn tracked_texture_binding_count(&self) -> usize {
         self.state
             .lock()

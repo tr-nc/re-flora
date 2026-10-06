@@ -84,12 +84,18 @@ three responsibilities rather than teaching individual editing tools how to skip
   advances validity without rebuilding. An intersecting edit stays dirty until a complete
   rebuild succeeds; canonical-tree changes always require revalidation. Dependency intersection
   accepts inclusive voxel bounds, including single-cell and boundary-touching edits.
-- `Tracer::publish_static_raster_trees` owns publication of the derived surface and attachments.
-  It retains resident resources and pose history only when the complete observable surface is
-  exactly equal: vertex bytes (including normals/confidence), indices, solid occupancy, skin
-  bindings, cell lookup, and attachments. It does not rely on counts or a hash. Publication is
-  marked invalid before any fallible resource change and valid only after every upload succeeds,
-  so a failed partial upload cannot be accepted as an unchanged result on retry.
+- `Tracer` prepares the complete derived surface and attachments off to the side, retaining the
+  resident publication if validation, allocation, upload, or descriptor preparation fails. It
+  retains resources and pose history for exactly equal observable surfaces: vertex bytes
+  (including normals/confidence), indices, solid occupancy, skin bindings, cell lookup, and
+  attachments. Equality does not rely on counts or a hash. A quiesced, infallible commit publishes
+  every prepared descriptor generation and swaps the complete resource set and geometry.
+- `TreeSurfaceResources` sizes vertices, indices, skin/palette, BVH/refit, occupancy, attachment,
+  lookup, and lighting buffers from actual demand, subject to Vulkan `maxStorageBufferRange`, a
+  256 MiB publication budget, and a 512 MiB old-plus-new logical buffer peak budget. Lookup tables
+  maintain a less-than-half load and grow again if the shader's 64-probe bound would be exceeded.
+  Pipeline collections visit all required/optional pipelines; reflection selects the tree
+  bindings each actually consumes. New buffers cannot silently leave consumers bound to old ones.
 
 Terrain changes can affect tree shading without removing any wood. Neither dependency tracking
 nor publication equality may use a removed-wood count as a shortcut. Shared sampling radius,

@@ -19,7 +19,6 @@ use crate::{
     },
 };
 
-pub const TREE_CELL_CAPACITY: usize = 1 << 18;
 const NEIGHBORS: [IVec3; 6] = [
     IVec3::NEG_Y,
     IVec3::Y,
@@ -135,34 +134,31 @@ impl RasterTreeMesh {
 
     pub fn finish(&mut self) -> Result<Vec<[u32; 4]>> {
         ensure!(
-            self.cells.len() < TREE_CELL_CAPACITY / 2,
-            "static tree comparison exceeds {} surface cells",
-            TREE_CELL_CAPACITY / 2
+            self.cells.len() <= super::tree_lookup::TREE_PUBLICATION_BUDGET_BYTES / (8 * 48),
+            "tree surface exceeds preparation memory budget"
         );
-        let mut table = vec![[0u32; 4]; TREE_CELL_CAPACITY];
-        self.cell_vertex_indices = vec![u32::MAX; TREE_CELL_CAPACITY];
+        let entries: Vec<_> = self
+            .cells
+            .iter()
+            .map(|(&cell, &(normal, _, faces))| {
+                let mask = faces
+                    .iter()
+                    .enumerate()
+                    .fold(0u32, |mask, (i, &visible)| mask | (u32::from(visible) << i));
+                [
+                    cell[0],
+                    cell[1],
+                    cell[2],
+                    (pack_normal_oct16(normal) + 1) | (mask << 17),
+                ]
+            })
+            .collect();
+        let lookup = super::tree_lookup::build_tree_lookup(&entries)?;
+        let table = lookup.table;
+        self.cell_vertex_indices = vec![u32::MAX; table.len()];
         self.vertices.clear();
         self.indices.clear();
-        for (&cell, &(normal, confidence, faces)) in &self.cells {
-            let hash = tree_cell_hash(cell) as usize;
-            let slot = (0..64)
-                .map(|i| (hash + i) & (TREE_CELL_CAPACITY - 1))
-                .find(|&s| table[s][3] == 0);
-            let slot = slot
-                .ok_or_else(|| anyhow::anyhow!("static tree cell lookup probe budget exhausted"))?;
-            // Low 17 bits preserve the normal+1 empty sentinel; next six bits
-            // identify exposed faces in CUBE_INDICES order. Confidence stays f32
-            // in the resident normal's spare W component, without another buffer.
-            let face_mask = faces
-                .iter()
-                .enumerate()
-                .fold(0u32, |mask, (i, &visible)| mask | (u32::from(visible) << i));
-            table[slot] = [
-                cell[0],
-                cell[1],
-                cell[2],
-                (pack_normal_oct16(normal) + 1) | (face_mask << 17),
-            ];
+        for ((&cell, &(normal, confidence, faces)), slot) in self.cells.iter().zip(lookup.slots) {
             let min = UVec3::from_array(cell).as_vec3();
             let base = u32::try_from(self.vertices.len())?;
             self.cell_vertex_indices[slot] = base;
@@ -289,8 +285,8 @@ impl RasterTreeMesh {
             ]);
         }
         ensure!(
-            result.branches.len() < super::tree_scene::MAX_TREE_VERTICES,
-            "GPU tree pose capacity exceeded"
+            result.branches.len() < u32::MAX as usize,
+            "GPU tree palette exceeds u32 addressing"
         );
         Ok(result)
     }
@@ -360,6 +356,12 @@ impl RasterTreeMesh {
         self.cells.len()
     }
 
+    pub(super) fn rest_positions(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.vertices
+            .iter()
+            .map(|vertex| Vec3::from(vertex.position))
+    }
+
     /// Exposed on both sides of at least two axes: actual published one-voxel
     /// cross sections (including isolated cells), not inferred from cone radii.
     pub fn single_voxel_cross_sections(&self) -> usize {
@@ -403,7 +405,7 @@ impl RasterTreeMesh {
     /// Smoke-only validation of the actual compute output, not just CPU metadata.
     pub fn validate_lighting_cache(&self, data: &[[f32; 4]], hybrid: bool) -> Result<()> {
         ensure!(
-            data.len() == TREE_CELL_CAPACITY,
+            data.len() == self.cell_vertex_indices.len(),
             "tree lighting cache size mismatch"
         );
         for (slot, &base) in self.cell_vertex_indices.iter().enumerate() {
@@ -598,7 +600,9 @@ impl RasterTreeGeometry {
             );
             ensure!(
                 data[i * 2 + 1][3] == vertex.normal_confidence,
-                "GPU tree confidence changed under skinning at vertex {i}"
+                "GPU tree confidence changed under skinning at vertex {i}: expected={} actual={}",
+                vertex.normal_confidence,
+                data[i * 2 + 1][3]
             );
             max_position_error = max_position_error.max(position.distance(gpu_position));
             max_normal_error = max_normal_error.max(normal.distance(gpu_normal));
@@ -616,39 +620,6 @@ impl RasterTreeGeometry {
     /// Both color and shadow draws use the same resident exposed-face surface.
     pub fn draw_counts(&self) -> (u32, u32) {
         (self.index_count, 1)
-    }
-
-    /// Caller has quiesced frames before atlas readback and replacement.
-    pub fn upload(
-        &mut self,
-        device: Device,
-        allocator: Allocator,
-        mesh: &RasterTreeMesh,
-    ) -> Result<()> {
-        let count = u32::try_from(mesh.indices.len())?;
-        let draw_indices = mesh.indices.as_slice();
-        let indices = Self::buffer(
-            device,
-            allocator,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-            std::mem::size_of_val(draw_indices),
-        );
-        if count > 0 {
-            indices.fill(draw_indices)?;
-        }
-        self.skin = mesh.gpu_skin()?;
-        self.indices = Resource::new(indices);
-        let positions: Vec<_> = mesh
-            .vertices
-            .iter()
-            .map(|v| Vec3::from(v.position))
-            .collect();
-        self.scene = super::tree_scene::TreeScene::new(&mesh.indices, &positions)?;
-        self.refit = self.scene.refit_schedule();
-        self.posed_surface = None;
-        self.rest_mesh = mesh.clone();
-        self.index_count = count;
-        Ok(())
     }
 }
 
@@ -947,7 +918,7 @@ mod tests {
                 pack_normal_oct16(Vec3::from(vertex.normal))
             );
         }
-        let mut cache = vec![[0.; 4]; TREE_CELL_CAPACITY];
+        let mut cache = vec![[0.; 4]; mesh.cell_vertex_indices.len()];
         mesh.validate_lighting_cache(&cache, true).unwrap();
         assert!(mesh.validate_lighting_cache(&cache, false).is_err());
         for &base in mesh.cell_vertex_indices.iter().filter(|&&v| v != u32::MAX) {
