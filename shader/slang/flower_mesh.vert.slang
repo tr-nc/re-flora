@@ -2,6 +2,7 @@ import flower_model;
 import flora_types;
 import flower_palette;
 import model_mesh;
+import model_surface_cache;
 import model_mesh_view;
 import model_cache_types;
 import model_pixel_types;
@@ -13,7 +14,17 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint head:SV_VulkanInstanceID
     uint count=flowerPartCount();
     FlowerModelPart part=flowerPart(1u+head%count);
     ModelPixelFrame physical=flowerPlantFrame(head/count);
-    if(vertex>=part.range.y*3u||physical.scale<=1e-7)return emptyModelMeshVertex();
+    if(physical.scale<=1e-7)return emptyModelMeshVertex();
+    CachedModelVertex cached;
+    if(cachedModelVertex(vertex,part.range.z,3u,physical,part.center_radius.xyz,cached)) {
+        if(!cached.visible)return emptyModelMeshVertex();
+        float3 normal=cached.normal;
+        if(dot(normal,cached.position-camera_info.pos.xyz)>0)normal=-normal;
+        float3 color=flowerPaletteColor(flower_pc.species-MODEL_FLOWER_FIRST_SPECIES,encodeFlowerUV(cached.uv));
+        ModelMeshOutput output;output.position=cached.clip;
+        output.color=float4(meshShade(color,cached.position,normal),1);return output;
+    }
+    if(vertex>=part.range.y*3u)return emptyModelMeshVertex();
     // One historical head-center pivot for its complete authored rigid range.
     ModelPixelFrame frame=modelMeshViewFrame(physical,part.center_radius.xyz);
     ButterflyMeshTriangle t=model_mesh_triangles[part.range.x+vertex/3u];

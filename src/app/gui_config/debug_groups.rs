@@ -80,10 +80,10 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Pixel Models — Global",
-        description: "Retired per-model pixel resolutions.",
+        title: "Model Pixel Pre-cache",
+        description: "Pre-bake finite-view N x N surfaces for flower heads, butterflies and apples. Each object has an independent saved switch and resolution (8-32). Unchecked uses native triangles; both modes share Model direction count. Poses, roll, lighting, growth and flight remain live. Resolution changes rebuild immutable banks asynchronously; native models remain visible until ready. Leaves stay ordinary voxel particles. UI is not pixelized.",
         initially_open: false,
-        params: &["apple_pixel_resolution"],
+        params: &["model_flower_cache_enabled", "model_flower_pixel_resolution", "butterfly_cache_enabled", "butterfly_pixel_resolution", "apple_cache_enabled", "apple_pixel_resolution"],
     },
     ControlGroup {
         parent: Some("Wind"),
@@ -129,6 +129,9 @@ const GROUPS: &[ControlGroup] = &[
 // Presentation-only ownership. Keep IDs and stored sections unchanged so old
 // saves and generated settings continue to work. Render each control once.
 const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
+    ("Debug", "apple_cache_enabled"),
+    ("Debug", "butterfly_cache_enabled"),
+    ("Debug", "model_flower_cache_enabled"),
     ("Debug", "apple_pixel_resolution"),
     ("Butterflies", "butterfly_pixel_resolution"),
     ("Flora", "model_flower_pixel_resolution"),
@@ -143,10 +146,7 @@ pub(super) fn retired_pixel_control(id: &str) -> bool {
             | "flower_stem_model_resolution"
             | "flower_stem_cell_height_voxels"
             | "model_flower_view_count"
-            | "apple_pixel_resolution"
-            | "butterfly_pixel_resolution"
             | "falling_leaf_pixel_resolution"
-            | "model_flower_pixel_resolution"
     )
 }
 
@@ -156,7 +156,7 @@ pub(super) fn is_pixel_model_control(section: &str, id: &str) -> bool {
 
 pub(super) fn search_path(section: &str, id: &str) -> Option<String> {
     if is_pixel_model_control(section, id) {
-        return Some("Pixel Models — Global / Pixels per Model".to_owned());
+        return Some("Model Pixel Pre-cache".to_owned());
     }
     if section != "Debug" {
         return None;
@@ -237,8 +237,10 @@ pub(super) fn render(
                 ui_text::hint(ui, group.description);
                 ui.add_space(4.0);
                 for id in group.params {
-                    if let Some(param) = section.param.iter().find(|param| param.id == *id) {
-                        render_gui_param_from_config(ui, param, &section.name, adjustables);
+                    for owner in config {
+                        if let Some(param) = owner.param.iter().find(|param| param.id == *id) {
+                            render_gui_param_from_config(ui, param, &owner.name, adjustables);
+                        }
                     }
                 }
             });
@@ -382,6 +384,7 @@ mod tests {
                 .param
                 .iter()
                 .map(|param| param.id.as_str())
+                .chain(PIXEL_MODEL_CONTROLS.iter().map(|(_, id)| *id))
                 .collect::<BTreeSet<_>>()
         );
         assert!(!is_grouped("future_debug_control"));
@@ -406,14 +409,14 @@ mod tests {
     }
 
     #[test]
-    fn retired_pixel_resolutions_are_not_live_view_controls() {
+    fn cached_model_controls_have_one_live_owner() {
         let global = GROUPS
             .iter()
-            .find(|g| g.title == "Pixel Models — Global")
+            .find(|g| g.title == "Model Pixel Pre-cache")
             .unwrap();
         assert_eq!(global.parent, None);
-        assert_eq!(global.params, &["apple_pixel_resolution"]);
-        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 3);
+        assert_eq!(global.params.len(), 6);
+        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 6);
         let config: crate::app::gui_config_model::GuiConfigFile =
             toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
         for &(section, id) in PIXEL_MODEL_CONTROLS {
@@ -438,7 +441,11 @@ mod tests {
             .collect::<BTreeSet<_>>();
         assert_eq!(
             model_controls,
-            PIXEL_MODEL_CONTROLS.iter().copied().collect(),
+            PIXEL_MODEL_CONTROLS
+                .iter()
+                .copied()
+                .filter(|(_, id)| id.ends_with("pixel_resolution"))
+                .collect(),
             "retired model pixel resolutions must not gain new live owners"
         );
     }
@@ -513,8 +520,8 @@ mod tests {
                 .label;
             assert_eq!(
                 text.lines().filter(|line| *line == label).count(),
-                0,
-                "retired {section}/{id} must not appear in the global scene experiment"
+                1,
+                "{section}/{id} must appear exactly once in the pre-cache group"
             );
         }
         assert!(!text

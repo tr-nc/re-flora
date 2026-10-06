@@ -4,7 +4,7 @@
 use super::App;
 use crate::particles::{ParticleRenderKind, ParticleSnapshot};
 use anyhow::{ensure, Result};
-use glam::{Quat, Vec3, Vec4};
+use glam::{Vec3, Vec4};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
@@ -19,6 +19,7 @@ pub(super) struct ModelViewReview {
     frame: u32,
     rotation: f32,
     target: Option<Vec3>,
+    surface_review: Option<String>,
 }
 
 impl ModelViewReview {
@@ -26,6 +27,10 @@ impl ModelViewReview {
         let Ok(value) = std::env::var("RE_FLORA_MODEL_VIEW_REVIEW") else {
             return Ok(None);
         };
+        let surface_review = std::env::var("RE_FLORA_MODEL_SURFACE_REVIEW").ok();
+        if let Some(mode) = &surface_review {
+            ensure!(matches!(mode.as_str(), "on" | "off" | "apple" | "butterfly" | "flower" | "sweep"), "RE_FLORA_MODEL_SURFACE_REVIEW must be on, off, apple, butterfly, flower or sweep (requires model view fixture)");
+        }
         let mode = match value.as_str() {
             "32" => Mode::Views32,
             "128" => Mode::Views128,
@@ -45,6 +50,7 @@ impl ModelViewReview {
             frame: 0,
             rotation,
             target: None,
+            surface_review,
         }))
     }
 
@@ -87,6 +93,7 @@ impl App {
         let count = review.direction_count();
         let frame = review.frame;
         let sweep = review.mode == Mode::Sweep;
+        let surface_sweep = review.surface_review.as_deref() == Some("sweep");
         let angle = if sweep && frame >= 180 {
             (frame - 180) as f32 * 0.01
         } else {
@@ -98,9 +105,53 @@ impl App {
         gui.model_flower_height_variance.value = 0.;
         gui.model_flower_head_scale.value = 1.;
         gui.butterfly_mesh_preview.value = false;
+        if let Some(mode) = &review.surface_review {
+            let stage = if mode == "sweep" {
+                (frame / 60).min(8)
+            } else {
+                0
+            };
+            let flags = match mode.as_str() {
+                "off" => [false; 3],
+                "apple" => [true, false, false],
+                "butterfly" => [false, true, false],
+                "flower" => [false, false, true],
+                "sweep" => match stage {
+                    0 => [false; 3],
+                    1 => [true, false, false],
+                    2 => [true, true, false],
+                    7 => [true, false, true],
+                    _ => [true; 3],
+                },
+                _ => [true; 3],
+            };
+            let resolutions = if mode == "sweep" {
+                match stage {
+                    4 => [8, 16, 16],
+                    5 => [8, 32, 16],
+                    6 => [8, 32, 24],
+                    _ => [16; 3],
+                }
+            } else {
+                [16; 3]
+            };
+            gui.apple_cache_enabled.value = flags[0];
+            gui.butterfly_cache_enabled.value = flags[1];
+            gui.model_flower_cache_enabled.value = flags[2];
+            gui.apple_pixel_resolution.value = resolutions[0];
+            gui.butterfly_pixel_resolution.value = resolutions[1];
+            gui.model_flower_pixel_resolution.value = resolutions[2];
+            if frame.is_multiple_of(60) {
+                log::info!("[MODEL_SURFACE_REVIEW] stage={stage} enabled={flags:?} resolutions={resolutions:?} saved=false");
+            }
+        }
         // Retain attached fruit for fixed counts; sweep uses the existing production
         // fruit-cycle handoff to submit the dynamic apple vertex path too.
-        gui.fruit_cycle.value = if sweep && frame >= 90 { 1. } else { 0.7 };
+        gui.fruit_cycle.value = if (sweep || surface_sweep) && frame >= 90 {
+            1.
+        } else {
+            0.7
+        };
         self.camera_control.apply_snapshot_mode(true);
         self.camera_control.set_orbit_focus(target);
         ensure!(
@@ -108,7 +159,7 @@ impl App {
             "model view fixture camera"
         );
         self.reset_camera_movement_input();
-        if sweep && matches!(frame, 90 | 180) {
+        if (sweep || surface_sweep) && matches!(frame, 90 | 180) {
             let (width, height) = if frame == 90 {
                 (1023, 767)
             } else {
@@ -148,31 +199,6 @@ impl App {
         let angle = review.angle(frame);
         for index in 0..4 {
             let x = (index as f32 - 1.5) * 0.095;
-            let rotation = Quat::from_rotation_y(angle + index as f32 * 0.37)
-                * Quat::from_rotation_x(0.45)
-                * Quat::from_rotation_z(index as f32 * 0.3);
-            let leaf_center = target + Vec3::new(x, 0.13, 0.04);
-            if index == 0 && frame.is_multiple_of(30) && frame <= 240 {
-                let local_view = rotation.inverse() * (self.tracer.camera_position() - leaf_center);
-                let count = self.debug_settings.adjustables.model_pixel_view_count.value;
-                let selected = crate::tracer::model_pixel_views::nearest(local_view, count);
-                let chosen = crate::tracer::model_pixel_views::direction(selected, count);
-                log::info!("[MODEL_VIEW_REFERENCE] object=fixture_mesh_leaf frame={frame} count={count} nearest={selected} chosen={chosen:?} physical_pivot={leaf_center:?} cpu_reference_only=true");
-            }
-            self.particle_snapshots.push(ParticleSnapshot {
-                position_ws: leaf_center,
-                velocity: Vec3::ZERO,
-                color: Vec4::new(0.7, 0.35, 0.12, 1.),
-                size: 0.08,
-                kind: ParticleRenderKind::Leaf,
-                palette_index: 0,
-                animation_phase_offset: 0.,
-                animation_sample_time: None,
-                butterfly_wingbeat: None,
-                leaf_orientation: Some(rotation),
-                leaf_shape_seed: Some([0, 17, 32, 63][index]),
-                leaf_geometry: None,
-            });
             let heading = angle + index as f32 * 0.35;
             self.particle_snapshots.push(ParticleSnapshot {
                 position_ws: target + Vec3::new(x, 0.23, 0.04),
@@ -206,6 +232,7 @@ mod tests {
             frame: 0,
             rotation: 0.57,
             target: None,
+            surface_review: None,
         };
         for (frame, expected) in [
             (0, 32),

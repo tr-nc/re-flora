@@ -7,8 +7,8 @@ import model_mesh_lighting;
 // Immutable golden-angle azimuths generated once by model_pixel_views::azimuths.
 // Binding 19 avoids native mesh ranges (17) and flower material palette (18).
 [[vk::binding(19,1)]] public StructuredBuffer<float4> model_view_azimuths;
-struct NativeModelViewBank : IModelViewBank {
-    float3 direction(uint index, uint count) {
+public struct NativeModelViewBank : IModelViewBank {
+    public float3 direction(uint index, uint count) {
         return modelViewDirection(model_view_azimuths[index].xy, index, count);
     }
 }

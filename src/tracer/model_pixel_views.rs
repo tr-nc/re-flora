@@ -30,6 +30,7 @@ pub fn direction(index: u32, requested: u32) -> Vec3 {
     Vec3::new(a[0] * radius, y, a[1] * radius)
 }
 
+#[cfg(test)]
 pub fn unit_direction(input: Vec3) -> Option<Vec3> {
     if !input.is_finite() {
         return None;
@@ -42,6 +43,7 @@ pub fn unit_direction(input: Vec3) -> Option<Vec3> {
 }
 
 /// Strict maximum-dot nearest, with lowest-index ties and invalid -> index 0.
+#[cfg(test)]
 pub fn nearest(view: Vec3, requested: u32) -> u32 {
     let Some(view) = unit_direction(view) else {
         return 0;

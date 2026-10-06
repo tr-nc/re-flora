@@ -188,9 +188,27 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "apple_cache_enabled",
+        kind: "bool",
+        label: "Apples: use model pre-cache",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "butterfly_cache_enabled",
+        kind: "bool",
+        label: "Butterflies: use model pre-cache",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "model_flower_cache_enabled",
+        kind: "bool",
+        label: "Flower heads: use model pre-cache",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "apple_pixel_resolution",
         kind: "uint",
-        label: "Pixels per Apple (N x N, Trees and Fallen Fruit)",
+        label: "Apples: pre-cache resolution (N x N, attached and fallen)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -730,7 +748,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Flora",
         id: "model_flower_pixel_resolution",
         kind: "uint",
-        label: "Pixels per Flower Head",
+        label: "Flower heads: pre-cache resolution (N x N)",
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
@@ -1204,7 +1222,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Butterflies",
         id: "butterfly_pixel_resolution",
         kind: "uint",
-        label: "Pixels per Butterfly (N x N, All Distances)",
+        label: "Butterflies: pre-cache resolution (N x N)",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
@@ -1507,6 +1525,9 @@ pub struct GuiAdjustables {
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
     pub flower_stem_tip_radius_ratio: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
+    pub apple_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
@@ -1762,6 +1783,9 @@ impl GuiAdjustables {
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_tip_radius_ratio_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2144,6 +2168,21 @@ impl GuiAdjustables {
                     "flower_stem_test_branches" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             flower_stem_test_branches_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_cache_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "butterfly_cache_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            butterfly_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "model_flower_cache_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            model_flower_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "apple_pixel_resolution" => {
@@ -3622,6 +3661,9 @@ impl GuiAdjustables {
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
             flower_stem_tip_radius_ratio: flower_stem_tip_radius_ratio_field.expect("Missing parameter: flower_stem_tip_radius_ratio"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
+            apple_cache_enabled: apple_cache_enabled_field.expect("Missing parameter: apple_cache_enabled"),
+            butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
+            model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
@@ -4089,6 +4131,9 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
+        "apple_cache_enabled" => Some(&adjustables.apple_cache_enabled),
+        "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
+        "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
@@ -4378,6 +4423,9 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
+        "apple_cache_enabled" => Some(&mut adjustables.apple_cache_enabled),
+        "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
+        "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),

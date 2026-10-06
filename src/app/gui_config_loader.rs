@@ -152,6 +152,7 @@ impl GuiConfigLoader {
                 *options = new_options;
             }
         }
+        Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::migrate_stem_rendering_controls(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
@@ -529,6 +530,70 @@ impl GuiConfigLoader {
                 // Schema migration preserves authored values and never implicitly saves.
                 param.enabled_if.clone_from(&schema.enabled_if);
                 param.label.clone_from(&schema.label);
+            }
+        }
+    }
+
+    fn migrate_model_surface_cache(config: &mut GuiConfigFile) {
+        use super::gui_config_model::GuiParamValue;
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("GUI schema");
+        for (owner, id) in [
+            ("Debug", "apple_cache_enabled"),
+            ("Debug", "butterfly_cache_enabled"),
+            ("Debug", "model_flower_cache_enabled"),
+            ("Debug", "apple_pixel_resolution"),
+            ("Butterflies", "butterfly_pixel_resolution"),
+            ("Flora", "model_flower_pixel_resolution"),
+        ] {
+            let retained = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .map(|p| p.value.clone());
+            let mut kept = false;
+            for section in &mut config.section {
+                let canonical = section.name == owner;
+                section.param.retain(|p| {
+                    if p.id != id {
+                        return true;
+                    }
+                    if canonical && !kept {
+                        kept = true;
+                        true
+                    } else {
+                        false
+                    }
+                });
+            }
+            Self::add_missing_param(config, owner, id);
+            let schema = defaults
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .unwrap();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == id)
+                .unwrap();
+            *param = schema.clone();
+            match (retained, &mut param.value) {
+                (Some(GuiParamValue::Bool { value }), GuiParamValue::Bool { value: new }) => {
+                    *new = value
+                }
+                (
+                    Some(GuiParamValue::Uint { value, .. }),
+                    GuiParamValue::Uint {
+                        value: new,
+                        min,
+                        max,
+                    },
+                ) => *new = value.clamp(min.unwrap_or(8), max.unwrap_or(32)),
+                _ => {}
             }
         }
     }
@@ -2137,6 +2202,76 @@ mod tests {
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn model_cache_controls_migrate_and_save_independently_without_reviving_leaf_models() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for p in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            match p.id.as_str() {
+                "apple_cache_enabled" | "model_flower_cache_enabled" => {
+                    p.value = GuiParamValue::Bool { value: false }
+                }
+                "butterfly_cache_enabled" => p.value = GuiParamValue::Bool { value: true },
+                "apple_pixel_resolution" => {
+                    if let GuiParamValue::Uint { value, .. } = &mut p.value {
+                        *value = 8;
+                    }
+                }
+                "butterfly_pixel_resolution" => {
+                    if let GuiParamValue::Uint { value, .. } = &mut p.value {
+                        *value = 24;
+                    }
+                }
+                "model_flower_pixel_resolution" => {
+                    if let GuiParamValue::Uint { value, .. } = &mut p.value {
+                        *value = 64;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut legacy = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "apple_cache_enabled")
+            .unwrap()
+            .clone();
+        for id in [
+            "falling_leaf_mesh",
+            "falling_leaf_size_scale",
+            "falling_leaf_pixel_resolution",
+        ] {
+            legacy.id = id.into();
+            config.section[0].param.push(legacy.clone());
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let gui = crate::app::GuiAdjustables::from_config(&loaded);
+        assert!(!gui.apple_cache_enabled.value);
+        assert!(gui.butterfly_cache_enabled.value);
+        assert!(!gui.model_flower_cache_enabled.value);
+        assert_eq!(gui.apple_pixel_resolution.value, 8);
+        assert_eq!(gui.butterfly_pixel_resolution.value, 24);
+        assert_eq!(gui.model_flower_pixel_resolution.value, 32);
+        assert!(loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .all(|p| !p.id.starts_with("falling_leaf_")));
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let reloaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(
+            toml::to_string(&loaded).unwrap(),
+            toml::to_string(&reloaded).unwrap()
+        );
     }
 
     #[test]

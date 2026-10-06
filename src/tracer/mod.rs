@@ -53,6 +53,8 @@ pub use stem_band_paths::{path_bands, StemBandInstance, StemPathPoint};
 use stem_band_resources::StemBandResources;
 mod model_geometry;
 mod model_mesh_frame;
+mod model_surface_cache;
+pub use model_surface_cache::Options as ModelSurfaceCacheOptions;
 mod stone_preview;
 use model_mesh_frame::{MeshPass, ModelMeshFrame, PreparedModelMeshes};
 pub use stone_preview::Request as StonePreviewRequest;
@@ -1334,8 +1336,7 @@ pub struct FruitMotionParams {
 pub struct ModelCacheSettings {
     pub views: u32,
     pub apple_resolution: u32,
-    /// Leaf and butterfly resolutions, in cache-kind order.
-    pub particle_resolutions: [u32; 2],
+    pub surfaces: ModelSurfaceCacheOptions,
     pub flowers: crate::flora::models::Settings,
 }
 
@@ -1347,6 +1348,7 @@ pub struct TerrainFrameInput {
     pub ddgi_history_retention: f32,
     pub apple_pixel_resolution: u32,
     pub model_pixel_view_count: u32,
+    pub model_surface_cache: ModelSurfaceCacheOptions,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -3137,6 +3139,8 @@ impl Tracer {
             model_pixel_views::runtime_count(terrain.model_pixel_view_count);
         self.model_mesh_frame
             .set_view_count(self.model_pixel_view_count);
+        self.model_mesh_frame
+            .set_cache_options(terrain.model_surface_cache);
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
@@ -3321,9 +3325,7 @@ impl Tracer {
             self.model_mesh_frame.warmup_cache(
                 frame_slot,
                 cmdbuf,
-                model_pixel_views::runtime_count(settings.views),
-                settings.apple_resolution.clamp(8, 64),
-                settings.particle_resolutions,
+                settings.surfaces,
                 settings.flowers.normalized(),
             )
         })
@@ -3545,12 +3547,8 @@ impl Tracer {
             cmdbuf,
             "models.geometry.prepare",
             || {
-                self.model_mesh_frame.prepare_cache(
-                    cmdbuf,
-                    self.model_pixel_view_count,
-                    self.apple_pixel_resolution,
-                    self.flower_model_settings,
-                )
+                self.model_mesh_frame
+                    .prepare_cache(cmdbuf, self.flower_model_settings)
             },
         )?;
 

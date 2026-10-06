@@ -39,10 +39,20 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
     crate::tracer::ModelCacheSettings {
         views: gui.model_pixel_view_count.value,
         apple_resolution: gui.apple_pixel_resolution.value,
-        particle_resolutions: [
-            8, // retained loading adapter slot; leaves have no model cache
-            gui.butterfly_pixel_resolution.value,
-        ],
+        surfaces: crate::tracer::ModelSurfaceCacheOptions {
+            views: gui.model_pixel_view_count.value,
+            resolutions: [
+                gui.apple_pixel_resolution.value,
+                gui.butterfly_pixel_resolution.value,
+                gui.model_flower_pixel_resolution.value,
+            ],
+            enabled: [
+                gui.apple_cache_enabled.value,
+                gui.butterfly_cache_enabled.value,
+                gui.model_flower_cache_enabled.value,
+            ],
+        }
+        .normalized(),
         flowers: crate::flora::models::Settings {
             resolution: gui.model_flower_pixel_resolution.value,
             views: gui.model_pixel_view_count.value,
@@ -69,6 +79,7 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_history_retention: gui.ddgi_history_retention.value,
         apple_pixel_resolution: model_cache.apple_resolution,
         model_pixel_view_count: model_cache.views,
+        model_surface_cache: model_cache.surfaces,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -298,7 +309,7 @@ mod tests {
         let cache = model_cache_inputs(&settings);
         assert_eq!(cache.views, 64);
         assert_eq!(cache.apple_resolution, 24);
-        assert_eq!(cache.particle_resolutions, [8, 16]);
+        assert_eq!(cache.surfaces.resolutions[1], 16);
         assert_eq!(cache.flowers.resolution, 35);
         assert_eq!(cache.flowers.views, 64);
         assert_eq!(cache.flowers.shape.head_scale, 1.25);
@@ -478,6 +489,7 @@ mod tests {
                 ddgi_history_retention,
                 apple_pixel_resolution: 24,
                 model_pixel_view_count: 37,
+                model_surface_cache: model_cache_inputs(&settings).surfaces,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,

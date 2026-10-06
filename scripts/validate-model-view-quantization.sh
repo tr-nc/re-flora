@@ -12,7 +12,7 @@ cargo build --release
 run() {
     local mode="$1"; shift
     local label="${REVIEW_LOG_LABEL:-$mode}"
-    RE_FLORA_MODEL_VIEW_REVIEW="$mode" env -u WAYLAND_DISPLAY \
+    RE_FLORA_MODEL_VIEW_REVIEW="$mode" RE_FLORA_MODEL_SURFACE_REVIEW=off env -u WAYLAND_DISPLAY \
         flock --close /tmp/re-flora-summer-gpu.lock \
         cargo run --release -- --hidden --mute --windowed "$@" >"$out/$label.stdout.log" 2>&1
     local latest
@@ -23,7 +23,7 @@ run() {
         echo "Native validation failed: $label" >&2; exit 1
     fi
     grep -q 'SHUTDOWN.*phase=complete failures=0' "$out/$label.run.log"
-    for object in flower_heads attached_apples mesh_butterflies mesh_leaves; do
+    for object in flower_heads attached_apples mesh_butterflies; do
         grep -q "MODEL_VIEW_DRAW.*object=$object .*bank_binding=19" "$out/$label.run.log"
     done
 }

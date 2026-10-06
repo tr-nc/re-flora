@@ -1,11 +1,13 @@
-//! Ordinary hardware-raster model draws. No model-local sampling, tiles,
-//! per-view surface baking, relighting passes or sampled-depth reconstruction.
-//! Geometry and published simulation poses retain acquired-frame-slot ownership.
+//! Native triangles or immutable pre-baked pixel cells, selected per object.
+//! Geometry, cached surfaces and published poses retain acquired-frame-slot ownership.
 use super::{
     butterfly_mesh::{ButterflyMeshRenderer, ButterflyMeshSettings},
     dynamic_fruit_resources::DynamicFruitRendererResources,
     model_geometry::{self, Source},
     model_pixel_views,
+    model_surface_cache::{
+        Buffers as CacheBuffers, Options as CacheOptions, SurfaceCache, MAX_RESOLUTION,
+    },
     pipeline_builder::{ComputePipelines, GraphicsPipelines},
     resources::TracerResources,
     PushConstantFlora,
@@ -25,7 +27,8 @@ pub(super) struct MeshPass<'a> {
 
 struct Geometry {
     shape: models::Shape,
-    source: Source,
+    source: Arc<Source>,
+    empty_cache: Arc<CacheBuffers>,
     triangles: Arc<Buffer>,
     ranges: Arc<Buffer>,
     parts: Arc<Buffer>,
@@ -46,8 +49,15 @@ impl Geometry {
             buffer.fill_range_with_raw_u8(0, bytes)?;
             Ok(buffer)
         };
-        let indices: Vec<u32> =
-            (0..source.ranges.iter().map(|r| r[1] * 3).max().unwrap()).collect();
+        let indices: Vec<u32> = (0..source
+            .ranges
+            .iter()
+            .map(|r| r[1] * 3)
+            .max()
+            .unwrap()
+            .max(MAX_RESOLUTION * MAX_RESOLUTION * 6))
+            .collect();
+        let empty_cache = CacheBuffers::empty(device, allocator, source.ranges.len())?;
         Ok(Self {
             shape,
             triangles: upload(
@@ -70,7 +80,8 @@ impl Geometry {
                 bytemuck::cast_slice(&indices),
                 vk::BufferUsageFlags::INDEX_BUFFER,
             )?,
-            source,
+            source: Arc::new(source),
+            empty_cache,
         })
     }
     fn bindings(&self) -> [(&'static str, DescriptorResource<'_>); 2] {
@@ -140,6 +151,7 @@ impl PreparedFlowerModels {
 struct Frame {
     geometry: Option<Arc<Geometry>>,
     particles: Option<Arc<Buffer>>,
+    cache: [Option<Arc<CacheBuffers>>; 3],
 }
 pub(super) struct ModelMeshFrame {
     device: Device,
@@ -151,6 +163,10 @@ pub(super) struct ModelMeshFrame {
     view_azimuths: Option<Arc<Buffer>>,
     view_count: Option<u32>,
     review_draws: u8,
+    cache: [SurfaceCache; 3],
+    cache_options: CacheOptions,
+    geometry_generation: u64,
+    logged_cache_modes: [Option<bool>; 3],
 }
 impl ModelMeshFrame {
     pub fn new(context: &VulkanContext, allocator: Allocator) -> Self {
@@ -164,7 +180,59 @@ impl ModelMeshFrame {
             view_azimuths: None,
             view_count: None,
             review_draws: 0,
+            cache: std::array::from_fn(|_| SurfaceCache::default()),
+            cache_options: CacheOptions::default(),
+            geometry_generation: 0,
+            logged_cache_modes: [None; 3],
         }
+    }
+    pub fn set_cache_options(&mut self, options: CacheOptions) {
+        self.cache_options = options.normalized();
+    }
+    fn prepare_surfaces(&mut self) -> Result<()> {
+        let geometry = self.active.as_ref().unwrap();
+        for kind in 0..3 {
+            let cache = if self.cache_options.enabled[kind] {
+                self.cache[kind].prepare(
+                    &self.device,
+                    &self.allocator,
+                    if kind == 2 {
+                        self.geometry_generation
+                    } else {
+                        0
+                    },
+                    geometry.source.clone(),
+                    self.cache_options.for_kind(kind),
+                    &geometry.empty_cache,
+                )?
+            } else {
+                geometry.empty_cache.clone()
+            };
+            let cached = cache.cached(kind);
+            if self.logged_cache_modes[kind] != Some(cached) {
+                log::info!(
+                    "[MODEL_SURFACE_MODE] object={} mode={} views={} resolution={}",
+                    ["apples", "butterflies", "flower_heads"][kind],
+                    if cached { "cached" } else { "native" },
+                    self.cache_options.views,
+                    self.cache_options.resolutions[kind]
+                );
+                self.logged_cache_modes[kind] = Some(cached);
+                self.review_draws &= !(match kind {
+                    0 => 4 | 16,
+                    1 => 1,
+                    _ => 8,
+                });
+            }
+            self.frames[self.slot].cache[kind] = Some(cache);
+        }
+        Ok(())
+    }
+    fn draw_vertices(&self, kind: usize, native: u32) -> u32 {
+        self.frames[self.slot].cache[kind]
+            .as_ref()
+            .unwrap()
+            .vertices(kind, native)
     }
     pub fn set_view_count(&mut self, requested: u32) {
         let count = model_pixel_views::runtime_count(requested);
@@ -180,7 +248,18 @@ impl ModelMeshFrame {
             && std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
         {
             self.review_draws |= bit;
-            log::info!("[MODEL_VIEW_DRAW] object={object} instances={count} shader=native_triangle bank_binding=19 count={:?}", self.view_count);
+            let kind = if bit == 1 {
+                1
+            } else if bit == 8 {
+                2
+            } else {
+                0
+            };
+            let cached = self.frames[self.slot].cache[kind]
+                .as_ref()
+                .unwrap()
+                .cached(kind);
+            log::info!("[MODEL_VIEW_DRAW] object={object} instances={count} shader={} bank_binding=19 count={:?}", if cached { "cached_surface_cells" } else { "native_triangle" }, self.view_count);
         }
     }
     pub fn begin_frame(&mut self, slot: usize, _: &ComputePipelines, _: &GraphicsPipelines) {
@@ -190,22 +269,28 @@ impl ModelMeshFrame {
         // Called only after this frame's fence. Other slots retain their source
         // buffers if a live shape change creates a new geometry generation.
         self.frames[slot].geometry = None;
+        self.frames[slot].cache = Default::default();
     }
     pub fn startup_cache_progress(&self) -> f32 {
-        1.0
+        if (0..3).all(|kind| self.cache[kind].ready(self.cache_options.for_kind(kind))) {
+            1.0
+        } else {
+            0.0
+        }
     }
     pub fn warmup_cache(
         &mut self,
         slot: usize,
         _: &CommandBuffer,
-        _: u32,
-        _: u32,
-        _: [u32; 2],
+        options: CacheOptions,
         flowers: models::Settings,
     ) -> Result<bool> {
         self.slot = slot;
+        self.set_cache_options(options);
+        self.set_view_count(options.views);
         self.ensure_geometry(flowers.shape)?;
-        Ok(true)
+        self.prepare_surfaces()?;
+        Ok(self.startup_cache_progress() == 1.0)
     }
     fn ensure_geometry(&mut self, shape: models::Shape) -> Result<()> {
         if self.view_azimuths.is_none() {
@@ -221,26 +306,25 @@ impl ModelMeshFrame {
             self.view_azimuths = Some(buffer);
         }
         if self.active.as_ref().is_none_or(|g| g.shape != shape) {
+            self.geometry_generation = self
+                .geometry_generation
+                .checked_add(1)
+                .expect("model geometry generation overflow");
             self.active = Some(Arc::new(Geometry::new(
                 &self.device,
                 &self.allocator,
                 shape,
             )?));
-            log::info!("[MODEL_MESHES] geometry=native raster=triangles per_model_pixels=false");
+            log::info!("[MODEL_MESHES] geometry=immutable_triangles cached_surfaces=independent_generations poses=published");
         }
         self.frames
             .resize_with((self.slot + 1).max(self.frames.len()), Frame::default);
         self.frames[self.slot].geometry = self.active.clone();
         Ok(())
     }
-    pub fn prepare_cache(
-        &mut self,
-        _: &CommandBuffer,
-        _: u32,
-        _: u32,
-        flowers: models::Settings,
-    ) -> Result<()> {
-        self.ensure_geometry(flowers.shape)
+    pub fn prepare_cache(&mut self, _: &CommandBuffer, flowers: models::Settings) -> Result<()> {
+        self.ensure_geometry(flowers.shape)?;
+        self.prepare_surfaces()
     }
     pub fn flower_culling_padding(&self, scale: f32, overshoot: f32) -> (Vec3, Vec3) {
         self.active
@@ -296,7 +380,14 @@ impl ModelMeshFrame {
             .map(|r| r[1] * 3)
             .max()
             .unwrap();
-        self.prepare(cmd, pass, self.particles.count(), vertices, resources, None)
+        self.prepare(
+            cmd,
+            pass,
+            self.particles.count(),
+            self.draw_vertices(1, vertices),
+            resources,
+            None,
+        )
     }
     /// Shared native-model/stone seam. Call after loading-time warmup (or
     /// ensure_geometry). The immutable bank is never replaced on count/resize
@@ -322,6 +413,24 @@ impl ModelMeshFrame {
         push: Option<PushConstantInfo>,
     ) -> Result<PreparedModelMeshes> {
         resources.push(self.view_bank_binding());
+        for (kind, (samples, entries)) in [
+            ("model_cached_apple_surfaces", "model_cached_apple_entries"),
+            (
+                "model_cached_butterfly_surfaces",
+                "model_cached_butterfly_entries",
+            ),
+            (
+                "model_cached_flower_surfaces",
+                "model_cached_flower_entries",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let cache = self.frames[self.slot].cache[kind].as_ref().unwrap();
+            resources.push((samples, DescriptorResource::Buffer(&cache.samples)));
+            resources.push((entries, DescriptorResource::Buffer(&cache.entries)));
+        }
         cmd.use_buffer(&self.active.as_ref().unwrap().indices, BufferUse::IndexRead);
         Ok(PreparedModelMeshes {
             pipeline: pass.display.clone(),
@@ -348,7 +457,10 @@ impl ModelMeshFrame {
             cmd,
             pass,
             count,
-            g.source.ranges[model_geometry::APPLE_SOURCE as usize][1] * 3,
+            self.draw_vertices(
+                0,
+                g.source.ranges[model_geometry::APPLE_SOURCE as usize][1] * 3,
+            ),
             resources,
             Some(PushConstantInfo {
                 shader_stage: vk::ShaderStageFlags::VERTEX,
@@ -400,7 +512,7 @@ impl ModelMeshFrame {
                 cmd,
                 pass,
                 count * heads,
-                vertices,
+                self.draw_vertices(2, vertices),
                 resources,
                 Some(constant),
             )?,
@@ -424,7 +536,10 @@ impl ModelMeshFrame {
             cmd,
             pass,
             fruit.instance_count,
-            g.source.ranges[model_geometry::APPLE_SOURCE as usize][1] * 3,
+            self.draw_vertices(
+                0,
+                g.source.ranges[model_geometry::APPLE_SOURCE as usize][1] * 3,
+            ),
             resources,
             None,
         )
