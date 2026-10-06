@@ -1010,8 +1010,8 @@ mod tests {
         let lighting = include_str!("../shader/slang/flora_shadow.slang");
         let shared = include_str!("../shader/slang/flora_vertex.slang");
         let flora_cache = include_str!("../shader/slang/flora_lighting_cache.comp.slang");
-        let flora = include_str!("../shader/slang/flora.vert.slang");
-        let flora_lod = include_str!("../shader/slang/flora_lod.vert.slang");
+        let grass = include_str!("../shader/slang/grass_band.vert.slang");
+        let cached_grass = include_str!("../shader/slang/grass_band_cached.vert.slang");
         let tree_leaf_cache = include_str!("../shader/slang/tree_leaf_lighting_cache.comp.slang");
         let leaves = include_str!("../shader/slang/leaves.vert.slang");
         let leaves_lod = include_str!("../shader/slang/leaves_lod.vert.slang");
@@ -1030,11 +1030,11 @@ mod tests {
             .0;
         assert!(flora_environment.contains("sampleDiffuseEnvironment("));
         assert_eq!(flora_cache.matches("sampleFloraEnvironment(").count(), 1);
-        for shader in [flora, flora_lod] {
-            assert!(shader.contains("flora_lighting_cache.irradiance["));
-            assert!(shader.contains("shadeFloraVertexWithEnvironment("));
-            assert!(!shader.contains("shadeLegacy"));
-        }
+        assert!(grass.contains("flora_lighting_cache.irradiance["));
+        assert!(grass.contains("shadeFloraVertexWithEnvironment("));
+        assert!(!grass.contains("shadeLegacy"));
+        assert!(cached_grass.contains("output.color = pose.color_valid.xyz;"));
+        assert!(!cached_grass.contains("shadeFloraVertexWithEnvironment("));
         assert_eq!(
             tree_leaf_cache.matches("sampleFloraEnvironment(").count(),
             1

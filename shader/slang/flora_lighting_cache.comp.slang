@@ -36,15 +36,6 @@ struct B_ManualFloraInstances
 readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
     flora_instances;
 
-struct B_ManualFloraVertices
-{
-    uint2 data[];
-};
-
-[[vk::binding(3, 1)]]
-readonly GLSLShaderStorageBuffer<B_ManualFloraVertices, Std430DataLayout>
-    flora_vertices;
-
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> flora_lighting_cache;
 
@@ -57,12 +48,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint instanceCount = floraLightingCacheInstanceCount(floraPc);
     if (dispatchThreadId.x >= voxelCount || dispatchThreadId.y >= instanceCount) return;
 
-    uint verticesPerVoxel = floraLightingCacheVerticesPerVoxel(floraPc);
-    uint packedVertex =
-        flora_vertices.data[dispatchThreadId.x * verticesPerVoxel].x;
-    int3 voxelLocalPosition;
-    uint3 unusedVertexOffset;
-    unpackFloraVertexData(packedVertex, voxelLocalPosition, unusedVertexOffset);
+    // Grass bands are authored axial layers, not vertices in a voxel mesh.
+    int3 voxelLocalPosition = int3(0, int(dispatchThreadId.x), 0);
 
     uint instanceType = floraInstanceType();
     uint localInstanceIndex = dispatchThreadId.y;
@@ -114,7 +101,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         float4(irradiance, 1.0);
 #if RE_FLORA_STEM_BAND_CACHE
     // Reuse the existing once-per-layer preparation and lighting work. The
-    // original compute entry point never pays for this optional buffer/color.
+    // Irradiance-only preparation remains for the non-cached mesh consumer.
     float3 color = sampleFloraBaseColor(true, instanceType, seed, voxelLocalPosition,
         instancePosition, prepared.color_gradient, voxelInfo);
     color = applyGrassGrowthStressTint(color, true,

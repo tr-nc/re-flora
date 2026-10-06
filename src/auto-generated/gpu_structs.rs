@@ -133,6 +133,21 @@ pub struct GrassGrowthPotentialLevels {
     pub words: [u32; 0],
 }
 
+/// Auto-generated from `B_GrassInstances` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GrassInstances {
+    pub packed_local_pos: u32,
+    pub spawn_start_ms: u32,
+}
+
+/// Auto-generated from `B_GrassLighting` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GrassLighting {
+    pub irradiance: [u32; 0],
+}
+
 /// Auto-generated from `B_LeafHandoffInputs` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -200,20 +215,6 @@ pub struct MakeSurfaceResult {
 pub struct ManualFloraInstances {
     pub packed_local_pos: u32,
     pub spawn_start_ms: u32,
-}
-
-/// Auto-generated from `B_ManualFloraLightingCache` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ManualFloraLightingCache {
-    pub irradiance: [u32; 0],
-}
-
-/// Auto-generated from `B_ManualFloraVertices` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ManualFloraVertices {
-    pub data: [u32; 0],
 }
 
 /// Auto-generated from `B_ManualFlowerInstances` (native Slang source of truth).
@@ -425,38 +426,10 @@ pub struct PushConstantChunkModifySample {
     pub _pad0: [u8; 12],
 }
 
-/// Auto-generated from `PushConstantFlora` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PushConstantFlora {
-    pub time: f32,
-    pub instance_ty: u32,
-    pub response_offset: u32,
-    pub model_object_prepare: u32,
-    pub chunk_world_offset: [u32; 3],
-    pub lighting_cache_location: u32,
-    pub height_dark_color_rgb10: [u32; 12],
-    pub height_light_color_rgb10: [u32; 12],
-}
-
 /// Auto-generated from `PushConstantFloraLightingCache` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantFloraLightingCache {
-    pub time: f32,
-    pub instance_ty: u32,
-    pub response_offset: u32,
-    pub model_object_prepare: u32,
-    pub chunk_world_offset: [u32; 3],
-    pub lighting_cache_location: u32,
-    pub height_dark_color_rgb10: [u32; 12],
-    pub height_light_color_rgb10: [u32; 12],
-}
-
-/// Auto-generated from `PushConstantFloraLod` (native Slang source of truth).
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PushConstantFloraLod {
     pub time: f32,
     pub instance_ty: u32,
     pub response_offset: u32,
@@ -491,6 +464,20 @@ pub struct PushConstantGlassResolve {
     pub enable_refraction: u32,
     pub enable_unrefracted_raster_fallback: u32,
     pub use_stored_voxel_normal: u32,
+}
+
+/// Auto-generated from `PushConstantGrassBand` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantGrassBand {
+    pub time: f32,
+    pub instance_ty: u32,
+    pub response_offset: u32,
+    pub model_object_prepare: u32,
+    pub chunk_world_offset: [u32; 3],
+    pub lighting_cache_location: u32,
+    pub height_dark_color_rgb10: [u32; 12],
+    pub height_light_color_rgb10: [u32; 12],
 }
 
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).

@@ -154,7 +154,6 @@ impl GuiConfigLoader {
             }
         }
         Self::migrate_model_surface_cache(&mut config);
-        Self::add_missing_param(&mut config, "Debug", "grass_stem_rendering");
         Self::migrate_stem_rendering_controls(&mut config);
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
@@ -376,7 +375,9 @@ impl GuiConfigLoader {
 
     fn migrate_stem_rendering_controls(config: &mut GuiConfigFile) {
         for section in &mut config.section {
-            section.param.retain(|p| p.id != "stem_band_mode");
+            section
+                .param
+                .retain(|p| !matches!(p.id.as_str(), "stem_band_mode" | "grass_stem_rendering"));
         }
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
@@ -1301,6 +1302,13 @@ mod tests {
                 ],
             };
             section.param.push(param);
+            let mut retired_checkbox = section.param[0].clone();
+            retired_checkbox.id = "grass_stem_rendering".into();
+            retired_checkbox.kind = super::GuiParamKind::Bool;
+            retired_checkbox.value = super::GuiParamValue::Bool {
+                value: old_mode % 2 == 0,
+            };
+            section.param.push(retired_checkbox);
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("gui.toml");
             GuiConfigLoader::save_to_path(&config, &path).unwrap();
@@ -1310,7 +1318,7 @@ mod tests {
                 .section
                 .iter()
                 .flat_map(|s| &s.param)
-                .any(|p| p.id == "stem_band_mode"));
+                .any(|p| matches!(p.id.as_str(), "stem_band_mode" | "grass_stem_rendering")));
             assert_eq!(std::fs::read(&path).unwrap(), bytes);
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             let saved: GuiConfigFile =
@@ -1319,7 +1327,7 @@ mod tests {
                 .section
                 .iter()
                 .flat_map(|s| &s.param)
-                .any(|p| p.id == "stem_band_mode"));
+                .any(|p| matches!(p.id.as_str(), "stem_band_mode" | "grass_stem_rendering")));
         }
     }
 

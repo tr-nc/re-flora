@@ -17,7 +17,7 @@ use crate::{
             encode_lookup_pos_key, FloraMeshData, FloraVoxelInfo, FloraVoxelInfoEntry,
             FLORA_VOXEL_LOOKUP_EMPTY_KEY,
         },
-        ExtentDependentResources, LeafVertex, Vertex, WIND_VOLUME_BUCKET_COUNT,
+        ExtentDependentResources, LeafVertex, WIND_VOLUME_BUCKET_COUNT,
     },
     util::get_project_root,
 };
@@ -32,83 +32,7 @@ use re_flora_vkn::{
 use resource_container_derive::ResourceContainer;
 use std::{collections::HashMap, path::Path};
 
-type MeshGenerator = fn(bool) -> anyhow::Result<FloraMeshData>;
-
 pub const WIND_VOLUME_TEXELS_PER_CHUNK: UVec3 = UVec3::splat(10);
-
-pub struct FloraMeshResources {
-    pub vertices: Resource<Buffer>,
-    pub indices: Resource<Buffer>,
-    pub indices_len: u32,
-    pub voxel_count: u32,
-}
-
-impl FloraMeshResources {
-    pub fn new(
-        device: Device,
-        allocator: Allocator,
-        is_lod_used: bool,
-        generator: Option<MeshGenerator>,
-    ) -> Self {
-        // Model-backed species reserve no voxel geometry. Minimal empty Vulkan
-        // buffers retain species-indexed resource slots; they are never drawn.
-        let mesh_data = generator
-            .map_or_else(
-                || Ok(FloraMeshData::new(1)),
-                |generate| generate(is_lod_used),
-            )
-            .unwrap();
-        Self::from_mesh_data(device, allocator, mesh_data)
-    }
-
-    pub fn from_mesh_data(device: Device, allocator: Allocator, mesh_data: FloraMeshData) -> Self {
-        let voxel_count = mesh_data.voxel_infos.len() as u32;
-        Self::from_data(
-            device,
-            allocator,
-            mesh_data.vertices,
-            mesh_data.indices,
-            voxel_count,
-        )
-    }
-
-    fn from_data(
-        device: Device,
-        allocator: Allocator,
-        vertices_data: Vec<Vertex>,
-        indices_data: Vec<u32>,
-        voxel_count: u32,
-    ) -> Self {
-        let indices_len = indices_data.len() as u32;
-
-        let vertices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(
-                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
-            ),
-            MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<Vertex>() * vertices_data.len().max(1)) as u64,
-        );
-        vertices.fill(&vertices_data).unwrap();
-
-        let indices = Buffer::new_sized(
-            device.clone(),
-            allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            MemoryLocation::CpuToGpu,
-            (std::mem::size_of::<u32>() * indices_data.len().max(1)) as u64,
-        );
-        indices.fill(&indices_data).unwrap();
-
-        Self {
-            vertices: Resource::new(vertices),
-            indices: Resource::new(indices),
-            indices_len,
-            voxel_count,
-        }
-    }
-}
 
 const FLORA_VOXEL_LOOKUP_TYPE_COUNT: usize = species::APPLE_RENDER_SPECIES_INDEX as usize + 1;
 const FLORA_VOXEL_LOOKUP_ENTRY_CAPACITY: usize = 1 << 21;
@@ -129,10 +53,6 @@ impl FloraVoxelLookupTypeData {
             max_length: max_length.max(1),
             fallback_info: FloraVoxelInfo::fallback(),
         }
-    }
-
-    pub fn from_mesh_data<V>(mesh_data: &FloraMeshData<V>) -> Self {
-        Self::new(mesh_data.voxel_infos.clone(), mesh_data.max_length)
     }
 
     pub fn from_leaf_shape(shape: &LeafVoxelShape) -> Self {
@@ -198,8 +118,15 @@ impl FloraVoxelLookupResources {
         let mut data =
             vec![FloraVoxelLookupTypeData::new(Vec::new(), 1); FLORA_VOXEL_LOOKUP_TYPE_COUNT];
         for (species_index, desc) in species::species().iter().enumerate() {
-            if let Some(generate) = desc.mesh_generator {
-                data[species_index] = FloraVoxelLookupTypeData::from_mesh_data(&generate(false)?);
+            if desc.stem_band_count > 0 {
+                let max_length = desc.stem_band_count.saturating_sub(1).max(1);
+                let entries = (0..desc.stem_band_count)
+                    .map(|band| FloraVoxelInfoEntry {
+                        pos: IVec3::new(0, band as i32, 0),
+                        info: FloraVoxelInfo::gradient(band as f32 / max_length as f32),
+                    })
+                    .collect();
+                data[species_index] = FloraVoxelLookupTypeData::new(entries, max_length);
             }
         }
 
@@ -1094,7 +1021,7 @@ pub struct TracerTextureResources {
 
 fn apple_shadow_mesh_data() -> FloraMeshData<LeafVertex> {
     let source = super::apple_preview::mesh();
-    let mut data = FloraMeshData::new(2);
+    let mut data = FloraMeshData::new();
     data.vertices = source
         .positions
         .iter()
@@ -1109,10 +1036,8 @@ fn apple_shadow_mesh_data() -> FloraMeshData<LeafVertex> {
 
 pub struct TracerMeshResources {
     pub terrain_depth_prefill_vertices: Buffer,
-    pub flora_meshes: Vec<FloraMeshResources>,
     pub leaves_resources: LeafMeshResources,
     pub apple_shadow_resources: LeafMeshResources,
-    pub flora_meshes_lod: Vec<FloraMeshResources>,
     pub leaves_resources_lod: LeafMeshResources,
     pub glass: GlassMeshResources,
 }
@@ -1421,43 +1346,19 @@ impl TracerMeshResources {
         terrain_depth_prefill_vertices
             .fill(&[[-1.0f32, -1.0], [3.0, -1.0], [-1.0, 3.0]])
             .unwrap();
-        let flora_meshes = species::species()
-            .iter()
-            .map(|desc| {
-                FloraMeshResources::new(
-                    device.clone(),
-                    allocator.clone(),
-                    false,
-                    desc.mesh_generator,
-                )
-            })
-            .collect::<Vec<_>>();
         let leaves_resources = LeafMeshResources::new(device.clone(), allocator.clone(), false);
         let apple_shadow_resources = LeafMeshResources::from_mesh_data(
             device.clone(),
             allocator.clone(),
             apple_shadow_mesh_data(),
         );
-        let flora_meshes_lod = species::species()
-            .iter()
-            .map(|desc| {
-                FloraMeshResources::new(
-                    device.clone(),
-                    allocator.clone(),
-                    true,
-                    desc.mesh_generator,
-                )
-            })
-            .collect::<Vec<_>>();
         let leaves_resources_lod = LeafMeshResources::new(device.clone(), allocator.clone(), true);
         let glass = GlassMeshResources::new(device, allocator, chunk_bound);
 
         Self {
             terrain_depth_prefill_vertices,
-            flora_meshes,
             leaves_resources,
             apple_shadow_resources,
-            flora_meshes_lod,
             leaves_resources_lod,
             glass,
         }

@@ -2172,8 +2172,8 @@ mod tests {
         assert!(growth_shader.contains("return isGrass ? grassGrowthPotential(localBase) : 1.0;"));
 
         for vertex_shader in [
-            include_str!("../../../shader/slang/flora_lod.vert.slang"),
-            include_str!("../../../shader/slang/flora.vert.slang"),
+            include_str!("../../../shader/slang/grass_band.vert.slang"),
+            include_str!("../../../shader/slang/flora_lighting_cache.comp.slang"),
         ] {
             assert!(vertex_shader.contains("floraCompetitionGrowthFactor("));
         }

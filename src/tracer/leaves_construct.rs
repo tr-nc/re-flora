@@ -139,7 +139,7 @@ pub fn generate_indexed_voxel_leaves(
     let shape =
         generate_voxel_leaf_shape(inner_density, outer_density, inner_radius, outer_radius)?;
     let origin = IVec3::ZERO;
-    let mut mesh = FloraMeshData::<LeafVertex>::new(shape.max_length);
+    let mut mesh = FloraMeshData::<LeafVertex>::new();
 
     for pos in shape.offsets {
         push_voxel(&mut mesh, pos, origin, shape.max_length, is_lod_used)?;
@@ -154,7 +154,7 @@ pub fn generate_indexed_single_voxel_leaf(
     is_lod_used: bool,
 ) -> Result<FloraMeshData<LeafVertex>> {
     let max_length = max_length.max(1);
-    let mut mesh = FloraMeshData::<LeafVertex>::new(max_length);
+    let mut mesh = FloraMeshData::<LeafVertex>::new();
     push_voxel(&mut mesh, IVec3::ZERO, IVec3::ZERO, max_length, is_lod_used)?;
 
     Ok(mesh)

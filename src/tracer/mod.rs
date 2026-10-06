@@ -154,7 +154,8 @@ use crate::environment_probes::{
 };
 use crate::gameplay::{calculate_directional_light_matrices, Camera, CameraDesc, CameraPose};
 use crate::generated::gpu_structs::{
-    PushConstantFlora, PushConstantGlassResolve, PushConstantLeafShadowTemporal,
+    PushConstantGlassResolve, PushConstantGrassBand as PushConstantFlora,
+    PushConstantLeafShadowTemporal,
 };
 use crate::geom::UAabb3;
 use crate::lighting::{
@@ -1272,19 +1273,10 @@ mod flora_lighting_cache_location_tests {
     }
 
     #[test]
-    fn every_surface_flora_mesh_fits_the_cache_voxel_count_encoding() {
+    fn every_grass_band_count_fits_cache_encoding_and_shared_topology() {
         for desc in crate::flora::species::species() {
-            for is_lod in [false, true] {
-                let Some(generate) = desc.mesh_generator else {
-                    continue;
-                };
-                let voxel_count = generate(is_lod).unwrap().voxel_infos.len() as u32;
-                assert!(
-                    voxel_count <= FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX,
-                    "{} has {voxel_count} voxels",
-                    desc.key,
-                );
-            }
+            assert!(desc.stem_band_count <= FLORA_LIGHTING_CACHE_VOXEL_COUNT_MAX);
+            assert!(desc.stem_band_count <= super::stem_band_mesh::MAX_GRASS_BANDS);
         }
     }
 }
@@ -1373,7 +1365,6 @@ pub struct MaterialFrameInput {
 pub struct FloraAppearanceFrameInput {
     pub model_flowers: crate::flora::models::Settings,
     pub stem_experiment: crate::flora::models::StemExperiment,
-    pub grass_stem_rendering: bool,
     pub grass_band_pose_reuse: bool,
     pub grass_band_pixelization: bool,
     pub growth_override_enabled: bool,
@@ -1637,7 +1628,6 @@ pub struct Tracer {
     model_pixel_view_count: u32,
     flower_model_settings: crate::flora::models::Settings,
     flower_stem_experiment: crate::flora::models::StemExperiment,
-    grass_stem_rendering: bool,
     grass_band_pose_reuse: bool,
     flower_spawn_overshoot_voxels: f32,
     // None means no effective display configuration has been published/logged yet.
@@ -1871,7 +1861,7 @@ impl Tracer {
             &shader_modules.post_processing_sm,
             &shader_modules.player_collider_sm,
             &shader_modules.terrain_query_sm,
-            &shader_modules.flora_vert_sm,
+            &shader_modules.grass_band_vert_sm,
             chunk_bound,
             render_extent,
             screen_extent,
@@ -2008,7 +1998,6 @@ impl Tracer {
             model_pixel_view_count: 0,
             flower_model_settings: crate::flora::models::Settings::default(),
             flower_stem_experiment: crate::flora::models::StemExperiment::default(),
-            grass_stem_rendering: false,
             grass_band_pose_reuse: true,
             flower_spawn_overshoot_voxels: 0.,
             ddgi_trace_stats_readback_pending: None,
@@ -3123,12 +3112,12 @@ impl Tracer {
             log::info!("[FLOWER_STEM_SAMPLING] pixelized={} surface_cells={} radius_scale={} branches={} model_resolution={} wind=live head_cache_unchanged=true", stems.pixelized, stems.surface_cells, stems.radius_scale, stems.branches, stems.model_resolution);
         }
         self.flower_stem_experiment = stems;
-        if self.grass_stem_rendering != vegetation.appearance.grass_stem_rendering
-            || self.grass_band_pose_reuse != vegetation.appearance.grass_band_pose_reuse
-        {
-            log::info!("[GRASS_STEM_AB] enabled={} pose_reuse={} colors=flat_bands growth=existing wind=existing", vegetation.appearance.grass_stem_rendering, vegetation.appearance.grass_band_pose_reuse);
+        if self.grass_band_pose_reuse != vegetation.appearance.grass_band_pose_reuse {
+            log::info!(
+                "[GRASS_STEM_MESH] pose_reuse={} colors=flat_bands growth=existing wind=existing",
+                vegetation.appearance.grass_band_pose_reuse
+            );
         }
-        self.grass_stem_rendering = vegetation.appearance.grass_stem_rendering;
         self.grass_band_pose_reuse = vegetation.appearance.grass_band_pose_reuse;
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
@@ -3849,12 +3838,6 @@ impl Tracer {
         };
 
         record_vertex(&self.resources.meshes.terrain_depth_prefill_vertices);
-        for mesh in &self.resources.meshes.flora_meshes {
-            record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
-        }
-        for mesh in &self.resources.meshes.flora_meshes_lod {
-            record_mesh(&mesh.indices, &mesh.vertices, mesh.indices_len);
-        }
         record_mesh(
             &self.resources.meshes.leaves_resources.indices,
             &self.resources.meshes.leaves_resources.vertices,
@@ -4066,10 +4049,10 @@ impl Tracer {
         if render_flags.enable_flora {
             assert_eq!(
                 flora_color_tables.len(),
-                self.resources.meshes.flora_meshes.len(),
-                "Flora color-table count ({}) must match flora mesh count ({})",
+                species::species_count(),
+                "Flora color-table count ({}) must match species count ({})",
                 flora_color_tables.len(),
-                self.resources.meshes.flora_meshes.len()
+                species::species_count()
             );
         }
 
@@ -4523,15 +4506,10 @@ impl Tracer {
                         .species_len(species_index)
                 },
                 |species_index| {
-                    species::species()[species_index].mesh_generator.is_some()
+                    species::is_grass_species_index(species_index as u32)
                         && should_render_grass_species(species_index, grass_render_mode)
                 },
-                |species_index, lod_state| match lod_state {
-                    LodState::Lod0 => self.resources.meshes.flora_meshes[species_index].voxel_count,
-                    LodState::Lod1 => {
-                        self.resources.meshes.flora_meshes_lod[species_index].voxel_count
-                    }
-                },
+                |species_index, _| species::species()[species_index].stem_band_count,
             )
         } else {
             FloraFramePlan::default()
@@ -4579,7 +4557,6 @@ impl Tracer {
             required_lighting_cache_entries,
         );
         let band_cache_buffer = if lighting_cache_enabled
-            && self.grass_stem_rendering
             && self.grass_band_pose_reuse
             && required_flora_cache_entries > 0
         {
@@ -4624,11 +4601,10 @@ impl Tracer {
                 let lod_state = batch.lod_state();
                 let instances =
                     &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
-                let mesh = match lod_state {
-                    LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
-                    LodState::Lod1 => &self.resources.meshes.flora_meshes_lod[species_index],
-                };
-                debug_assert_eq!(mesh.voxel_count, batch.mesh_voxel_count());
+                debug_assert_eq!(
+                    species::species()[species_index].stem_band_count,
+                    batch.mesh_voxel_count()
+                );
                 let mut push_constant = flora_push_constant(
                     time,
                     species_index as u32,
@@ -4660,7 +4636,6 @@ impl Tracer {
                         "flora_lighting_cache",
                         DescriptorResource::Buffer(&cache_buffer),
                     ),
-                    ("flora_vertices", DescriptorResource::Buffer(&mesh.vertices)),
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
@@ -4885,24 +4860,12 @@ impl Tracer {
             .map(|batch| {
                 let instances =
                     &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
-                let pipeline = if self.grass_stem_rendering
-                    && species::is_grass_species_index(batch.species_index() as u32)
-                {
-                    if band_cache_buffer.is_some() {
-                        &self.pipeline_topology.graphics().grass_band_cached_ppl
-                    } else {
-                        &self.pipeline_topology.graphics().grass_band_ppl
-                    }
+                let pipeline = if band_cache_buffer.is_some() {
+                    &self.pipeline_topology.graphics().grass_band_cached_ppl
                 } else {
-                    match batch.lod_state() {
-                        LodState::Lod0 => &self.pipeline_topology.graphics().flora_ppl,
-                        LodState::Lod1 => &self.pipeline_topology.graphics().flora_lod_ppl,
-                    }
+                    &self.pipeline_topology.graphics().grass_band_ppl
                 };
-                let resources = if let Some(buffer) = band_cache_buffer.as_ref().filter(|_| {
-                    self.grass_stem_rendering
-                        && species::is_grass_species_index(batch.species_index() as u32)
-                }) {
+                let resources = if let Some(buffer) = band_cache_buffer.as_ref() {
                     vec![("grass_band_pose_cache", DescriptorResource::Buffer(buffer))]
                 } else {
                     vec![
@@ -5020,8 +4983,6 @@ impl Tracer {
             .prepare_descriptor_resources(cmdbuf);
         if enable_flora {
             for pipeline in [
-                &self.pipeline_topology.graphics().flora_ppl,
-                &self.pipeline_topology.graphics().flora_lod_ppl,
                 &self.pipeline_topology.graphics().leaves_ppl,
                 &self.pipeline_topology.graphics().leaves_lod_ppl,
                 &self.pipeline_topology.graphics().apple_pixel_tree_ppl,
@@ -5200,39 +5161,24 @@ impl Tracer {
             for group in flora_frame_plan.groups() {
                 let species_index = group.species_index();
                 let lod_state = group.lod_state();
-                let band_grass = self.grass_stem_rendering
-                    && species::is_grass_species_index(species_index as u32);
-                let pipeline = if band_grass {
-                    if band_cache_buffer.is_some() {
-                        &self.pipeline_topology.graphics().grass_band_cached_ppl
-                    } else {
-                        &self.pipeline_topology.graphics().grass_band_ppl
-                    }
+                let pipeline = if band_cache_buffer.is_some() {
+                    &self.pipeline_topology.graphics().grass_band_cached_ppl
                 } else {
-                    match lod_state {
-                        LodState::Lod0 => &self.pipeline_topology.graphics().flora_ppl,
-                        LodState::Lod1 => &self.pipeline_topology.graphics().flora_lod_ppl,
-                    }
-                };
-                let mesh = match lod_state {
-                    LodState::Lod0 => &self.resources.meshes.flora_meshes[species_index],
-                    LodState::Lod1 => &self.resources.meshes.flora_meshes_lod[species_index],
+                    &self.pipeline_topology.graphics().grass_band_ppl
                 };
                 pipeline.record_bind(cmdbuf);
                 pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-                if band_grass {
-                    let bands = &self.resources.flower_models;
-                    cmdbuf.bind_index_buffer_u32(&bands.stem_band_indices);
-                    cmdbuf.bind_vertex_buffers(0, &[&bands.stem_band_vertices]);
-                } else {
-                    cmdbuf.bind_index_buffer_u32(&mesh.indices);
-                    cmdbuf.bind_vertex_buffers(0, &[&mesh.vertices]);
-                }
+                let bands = &self.resources.flower_models;
+                cmdbuf.bind_index_buffer_u32(&bands.stem_band_indices);
+                cmdbuf.bind_vertex_buffers(0, &[&bands.stem_band_vertices]);
 
                 for &batch in flora_frame_plan.group_batches(group) {
                     debug_assert_eq!(batch.species_index(), species_index);
                     debug_assert_eq!(batch.lod_state(), lod_state);
-                    debug_assert_eq!(batch.mesh_voxel_count(), mesh.voxel_count);
+                    debug_assert_eq!(
+                        batch.mesh_voxel_count(),
+                        species::species()[species_index].stem_band_count
+                    );
                     let instances =
                         &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
                     let mut push_constant = flora_push_constant(
@@ -5256,7 +5202,7 @@ impl Tracer {
                     pipeline.record_indexed_with_prepared_descriptors(
                         cmdbuf,
                         descriptors,
-                        if band_grass { 8 * 36 } else { mesh.indices_len },
+                        stem_band_mesh::MAX_GRASS_BANDS * 36,
                         batch.instance_count(),
                         0,
                         0,

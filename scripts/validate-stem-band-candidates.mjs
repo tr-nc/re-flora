@@ -9,7 +9,7 @@ import {parseArgs} from 'node:util';
 
 const suites = ['all', 'gpu', 'cpu'];
 const help = `Usage: node scripts/validate-stem-band-candidates.mjs [--suite ${suites.join('|')}] [--quick] [--pixels] [--resolution 8..512] [--scene CAMERA --grid ODD] [--phases]
-Compare original voxel/block rendering and square color bands. GPU grass uses production painting (3x3 and
+Validate square-band GPU grass and compare CPU blocks against square bands. GPU grass uses production painting (3x3 and
 15x15); CPU fixtures animate branched flower-like and climbing-like paths.
 Requires cargo build --release, Vulkan display and GPU timestamps. Runs serially,
 hidden/muted, with fixed simulation time. Does not change saved settings.
@@ -69,7 +69,7 @@ const percentile = (values,fraction) => {
   return sorted[Math.min(sorted.length-1,Math.floor(sorted.length*fraction))];
 };
 const summarize = values => ({samples:values.length,p50_us:percentile(values,.5),p95_us:percentile(values,.95)});
-const baseModesGPU = [{name:'voxel',ab:'a'}, {name:'square',ab:'b'}];
+const baseModesGPU = [{name:'square',ab:'b'}];
 const modesGPU = [...baseModesGPU, ...(options.pixels ? [
   {name:'square-pixels',ab:'b',pixels:true}] : [])];
 const modesCPU = [{name:'blocks',ab:'a'}, {name:'square',ab:'b'}];

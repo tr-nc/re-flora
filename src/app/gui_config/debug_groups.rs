@@ -52,7 +52,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Stem Geometry & Color Bands",
         description: "Grass unchecked: original voxel geometry. Checked: square color-band stems with flat color and lighting, hardware depth and no spherical caps. All objects use the scene-wide pixel grid. Growth and wind stay live.",
         initially_open: false,
-        params: &["grass_stem_rendering", "cpu_stem_band_rendering", "grass_band_pose_reuse"],
+        params: &["cpu_stem_band_rendering", "grass_band_pose_reuse"],
     },
     ControlGroup {
         parent: None,

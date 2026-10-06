@@ -1,7 +1,3 @@
-use crate::flora::construct::{gen_short_grass, gen_tall_grass};
-use crate::tracer::voxel_encoding::FloraMeshData;
-use anyhow::Result;
-
 pub const MODEL_FLOWER_FIRST_SPECIES: u32 = 2;
 pub const MAX_FLORA_SPECIES: usize =
     MODEL_FLOWER_FIRST_SPECIES as usize + super::models::MODEL_COUNT;
@@ -17,8 +13,6 @@ pub enum FloraPlacementMode {
     Occupancy,
     Authored,
 }
-
-pub type MeshGeneratorFn = fn(bool) -> Result<FloraMeshData>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct FloraPaintBrushSettings {
@@ -73,8 +67,8 @@ pub struct FloraSpeciesDesc {
     pub display_name: &'static str,
     pub default_bottom_color: [u8; 3],
     pub default_tip_color: [u8; 3],
-    /// None for authored model flowers, which do not have a voxel draw mesh.
-    pub mesh_generator: Option<MeshGeneratorFn>,
+    /// Number of material/pose layers for square-band grass; zero for model flowers.
+    pub stem_band_count: u32,
     pub model_flower: Option<usize>,
     pub paint_brush: FloraPaintBrushSettings,
     pub placement_mode: FloraPlacementMode,
@@ -93,7 +87,7 @@ impl FloraSpeciesDesc {
         display_name: &'static str,
         default_bottom_color: [u8; 3],
         default_tip_color: [u8; 3],
-        mesh_generator: MeshGeneratorFn,
+        stem_band_count: u32,
         paint_brush: FloraPaintBrushSettings,
         placement_mode: FloraPlacementMode,
         grass_growth_influence_radius_voxels: u32,
@@ -105,7 +99,7 @@ impl FloraSpeciesDesc {
             display_name,
             default_bottom_color,
             default_tip_color,
-            mesh_generator: Some(mesh_generator),
+            stem_band_count,
             model_flower: None,
             paint_brush,
             placement_mode,
@@ -125,7 +119,7 @@ const fn model_flower(
         key,
         display_name,
         model_flower: Some(index),
-        mesh_generator: None,
+        stem_band_count: 0,
         default_bottom_color: [99, 141, 83],
         default_tip_color: [214, 149, 197],
         paint_brush: MODEL_FLOWER_PAINT_BRUSH_SETTINGS,
@@ -142,7 +136,7 @@ const BASE_SPECIES: [FloraSpeciesDesc; MODEL_FLOWER_FIRST_SPECIES as usize] = [
         "Tall Grass",
         [61, 163, 59],
         [168, 227, 0],
-        gen_tall_grass,
+        8,
         FloraPaintBrushSettings::dense(80),
         FloraPlacementMode::Occupancy,
         0,
@@ -154,7 +148,7 @@ const BASE_SPECIES: [FloraSpeciesDesc; MODEL_FLOWER_FIRST_SPECIES as usize] = [
         "Short Grass",
         [61, 163, 59],
         [168, 227, 0],
-        gen_short_grass,
+        4,
         FloraPaintBrushSettings::dense(80),
         FloraPlacementMode::Occupancy,
         0,
@@ -356,10 +350,10 @@ mod tests {
             let desc = &species()[MODEL_FLOWER_FIRST_SPECIES as usize + index];
             assert_eq!(desc.key, model.id);
             assert_eq!(desc.model_flower, Some(index));
-            assert!(desc.mesh_generator.is_none());
+            assert_eq!(desc.stem_band_count, 0);
         }
         for desc in &species()[..MODEL_FLOWER_FIRST_SPECIES as usize] {
-            assert!(desc.mesh_generator.is_some());
+            assert!(desc.stem_band_count > 0);
             assert!(desc.model_flower.is_none());
         }
     }

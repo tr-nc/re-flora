@@ -942,7 +942,7 @@ mod tests {
     fn daylight_consumers_reflect_one_shared_source_set() {
         for shader_path in [
             "shader/tracer/tracer.comp",
-            "shader/foliage/flora.vert",
+            "shader/foliage/grass_band.vert",
             "shader/builder/chunk_writer/terrain_moisture_dry.comp",
             "shader/trees/raster_tree.frag",
         ] {
@@ -1022,7 +1022,7 @@ mod tests {
 
     #[test]
     fn active_shader_artifacts_preserve_descriptor_access_decorations() {
-        let flora = find_precompiled_shader("shader/foliage/flora.vert")
+        let flora = find_precompiled_shader("shader/foliage/grass_band.vert")
             .expect("missing precompiled flora vertex shader");
         let flora_decorations =
             parse_descriptor_access_decorations(flora.reflection_spirv).unwrap();

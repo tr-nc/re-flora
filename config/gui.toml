@@ -296,15 +296,6 @@ value = 0
 options = ["HDR average (previous reference)", "Contrast-aware (experimental)"]
 
 [[section.param]]
-id = "grass_stem_rendering"
-kind = "bool"
-label = "Experimental grass stem rendering (tall and short)"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "grass_band_pixelization"
 kind = "bool"
 label = "Grass: model-grid pixelization (square stems)"

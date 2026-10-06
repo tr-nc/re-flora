@@ -365,13 +365,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let flora_vert_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/foliage/flora.vert",
-            "main",
-        )
-        .unwrap();
-
         let flora_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flora.frag",
@@ -379,12 +372,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let flora_lod_vert_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/foliage/flora_lod.vert",
-            "main",
-        )
-        .unwrap();
         let flora_lighting_cache_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             if glass_experiment_enabled {
@@ -710,9 +697,7 @@ impl PipelineBuilder {
             wind_volume_sm,
             vegetation_response_sm,
             leaf_handoff_sm,
-            flora_vert_sm,
             flora_frag_sm,
-            flora_lod_vert_sm,
             flora_lighting_cache_sm,
             tree_leaf_lighting_cache_sm,
             leaves_vert_sm,
@@ -1215,27 +1200,6 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
-        let flora_ppl = Self::create_gfx_pipeline_uninitialized(
-            vulkan_ctx,
-            &shader_modules.flora_vert_sm,
-            &shader_modules.flora_frag_sm,
-            &render_passes.render_pass_color_and_depth,
-            None,
-            pool,
-            GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-        );
-        flora_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &flora_resources,
-            })
-            .expect("flora static descriptors must resolve from tracer resources");
-
         let grass_band_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.grass_band_vert_sm,
@@ -1277,27 +1241,6 @@ impl PipelineBuilder {
                 providers: &flora_resources,
             })
             .expect("cached grass band static descriptors");
-        let flora_lod_ppl = Self::create_gfx_pipeline_uninitialized(
-            vulkan_ctx,
-            &shader_modules.flora_lod_vert_sm,
-            &shader_modules.flora_frag_sm,
-            &render_passes.render_pass_color_and_depth,
-            None,
-            pool,
-            GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
-        );
-        flora_lod_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &flora_resources,
-            })
-            .expect("flora LOD static descriptors must resolve from tracer resources");
-
         let leaves_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.leaves_vert_sm,
@@ -1751,8 +1694,6 @@ impl PipelineBuilder {
 
         GraphicsPipelines {
             terrain_depth_prefill_ppl,
-            flora_ppl,
-            flora_lod_ppl,
             leaves_ppl,
             leaves_lod_ppl,
             leaves_shadow_lod_ppl,
@@ -1999,8 +1940,6 @@ declare_ddgi_consumer_registry! {
     FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
     GrassBandPreparation => Compute(compute.flora_lighting_band_cache_ppl),
     TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
-    Flora => Graphics(graphics.flora_ppl),
-    FloraLod => Graphics(graphics.flora_lod_ppl),
     Leaves => Graphics(graphics.leaves_ppl),
     LeavesLod => Graphics(graphics.leaves_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
@@ -2382,8 +2321,6 @@ impl PipelineTopology {
             "graphics descriptor update failed during extent publication",
         );
         for pipeline in [
-            &self.graphics.flora_ppl,
-            &self.graphics.flora_lod_ppl,
             &self.graphics.flower_pixel_ppl,
             &self.graphics.grass_band_ppl,
             &self.graphics.grass_band_cached_ppl,
@@ -2942,9 +2879,7 @@ pub struct ShaderModules {
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
     pub leaf_handoff_sm: ShaderModule,
-    pub flora_vert_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
-    pub flora_lod_vert_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
     pub tree_leaf_lighting_cache_sm: ShaderModule,
     pub leaves_vert_sm: ShaderModule,
@@ -3046,8 +2981,6 @@ pub struct RenderPasses {
 pub struct GraphicsPipelines {
     pub butterfly_tile_ppl: GraphicsPipeline,
     pub terrain_depth_prefill_ppl: GraphicsPipeline,
-    pub flora_ppl: GraphicsPipeline,
-    pub flora_lod_ppl: GraphicsPipeline,
     pub leaves_ppl: GraphicsPipeline,
     pub leaves_lod_ppl: GraphicsPipeline,
     pub leaves_shadow_lod_ppl: GraphicsPipeline,
@@ -3091,9 +3024,6 @@ impl GraphicsPipelines {
         self.grass_band_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.grass_band_cached_ppl
-            .begin_transient_descriptor_frame(frame_slot);
-        self.flora_ppl.begin_transient_descriptor_frame(frame_slot);
-        self.flora_lod_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.leaves_ppl.begin_transient_descriptor_frame(frame_slot);
         self.apple_pixel_tree_ppl

@@ -3,7 +3,7 @@ use glam::{IVec3, UVec3};
 
 use crate::tracer::{
     voxel_geometry::{CUBE_INDICES, CUBE_INDICES_LOD, VOXEL_VERTICES, VOXEL_VERTICES_LOD},
-    LeafVertex, Vertex,
+    LeafVertex,
 };
 
 const BIT_PER_POS: u32 = 7;
@@ -88,20 +88,18 @@ pub struct FloraVoxelInfoEntry {
 }
 
 #[derive(Clone, Debug)]
-pub struct FloraMeshData<V = Vertex> {
+pub struct FloraMeshData<V = LeafVertex> {
     pub vertices: Vec<V>,
     pub indices: Vec<u32>,
     pub voxel_infos: Vec<FloraVoxelInfoEntry>,
-    pub max_length: u32,
 }
 
 impl<V> FloraMeshData<V> {
-    pub fn new(max_length: u32) -> Self {
+    pub fn new() -> Self {
         Self {
             vertices: Vec::new(),
             indices: Vec::new(),
             voxel_infos: Vec::new(),
-            max_length: max_length.max(1),
         }
     }
 
@@ -173,30 +171,6 @@ fn encode_vec3_with_bits(pos: IVec3, bits: u32, label: &str) -> Result<u32> {
     Ok(encoded)
 }
 
-/// Appends indexed cube data and a default gradient-based voxel lookup entry.
-#[allow(clippy::too_many_arguments)]
-pub fn append_indexed_cube_data(
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
-    voxel_infos: &mut Vec<FloraVoxelInfoEntry>,
-    pos: IVec3,
-    vertex_offset: u32,
-    origin: IVec3,
-    max_length: u32,
-    is_lod_used: bool,
-) -> Result<()> {
-    let gradient = gradient_from_origin(pos, origin, max_length);
-    append_indexed_cube_data_with_info(
-        vertices,
-        indices,
-        voxel_infos,
-        pos,
-        vertex_offset,
-        FloraVoxelInfo::gradient(gradient),
-        is_lod_used,
-    )
-}
-
 fn append_indexed_cube_vertices<V>(
     vertices: &mut Vec<V>,
     indices: &mut Vec<u32>,
@@ -232,33 +206,6 @@ fn append_indexed_cube_vertices<V>(
     for &index in base_indices {
         indices.push(vertex_offset + index);
     }
-
-    Ok(())
-}
-
-/// Appends indexed cube data with a per-vertex source voxel index.
-pub fn append_indexed_cube_data_with_info(
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
-    voxel_infos: &mut Vec<FloraVoxelInfoEntry>,
-    pos: IVec3,
-    vertex_offset: u32,
-    info: FloraVoxelInfo,
-    is_lod_used: bool,
-) -> Result<()> {
-    let voxel_index = voxel_infos.len() as u32;
-    append_indexed_cube_vertices(
-        vertices,
-        indices,
-        pos,
-        vertex_offset,
-        is_lod_used,
-        |packed_data| Vertex {
-            packed_data,
-            voxel_index,
-        },
-    )?;
-    voxel_infos.push(FloraVoxelInfoEntry { pos, info });
 
     Ok(())
 }
@@ -332,46 +279,10 @@ mod tests {
     }
 
     #[test]
-    fn generated_vertices_identify_their_source_voxel_for_both_lods() {
-        for is_lod_used in [false, true] {
-            let mut vertices = Vec::new();
-            let mut indices = Vec::new();
-            let mut voxel_infos = Vec::new();
-            let vertices_per_voxel = if is_lod_used { 4 } else { 8 };
-
-            for voxel_index in 0..2 {
-                append_indexed_cube_data_with_info(
-                    &mut vertices,
-                    &mut indices,
-                    &mut voxel_infos,
-                    IVec3::new(voxel_index, 0, 0),
-                    (voxel_index as usize * vertices_per_voxel) as u32,
-                    FloraVoxelInfo::fallback(),
-                    is_lod_used,
-                )
-                .unwrap();
-            }
-
-            assert_eq!(voxel_infos.len(), 2);
-            assert_eq!(vertices.len(), 2 * vertices_per_voxel);
-            assert!(vertices[..vertices_per_voxel]
-                .iter()
-                .all(|vertex| vertex.voxel_index == 0));
-            assert!(vertices[vertices_per_voxel..]
-                .iter()
-                .all(|vertex| vertex.voxel_index == 1));
-        }
-    }
-
-    #[test]
     fn generated_leaf_vertices_match_the_compact_shader_layout_for_both_lods() {
         assert_eq!(
             std::mem::size_of::<LeafVertex>(),
             std::mem::size_of::<u32>()
-        );
-        assert_eq!(
-            std::mem::size_of::<Vertex>(),
-            2 * std::mem::size_of::<u32>()
         );
 
         for is_lod_used in [false, true] {

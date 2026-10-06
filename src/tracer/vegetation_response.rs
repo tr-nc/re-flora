@@ -609,7 +609,7 @@ mod tests {
             STATE_BYTES as usize
         );
         assert_eq!(
-            std::mem::size_of::<crate::generated::gpu_structs::PushConstantFlora>(),
+            std::mem::size_of::<crate::generated::gpu_structs::PushConstantGrassBand>(),
             128
         );
         assert_eq!(std::mem::size_of::<crate::builder::TreeLeafInstance>(), 8);

@@ -1,5 +1,5 @@
-//! Opt-in fixed-camera Release A/B fixture. Uses the normal seeded grass scene,
-//! the real GUI setting and shared fixed-time benchmark clock; never saves tuning.
+//! Opt-in fixed-camera Release fixture for the sole square-band grass renderer.
+//! Uses normal seeded grass and the shared benchmark clock; never saves tuning.
 use super::App;
 use anyhow::{ensure, Result};
 use glam::{Vec2, Vec3};
@@ -10,7 +10,6 @@ const POST_PAINT_WARMUP_FRAMES: u32 = 111;
 pub(super) struct GrassStemReview {
     pub(super) frame: u32,
     case: String,
-    experimental: bool,
     distance: &'static str,
     species_mode: u32,
     curved: bool,
@@ -55,7 +54,7 @@ impl GrassStemReview {
             );
             Some(review)
         } else if std::env::var_os("RE_FLORA_GRASS_STEM_TRYOUT").is_some() {
-            let mut review = Self::parse("mid-both-a").unwrap();
+            let mut review = Self::parse("mid-both-b").unwrap();
             review.interactive = true;
             Some(review)
         } else {
@@ -67,7 +66,7 @@ impl GrassStemReview {
         let parts: Vec<_> = case.split('-').collect();
         ensure!(
             parts.len() == 3,
-            "expected <near|mid|far|top|low|inside|wide>-<both|tall|short|curved>-<a|b>"
+            "expected <near|mid|far|top|low|inside|wide>-<both|tall|short|curved>-b"
         );
         let distance = match parts[0] {
             "near" => "near",
@@ -85,15 +84,10 @@ impl GrassStemReview {
             "short" => 2,
             _ => anyhow::bail!("unknown grass review species mode"),
         };
-        let experimental = match parts[2] {
-            "a" => false,
-            "b" => true,
-            _ => anyhow::bail!("grass review mode must be a or b"),
-        };
+        ensure!(parts[2] == "b", "legacy voxel grass mode has been removed; use the same scene with suffix -b for square-band meshes");
         Ok(Self {
             frame: 0,
             case: case.into(),
-            experimental,
             distance,
             species_mode,
             curved: parts[1] == "curved",
@@ -180,7 +174,6 @@ impl GrassStemReview {
             "grass stem review camera"
         );
         let gui = &mut app.debug_settings.adjustables;
-        gui.grass_stem_rendering.value = self.experimental;
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
             gui.grass_band_pose_reuse.value = self.pose_reuse;
@@ -297,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn paired_cases_only_change_the_rendering_mode() {
+    fn review_accepts_mesh_cases_and_rejects_retired_voxel_cases() {
         for scene in [
             "near-both",
             "mid-both",
@@ -310,13 +303,8 @@ mod tests {
             "inside-both",
             "low-curved",
         ] {
-            let a = GrassStemReview::parse(&format!("{scene}-a")).unwrap();
-            let b = GrassStemReview::parse(&format!("{scene}-b")).unwrap();
-            assert!(!a.experimental);
-            assert!(b.experimental);
-            assert_eq!(a.distance, b.distance);
-            assert_eq!(a.species_mode, b.species_mode);
-            assert_eq!(a.curved, b.curved);
+            assert!(GrassStemReview::parse(&format!("{scene}-a")).is_err());
+            assert!(GrassStemReview::parse(&format!("{scene}-b")).is_ok());
         }
         assert!(GrassStemReview::parse("near-both-c").is_err());
         assert!(GrassStemReview::parse("mid-all-a").is_err());
