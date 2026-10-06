@@ -20,6 +20,7 @@ mod fallen_leaf_review;
 mod flower_model_bench;
 mod flower_model_review;
 mod foliage_shadow_bench;
+mod fps_chart;
 mod frame_timing;
 mod glass_voxel_test_scene;
 mod grass_stem_review;
@@ -424,6 +425,7 @@ pub struct App {
     gpu_profiler: Option<GpuProfiler>,
     gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
     time_info: TimeInfo,
+    fps_history: fps_chart::FpsHistory,
     world_clock: WorldClock,
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
@@ -1539,6 +1541,7 @@ impl App {
             ordered_dither_review: ordered_dither_review::OrderedDitherReview::from_environment(),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::default(),
+            fps_history: fps_chart::FpsHistory::default(),
             world_clock,
             render_flags,
 
@@ -2383,6 +2386,10 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
+                self.fps_history.observe(
+                    self.time_info.time_since_start_duration().as_secs_f64(),
+                    self.time_info.display_fps(),
+                );
                 cpu_timings.time(FrameCpuScope::ContreePoll, || {
                     self.contree_builder.poll_cpu_chunk_cache_jobs(
                         self.tracer.camera_position(),
@@ -3117,49 +3124,12 @@ impl App {
                             draw_center_card(ctx);
                         }
 
-                        // FPS counter in bottom right
-                        egui::Area::new("fps_counter".into())
-                            .anchor(egui::Align2::RIGHT_BOTTOM, egui::Vec2::new(-16.0, -16.0))
-                            .show(ctx, |ui| {
-                                let fps_frame = egui::containers::Frame {
-                                    fill: PANEL_DARK,
-                                    inner_margin: egui::Margin::symmetric(10, 6),
-                                    corner_radius: egui::CornerRadius::same(0),
-                                    shadow: egui::epaint::Shadow {
-                                        offset: [4, 4],
-                                        blur: 0,
-                                        spread: 0,
-                                        color: SHADOW_COLOR,
-                                    },
-                                    stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
-                                    ..Default::default()
-                                };
-
-                                fps_frame.show(ui, |ui| {
-                                    ui.allocate_ui_with_layout(
-                                        egui::Vec2::new(110.0, 24.0),
-                                        egui::Layout::left_to_right(egui::Align::Center),
-                                        |ui| {
-                                            ui.label(
-                                                RichText::new("FPS")
-                                                    .color(GOLD_ACCENT)
-                                                    .monospace()
-                                                    .size(12.0),
-                                            );
-                                            ui.add_space(6.0);
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{:.1}",
-                                                    self.time_info.display_fps()
-                                                ))
-                                                .color(SAGE_ACCENT)
-                                                .monospace()
-                                                .strong(),
-                                            );
-                                        },
-                                    );
-                                });
-                            });
+                        fps_chart::draw(
+                            ctx,
+                            &self.fps_history,
+                            self.time_info.time_since_start_duration().as_secs_f64(),
+                            self.time_info.display_fps(),
+                        );
 
                         draw_center_cross_mark(ctx);
                     });
