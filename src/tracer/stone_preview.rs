@@ -289,8 +289,8 @@ mod tests {
         assert!(shader.contains("modelMeshViewFrame(stonePhysicalFrame(stone_pose), float3(0))"));
         assert!(shader.contains("position = modelViewWorldPoint(rendered, local)"));
         assert!(shader.contains("modelViewWorldVector(rendered, t.normal.xyz)"));
-        assert!(shader.contains("if (gui_input.model_view_quantization_enabled != 0u)"));
-        assert!(shader.contains("stoneWorldPoint(local, stone_pose)"));
+        assert!(!shader.contains("model_view_quantization_enabled"));
+        assert!(!shader.contains("stoneWorldPoint(local, stone_pose)"));
         assert!(!shader.contains("SV_Depth"));
         let tracer = include_str!("mod.rs");
         let direct = tracer.split("let prepared_stone =").nth(1).unwrap();

@@ -75,25 +75,27 @@ grep -q 'ratio=16:1' "$output/cycle.log"
 grep -q 'ratio=64:1' "$output/cycle.log"
 # Aggregate integration: one shared view bank controls direct stones too, and
 # global dither covers both adapters after composition. Same finite seed/pivot.
-for style in a a-repeat 128 256 global combined; do
+for style in 32 32-repeat 128 256 global combined; do
     mode=$style
-    [[ "$style" == a-repeat ]] && mode=a
+    [[ "$style" == 32-repeat ]] && mode=32
     RE_FLORA_STONE_STYLE_REVIEW="$mode" run_native "style-$style" direct-rock --windowed \
         --screenshot player-default "$output/style-$style.png" --screenshot-delay 2 --auto-exit 4
 done
-for style in a a-repeat 128 256; do
+for style in 32 32-repeat 128 256; do
     [[ "$(magick identify -format '%wx%h' "$output/style-$style.png")" == 1600x900 ]]
     # Upper rock silhouette against darker terrain; exclude animated flowers
     # below its base. Local coverage, not whole-frame RGB or an art score.
     magick "$output/style-$style.png" -crop 440x280+580+270 +repage \
         -fx 'r>0.58&&g>0.58&&b>0.58?1:0' -depth 8 gray:- > "$output/style-$style.mask"
 done
-cmp -s "$output/style-a.mask" "$output/style-a-repeat.mask"
-! cmp -s "$output/style-a.mask" "$output/style-128.mask"
-! cmp -s "$output/style-a.mask" "$output/style-256.mask"
+cmp -s "$output/style-32.mask" "$output/style-32-repeat.mask"
+! cmp -s "$output/style-32.mask" "$output/style-128.mask"
+! cmp -s "$output/style-32.mask" "$output/style-256.mask"
 ! cmp -s "$output/style-128.mask" "$output/style-256.mask"
 RE_FLORA_STONE_STYLE_REVIEW=cycle run_native style-cycle cycle --windowed --auto-exit 10
-grep -q 'quantized=true count=256' "$output/style-cycle.log"
+for count in 32 128 256; do
+    grep -q "STONE_STYLE_REVIEW.*count=$count " "$output/style-cycle.log"
+done
 grep -q 'global=true bank_binding=19' "$output/style-cycle.log"
 binary_before=$(sha256sum target/release/re-flora)
 RE_FLORA_STONE_GUI_SAVE_REVIEW=1 RE_FLORA_DEBUG_PANEL_REVIEW=1 \

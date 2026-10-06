@@ -74,9 +74,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Model View Quantization",
-        description: "Unchecked: original continuous triangle views. Checked: nearest model-local direction from one finite sphere bank. Applies to flower heads, attached and fallen apples, mesh butterflies and modeled leaves. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions. Art and motion stability are not yet approved.",
+        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies, modeled leaves and direct stones. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
         initially_open: false,
-        params: &["model_view_quantization_enabled", "model_pixel_view_count"],
+        params: &["model_pixel_view_count"],
     },
     ControlGroup {
         parent: None,
@@ -394,7 +394,8 @@ mod tests {
             .iter()
             .find(|g| g.title == "Model View Quantization")
             .unwrap();
-        for id in ["model_view_quantization_enabled", "model_pixel_view_count"] {
+        assert_eq!(group.params, &["model_pixel_view_count"]);
+        for id in group.params {
             assert_eq!(
                 search_path("Debug", id).as_deref(),
                 Some("Model View Quantization")

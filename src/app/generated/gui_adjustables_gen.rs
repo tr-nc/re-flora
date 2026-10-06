@@ -200,12 +200,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "model_view_quantization_enabled",
-        kind: "bool",
-        label: "Models: quantized views (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "raster_tree_wind",
         kind: "bool",
         label: "Animate raster trees with wind",
@@ -1533,7 +1527,6 @@ pub struct GuiAdjustables {
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
-    pub model_view_quantization_enabled: crate::gui_adjustables::BoolParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
@@ -1792,7 +1785,6 @@ impl GuiAdjustables {
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut model_view_quantization_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2188,11 +2180,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             model_pixel_view_count_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
-                    "model_view_quantization_enabled" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            model_view_quantization_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "raster_tree_wind" => {
@@ -3678,7 +3665,6 @@ impl GuiAdjustables {
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
-            model_view_quantization_enabled: model_view_quantization_enabled_field.expect("Missing parameter: model_view_quantization_enabled"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
@@ -4149,7 +4135,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
-        "model_view_quantization_enabled" => Some(&adjustables.model_view_quantization_enabled),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
@@ -4442,7 +4427,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
-        "model_view_quantization_enabled" => Some(&mut adjustables.model_view_quantization_enabled),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),

@@ -28,41 +28,41 @@ run() {
     done
 }
 
-for mode in a 128 256; do
+for mode in 32 128 256; do
     run "$mode" --screenshot player-default "$out/$mode.png" --screenshot-delay 2 --auto-exit 4
     test -s "$out/$mode.png"
 done
-grep -q 'MODEL_VIEW_QUANTIZATION.*enabled=false count=128' "$out/a.run.log"
-grep -q 'MODEL_VIEW_QUANTIZATION.*enabled=true count=128' "$out/128.run.log"
-grep -q 'MODEL_VIEW_QUANTIZATION.*enabled=true count=256' "$out/256.run.log"
+for count in 32 128 256; do
+    grep -q "MODEL_VIEW_QUANTIZATION.*count=$count " "$out/$count.run.log"
+done
 
-REVIEW_LOG_LABEL=a-repeat run a --screenshot player-default "$out/a-repeat.png" --screenshot-delay 2 --auto-exit 4
+REVIEW_LOG_LABEL=32-repeat run 32 --screenshot player-default "$out/32-repeat.png" --screenshot-delay 2 --auto-exit 4
 
 # A frozen production-mesh butterfly against sky, away from tree/HUD/wind.
 # Compare binary foreground COVERAGE (not RGB/AA quality or whole-scene noise).
-# A dead checkbox or an ignored count makes these masks identical and fails.
-read -r width height < <(magick identify -format '%w %h\n' "$out/a.png")
+# An ignored count makes these masks identical and fails.
+read -r width height < <(magick identify -format '%w %h\n' "$out/32.png")
 x=$((width * 31 / 100)); y=$((height * 7 / 100))
 w=$((width * 11 / 100)); h=$((height * 10 / 100))
-for mode in a a-repeat 128 256; do
+for mode in 32 32-repeat 128 256; do
     magick "$out/$mode.png" -crop "${w}x${h}+${x}+${y}" +repage \
         -fx 'r>b-0.12?1:0' -depth 8 gray:- >"$out/$mode.butterfly-mask.raw"
 done
-cmp -s "$out/a.butterfly-mask.raw" "$out/a-repeat.butterfly-mask.raw"
-! cmp -s "$out/a.butterfly-mask.raw" "$out/128.butterfly-mask.raw"
-! cmp -s "$out/a.butterfly-mask.raw" "$out/256.butterfly-mask.raw"
+cmp -s "$out/32.butterfly-mask.raw" "$out/32-repeat.butterfly-mask.raw"
+! cmp -s "$out/32.butterfly-mask.raw" "$out/128.butterfly-mask.raw"
+! cmp -s "$out/32.butterfly-mask.raw" "$out/256.butterfly-mask.raw"
 ! cmp -s "$out/128.butterfly-mask.raw" "$out/256.butterfly-mask.raw"
 sha256sum "$out"/*.butterfly-mask.raw >"$out/foreground-masks.sha256"
 
-# One live process toggles A/B, 128/256/8/512, rotated poses, camera orbit and two
+# One live process changes 32/128/256/8/512, rotated poses, camera orbit and two
 # post-submission native resizes. Existing screenshot sequence retains swapchain
-# frames. It does not freeze environmental lighting or claim pixel-perfect A/B.
+# frames. It does not freeze environmental lighting or claim pixel-perfect RGB.
 run sweep --screenshot player-default "$out/sweep" --screenshot-delay 0 \
     --screenshot-sequence 36 0.25 --auto-exit 15
 grep -q 'MODEL_VIEW_REVIEW.*complete=true' "$out/sweep.run.log"
 grep -q 'MODEL_VIEW_DRAW.*object=dynamic_apples .*bank_binding=19' "$out/sweep.run.log"
-for count in 8 128 256 512; do
-    grep -q "MODEL_VIEW_QUANTIZATION.*enabled=true count=$count " "$out/sweep.run.log"
+for count in 8 32 128 256 512; do
+    grep -q "MODEL_VIEW_QUANTIZATION.*count=$count " "$out/sweep.run.log"
 done
 test "$(grep -c 'MODEL_VIEW_REVIEW_RESIZE' "$out/sweep.run.log")" = 2
 for extent in 1023x767 1280x720; do

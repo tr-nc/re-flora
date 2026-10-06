@@ -63,7 +63,7 @@ export __extern_cpp int main() {
         float3 camera = pivot + ray;
         float3 localView = modelPixelLocalVector(physical,ray);
         uint index = nearestModelView(localView,128u,bank);
-        ModelPixelFrame rendered = quantizeModelView(physical,localPivot,camera,true,128u,bank);
+        ModelPixelFrame rendered = quantizeModelView(physical,localPivot,camera,128u,bank);
         if (!near(modelViewWorldPoint(rendered,localPivot),pivot)) return 13;
         if (!near(modelPixelLocalVector(rendered,ray),bank.direction(index,128u))) return 14;
         if (abs(dot(cross(rendered.axisX,rendered.axisY),rendered.axisZ)-1.0)>0.00001) return 15;
@@ -72,16 +72,13 @@ export __extern_cpp int main() {
         float3 b = modelViewWorldPoint(rendered,localPivot+float3(0,1,0));
         float3 geometricNormal = normalize(cross(a-pivot,b-pivot));
         if (!near(geometricNormal,modelViewWorldVector(rendered,float3(0,0,1)))) return 17;
-        ModelPixelFrame original = quantizeModelView(physical,localPivot,camera,false,128u,bank);
-        if (any(original.center != physical.center) || any(original.axisX != physical.axisX)
-            || any(original.axisY != physical.axisY) || any(original.axisZ != physical.axisZ)) return 18;
         if (any(camera != pivot+ray)) return 19;
         // Camera roll is intentionally not an input: no screen-axis/pole switch.
         if (any(isnan(rendered.axisX)) || any(isinf(rendered.axisX))) return 20;
     }
     for (uint i=0; i<3; ++i) {
         float3 camera = i==0?pivot:i==1?float3(invalid):float3(infinity);
-        ModelPixelFrame unchanged = quantizeModelView(physical,localPivot,camera,true,0u,bank);
+        ModelPixelFrame unchanged = quantizeModelView(physical,localPivot,camera,0u,bank);
         if (any(unchanged.center != physical.center) || any(unchanged.axisX != physical.axisX)) return 21;
     }
     printf("model view quantization: actual-N bank, nearest/ties/invalid/poles, 160 rigid pivots, normals, handedness and unchanged camera passed\n");

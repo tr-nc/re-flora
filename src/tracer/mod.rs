@@ -1349,7 +1349,6 @@ pub struct TerrainFrameInput {
     pub ddgi_history_retention: f32,
     pub apple_pixel_resolution: u32,
     pub model_pixel_view_count: u32,
-    pub model_view_quantization_enabled: bool,
     pub self_shadow_tolerance_voxels: f32,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
@@ -3138,10 +3137,8 @@ impl Tracer {
             .max(0.);
         self.model_pixel_view_count =
             model_pixel_views::runtime_count(terrain.model_pixel_view_count);
-        self.model_mesh_frame.set_view_settings(
-            terrain.model_view_quantization_enabled,
-            self.model_pixel_view_count,
-        );
+        self.model_mesh_frame
+            .set_view_count(self.model_pixel_view_count);
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;

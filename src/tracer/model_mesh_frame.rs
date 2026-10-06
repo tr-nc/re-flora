@@ -149,7 +149,7 @@ pub(super) struct ModelMeshFrame {
     slot: usize,
     particles: ButterflyMeshRenderer,
     view_azimuths: Option<Arc<Buffer>>,
-    view_settings: Option<(bool, u32)>,
+    view_count: Option<u32>,
     review_draws: u8,
 }
 impl ModelMeshFrame {
@@ -162,16 +162,16 @@ impl ModelMeshFrame {
             slot: 0,
             particles: ButterflyMeshRenderer::default(),
             view_azimuths: None,
-            view_settings: None,
+            view_count: None,
             review_draws: 0,
         }
     }
-    pub fn set_view_settings(&mut self, enabled: bool, requested: u32) {
-        let settings = (enabled, model_pixel_views::runtime_count(requested));
-        if self.view_settings != Some(settings) {
-            self.view_settings = Some(settings);
+    pub fn set_view_count(&mut self, requested: u32) {
+        let count = model_pixel_views::runtime_count(requested);
+        if self.view_count != Some(count) {
+            self.view_count = Some(count);
             self.review_draws = 0;
-            log::info!("[MODEL_VIEW_QUANTIZATION] enabled={} count={} bank=actual_n_fibonacci selection=nearest_dot roll=continuous pivot=per_object depth=hardware simulation=unchanged", settings.0, settings.1);
+            log::info!("[MODEL_VIEW_QUANTIZATION] count={count} bank=actual_n_fibonacci selection=nearest_dot roll=continuous pivot=per_object depth=hardware simulation=unchanged");
         }
     }
     fn review_draw(&mut self, bit: u8, object: &str, count: u32) {
@@ -180,7 +180,7 @@ impl ModelMeshFrame {
             && std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
         {
             self.review_draws |= bit;
-            log::info!("[MODEL_VIEW_DRAW] object={object} instances={count} shader=native_triangle bank_binding=19 settings={:?}", self.view_settings);
+            log::info!("[MODEL_VIEW_DRAW] object={object} instances={count} shader=native_triangle bank_binding=19 count={:?}", self.view_count);
         }
     }
     pub fn begin_frame(&mut self, slot: usize, _: &ComputePipelines, _: &GraphicsPipelines) {

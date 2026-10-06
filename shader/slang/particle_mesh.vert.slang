@@ -18,20 +18,15 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint index:SV_VulkanInstanceI
     uint4 range=model_mesh_ranges[instance.metadata.x];
     if(vertex>=range.y*3u||instance.position_size.w<=0)return emptyModelMeshVertex();
     ButterflyMeshTriangle t=model_mesh_triangles[range.x+vertex/3u];
-    float3 normal=normalize(rotateMeshPose(instance.view_orientation,meshNormal(t,vertex%3u)));
-    float3 position=instance.position_size.xyz+rotateMeshPose(instance.view_orientation,meshPoint(t,vertex%3u))
-        *instance.position_size.w*(1.53125/3.4);
-    if(gui_input.model_view_quantization_enabled!=0u) {
-        ModelPixelFrame physical;
-        physical.center=instance.position_size.xyz;
-        physical.scale=instance.position_size.w*(1.53125/3.4);
-        physical.axisX=rotateMeshPose(instance.view_orientation,float3(1,0,0));
-        physical.axisY=rotateMeshPose(instance.view_orientation,float3(0,1,0));
-        physical.axisZ=rotateMeshPose(instance.view_orientation,float3(0,0,1));
-        ModelPixelFrame rendered=modelMeshViewFrame(physical,float3(0));
-        normal=normalize(modelViewWorldVector(rendered,meshNormal(t,vertex%3u)));
-        position=modelViewWorldPoint(rendered,meshPoint(t,vertex%3u));
-    }
+    ModelPixelFrame physical;
+    physical.center=instance.position_size.xyz;
+    physical.scale=instance.position_size.w*(1.53125/3.4);
+    physical.axisX=rotateMeshPose(instance.view_orientation,float3(1,0,0));
+    physical.axisY=rotateMeshPose(instance.view_orientation,float3(0,1,0));
+    physical.axisZ=rotateMeshPose(instance.view_orientation,float3(0,0,1));
+    ModelPixelFrame rendered=modelMeshViewFrame(physical,float3(0));
+    float3 normal=normalize(modelViewWorldVector(rendered,meshNormal(t,vertex%3u)));
+    float3 position=modelViewWorldPoint(rendered,meshPoint(t,vertex%3u));
     float3 color;
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,position,normal);
     float3 ambient=sampleDiffuseEnvironment(gui_input,shading_info,position,normal);

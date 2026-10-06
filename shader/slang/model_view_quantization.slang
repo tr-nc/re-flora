@@ -66,8 +66,7 @@ public float3 modelViewWorldPoint(ModelPixelFrame frame, float3 point) {
 // localPivot is in canonical mesh coordinates; all vertices of one rigid object
 // must pass the SAME pivot/frame/camera/settings, never a per-vertex camera ray.
 public ModelPixelFrame quantizeModelView<T : IModelViewBank>(ModelPixelFrame physical,
-    float3 localPivot, float3 cameraPosition, bool enabled, uint requested, T bank) {
-    if (!enabled) return physical; // Exact original path, including arithmetic.
+    float3 localPivot, float3 cameraPosition, uint requested, T bank) {
     float3 pivot = modelViewWorldPoint(physical, localPivot);
     float3 worldView, localView;
     if (!modelViewUnit(cameraPosition - pivot, worldView)

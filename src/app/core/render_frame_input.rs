@@ -69,7 +69,6 @@ pub(super) fn freeze_render_frame_inputs(
         ddgi_history_retention: gui.ddgi_history_retention.value,
         apple_pixel_resolution: model_cache.apple_resolution,
         model_pixel_view_count: model_cache.views,
-        model_view_quantization_enabled: gui.model_view_quantization_enabled.value,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
@@ -296,7 +295,6 @@ mod tests {
         gui.falling_leaf_pixel_resolution.value = 22;
         gui.butterfly_pixel_resolution.value = 16;
         gui.model_flower_pixel_resolution.value = 35;
-        gui.model_view_quantization_enabled.value = true;
         gui.model_flower_head_scale.value = 1.25;
         let cache = model_cache_inputs(&settings);
         assert_eq!(cache.views, 64);
@@ -348,7 +346,6 @@ mod tests {
         }
 
         gui.model_flower_pixel_resolution.value = 24;
-        gui.model_view_quantization_enabled.value = true;
         gui.model_flower_head_scale.value = 1.5;
         gui.model_flower_height_scale.value = 0.75;
         gui.model_flower_height_variance.value = 0.09;
@@ -482,7 +479,6 @@ mod tests {
                 ddgi_history_retention,
                 apple_pixel_resolution: 24,
                 model_pixel_view_count: 37,
-                model_view_quantization_enabled: true,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,

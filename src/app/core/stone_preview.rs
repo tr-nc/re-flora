@@ -31,7 +31,7 @@ impl State {
         let style_review = std::env::var("RE_FLORA_STONE_STYLE_REVIEW").ok();
         if let Some(style) = style_review.as_deref() {
             ensure!(
-                ["a", "128", "256", "global", "combined", "cycle"].contains(&style),
+                ["32", "128", "256", "global", "combined", "cycle"].contains(&style),
                 "invalid RE_FLORA_STONE_STYLE_REVIEW"
             );
             ensure!(
@@ -170,25 +170,19 @@ impl App {
                 settings.scene_pixel_ratio.value = if phase == 7 { 2 } else { 3 };
             }
             if let Some(style) = self.stone_preview.style_review.as_deref() {
-                settings.model_view_quantization_enabled.value = match style {
-                    "128" | "256" | "combined" => true,
-                    "cycle" => phase % 3 != 0,
-                    _ => false,
+                settings.model_pixel_view_count.value = match style {
+                    "32" | "global" => 32,
+                    "256" => 256,
+                    "cycle" => [32, 128, 256][phase as usize % 3],
+                    _ => 128,
                 };
-                settings.model_pixel_view_count.value =
-                    if style == "256" || (style == "cycle" && phase % 3 == 2) {
-                        256
-                    } else {
-                        128
-                    };
                 settings.ordered_dither_global.value =
                     matches!(style, "global" | "combined") || (style == "cycle" && phase >= 7);
                 settings.ordered_dither_levels.value = 8;
                 settings.ordered_dither_strength.value = 1.;
                 if self.stone_preview.phase != Some(phase) {
                     log::info!(
-                        "[STONE_STYLE_REVIEW] style={style} quantized={} count={} global={} bank_binding=19",
-                        settings.model_view_quantization_enabled.value,
+                        "[STONE_STYLE_REVIEW] style={style} count={} global={} bank_binding=19",
                         settings.model_pixel_view_count.value,
                         settings.ordered_dither_global.value
                     );

@@ -5,11 +5,13 @@
 ## 接线
 
 - Direct stone vertex 使用 `stonePhysicalFrame`（canonical 尺寸已烘焙，局部底部 pivot、刚体 quaternion）、公共 `modelMeshViewFrame`、唯一的 `model_pixel_view_count` 和 immutable view bank（set 1/binding 19）。位置和法线消费同一 rendered frame；不改变物理 pose、camera 或碰撞。
-- 关闭量化时直接保留原 `stoneWorldPoint` / quaternion normal 运算；没有悄悄重新引入 atlas 或局部像素采样。
+- 模型视角量化现已固定启用，只保留全局 direction count；direct stone 不再保留关闭分支，没有重新引入 atlas 或局部像素采样。
 - Stone lighting 复用普通 mesh 的相机/环境 uniform 声明，避免同一 binding 的重复 owner；体素路径也用这些共享声明，但不量化 voxel geometry。
-- 全局 dither 位于全部 scene 合成与 tone map/resolve 后，因此直接石材与体素石材同样进入它；HUD/Debug UI 不处理。局部 terrain ambient dither 仍仅正常 hybrid 地形，不代表所有石材/植被的独立天光接收量化。
+- 全局 dither 位于全部 scene 合成与 tone map/resolve 后，因此直接石材与体素石材同样进入它；HUD/Debug UI 不处理。当前只保留全局 Bayer 4×4；局部 terrain ambient dither 与其它分项处理已移除。
 
-## 主工作区验证
+## 首次集成验证（历史记录）
+
+以下 continuous/128/256 mask 与开关结果保留为首次集成的历史证据。当前脚本比较始终启用的 32/128/256，style-cycle 只调整 count、全局 Bayer 与石材路径，不再切方向量化开关。
 
 - `cargo fmt --check`、`cargo check`、`cargo build --release` 通过。
 - 完整 Rust：**1365 app + 4 library passed，5 ignored**。37 Slang CPU tests 全通过；stone CPU shader 检查 quaternion/frame 位置等价、底部 pivot、刚体右手性和法线一致。

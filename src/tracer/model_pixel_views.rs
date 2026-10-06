@@ -172,7 +172,7 @@ mod tests {
                 let index = nearest(local, count);
                 let rendered = physical
                     * Mat3::from_quat(Quat::from_rotation_arc(direction(index, count), local));
-                writeln!(code, "{{ float3 camera={}; ModelPixelFrame r=quantizeModelView(f,pivot,camera,true,{}u,bank); if(nearestModelView({},{}u,bank)!={}u)return 1; if(length(r.axisX-{})>0.00003||length(r.axisY-{})>0.00003||length(r.axisZ-{})>0.00003)return 2; }}", vector(camera), count, vector(local), count, index, vector(rendered.x_axis), vector(rendered.y_axis), vector(rendered.z_axis)).unwrap();
+                writeln!(code, "{{ float3 camera={}; ModelPixelFrame r=quantizeModelView(f,pivot,camera,{}u,bank); if(nearestModelView({},{}u,bank)!={}u)return 1; if(length(r.axisX-{})>0.00003||length(r.axisY-{})>0.00003||length(r.axisZ-{})>0.00003)return 2; }}", vector(camera), count, vector(local), count, index, vector(rendered.x_axis), vector(rendered.y_axis), vector(rendered.z_axis)).unwrap();
                 cases += 1;
             }
         }
@@ -215,6 +215,10 @@ mod tests {
             assert!(apple.contains("appleMeshVertex("));
         }
         assert!(adapter.contains("quantizeModelView("));
+        for shader in [adapter, helper, mesh, flower, particle] {
+            assert!(!shader.contains("model_view_quantization_enabled"));
+        }
+        assert!(!helper.contains("bool enabled"));
         assert!(adapter.contains("model_view_azimuths[index]"));
         assert!(helper.contains("nearestModelView(localView"));
         assert!(frame.contains("model_pixel_views::azimuths()"));

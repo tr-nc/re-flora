@@ -15,5 +15,5 @@ struct NativeModelViewBank : IModelViewBank {
 public ModelPixelFrame modelMeshViewFrame(ModelPixelFrame physical, float3 localPivot) {
     NativeModelViewBank bank;
     return quantizeModelView(physical, localPivot, camera_info.pos.xyz,
-        gui_input.model_view_quantization_enabled != 0u, gui_input.model_pixel_view_count, bank);
+        gui_input.model_pixel_view_count, bank);
 }

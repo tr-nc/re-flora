@@ -47,7 +47,7 @@
 
 私有 atlas 为 64³、**128 cells/world unit**，不是改变全局 256 terrain voxels/world unit。GPU voxelizer 固定 256 的单位契约由输入 positions ×0.5 适配；Contree chunk size 与 origin 恢复真实 world scale。pivot 在 atlas `(32,2,32)`，留足边界；0.75-cell surface shell 属于生产 voxelization 表达，因此体素轮廓会比直接三角略厚/粗糙。每次真正 GPU atlas readback 都检查材质、填实中心、空边界与 4096 个独立 f64 winding/triangle-distance reference samples，CPU reference 不作为渲染替身。
 
-`stone_transform.slang` 定义 bottom-local→world quaternion rigid pose、逆变换与 `stonePhysicalFrame`。**方向 snap 已在 main 集成**：direct vertex 调用共享 `modelMeshViewFrame`，使用同一 immutable bank、全局 checkbox/count，几何与法线共同量化；关闭时保留原运算。Voxel geometry 与模拟 pose 不改变。GUI yaw 仍是普通刚体旋转，不是视角设置的另一个 owner。见[集成证据](../evidence/stone-style-integration.md)；离线展示已打包真实 native 双路径和连续/128/256/global 图片，不依赖即将删除的 Worker target。
+`stone_transform.slang` 定义 bottom-local→world quaternion rigid pose、逆变换与 `stonePhysicalFrame`。**方向 snap 已在 main 集成**：direct vertex 调用共享 `modelMeshViewFrame`，使用同一 immutable bank 和唯一全局 direction count，几何与法线始终共同量化；不再提供方向量化 A/B 开关。Voxel geometry 与模拟 pose 不改变。GUI yaw 仍是普通刚体旋转，不是视角设置的另一个 owner。见[集成证据](../evidence/stone-style-integration.md)；离线展示已打包真实 native 双路径和历史连续/128/256/global 图片，不依赖即将删除的 Worker target。
 
 每个 acquired frame slot 持有 source/volume generation；seed、type、A/B、enable 或 extent descriptor 变化只回收已通过 fence 的 slot。graphics 与 compute 的 transient descriptor pools 都按 acquired slot 重置。私有 Contree allocation 自动提交的 managed CPU-cache GPU readback 在退出时先消费完成，再关闭/join decoder；不会把它发布为 garden CPU terrain。初始化 atlas 清除明确转到 GENERAL，vertex ID 使用 Vulkan 原生语义，避免额外 DrawParameters 能力。
 

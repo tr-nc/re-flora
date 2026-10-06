@@ -27,16 +27,10 @@ Output main(uint vertex : SV_VulkanVertexID)
     StoneTriangle t = stone_triangles[vertex / 3u];
     uint corner = vertex % 3u;
     float3 local = t.a.xyz + (corner == 1u ? t.e1.xyz : corner == 2u ? t.e2.xyz : float3(0));
-    // Disabled preserves the original quaternion arithmetic exactly. Enabled
-    // uses the same immutable direction bank/count as flowers/apples/particles.
-    float3 position = stoneWorldPoint(local, stone_pose);
-    float3 normal = normalize(stoneRotate(t.normal.xyz, stone_pose.rotation));
-    if (gui_input.model_view_quantization_enabled != 0u)
-    {
-        ModelPixelFrame rendered = modelMeshViewFrame(stonePhysicalFrame(stone_pose), float3(0));
-        position = modelViewWorldPoint(rendered, local);
-        normal = normalize(modelViewWorldVector(rendered, t.normal.xyz));
-    }
+    // Every direct stone uses the shared immutable direction bank/count.
+    ModelPixelFrame rendered = modelMeshViewFrame(stonePhysicalFrame(stone_pose), float3(0));
+    float3 position = modelViewWorldPoint(rendered, local);
+    float3 normal = normalize(modelViewWorldVector(rendered, t.normal.xyz));
     Output output;
     output.position = mul(camera_info.view_proj_mat, float4(position,1));
     output.color = float4(stoneShade(stone_pose.metadata.z,position,normal),1);

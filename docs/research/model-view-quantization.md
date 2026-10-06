@@ -24,7 +24,7 @@
 2. 局部观察方向选择 actual-N 球面 bank 的最大 dot，ties 取最小 index。
 3. 最短弧旋转 `chosen -> actual local view` 施加到同一物体所有 positions/normals；绕 pivot，不绕每个 vertex。逆渲染 frame 下的 observer direction 因而恰为选中的 bank direction。
 4. 保留平移、尺度、实例区别、growth/wind/animation 和连续 roll。真实 transformed world position 同时供 lighting 与 `camera.view_proj_mat`；深度由 hardware raster 生成，不伪造 `SV_Depth`。
-5. GUI `Model View Quantization` 集中所有 controls。原连续路径默认 unchecked；保存 checkbox 和唯一 `model_pixel_view_count`（8..512）。复用老 count ID；独立 `model_flower_view_count` 只在 loader 迁移，不留第二个 owner。两者共存时全局值优先；仅 flower 值存在时继承它；旧 snap checkbox 不自动开启新的 A/B candidate。
+5. 模型有限视角量化固定启用；GUI `Model View Quantization` 只保留保存的 `Model direction count (128 / 256 or custom)` 滑杆（8..512）。复用唯一 `model_pixel_view_count` ID；独立 `model_flower_view_count` 只在 loader 迁移，两者共存时全局值优先。退休 A/B flag 无论 true/false 都丢弃，不改变已有 count；加载不写配置文件。
 6. 退化/非有限 camera vector 让 frame 原样返回；normalization 用 max component 缩放，避免 overflow。pole 不用 discontinuous up frame；刚体右手性保持。
 
 ## 覆盖与接口
@@ -49,11 +49,23 @@ float3 normal = normalize(modelViewWorldVector(rendered, localNormal));
 ```
 
 在 stone 的 `prepare_draw_descriptors` resources 中追加
-`self.model_mesh_frame.view_bank_binding()`：名 `model_view_azimuths`、set 1/binding 19、512 个 `float4`（8192 bytes）。在 loading warmup 完成后调用；buffer 不因 count、shape 或 resize 替换，整个 renderer 生命周期由 ModelMeshFrame 持有。共享现有 set 0 的 `U_GuiInput` / `U_CameraInfo`，读 `model_view_quantization_enabled` 与唯一 `model_pixel_view_count`，不新增 stone count、不重写 nearest math。若独立 renderer 不便借 bank，可用同一个 Rust producer 创建 immutable bank，但不要另造公式/设置 owner。
+`self.model_mesh_frame.view_bank_binding()`：名 `model_view_azimuths`、set 1/binding 19、512 个 `float4`（8192 bytes）。在 loading warmup 完成后调用；buffer 不因 count、shape 或 resize 替换，整个 renderer 生命周期由 ModelMeshFrame 持有。共享现有 set 0 的 `U_GuiInput` / `U_CameraInfo`，只读唯一 `model_pixel_view_count`，不新增 stone count、不重写 nearest math。若独立 renderer 不便借 bank，可用同一个 Rust producer 创建 immutable bank，但不要另造公式/设置 owner。
 
-纯 helper `quantizeModelView(physical, localPivot, cameraPosition, enabled, requestedCount, bank)` 也可供不采用上述 bindings 的 Adapter 调用；`bank` 实现 `IModelViewBank`。skew/nonuniform scale 需先烘焙进 canonical positions，并以 inverse-transpose 处理 normals，不能传不正交的 axes 冒充 rigid frame。Worker 未修改 stone checkout/生成器；控制器已在 main 接入 direct stone vertex，复用此公共 frame 和相同 bank/count。其原生覆盖对照与 global-dither 联合验证见[石材集成证据](../evidence/stone-style-integration.md)。
+纯 helper `quantizeModelView(physical, localPivot, cameraPosition, requestedCount, bank)` 也可供不采用上述 bindings 的 Adapter 调用；`bank` 实现 `IModelViewBank`。skew/nonuniform scale 需先烘焙进 canonical positions，并以 inverse-transpose 处理 normals，不能传不正交的 axes 冒充 rigid frame。Worker 未修改 stone checkout/生成器；控制器已在 main 接入 direct stone vertex，复用此公共 frame 和相同 bank/count。其原生覆盖对照与 global-dither 联合验证见[石材集成证据](../evidence/stone-style-integration.md)。
 
-## 验证结果
+## 固定启用后的验证
+
+- 主工作区 `cargo fmt --check`、`cargo check`、Release build、针对性的模型/GUI/帧输入测试与 hidden/mute smoke 通过；37 Slang CPU tests、真实上传 bank 的 336 跨语言 nearest/rigid-frame cases 通过。
+- 同一当前 source 的隔离副本使用提交的默认配置运行完整 Rust suite：1367 app + 4 library passed，5 ignored。用户 live count=128 和其它未提交设置未重置；仅删除退休 flag。
+- [当前原生 Debug 搜索截图](../evidence/model-view-quantization/gui-count-only.png)：`model view` 只匹配 1 control / 1 group，保存的 count=128，无 A/B checkbox。
+- 原生花头、attached/dynamic apples、mesh butterflies/leaves 的 shared-bank draw 全到达 binding 19；固定 32 重复 coverage 完全相同，32/128/256 两两不同。实时 sweep 覆盖 8/32/128/256/512 与 1023×767、1280×720 resize；记录位于 `target/view-quantization/native/`。
+- 石材脚本在隔离 source/config 副本完成 direct/voxel 同源、32/128/256 coverage、count/style/path/extent cycle、真实 GUI Save 与同 binary 重启，未写主工作区配置。证据复制到 `target/stone-native-always-on/`。32 重复 mask 相同，32/128/256 两两不同；正常退出，无报告的 ERROR/panic/VUID。
+
+这些是功能与资源正确性验证，不是新的性能或运动观感验收。首次连续方向对照仍保留为历史证据，不再是可选择的运行模式。
+
+## 首次 A/B 实验验证（历史记录）
+
+以下测试数量、continuous 对照图及 checkbox 截图记录首次实验，不代表当前 UI；当前版本已固定启用，只保留 direction count。复跑脚本现在比较 32/128/256，实时 sweep 覆盖 8..512 和原生 resize，不再提供关闭量化的模式。
 
 全部在本 checkout，`CARGO_BUILD_JOBS=2`；GPU runs 均用 `flock --close /tmp/re-flora-summer-gpu.lock` 串行，无可见窗口、无 push/merge。
 
@@ -85,6 +97,6 @@ source guards 要求四个 native vertex 入口仍到达该 helper，并且几�
 
 ## 比较与剩余风险
 
-正常 Debug → **Model View Quantization**（或 Search `model view`）：`Models: quantized views (A/B)` unchecked 为原连续方向；checked 为 finite views。改 `Model direction count (128 / 256 or custom)` 后立即生效，Save 可保留。默认 unchecked，保留旧全局 count=32；128/256 是可直接输入的常用比较值。不要在内部 review fixture 中手调，它会为验证逐帧覆盖控件。
+正常 Debug → **Model View Quantization**（或 Search `model view`）：只有 `Model direction count (128 / 256 or custom)` 滑杆，量化始终启用。改 count 后立即生效，统一 Save 可保留。已有保存 count 不重置；无旧值时使用声明式默认 count=32。128/256 是可直接输入的常用值。旧文件中的 `model_view_quantization_enabled` 不再控制渲染，加载时移除，下一次 Save 清理。不要在内部 review fixture 中手调，它会为验证逐帧覆盖控件。
 
 候选保留真实 perspective，而非历史 orthographic tile，所以不是旧 atlas 图像的 pixel-exact 重现。nearest bin 边界有预期的视觉跳变，roll 连续；未加 hysteresis（否则会违背精确 nearest rule）。极点不使用会跳变的 up-axis frame。花头绕历史中心保持中心不漂移，stem 本身没有量化，因此 socket 连接观感尤其在低 count 时需要看动态效果。高 N 的逐 vertex exhaustive selection 有 O(N) 成本，未做 perf acceptance/优化；美术效果和运动稳定性均仍需用户后续认可。本轮日志保留启动/resize 的 fruit physics hitch warnings，不声称它们已被解决或完成性能归因。

@@ -261,9 +261,9 @@ impl GuiConfigLoader {
         config
     }
 
-    // One live count, old ID. Prefer global count if both old owners existed;
-    // inherit flower-only saves. The old permanent/snap mode is NOT consent to
-    // enable a new triangle A/B candidate. Loading never writes the source file.
+    // Quantization is always active. Keep one count under the old global ID,
+    // inherit flower-only saves, and drop the retired A/B flag regardless of its
+    // value. Loading only normalizes memory; the user's file changes on Save.
     fn migrate_model_view_quantization(config: &mut GuiConfigFile) {
         use crate::tracer::model_pixel_views::runtime_count;
         let uint_value = |id: &str| {
@@ -278,69 +278,43 @@ impl GuiConfigLoader {
         };
         let requested =
             uint_value("model_pixel_view_count").or_else(|| uint_value("model_flower_view_count"));
-        let enabled = config
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .find_map(|p| {
-                if p.id == "model_view_quantization_enabled" {
-                    if let GuiParamValue::Bool { value } = p.value {
-                        return Some(value);
-                    }
-                }
-                None
-            })
-            .unwrap_or(false);
         let mut seen_count = false;
-        let mut seen_enabled = false;
         for section in &mut config.section {
             let canonical_owner = section.name == "Debug";
             section.param.retain(|p| match p.id.as_str() {
-                "model_flower_view_count" => false,
+                "model_flower_view_count" | "model_view_quantization_enabled" => false,
                 "model_pixel_view_count" => {
                     let keep = canonical_owner && !seen_count;
                     seen_count |= keep;
                     keep
                 }
-                "model_view_quantization_enabled" => {
-                    let keep = canonical_owner && !seen_enabled;
-                    seen_enabled |= keep;
-                    keep
-                }
                 _ => true,
             });
         }
+        Self::add_missing_param(config, "Debug", "model_pixel_view_count");
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
-        for id in ["model_pixel_view_count", "model_view_quantization_enabled"] {
-            Self::add_missing_param(config, "Debug", id);
-            let schema = defaults
-                .section
-                .iter()
-                .flat_map(|s| &s.param)
-                .find(|p| p.id == id)
-                .unwrap();
-            let param = config
-                .section
-                .iter_mut()
-                .find(|s| s.name == "Debug")
-                .unwrap()
-                .param
-                .iter_mut()
-                .find(|p| p.id == id)
-                .unwrap();
-            // Refresh only this concern's schema in place, preserving ordering
-            // and all unrelated settings. No obsolete labels/ranges survive.
-            *param = schema.clone();
-            if id == "model_pixel_view_count" {
-                if let (Some(requested), GuiParamValue::Uint { value, .. }) =
-                    (requested, &mut param.value)
-                {
-                    *value = runtime_count(requested);
-                }
-            } else {
-                param.value = GuiParamValue::Bool { value: enabled };
-            }
+        let schema = defaults
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "model_pixel_view_count")
+            .unwrap();
+        let param = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Debug")
+            .unwrap()
+            .param
+            .iter_mut()
+            .find(|p| p.id == "model_pixel_view_count")
+            .unwrap();
+        // Refresh this concern's label/range/conditions without resetting its
+        // saved count or changing unrelated settings and ordering.
+        *param = schema.clone();
+        if let (Some(requested), GuiParamValue::Uint { value, .. }) = (requested, &mut param.value)
+        {
+            *value = runtime_count(requested);
         }
     }
 
@@ -2436,12 +2410,11 @@ mod tests {
             .iter()
             .flat_map(|s| &s.param)
             .any(|p| p.id == "model_flower_view_count"));
-        assert!(loaded
+        assert!(!loaded
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .any(|p| p.id == "model_view_quantization_enabled"
-                && matches!(p.value, GuiParamValue::Bool { value: false })));
+            .any(|p| p.id == "model_view_quantization_enabled"));
         GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
         let saved = std::fs::read_to_string(&path).unwrap();
         assert!(!saved.contains("model_flower_view_count"));
@@ -2469,12 +2442,7 @@ mod tests {
                 max: None,
             };
             for section in &mut config.section {
-                section.param.retain(|p| {
-                    !matches!(
-                        p.id.as_str(),
-                        "model_pixel_view_count" | "model_view_quantization_enabled"
-                    )
-                });
+                section.param.retain(|p| p.id != "model_pixel_view_count");
             }
             config
                 .section
@@ -2491,11 +2459,10 @@ mod tests {
             assert_eq!(std::fs::read(&path).unwrap(), original);
             let debug = loaded.section.iter().find(|s| s.name == "Debug").unwrap();
             assert!(debug.param.iter().any(|p| p.id == "model_pixel_view_count" && matches!(p.value, GuiParamValue::Uint { value, min: Some(8), max: Some(512) } if value == expected)));
-            assert!(debug
+            assert!(!debug
                 .param
                 .iter()
-                .any(|p| p.id == "model_view_quantization_enabled"
-                    && matches!(p.value, GuiParamValue::Bool { value: false })));
+                .any(|p| p.id == "model_view_quantization_enabled"));
             assert!(!loaded
                 .section
                 .iter()
@@ -2507,6 +2474,79 @@ mod tests {
                 serde_json::to_value(&loaded).unwrap(),
                 serde_json::to_value(&reloaded).unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn model_view_ab_is_retired_preserving_count_and_unrelated_settings_without_writing() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for enabled in [false, true] {
+            for count in [8, 37, 128, 256, 512] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let debug = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                debug
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "model_pixel_view_count")
+                    .unwrap()
+                    .value = GuiParamValue::Uint {
+                    value: count,
+                    min: Some(8),
+                    max: Some(512),
+                };
+                let wind = debug
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "raster_tree_wind")
+                    .unwrap();
+                wind.value = GuiParamValue::Bool { value: false };
+                let wind_before = wind.clone();
+                let mut retired = wind.clone();
+                retired.id = "model_view_quantization_enabled".into();
+                retired.label = "Models: quantized views (A/B)".into();
+                retired.value = GuiParamValue::Bool { value: enabled };
+                debug.param.push(retired);
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("gui.toml");
+                GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                let original = std::fs::read(&path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(std::fs::read(&path).unwrap(), original);
+                let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+                assert!(!params
+                    .iter()
+                    .any(|p| p.id == "model_view_quantization_enabled"));
+                let counts: Vec<_> = params
+                    .iter()
+                    .filter(|p| p.id == "model_pixel_view_count")
+                    .collect();
+                assert_eq!(counts.len(), 1);
+                assert!(
+                    matches!(counts[0].value, GuiParamValue::Uint { value, .. } if value == count)
+                );
+                assert!(counts[0].enabled_if.is_none());
+                assert_eq!(
+                    serde_json::to_value(
+                        params.iter().find(|p| p.id == "raster_tree_wind").unwrap()
+                    )
+                    .unwrap(),
+                    serde_json::to_value(&wind_before).unwrap()
+                );
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert!(!std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("model_view_quantization_enabled"));
+                let reloaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(
+                    serde_json::to_value(&loaded).unwrap(),
+                    serde_json::to_value(&reloaded).unwrap()
+                );
+            }
         }
     }
 

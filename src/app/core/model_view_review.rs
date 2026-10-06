@@ -8,7 +8,7 @@ use glam::{Quat, Vec3, Vec4};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
-    Continuous,
+    Views32,
     Views128,
     Views256,
     Sweep,
@@ -27,11 +27,11 @@ impl ModelViewReview {
             return Ok(None);
         };
         let mode = match value.as_str() {
-            "a" => Mode::Continuous,
+            "32" => Mode::Views32,
             "128" => Mode::Views128,
             "256" => Mode::Views256,
             "sweep" => Mode::Sweep,
-            _ => anyhow::bail!("RE_FLORA_MODEL_VIEW_REVIEW must be a, 128, 256 or sweep"),
+            _ => anyhow::bail!("RE_FLORA_MODEL_VIEW_REVIEW must be 32, 128, 256 or sweep"),
         };
         let rotation = std::env::var("RE_FLORA_MODEL_VIEW_REVIEW_ROTATION")
             .unwrap_or_else(|_| "0.57".to_owned())
@@ -48,19 +48,19 @@ impl ModelViewReview {
         }))
     }
 
-    fn controls(&self) -> (bool, u32) {
+    fn direction_count(&self) -> u32 {
         match self.mode {
-            Mode::Continuous => (false, 128),
-            Mode::Views128 => (true, 128),
-            Mode::Views256 => (true, 256),
+            Mode::Views32 => 32,
+            Mode::Views128 => 128,
+            Mode::Views256 => 256,
             Mode::Sweep => match self.frame / 30 {
-                0 => (false, 128),
-                1 => (true, 128),
-                2 => (true, 256),
-                3 => (true, 8),
-                4 => (true, 512),
-                5 => (false, 256),
-                _ => (true, 128),
+                0 => 32,
+                1 => 128,
+                2 => 256,
+                3 => 8,
+                4 => 512,
+                5 => 256,
+                _ => 128,
             },
         }
     }
@@ -84,7 +84,7 @@ impl App {
         let target = review
             .target
             .ok_or_else(|| anyhow::anyhow!("model view fixture flowers are not planted"))?;
-        let (enabled, count) = review.controls();
+        let count = review.direction_count();
         let frame = review.frame;
         let sweep = review.mode == Mode::Sweep;
         let angle = if sweep && frame >= 180 {
@@ -94,14 +94,13 @@ impl App {
         };
         let camera = target + Vec3::new(angle.sin() * 0.57, 0.24, angle.cos() * 0.57);
         let gui = &mut self.debug_settings.adjustables;
-        gui.model_view_quantization_enabled.value = enabled;
         gui.model_pixel_view_count.value = count;
         gui.model_flower_height_variance.value = 0.;
         gui.model_flower_head_scale.value = 1.;
         gui.falling_leaf_mesh.value = true;
         gui.falling_leaf_size_scale.value = 1.;
         gui.butterfly_mesh_preview.value = false;
-        // Retain attached fruit for fixed A/Bs; sweep uses the existing production
+        // Retain attached fruit for fixed counts; sweep uses the existing production
         // fruit-cycle handoff to submit the dynamic apple vertex path too.
         gui.fruit_cycle.value = if sweep && frame >= 90 { 1. } else { 0.7 };
         self.camera_control.apply_snapshot_mode(true);
@@ -127,9 +126,11 @@ impl App {
             log::info!("[MODEL_VIEW_REVIEW_RESIZE] frame={frame} requested={width}x{height} accepted={accepted:?} saved=false");
         }
         if frame.is_multiple_of(30) && frame <= 210 {
-            log::info!("[MODEL_VIEW_REVIEW] frame={frame} enabled={enabled} count={count} rotation={} camera={camera:?} grid=unchanged saved=false", self.model_view_review.as_ref().unwrap().angle(frame));
+            log::info!("[MODEL_VIEW_REVIEW] frame={frame} count={count} rotation={} camera={camera:?} grid=unchanged saved=false", self.model_view_review.as_ref().unwrap().angle(frame));
             if sweep && frame == 210 {
-                log::info!("[MODEL_VIEW_REVIEW] complete=true toggle_counts_rotation_resize=true saved=false");
+                log::info!(
+                    "[MODEL_VIEW_REVIEW] complete=true counts_rotation_resize=true saved=false"
+                );
             }
         }
         self.model_view_review.as_mut().unwrap().frame += 1;
@@ -201,7 +202,7 @@ impl App {
 mod tests {
     use super::*;
     #[test]
-    fn fixture_exercises_real_ab_counts_and_keeps_fixed_comparisons_fixed() {
+    fn fixture_exercises_live_counts_and_keeps_fixed_comparisons_fixed() {
         let mut review = ModelViewReview {
             mode: Mode::Sweep,
             frame: 0,
@@ -209,21 +210,21 @@ mod tests {
             target: None,
         };
         for (frame, expected) in [
-            (0, (false, 128)),
-            (30, (true, 128)),
-            (60, (true, 256)),
-            (90, (true, 8)),
-            (120, (true, 512)),
-            (150, (false, 256)),
-            (180, (true, 128)),
+            (0, 32),
+            (30, 128),
+            (60, 256),
+            (90, 8),
+            (120, 512),
+            (150, 256),
+            (180, 128),
         ] {
             review.frame = frame;
-            assert_eq!(review.controls(), expected);
+            assert_eq!(review.direction_count(), expected);
         }
         review.mode = Mode::Views128;
         let angle = review.angle(review.frame);
         review.frame += 17;
         assert_eq!(review.angle(review.frame), angle);
-        assert_eq!(review.controls(), (true, 128));
+        assert_eq!(review.direction_count(), 128);
     }
 }
