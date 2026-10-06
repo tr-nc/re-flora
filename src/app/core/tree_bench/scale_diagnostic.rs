@@ -13,6 +13,7 @@ pub(super) struct TreeScaleDiagnostic {
     phase_start: Option<Instant>,
     conifer: bool,
     first_seed: u64,
+    validate_gpu: bool,
 }
 
 impl TreeScaleDiagnostic {
@@ -22,6 +23,7 @@ impl TreeScaleDiagnostic {
             maximum: maximum.clamp(1, 9),
             phase_start: None,
             conifer: std::env::var("RE_FLORA_TREE_SCALE_SPECIES").as_deref() == Ok("conifer"),
+            validate_gpu: std::env::var_os("RE_FLORA_TREE_SCALE_VALIDATE_GPU").is_some(),
             first_seed: std::env::var("RE_FLORA_TREE_SCALE_SEED")
                 .map(|value| value.parse().expect("diagnostic seed must be an integer"))
                 .unwrap_or(123),
@@ -50,6 +52,23 @@ impl TreeScaleDiagnostic {
         }
         if elapsed < Duration::from_secs(2) {
             return false;
+        }
+        if self.validate_gpu {
+            app.validate_tree_poses()
+                .expect("tree scale GPU hierarchy agreement");
+            app.validate_tree_surface_pose()
+                .expect("tree scale finite CPU surface");
+            app.tracer
+                .validate_gpu_tree_surface()
+                .expect("tree scale GPU surface/BVH agreement");
+            app.tracer
+                .validate_gpu_tree_lighting(true)
+                .expect("tree scale GPU lighting agreement");
+            if app.tracer.raster_trees.posed_surface.is_some() {
+                app.validate_tree_surface_queries(false)
+                    .expect("tree scale collision/query agreement");
+            }
+            log::info!("[TREE_SCALE_DIAG] validated trees={}", self.trees);
         }
         if self.trees == self.maximum {
             log::info!("[TREE_SCALE_DIAG] completed trees={}", self.trees);

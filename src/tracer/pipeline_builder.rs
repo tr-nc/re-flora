@@ -2142,7 +2142,10 @@ impl PipelineTopology {
                         descriptors,
                     ),
             };
-            self.frame_retirement_sink.retire(retired);
+            // Tree preparation quiesced all previous GPU readers. Drop old descriptor
+            // generations now instead of retaining every intermediate forest during
+            // a same-frame batch of deletions; command-buffer leases remain authoritative.
+            drop(retired);
         }
     }
 

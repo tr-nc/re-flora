@@ -48,8 +48,48 @@ the subsequent GPU smoke caught zero confidence in an unwritten new output. Neit
 performance evidence. Both correctness failures were fixed before this stage's commit; `-03` is
 the corrected replay. The mapped-write guard prevents the first category becoming memory damage.
 
+## Complete garden transactions and failed-input suppression
+
+`GardenTrees` now prepares its explicit desired complete forest after trunk publication, including
+initial skin/attachment poses, every descriptor, and off-side collision geometry, before publishing
+observers or committing canonical records. Surface, observer, and final-commit failures restore
+place/replacement/removal/age batches while retaining the resident surface. Saved restoration uses
+one complete-forest transaction against the restored edited atlas, not sequential removal/reinsertion.
+Fruit-cycle rollback retains the physical bodies owned by its checkpoints.
+
+A real hidden GPU smoke independently exposed a further rollback bug: inverse cone stamping was
+not an exact checkpoint. Rejected placement filled an existing hand-carved hole and/or changed
+underlying soil bytes. `/tmp/tree-exact-rollback-red.out` fails the before/after byte comparison.
+The concrete host now completely captures clipped old/new/retained atlas regions before any write,
+preflights a 256 MiB CPU checkpoint budget, and restores full bytes (material, moisture, ownership).
+`/tmp/tree-exact-rollback-green.out` passes that same rejected-placement comparison, canonical and
+resident-surface checks, GPU surface validation, and the full Garden Tree/Conifer smoke.
+
+The failed `(terrain revision, canonical revision)` remains dirty and is not recompiled every frame.
+A changed revision or explicit invalidation permits retry. Ordinary committed terrain edits use a
+static authoritative-voxel fallback on preparation failure rather than rendering stale deformation;
+this does not change saved wind configuration or pretend publication succeeded. New tree operations
+reject atomically instead. External VRAM becoming free is not automatically detected: known resource
+condition changes must invalidate the cache, and an explicit new tree operation prepares anew.
+
+Transaction replay `target/tree-scaling-transaction-02` passes CPU/GPU positions/normals/confidence,
+BVH, lighting and collision/query comparisons at **every** count, including 146904 vertices at six
+trees. Six-tree medians are **31.723 / 31.582 ms**, `errors=0`, `cliff=False`, `contended=False`.
+`-01` is invalid evidence: the dynamic-query smoke fixture required at least one voxel of movement
+while the performance scene's first phase was at rest. The opt-in validator now checks real queries
+without imposing artificial wind, while the full motion smoke retains its displacement requirement.
+
+Validation: vegetation tests 42, tree/cache tests 21, prepared collision regression, 7 diagnostic
+parser tests, Ruff, formatting/check, Release build, full raster GPU smoke and hidden launch.
+The previously attempted full suite is not claimed green (five unverified-baseline GUI/config failures
+and a long-running vine timeout); global pyright was unavailable. No generated files changed in this
+transaction stage.
+
+The final exact-checkpoint replay `target/tree-scaling-transaction-03` repeats all six-count GPU
+checks with medians **31.670 / 31.355 ms**, zero errors/cliffs/contention. Its Release binary is saved
+as `target/tree-scaling-pre-cpu` for the identical healthy-CPU comparison.
+
 ## Remaining implementation stages
 
-Integrate derived-surface preparation with the `GardenTrees` transaction and rollback, record
-unchanged failed inputs without marking them compiled, and optimize healthy deformation/collision
-and unaffected-tree compilation. These are not claimed complete by the capacity-stage evidence.
+Healthy exact deformation/collision allocation reuse and unaffected-tree compilation are next;
+the capacity/transaction results do not claim those optimizations complete.

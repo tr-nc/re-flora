@@ -27,7 +27,7 @@ SAMPLE = re.compile(
 GPU = re.compile(r"([\w.]+)=(\d+)us")
 
 
-def summarize(log, count):
+def summarize(log, count, validate_gpu=False):
     phases = {i: {"samples": [], "errors": [], "gpu_scopes_us": {}} for i in range(1, count + 1)}
     current = 0
     for line in log.splitlines():
@@ -60,6 +60,10 @@ def summarize(log, count):
             prior and phase["median_total_ms"] >= 80
             and phase["median_total_ms"] >= 3 * prior["median_total_ms"]
         )
+    if validate_gpu and any(
+        f"[TREE_SCALE_DIAG] validated trees={i}" not in log for i in phases
+    ):
+        raise ValueError("missing GPU surface/collision validation")
     if f"[TREE_SCALE_DIAG] completed trees={count}" not in log:
         raise ValueError("tree replay did not complete")
     if "Application exited successfully" not in log or any(
@@ -79,6 +83,8 @@ def main():
     parser.add_argument("--seed", type=int, default=123, help="First added tree seed")
     parser.add_argument("--tree-size", type=float, help="Diagnostic input size, not a new default")
     parser.add_argument("--wind-off", action="store_true", help="One-variable wind ablation")
+    parser.add_argument("--validate-gpu", action="store_true",
+                        help="Validate CPU/GPU surface, BVH, lighting and collision between phases")
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/re-flora")
     parser.add_argument("--allow-shared-gpu", action="store_true",
                         help="Allow other game instances; timing is explicitly contended")
@@ -102,10 +108,15 @@ def main():
     env["RE_FLORA_TREE_SCALE_DIAGNOSTIC"] = "1"
     env["RE_FLORA_TREE_SCALE_SPECIES"] = args.species
     env["RE_FLORA_TREE_SCALE_SEED"] = str(args.seed)
+    if args.validate_gpu:
+        env["RE_FLORA_TREE_SCALE_VALIDATE_GPU"] = "1"
+    else:
+        env.pop("RE_FLORA_TREE_SCALE_VALIDATE_GPU", None)
     command = [str(binary), "--hidden", "--mute", "--perf", "--tree-bench",
                "--tree-bench-samples", str(args.trees), "--auto-exit", "45", *args.app_arg]
     report = {"command": command, "species": args.species, "first_added_seed": args.seed,
               "tree_size_override": args.tree_size, "wind_off": args.wind_off,
+              "validate_gpu": args.validate_gpu,
               "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "runs": []}
@@ -143,7 +154,7 @@ def main():
                                             stderr=subprocess.STDOUT, timeout=120, check=False)
                 if result.returncode:
                     raise ValueError(f"app exit code {result.returncode}: {log_path}")
-                phases = summarize(log_path.read_text(), args.trees)
+                phases = summarize(log_path.read_text(), args.trees, args.validate_gpu)
                 report["runs"].append(phases)
                 for trees, phase in phases.items():
                     print(f"run={run} trees={trees} median_ms={phase['median_total_ms']:.3f} "

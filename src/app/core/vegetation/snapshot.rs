@@ -124,6 +124,103 @@ impl TreeSnapshot {
     }
 }
 
+impl GardenTrees {
+    /// The terrain owner has already restored the authoritative saved atlas. This
+    /// owner replaces the entire observer/surface forest with one final canonical commit.
+    fn restore_snapshot(
+        &mut self,
+        snapshot: PreparedTreeSnapshot,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<()> {
+        let by_id: HashMap<_, _> = snapshot
+            .publications
+            .iter()
+            .map(|p| (p.tree_id, p))
+            .collect();
+        let mut ids: Vec<_> = self
+            .records
+            .keys()
+            .copied()
+            .chain(by_id.keys().copied())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let mut executor = TreePublicationExecutor::new(host);
+        executor.prepare_retained_trunks(&[])?;
+        for &id in &ids {
+            let previous = self.records.get(&id);
+            let publication = by_id.get(&id).copied();
+            let operation = if publication.is_none() {
+                TreePublicationOperation::Remove
+            } else if previous.is_some() {
+                TreePublicationOperation::Replace
+            } else {
+                TreePublicationOperation::Place
+            };
+            executor.prepare(operation, id, publication, previous)?;
+        }
+        let mut forest: Vec<_> = snapshot
+            .publications
+            .iter()
+            .map(|p| (p.tree_id, &p.record))
+            .collect();
+        forest.sort_unstable_by_key(|(id, _)| *id);
+        let revision = self
+            .canonical_revision
+            .wrapping_add(self.records.len() as u64)
+            .wrapping_add(snapshot.publications.len() as u64);
+        let result: Result<()> = (|| {
+            executor.prepare_surface(&forest, revision)?;
+            // Remove every old fruit registry entry without destroying checkpointed bodies.
+            for &id in self.records.keys() {
+                executor.execute(TreePublicationAction::RemoveLeaves, id, None)?;
+                executor.execute(TreePublicationAction::RemoveFruitLifecycle, id, None)?;
+                executor.execute(TreePublicationAction::RemoveCanopyAudio, id, None)?;
+            }
+            executor
+                .host
+                .prepare_restored_fruit_cycle(snapshot.fruit_cycle)?;
+            for publication in &snapshot.publications {
+                for &action in TreePublicationPlan::RESTORE_ACTIONS {
+                    executor.execute(action, publication.tree_id, Some(publication))?;
+                }
+            }
+            executor.execute(TreePublicationAction::CommitPublication, 0, None)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if ids.is_empty() {
+                return Err(error).context("preparing empty saved forest");
+            }
+            return match executor.compensate() {
+                Ok(()) => Err(error).context("restoring complete tree forest"),
+                Err(restore) => Err(anyhow::anyhow!(
+                    "tree restoration failed: {error:#}; compensation failed: {restore:#}"
+                )),
+            };
+        }
+        let old_ids: Vec<_> = self.records.keys().copied().collect();
+        for id in old_ids {
+            self.commit_removal(id);
+        }
+        self.previous_bound = UAabb3::default();
+        self.staged_tuned_mature_desc = None;
+        self.next_tree_id = snapshot
+            .publications
+            .iter()
+            .map(|p| p.tree_id + 1)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        self.next_canopy_acoustic_generation = snapshot.next_generation;
+        for publication in snapshot.publications {
+            self.commit_placement(publication.tree_id, publication.record);
+        }
+        debug_assert_eq!(self.canonical_revision, revision);
+        Ok(())
+    }
+}
+
 fn validate_finite_description(value: &serde_json::Value) -> Result<()> {
     match value {
         serde_json::Value::Null => anyhow::bail!("non-finite tree description number"),
@@ -229,48 +326,11 @@ impl App {
         &mut self,
         snapshot: PreparedTreeSnapshot,
     ) -> Result<()> {
-        self.transact_garden_trees(|trees, host| {
-            let old_records = trees.records.clone();
-            for (&id, record) in &old_records {
-                host.prepare(TreePublicationOperation::Remove, id, None, Some(record))?;
-                host.remove_leaves(id)?;
-                host.remove_fruit_lifecycle(id)?;
-                host.remove_canopy_audio(id)?;
-                trees.commit_removal(id);
-            }
-            host.commit_publication()?;
-            host.app
-                .terrain_physics
-                .set_fruit_cycle(snapshot.fruit_cycle, &mut host.app.tracer)?;
-            trees.previous_bound = UAabb3::default();
-            trees.staged_tuned_mature_desc = None;
-            trees.next_tree_id = snapshot
-                .publications
-                .iter()
-                .map(|p| p.tree_id + 1)
-                .max()
-                .unwrap_or(1)
-                .max(1);
-            trees.next_canopy_acoustic_generation = snapshot.next_generation;
-            for publication in snapshot.publications {
-                let id = publication.tree_id;
-                host.publish_leaves(id, &publication)?;
-                host.app.terrain_physics.restore_saved_tree_fruits(
-                    id,
-                    publication.record.fruit_specs.clone(),
-                    &mut host.app.tracer,
-                )?;
-                host.publish_attached_fruit(id)?;
-                host.publish_canopy_audio(id, &publication)?;
-                trees.commit_placement(id, publication.record);
-            }
-            host.app
-                .tracer
-                .invalidate_local_direct_sun_shadow_histories();
-            Ok(())
-        })?;
-        self.debug_settings.adjustables.tree_age.value = snapshot.age;
-        self.debug_settings.adjustables.fruit_cycle.value = snapshot.fruit_cycle;
+        let age = snapshot.age;
+        let fruit_cycle = snapshot.fruit_cycle;
+        self.transact_garden_trees(|trees, host| trees.restore_snapshot(snapshot, host))?;
+        self.debug_settings.adjustables.tree_age.value = age;
+        self.debug_settings.adjustables.fruit_cycle.value = fruit_cycle;
         if let Some(record) = self.trees.tuned_record() {
             self.debug_settings.tree.desc = record.mature_desc.clone();
         }

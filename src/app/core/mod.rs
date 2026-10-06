@@ -3292,7 +3292,10 @@ impl App {
                     return;
                 }
                 if let Err(error) = self.sync_static_raster_trees() {
-                    log::error!("[TREE][RASTER_STATIC] preparation failed; raster surface unavailable: {error:#}");
+                    // Ordinary terrain edits already committed their authoritative atlas. Do not
+                    // render/collide against a stale deformed mesh: fall back to those voxels
+                    // until a changed input or explicit invalidation permits one new attempt.
+                    log::error!("[TREE][RASTER_STATIC] preparation failed; using authoritative voxel fallback: {error:#}");
                     self.tracer.raster_trees.enabled = false;
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }

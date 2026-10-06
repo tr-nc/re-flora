@@ -199,6 +199,12 @@ impl DirtyTerrainBrickQueue {
     }
 }
 
+pub(super) struct PreparedTreeCollisionSurface {
+    geometry: re_flora_physics::PreparedDeformingGeometry,
+    cells: Vec<IVec3>,
+    revision: Option<u32>,
+}
+
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
     tree_surface_revision: Option<u32>,
@@ -231,6 +237,51 @@ impl TerrainPhysics {
     pub(super) fn tree_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
         self.collision_world
             .deforming_ray_candidates(origin * 256., direction)
+    }
+
+    pub(super) fn prepare_tree_collision_surface(
+        revision: u32,
+        mesh: &crate::tracer::RasterTreeMesh,
+        surface: Option<&crate::tracer::PosedTreeSurface>,
+    ) -> anyhow::Result<PreparedTreeCollisionSurface> {
+        let positions: Vec<_> = surface
+            .into_iter()
+            .flat_map(|s| s.positions())
+            .map(|p| p * 256.)
+            .collect();
+        let triangles: Vec<_> = if surface.is_some() {
+            mesh.indices
+                .chunks_exact(3)
+                .map(|t| [t[0], t[1], t[2]])
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let geometry = CollisionWorld::prepare_deforming_geometry(
+            re_flora_physics::DeformingGeometry::Triangles {
+                positions: &positions,
+                indices: &triangles,
+            },
+        )
+        .map_err(anyhow::Error::msg)?;
+        Ok(PreparedTreeCollisionSurface {
+            geometry,
+            revision: surface.map(|_| revision),
+            cells: mesh
+                .solid_cells
+                .iter()
+                .filter(|_| surface.is_some())
+                .map(|&p| UVec3::from(p).as_ivec3())
+                .collect(),
+        })
+    }
+
+    pub(super) fn commit_tree_collision_surface(&mut self, prepared: PreparedTreeCollisionSurface) {
+        self.collision_world
+            .set_deforming_surface_exclusions(prepared.cells);
+        self.collision_world
+            .publish_prepared_deforming_geometry(prepared.geometry);
+        self.tree_surface_revision = prepared.revision;
     }
 
     pub(super) fn publish_tree_surface(
@@ -619,6 +670,22 @@ impl TerrainPhysics {
             self.attached_fruit_refresh_trees
                 .remove(&checkpoint.tree_id);
         }
+    }
+
+    /// Snapshot restoration first unpublishes all old tree fruits while their bodies
+    /// remain checkpointed. Change only the season metadata; do not delete those bodies.
+    pub(super) fn set_restored_tree_fruit_cycle(&mut self, cycle: f32) -> anyhow::Result<f32> {
+        anyhow::ensure!(
+            self.fruits_by_tree.is_empty() && cycle.is_finite() && (0. ..=1.).contains(&cycle),
+            "saved fruit cycle requires an unpublished, valid forest"
+        );
+        let previous = self.fruit_cycle;
+        self.fruit_cycle = cycle;
+        Ok(previous)
+    }
+
+    pub(super) fn restore_tree_fruit_cycle_metadata(&mut self, previous: f32) {
+        self.fruit_cycle = previous;
     }
 
     pub(super) fn set_fruit_cycle(

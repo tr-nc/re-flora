@@ -13,6 +13,11 @@ use std::collections::{HashMap, HashSet};
 mod character_step;
 mod deforming_geometry;
 pub use deforming_geometry::DeformingGeometry;
+
+/// Validated off-side geometry; publication cannot fail or damage the old collider.
+pub struct PreparedDeformingGeometry {
+    shape: Option<rapier3d::parry::shape::SharedShape>,
+}
 use deforming_geometry::DeformingShape;
 mod contact_prediction;
 
@@ -939,11 +944,7 @@ impl CollisionWorld {
     ) -> Result<(), String> {
         geometry.validate()?;
         if geometry.len() == 0 {
-            if let Some(handle) = self.deforming_surface.take() {
-                self.physics.remove_collider(handle);
-                self.capsule_character_modified_colliders.remove(&handle);
-                self.capsule_character_removed_colliders.insert(handle);
-            }
+            self.publish_prepared_deforming_geometry(PreparedDeformingGeometry { shape: None });
             return Ok(());
         }
         if let Some(handle) = self.deforming_surface {
@@ -961,7 +962,27 @@ impl CollisionWorld {
                 return Ok(());
             }
         }
-        let shape = SharedShape::new(DeformingShape::new(&geometry));
+        let prepared = Self::prepare_deforming_geometry(geometry)?;
+        self.publish_prepared_deforming_geometry(prepared);
+        Ok(())
+    }
+
+    pub fn prepare_deforming_geometry(geometry: DeformingGeometry<'_>) -> Result<PreparedDeformingGeometry, String> {
+        geometry.validate()?;
+        Ok(PreparedDeformingGeometry { shape: if geometry.len() == 0 { None } else {
+            Some(SharedShape::new(DeformingShape::new(&geometry)))
+        } })
+    }
+
+    pub fn publish_prepared_deforming_geometry(&mut self, prepared: PreparedDeformingGeometry) {
+        let Some(shape) = prepared.shape else {
+            if let Some(handle) = self.deforming_surface.take() {
+                self.physics.remove_collider(handle);
+                self.capsule_character_modified_colliders.remove(&handle);
+                self.capsule_character_removed_colliders.insert(handle);
+            }
+            return;
+        };
         let handle = if let Some(handle) = self.deforming_surface {
             self.physics.colliders[handle].set_shape(shape);
             handle
@@ -974,7 +995,6 @@ impl CollisionWorld {
             handle
         };
         self.capsule_character_modified_colliders.insert(handle);
-        Ok(())
     }
 
     pub fn remove_static_voxel_brick(
@@ -1528,6 +1548,22 @@ mod tests {
             .voxel_state(id, local)
             .expect("test voxel must exist")
             .free_faces()
+    }
+
+    #[test]
+    fn prepared_deforming_geometry_leaves_old_queries_intact_until_commit() {
+        let mut world = CollisionWorld::new();
+        let old = [Vec3::new(-1., -1., 0.), Vec3::new(1., -1., 0.), Vec3::new(0., 1., 0.)];
+        let indices = [[0, 1, 2]];
+        world.set_deforming_surface(&old, &indices).unwrap();
+        let next = old.map(|p| p + Vec3::X * 10.);
+        let prepared = CollisionWorld::prepare_deforming_geometry(DeformingGeometry::Triangles { positions: &next, indices: &indices }).unwrap();
+        assert_eq!(world.deforming_ray_candidates(Vec3::NEG_Z, Vec3::Z), [0]);
+        assert!(CollisionWorld::prepare_deforming_geometry(DeformingGeometry::Triangles { positions: &next, indices: &[[0, 1, 99]] }).is_err());
+        assert_eq!(world.deforming_ray_candidates(Vec3::NEG_Z, Vec3::Z), [0]);
+        world.publish_prepared_deforming_geometry(prepared);
+        assert!(world.deforming_ray_candidates(Vec3::NEG_Z, Vec3::Z).is_empty());
+        assert_eq!(world.deforming_ray_candidates(Vec3::X * 10. - Vec3::Z, Vec3::Z), [0]);
     }
 
     #[test]

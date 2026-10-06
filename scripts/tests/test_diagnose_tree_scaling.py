@@ -51,6 +51,13 @@ class TreeScalingParserTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "did not complete"):
             summarize(log, 2)
 
+    def test_gpu_validation_must_complete_for_every_tree_count_when_requested(self):
+        with self.assertRaisesRegex(ValueError, "missing GPU"):
+            summarize(replay([17, 25]), 2, validate_gpu=True)
+        markers = "\n[TREE_SCALE_DIAG] validated trees=1\n[TREE_SCALE_DIAG] validated trees=2"
+        phases = summarize(replay([17, 25]) + markers, 2, validate_gpu=True)
+        self.assertFalse(phases[2]["frame_cliff"])
+
     def test_validation_error_is_invalid_not_green(self):
         with self.assertRaisesRegex(ValueError, "validation failed"):
             summarize(replay([17, 100]) + "\nVUID-example", 2)

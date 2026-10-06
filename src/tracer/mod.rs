@@ -38,6 +38,7 @@ use raster_tree::RasterTreeGeometry;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh};
 mod tree_lookup;
 mod tree_publication;
+pub(crate) use tree_publication::PreparedRasterTreePublication;
 mod tree_surface_resources;
 pub use tree_scene::TreeAttachment;
 mod apple_pixel;
@@ -6861,22 +6862,6 @@ impl Tracer {
 
     pub fn clear_tree_geometry_preview(&mut self) {
         self.geometry_preview_resources.tree.clear();
-    }
-
-    /// Publish a complete tree surface only when its observable facts changed.
-    /// Retaining an identical publication also retains GPU resources, query/refit
-    /// structures, and attachment pose history. Callers still validate terrain revision.
-    pub fn publish_static_raster_trees(
-        &mut self,
-        mesh: &RasterTreeMesh,
-        cells: &[[u32; 4]],
-        attachments: Vec<TreeAttachment>,
-    ) -> Result<bool> {
-        let Some(prepared) = self.prepare_static_raster_trees(mesh, cells, attachments)? else {
-            return Ok(false);
-        };
-        self.commit_static_raster_trees(prepared);
-        Ok(true)
     }
 
     pub fn publish_tree_attachments(&mut self, poses: &[[f32; 4]], dt: f32) -> Result<()> {

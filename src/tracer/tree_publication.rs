@@ -17,26 +17,95 @@ pub(crate) struct PreparedRasterTreePublication {
     descriptors: super::pipeline_builder::PreparedTreeResourceDescriptors,
 }
 
+impl PreparedRasterTreePublication {
+    pub(crate) fn mesh(&self) -> &RasterTreeMesh {
+        &self.geometry.rest_mesh
+    }
+    pub(crate) fn surface(&self) -> Option<&super::PosedTreeSurface> {
+        self.geometry.posed_surface.as_ref()
+    }
+}
+
 impl Tracer {
     /// Pure validation and new allocations/uploads only. Caller quiesces previous
     /// readers before committing; an error leaves the resident publication intact.
-    pub(crate) fn prepare_static_raster_trees(
+    pub(crate) fn prepare_static_raster_trees<'a>(
         &self,
         mesh: &RasterTreeMesh,
         cells: &[[u32; 4]],
         attachments: Vec<TreeAttachment>,
+        poses: impl Fn(u32) -> Option<&'a [crate::tree_gen::pose::BranchPose]>,
+        wind_active: bool,
     ) -> Result<Option<PreparedRasterTreePublication>> {
-        if self.raster_trees.publication_valid
-            && self.raster_trees.rest_mesh.same_surface(mesh)
-            && self.raster_trees.attachments == attachments
-        {
-            return Ok(None);
-        }
         ensure!(
             cells.len() == mesh.cell_vertex_indices.len(),
             "tree surface lookup topology mismatch"
         );
-        let skin = mesh.gpu_skin()?;
+        use crate::tree_gen::pose::BranchPose;
+        let identity = BranchPose {
+            rotation: glam::Quat::IDENTITY,
+            translation: Vec3::ZERO,
+        };
+        let mut skin = mesh.gpu_skin()?;
+        skin.poses.push(identity);
+        for &(id, branch) in &skin.branches {
+            let pose = if wind_active {
+                *poses(id)
+                    .and_then(|branches| branches.get(branch))
+                    .context("prepared tree palette refers to missing branch")?
+            } else {
+                identity
+            };
+            ensure!(
+                pose.rotation.is_finite() && pose.translation.is_finite(),
+                "nonfinite prepared tree palette"
+            );
+            skin.poses.push(pose);
+        }
+        let attachment_poses = if wind_active {
+            attachments
+                .iter()
+                .map(|attachment| {
+                    poses(attachment.tree_id)
+                        .and_then(|p| p.get(attachment.branch))
+                        .copied()
+                        .context("prepared tree attachment refers to missing branch")
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
+        ensure!(
+            attachment_poses
+                .iter()
+                .all(|p| p.rotation.is_finite() && p.translation.is_finite()),
+            "nonfinite prepared tree attachment"
+        );
+        let same_poses = |a: &[BranchPose], b: &[BranchPose]| {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b)
+                    .all(|(a, b)| a.rotation == b.rotation && a.translation == b.translation)
+        };
+        if self.raster_trees.publication_valid
+            && self.raster_trees.rest_mesh.same_surface(mesh)
+            && self.raster_trees.attachments == attachments
+            && self.raster_trees.posed_surface.is_some() == wind_active
+            && (!wind_active
+                || (same_poses(&skin.poses, &self.raster_trees.skin.poses)
+                    && same_poses(&attachment_poses, &self.raster_trees.attachment_poses)))
+        {
+            return Ok(None);
+        }
+        let posed_surface = if wind_active {
+            Some(mesh.posed_surface(&poses)?)
+        } else {
+            None
+        };
+        ensure!(
+            posed_surface.as_ref().is_none_or(|s| s.is_finite()),
+            "nonfinite prepared tree surface"
+        );
         let positions: Vec<Vec3> = mesh.rest_positions().collect();
         let scene = TreeScene::new(&mesh.indices, &positions)?;
         let refit = scene.refit_schedule();
@@ -113,7 +182,7 @@ impl Tracer {
             indices.fill(&mesh.indices)?;
         }
         resources.tree_scene_info.fill(&[[
-            0u32,
+            u32::from(wind_active),
             scene.nodes.len() as u32,
             0,
             skin.bindings.len() as u32,
@@ -124,11 +193,19 @@ impl Tracer {
             .tree_scene_cell_vertices
             .fill(&mesh.cell_vertex_indices)?;
         resources.tree_attachment_keys.fill(&keys)?;
-        let mut palette: Vec<[f32; 4]> = Vec::with_capacity((skin.branches.len() + 1) * 2);
-        for _ in 0..=skin.branches.len() {
-            palette.extend([[0., 0., 0., 1.], [0.; 4]]);
-        }
+        let palette: Vec<[f32; 4]> = skin
+            .poses
+            .iter()
+            .flat_map(|p| [p.rotation.to_array(), p.translation.extend(0.).to_array()])
+            .collect();
         resources.tree_skin_poses.fill(&palette)?;
+        if !attachment_poses.is_empty() {
+            let palette: Vec<[f32; 4]> = attachment_poses
+                .iter()
+                .flat_map(|p| [p.rotation.to_array(), p.translation.extend(0.).to_array()])
+                .collect();
+            resources.tree_attachment_poses.fill(&palette)?;
+        }
         if !skin.bindings.is_empty() {
             resources.tree_skin_rest.fill(&skin.rest)?;
             resources.tree_skin_bindings.fill(&skin.bindings)?;
@@ -151,10 +228,10 @@ impl Tracer {
             scene,
             refit,
             attachments,
-            attachment_poses: Vec::new(),
-            previous_attachment_poses: Vec::new(),
+            previous_attachment_poses: attachment_poses.clone(),
+            attachment_poses,
             attachment_dt: 0.,
-            posed_surface: None,
+            posed_surface,
         };
         self.descriptor_generation
             .checked_add(1)

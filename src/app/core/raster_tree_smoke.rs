@@ -154,7 +154,7 @@ impl RasterTreeSmoke {
                 app.tracer.validate_gpu_tree_lighting(true)?;
                 log::info!("[TREE][THIN_WOOD_SMOKE] hybrid_lighting=true same_geometry=true rest_fingerprint={:016x}", self.thin_fingerprint);
                 app.tracer.validate_gpu_tree_surface()?;
-                app.validate_tree_surface_queries()?;
+                app.validate_tree_surface_queries(true)?;
             }
             66 => {
                 app.exercise_posed_tree_edit()?;
@@ -198,6 +198,9 @@ impl RasterTreeSmoke {
                 );
                 app.tracer.validate_gpu_tree_surface()?;
                 app.tracer.validate_gpu_tree_lighting(true)?;
+            }
+            156 => {
+                app.exercise_tree_surface_rejection()?;
             }
             160 => {
                 app.exercise_conifer_model_smoke()?;
