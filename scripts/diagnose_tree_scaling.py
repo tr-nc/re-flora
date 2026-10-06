@@ -16,10 +16,12 @@ import statistics
 import subprocess
 from pathlib import Path
 
+from check_raster_tree_static import setting
+
 ROOT = Path(__file__).resolve().parents[1]
-PHASE = re.compile(r"\[DEBUG-tree-scale\] phase trees=(\d+)")
+PHASE = re.compile(r"\[TREE_SCALE_DIAG\] phase trees=(\d+)")
 SAMPLE = re.compile(
-    r"\[DEBUG-tree-scale\] sample trees=(\d+) frame=(\d+) "
+    r"\[TREE_SCALE_DIAG\] sample trees=(\d+) frame=(\d+) "
     r"total_ms=([\d.]+) gpu_present_ms=([\d.]+) untracked_cpu_ms=([\d.]+)"
 )
 GPU = re.compile(r"([\w.]+)=(\d+)us")
@@ -58,7 +60,7 @@ def summarize(log, count):
             prior and phase["median_total_ms"] >= 80
             and phase["median_total_ms"] >= 3 * prior["median_total_ms"]
         )
-    if f"[DEBUG-tree-scale] completed trees={count}" not in log:
+    if f"[TREE_SCALE_DIAG] completed trees={count}" not in log:
         raise ValueError("tree replay did not complete")
     if "Application exited successfully" not in log or any(
         marker in log for marker in ["panicked at", "VUID-"]
@@ -72,6 +74,11 @@ def main():
     parser.add_argument("output", type=Path, help="New evidence directory")
     parser.add_argument("--trees", type=int, default=8, choices=range(2, 10))
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--species", choices=["garden", "conifer"], default="garden",
+                        help="Species added through the same description compiler as Grow")
+    parser.add_argument("--seed", type=int, default=123, help="First added tree seed")
+    parser.add_argument("--tree-size", type=float, help="Diagnostic input size, not a new default")
+    parser.add_argument("--wind-off", action="store_true", help="One-variable wind ablation")
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/re-flora")
     parser.add_argument("--allow-shared-gpu", action="store_true",
                         help="Allow other game instances; timing is explicitly contended")
@@ -80,6 +87,10 @@ def main():
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
+    if not 0 <= args.seed <= 2**64 - 9:
+        parser.error("--seed must fit u64 including eight subsequent seeds")
+    if args.tree_size is not None and not 0 < args.tree_size < float("inf"):
+        parser.error("--tree-size must be positive and finite")
     out = args.output.resolve()
     if out.exists():
         parser.error("output directory already exists; use a new directory")
@@ -89,9 +100,13 @@ def main():
     env = os.environ.copy()
     env.pop("WAYLAND_DISPLAY", None)
     env["RE_FLORA_TREE_SCALE_DIAGNOSTIC"] = "1"
+    env["RE_FLORA_TREE_SCALE_SPECIES"] = args.species
+    env["RE_FLORA_TREE_SCALE_SEED"] = str(args.seed)
     command = [str(binary), "--hidden", "--mute", "--perf", "--tree-bench",
                "--tree-bench-samples", str(args.trees), "--auto-exit", "45", *args.app_arg]
-    report = {"command": command, "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+    report = {"command": command, "species": args.species, "first_added_seed": args.seed,
+              "tree_size_override": args.tree_size, "wind_off": args.wind_off,
+              "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "runs": []}
     config_files = [ROOT / "config/gui.toml", ROOT / "config/camera_snapshots.toml"]
@@ -109,8 +124,19 @@ def main():
         original = {path: path.read_bytes() for path in config_files}
         report["contended_at_start"] = bool(active)
         report["gui_sha256"] = hashlib.sha256(original[config_files[0]]).hexdigest()
+        source = original[config_files[0]].decode()
+        if args.tree_size is not None:
+            if args.tree_size <= 0:
+                raise ValueError("--tree-size must be positive")
+            source, matches = re.subn(r"(\[tree\.desc\]\nsize = )[^\n]+",
+                                      lambda match: match[1] + str(args.tree_size), source)
+            if matches != 1:
+                raise ValueError("missing authored tree size")
+        if args.wind_off:
+            source = setting(source, "raster_tree_wind", "false")
         try:
             for run in range(1, args.runs + 1):
+                config_files[0].write_text(source)
                 log_path = out / f"run-{run}.log"
                 with log_path.open("w") as log:
                     result = subprocess.run(command, cwd=ROOT, env=env, stdout=log,
