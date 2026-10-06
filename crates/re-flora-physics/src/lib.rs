@@ -923,6 +923,17 @@ impl CollisionWorld {
         self.set_deforming_geometry(DeformingGeometry::Triangles { positions, indices })
     }
 
+    /// Update vertices of the installed, immutable triangle topology. No triangle
+    /// array is submitted, compared, or revalidated. Invalid input retains old queries.
+    pub fn update_deforming_triangle_positions(&mut self, positions: &[Vec3]) -> Result<(), String> {
+        let handle = self.deforming_surface.ok_or("no deforming triangle surface installed")?;
+        self.physics.colliders[handle].shape_mut().as_shape_mut::<DeformingShape>()
+            .ok_or("deforming triangle surface has an unexpected shape")?
+            .update_triangle_positions(positions)?;
+        self.capsule_character_modified_colliders.insert(handle);
+        Ok(())
+    }
+
     /// Candidate primitive IDs in the most recently published deforming geometry.
     /// Editing can reuse the exact physics BVH instead of maintaining a second
     /// per-frame CPU hierarchy. Inputs are in physics voxel units.
@@ -1548,6 +1559,25 @@ mod tests {
             .voxel_state(id, local)
             .expect("test voxel must exist")
             .free_faces()
+    }
+
+    #[test]
+    fn topology_stable_triangle_updates_preserve_indices_and_reject_invalid_positions() {
+        let mut world = CollisionWorld::new();
+        let old = [Vec3::new(-1., -1., 0.), Vec3::new(1., -1., 0.), Vec3::new(0., 1., 0.)];
+        world.set_deforming_surface(&old, &[[0, 1, 2]]).unwrap();
+        let handle = world.deforming_surface;
+        let next = old.map(|p| p + Vec3::X * 10.);
+        world.update_deforming_triangle_positions(&next).unwrap();
+        assert_eq!(world.deforming_surface, handle);
+        assert!(world.deforming_ray_candidates(Vec3::NEG_Z, Vec3::Z).is_empty());
+        let ray = Vec3::X * 10. - Vec3::Z;
+        assert_eq!(world.deforming_ray_candidates(ray, Vec3::Z), [0]);
+        assert!(world.update_deforming_triangle_positions(&next[..2]).is_err());
+        assert!(world.update_deforming_triangle_positions(&[Vec3::splat(f32::NAN); 3]).is_err());
+        assert_eq!(world.deforming_ray_candidates(ray, Vec3::Z), [0]);
+        world.set_deforming_surface(&[], &[]).unwrap();
+        assert!(world.update_deforming_triangle_positions(&next).is_err());
     }
 
     #[test]

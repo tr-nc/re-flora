@@ -3942,12 +3942,11 @@ impl App {
         let surface = if self.tracer.raster_trees.enabled
             && self.debug_settings.adjustables.raster_tree_wind.value
         {
-            Some(
-                self.tracer
-                    .raster_trees
-                    .rest_mesh
-                    .posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?,
-            )
+            let scratch = self.tracer.raster_trees.pose_scratch.take();
+            Some(self.tracer.raster_trees.rest_mesh.posed_surface_reusing(
+                |id| self.trees.records.get(&id).map(|r| r.pose.branches()),
+                scratch,
+            )?)
         } else {
             None
         };
@@ -3978,7 +3977,6 @@ impl App {
                 .and(self.tracer.raster_trees.source.terrain_revision()),
             &self.tracer.raster_trees.rest_mesh.solid_cells,
             surface.as_ref(),
-            &self.tracer.raster_trees.rest_mesh.indices,
         )?;
         let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
         let query_started = Instant::now();

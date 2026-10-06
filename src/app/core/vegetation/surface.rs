@@ -122,6 +122,7 @@ impl PreparedTreeSurface {
                     .or_insert((source.id, binding.branch));
             }
         }
+        mesh.compile_cpu_deformation()?;
         let bind_ms = stage.elapsed().as_secs_f64() * 1000.;
         let stage = Instant::now();
         let by_id: BTreeMap<_, _> = sources.iter().map(|source| (source.id, source)).collect();

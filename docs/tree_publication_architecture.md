@@ -120,6 +120,12 @@ resource generation remains resident for recovery. This temporary fallback is no
 publication and does not turn off the saved wind setting. New tree transactions instead reject and
 restore the previous complete garden.
 
+The immutable CPU interaction plan shares only identical world rest positions and complete skin
+bindings. It preserves visual vertex indexing, per-cell normal/confidence data and ordered triangle
+IDs, while collision uses equivalent compact points and immutable mapped topology. Pose double
+buffers and physics-unit scratch are reused; the topology-stable collision API never resubmits
+triangle arrays. Exact unchanged points bypass refit, not approximately equal or quantized motion.
+
 Terrain changes can affect tree shading without removing any wood. Neither dependency tracking
 nor publication equality may use a removed-wood count as a shortcut. Shared sampling radius,
 conservative potential-wood support, and exact output comparison keep these rules local and

@@ -7028,7 +7028,8 @@ impl Tracer {
             self.raster_trees.attachment_poses.clear();
             self.raster_trees.previous_attachment_poses.clear();
         }
-        self.raster_trees.posed_surface = surface;
+        self.raster_trees.pose_scratch =
+            std::mem::replace(&mut self.raster_trees.posed_surface, surface);
         self.resources.tree.tree_scene_info.fill(&[[
             u32::from(active),
             self.raster_trees.scene.nodes.len() as u32,

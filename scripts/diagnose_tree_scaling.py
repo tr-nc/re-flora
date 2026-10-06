@@ -25,12 +25,18 @@ SAMPLE = re.compile(
     r"total_ms=([\d.]+) gpu_present_ms=([\d.]+) untracked_cpu_ms=([\d.]+)"
 )
 GPU = re.compile(r"([\w.]+)=(\d+)us")
+TREE_UPDATE = re.compile(r"\[PERF\]\[TREE_UPDATE\] frame=(\d+) (.*)")
+CPU_US = re.compile(r"(\w+)_us=([\d.]+)")
 
 
 def summarize(log, count, validate_gpu=False):
     phases = {i: {"samples": [], "errors": [], "gpu_scopes_us": {}} for i in range(1, count + 1)}
     current = 0
+    updates = {}
     for line in log.splitlines():
+        update = TREE_UPDATE.search(line)
+        if update:
+            updates[int(update[1])] = {name: float(value) for name, value in CPU_US.findall(update[2])}
         phase = PHASE.search(line)
         if phase:
             current = int(phase[1])
@@ -52,6 +58,11 @@ def summarize(log, count, validate_gpu=False):
             values = [sample[metric] for sample in phase["samples"]]
             phase[f"median_{metric}"] = statistics.median(values)
             phase[f"max_{metric}"] = max(values)
+        cpu = [updates[sample["frame"]] for sample in phase["samples"] if sample["frame"] in updates]
+        phase["cpu_update_medians_us"] = {
+            name: statistics.median(row[name] for row in cpu if name in row)
+            for name in sorted({key for row in cpu for key in row})
+        }
         phase["gpu_scope_medians_us"] = {
             name: statistics.median(values) for name, values in phase["gpu_scopes_us"].items()
         }

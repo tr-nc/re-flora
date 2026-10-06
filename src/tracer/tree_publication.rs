@@ -232,6 +232,7 @@ impl Tracer {
             attachment_poses,
             attachment_dt: 0.,
             posed_surface,
+            pose_scratch: None,
         };
         self.descriptor_generation
             .checked_add(1)

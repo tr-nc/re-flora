@@ -58,6 +58,17 @@ class TreeScalingParserTests(unittest.TestCase):
         phases = summarize(replay([17, 25]) + markers, 2, validate_gpu=True)
         self.assertFalse(phases[2]["frame_cliff"])
 
+    def test_cpu_updates_are_attributed_to_settled_sample_frames(self):
+        log = replay([17, 25]) + "\n" + "\n".join(
+            f"[PERF][TREE_UPDATE] frame={i} cpu_skin_us=100.0 physics_us=50.0 total_cpu_us=160.0"
+            for i in range(5)
+        )
+        # An unsampled warm-up/hitch must not pollute the settled median.
+        log += "\n[PERF][TREE_UPDATE] frame=99 cpu_skin_us=9000.0 total_cpu_us=9999.0"
+        phases = summarize(log, 2)
+        self.assertEqual(phases[1]["cpu_update_medians_us"]["cpu_skin"], 100.0)
+        self.assertEqual(phases[1]["cpu_update_medians_us"]["total_cpu"], 160.0)
+
     def test_validation_error_is_invalid_not_green(self):
         with self.assertRaisesRegex(ValueError, "validation failed"):
             summarize(replay([17, 100]) + "\nVUID-example", 2)

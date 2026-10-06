@@ -89,7 +89,47 @@ The final exact-checkpoint replay `target/tree-scaling-transaction-03` repeats a
 checks with medians **31.670 / 31.355 ms**, zero errors/cliffs/contention. Its Release binary is saved
 as `target/tree-scaling-pre-cpu` for the identical healthy-CPU comparison.
 
+## Exact healthy CPU deformation and collision reuse
+
+The immutable interaction plan groups only bit-identical rest positions **and** complete bindings
+(tree ID, child/parent IDs, weight bits). It shares transforms without merging the per-cell visual
+normals/confidence or GPU vertices. Visual indexing and ordered triangle IDs remain unchanged for
+GPU comparisons, barycentric rest-space editing and collision queries. Six trees still render all
+146904 vertices / 101120 triangles, while CPU interaction uses **59875 exact points / 59006 transforms**.
+Canonical pose lookup happens once per tree. Double-buffered pose scratch and physics-unit positions
+are reused; collision retains immutable triangle topology and updates only vertices/BVH. Exactly
+unchanged physics points need no refit (no quantization or motion approximation).
+
+A scalar-reference regression compares every visual point **bit-for-bit** across poses and verifies
+that differing owner/parent/weight bindings do not weld. The topology-stable physics API preserves
+triangle IDs/collider handles and rejects wrong-size/nonfinite updates before changing queries.
+Validation: raster tests 12, all physics-crate tests/integration tests, check/format, Release build,
+full Garden Tree/Conifer GPU smoke including exact rejected-placement rollback, and hidden launch.
+
+Uncontended identical workload `target/tree-scaling-compact-02` (two runs, per-count GPU validation):
+
+| Trees | Before CPU stage, run 1 / 2 ms | After CPU stage, run 1 / 2 ms |
+| --- | ---: | ---: |
+| 4 | 19.713 / 19.935 | 16.859 / 17.045 |
+| 5 | 25.461 / 25.697 | 19.161 / 19.126 |
+| 6 | 31.670 / 31.355 | 27.189 / 27.210 |
+
+Settled run-1 six-tree medians, parsed from matching frame IDs:
+
+| Tree update CPU component | Before us | After us |
+| --- | ---: | ---: |
+| Skinning | 4604.44 | 1206.945 |
+| Collision | 1971.03 | 1474.995 |
+| Query publication | 123.115 | 38.715 |
+| Total (includes hierarchy submit/wait/readback) | 6992.515 | 2927.22 |
+
+Zero errors/cliffs/contention and complete CPU/GPU/BVH/lighting/query checks. GPU execution has not
+been optimized here: six-tree `frame.render` is about 14.4 ms and `tree_surface_update.pass` 5.0 ms.
+The earlier `compact-01` second run has a faster 23.254 ms frame but also a materially different GPU
+scope (10.302 / 2.012 ms); it is not evidence of an extra CPU improvement. `gpu_present_ms` is not
+interpreted as pure GPU execution. The GPU variation is the next measurement target.
+
 ## Remaining implementation stages
 
-Healthy exact deformation/collision allocation reuse and unaffected-tree compilation are next;
-the capacity/transaction results do not claim those optimizations complete.
+Investigate the measured GPU input/resource placement cost and reuse compilation for unaffected
+trees. The validated CPU/capacity results do not claim these remaining stages complete.

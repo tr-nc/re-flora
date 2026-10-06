@@ -123,6 +123,20 @@ impl DeformingShape {
             _ => false,
         }
     }
+    /// Existing triangle indices were validated at installation, and never change here.
+    pub(crate) fn update_triangle_positions(&mut self, new: &[Vec3]) -> Result<(), String> {
+        let Parts::Triangles { positions, indices } = &mut self.parts else {
+            return Err("deforming collider is not a triangle surface".into());
+        };
+        if positions.len() != new.len() || !new.iter().all(|p| p.is_finite()) {
+            return Err("invalid topology-stable triangle positions".into());
+        }
+        positions.copy_from_slice(new);
+        let count = indices.len();
+        for i in 0..count { self.bvh.insert_or_update_partially(self.part_aabb(i), i as u32, 0.); }
+        self.bvh.refit_without_opt();
+        Ok(())
+    }
     pub(crate) fn update(&mut self, input: &DeformingGeometry<'_>) {
         match (&mut self.parts, input) {
             (

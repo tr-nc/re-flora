@@ -19,6 +19,10 @@ use crate::{
     },
 };
 
+mod cpu_surface;
+use cpu_surface::CpuDeformationPlan;
+pub use cpu_surface::PosedTreeSurface;
+
 const NEIGHBORS: [IVec3; 6] = [
     IVec3::NEG_Y,
     IVec3::Y,
@@ -55,6 +59,7 @@ pub struct RasterTreeMesh {
     pub solid_cells: std::collections::BTreeSet<[u32; 3]>,
     bindings: Vec<Option<(u32, SkinBinding)>>,
     binding_cache: BTreeMap<u32, TreeBindingCache>,
+    cpu_plan: Option<Arc<CpuDeformationPlan>>,
     dependencies: TreeSurfaceDependencies,
     pub cell_vertex_indices: Vec<u32>,
 }
@@ -156,6 +161,7 @@ impl RasterTreeMesh {
         let lookup = super::tree_lookup::build_tree_lookup(&entries)?;
         let table = lookup.table;
         self.cell_vertex_indices = vec![u32::MAX; table.len()];
+        self.cpu_plan = None;
         self.vertices.clear();
         self.indices.clear();
         for ((&cell, &(normal, confidence, faces)), slot) in self.cells.iter().zip(lookup.slots) {
@@ -197,6 +203,7 @@ impl RasterTreeMesh {
             self.bindings.len() == self.vertices.len(),
             "finish tree mesh before binding"
         );
+        self.cpu_plan = None;
         let previous = previous
             .and_then(|mesh| mesh.binding_cache.get(&tree_id))
             .filter(|cache| Arc::ptr_eq(&cache.tree, tree) && cache.origin == origin);
@@ -291,23 +298,34 @@ impl RasterTreeMesh {
         Ok(result)
     }
 
+    /// Finalize the immutable CPU interaction plan after the last topology/binding change.
+    pub(crate) fn compile_cpu_deformation(&mut self) -> Result<()> {
+        let plan = CpuDeformationPlan::compile(self)?;
+        let (points, transforms) = plan.counts();
+        log::info!(
+            "[TREE][CPU_PLAN] visual_vertices={} exact_points={points} transforms={transforms}",
+            self.vertices.len()
+        );
+        self.cpu_plan = Some(Arc::new(plan));
+        Ok(())
+    }
+
     pub fn posed_surface<'a>(
         &self,
         poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
     ) -> Result<PosedTreeSurface> {
-        ensure!(
-            self.bindings.len() == self.vertices.len(),
-            "missing tree bindings"
-        );
-        let mut positions = Vec::with_capacity(self.vertices.len());
-        for (vertex, binding) in self.vertices.iter().zip(&self.bindings) {
-            let (tree_id, binding) =
-                binding.ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
-            let transform = binding
-                .transform(poses(tree_id).ok_or_else(|| anyhow::anyhow!("tree pose missing"))?)?;
-            positions.push(transform.point(Vec3::from_array(vertex.position)));
-        }
-        Ok(PosedTreeSurface { positions })
+        self.posed_surface_reusing(poses, None)
+    }
+    pub(crate) fn posed_surface_reusing<'a>(
+        &self,
+        poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
+        scratch: Option<PosedTreeSurface>,
+    ) -> Result<PosedTreeSurface> {
+        let plan = match &self.cpu_plan {
+            Some(plan) => plan.clone(),
+            None => Arc::new(CpuDeformationPlan::compile(self)?),
+        };
+        plan.pose(poses, scratch)
     }
 
     /// Exact surface query used to validate rest-coordinate editing. The future
@@ -432,27 +450,6 @@ impl RasterTreeMesh {
     }
 }
 
-/// Exact CPU interaction geometry. Normals belong to the GPU shading surface;
-/// physics needs no duplicate normal array.
-pub struct PosedTreeSurface {
-    positions: Vec<Vec3>,
-}
-
-impl PosedTreeSurface {
-    pub fn vertex_count(&self) -> usize {
-        self.positions.len()
-    }
-    pub fn position(&self, index: usize) -> Vec3 {
-        self.positions[index]
-    }
-    pub fn positions(&self) -> impl Iterator<Item = Vec3> + '_ {
-        self.positions.iter().copied()
-    }
-    pub fn is_finite(&self) -> bool {
-        self.positions.iter().all(|p| p.is_finite())
-    }
-}
-
 fn pack_normal_oct16(normal: Vec3) -> u32 {
     let p = normal / normal.abs().element_sum().max(1e-8);
     let mut x = p.x;
@@ -495,6 +492,7 @@ pub struct RasterTreeGeometry {
     pub previous_attachment_poses: Vec<BranchPose>,
     pub attachment_dt: f32,
     pub posed_surface: Option<PosedTreeSurface>,
+    pub(crate) pose_scratch: Option<PosedTreeSurface>,
 }
 
 impl RasterTreeGeometry {
@@ -520,6 +518,7 @@ impl RasterTreeGeometry {
             previous_attachment_poses: Vec::new(),
             attachment_dt: 0.,
             posed_surface: None,
+            pose_scratch: None,
         }
     }
     fn buffer(

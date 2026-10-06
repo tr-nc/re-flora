@@ -11,7 +11,10 @@ use re_flora_physics::{
     StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 mod fruit_ground_trace;
 mod surface_motion;
@@ -200,6 +203,8 @@ impl DirtyTerrainBrickQueue {
 }
 
 pub(super) struct PreparedTreeCollisionSurface {
+    positions: Vec<Vec3>,
+    topology: Option<Arc<[[u32; 3]]>>,
     geometry: re_flora_physics::PreparedDeformingGeometry,
     cells: Vec<IVec3>,
     revision: Option<u32>,
@@ -208,6 +213,8 @@ pub(super) struct PreparedTreeCollisionSurface {
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
     tree_surface_revision: Option<u32>,
+    tree_surface_topology: Option<Arc<[[u32; 3]]>>,
+    tree_surface_positions: Vec<Vec3>,
     dirty_terrain_bricks: DirtyTerrainBrickQueue,
     imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
     failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
@@ -246,17 +253,11 @@ impl TerrainPhysics {
     ) -> anyhow::Result<PreparedTreeCollisionSurface> {
         let positions: Vec<_> = surface
             .into_iter()
-            .flat_map(|s| s.positions())
+            .flat_map(|s| s.collision_positions().iter().copied())
             .map(|p| p * 256.)
             .collect();
-        let triangles: Vec<_> = if surface.is_some() {
-            mesh.indices
-                .chunks_exact(3)
-                .map(|t| [t[0], t[1], t[2]])
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let topology = surface.map(|s| s.collision_triangles().clone());
+        let triangles = topology.as_deref().unwrap_or(&[]);
         let geometry = CollisionWorld::prepare_deforming_geometry(
             re_flora_physics::DeformingGeometry::Triangles {
                 positions: &positions,
@@ -265,6 +266,8 @@ impl TerrainPhysics {
         )
         .map_err(anyhow::Error::msg)?;
         Ok(PreparedTreeCollisionSurface {
+            positions,
+            topology,
             geometry,
             revision: surface.map(|_| revision),
             cells: mesh
@@ -282,6 +285,8 @@ impl TerrainPhysics {
         self.collision_world
             .publish_prepared_deforming_geometry(prepared.geometry);
         self.tree_surface_revision = prepared.revision;
+        self.tree_surface_topology = prepared.topology;
+        self.tree_surface_positions = prepared.positions;
     }
 
     pub(super) fn publish_tree_surface(
@@ -289,8 +294,42 @@ impl TerrainPhysics {
         revision: Option<u32>,
         cells: &std::collections::BTreeSet<[u32; 3]>,
         surface: Option<&crate::tracer::PosedTreeSurface>,
-        indices: &[u32],
     ) -> anyhow::Result<()> {
+        if let Some(surface) = surface.filter(|s| !s.collision_triangles().is_empty()) {
+            let topology = surface.collision_triangles();
+            let same_topology = self
+                .tree_surface_topology
+                .as_ref()
+                .is_some_and(|old| Arc::ptr_eq(old, topology));
+            // Exact unchanged poses need no BVH refit or collider invalidation. This is
+            // not quantized motion: compare the actual physics-unit point values.
+            let same_positions = same_topology
+                && self.tree_surface_positions.len() == surface.collision_positions().len()
+                && self
+                    .tree_surface_positions
+                    .iter()
+                    .zip(surface.collision_positions())
+                    .all(|(old, new)| *old == *new * 256.);
+            if !same_positions {
+                self.tree_surface_positions.clear();
+                self.tree_surface_positions
+                    .extend(surface.collision_positions().iter().map(|p| *p * 256.));
+                if same_topology {
+                    self.collision_world
+                        .update_deforming_triangle_positions(&self.tree_surface_positions)
+                        .map_err(anyhow::Error::msg)?;
+                } else {
+                    self.collision_world
+                        .set_deforming_surface(&self.tree_surface_positions, topology)
+                        .map_err(anyhow::Error::msg)?;
+                    self.tree_surface_topology = Some(topology.clone());
+                }
+            }
+        } else if self.tree_surface_topology.take().is_some() {
+            self.collision_world
+                .set_deforming_surface(&[], &[])
+                .map_err(anyhow::Error::msg)?;
+        }
         if self.tree_surface_revision != revision {
             self.collision_world.set_deforming_surface_exclusions(
                 cells
@@ -299,20 +338,6 @@ impl TerrainPhysics {
                     .map(|&p| UVec3::from(p).as_ivec3()),
             );
             self.tree_surface_revision = revision;
-        }
-        if let Some(surface) = surface {
-            let positions: Vec<_> = surface.positions().map(|p| p * 256.).collect();
-            let triangles: Vec<_> = indices
-                .chunks_exact(3)
-                .map(|t| [t[0], t[1], t[2]])
-                .collect();
-            self.collision_world
-                .set_deforming_surface(&positions, &triangles)
-                .map_err(anyhow::Error::msg)?;
-        } else {
-            self.collision_world
-                .set_deforming_surface(&[], &[])
-                .map_err(anyhow::Error::msg)?;
         }
         Ok(())
     }
@@ -336,6 +361,8 @@ impl TerrainPhysics {
         Self {
             collision_world,
             tree_surface_revision: None,
+            tree_surface_topology: None,
+            tree_surface_positions: Vec::new(),
             dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
             imported_terrain_bricks: HashSet::new(),
             failed_terrain_bricks: HashSet::new(),
