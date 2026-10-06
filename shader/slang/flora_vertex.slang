@@ -4,6 +4,7 @@ module flora_vertex;
 import color;
 import environment_lighting;
 import flora_motion;
+import grass_growth_shape;
 import leaf_flutter;
 import leaf_lighting;
 import flora_noise;
@@ -214,8 +215,10 @@ public PreparedFloraVertex prepareFloraVertex(
     result.should_trim = false;
     if (result.is_grass)
     {
-        float grownHeight = floor(float(grassHeightVoxels) * growthFactor + 0.001);
+        float grownHeight = grassGrownHeight(grassHeightVoxels, growthFactor);
         result.should_trim = float(voxelLocalPosition.y) >= grownHeight;
+        result.color_gradient = grassColorGradient(
+            voxelLocalPosition.y, grassHeightVoxels, growthPotential);
     }
     else if (growthFactor <= 0.0)
     {
