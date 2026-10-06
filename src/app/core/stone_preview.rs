@@ -183,7 +183,6 @@ impl App {
                     };
                 settings.ordered_dither_global.value =
                     matches!(style, "global" | "combined") || (style == "cycle" && phase >= 7);
-                settings.ordered_dither_pattern.value = u32::from(phase == 9);
                 settings.ordered_dither_levels.value = 8;
                 settings.ordered_dither_strength.value = 1.;
                 if self.stone_preview.phase != Some(phase) {

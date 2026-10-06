@@ -11,7 +11,8 @@ struct U_PostProcessingInfo
     uint pixel_stride;
     uint resolve_mode;
     float dither_strength_lsb;
-    uint4 ordered_dither;
+    uint ordered_dither_enabled;
+    uint ordered_dither_levels;
     float ordered_dither_strength;
 };
 
@@ -92,10 +93,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint3 localId : SV_Group
         finalColor = resolveScenePixel(pixel, axis);
     }
 
-    bool globalDither = orderedDitherEnabled(post_processing_info.ordered_dither,
-        post_processing_info.ordered_dither_strength, ORDERED_GLOBAL);
-    finalColor = orderedDitherColor(finalColor, pixel, post_processing_info.ordered_dither,
-        post_processing_info.ordered_dither_strength, ORDERED_GLOBAL);
+    bool globalDither = orderedDitherEnabled(post_processing_info.ordered_dither_enabled,
+        post_processing_info.ordered_dither_strength);
+    finalColor = orderedDitherColor(finalColor, pixel, post_processing_info.ordered_dither_enabled,
+        post_processing_info.ordered_dither_levels, post_processing_info.ordered_dither_strength);
 
     // Dither also belongs to the final coarse cell, not individual screen pixels.
     float ditherOffset = getDitherOffset(pixel, post_processing_info.dither_strength_lsb);

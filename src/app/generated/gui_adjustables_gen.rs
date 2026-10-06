@@ -410,9 +410,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Ordered Dithering",
-        id: "ordered_dither_pattern",
-        kind: "choice",
-        label: "Pattern",
+        id: "ordered_dither_global",
+        kind: "bool",
+        label: "Global scene dither (Bayer 4x4, A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Ordered Dithering",
@@ -425,36 +425,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "ordered_dither_strength",
         kind: "float",
         label: "Strength (0 = original)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ordered Dithering",
-        id: "ordered_dither_global",
-        kind: "bool",
-        label: "Global scene dither (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ordered Dithering",
-        id: "ordered_dither_god_rays",
-        kind: "bool",
-        label: "God Rays dither (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ordered Dithering",
-        id: "ordered_dither_lens_flare",
-        kind: "bool",
-        label: "Camera Lens Flare dither (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ordered Dithering",
-        id: "ordered_dither_sky_background",
-        kind: "bool",
-        label: "Sky background dither (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Ordered Dithering",
-        id: "ordered_dither_terrain_ambient",
-        kind: "bool",
-        label: "Skylight / ambient: terrain dither (A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
@@ -1598,14 +1568,9 @@ pub struct GuiAdjustables {
     pub footstep_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
     pub audio_ray_tracing_quality_percent: crate::gui_adjustables::UintParam,
-    pub ordered_dither_pattern: crate::gui_adjustables::ChoiceParam,
+    pub ordered_dither_global: crate::gui_adjustables::BoolParam,
     pub ordered_dither_levels: crate::gui_adjustables::UintParam,
     pub ordered_dither_strength: crate::gui_adjustables::FloatParam,
-    pub ordered_dither_global: crate::gui_adjustables::BoolParam,
-    pub ordered_dither_god_rays: crate::gui_adjustables::BoolParam,
-    pub ordered_dither_lens_flare: crate::gui_adjustables::BoolParam,
-    pub ordered_dither_sky_background: crate::gui_adjustables::BoolParam,
-    pub ordered_dither_terrain_ambient: crate::gui_adjustables::BoolParam,
     pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
     pub sun_luminance: crate::gui_adjustables::FloatParam,
@@ -1862,14 +1827,9 @@ impl GuiAdjustables {
         let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut audio_ray_tracing_quality_percent_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut ordered_dither_pattern_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut ordered_dither_global_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ordered_dither_levels_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut ordered_dither_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut ordered_dither_global_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut ordered_dither_god_rays_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut ordered_dither_lens_flare_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut ordered_dither_sky_background_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut ordered_dither_terrain_ambient_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut sun_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2465,9 +2425,9 @@ impl GuiAdjustables {
                             audio_ray_tracing_quality_percent_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
-                    "ordered_dither_pattern" => {
-                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
-                            ordered_dither_pattern_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                    "ordered_dither_global" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            ordered_dither_global_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "ordered_dither_levels" => {
@@ -2482,31 +2442,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             ordered_dither_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "ordered_dither_global" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ordered_dither_global_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "ordered_dither_god_rays" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ordered_dither_god_rays_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "ordered_dither_lens_flare" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ordered_dither_lens_flare_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "ordered_dither_sky_background" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ordered_dither_sky_background_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "ordered_dither_terrain_ambient" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ordered_dither_terrain_ambient_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sun_size" => {
@@ -3778,14 +3713,9 @@ impl GuiAdjustables {
             footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
             tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
             audio_ray_tracing_quality_percent: audio_ray_tracing_quality_percent_field.expect("Missing parameter: audio_ray_tracing_quality_percent"),
-            ordered_dither_pattern: ordered_dither_pattern_field.expect("Missing parameter: ordered_dither_pattern"),
+            ordered_dither_global: ordered_dither_global_field.expect("Missing parameter: ordered_dither_global"),
             ordered_dither_levels: ordered_dither_levels_field.expect("Missing parameter: ordered_dither_levels"),
             ordered_dither_strength: ordered_dither_strength_field.expect("Missing parameter: ordered_dither_strength"),
-            ordered_dither_global: ordered_dither_global_field.expect("Missing parameter: ordered_dither_global"),
-            ordered_dither_god_rays: ordered_dither_god_rays_field.expect("Missing parameter: ordered_dither_god_rays"),
-            ordered_dither_lens_flare: ordered_dither_lens_flare_field.expect("Missing parameter: ordered_dither_lens_flare"),
-            ordered_dither_sky_background: ordered_dither_sky_background_field.expect("Missing parameter: ordered_dither_sky_background"),
-            ordered_dither_terrain_ambient: ordered_dither_terrain_ambient_field.expect("Missing parameter: ordered_dither_terrain_ambient"),
             sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
             sun_luminance: sun_luminance_field.expect("Missing parameter: sun_luminance"),
@@ -4197,7 +4127,6 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
-        "ordered_dither_pattern" => Some(&adjustables.ordered_dither_pattern),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
         _ => None,
     }
@@ -4226,10 +4155,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&adjustables.flora_inertial_response),
         "ordered_dither_global" => Some(&adjustables.ordered_dither_global),
-        "ordered_dither_god_rays" => Some(&adjustables.ordered_dither_god_rays),
-        "ordered_dither_lens_flare" => Some(&adjustables.ordered_dither_lens_flare),
-        "ordered_dither_sky_background" => Some(&adjustables.ordered_dither_sky_background),
-        "ordered_dither_terrain_ambient" => Some(&adjustables.ordered_dither_terrain_ambient),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_refraction_enabled" => Some(&adjustables.glass_refraction_enabled),
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
@@ -4495,7 +4420,6 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
-        "ordered_dither_pattern" => Some(&mut adjustables.ordered_dither_pattern),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
         _ => None,
     }
@@ -4524,10 +4448,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&mut adjustables.flora_inertial_response),
         "ordered_dither_global" => Some(&mut adjustables.ordered_dither_global),
-        "ordered_dither_god_rays" => Some(&mut adjustables.ordered_dither_god_rays),
-        "ordered_dither_lens_flare" => Some(&mut adjustables.ordered_dither_lens_flare),
-        "ordered_dither_sky_background" => Some(&mut adjustables.ordered_dither_sky_background),
-        "ordered_dither_terrain_ambient" => Some(&mut adjustables.ordered_dither_terrain_ambient),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_refraction_enabled" => Some(&mut adjustables.glass_refraction_enabled),
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),

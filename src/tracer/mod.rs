@@ -787,20 +787,12 @@ mod glass_voxel_cache_contract_tests {
             "original camera effects on visible Glass must be owned by the canonical cell color"
         );
         assert!(
-            pixel_resolve.contains("else if (!resolvedGlassCell || orderedGlassCameraEffects())\n        resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);"),
-            "original resolve must retain cached effects; only active screen-pattern A/B may move camera effects to the final scene cell"
+            pixel_resolve.contains("else if (!resolvedGlassCell)\n        resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);"),
+            "resolved Glass must retain camera effects owned by the canonical cell"
         );
-        assert!(cell_shading.contains("canonicalClip.w > 0.0 && !orderedGlassCameraEffects()"));
-        let camera_guard = shader
-            .split_once("bool orderedGlassCameraEffects()")
-            .unwrap()
-            .1
-            .split_once("float3 applyGlassCameraEffects")
-            .unwrap()
-            .0;
-        assert_eq!(camera_guard.matches("orderedDitherEnabled(").count(), 2);
-        assert!(camera_guard.contains("ORDERED_LENS_FLARE"));
-        assert!(camera_guard.contains("ORDERED_GOD_RAYS"));
+        assert!(cell_shading.contains("if (canonicalClip.w > 0.0)"));
+        assert!(!shader.contains("orderedDither"));
+        assert!(!shader.contains("orderedGlassCameraEffects"));
         assert!(
             !pixel_resolve.contains("lerp("),
             "Glass pixel resolve must not blend the opaque pixel back over the cell color"
@@ -3163,7 +3155,6 @@ impl Tracer {
             &materials,
             &vegetation,
             &environment,
-            &self.scene_resolution,
         )?;
 
         BufferUpdater::update_flora_growth_info(

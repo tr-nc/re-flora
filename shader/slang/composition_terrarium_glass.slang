@@ -63,7 +63,7 @@ float3 sampleSceneColor(
     return combineSceneColors(rasterDepth, computeDepth, rasterColor,
                               terrainColor, clampedUv,
                               inputs.sun, inputs.camera, inputs.starlight,
-                              sunSprite, inputs.gui);
+                              sunSprite);
 }
 
 float4 sampleRasterColorBilinear(Sampler2D rasterOutput,

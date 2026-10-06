@@ -1724,17 +1724,15 @@ mod tests {
         assert!(!tracer.contains("sampleDdgiUnpublished"));
         assert!(tracer.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
         assert!(tracer.contains("environmentCaptureIrradiance, terrainHit"));
-        assert!(
-            tracer.contains("float3 styledEnvironment = orderedDitherColor(environmentIrradiance,")
-        );
-        assert!(tracer.contains("color = styledEnvironment * albedo"));
-        // The optional presentation quantizer cannot change physical evidence.
+        assert!(tracer.contains("color = environmentIrradiance * albedo"));
+        assert!(!tracer.contains("orderedDither"));
+        // Global post-processing never changes the physical capture.
         assert!(
             tracer
                 .rfind("environmentCaptureIrradiance = environmentIrradiance")
                 .unwrap()
                 < tracer
-                    .find("float3 styledEnvironment = orderedDitherColor")
+                    .find("color = environmentIrradiance * albedo")
                     .unwrap()
         );
         assert!(!tracer.contains("environmentCaptureIrradiance = styledEnvironment"));

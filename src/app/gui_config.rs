@@ -845,7 +845,7 @@ fn render_section_controls(
         return;
     }
     if section.name == "Ordered Dithering" {
-        ui_text::hint(ui, "Unchecked or Strength 0: original. Global covers all scene paths after tone mapping, never HUD or Debug UI, and overrides local dither to avoid double quantization. Local effects use the final scene cell grid. Skylight / ambient affects normal hybrid terrain receivers (sky + bounced DDGI), not the sky background or vegetation/model lighting. Sky background is separate. Screen-fixed patterns may swim during motion; this candidate is not visually approved.");
+        ui_text::hint(ui, "Unchecked or Strength 0: original. Fixed Bayer 4x4 covers the complete scene once after tone mapping and pixel color resolve, never HUD or Debug UI. Brightness levels and Strength are saved even when disabled. The pattern follows final scene cells; screen-fixed patterns may swim during motion.");
     }
     if section.name == "Sky" {
         ui_text::section(ui, "Scene lighting");
@@ -1073,15 +1073,10 @@ mod search_tests {
 
     #[test]
     fn ordered_dither_ab_is_searchable_clickable_and_saved() {
-        for query in [
-            "global scene dither",
-            "god rays dither",
-            "camera lens flare dither",
-            "sky background dither",
-            "skylight ambient terrain dither",
-        ] {
+        for query in ["global scene dither", "bayer dither"] {
             let mut settings = DebugSettings::load();
             settings.search.query = query.to_owned();
+            let before = settings.adjustables.ordered_dither_global.value;
             let context = egui::Context::default();
             let label = settings
                 .config
@@ -1137,7 +1132,7 @@ mod search_tests {
                 .flat_map(|s| &s.param)
                 .find(|p| p.label == label)
                 .unwrap();
-            assert_eq!(param.value.get_bool(), Some(true));
+            assert_eq!(param.value.get_bool(), Some(!before));
             assert!(reloaded.search.query.is_empty());
         }
         let config = GuiConfigLoader::load();
@@ -1146,7 +1141,15 @@ mod search_tests {
             .iter()
             .find(|s| s.name == "Ordered Dithering")
             .unwrap();
-        assert_eq!(section.param.len(), 8);
+        assert_eq!(section.param.len(), 3);
+        assert_eq!(
+            section
+                .param
+                .iter()
+                .filter(|p| p.value.get_bool().is_some())
+                .count(),
+            1
+        );
         for p in &section.param {
             assert!(search_matches_param(
                 &SearchFilter::new("ordered dithering"),

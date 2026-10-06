@@ -5,7 +5,6 @@ import environment_lighting;
 import local_lighting;
 import marching_result;
 import noise_tex;
-import ordered_dither;
 import packer;
 import ray;
 import scene_query;
@@ -676,12 +675,7 @@ void getPixelColor(out float3 color, out float depth,
     }
     // Show the latest physical estimate even while an edit is awaiting a newer
     // publication. Incomplete convergence must not introduce a fixed-color patch.
-    // Presentation only: never alter the capture, authored sky, DDGI field or
-    // path-tracing/diagnostic oracle. This receiver includes sky + bounced light.
-    float3 styledEnvironment = orderedDitherColor(environmentIrradiance,
-        orderedSceneCell(screenUv, gui_input.ordered_pixel_extent), gui_input.ordered_dither,
-        gui_input.ordered_dither_strength, ORDERED_TERRAIN_AMBIENT);
-    color = styledEnvironment * albedo;
+    color = environmentIrradiance * albedo;
     color += directLight;
     color += voxelSurfaceEmission(voxel_colors, result.voxel_type);
     color = applyTerrainEditPreviewTint(terrain_edit_preview, color,

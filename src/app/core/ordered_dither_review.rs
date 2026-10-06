@@ -41,8 +41,8 @@ impl OrderedDitherReview {
             log::info!("[ORDERED_DITHER_REVIEW] complete phases={total} saved=false");
             return Ok(true);
         }
-        let (name, flags, pattern, strength) = if self.grid {
-            ("grid", 31, (self.phase % 2) as u32, 1.0)
+        let (name, enabled, strength) = if self.grid {
+            ("grid", true, 1.0)
         } else {
             CASES[self.phase]
         };
@@ -62,12 +62,7 @@ impl OrderedDitherReview {
             );
         }
         let gui = &mut app.debug_settings.adjustables;
-        gui.ordered_dither_global.value = flags & 1 != 0;
-        gui.ordered_dither_god_rays.value = flags & 2 != 0;
-        gui.ordered_dither_lens_flare.value = flags & 4 != 0;
-        gui.ordered_dither_sky_background.value = flags & 8 != 0;
-        gui.ordered_dither_terrain_ambient.value = flags & 16 != 0;
-        gui.ordered_dither_pattern.value = pattern;
+        gui.ordered_dither_global.value = enabled;
         gui.ordered_dither_strength.value = strength;
         gui.ordered_dither_levels.value = 8;
         gui.scene_pixel_ratio.value = if self.grid {
@@ -94,7 +89,7 @@ impl OrderedDitherReview {
         let image = self.output.join(filename);
         if self.frame == 0 {
             std::fs::create_dir_all(&self.output)?;
-            log::info!("[ORDERED_DITHER_REVIEW] phase={} case={name} app_frame={} flags={flags} pattern={pattern} levels=8 strength={strength} ratio={} density={} resolve={} saved=false",
+            log::info!("[ORDERED_DITHER_REVIEW] phase={} case={name} app_frame={} enabled={enabled} pattern=bayer4 levels=8 strength={strength} ratio={} density={} resolve={} saved=false",
                 self.phase, app.time_info.total_frame_count(), gui.scene_pixel_ratio.value,
                 gui.scene_supersampling_quality.value, gui.scene_pixel_resolve_mode.value);
             if self.grid && self.phase == 8 {
@@ -134,18 +129,11 @@ impl OrderedDitherReview {
 }
 
 // A return-to-original case demonstrates an in-process A/B, not separate builds.
-const CASES: &[(&str, u32, u32, f32)] = &[
-    ("original", 0, 0, 1.0),
-    ("global-bayer", 1, 0, 1.0),
-    ("global-halftone", 1, 1, 1.0),
-    ("god-rays", 2, 0, 1.0),
-    ("lens-flare", 4, 0, 1.0),
-    ("terrain-ambient", 16, 0, 1.0),
-    ("sky-background", 8, 0, 1.0),
-    ("local-combined", 30, 0, 1.0),
-    ("global-overrides-local", 31, 0, 1.0),
-    ("zero-strength", 31, 0, 0.0),
-    ("original-return", 0, 0, 1.0),
+const CASES: &[(&str, bool, f32)] = &[
+    ("original", false, 1.0),
+    ("global-bayer", true, 1.0),
+    ("zero-strength", true, 0.0),
+    ("original-return", false, 1.0),
 ];
 
 impl App {

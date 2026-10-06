@@ -33,9 +33,6 @@ public struct U_GuiInput
     public float glass_glint_strength;
     public float lens_flare_intensity;
     public float lens_flare_sun_pixel_scale;
-    public uint4 ordered_dither; // flags, pattern, brightness levels, samples per axis
-    public float ordered_dither_strength;
-    public uint2 ordered_pixel_extent; // final coarse scene grid, including cropped edges
     public float world_tick_seconds;
     public float grass_vibration_amplitude_voxels;
     public float grass_vibration_primary_speed;

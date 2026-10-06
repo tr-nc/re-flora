@@ -135,7 +135,8 @@ impl BufferUpdater {
                 pixel_stride,
                 resolve_mode,
                 dither_strength_lsb: dither_strength_lsb.max(0.0),
-                ordered_dither: ordered_dither.options(samples_per_axis),
+                ordered_dither_enabled: ordered_dither.enabled(),
+                ordered_dither_levels: ordered_dither.levels(),
                 ordered_dither_strength: ordered_dither.strength(),
                 ..PostProcessingInfo::zeroed()
             })
@@ -286,7 +287,6 @@ impl BufferUpdater {
         materials: &MaterialFrameInput,
         vegetation: &VegetationFrameInput,
         environment: &EnvironmentFrameInput,
-        scene: &super::scene_resolution::SceneResolution,
     ) -> Result<()> {
         let appearance = vegetation.appearance;
         let motion = vegetation.motion;
@@ -336,9 +336,7 @@ impl BufferUpdater {
             glass_glint_strength: materials.glass.glint_strength,
             lens_flare_intensity: environment.lens_flare_intensity,
             lens_flare_sun_pixel_scale: environment.lens_flare_sun_pixel_scale,
-            ordered_dither: environment.ordered_dither.options(scene.samples_per_axis),
-            ordered_dither_strength: environment.ordered_dither.strength(),
-            ordered_pixel_extent: [scene.pixel_extent.width, scene.pixel_extent.height],
+
             world_tick_seconds: motion.world_tick_seconds,
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,

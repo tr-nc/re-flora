@@ -915,18 +915,16 @@ mod tests {
         assert!(terrain.contains("consumerResult = sampleDdgiTerrainSmoothEnvironment("));
         assert!(terrain.contains("environmentIrradiance = consumerResult.irradiance"));
         assert!(terrain.contains("environmentCaptureIrradiance = consumerResult.irradiance"));
-        // The presentation-only A/B derives from the newest physical estimate,
-        // never a brush-local constant or a second sampled field. The shared
-        // quantizer returns this input untouched when unchecked/strength zero.
-        assert!(terrain
-            .contains("float3 styledEnvironment = orderedDitherColor(environmentIrradiance,"));
-        assert!(terrain.contains("color = styledEnvironment * albedo"));
+        // Terrain shading and physical capture consume the same estimate.
+        // Artistic Bayer quantization belongs only to final post-processing.
+        assert!(terrain.contains("color = environmentIrradiance * albedo"));
+        assert!(!terrain.contains("orderedDither"));
         assert!(
             terrain
                 .rfind("environmentCaptureIrradiance = environmentIrradiance")
                 .unwrap()
                 < terrain
-                    .find("float3 styledEnvironment = orderedDitherColor")
+                    .find("color = environmentIrradiance * albedo")
                     .unwrap()
         );
         assert!(

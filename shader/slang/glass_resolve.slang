@@ -1,6 +1,5 @@
 import color;
 import composition_camera_effects;
-import ordered_dither;
 import composition_sky;
 import composition_types;
 import contree_node;
@@ -1171,22 +1170,12 @@ float3 screenValidityDebugColor(uint reason)
     return float3(1.0, 0.25, 0.05);
 }
 
-bool orderedGlassCameraEffects()
-{
-    return orderedDitherEnabled(gui_input.ordered_dither, gui_input.ordered_dither_strength, ORDERED_LENS_FLARE) ||
-        orderedDitherEnabled(gui_input.ordered_dither, gui_input.ordered_dither_strength, ORDERED_GOD_RAYS);
-}
-
 float3 applyGlassCameraEffects(float3 color, float2 screenUv)
 {
-    int2 cell = orderedSceneCell(screenUv, gui_input.ordered_pixel_extent);
-    color += orderedDitherColor(sampleLensFlare(screenUv, lens_flare_output_tex), cell,
-        gui_input.ordered_dither, gui_input.ordered_dither_strength, ORDERED_LENS_FLARE);
+    color += sampleLensFlare(screenUv, lens_flare_output_tex);
     float sunVisibility = sunLuminanceFromDirection(sun_info.sun_dir, 1.0);
     float godRayWeight = sampleGodRay(screenUv, god_ray_output_tex) *
                          god_ray_info.weight * sunVisibility;
-    godRayWeight = orderedDitherScalar(godRayWeight, cell, gui_input.ordered_dither,
-        gui_input.ordered_dither_strength, ORDERED_GOD_RAYS);
     float3 godRayColor = srgbToLinear(god_ray_info.color);
     return lerp(color, godRayColor, godRayWeight);
 }
@@ -1254,10 +1243,7 @@ GlassResolveResult traceGlassVoxelCellRadiance(
     // covered pixel's UV would reintroduce per-pixel variation after the voxel cache resolve.
     float4 canonicalClip = mul(
         camera_info.view_proj_mat, float4(faceCenter, 1.0));
-    // Preserve the original canonical-cell path when the A/B is off. An active
-    // screen pattern must instead be applied at the actual final scene cell in
-    // resolveGlassVoxelPixel, not baked at a voxel's projected center.
-    if (canonicalClip.w > 0.0 && !orderedGlassCameraEffects())
+    if (canonicalClip.w > 0.0)
     {
         float2 canonicalScreenUv = canonicalClip.xy / canonicalClip.w * 0.5 + 0.5;
         result.radiance = applyGlassCameraEffects(result.radiance, canonicalScreenUv);
@@ -1351,7 +1337,7 @@ void resolveGlassVoxelPixel(uint2 pixel, uint2 extent,
         resolvedColor = provenanceDebugColor(provenance);
     else if (shading_info.glass_debug_view == 3u)
         resolvedColor = screenValidityDebugColor(reason);
-    else if (!resolvedGlassCell || orderedGlassCameraEffects())
+    else if (!resolvedGlassCell)
         resolvedColor = applyGlassCameraEffects(resolvedColor, screenUv);
     glass_debug_tex[coordinate] = diagnostics;
     composited_tex[coordinate] = float4(resolvedColor, 1.0);

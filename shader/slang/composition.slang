@@ -1,5 +1,4 @@
 import color;
-import ordered_dither;
 import composition_camera_effects;
 import composition_scene;
 import composition_terrarium_glass;
@@ -68,7 +67,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 finalColor = combineSceneColors(
         rasterDepth, computeDepth, rasterColor, terrainColor, screenUv,
         sun_info, camera_info, starlight_info,
-        sun_sprite_tex, gui_input);
+        sun_sprite_tex);
 
 #if RE_FLORA_GLASS_TRANSPORT
     {
@@ -96,16 +95,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 #endif
 
-    int2 ditherCell = orderedSceneCell(screenUv, gui_input.ordered_pixel_extent);
-    float3 flare = sampleLensFlare(screenUv, lens_flare_output_tex);
-    finalColor += orderedDitherColor(flare, ditherCell, gui_input.ordered_dither,
-        gui_input.ordered_dither_strength, ORDERED_LENS_FLARE);
+    finalColor += sampleLensFlare(screenUv, lens_flare_output_tex);
 
     float sunVisibility = sunLuminanceFromDirection(sun_info.sun_dir, 1.0);
     float godRayWeight = sampleGodRay(screenUv, god_ray_output_tex) * god_ray_info.weight;
     godRayWeight *= sunVisibility;
-    godRayWeight = orderedDitherScalar(godRayWeight, ditherCell, gui_input.ordered_dither,
-        gui_input.ordered_dither_strength, ORDERED_GOD_RAYS);
     float3 godRayColor = srgbToLinear(god_ray_info.color);
     finalColor = lerp(finalColor, godRayColor, godRayWeight);
 

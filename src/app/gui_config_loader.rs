@@ -75,7 +75,7 @@ impl GuiConfigLoader {
         });
 
         Self::retire_dither_setting(&mut config);
-        Self::add_missing_section_params(&mut config, "Ordered Dithering");
+        Self::simplify_ordered_dither_settings(&mut config);
         Self::retire_cloud_settings(&mut config);
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -513,6 +513,43 @@ impl GuiConfigLoader {
         config
             .section
             .retain(|s| s.name != "Post Processing" || !s.param.is_empty());
+    }
+
+    fn simplify_ordered_dither_settings(config: &mut GuiConfigFile) {
+        // Accept retired preferences on input, without displaying, uploading
+        // or writing them back. Never promote local flags to the global flag.
+        for section in &mut config.section {
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "ordered_dither_pattern"
+                        | "ordered_dither_god_rays"
+                        | "ordered_dither_lens_flare"
+                        | "ordered_dither_sky_background"
+                        | "ordered_dither_terrain_ambient"
+                )
+            });
+        }
+        Self::add_missing_section_params(config, "Ordered Dithering");
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        for schema in &defaults
+            .section
+            .iter()
+            .find(|s| s.name == "Ordered Dithering")
+            .unwrap()
+            .param
+        {
+            for param in config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .filter(|p| p.id == schema.id)
+            {
+                param.label.clone_from(&schema.label);
+                param.enabled_if.clone_from(&schema.enabled_if);
+            }
+        }
     }
 
     fn retire_cloud_settings(config: &mut GuiConfigFile) {
@@ -2820,41 +2857,124 @@ mod tests {
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
         original.section.retain(|s| s.name != "Ordered Dithering");
         let before = toml::to_string(&original).unwrap();
-        GuiConfigLoader::add_missing_section_params(&mut original, "Ordered Dithering");
+        GuiConfigLoader::simplify_ordered_dither_settings(&mut original);
         let ordered = original
             .section
             .iter_mut()
             .find(|s| s.name == "Ordered Dithering")
             .unwrap();
-        assert_eq!(ordered.param.len(), 8);
-        for p in &ordered.param {
-            if matches!(p.kind, GuiParamKind::Bool) {
-                assert_eq!(p.value.get_bool(), Some(false));
-            }
-        }
+        assert_eq!(ordered.param.len(), 3);
+        assert_eq!(
+            ordered
+                .param
+                .iter()
+                .filter(|p| matches!(p.kind, GuiParamKind::Bool))
+                .count(),
+            1
+        );
         ordered.param.retain(|p| p.id == "ordered_dither_levels");
         if let GuiParamValue::Uint { value, .. } = &mut ordered.param[0].value {
             *value = 5;
         }
-        GuiConfigLoader::add_missing_section_params(&mut original, "Ordered Dithering");
-        assert_eq!(
-            original
-                .section
-                .iter()
-                .find(|s| s.name == "Ordered Dithering")
-                .unwrap()
-                .param[0]
-                .value
-                .get_uint()
-                .unwrap()
-                .0,
-            5
-        );
+        GuiConfigLoader::simplify_ordered_dither_settings(&mut original);
+        let ordered = original
+            .section
+            .iter()
+            .find(|s| s.name == "Ordered Dithering")
+            .unwrap();
+        assert_eq!(ordered.param[0].value.get_uint().unwrap().0, 5);
         let once = toml::to_string(&original).unwrap();
-        GuiConfigLoader::add_missing_section_params(&mut original, "Ordered Dithering");
+        GuiConfigLoader::simplify_ordered_dither_settings(&mut original);
         assert_eq!(once, toml::to_string(&original).unwrap());
         original.section.retain(|s| s.name != "Ordered Dithering");
         assert_eq!(before, toml::to_string(&original).unwrap());
+    }
+
+    #[test]
+    fn retired_dither_flags_and_pattern_are_dropped_without_changing_global_or_saved_files() {
+        use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
+        for enabled in [false, true] {
+            let mut legacy: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let section = legacy
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Ordered Dithering")
+                .unwrap();
+            let global = section
+                .param
+                .iter_mut()
+                .find(|p| p.id == "ordered_dither_global")
+                .unwrap();
+            global.value = GuiParamValue::Bool { value: enabled };
+            global.label = "Global scene dither (A/B)".into();
+            let mut retired = global.clone();
+            retired.value = GuiParamValue::Bool { value: true };
+            for id in [
+                "ordered_dither_god_rays",
+                "ordered_dither_lens_flare",
+                "ordered_dither_sky_background",
+                "ordered_dither_terrain_ambient",
+            ] {
+                retired.id = id.into();
+                section.param.push(retired.clone());
+            }
+            retired.id = "ordered_dither_pattern".into();
+            retired.kind = GuiParamKind::Choice;
+            retired.value = GuiParamValue::Choice {
+                value: 1,
+                options: vec!["Bayer".into(), "Halftone".into()],
+            };
+            section.param.push(retired);
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("gui.toml");
+            let original = toml::to_string(&legacy).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let migrated = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            let section = migrated
+                .section
+                .iter()
+                .find(|s| s.name == "Ordered Dithering")
+                .unwrap();
+            assert_eq!(section.param.len(), 3);
+            let global = section
+                .param
+                .iter()
+                .find(|p| p.id == "ordered_dither_global")
+                .unwrap();
+            assert_eq!(global.value.get_bool(), Some(enabled));
+            assert!(global.label.contains("Bayer 4x4"));
+            for param in &section.param {
+                if param.id != "ordered_dither_global" {
+                    assert_eq!(
+                        param.enabled_if.as_ref().unwrap().param,
+                        "ordered_dither_global"
+                    );
+                    let old = legacy
+                        .section
+                        .iter()
+                        .flat_map(|s| &s.param)
+                        .find(|p| p.id == param.id)
+                        .unwrap();
+                    assert_eq!(
+                        toml::Value::try_from(&param.value).unwrap(),
+                        toml::Value::try_from(&old.value).unwrap()
+                    );
+                }
+            }
+            GuiConfigLoader::save_to_path(&migrated, &path).unwrap();
+            let saved = std::fs::read_to_string(&path).unwrap();
+            for id in [
+                "ordered_dither_pattern",
+                "ordered_dither_god_rays",
+                "ordered_dither_lens_flare",
+                "ordered_dither_sky_background",
+                "ordered_dither_terrain_ambient",
+            ] {
+                assert!(!saved.contains(id));
+            }
+        }
     }
 
     #[test]

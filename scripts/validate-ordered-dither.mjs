@@ -54,7 +54,7 @@ try {
     assert.equal(bytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
     return { file, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
   });
-  assert.equal(images.length, sequence ? (mode === 'grid' ? 16 : 11) : mode === 'gui' ? 1 : 0);
+  assert.equal(images.length, sequence ? (mode === 'grid' ? 16 : 4) : mode === 'gui' ? 1 : 0);
   if (mode === 'grid') {
     assert.ok(images.some(p => p.width === 1023 && p.height === 767), 'Odd/partial block screenshot missing');
     const plans = [...log.matchAll(/\[SCENE_PIXELS\].*ratio=(\d+):1.*samples_per_axis=(\d+).*filter=(\S+)/g)];
