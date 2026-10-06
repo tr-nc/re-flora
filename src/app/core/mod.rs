@@ -30,6 +30,7 @@ mod input;
 pub(in crate::app) mod launch_owners;
 mod lifecycle;
 mod lighting_mode_acceptance;
+mod material_supply;
 mod model_cache_review;
 mod model_view_review;
 mod mower;
@@ -2571,8 +2572,9 @@ impl App {
                 let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
                     self.player_tools.selected_item_panel_display_slot();
-                let rooftop_material = self.rooftop_scene.as_ref().map(|s| s.material);
-                let voxel_entries = if rooftop_material.is_some() {
+                let infinite_materials = self.infinite_materials_enabled();
+                let edit_material = self.selected_edit_material();
+                let voxel_entries = if infinite_materials {
                     voxel_backpack::BackpackVoxel::ALL
                         .into_iter()
                         .map(|voxel| voxel_backpack::VoxelBackpackEntry { voxel, count: 0 })
@@ -2590,8 +2592,8 @@ impl App {
                             label: voxel.label(),
                             count: entry.count,
                             color: Color32::from_rgb(red, green, blue),
-                            selected: rooftop_material == Some(voxel),
-                            unlimited: rooftop_material.is_some(),
+                            selected: infinite_materials && edit_material == voxel,
+                            unlimited: infinite_materials,
                         }
                     })
                     .collect();
@@ -2615,7 +2617,7 @@ impl App {
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
                 let mut clicked_flora_paint_selection_index = None;
-                let mut clicked_rooftop_material = None;
+                let mut clicked_edit_material = None;
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
                 let mut environment_probe_visualization =
@@ -2909,7 +2911,7 @@ impl App {
                             },
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
-                                label: if rooftop_material.is_some() { "Edit" } else { "Dig" },
+                                label: if infinite_materials { "Edit" } else { "Dig" },
                                 key_hint: "3",
                                 category: Some("TOOLS"),
                                 icon: item_panel_shovel_icon.as_ref(),
@@ -3030,9 +3032,9 @@ impl App {
                         let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Staff {
                             Default::default()
                         } else {
-                            draw_voxel_palette(ctx, &voxel_palette_entries, rooftop_material.is_some() && self.window_state.is_cursor_visible())
+                            draw_voxel_palette(ctx, &voxel_palette_entries, infinite_materials && self.window_state.is_cursor_visible())
                         };
-                        clicked_rooftop_material = voxel_palette_response.clicked_voxel;
+                        clicked_edit_material = voxel_palette_response.clicked_voxel;
                         self.player_tools.backpack_summary_panel_screen_pos =
                             voxel_palette_response
                                 .panel_center
@@ -3148,10 +3150,8 @@ impl App {
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
                 }
-                if let (Some(material), Some(scene)) =
-                    (clicked_rooftop_material, self.rooftop_scene.as_mut())
-                {
-                    scene.material = material;
+                if let Some(material) = clicked_edit_material {
+                    self.select_edit_material(material);
                 }
                 if let Some(selection_idx) = clicked_flora_paint_selection_index {
                     self.select_flora_paint_selection_index(selection_idx);

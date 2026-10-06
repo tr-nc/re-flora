@@ -407,6 +407,10 @@ impl App {
             .unwrap_or_else(|err| {
                 panic!("environment-lighting test scene startup publication failed: {err:#}")
             });
+        if std::env::var_os("RE_FLORA_MATERIAL_SUPPLY_VALIDATE").is_some() {
+            self.validate_material_supply()
+                .unwrap_or_else(|err| panic!("[MATERIAL_SUPPLY] validation failed: {err:#}"));
+        }
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
     }

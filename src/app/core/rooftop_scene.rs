@@ -436,7 +436,7 @@ impl App {
             self.debug_settings.adjustables.rooftop_voxel_scene.value = true;
         }
         self.sync_rooftop_voxel_mode()?;
-        log::info!("[ROOFTOP] ready initial_soil=0 fixed_model_triangles={} unlimited=true persistence=disabled soil_bounds={:?}..{:?} lighting=stepped_sun_sky pixelization=existing_nearest_postprocess", mesh.indices.len() / 3, SOIL_MIN, SOIL_MAX);
+        log::info!("[ROOFTOP] ready initial_soil=0 fixed_model_triangles={} unlimited={} persistence=disabled soil_bounds={:?}..{:?} lighting=stepped_sun_sky pixelization=existing_nearest_postprocess", mesh.indices.len() / 3, self.infinite_materials_enabled(), SOIL_MIN, SOIL_MAX);
         if std::env::var_os("RE_FLORA_ROOFTOP_VALIDATE").is_some() {
             self.validate_rooftop_edits()?;
         }

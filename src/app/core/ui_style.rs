@@ -823,7 +823,7 @@ fn draw_tool_panel_slot(
     let response = if slot.index == MOWER_SLOT_INDEX && slot.label == "Mower" {
         response.on_hover_text("Mower [L]\nEdit/cursor mode only (after camera transitions finish).\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
     } else if slot.index == SOIL_DEPOSITION_SLOT_INDEX && slot.label == "Soil" {
-        response.on_hover_text("Soil [B]\nHold LMB: gradually cover and build up soil.\nMouse wheel: spread radius, not soil volume.\nUses collected Dirt; the rooftop proof supplies unlimited soil.\nAdds new soil without fertilizing or replacing existing ground.")
+        response.on_hover_text("Soil [B]\nHold LMB: gradually cover and build up soil.\nMouse wheel: spread radius, not soil volume.\nUses Dirt; Infinite Materials bypasses inventory without changing it.\nAdds new soil without fertilizing or replacing existing ground.")
     } else {
         response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint))
     };
@@ -1037,7 +1037,7 @@ pub(crate) fn draw_voxel_palette(
                         );
                         ui.label(
                             egui::RichText::new(if entries.iter().any(|e| e.unlimited) {
-                                "developer PoC · choose Edit material"
+                                "choose Edit material · Soil always uses Dirt"
                             } else {
                                 "status only · no material filter"
                             })

@@ -154,6 +154,18 @@ impl VoxelBackpack {
         *count = count.saturating_sub(amount);
     }
 
+    pub(super) fn placement_supply(
+        &self,
+        infinite: bool,
+        selected: BackpackVoxel,
+    ) -> Option<(BackpackVoxel, u32)> {
+        if infinite {
+            Some((selected, u32::MAX))
+        } else {
+            self.first_available()
+        }
+    }
+
     pub(super) fn first_available(&self) -> Option<(BackpackVoxel, u32)> {
         BackpackVoxel::ALL.into_iter().find_map(|voxel| {
             let count = self.count(voxel);
@@ -181,6 +193,31 @@ mod tests {
         backpack.withdraw(BackpackVoxel::Dirt, u32::MAX);
         backpack.withdraw(BackpackVoxel::Dirt, 1);
         assert_eq!(backpack.count(BackpackVoxel::Dirt), 0);
+    }
+
+    #[test]
+    fn infinite_supply_needs_no_inventory_and_toggle_preserves_real_counts() {
+        let mut backpack = VoxelBackpack::default();
+        assert_eq!(backpack.placement_supply(false, BackpackVoxel::Rock), None);
+        assert_eq!(
+            backpack.placement_supply(true, BackpackVoxel::Dirt),
+            Some((BackpackVoxel::Dirt, u32::MAX))
+        );
+        assert_eq!(
+            backpack.placement_supply(true, BackpackVoxel::Rock),
+            Some((BackpackVoxel::Rock, u32::MAX))
+        );
+        assert!(backpack.snapshot().iter().all(|e| e.count == 0));
+        backpack.deposit(BackpackVoxel::Dirt, 7);
+        assert_eq!(
+            backpack.placement_supply(true, BackpackVoxel::Rock),
+            Some((BackpackVoxel::Rock, u32::MAX))
+        );
+        assert_eq!(
+            backpack.placement_supply(false, BackpackVoxel::Rock),
+            Some((BackpackVoxel::Dirt, 7))
+        );
+        assert_eq!(backpack.count(BackpackVoxel::Dirt), 7);
     }
 
     #[test]

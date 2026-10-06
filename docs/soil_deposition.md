@@ -26,7 +26,9 @@ cargo run --release -- --rooftop-poc
 - **3** 切回原 Edit／Dig，可继续用原几何编辑方法比较或移除土。
 - Debug 的 **Soil Deposition** 集中放置三个可保存参数：出料量、土团半径、堆坡斜率。
 
-普通花园使用背包中收集的 Dirt，按实际写入量扣除；没有 Dirt 时不制造库存。屋顶 proof 沿用既有的不限材料测试规则，Soil 始终投放 Dirt，不改变 Edit 的材料选择。屋顶 proof 本身不保存地形。
+Debug → **Material Supply** → **Infinite Materials (Soil / Edit)** 是可保存的统一供应开关，本次按调试要求默认开启，普通花园和屋顶都适用。开启时空背包即可使用 Soil／Edit，铺土、放置、挖掘均不改动真实背包；右侧无限材料面板可以选择 Edit 材料，Soil 始终投放 Dirt。无限的是材料供应，不是出料速度或几何范围：正常支撑、工作区／世界边界、连通性处理仍然有效。
+
+关闭开关后恢复有限材料：Soil 使用收集的 Dirt，并按实际写入量扣除；Edit 沿用第一个有库存的材料，挖掘正常收集。没有 Dirt 时不会凭空铺土，也不会为背包制造假库存。屋顶 proof 本身仍不保存地形。
 
 本次没有自动启动可见游戏。
 
@@ -35,6 +37,7 @@ cargo run --release -- --rooftop-poc
 - `src/terrain_deposition.rs`：独立的有限体积规划与时间预算；不依赖玩家输入、购买或 FX。
 - `src/builder/plain/mod.rs::deposit_soil`：读取权威 atlas，在 CPU 规划沉积，裁剪实际改变范围，一次上传，再标记 solid-workgroup 数据过期。
 - `src/app/core/soil_deposition.rs`：工具、库存、可编辑范围及统一 Visible Terrain Publication 的连接。
+- `src/app/core/material_supply.rs`：统一供应开关与 Edit 材料选择，独立于场景几何和真实库存。
 - `src/app/core/player_tools.rs`：Soil 独立语义动作、按键与释放／切换时的路径和预算清理。
 - `config/gui.toml`：声明式保存参数；`src/app/generated/gui_adjustables_gen.rs` 由 `cargo check` 生成，没有手工修改。
 
@@ -77,7 +80,7 @@ exact_volume=true old_material_preserved=true floor_preserved=true
 height_uncapped=true publication=true production_lmb=true backpack_preserved=true
 ```
 
-屋顶支撑面为 y=216，笔刷半径约 7.68 体素；累计后的顶面达到 y=228，超过原笔刷纵向范围。原 Edit／Dig、模型／真实体素切换、Grow 与 capsule 验证也通过。该 fixture 验证的是不限材料屋顶；普通背包扣除路径没有独立 GPU 场景测试。
+屋顶支撑面为 y=216，笔刷半径约 7.68 体素；累计后的顶面达到 y=228，超过原笔刷纵向范围。原 Edit／Dig、模型／真实体素切换、Grow 与 capsule 验证也通过。该 fixture 验证的是不限材料屋顶；初次交付时尚未独立验证普通背包的 GPU 扣除路径，后续验证见下节。
 
 最终日志已检查，无 ERROR、panic 或 VUID，正常退出：
 
@@ -99,6 +102,29 @@ height_uncapped=true publication=true production_lmb=true backpack_preserved=tru
 - `older_saves_get_disabled_supersampling_and_saved_choices_survive_reload`：1 / 0。
 
 基线 checkout 已删除。最终修正后复跑了沉积和工具测试，不宣称全量测试全绿。
+
+### Infinite Materials 后续验证
+
+格式、`cargo check`、Release 构建通过；库存、沉积、工具、通用设置保存和 Debug 分组共 **37 个相关测试通过**。未重新宣称全量测试全绿，以上既有默认值基线问题未改动。
+
+普通隐藏启动、正常花园供应切换，以及屋顶既有 GPU／生产输入验证均正常退出，日志无 ERROR、panic 或 VUID。正常花园验证使用真实地形 atlas，显式诊断入口只在设置环境变量时运行：
+
+```bash
+env -u WAYLAND_DISPLAY RE_FLORA_MATERIAL_SUPPLY_VALIDATE=1 \
+  RUST_LOG='warn,re_flora::app::core::material_supply=info,re_flora::builder::plain=info,re_flora::run_summary=info,re_flora::run_log_binding=info' \
+  flock --close /tmp/re-flora-summer-gpu.lock \
+  cargo run --release -- --hidden --mute --auto-exit 0.5
+```
+
+从空背包开始：有限模式添加 0；无限模式添加 16 且库存不变；切回有限后仍为 0，不残留虚假库存；诊断专用 7 个 Dirt 的有限剂量请求 16、实际添加和扣除 7。测试结束恢复原开关值与空背包。该入口会修改本次诊断场景中的地形，不是正常启动动作或性能证据。
+
+日志：
+
+- `target/re-flora-logs/re-flora-20261007-013038.890-1913049.log`：普通隐藏启动。
+- `target/re-flora-logs/re-flora-20261007-013041.835-1913118.log`：`[MATERIAL_SUPPLY][CHECK] empty_finite=0 infinite_added=16 finite_added=7 toggle_back=true real_inventory_preserved=true shared_edit_supply=true normal_geometry_bounds=true`。
+- `target/re-flora-logs/re-flora-20261007-013219.764-1913386.log`：屋顶原 Edit／Dig、材料放置、A/B、capsule 与 Soil 生产 LMB 验证仍通过。
+
+没有自动启动可见游戏。普通花园保存／加载端到端验证与持续交互性能验收仍未完成。
 
 ## 当前限制与后续
 

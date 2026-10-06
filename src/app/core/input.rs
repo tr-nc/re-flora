@@ -1116,7 +1116,7 @@ impl App {
                         }
 
                         let material_mode = self.voxel_material_mode();
-                        if self.rooftop_scene.is_none() {
+                        if !self.infinite_materials_enabled() {
                             self.voxel_backpack
                                 .deposit_removed(&readback.stats, material_mode);
                         }
@@ -1373,13 +1373,12 @@ impl App {
         }
         let action = ContinuousTerrainToolAction::ShovelPlace;
 
-        // The unsaved proof selects a semantic material without manufacturing inventory.
-        // Normal garden placement retains its original first-stored-material behavior.
-        let available = self
-            .rooftop_scene
-            .as_ref()
-            .map(|s| (s.material, u32::MAX))
-            .or_else(|| self.voxel_backpack.first_available());
+        // Infinite supply selects a material without manufacturing inventory. When disabled,
+        // normal garden placement retains its first-stored-material behavior.
+        let available = self.voxel_backpack.placement_supply(
+            self.infinite_materials_enabled(),
+            self.selected_edit_material(),
+        );
         let Some((place_voxel, place_voxel_count)) = available else {
             self.player_tools.interrupt_stroke(action);
             self.stop_terrain_edit_loop_sound();
@@ -1413,7 +1412,7 @@ impl App {
                 if let Err(err) = self
                     .apply_surface_terrain_placement(edit, place_voxel_type_id, place_voxel_count)
                     .map(|readback| {
-                        if self.rooftop_scene.is_none() {
+                        if !self.infinite_materials_enabled() {
                             self.voxel_backpack.withdraw(
                                 place_voxel,
                                 readback.stats.count_added(place_voxel_type_id),

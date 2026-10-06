@@ -62,7 +62,8 @@ impl App {
         volume: u32,
         seed: u32,
     ) -> Result<DepositionResult> {
-        let unlimited = self.rooftop_scene.is_some();
+        let rooftop = self.rooftop_scene.is_some();
+        let unlimited = self.infinite_materials_enabled();
         let volume = if unlimited {
             volume
         } else {
@@ -86,7 +87,8 @@ impl App {
                 .value,
             seed,
         };
-        let (legal, floor) = if unlimited {
+        // Material supply must not change geometry bounds or manufacture a model floor.
+        let (legal, floor) = if rooftop {
             (
                 UAabb3::new(rooftop_scene::SOIL_MIN, rooftop_scene::SOIL_MAX),
                 Some(rooftop_scene::SOIL_MIN.y),
@@ -121,7 +123,7 @@ impl App {
                 },
                 true,
             ))?;
-            if !unlimited {
+            if !rooftop {
                 self.observe_player_terrain_publication_for_connectivity(bound);
             }
         }

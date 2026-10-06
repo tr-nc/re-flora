@@ -1375,6 +1375,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Material Supply",
+        id: "infinite_materials",
+        kind: "bool",
+        label: "Infinite Materials (Soil / Edit)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Soil Deposition",
         id: "soil_deposition_rate",
         kind: "float",
@@ -1783,6 +1789,7 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
+    pub infinite_materials: crate::gui_adjustables::BoolParam,
     pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
     pub soil_deposition_clump_radius: crate::gui_adjustables::UintParam,
     pub soil_deposition_repose_slope: crate::gui_adjustables::FloatParam,
@@ -2051,6 +2058,7 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut infinite_materials_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_deposition_clump_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_repose_slope_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3564,6 +3572,11 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "infinite_materials" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            infinite_materials_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "soil_deposition_rate" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -4001,6 +4014,7 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
+            infinite_materials: infinite_materials_field.expect("Missing parameter: infinite_materials"),
             soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
             soil_deposition_clump_radius: soil_deposition_clump_radius_field.expect("Missing parameter: soil_deposition_clump_radius"),
             soil_deposition_repose_slope: soil_deposition_repose_slope_field.expect("Missing parameter: soil_deposition_repose_slope"),
@@ -4310,6 +4324,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&adjustables.rooftop_voxel_scene),
+        "infinite_materials" => Some(&adjustables.infinite_materials),
         "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
     }
@@ -4612,6 +4627,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&mut adjustables.rooftop_voxel_scene),
+        "infinite_materials" => Some(&mut adjustables.infinite_materials),
         "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,
     }

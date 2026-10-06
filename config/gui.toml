@@ -2591,6 +2591,18 @@ type = "Color"
 value = "#7A7D80"
 
 [[section]]
+name = "Material Supply"
+
+[[section.param]]
+id = "infinite_materials"
+kind = "bool"
+label = "Infinite Materials (Soil / Edit)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section]]
 name = "Soil Deposition"
 
 [[section.param]]
