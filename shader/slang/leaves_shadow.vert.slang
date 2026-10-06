@@ -170,7 +170,7 @@ VertexOutput main(VertexInput input)
     float3 appleLocalPosition=float3(0.0);
     if(isApple){
         appleLocalPosition=applePreviewPosition(input.packed_data)*
-            (float(unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))/2.0);
+            (float(unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))/2.0)*gui_input.apple_size_scale;
         voxelLocalPosition=int3(floor(appleLocalPosition));
     }
     int3 leafVoxelLocalPosition = isTreeLeaf

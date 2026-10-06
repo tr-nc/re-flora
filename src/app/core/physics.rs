@@ -209,6 +209,7 @@ pub(super) struct TerrainPhysics {
     fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
     attached_fruit_refresh_trees: HashSet<u32>,
     fruit_cycle: f32,
+    apple_size_scale: f32,
     ground_trace: Option<FruitGroundTrace>,
 }
 
@@ -291,6 +292,7 @@ impl TerrainPhysics {
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
             fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
+            apple_size_scale: 1.0,
             ground_trace: FruitGroundTrace::from_env(),
         }
     }
@@ -366,11 +368,73 @@ impl TerrainPhysics {
             .map(|frame| (frame.position, frame.normal))
     }
 
+    pub(super) fn set_apple_size_scale(
+        &mut self,
+        requested: f32,
+        tracer: &mut Tracer,
+    ) -> anyhow::Result<()> {
+        let scale = crate::flora::apple::normalize_size_scale(requested);
+        if scale == self.apple_size_scale {
+            return Ok(());
+        }
+        let bodies: Vec<_> = self
+            .fruits_by_tree
+            .values()
+            .flat_map(BTreeMap::values)
+            .filter_map(|fruit| fruit.body)
+            .collect();
+        // A growing collider must not cross into unimported terrain. Until its
+        // new footprint is ready, retain the old fallen-fruit render/collision scale.
+        let missing: Vec<_> = bodies
+            .iter()
+            .filter(|_| scale > self.apple_size_scale)
+            .filter_map(|&body| self.collision_world.dynamic_body_state(body))
+            .flat_map(|state| {
+                fruit_drop_path_bricks(state.position.max(Vec3::ZERO).as_uvec3(), scale)
+            })
+            .filter(|brick| !self.imported_terrain_bricks.contains(brick))
+            .collect();
+        if !missing.is_empty() {
+            for brick in missing {
+                self.dirty_terrain_bricks.push(brick);
+            }
+            return Ok(());
+        }
+        let desc = scaled_apple_dynamic_body_desc(Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, scale);
+        for &body in &bodies {
+            self.collision_world.update_dynamic_body_collider(
+                body,
+                &desc.collider,
+                desc.contact_skin,
+            )?;
+        }
+        self.apple_size_scale = scale;
+        let mut needed = Vec::new();
+        for fruits in self.fruits_by_tree.values_mut() {
+            for fruit in fruits.values_mut() {
+                fruit.required_bricks = fruit_drop_path_bricks(fruit.spec.position_voxels, scale);
+                needed.extend_from_slice(&fruit.required_bricks);
+            }
+        }
+        for brick in needed {
+            if !self.imported_terrain_bricks.contains(&brick) {
+                self.dirty_terrain_bricks.push(brick);
+            }
+        }
+        log::info!(
+            "[APPLE_SIZE] scale={scale} live_bodies={} collider=scaled_convex_hull shadows=scaled",
+            bodies.len()
+        );
+        self.sync_dynamic_fruit_rendering(tracer)
+    }
+
     pub(super) fn advance_dynamic_bodies(
         &mut self,
         frame_delta_time: f32,
         tracer: &mut Tracer,
+        apple_size_scale: f32,
     ) -> anyhow::Result<()> {
+        self.set_apple_size_scale(apple_size_scale, tracer)?;
         if let Some(mut trace) = self.ground_trace.take() {
             trace.prepare(self, tracer)?;
             self.ground_trace = Some(trace);
@@ -422,7 +486,8 @@ impl TerrainPhysics {
         let mut previous = self.fruits_by_tree.remove(&tree_id).unwrap_or_default();
         let mut registered = BTreeMap::new();
         for spec in specs {
-            let required_bricks = fruit_drop_path_bricks(spec.position_voxels);
+            let required_bricks =
+                fruit_drop_path_bricks(spec.position_voxels, self.apple_size_scale);
             for &brick in &required_bricks {
                 if !self.imported_terrain_bricks.contains(&brick)
                     && !self.failed_terrain_bricks.contains(&brick)
@@ -664,21 +729,24 @@ impl TerrainPhysics {
         };
         for ((tree_id, fruit_id, spec), (offset, velocity)) in ready.into_iter().zip(poses) {
             let release_position = spec.position_voxels.as_vec3() + offset;
-            let missing: Vec<_> =
-                fruit_drop_path_bricks(release_position.max(Vec3::ZERO).as_uvec3())
-                    .into_iter()
-                    .filter(|brick| !self.imported_terrain_bricks.contains(brick))
-                    .collect();
+            let missing: Vec<_> = fruit_drop_path_bricks(
+                release_position.max(Vec3::ZERO).as_uvec3(),
+                self.apple_size_scale,
+            )
+            .into_iter()
+            .filter(|brick| !self.imported_terrain_bricks.contains(brick))
+            .collect();
             if !missing.is_empty() {
                 for brick in missing {
                     self.dirty_terrain_bricks.push(brick);
                 }
                 continue;
             }
-            let mut desc = apple_dynamic_body_desc(
+            let mut desc = scaled_apple_dynamic_body_desc(
                 release_position,
                 spec.linear_velocity_voxels + velocity,
                 spec.angular_velocity,
+                self.apple_size_scale,
             );
             let (rotation, angular_velocity) = tracer.attached_fruit_rotation(spec.position_voxels);
             desc.rotation = rotation;
@@ -717,7 +785,7 @@ impl TerrainPhysics {
                 instances.push(DynamicFruitRenderInstance::new(
                     state.position / VOXELS_PER_WORLD_UNIT,
                     state.rotation,
-                    1.0,
+                    self.apple_size_scale,
                 ));
             }
         }
@@ -1024,20 +1092,34 @@ fn apple_convex_points() -> Vec<Vec3> {
     convex_points_for_voxels(voxel_apple_offsets())
 }
 
+#[cfg(test)]
 fn apple_dynamic_body_desc(
     position: Vec3,
     linear_velocity: Vec3,
     angular_velocity: Vec3,
 ) -> DynamicBodyDesc {
-    let mut desc = DynamicBodyDesc::sphere(position, 2.0);
+    scaled_apple_dynamic_body_desc(position, linear_velocity, angular_velocity, 1.0)
+}
+
+fn scaled_apple_dynamic_body_desc(
+    position: Vec3,
+    linear_velocity: Vec3,
+    angular_velocity: Vec3,
+    scale: f32,
+) -> DynamicBodyDesc {
+    let scale = crate::flora::apple::normalize_size_scale(scale);
+    let mut desc = DynamicBodyDesc::sphere(position, 2.0 * scale);
     desc.collider = DynamicColliderShape::ConvexHull {
-        points: apple_convex_points(),
+        points: apple_convex_points()
+            .into_iter()
+            .map(|point| point * scale)
+            .collect(),
     };
     desc.linear_velocity = linear_velocity;
     desc.angular_velocity = angular_velocity;
     desc.friction = APPLE_FRICTION;
     desc.restitution = APPLE_RESTITUTION;
-    desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS;
+    desc.contact_skin = APPLE_CONTACT_SKIN_VOXELS * scale;
     desc.linear_damping = APPLE_LINEAR_DAMPING;
     desc.angular_damping = APPLE_ANGULAR_DAMPING;
     desc.ccd_enabled = true;
@@ -1061,8 +1143,19 @@ fn convex_points_for_voxels(voxels: Vec<IVec3>) -> Vec<Vec3> {
     corners.into_iter().map(IVec3::as_vec3).collect()
 }
 
-fn fruit_drop_path_bricks(position_voxels: UVec3) -> Vec<StaticVoxelBrickId> {
-    let fruit_radius_voxels = TREE_FRUIT_MAX_RADIUS_VOXELS as i32;
+fn fruit_drop_path_bricks(position_voxels: UVec3, scale: f32) -> Vec<StaticVoxelBrickId> {
+    // The convex hull includes voxel-cell corners; a nominal radius of two
+    // does not cover every rotated corner. Include contact skin as well.
+    static COLLISION_RADIUS: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let radius = COLLISION_RADIUS.get_or_init(|| {
+        apple_convex_points()
+            .iter()
+            .map(|p| p.length())
+            .fold(0., f32::max)
+    });
+    let fruit_radius_voxels = ((*radius + APPLE_CONTACT_SKIN_VOXELS)
+        * crate::flora::apple::normalize_size_scale(scale))
+    .ceil() as i32;
     let position = position_voxels.as_ivec3();
     let min = IVec3::new(
         position.x - fruit_radius_voxels,
@@ -1192,6 +1285,44 @@ mod tests {
     }
 
     #[test]
+    fn apple_size_scales_collision_and_contact_skin_without_changing_motion() {
+        let position = Vec3::new(65., 97., 65.);
+        let original = scaled_apple_dynamic_body_desc(position, Vec3::X, Vec3::Y, 1.);
+        let small = scaled_apple_dynamic_body_desc(position, Vec3::X, Vec3::Y, 0.5);
+        let DynamicColliderShape::ConvexHull {
+            points: original_points,
+        } = original.collider
+        else {
+            panic!("apple must use convex collision");
+        };
+        let DynamicColliderShape::ConvexHull {
+            points: small_points,
+        } = small.collider
+        else {
+            panic!("apple must use convex collision");
+        };
+        assert_eq!(
+            small_points,
+            original_points
+                .into_iter()
+                .map(|point| point * 0.5)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(small.contact_skin, original.contact_skin * 0.5);
+        assert_eq!(small.position, original.position);
+        assert_eq!(small.linear_velocity, original.linear_velocity);
+        assert_eq!(small.angular_velocity, original.angular_velocity);
+        let original_bricks: HashSet<_> = fruit_drop_path_bricks(UVec3::new(59, 97, 59), 1.)
+            .into_iter()
+            .collect();
+        let large_bricks: HashSet<_> = fruit_drop_path_bricks(UVec3::new(59, 97, 59), 2.)
+            .into_iter()
+            .collect();
+        assert!(large_bricks.is_superset(&original_bricks));
+        assert!(large_bricks.len() > original_bricks.len());
+    }
+
+    #[test]
     fn fruit_grows_through_discrete_voxel_radius_stages_then_detaches() {
         let fruit = fruit_spec();
         assert_eq!(fruit.attached_radius_voxels(0.54), None);
@@ -1312,7 +1443,7 @@ mod tests {
 
     #[test]
     fn fruit_drop_path_requests_every_vertical_collider_brick() {
-        let bricks = fruit_drop_path_bricks(UVec3::new(65, 97, 65));
+        let bricks = fruit_drop_path_bricks(UVec3::new(65, 97, 65), 1.0);
         for y in 0..=3 {
             assert!(bricks.contains(&StaticVoxelBrickId(IVec3::new(2, y, 2))));
         }

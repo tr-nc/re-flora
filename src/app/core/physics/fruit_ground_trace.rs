@@ -107,6 +107,8 @@ impl FruitGroundTrace {
                 "force": contacts.user_force.to_array(), "torque": contacts.user_torque.to_array(),
                 "render_position": instances[index].position.to_array(),
                 "render_rotation": instances[index].rotation.to_array(),
+                "apple_size_scale": physics.apple_size_scale,
+                "render_scale": instances[index].scale,
                 "dirty_bricks": physics.dirty_terrain_bricks.len(),
             });
             serde_json::to_writer(&mut self.output, &row)?;
@@ -114,8 +116,12 @@ impl FruitGroundTrace {
             if save_replay {
                 let mut bricks = Vec::new();
                 for id in terrain_brick_ids_for_voxel_aabb(
-                    (state.position - Vec3::splat(4.0)).floor().as_ivec3(),
-                    (state.position + Vec3::splat(4.0)).ceil().as_ivec3(),
+                    (state.position - Vec3::splat(4.0 * physics.apple_size_scale))
+                        .floor()
+                        .as_ivec3(),
+                    (state.position + Vec3::splat(4.0 * physics.apple_size_scale))
+                        .ceil()
+                        .as_ivec3(),
                 ) {
                     if let Some(occupancy) =
                         physics.collision_world.static_voxel_brick_occupancy(id)

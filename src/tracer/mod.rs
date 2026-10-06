@@ -1363,6 +1363,7 @@ pub struct MaterialFrameInput {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
+    pub apple_size_scale: f32,
     pub model_flowers: crate::flora::models::Settings,
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_band_pose_reuse: bool,
@@ -1627,6 +1628,7 @@ pub struct Tracer {
     apple_pixel_resolution: u32,
     model_pixel_view_count: u32,
     flower_model_settings: crate::flora::models::Settings,
+    apple_size_scale: f32,
     flower_stem_experiment: crate::flora::models::StemExperiment,
     grass_band_pose_reuse: bool,
     flower_spawn_overshoot_voxels: f32,
@@ -1997,6 +1999,7 @@ impl Tracer {
             apple_pixel_resolution: 32,
             model_pixel_view_count: 0,
             flower_model_settings: crate::flora::models::Settings::default(),
+            apple_size_scale: 1.0,
             flower_stem_experiment: crate::flora::models::StemExperiment::default(),
             grass_band_pose_reuse: true,
             flower_spawn_overshoot_voxels: 0.,
@@ -3088,7 +3091,7 @@ impl Tracer {
         self.ddgi_history_retention = terrain.ddgi_history_retention.clamp(0.0, 0.99);
         if self.apple_pixel_resolution != terrain.apple_pixel_resolution.clamp(8, 64) {
             log::info!(
-                "[APPLE_MODEL] mode=pixel triangles={} resolution={} collider=original_voxels",
+                "[APPLE_MODEL] mode=pixel triangles={} resolution={} collider=scaled_voxel_hull",
                 apple_preview::mesh().indices.len() / 3,
                 terrain.apple_pixel_resolution.clamp(8, 64)
             );
@@ -3107,6 +3110,7 @@ impl Tracer {
             );
         }
         self.flower_model_settings = flowers;
+        self.apple_size_scale = vegetation.appearance.apple_size_scale;
         let stems = vegetation.appearance.stem_experiment.normalized();
         if stems != self.flower_stem_experiment {
             log::info!("[FLOWER_STEM_SAMPLING] pixelized={} surface_cells={} radius_scale={} branches={} model_resolution={} wind=live head_cache_unchanged=true", stems.pixelized, stems.surface_cells, stems.radius_scale, stems.branches, stems.model_resolution);
@@ -4541,7 +4545,10 @@ impl Tracer {
                 .iter()
                 .map(|(&tree_id, instance)| TreeFoliageInput {
                     tree_id,
-                    bounds: instance.aabb.clone(),
+                    bounds: apple_preview::size_culling_bounds(
+                        &instance.aabb,
+                        self.apple_size_scale,
+                    ),
                     instance_count: instance.resources.instances_len,
                 }),
         );
@@ -5868,7 +5875,10 @@ impl Tracer {
                 .iter()
                 .map(|(&tree_id, instance)| TreeFoliageInput {
                     tree_id,
-                    bounds: instance.aabb.clone(),
+                    bounds: apple_preview::size_culling_bounds(
+                        &instance.aabb,
+                        self.apple_size_scale,
+                    ),
                     instance_count: instance.resources.shadow_instances_len,
                 }),
         );

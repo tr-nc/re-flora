@@ -188,6 +188,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "apple_size_scale",
+        kind: "float",
+        label: "Apples: size scale (attached and fallen)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "apple_cache_enabled",
         kind: "bool",
         label: "Apples: use model pre-cache",
@@ -1525,6 +1531,7 @@ pub struct GuiAdjustables {
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
     pub flower_stem_tip_radius_ratio: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
+    pub apple_size_scale: crate::gui_adjustables::FloatParam,
     pub apple_cache_enabled: crate::gui_adjustables::BoolParam,
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
@@ -1783,6 +1790,7 @@ impl GuiAdjustables {
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_tip_radius_ratio_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut apple_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2170,6 +2178,13 @@ impl GuiAdjustables {
                     "flower_stem_test_branches" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             flower_stem_test_branches_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_size_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            apple_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "apple_cache_enabled" => {
@@ -3663,6 +3678,7 @@ impl GuiAdjustables {
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
             flower_stem_tip_radius_ratio: flower_stem_tip_radius_ratio_field.expect("Missing parameter: flower_stem_tip_radius_ratio"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
+            apple_size_scale: apple_size_scale_field.expect("Missing parameter: apple_size_scale"),
             apple_cache_enabled: apple_cache_enabled_field.expect("Missing parameter: apple_cache_enabled"),
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
@@ -3900,6 +3916,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flower_stem_cell_height_voxels" => Some(&adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
+        "apple_size_scale" => Some(&adjustables.apple_size_scale),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
@@ -4192,6 +4209,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flower_stem_cell_height_voxels" => Some(&mut adjustables.flower_stem_cell_height_voxels),
         "flower_stem_radius_scale" => Some(&mut adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
+        "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),

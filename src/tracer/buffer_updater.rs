@@ -311,6 +311,7 @@ impl BufferUpdater {
             path_tracing_max_bounces: lighting_frame.path_tracing_max_bounces(),
             terrain_ray_origin_offset_world: terrain.ray_origin_offset_world.max(0.0),
             terrain_self_shadow_tolerance_voxels: terrain.self_shadow_tolerance_voxels,
+            apple_size_scale: appearance.apple_size_scale,
             flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
             flower_stem_tip: appearance.flower_stem_tip.to_array(),
             flower_stem_sampling: [0, 0, stems.model_resolution, stems.branches as u32],

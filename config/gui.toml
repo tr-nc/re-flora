@@ -403,6 +403,18 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "apple_size_scale"
+kind = "float"
+label = "Apples: size scale (attached and fallen)"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.25
+max = 2.0
+step = 0.05
+
+[[section.param]]
 id = "apple_cache_enabled"
 kind = "bool"
 label = "Apples: use model pre-cache"

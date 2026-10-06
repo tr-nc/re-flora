@@ -76,6 +76,7 @@ const GROUPS: &[ControlGroup] = &[
             "flora_growth_override",
             "tree_age",
             "fruit_cycle",
+            "apple_size_scale",
         ],
     },
     ControlGroup {

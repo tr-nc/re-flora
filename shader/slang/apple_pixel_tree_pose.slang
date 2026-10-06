@@ -18,7 +18,7 @@ public ApplePixelVertex appleTreePose(uint index) {
     output.axisX=treeAttachmentVector(worldPosition,float3(1,0,0));
     output.axisY=treeAttachmentVector(worldPosition,float3(0,1,0));
     output.axisZ=treeAttachmentVector(worldPosition,float3(0,0,1));
-    output.scale=(2.0/256.0)*float(unpackTreeFruitRadiusVoxels(instance.packed_leaf_local_pos))/2.0;
+    output.scale=(2.0/256.0)*float(unpackTreeFruitRadiusVoxels(instance.packed_leaf_local_pos))/2.0*gui_input.apple_size_scale;
     output.resolution=clamp(gui_input.apple_pixel_resolution,8u,64u);
     output.tileIndex=index;
     return output;

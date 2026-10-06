@@ -2467,10 +2467,11 @@ impl App {
                     frame_delta_time
                 };
                 if self.terrain_persistence.allows_world_updates() {
-                    if let Err(err) = self
-                        .terrain_physics
-                        .advance_dynamic_bodies(frame_delta_time, &mut self.tracer)
-                    {
+                    if let Err(err) = self.terrain_physics.advance_dynamic_bodies(
+                        frame_delta_time,
+                        &mut self.tracer,
+                        self.debug_settings.adjustables.apple_size_scale.value,
+                    ) {
                         log::error!("Failed to advance dynamic bodies: {err:#}");
                     }
                 }
@@ -3172,6 +3173,12 @@ impl App {
                     if let Err(err) = self.update_all_tree_ages_from_gui() {
                         log::error!("Failed to rebuild trees for global age: {err:#}");
                     }
+                }
+                if let Err(err) = self.terrain_physics.set_apple_size_scale(
+                    self.debug_settings.adjustables.apple_size_scale.value,
+                    &mut self.tracer,
+                ) {
+                    log::error!("Failed to update apple size: {err:#}");
                 }
                 if fruit_cycle_changed {
                     if let Err(err) = self.terrain_physics.set_fruit_cycle(

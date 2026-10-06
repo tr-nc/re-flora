@@ -98,9 +98,35 @@ pub fn pack_vertex(position: Vec3, material: u32) -> u32 {
 pub fn world_position(position: Vec3) -> Vec3 {
     position * VOXEL_SCALE
 }
+
+/// Retain the original motion margin and expand it for larger models without
+/// rebuilding tree instances. Twice the mature radius encloses stem/leaf and
+/// coarse pre-cache cells, not just the red fruit body.
+pub fn size_culling_bounds(bounds: &crate::geom::Aabb3, scale: f32) -> crate::geom::Aabb3 {
+    let scale = crate::flora::apple::normalize_size_scale(scale);
+    let padding = Vec3::splat((scale - 1.0).max(0.0) * APPLE_RADIUS_VOXELS * 2.0 * VOXEL_SCALE);
+    crate::geom::Aabb3::new(bounds.min() - padding, bounds.max() + padding)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn larger_apples_expand_culling_while_smaller_apples_keep_the_motion_margin() {
+        let bounds = crate::geom::Aabb3::new(Vec3::splat(-1.), Vec3::splat(1.));
+        for scale in [0.25, 0.7, 1.] {
+            let scaled = size_culling_bounds(&bounds, scale);
+            assert_eq!(scaled.min(), bounds.min());
+            assert_eq!(scaled.max(), bounds.max());
+        }
+        let large = size_culling_bounds(&bounds, 2.);
+        assert_eq!(large.min(), bounds.min() - Vec3::splat(4. / 256.));
+        assert_eq!(large.max(), bounds.max() + Vec3::splat(4. / 256.));
+        assert!(mesh()
+            .positions
+            .iter()
+            .all(|p| p.length() < APPLE_RADIUS_VOXELS * 2.0));
+    }
+
     #[test]
     fn preview_mesh_has_three_materials_and_fits_legacy_apple_scale() {
         let mesh = mesh();

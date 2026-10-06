@@ -489,6 +489,30 @@ impl CollisionWorld {
         Ok(id)
     }
 
+    /// Replace a live body's collider without changing its identity, pose or velocities.
+    /// Invalid shapes are rejected before touching the world. Contact skin is in world units.
+    pub fn update_dynamic_body_collider(
+        &mut self,
+        id: DynamicBodyId,
+        shape: &DynamicColliderShape,
+        contact_skin: f32,
+    ) -> Result<bool, DynamicBodyError> {
+        validate_nonnegative("contact_skin", contact_skin)?;
+        let shape = build_dynamic_shape(shape)?;
+        let Some(&handle) = self.dynamic_bodies.get(&id) else {
+            return Ok(false);
+        };
+        let colliders = self.physics.bodies[handle].colliders().to_vec();
+        for collider in colliders {
+            self.physics.colliders[collider].set_shape(shape.clone());
+            self.physics.colliders[collider].set_contact_skin(contact_skin);
+        }
+        let body = &mut self.physics.bodies[handle];
+        body.recompute_mass_properties_from_colliders(&self.physics.colliders);
+        body.wake_up(true);
+        Ok(true)
+    }
+
     pub fn remove_dynamic_body(&mut self, id: DynamicBodyId) -> bool {
         let Some(handle) = self.dynamic_bodies.remove(&id) else {
             return false;
@@ -1708,6 +1732,36 @@ mod tests {
         assert_eq!(capped.steps, DEFAULT_MAX_SUBSTEPS);
         assert!(capped.dropped_seconds > 0.9);
         assert!(capped.interpolation_alpha <= 1.0);
+    }
+
+    #[test]
+    fn live_collider_resize_preserves_body_state_and_rejects_invalid_shapes() {
+        let mut world = CollisionWorld::new();
+        let mut desc = DynamicBodyDesc::sphere(Vec3::new(10.0, 20.0, 30.0), 2.0);
+        desc.linear_velocity = Vec3::X;
+        desc.angular_velocity = Vec3::Y;
+        let id = world.spawn_dynamic_body(desc).unwrap();
+        let before = world.dynamic_body_state(id).unwrap();
+        assert!(world
+            .update_dynamic_body_collider(id, &DynamicColliderShape::Sphere { radius: 1.0 }, 0.075)
+            .unwrap());
+        assert_eq!(world.dynamic_body_count(), 1);
+        assert_eq!(world.dynamic_body_state(id).unwrap(), before);
+        let handle = world.dynamic_bodies[&id];
+        let collider = world.physics.bodies[handle].colliders()[0];
+        let collider_radius = |world: &CollisionWorld| {
+            world.physics.colliders[collider]
+                .shape()
+                .as_ball()
+                .unwrap()
+                .radius
+        };
+        assert_eq!(collider_radius(&world), 1.0);
+        assert!(world
+            .update_dynamic_body_collider(id, &DynamicColliderShape::Sphere { radius: 0.0 }, 0.0)
+            .is_err());
+        assert_eq!(collider_radius(&world), 1.0);
+        assert_eq!(world.dynamic_body_state(id).unwrap(), before);
     }
 
     #[test]

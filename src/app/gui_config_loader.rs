@@ -155,6 +155,7 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::migrate_stem_rendering_controls(&mut config);
+        Self::add_missing_param(&mut config, "Debug", "apple_size_scale");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
@@ -1280,6 +1281,31 @@ mod tests {
             .find(|p| p.id == "camera_orbit_max_elevation")
             .unwrap();
         assert!(matches!(param.value, GuiParamValue::Float { value, .. } if value == 60.));
+    }
+
+    #[test]
+    fn older_saves_gain_default_apple_size_without_rewriting_the_file() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section.param.retain(|p| p.id != "apple_size_scale");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        let size = loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "apple_size_scale")
+            .unwrap();
+        assert!(matches!(
+            size.value,
+            super::GuiParamValue::Float { value: 1.0, .. }
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     #[test]

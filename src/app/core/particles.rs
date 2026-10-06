@@ -693,6 +693,23 @@ impl App {
         let settings = &mut self.debug_settings.adjustables;
         settings.apple_pixel_resolution.value = n;
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
+        if let Ok(request) = std::env::var("RE_FLORA_APPLE_SIZE_REVIEW") {
+            let scale = if request == "sweep" {
+                [0.5, 1.0, 2.0, 0.7][(frame / 30) as usize % 4]
+            } else {
+                request
+                    .parse::<f32>()
+                    .expect("apple size review must be sweep or a size scale")
+            };
+            assert!(scale.is_finite() && (0.25..=2.0).contains(&scale));
+            settings.apple_size_scale.value = scale;
+            settings.apple_cache_enabled.value = (frame / 120) % 2 == 1;
+            if frame.is_multiple_of(30) {
+                log::info!(
+                    "[APPLE_SIZE_REVIEW] frame={frame} scale={scale} dropped={dropped} cache={} saved=false", settings.apple_cache_enabled.value
+                );
+            }
+        }
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
             settings.butterfly_mesh_preview.value = true;
             let butterfly_pixels = [64, 8, 16][(frame / 30) as usize % 3];

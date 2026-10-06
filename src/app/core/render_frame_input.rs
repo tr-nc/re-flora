@@ -115,6 +115,7 @@ pub(super) fn freeze_render_frame_inputs(
     };
     let vegetation = VegetationFrameInput {
         appearance: FloraAppearanceFrameInput {
+            apple_size_scale: crate::flora::apple::normalize_size_scale(gui.apple_size_scale.value),
             model_flowers: model_cache.flowers,
             grass_band_pose_reuse: gui.grass_band_pose_reuse.value,
             grass_band_pixelization: false,
@@ -365,6 +366,7 @@ mod tests {
         gui.grass_band_pose_reuse.value = true;
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_tip_radius_ratio.value = 0.35;
+        gui.apple_size_scale.value = 0.7;
         gui.flower_stem_test_branches.value = false;
         gui.flora_growth_override_enabled.value = true;
         gui.apple_pixel_resolution.value = 24;
@@ -519,6 +521,7 @@ mod tests {
             },
             vegetation: VegetationFrameInput {
                 appearance: FloraAppearanceFrameInput {
+                    apple_size_scale: 0.7,
                     model_flowers: crate::flora::models::Settings {
                         resolution: 24,
                         views: 37,
