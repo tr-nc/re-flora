@@ -178,6 +178,23 @@ impl Tracer {
             MemoryLocation::CpuToGpu,
             index_bytes as u64,
         )?;
+        if std::env::var_os("RE_FLORA_TREE_SCALE_DIAGNOSTIC").is_some() {
+            for (name, buffer) in [
+                ("skin_rest", &*resources.tree_skin_rest),
+                ("skin_bindings", &*resources.tree_skin_bindings),
+                ("refit_order", &*resources.tree_refit_order),
+                ("primitives", &*resources.tree_scene_primitives),
+                ("nodes", &*resources.tree_scene_nodes),
+                ("vertices", &*resources.tree_scene_vertices),
+                ("indices", &indices),
+            ] {
+                log::info!(
+                    "[TREE][MEMORY] {name} bytes={} properties={:?}",
+                    buffer.get_size_bytes(),
+                    buffer.memory_properties()
+                );
+            }
+        }
         if index_count > 0 {
             indices.fill(&mesh.indices)?;
         }

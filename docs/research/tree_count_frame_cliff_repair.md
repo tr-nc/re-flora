@@ -129,7 +129,17 @@ The earlier `compact-01` second run has a faster 23.254 ms frame but also a mate
 scope (10.302 / 2.012 ms); it is not evidence of an extra CPU improvement. `gpu_present_ms` is not
 interpreted as pure GPU execution. The GPU variation is the next measurement target.
 
+## Measured GPU memory-placement variation
+
+Opt-in allocation-property logging independently confirms the cause in
+`target/tree-scaling-memory-01` (all per-count GPU checks pass): four/five-tree static skin inputs
+use `DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT`, but the sixth tree's 12582912-byte `skin_rest`
+falls back to **HOST_VISIBLE | HOST_COHERENT without DEVICE_LOCAL**. GPU-only outputs remain local.
+The 27.191 ms frame / roughly 5 ms surface-update scope is therefore not CPU deformation cost.
+Permanent shader inputs must not depend on the remaining host-visible BAR heap. This logging is
+opt-in; normal frames/settings are unchanged.
+
 ## Remaining implementation stages
 
-Investigate the measured GPU input/resource placement cost and reuse compilation for unaffected
-trees. The validated CPU/capacity results do not claim these remaining stages complete.
+Move immutable GPU inputs through bounded staging into device-local storage, then reuse compilation
+for unaffected trees. The validated CPU/capacity results do not claim these remaining stages complete.

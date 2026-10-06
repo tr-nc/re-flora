@@ -268,6 +268,11 @@ impl Buffer {
         self.get_element_size_bytes() * self.0.desc.element_length
     }
 
+    /// Actual selected memory flags (CpuToGpu may fall back to non-device-local heaps).
+    pub fn memory_properties(&self) -> vk::MemoryPropertyFlags {
+        self.0.allocated_mem.memory_properties()
+    }
+
     /// Returns the buffer usage flags.
     pub fn get_usage(&self) -> BufferUsage {
         self.0.desc.usage
