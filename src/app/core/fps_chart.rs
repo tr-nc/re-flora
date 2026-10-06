@@ -49,21 +49,56 @@ impl FpsHistory {
         }
     }
 
-    fn ceiling(&self, current: f32) -> f32 {
-        let maximum = self
-            .samples
-            .iter()
-            .fold(current.max(0.0), |max, p| max.max(p.fps));
-        ((f64::from(maximum) / 30.0).ceil().max(2.0) * 30.0).min(f64::from(f32::MAX)) as f32
-    }
-
-    fn points(&self, now: f64, ceiling: f32, plot: egui::Rect) -> Vec<egui::Pos2> {
+    fn visible_samples(&self, now: f64) -> impl Iterator<Item = &Sample> {
         self.samples
             .iter()
-            .filter(|p| now - p.time <= HISTORY_SECONDS)
+            .filter(move |p| p.time >= now - HISTORY_SECONDS && p.time <= now)
+    }
+
+    fn range(&self, now: f64) -> (f64, f64) {
+        let mut samples = self.visible_samples(now);
+        let Some(first) = samples.next() else {
+            return (0.0, 1.0);
+        };
+        let (minimum, maximum) = samples.fold(
+            (f64::from(first.fps), f64::from(first.fps)),
+            |(min, max), p| (min.min(f64::from(p.fps)), max.max(f64::from(p.fps))),
+        );
+        let padding = ((maximum - minimum) * 0.1).max(1.0).max(maximum * 1e-6);
+        ((minimum - padding).max(0.0), maximum + padding)
+    }
+
+    // Interpolate the same line drawn on screen, without inventing samples
+    // before/after the available history.
+    fn sample_at(&self, now: f64, time: f64) -> Option<Sample> {
+        let mut samples = self.visible_samples(now);
+        let mut previous = *samples.next()?;
+        if time < previous.time {
+            return None;
+        }
+        if time == previous.time {
+            return Some(previous);
+        }
+        for next in samples {
+            if time <= next.time {
+                let fraction = (time - previous.time) / (next.time - previous.time);
+                let fps = f64::from(previous.fps)
+                    + fraction * (f64::from(next.fps) - f64::from(previous.fps));
+                return Some(Sample {
+                    time,
+                    fps: fps as f32,
+                });
+            }
+            previous = *next;
+        }
+        None
+    }
+
+    fn points(&self, now: f64, range: (f64, f64), plot: egui::Rect) -> Vec<egui::Pos2> {
+        self.visible_samples(now)
             .map(|p| {
                 let x = (1.0 - (now - p.time) / HISTORY_SECONDS).clamp(0.0, 1.0) as f32;
-                let y = (p.fps / ceiling).clamp(0.0, 1.0);
+                let y = ((f64::from(p.fps) - range.0) / (range.1 - range.0)).clamp(0.0, 1.0) as f32;
                 egui::pos2(
                     plot.left() + x * plot.width(),
                     plot.bottom() - y * plot.height(),
@@ -98,7 +133,9 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
     egui::Area::new("fps_counter".into())
         .default_size(initial_size)
         .anchor(egui::Align2::RIGHT_BOTTOM, offset)
-        .interactable(false)
+        .interactable(true)
+        .movable(false)
+        .sense(egui::Sense::hover())
         .show(ctx, |ui| {
             egui::Frame {
                 fill: PANEL_DARK,
@@ -139,14 +176,14 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                     });
                 });
                 ui.add_space(4.0);
-                let (bounds, _) =
+                let (bounds, response) =
                     ui.allocate_exact_size(egui::vec2(width, 64.0), egui::Sense::hover());
                 let plot = egui::Rect::from_min_max(
-                    bounds.left_top() + egui::vec2(30.0, 4.0),
+                    bounds.left_top() + egui::vec2(42.0, 4.0),
                     bounds.right_bottom() - egui::vec2(3.0, 4.0),
                 );
                 let painter = ui.painter();
-                let ceiling = history.ceiling(if fps.is_finite() { fps } else { 0.0 });
+                let range = history.range(now);
                 for fraction in [0.0, 0.5, 1.0] {
                     let y = plot.bottom() - fraction * plot.height();
                     painter.line_segment(
@@ -163,12 +200,12 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                 }
                 for (value, anchor, position) in [
                     (
-                        format!("{ceiling:.0}"),
+                        format!("{:.1}", range.1),
                         egui::Align2::LEFT_TOP,
                         bounds.left_top(),
                     ),
                     (
-                        "0".to_owned(),
+                        format!("{:.1}", range.0),
                         egui::Align2::LEFT_BOTTOM,
                         bounds.left_bottom(),
                     ),
@@ -181,7 +218,7 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                         SAGE_ACCENT,
                     );
                 }
-                let points = history.points(now, ceiling, plot);
+                let points = history.points(now, range, plot);
                 let latest = points.last().copied();
                 if points.len() > 1 {
                     painter.add(egui::Shape::line(
@@ -195,6 +232,27 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                         0.0,
                         GOLD_ACCENT,
                     );
+                }
+                if let Some(pointer) = response.hover_pos().filter(|p| plot.contains(*p)) {
+                    let fraction = f64::from((pointer.x - plot.left()) / plot.width());
+                    let time = now - HISTORY_SECONDS + fraction * HISTORY_SECONDS;
+                    if let Some(sample) = history.sample_at(now, time) {
+                        let y = ((f64::from(sample.fps) - range.0) / (range.1 - range.0)) as f32;
+                        let point = egui::pos2(pointer.x, plot.bottom() - y * plot.height());
+                        painter.line_segment(
+                            [
+                                egui::pos2(pointer.x, plot.top()),
+                                egui::pos2(pointer.x, plot.bottom()),
+                            ],
+                            egui::Stroke::new(1.0, GOLD_ACCENT),
+                        );
+                        painter.circle_filled(point, 3.0, GOLD_ACCENT);
+                        response.on_hover_text(format!(
+                            "{:.1} FPS · {:.1}s ago",
+                            sample.fps,
+                            now - time
+                        ));
+                    }
                 }
                 ui.horizontal(|ui| {
                     ui.label(
@@ -271,12 +329,89 @@ mod tests {
         history.observe(10.0, 144.0);
         history.observe(30.0, 60.0);
         let plot = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(300.0, 180.0));
-        assert_eq!(history.ceiling(60.0), 150.0);
-        let points = history.points(30.0, 150.0, plot);
+        assert_eq!(history.range(30.0), (18.6, 155.4));
+        let points = history.points(30.0, history.range(30.0), plot);
         assert_eq!(points[0].x, 0.0);
         assert!((points[1].x - 100.0).abs() < 0.001);
         assert_eq!(points[2].x, 300.0);
         assert!(points.iter().all(|p| plot.contains(*p)));
+    }
+
+    #[test]
+    fn range_tracks_only_visible_extrema_with_padding_and_handles_flat_history() {
+        let mut history = FpsHistory::default();
+        assert_eq!(history.range(0.0), (0.0, 1.0));
+        history.observe(0.0, 5.0);
+        history.observe(10.0, 100.0);
+        history.observe(20.0, 110.0);
+        assert_eq!(history.range(35.0), (99.0, 111.0));
+        assert_eq!(history.range(45.0), (109.0, 111.0));
+        assert_eq!(history.range(51.0), (0.0, 1.0));
+        // Samples beyond the displayed time must not influence the axis.
+        assert_eq!(history.range(15.0), (0.0, 109.5));
+        let mut extreme = FpsHistory::default();
+        extreme.observe(0.0, f32::MAX);
+        let range = extreme.range(0.0);
+        assert!(range.0.is_finite() && range.1.is_finite() && range.1 > range.0);
+    }
+
+    #[test]
+    fn hover_interpolates_fps_at_x_and_does_not_extrapolate() {
+        let mut history = FpsHistory::default();
+        history.observe(0.0, 20.0);
+        history.observe(10.0, 100.0);
+        history.observe(20.0, 120.0);
+        assert_eq!(history.sample_at(20.0, 0.0).unwrap().fps, 20.0);
+        assert_eq!(history.sample_at(20.0, 5.0).unwrap().fps, 60.0);
+        assert_eq!(history.sample_at(20.0, 15.0).unwrap().fps, 110.0);
+        assert_eq!(history.sample_at(20.0, 20.0).unwrap().fps, 120.0);
+        assert!(history.sample_at(20.0, -1.0).is_none());
+        assert!(history.sample_at(20.0, 21.0).is_none());
+        assert!(history.sample_at(35.0, 5.0).is_none());
+        assert_eq!(history.sample_at(35.0, 15.0).unwrap().fps, 110.0);
+        assert!(FpsHistory::default().sample_at(0.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn chart_hover_shows_fps_tooltip_through_the_actual_area() {
+        let ctx = egui::Context::default();
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        let mut history = FpsHistory::default();
+        history.observe(0.0, 60.0);
+        history.observe(15.0, 90.0);
+        history.observe(30.0, 120.0);
+        let mut pointer = None;
+        let mut tooltip_seen = false;
+        for frame in 0..10 {
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 720.0),
+                    )),
+                    time: Some(frame as f64 * 0.1),
+                    events: pointer.map(egui::Event::PointerMoved).into_iter().collect(),
+                    ..Default::default()
+                },
+                |ui| draw(ui.ctx(), &history, 30.0, 120.0),
+            );
+            for clipped in output.shapes {
+                match clipped.shape {
+                    egui::Shape::Path(path) if path.points.len() == 3 => {
+                        pointer = Some(path.points[1]);
+                    }
+                    egui::Shape::Text(text) => {
+                        tooltip_seen |= text.galley.text().contains("90.0 FPS");
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(pointer.is_some(), "history line was not painted");
+        assert!(
+            tooltip_seen,
+            "hover did not show FPS at the cursor's X position"
+        );
     }
 
     #[test]
