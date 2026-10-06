@@ -133,7 +133,7 @@ impl App {
                 world_ops::FloraBrushEdit {
                     start: edit.start,
                     end: edit.end,
-                    radius: request.horizontal_halo() / 256.,
+                    radius: result.sampling_halo / 256.,
                     tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },

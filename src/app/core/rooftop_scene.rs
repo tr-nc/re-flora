@@ -1048,12 +1048,68 @@ impl App {
         log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true single_voxel_click=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
             initial.added, total, height(&thin), height(&thick), checked_new);
         if std::env::var_os("RE_FLORA_SOIL_REPORT_CLOSEUP").is_some() {
-            let focus = center + Vec3::Y * 0.015;
+            // A separate clean plot avoids showing old geometry-brush soil as the new
+            // deposition result. Fast-forward quantity only in this opt-in diagnostic.
+            let point = Vec3::new(410., SOIL_MIN.y as f32, 330.) / 256.;
+            let plot = TerrainBrushEdit {
+                start: point,
+                end: point,
+                radius: 0.,
+            };
+            let offset = UVec3::new(360, SOIL_MIN.y, 280);
+            let dim = UVec3::new(100, SOIL_MAX.y - SOIL_MIN.y, 100);
+            let before = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            anyhow::ensure!(
+                before.iter().all(|&v| v & VOXEL_TYPE_MASK == 0),
+                "report plot is not empty; cannot label it pure deposition"
+            );
+            let mut total = 0;
+            for seed in 1..=4 {
+                total += self.apply_soil_deposition(plot, 16384, seed)?.added;
+            }
+            let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            let actual = data
+                .iter()
+                .filter(|&&v| v & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8)
+                .count();
+            anyhow::ensure!(
+                total == 65536 && actual == total as usize,
+                "report plot lost or duplicated soil"
+            );
+            let mut base_min = u32::MAX;
+            let mut base_max = 0;
+            let mut peak = SOIL_MIN.y;
+            for z in 0..dim.z {
+                for x in 0..dim.x {
+                    let mut air = false;
+                    for y in 0..dim.y {
+                        let solid =
+                            data[((z * dim.y + y) * dim.x + x) as usize] & VOXEL_TYPE_MASK != 0;
+                        if solid {
+                            anyhow::ensure!(!air, "report pile has an internal vertical gap");
+                            peak = peak.max(SOIL_MIN.y + y);
+                        } else {
+                            air = true;
+                        }
+                        if y == 0 && solid {
+                            base_min = base_min.min(offset.x + x);
+                            base_max = base_max.max(offset.x + x);
+                        }
+                    }
+                }
+            }
+            anyhow::ensure!(
+                base_max - base_min > 64,
+                "GPU pile footprint still stops at the initial readback halo"
+            );
+            self.contree_builder.flush_cpu_chunk_cache_jobs();
+            let focus = point + Vec3::Y * 0.04;
             self.camera_control.set_orbit_focus(focus);
             self.tracer
-                .set_camera_pose_looking_at(focus + Vec3::new(0.15, 0.12, 0.19), focus);
+                .set_camera_pose_looking_at(focus + Vec3::new(0.22, 0.18, 0.29), focus);
             self.player_tools
                 .select_item_panel_slot(ui_style::SOIL_DEPOSITION_SLOT_INDEX);
+            log::info!("[SOIL_REPORT][CHECK] actual_voxels={} requested_voxels={} base_width={} peak_y={} internal_vertical_gaps=0 pure_deposition=true initial_halo_outgrown=true", actual, total, base_max - base_min, peak);
         }
         Ok(())
     }

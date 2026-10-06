@@ -1,6 +1,6 @@
 //! Finite-volume surface deposition, independent of input, inventory and falling-particle FX.
 //!
-//! Samples clustered, soft-edged footprints. Each parcel follows a local supported surface
+//! Samples individual grains or optional clustered, soft-edged footprints. Each parcel follows a local supported surface
 //! downhill before adding one empty voxel. Existing voxels (including soil state) never change.
 //! Columns are local air intervals, not a world heightfield: ceilings stop deposition.
 use crate::builder::{VOXEL_TYPE_DIRT, VOXEL_TYPE_MASK};
@@ -9,7 +9,8 @@ use glam::{UVec3, Vec3};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-const SETTLE_DISTANCE: u32 = 32;
+// Initial readback reach, not a physical runout or pile-footprint limit.
+const INITIAL_SETTLE_HALO: u32 = 32;
 const CLICK_HOLD_DELAY: Duration = Duration::from_millis(200);
 // Every f32 rate >= 1 is represented exactly at this scale. Integer nanosecond credit
 // avoids frame-by-frame floating-point rounding losing a voxel at an integral boundary.
@@ -42,15 +43,23 @@ impl DepositionRequest {
     }
 
     pub(crate) fn horizontal_halo(self) -> f32 {
-        self.radius + self.clump_radius as f32 + SETTLE_DISTANCE as f32 + 1.
+        self.radius + self.clump_radius as f32 + INITIAL_SETTLE_HALO as f32 + 1.
     }
 
     /// Exclusive sampling bounds. Only X/Z depend on spread; Y retains the legal world range.
     pub(crate) fn sampling_bounds(self, legal: UAabb3) -> Option<UAabb3> {
-        if !self.valid() || self.volume == 0 || legal.min().cmpge(legal.max()).any() {
+        self.sampling_bounds_with_halo(legal, self.horizontal_halo())
+    }
+
+    pub(crate) fn sampling_bounds_with_halo(self, legal: UAabb3, halo: f32) -> Option<UAabb3> {
+        if !self.valid()
+            || self.volume == 0
+            || legal.min().cmpge(legal.max()).any()
+            || !halo.is_finite()
+            || halo < self.horizontal_halo()
+        {
             return None;
         }
-        let halo = self.horizontal_halo();
         let low = (self.start.min(self.end) - Vec3::splat(halo)).floor();
         let high = (self.start.max(self.end) + Vec3::splat(halo)).ceil();
         let min = UVec3::new(
@@ -72,6 +81,9 @@ pub(crate) struct DepositionResult {
     pub added: u32,
     /// Inclusive changed bounds, suitable for Visible Terrain Publication.
     pub changed: Option<UAabb3>,
+    /// Speculative plan reached unread legal space; discard it and retry before uploading.
+    pub needs_more_space: bool,
+    pub sampling_halo: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -105,12 +117,31 @@ impl Rng {
 
 /// Mutates only empty atlas bytes. `floor` is an explicit external support plane (e.g. the
 /// rooftop model), never an implicit floor for empty space. Offset/dim describe the readback.
-pub(crate) fn deposit(
+#[cfg(test)]
+fn deposit(
     data: &mut [u8],
     offset: UVec3,
     dim: UVec3,
     floor: Option<u32>,
     request: DepositionRequest,
+) -> DepositionResult {
+    deposit_in_bounds(
+        data,
+        offset,
+        dim,
+        floor,
+        request,
+        UAabb3::new(offset, offset + dim),
+    )
+}
+
+pub(crate) fn deposit_in_bounds(
+    data: &mut [u8],
+    offset: UVec3,
+    dim: UVec3,
+    floor: Option<u32>,
+    request: DepositionRequest,
+    legal: UAabb3,
 ) -> DepositionResult {
     let mut result = DepositionResult::default();
     if !request.valid()
@@ -165,7 +196,9 @@ pub(crate) fn deposit(
         };
         let source = (x, z);
         let source_height = (column.next + 1) as f32;
-        for _ in 0..SETTLE_DISTANCE {
+        // Every chosen hop strictly decreases the integer column height; this bound
+        // guarantees termination without capping a tall pile's physical spread.
+        for _ in 0..dim.y {
             // Loose soil cannot hold another grain on a one-column/one-axis pedestal,
             // even when a deliberately steep repose setting would otherwise let it stop.
             let supported_base = soil_base_is_broad(data, dim, x, z, column.next, floor_local);
@@ -186,7 +219,20 @@ pub(crate) fn deposit(
                 let (dx, dz) = NEIGHBORS[(n + turn) % 8];
                 let nx = x as i32 + dx;
                 let nz = z as i32 + dz;
+                let distance = (nx as f32 - source.0 as f32).hypot(nz as f32 - source.1 as f32);
                 if nx < 0 || nz < 0 || nx >= dim.x as i32 || nz >= dim.z as i32 {
+                    let wx = offset.x as i64 + nx as i64;
+                    let wz = offset.z as i64 + nz as i64;
+                    let minimum_height = floor_local.unwrap_or(0) as f32;
+                    if wx >= legal.min().x as i64
+                        && wx < legal.max().x as i64
+                        && wz >= legal.min().z as i64
+                        && wz < legal.max().z as i64
+                        && (!supported_base
+                            || source_height - minimum_height > request.repose_slope * distance)
+                    {
+                        result.needs_more_space = true;
+                    }
                     continue;
                 }
                 let Some(next) = column_at(&mut columns, nx as u32, nz as u32) else {
@@ -195,15 +241,13 @@ pub(crate) fn deposit(
                 // Carry the grain's source height and true radial travel through the entire
                 // slide. Resetting the comparison after each integer voxel hop turns both
                 // unit and diagonal steps into a one-voxel limit: a square pyramid metric.
-                let distance = (nx as f32 - source.0 as f32).hypot(nz as f32 - source.1 as f32);
                 let step = if dx != 0 && dz != 0 {
                     std::f32::consts::SQRT_2
                 } else {
                     1.
                 };
                 let grade = column.next.saturating_sub(next.next) as f32 / step;
-                if distance <= SETTLE_DISTANCE as f32
-                    && (!supported_base || source_height - next.next as f32 > request.repose_slope * distance)
+                if (!supported_base || source_height - next.next as f32 > request.repose_slope * distance)
                     && next.next <= column.next
                     && grade > best_grade
                     && next.next < next.ceiling
@@ -714,6 +758,141 @@ mod tests {
             flow.reset();
             assert_eq!(flow.take(start + Duration::from_secs(10), rate).0, 1);
         }
+    }
+
+    #[test]
+    fn unread_space_requests_a_retry_but_world_edges_do_not() {
+        let dim = UVec3::new(16, 64, 16);
+        let offset = UVec3::new(40, 0, 40);
+        let mut data = vec![0; (dim.x * dim.y * dim.z) as usize];
+        let r = DepositionRequest {
+            start: Vec3::new(48., 2., 48.),
+            end: Vec3::new(48., 2., 48.),
+            radius: 0.,
+            volume: 8192,
+            clump_radius: 0,
+            repose_slope: 1.,
+            seed: 7,
+        };
+        let result = deposit_in_bounds(
+            &mut data,
+            offset,
+            dim,
+            Some(2),
+            r,
+            UAabb3::new(UVec3::ZERO, UVec3::new(128, 64, 128)),
+        );
+        assert!(
+            result.needs_more_space,
+            "an undersized readback must not become a pile wall"
+        );
+        data.fill(0);
+        let bounded = deposit(&mut data, offset, dim, Some(2), r);
+        assert!(
+            !bounded.needs_more_space,
+            "real world/work-area edges cannot expand"
+        );
+    }
+
+    #[test]
+    fn expanded_replay_matches_one_full_plan_without_duplicating_material() {
+        let dim = UVec3::new(96, 64, 96);
+        let legal = UAabb3::new(UVec3::ZERO, dim);
+        let r = DepositionRequest {
+            start: Vec3::new(48., 2., 48.),
+            end: Vec3::new(48., 2., 48.),
+            radius: 0.,
+            volume: 16384,
+            clump_radius: 0,
+            repose_slope: 1.,
+            seed: 713,
+        };
+        let mut original = vec![0; (dim.x * dim.y * dim.z) as usize];
+        for seed in 1..=2 {
+            deposit(
+                &mut original,
+                UVec3::ZERO,
+                dim,
+                Some(2),
+                DepositionRequest { seed, ..r },
+            );
+        }
+        let mut expected = original.clone();
+        let full = deposit(&mut expected, UVec3::ZERO, dim, Some(2), r);
+        let mut halo = r.horizontal_halo();
+        let mut retries = 0;
+        loop {
+            let sample = r.sampling_bounds_with_halo(legal, halo).unwrap();
+            let size = sample.max() - sample.min();
+            let mut data = vec![0; (size.x * size.y * size.z) as usize];
+            for z in 0..size.z {
+                for y in 0..size.y {
+                    for x in 0..size.x {
+                        let p = sample.min() + UVec3::new(x, y, z);
+                        data[((z * size.y + y) * size.x + x) as usize] =
+                            original[((p.z * dim.y + p.y) * dim.x + p.x) as usize];
+                    }
+                }
+            }
+            let result = deposit_in_bounds(&mut data, sample.min(), size, Some(2), r, legal);
+            if result.needs_more_space {
+                halo *= 2.;
+                retries += 1;
+                continue;
+            }
+            assert_eq!(result.added, r.volume);
+            assert_eq!(result.added, full.added);
+            assert_eq!(result.changed, full.changed);
+            for z in 0..size.z {
+                for y in 0..size.y {
+                    for x in 0..size.x {
+                        let p = sample.min() + UVec3::new(x, y, z);
+                        assert_eq!(
+                            data[((z * size.y + y) * size.x + x) as usize],
+                            expected[((p.z * dim.y + p.y) * dim.x + p.x) as usize]
+                        );
+                    }
+                }
+            }
+            break;
+        }
+        assert!(
+            retries > 0,
+            "fixture must exercise discarded speculative plans"
+        );
+    }
+
+    #[test]
+    fn a_large_pile_outgrows_the_initial_readback_reach() {
+        let dim = UVec3::new(96, 64, 96);
+        let mut data = vec![0; (dim.x * dim.y * dim.z) as usize];
+        let mut r = DepositionRequest {
+            start: Vec3::new(48., 2., 48.),
+            end: Vec3::new(48., 2., 48.),
+            radius: 0.,
+            volume: 16384,
+            clump_radius: 0,
+            repose_slope: 1.,
+            seed: 1,
+        };
+        for seed in 1..=4 {
+            r.seed = seed;
+            assert_eq!(
+                deposit(&mut data, UVec3::ZERO, dim, Some(2), r).added,
+                r.volume
+            );
+        }
+        let base: Vec<u32> = (0..dim.x)
+            .filter(|&x| data[((48 * dim.y + 2) * dim.x + x) as usize] != 0)
+            .collect();
+        assert!(
+            base.last().unwrap() - base.first().unwrap() > 64,
+            "soil footprint was capped at the old 32-voxel slide/readback reach"
+        );
+        assert_eq!(
+            data.iter().filter(|&&v| v == VOXEL_TYPE_DIRT as u8).count(),
+            65536
+        );
     }
 
     #[test]

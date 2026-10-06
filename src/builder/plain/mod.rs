@@ -8,7 +8,7 @@ use crate::generated::gpu_structs::{
     VoxelPropertySampleResult as VoxelPropertySampleResultGpu,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, Torus, UAabb3};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{IVec3, UVec3, Vec3};
 use re_flora_vkn::execute_one_time_command;
@@ -795,18 +795,39 @@ impl PlainBuilder {
         support_floor: Option<u32>,
     ) -> Result<crate::terrain_deposition::DepositionResult> {
         let start = Instant::now();
-        let Some(sample) = request.sampling_bounds(legal) else {
+        let Some(mut sample) = request.sampling_bounds(legal) else {
             return Ok(crate::terrain_deposition::DepositionResult::default());
         };
-        let dim = sample.max() - sample.min();
-        let mut data = self.read_chunk_atlas_region(sample.min(), dim)?;
-        let result = crate::terrain_deposition::deposit(
-            &mut data,
-            sample.min(),
-            dim,
-            support_floor,
-            request,
-        );
+        let mut halo = request.horizontal_halo();
+        let mut expansions = 0;
+        let (data, dim, mut result) = loop {
+            let dim = sample.max() - sample.min();
+            let mut data = self.read_chunk_atlas_region(sample.min(), dim)?;
+            let result = crate::terrain_deposition::deposit_in_bounds(
+                &mut data,
+                sample.min(),
+                dim,
+                support_floor,
+                request,
+                legal,
+            );
+            if !result.needs_more_space {
+                break (data, dim, result);
+            }
+            // No GPU write/inventory debit has happened. Re-read the original atlas and
+            // replay the same seeded request with more space, preserving exact ownership.
+            halo *= 2.;
+            let next = request
+                .sampling_bounds_with_halo(legal, halo)
+                .context("soil sampling expansion produced invalid bounds")?;
+            anyhow::ensure!(
+                next != sample,
+                "soil requested space outside fully sampled legal bounds"
+            );
+            sample = next;
+            expansions += 1;
+        };
+        result.sampling_halo = halo;
         if let Some(changed) = result.changed {
             let write_dim = changed.max() - changed.min() + UVec3::ONE;
             let write_data =
@@ -815,10 +836,11 @@ impl PlainBuilder {
             self.mark_all_solid_workgroups_dirty();
         }
         log::info!(
-            "[SOIL_DEPOSITION] requested={} added={} sample={:?} changed={:?} total={:.2}ms",
+            "[SOIL_DEPOSITION] requested={} added={} sample={:?} expanded_regions={} changed={:?} total={:.2}ms",
             request.volume,
             result.added,
             dim,
+            expansions,
             result.changed,
             start.elapsed().as_secs_f64() * 1000.0
         );
