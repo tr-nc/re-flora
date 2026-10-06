@@ -47,6 +47,7 @@ mod moisture;
 mod particles;
 mod physics;
 mod placeables;
+mod plant_catalog;
 mod planting;
 mod player_tools;
 mod raster_tree_smoke;
@@ -148,22 +149,20 @@ use re_flora_vkn::{
 use re_flora_vkn::{Swapchain, VulkanContext};
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
-    FloraPaintPanelEntry, ItemPanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
-    CUSTOM_GUI_FONT_PATH, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
+    apply_gui_style, draw_center_card, draw_item_panel, draw_plant_panel, draw_voxel_palette,
+    ItemPanelSlot, PlantPanelEntry, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
+    GOLD_ACCENT, GROW_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
     ITEM_PANEL_STAFF_ICON_PATH, ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
-    ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
     SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
-    TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
-    TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX,
+    TILLER_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -467,7 +466,6 @@ pub struct App {
     item_panel_smooth_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
-    item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
     item_panel_sprinkler_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
@@ -1565,7 +1563,6 @@ impl App {
             item_panel_smooth_icon: None,
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
-            item_panel_tree_icon: None,
             item_panel_water_icon: None,
             item_panel_sprinkler_icon: None,
             item_panel_soil_inspector_icon: None,
@@ -1683,9 +1680,10 @@ impl App {
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
         let seed = self.tree_placement_preview_desc.branching.seed;
         self.tree_placement_preview_desc = self
-            .debug_settings
-            .tree
-            .desc
+            .player_tools
+            .planting
+            .tree_species
+            .mature_desc(&self.debug_settings.tree.desc)
             .at_age(self.debug_settings.adjustables.tree_age.value);
         self.tree_placement_preview_desc.branching.seed = seed;
         self.rebuild_tree_placement_preview()
@@ -1693,9 +1691,10 @@ impl App {
 
     pub(super) fn advance_tree_placement_preview(&mut self) -> Result<()> {
         self.tree_placement_preview_desc = self
-            .debug_settings
-            .tree
-            .desc
+            .player_tools
+            .planting
+            .tree_species
+            .mature_desc(&self.debug_settings.tree.desc)
             .at_age(self.debug_settings.adjustables.tree_age.value);
         self.tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         self.rebuild_tree_placement_preview()
@@ -1836,33 +1835,6 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_hoe_icon = Some(hoe_texture);
-
-        let tree_path = if std::path::Path::new(ITEM_PANEL_TREE_ICON_PATH).exists() {
-            ITEM_PANEL_TREE_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_TREE_ICON_PATH,
-                ITEM_PANEL_TREE_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_TREE_ICON_FALLBACK_PATH
-        };
-
-        let tree_bytes = std::fs::read(tree_path)
-            .with_context(|| format!("Failed to read item panel icon from {tree_path}"))?;
-        let tree_rgba = image::load_from_memory(&tree_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {tree_path}"))?
-            .to_rgba8();
-        let tree_size = [tree_rgba.width() as usize, tree_rgba.height() as usize];
-        let tree_pixels = tree_rgba.into_raw();
-        let tree_image = ColorImage::from_rgba_unmultiplied(tree_size, &tree_pixels);
-
-        let tree_texture = self.egui_renderer.context().load_texture(
-            "item_panel_tree_plant",
-            tree_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_tree_icon = Some(tree_texture);
 
         let water_path = if std::path::Path::new(ITEM_PANEL_WATER_ICON_PATH).exists() {
             ITEM_PANEL_WATER_ICON_PATH
@@ -2139,11 +2111,11 @@ impl App {
         // Ignore keyboard-repeat presses so holding Tab changes the brush only once.
         if let WindowEvent::KeyboardInput { event, .. } = &event {
             if self.keyboard_tool_shortcuts_available()
-                && self.is_staff_selected()
+                && self.is_grow_selected()
                 && event.physical_key == KeyCode::Tab
             {
                 if event.state == ElementState::Pressed && !event.repeat {
-                    self.cycle_flora_paint_selection();
+                    self.cycle_plant_variety();
                 }
                 return;
             }
@@ -2293,7 +2265,6 @@ impl App {
                     }
 
                     let target_placeable_slot = match event.physical_key {
-                        PhysicalKey::Code(KeyCode::KeyZ) => Some(TREE_PLACEABLE_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
                         _ => None,
                     };
@@ -2331,9 +2302,12 @@ impl App {
                                 Some(PlayerToolPointerAction::Continuous(action)) => {
                                     self.execute_continuous_terrain_tool_action(action, now);
                                 }
-                                Some(PlayerToolPointerAction::PlaceablePlacement) => {
+                                Some(
+                                    PlayerToolPointerAction::PlaceablePlacement
+                                    | PlayerToolPointerAction::PlantTree,
+                                ) => {
                                     self.stop_terrain_edit_loop_sound();
-                                    self.try_placeable_placement();
+                                    self.try_discrete_placement();
                                 }
 
                                 None => {}
@@ -2560,7 +2534,6 @@ impl App {
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
-                let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let item_panel_sprinkler_icon = self.item_panel_sprinkler_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
@@ -2591,26 +2564,21 @@ impl App {
                         }
                     })
                     .collect();
-                let flora_paint_selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
-                let current_flora_paint_selection_index = if flora_paint_selection_count == 0 {
-                    0
-                } else {
-                    self.player_tools.flora_paint_selection_index % flora_paint_selection_count
-                };
-                let flora_paint_panel_entries: Vec<FloraPaintPanelEntry> =
-                    species::PLAYER_FLORA_PAINT_SELECTIONS
-                        .iter()
-                        .copied()
-                        .enumerate()
-                        .map(|(index, selection)| FloraPaintPanelEntry {
-                            index,
-                            label: species::flora_paint_selection_label(selection),
-                            selected: index == current_flora_paint_selection_index,
-                        })
-                        .collect();
+                let plant_type = self.player_tools.planting.plant_type;
+                let selected_variety = self.player_tools.planting.variety();
+                let plant_panel_entries: Vec<PlantPanelEntry> = plant_type
+                    .varieties()
+                    .into_iter()
+                    .map(|variety| PlantPanelEntry {
+                        variety,
+                        label: variety.label(),
+                        selected: variety == selected_variety,
+                    })
+                    .collect();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
-                let mut clicked_flora_paint_selection_index = None;
+                let mut clicked_plant_variety = None;
+                let mut clicked_plant_type = None;
                 let mut clicked_rooftop_material = None;
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
@@ -2620,8 +2588,7 @@ impl App {
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
-                let show_tree_preview = self.is_place_tool_selected()
-                    && self.current_placeable_kind() == placeables::PlaceableKind::Tree;
+                let show_tree_preview = self.is_tree_planting_selected();
                 if show_tree_preview {
                     if let Some(hover) = terrain_edit_hover {
                         let tint = if hover.is_editable {
@@ -2886,21 +2853,21 @@ impl App {
 
                         let item_panel_slots = vec![
                             ItemPanelSlot {
-                                index: HAND_SLOT_INDEX,
-                                label: "Hand",
-                                key_hint: "1",
-                                category: Some("FREE"),
-                                icon: None,
-                                accent: SAGE_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: STAFF_SLOT_INDEX,
+                                index: GROW_SLOT_INDEX,
                                 label: "Grow",
-                                key_hint: "2",
+                                key_hint: "1",
                                 category: Some("TOOLS"),
                                 icon: item_panel_staff_icon.as_ref(),
                                 accent: STAFF_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: HAND_SLOT_INDEX,
+                                label: "Hand",
+                                key_hint: "2",
+                                category: Some("FREE"),
+                                icon: None,
+                                accent: SAGE_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -2958,15 +2925,6 @@ impl App {
                                 enabled: true,
                             },
                             ItemPanelSlot {
-                                index: TREE_SLOT_INDEX,
-                                label: "Tree",
-                                key_hint: "Z",
-                                category: Some("ITEMS"),
-                                icon: item_panel_tree_icon.as_ref(),
-                                accent: TREE_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
                                 index: SPRINKLER_SLOT_INDEX,
                                 label: "Spray",
                                 key_hint: "X",
@@ -3002,19 +2960,20 @@ impl App {
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        if self.player_tools.selected_tool() == PlayerTool::Staff {
-                            let flora_paint_panel_response = draw_flora_paint_panel(
+                        if self.player_tools.selected_tool() == PlayerTool::Grow {
+                            let flora_paint_panel_response = draw_plant_panel(
                                 ctx,
-                                &flora_paint_panel_entries,
+                                &plant_panel_entries,
+                                plant_type,
                                 self.window_state.is_cursor_visible(),
                             );
-                            clicked_flora_paint_selection_index =
-                                flora_paint_panel_response.clicked_selection_index;
+                            clicked_plant_variety = flora_paint_panel_response.clicked_variety;
+                            clicked_plant_type = flora_paint_panel_response.clicked_type;
                         }
 
                         // Grow owns the right-side plant selector. The status-only
                         // backpack must not cover its longer, scrollable catalog.
-                        let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Staff {
+                        let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Grow {
                             Default::default()
                         } else {
                             draw_voxel_palette(ctx, &voxel_palette_entries, rooftop_material.is_some() && self.window_state.is_cursor_visible())
@@ -3140,8 +3099,11 @@ impl App {
                 {
                     scene.material = material;
                 }
-                if let Some(selection_idx) = clicked_flora_paint_selection_index {
-                    self.select_flora_paint_selection_index(selection_idx);
+                if let Some(variety) = clicked_plant_variety {
+                    self.select_plant_variety(variety);
+                }
+                if let Some(plant_type) = clicked_plant_type {
+                    self.select_plant_type(plant_type);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();

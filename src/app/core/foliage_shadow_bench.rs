@@ -48,7 +48,7 @@ impl App {
     }
 
     pub(super) fn configure_foliage_shadow_bench_receiver(&mut self) -> Result<()> {
-        self.player_tools.flora_paint_selection_index = 0;
+        self.player_tools.planting.flora_index = 0;
         let center = Vec3::new(
             RECEIVER_CENTER_XZ.x,
             self.query_terrain_height_cpu(RECEIVER_CENTER_XZ),

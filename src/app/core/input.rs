@@ -734,13 +734,7 @@ impl App {
     }
 
     pub(super) fn current_flora_paint_selection(&self) -> species::FloraPaintSelection {
-        let selections = species::PLAYER_FLORA_PAINT_SELECTIONS;
-        let selection_idx = self.player_tools.flora_paint_selection_index % selections.len();
-        selections[selection_idx]
-    }
-
-    pub(super) fn current_flora_paint_selection_label(&self) -> &'static str {
-        species::flora_paint_selection_label(self.current_flora_paint_selection())
+        self.player_tools.planting.flora()
     }
 
     pub(super) fn current_flora_paint_dab_interval(&self) -> Duration {
@@ -772,30 +766,34 @@ impl App {
             return;
         }
 
-        let current_selection_idx = self.player_tools.flora_paint_selection_index % selection_count;
-        if selection_idx == current_selection_idx {
-            self.player_tools.flora_paint_selection_index = selection_idx;
-            return;
-        }
-
-        self.player_tools.flora_paint_selection_index = selection_idx;
-        self.player_tools
-            .restart_stroke(ContinuousTerrainToolAction::StaffRegenerate);
-        self.play_item_panel_scroll_sound();
-        log::info!(
-            "Grow brush flora selection: {}",
-            self.current_flora_paint_selection_label()
-        );
+        self.select_plant_variety(super::plant_catalog::PlantVariety::Flora(
+            species::PLAYER_FLORA_PAINT_SELECTIONS[selection_idx],
+        ));
     }
 
-    pub(super) fn cycle_flora_paint_selection(&mut self) {
-        let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
-        if selection_count == 0 {
-            return;
+    pub(super) fn select_plant_type(&mut self, plant_type: super::plant_catalog::PlantType) {
+        if self.player_tools.select_plant_type(plant_type) {
+            self.stop_terrain_edit_loop_sound();
+            self.play_item_panel_scroll_sound();
         }
+    }
 
-        let current_selection_idx = self.player_tools.flora_paint_selection_index % selection_count;
-        self.select_flora_paint_selection_index((current_selection_idx + 1) % selection_count);
+    pub(super) fn select_plant_variety(&mut self, variety: super::plant_catalog::PlantVariety) {
+        let old_tree_species = self.player_tools.planting.tree_species;
+        if self.player_tools.select_plant_variety(variety) {
+            self.stop_terrain_edit_loop_sound();
+            self.play_item_panel_scroll_sound();
+            if old_tree_species != self.player_tools.planting.tree_species {
+                if let Err(err) = self.sync_tree_placement_preview_from_gui() {
+                    log::error!("Failed to update tree species preview: {err}");
+                }
+            }
+            log::info!("Grow variety selection: {}", variety.label());
+        }
+    }
+
+    pub(super) fn cycle_plant_variety(&mut self) {
+        self.select_plant_variety(self.player_tools.planting.next_variety());
     }
 
     pub(super) fn is_shovel_selected(&self) -> bool {
@@ -811,7 +809,9 @@ impl App {
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.is_place_tool_selected() {
+        if self.is_tree_planting_selected() {
+            TerrainEditPreviewShape::SurfaceCircle
+        } else if self.is_place_tool_selected() {
             match self.current_placeable_kind() {
                 PlaceableKind::Tree | PlaceableKind::Sprinkler => {
                     TerrainEditPreviewShape::SurfaceCircle
@@ -830,8 +830,18 @@ impl App {
         }
     }
 
-    pub(super) fn is_staff_selected(&self) -> bool {
-        self.player_tools.selected_tool() == PlayerTool::Staff
+    pub(super) fn is_grow_selected(&self) -> bool {
+        self.player_tools.selected_tool() == PlayerTool::Grow
+    }
+
+    pub(super) fn is_tree_planting_selected(&self) -> bool {
+        self.is_grow_selected()
+            && self.player_tools.planting.plant_type == super::plant_catalog::PlantType::Tree
+    }
+
+    fn is_flora_planting_selected(&self) -> bool {
+        self.is_grow_selected()
+            && self.player_tools.planting.plant_type == super::plant_catalog::PlantType::Flora
     }
 
     pub(super) fn is_hoe_selected(&self) -> bool {
@@ -1193,7 +1203,7 @@ impl App {
 
     pub(super) fn try_staff_regenerate(&mut self, now: Instant) {
         let action = ContinuousTerrainToolAction::StaffRegenerate;
-        if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_flora_planting_selected() {
             self.stop_terrain_edit_loop_sound();
             self.player_tools.interrupt_stroke(action);
             return;
@@ -1270,7 +1280,7 @@ impl App {
 
     pub(super) fn try_staff_remove_flora(&mut self, now: Instant) {
         let action = ContinuousTerrainToolAction::StaffRemove;
-        if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_flora_planting_selected() {
             self.stop_terrain_edit_loop_sound();
             self.player_tools.interrupt_stroke(action);
             return;
@@ -1582,13 +1592,19 @@ impl App {
         }
     }
 
-    pub(super) fn try_placeable_placement(&mut self) {
-        if !self.terrain_edit_pointer_available() || !self.is_place_tool_selected() {
+    pub(super) fn try_discrete_placement(&mut self) {
+        if !self.terrain_edit_pointer_available()
+            || !(self.is_place_tool_selected() || self.is_tree_planting_selected())
+        {
             self.stop_terrain_edit_loop_sound();
             return;
         }
 
-        let placeable_kind = self.current_placeable_kind();
+        let placeable_kind = if self.is_tree_planting_selected() {
+            PlaceableKind::Tree
+        } else {
+            self.current_placeable_kind()
+        };
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {

@@ -4,11 +4,11 @@ use uuid::Uuid;
 use winit::event::{ElementState, MouseButton};
 
 use super::placeables::PlaceableKind;
+use super::plant_catalog::{PlantType, PlantVariety, PlantingSelection};
 use super::ui_style::{
-    HAND_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
+    GROW_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
     SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
-    STAFF_SLOT_INDEX, TILLER_SLOT_INDEX, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
-    WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
+    TILLER_SLOT_INDEX, WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -16,7 +16,7 @@ pub(super) enum PlayerTool {
     #[default]
     Hand,
     Mower,
-    Staff,
+    Grow,
     Shovel,
     Smooth,
     Hoe,
@@ -32,7 +32,7 @@ impl PlayerTool {
         match slot_idx {
             HAND_SLOT_INDEX => Some(Self::Hand),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
-            STAFF_SLOT_INDEX => Some(Self::Staff),
+            GROW_SLOT_INDEX => Some(Self::Grow),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
             SMOOTH_SLOT_INDEX => Some(Self::Smooth),
             HOE_SLOT_INDEX => Some(Self::Hoe),
@@ -40,7 +40,6 @@ impl PlayerTool {
             SOIL_INSPECTOR_SLOT_INDEX => Some(Self::SoilInspector),
             TILLER_SLOT_INDEX => Some(Self::Tiller),
             WIND_SLOT_INDEX => Some(Self::Wind),
-            TREE_SLOT_INDEX => Some(Self::Placeable),
             _ => None,
         }
     }
@@ -49,7 +48,7 @@ impl PlayerTool {
         match self {
             Self::Hand => HAND_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
-            Self::Staff => STAFF_SLOT_INDEX,
+            Self::Grow => GROW_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
             Self::Smooth => SMOOTH_SLOT_INDEX,
             Self::Hoe => HOE_SLOT_INDEX,
@@ -57,7 +56,7 @@ impl PlayerTool {
             Self::SoilInspector => SOIL_INSPECTOR_SLOT_INDEX,
             Self::Tiller => TILLER_SLOT_INDEX,
             Self::Wind => WIND_SLOT_INDEX,
-            Self::Placeable => TREE_SLOT_INDEX,
+            Self::Placeable => SPRINKLER_SLOT_INDEX,
         }
     }
 
@@ -235,6 +234,7 @@ impl TerrainStrokeRuntime {
 pub(super) enum PlayerToolPointerAction {
     Continuous(ContinuousTerrainToolAction),
     PlaceablePlacement,
+    PlantTree,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -330,7 +330,7 @@ pub(super) struct PlayerToolRuntime {
     pointer: ToolPointerState,
     strokes: TerrainStrokeRuntime,
     pub(super) terrain_edit_radius: f32,
-    pub(super) flora_paint_selection_index: usize,
+    pub(super) planting: PlantingSelection,
     pub(super) terrain_edit_loop_sound: Option<Uuid>,
     pub(super) terrain_edit_loop_sound_muted: bool,
     pub(super) backpack_summary_panel_screen_pos: Option<Vec2>,
@@ -340,11 +340,11 @@ impl Default for PlayerToolRuntime {
     fn default() -> Self {
         Self {
             selected_tool: PlayerTool::Hand,
-            selected_placeable: PlaceableKind::Tree,
+            selected_placeable: PlaceableKind::Sprinkler,
             pointer: ToolPointerState::default(),
             strokes: TerrainStrokeRuntime::default(),
             terrain_edit_radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
-            flora_paint_selection_index: 0,
+            planting: PlantingSelection::default(),
             terrain_edit_loop_sound: None,
             terrain_edit_loop_sound_muted: true,
             backpack_summary_panel_screen_pos: None,
@@ -365,10 +365,7 @@ impl PlayerToolRuntime {
         if self.selected_tool != PlayerTool::Placeable {
             return self.selected_tool.item_panel_slot();
         }
-        match self.selected_placeable {
-            PlaceableKind::Tree => TREE_SLOT_INDEX,
-            PlaceableKind::Sprinkler => SPRINKLER_SLOT_INDEX,
-        }
+        SPRINKLER_SLOT_INDEX
     }
 
     pub(super) fn clear_selected_tool(&mut self) -> PlayerToolSelectionUpdate {
@@ -377,7 +374,6 @@ impl PlayerToolRuntime {
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) -> PlayerToolSelectionUpdate {
         let requested_placeable = match slot_idx {
-            TREE_SLOT_INDEX => Some(PlaceableKind::Tree),
             SPRINKLER_SLOT_INDEX => Some(PlaceableKind::Sprinkler),
             _ => None,
         };
@@ -434,10 +430,25 @@ impl PlayerToolRuntime {
 
     fn placeable_from_panel_slot(slot_idx: usize) -> Option<PlaceableKind> {
         match slot_idx {
-            TREE_PLACEABLE_SLOT_INDEX => Some(PlaceableKind::Tree),
             SPRINKLER_PLACEABLE_SLOT_INDEX => Some(PlaceableKind::Sprinkler),
             _ => None,
         }
+    }
+
+    pub(super) fn select_plant_type(&mut self, plant_type: PlantType) -> bool {
+        let changed = self.planting.select_type(plant_type);
+        if changed {
+            self.cancel_continuous_hold();
+        }
+        changed
+    }
+
+    pub(super) fn select_plant_variety(&mut self, variety: PlantVariety) -> bool {
+        let changed = self.planting.select_variety(variety);
+        if changed {
+            self.cancel_continuous_hold();
+        }
+        changed
     }
 
     fn reset_for_active_tool_change(&mut self) {
@@ -541,6 +552,11 @@ impl PlayerToolRuntime {
             return Some(PlayerToolPointerAction::Continuous(action));
         }
         match (self.selected_tool, button) {
+            (PlayerTool::Grow, MouseButton::Left)
+                if self.planting.plant_type == PlantType::Tree =>
+            {
+                Some(PlayerToolPointerAction::PlantTree)
+            }
             (PlayerTool::Placeable, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::PlaceablePlacement)
             }
@@ -559,10 +575,14 @@ impl PlayerToolRuntime {
                 Some(ContinuousTerrainToolAction::ShovelPlace)
             }
             (PlayerTool::Smooth, MouseButton::Left) => Some(ContinuousTerrainToolAction::Smooth),
-            (PlayerTool::Staff, MouseButton::Left) => {
+            (PlayerTool::Grow, MouseButton::Left)
+                if self.planting.plant_type == PlantType::Flora =>
+            {
                 Some(ContinuousTerrainToolAction::StaffRegenerate)
             }
-            (PlayerTool::Staff, MouseButton::Right) => {
+            (PlayerTool::Grow, MouseButton::Right)
+                if self.planting.plant_type == PlantType::Flora =>
+            {
                 Some(ContinuousTerrainToolAction::StaffRemove)
             }
             (PlayerTool::Hoe, MouseButton::Left) => Some(ContinuousTerrainToolAction::HoeTrim),
@@ -615,10 +635,6 @@ impl PlayerToolRuntime {
         self.strokes.interrupt(action);
     }
 
-    pub(super) fn restart_stroke(&mut self, action: ContinuousTerrainToolAction) {
-        self.strokes.restart(action);
-    }
-
     pub(super) fn flora_paint_dab(
         &mut self,
         now: Instant,
@@ -645,7 +661,7 @@ mod tests {
         let runtime = PlayerToolRuntime::default();
 
         assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
-        assert_eq!(runtime.selected_placeable(), PlaceableKind::Tree);
+        assert_eq!(runtime.selected_placeable(), PlaceableKind::Sprinkler);
         assert_eq!(
             runtime.selected_item_panel_display_slot(),
             super::HAND_SLOT_INDEX
@@ -656,7 +672,7 @@ mod tests {
     fn item_panel_slots_are_translated_at_the_runtime_boundary() {
         let tool_cases = [
             (super::HAND_SLOT_INDEX, PlayerTool::Hand),
-            (super::STAFF_SLOT_INDEX, PlayerTool::Staff),
+            (super::GROW_SLOT_INDEX, PlayerTool::Grow),
             (super::SHOVEL_SLOT_INDEX, PlayerTool::Shovel),
             (super::SMOOTH_SLOT_INDEX, PlayerTool::Smooth),
             (super::HOE_SLOT_INDEX, PlayerTool::Hoe),
@@ -672,18 +688,11 @@ mod tests {
             assert_eq!(runtime.selected_item_panel_display_slot(), slot);
         }
 
-        let placeable_cases = [
-            (
-                super::TREE_SLOT_INDEX,
-                PlaceableKind::Tree,
-                super::TREE_SLOT_INDEX,
-            ),
-            (
-                super::SPRINKLER_SLOT_INDEX,
-                PlaceableKind::Sprinkler,
-                super::SPRINKLER_SLOT_INDEX,
-            ),
-        ];
+        let placeable_cases = [(
+            super::SPRINKLER_SLOT_INDEX,
+            PlaceableKind::Sprinkler,
+            super::SPRINKLER_SLOT_INDEX,
+        )];
         for (slot, expected_placeable, expected_display_slot) in placeable_cases {
             let mut runtime = PlayerToolRuntime::default();
             runtime.select_item_panel_slot(slot);
@@ -703,7 +712,7 @@ mod tests {
     #[test]
     fn wind_item_replaces_terrain_tools_without_starting_terrain_actions() {
         let mut runtime = PlayerToolRuntime::default();
-        runtime.select_item_panel_slot(super::STAFF_SLOT_INDEX);
+        runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
         runtime.begin_pointer_action(MouseButton::Left);
         assert!(runtime.continuous_hold_active());
@@ -719,8 +728,8 @@ mod tests {
         assert!(runtime.begin_pointer_action(MouseButton::Right).is_none());
         runtime.select_item_panel_slot(super::WIND_SLOT_INDEX);
         assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
-        runtime.select_item_panel_slot(super::STAFF_SLOT_INDEX);
-        assert_eq!(runtime.selected_tool(), PlayerTool::Staff);
+        runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Grow);
     }
 
     #[test]
@@ -769,12 +778,12 @@ mod tests {
                 ContinuousTerrainToolAction::Smooth,
             ),
             (
-                PlayerTool::Staff,
+                PlayerTool::Grow,
                 MouseButton::Left,
                 ContinuousTerrainToolAction::StaffRegenerate,
             ),
             (
-                PlayerTool::Staff,
+                PlayerTool::Grow,
                 MouseButton::Right,
                 ContinuousTerrainToolAction::StaffRemove,
             ),
@@ -812,7 +821,7 @@ mod tests {
     #[test]
     fn placeable_pointer_input_is_discrete_and_never_starts_a_hold() {
         let mut runtime = PlayerToolRuntime::default();
-        runtime.select_item_panel_slot(super::TREE_SLOT_INDEX);
+        runtime.select_item_panel_slot(super::SPRINKLER_SLOT_INDEX);
 
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
         assert_eq!(
@@ -823,6 +832,62 @@ mod tests {
         runtime.set_pointer_button_state(MouseButton::Right, ElementState::Pressed);
         assert_eq!(runtime.begin_pointer_action(MouseButton::Right), None);
         assert!(!runtime.continuous_hold_active());
+    }
+
+    #[test]
+    fn grow_tree_selection_routes_discrete_planting_and_cancels_flora_hold() {
+        let mut runtime = PlayerToolRuntime::default();
+        assert_eq!(super::GROW_SLOT_INDEX, 0, "Digit1 selects Grow");
+        runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Left),
+            Some(PlayerToolPointerAction::Continuous(
+                ContinuousTerrainToolAction::StaffRegenerate
+            ))
+        );
+        assert!(runtime.continuous_hold_active());
+        assert!(runtime.select_plant_type(super::PlantType::Tree));
+        assert!(!runtime.continuous_hold_active());
+        assert_eq!(runtime.active_continuous_action(), None);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Grow);
+        assert_eq!(
+            runtime.selected_item_panel_display_slot(),
+            super::GROW_SLOT_INDEX
+        );
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Left),
+            Some(PlayerToolPointerAction::PlantTree)
+        );
+        assert!(!runtime.continuous_hold_active());
+        assert!(!runtime.has_secondary_pointer_action());
+        assert_eq!(runtime.begin_pointer_action(MouseButton::Right), None);
+
+        runtime.select_item_panel_slot(super::SHOVEL_SLOT_INDEX);
+        runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
+        assert_eq!(runtime.planting.plant_type, super::PlantType::Tree);
+        assert!(runtime.select_plant_type(super::PlantType::Flora));
+        assert!(runtime.has_secondary_pointer_action());
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Right),
+            Some(PlayerToolPointerAction::Continuous(
+                ContinuousTerrainToolAction::StaffRemove
+            ))
+        );
+    }
+
+    #[test]
+    fn changing_variety_cancels_the_old_stroke_and_retired_tree_slot_is_inert() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        runtime.begin_pointer_action(MouseButton::Left);
+        let next = runtime.planting.next_variety();
+        assert!(runtime.select_plant_variety(next));
+        assert!(!runtime.continuous_hold_active());
+        assert_eq!(runtime.planting.variety(), next);
+        assert!(!runtime.select_item_panel_slot(9).changed());
+        assert_eq!(runtime.selected_tool(), PlayerTool::Grow);
     }
 
     #[test]
@@ -904,7 +969,7 @@ mod tests {
             ),
             (super::HOE_SLOT_INDEX, ContinuousTerrainToolAction::HoeTrim),
             (
-                super::STAFF_SLOT_INDEX,
+                super::GROW_SLOT_INDEX,
                 ContinuousTerrainToolAction::StaffRegenerate,
             ),
             (

@@ -141,7 +141,7 @@ impl GrassStemReview {
                     (frame / self.grid) as f32 - half,
                 ) * 0.10;
             let center = Vec3::new(patch.x, app.query_terrain_height_cpu(patch), patch.y);
-            app.player_tools.flora_paint_selection_index = 0;
+            app.player_tools.planting.flora_index = 0;
             app.apply_surface_flora_regeneration_at(
                 crate::app::world_edits::TerrainBrushEdit {
                     start: center,

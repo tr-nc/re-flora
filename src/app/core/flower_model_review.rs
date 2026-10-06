@@ -130,7 +130,7 @@ impl App {
         };
         settings.auto_daynight_cycle.value = false;
         if frame == 0 {
-            self.select_item_panel_slot(super::ui_style::STAFF_SLOT_INDEX);
+            self.select_item_panel_slot(super::ui_style::GROW_SLOT_INDEX);
             let mut batch = AuthoredFloraPlacementBatch::new();
             let mut center = Vec3::ZERO;
             for model in 0..crate::flora::models::MODEL_COUNT {

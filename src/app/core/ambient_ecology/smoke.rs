@@ -54,12 +54,12 @@ impl App {
             "unknown ecology scene: {scene}"
         );
         self.clear_ecology_fixture_vegetation()?;
-        let previous = self.player_tools.flora_paint_selection_index;
+        let previous = self.player_tools.planting.flora_index;
         let result = (|| -> Result<()> {
             if matches!(scene, "grass" | "dense" | "plants") {
                 let count = if scene == "plants" { 8 } else { 2 };
                 for i in 0..count {
-                    self.player_tools.flora_paint_selection_index =
+                    self.player_tools.planting.flora_index =
                         if scene == "plants" { 1 + i % 2 } else { 0 };
                     let xz = if scene == "dense" {
                         Vec2::new(0.6 + i as f32 * 0.7, 0.65)
@@ -90,7 +90,7 @@ impl App {
             }
             Ok(())
         })();
-        self.player_tools.flora_paint_selection_index = previous;
+        self.player_tools.planting.flora_index = previous;
         result?;
         // Fixtures must not depend on a user-owned camera snapshot. The normal
         // overview camera can be outside the bounded ecology listener range.
