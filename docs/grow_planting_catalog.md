@@ -3,7 +3,7 @@
 ## Player behavior
 
 - **1 / Grow** is the unified planting tool; **2 / Hand** clears the active tool. Other numeric bindings are unchanged.
-- The right-hand panel has **Type: Flora / Tree**, followed by **Variety**.
+- The right-hand panel has **Type: Flora / Tree**, followed by **Variety**. Its frame stays at half the viewport height for both catalogs; the variety list fills the remaining space and scrolls internally.
 - Flora retains exactly `PLAYER_FLORA_PAINT_SELECTIONS`: Grass Mix and the existing model-flower catalog. Left hold paints; right hold removes flora.
 - Tree currently offers **Garden Tree**, using the existing authored tree settings. Left click plants one tree; holding does not repeat. The existing tree geometry preview and next-placement random seed remain in use.
 - The standalone Tree toolbar item and Z shortcut are removed. X / Sprinkler remains separate.
@@ -39,3 +39,9 @@ To add a tree variety, add its `TreeSpecies` variant, register it in `ALL`, and 
 - Worktree `cargo build --release`: passed; Release binary is ready.
 - `cargo run --release -- --hidden --mute --auto-exit 0.5`: passed. Inspected the same worktree's `--tail-latest-log 200`: no ERROR/panic/VUID; normal successful exit. Log: `target/re-flora-logs/re-flora-20261007-002206.608-1861085.log`. One fruit-physics hitch warning reported 62.202 ms; this is startup smoke, not performance acceptance.
 - No generated files or `config/gui.toml` changes. No visible game was automatically launched; new menu appearance and actual in-world planting were not manually visually reviewed.
+
+### Fixed panel height follow-up
+
+- Set the full panel to 50% of viewport height, subtracting the frame's actual total margins for the inner content. Disable vertical auto-shrink on the remaining list area.
+- `cargo fmt --check`, `cargo check`, all 3 `grow_panel` tests, and `cargo build --release` passed. The height test checks Flora → Tree → Flora at 480, 720 and 1080 viewport heights; the existing short-window catalog click test remains passing.
+- Hidden muted Release smoke passed; inspected `--tail-latest-log 200`, no ERROR/panic/VUID and normal successful exit. Log: `target/re-flora-logs/re-flora-20261007-003957.262-1868632.log`; fruit startup hitch warning 24.816 ms. Full suite was not rerun for this follow-up; the baseline failures above remain known.

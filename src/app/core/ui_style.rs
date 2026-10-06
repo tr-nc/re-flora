@@ -237,6 +237,11 @@ pub(crate) fn draw_plant_panel(
 
             panel_frame.show(ui, |ui| {
                 ui.set_width(FLORA_PAINT_PANEL_WIDTH);
+                // Keep both catalogs at half the viewport height, including frame margins.
+                ui.set_height(
+                    (ctx.content_rect().height() * 0.5 - panel_frame.total_margin().sum().y)
+                        .max(0.0),
+                );
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Planting")
@@ -273,14 +278,11 @@ pub(crate) fn draw_plant_panel(
                 ui.add_space(4.0);
                 ui.label("Variety");
 
-                // Reserve room for the header, screen margins and bottom tool
-                // tray. Every catalog entry remains reachable on short windows.
+                // The catalog fills the remaining fixed panel space, even for one tree.
                 egui::ScrollArea::vertical()
                     .id_salt(("plant_varieties", plant_type))
-                    .max_height(
-                        (ctx.content_rect().height() - 250.0).max(FLORA_PAINT_BUTTON_HEIGHT),
-                    )
-                    .auto_shrink([false, true])
+                    .max_height(ui.available_height().max(FLORA_PAINT_BUTTON_HEIGHT))
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for entry in entries {
                             if draw_plant_panel_entry(ui, entry, interaction_enabled) {
@@ -1398,6 +1400,53 @@ mod hover_layout_tests {
             selected += 1;
         }
         assert_eq!(selected, crate::flora::models::MODEL_COUNT);
+    }
+
+    #[test]
+    fn grow_panel_height_is_half_the_viewport_for_both_catalogs() {
+        let context = egui::Context::default();
+        let mut style = (*context.global_style()).clone();
+        apply_gui_style(&mut style);
+        context.set_global_style(style);
+        for height in [480.0, 720.0, 1080.0] {
+            let mut heights = Vec::new();
+            for plant_type in [PlantType::Flora, PlantType::Tree, PlantType::Flora] {
+                let entries = plant_type
+                    .varieties()
+                    .into_iter()
+                    .map(|variety| PlantPanelEntry {
+                        variety,
+                        label: variety.label(),
+                        selected: false,
+                    })
+                    .collect::<Vec<_>>();
+                for _ in 0..4 {
+                    let _ = context.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(640.0, height),
+                            )),
+                            ..Default::default()
+                        },
+                        |_| {
+                            draw_plant_panel(&context, &entries, plant_type, true);
+                        },
+                    );
+                }
+                let rect = context
+                    .memory(|memory| memory.area_rect(egui::Id::new("flora_paint_panel")))
+                    .unwrap();
+                assert!(
+                    (rect.height() - height * 0.5).abs() <= 1.0,
+                    "{plant_type:?}: panel {} vs viewport {height}",
+                    rect.height()
+                );
+                heights.push(rect.height());
+            }
+            assert_eq!(heights[0], heights[1]);
+            assert_eq!(heights[1], heights[2]);
+        }
     }
 
     #[test]
