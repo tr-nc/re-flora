@@ -107,32 +107,36 @@ id = "stone_preview_enabled"
 kind = "bool"
 label = "Stone preview: enabled"
 type = "Bool"
+
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "stone_direct_triangles"
 kind = "bool"
 label = "Stone: direct triangle rendering (A/B)"
 type = "Bool"
+
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "stone_preview_focus"
 kind = "bool"
 label = "Stone preview: focus camera on enable"
 type = "Bool"
+
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "stone_preview_lift"
 kind = "float"
 label = "Stone preview: lift above garden (world units)"
 type = "Float"
+
 [section.param.data]
-value = 0.15
+value = 0
 min = 0
 max = 0.6
 
@@ -141,8 +145,9 @@ id = "stone_yaw"
 kind = "float"
 label = "Stone: rigid rotation (degrees)"
 type = "Float"
+
 [section.param.data]
-value = 0
+value = 225
 min = 0
 max = 360
 
@@ -151,17 +156,22 @@ id = "stone_kind"
 kind = "choice"
 label = "Stone type"
 type = "Choice"
+
 [section.param.data]
 value = 1
-options = ["Paving slab", "Landscape rock"]
+options = [
+    "Paving slab",
+    "Landscape rock",
+]
 
 [[section.param]]
 id = "stone_seed"
 kind = "uint"
 label = "Stone model seed"
 type = "Uint"
+
 [section.param.data]
-value = 42
+value = 22500
 min = 0
 max = 65535
 
@@ -170,8 +180,9 @@ id = "stone_width"
 kind = "float"
 label = "Stone width (world units)"
 type = "Float"
+
 [section.param.data]
-value = 0.24
+value = 0.106
 min = 0.04
 max = 0.42
 
@@ -180,8 +191,9 @@ id = "stone_depth"
 kind = "float"
 label = "Stone depth (world units)"
 type = "Float"
+
 [section.param.data]
-value = 0.22
+value = 0.125
 min = 0.04
 max = 0.42
 
@@ -190,9 +202,11 @@ id = "stone_slab_thickness"
 kind = "float"
 label = "Paving slab thickness (world units)"
 type = "Float"
+
 [section.param.enabled_if]
 param = "stone_kind"
 equals = 0
+
 [section.param.data]
 value = 0.035
 min = 0.012
@@ -203,11 +217,13 @@ id = "stone_rock_height"
 kind = "float"
 label = "Landscape rock height (world units)"
 type = "Float"
+
 [section.param.enabled_if]
 param = "stone_kind"
 equals = 1
+
 [section.param.data]
-value = 0.2
+value = 0.086
 min = 0.04
 max = 0.38
 
@@ -216,8 +232,9 @@ id = "stone_variation"
 kind = "float"
 label = "Stone silhouette variation"
 type = "Float"
+
 [section.param.data]
-value = 0.45
+value = 0
 min = 0
 max = 1
 
@@ -226,9 +243,11 @@ id = "stone_slab_edge_cut"
 kind = "float"
 label = "Paving slab corner cut"
 type = "Float"
+
 [section.param.enabled_if]
 param = "stone_kind"
 equals = 0
+
 [section.param.data]
 value = 0.18
 min = 0.06
@@ -239,11 +258,13 @@ id = "stone_rock_facets"
 kind = "uint"
 label = "Landscape rock cutting planes"
 type = "Uint"
+
 [section.param.enabled_if]
 param = "stone_kind"
 equals = 1
+
 [section.param.data]
-value = 18
+value = 16
 min = 8
 max = 24
 
@@ -278,8 +299,11 @@ param = "scene_supersampling_enabled"
 equals = true
 
 [section.param.data]
-value = 0
-options = ["4 to 1 (2x2 source pixels)", "16 to 1 (4x4 source pixels)"]
+value = 1
+options = [
+    "4 to 1 (2x2 source pixels)",
+    "16 to 1 (4x4 source pixels)",
+]
 
 [[section.param]]
 id = "scene_pixel_resolve_mode"
@@ -292,8 +316,11 @@ param = "scene_supersampling_enabled"
 equals = true
 
 [section.param.data]
-value = 0
-options = ["HDR average (previous reference)", "Contrast-aware (experimental)"]
+value = 1
+options = [
+    "HDR average (previous reference)",
+    "Contrast-aware (experimental)",
+]
 
 [[section.param]]
 id = "grass_band_pixelization"
@@ -320,7 +347,7 @@ label = "Experimental color-band stems (CPU climbing paths)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "flower_stem_model_resolution"
@@ -424,7 +451,7 @@ label = "Model direction count (128 / 256 or custom)"
 type = "Uint"
 
 [section.param.data]
-value = 32
+value = 128
 min = 8
 max = 512
 
@@ -814,7 +841,7 @@ label = "Global scene dither (Bayer 4x4, A/B)"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "ordered_dither_levels"
@@ -827,7 +854,7 @@ param = "ordered_dither_global"
 equals = true
 
 [section.param.data]
-value = 8
+value = 12
 min = 2
 max = 32
 step = 1
@@ -843,7 +870,7 @@ param = "ordered_dither_global"
 equals = true
 
 [section.param.data]
-value = 1.0
+value = 0.2
 min = 0
 max = 1
 step = 0.05
@@ -1055,7 +1082,7 @@ param = "glass_refraction_enabled"
 equals = true
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "glass_stored_voxel_normal"
@@ -2227,7 +2254,7 @@ label = "Connection Weakening Half-life (Seconds)"
 type = "Float"
 
 [section.param.data]
-value = 120
+value = 420
 min = 5
 max = 600
 
