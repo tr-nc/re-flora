@@ -6,6 +6,23 @@ use crate::app::world_edits::TerrainBrushEdit;
 use crate::terrain_deposition::{DepositionRequest, DepositionResult};
 
 impl App {
+    pub(super) fn soil_deposition_radius(&self) -> f32 {
+        self.debug_settings
+            .adjustables
+            .soil_deposition_spread_radius
+            .value
+            / 256.
+    }
+
+    pub(super) fn terrain_tool_preview_radius(&self) -> f32 {
+        if self.player_tools.selected_tool() == PlayerTool::Soil {
+            // A zero-spread grain still needs a visible one-voxel target, not a zero-sized ring.
+            self.soil_deposition_radius().max(0.5 / 256.)
+        } else {
+            self.player_tools.terrain_edit_radius
+        }
+    }
+
     pub(super) fn try_soil_deposition(&mut self, now: Instant) {
         let action = ContinuousTerrainToolAction::SoilDeposit;
         if !self.terrain_edit_pointer_available()
@@ -15,10 +32,7 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         }
-        if !self
-            .player_tools
-            .stroke_ready(action, now, SHOVEL_DIG_INTERVAL)
-        {
+        if !self.player_tools.stroke_ready(action, now, Duration::ZERO) {
             return;
         }
         // A missing/rejected surface must break the path and budget; never catch up across air.
@@ -31,10 +45,12 @@ impl App {
             }
         };
         let rate = self.debug_settings.adjustables.soil_deposition_rate.value;
-        let (volume, seed) =
-            self.player_tools
-                .soil_deposition_budget(now, rate, SHOVEL_DIG_INTERVAL);
-        let edit = self.player_tools.stroke_edit(action, center);
+        let (volume, seed) = self.player_tools.soil_deposition_budget(now, rate);
+        let edit = self.player_tools.stroke_edit_with_radius(
+            action,
+            center,
+            self.soil_deposition_radius(),
+        );
         match self.apply_soil_deposition(edit, volume, seed) {
             Ok(result) if result.added > 0 => {
                 self.start_terrain_edit_loop_sound(center);
@@ -117,7 +133,7 @@ impl App {
                 world_ops::FloraBrushEdit {
                     start: edit.start,
                     end: edit.end,
-                    radius: edit.radius + (clump_radius + 17) as f32 / 256.,
+                    radius: request.horizontal_halo() / 256.,
                     tick: self.world_clock.flora_tick(),
                     spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
                 },

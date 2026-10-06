@@ -3477,7 +3477,7 @@ impl App {
                         sun_altitude,
                         sun_azimuth,
                         terrain_edit_preview_center,
-                        terrain_edit_preview_radius: self.player_tools.terrain_edit_radius,
+                        terrain_edit_preview_radius: self.terrain_tool_preview_radius(),
                         terrain_edit_preview_shape,
                         terrain_edit_preview_color,
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,

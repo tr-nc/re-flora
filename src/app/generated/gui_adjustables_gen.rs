@@ -1388,9 +1388,15 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Soil Deposition",
+        id: "soil_deposition_spread_radius",
+        kind: "float",
+        label: "Soil spread radius (voxels; 0 = precise)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Soil Deposition",
         id: "soil_deposition_clump_radius",
         kind: "uint",
-        label: "Soil clump radius (voxels)",
+        label: "Soil clump radius (voxels; 0 = individual grains)",
     },
     GeneratedGuiParamDescriptor {
         section: "Soil Deposition",
@@ -1791,6 +1797,7 @@ pub struct GuiAdjustables {
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
     pub infinite_materials: crate::gui_adjustables::BoolParam,
     pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
+    pub soil_deposition_spread_radius: crate::gui_adjustables::FloatParam,
     pub soil_deposition_clump_radius: crate::gui_adjustables::UintParam,
     pub soil_deposition_repose_slope: crate::gui_adjustables::FloatParam,
     pub terrain_soil_strength: crate::gui_adjustables::FloatParam,
@@ -2060,6 +2067,7 @@ impl GuiAdjustables {
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut infinite_materials_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut soil_deposition_spread_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_deposition_clump_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_repose_slope_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_soil_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3584,6 +3592,13 @@ impl GuiAdjustables {
                             soil_deposition_rate_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "soil_deposition_spread_radius" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            soil_deposition_spread_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "soil_deposition_clump_radius" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
@@ -4016,6 +4031,7 @@ impl GuiAdjustables {
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
             infinite_materials: infinite_materials_field.expect("Missing parameter: infinite_materials"),
             soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
+            soil_deposition_spread_radius: soil_deposition_spread_radius_field.expect("Missing parameter: soil_deposition_spread_radius"),
             soil_deposition_clump_radius: soil_deposition_clump_radius_field.expect("Missing parameter: soil_deposition_clump_radius"),
             soil_deposition_repose_slope: soil_deposition_repose_slope_field.expect("Missing parameter: soil_deposition_repose_slope"),
             terrain_soil_strength: terrain_soil_strength_field.expect("Missing parameter: terrain_soil_strength"),
@@ -4210,6 +4226,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_detail_frequency" => Some(&adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
         "soil_deposition_rate" => Some(&adjustables.soil_deposition_rate),
+        "soil_deposition_spread_radius" => Some(&adjustables.soil_deposition_spread_radius),
         "soil_deposition_repose_slope" => Some(&adjustables.soil_deposition_repose_slope),
         "terrain_soil_strength" => Some(&adjustables.terrain_soil_strength),
         "terrain_rock_strength" => Some(&adjustables.terrain_rock_strength),
@@ -4513,6 +4530,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_detail_frequency" => Some(&mut adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
         "soil_deposition_rate" => Some(&mut adjustables.soil_deposition_rate),
+        "soil_deposition_spread_radius" => Some(&mut adjustables.soil_deposition_spread_radius),
         "soil_deposition_repose_slope" => Some(&mut adjustables.soil_deposition_repose_slope),
         "terrain_soil_strength" => Some(&mut adjustables.terrain_soil_strength),
         "terrain_rock_strength" => Some(&mut adjustables.terrain_rock_strength),

@@ -1328,6 +1328,21 @@ impl App {
             return;
         }
 
+        if self.player_tools.selected_tool() == super::player_tools::PlayerTool::Soil {
+            // The wheel and Debug slider edit the same saved field. Edit's radius is untouched.
+            let spread = &mut self
+                .debug_settings
+                .adjustables
+                .soil_deposition_spread_radius;
+            let previous = spread.value;
+            spread.value =
+                (spread.value + scroll_lines).clamp(*spread.range.start(), *spread.range.end());
+            if (spread.value - previous).abs() > f32::EPSILON {
+                self.play_item_panel_scroll_sound();
+            }
+            return;
+        }
+
         let previous_radius = self.player_tools.terrain_edit_radius;
         self.player_tools.terrain_edit_radius = (self.player_tools.terrain_edit_radius
             + scroll_lines * super::TERRAIN_EDIT_RADIUS_SCROLL_STEP)

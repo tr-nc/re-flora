@@ -944,6 +944,28 @@ impl App {
                 }),
             "deposition overwrote old material or crossed the model floor"
         );
+        let mut checked_new = 0;
+        for z in 0..dim.z {
+            for y in 1..dim.y {
+                for x in 0..dim.x {
+                    let i = ((z * dim.y + y) * dim.x + x) as usize;
+                    if before[i] & VOXEL_TYPE_MASK == 0
+                        && thick[i] & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8
+                    {
+                        anyhow::ensure!(
+                            offset.y + y == SOIL_MIN.y
+                                || thick[i - dim.x as usize] & VOXEL_TYPE_MASK != 0,
+                            "GPU soil has an unsupported internal gap"
+                        );
+                        checked_new += 1;
+                    }
+                }
+            }
+        }
+        anyhow::ensure!(
+            checked_new == total,
+            "GPU compaction scan missed newly added soil"
+        );
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         anyhow::ensure!(
             self.contree_builder
@@ -955,7 +977,11 @@ impl App {
         let opening = self.tracer.camera_pose();
         let cursor = self.cursor_position_physical;
         let slot = self.player_tools.selected_item_panel_display_slot();
-        let radius = self.player_tools.terrain_edit_radius;
+        let spread = self
+            .debug_settings
+            .adjustables
+            .soil_deposition_spread_radius
+            .value;
         let inventory: Vec<_> = self
             .voxel_backpack
             .snapshot()
@@ -964,7 +990,10 @@ impl App {
             .collect();
         self.player_tools
             .select_item_panel_slot(ui_style::SOIL_DEPOSITION_SLOT_INDEX);
-        self.player_tools.terrain_edit_radius = edit.radius;
+        self.debug_settings
+            .adjustables
+            .soil_deposition_spread_radius
+            .value = 0.;
         let extent = self.window_state.window_extent();
         self.cursor_position_physical = Some(Vec2::new(
             extent.width as f32 / 2.,
@@ -982,14 +1011,22 @@ impl App {
             action == player_tools::ContinuousTerrainToolAction::SoilDeposit,
             "Soil invoked the geometry brush"
         );
-        self.execute_continuous_terrain_tool_action(action, Instant::now());
-        self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Released);
-        self.refresh_terrain_edit_hold_from_mouse_buttons();
+        let press = Instant::now();
+        self.execute_continuous_terrain_tool_action(action, press);
         let after_pointer = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
         anyhow::ensure!(
-            count(&after_pointer) > count(&thick),
-            "production Soil pointer path deposited nothing"
+            count(&after_pointer) == count(&thick) + 1,
+            "production Soil pointer path did not add exactly one voxel"
         );
+        self.contree_builder.flush_cpu_chunk_cache_jobs();
+        self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(100));
+        let during_tap = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        anyhow::ensure!(
+            count(&during_tap) == count(&after_pointer),
+            "a short Soil tap repeated before the hold delay"
+        );
+        self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Released);
+        self.refresh_terrain_edit_hold_from_mouse_buttons();
         anyhow::ensure!(
             inventory
                 == self
@@ -1001,12 +1038,23 @@ impl App {
             "unlimited Soil mutated normal inventory"
         );
         self.player_tools.select_item_panel_slot(slot);
-        self.player_tools.terrain_edit_radius = radius;
+        self.debug_settings
+            .adjustables
+            .soil_deposition_spread_radius
+            .value = spread;
         self.cursor_position_physical = cursor;
         self.tracer.apply_camera_pose(opening);
         self.contree_builder.flush_cpu_chunk_cache_jobs();
-        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true backpack_preserved=true",
-            initial.added, total, height(&thin), height(&thick));
+        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true single_voxel_click=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
+            initial.added, total, height(&thin), height(&thick), checked_new);
+        if std::env::var_os("RE_FLORA_SOIL_REPORT_CLOSEUP").is_some() {
+            let focus = center + Vec3::Y * 0.015;
+            self.camera_control.set_orbit_focus(focus);
+            self.tracer
+                .set_camera_pose_looking_at(focus + Vec3::new(0.15, 0.12, 0.19), focus);
+            self.player_tools
+                .select_item_panel_slot(ui_style::SOIL_DEPOSITION_SLOT_INDEX);
+        }
         Ok(())
     }
 

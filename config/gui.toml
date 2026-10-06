@@ -2612,19 +2612,30 @@ label = "Soil volume per second (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 6000
-min = 100
+value = 20
+min = 1
 max = 64000
+
+[[section.param]]
+id = "soil_deposition_spread_radius"
+kind = "float"
+label = "Soil spread radius (voxels; 0 = precise)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = 0
+max = 128
 
 [[section.param]]
 id = "soil_deposition_clump_radius"
 kind = "uint"
-label = "Soil clump radius (voxels)"
+label = "Soil clump radius (voxels; 0 = individual grains)"
 type = "Uint"
 
 [section.param.data]
-value = 2
-min = 1
+value = 0
+min = 0
 max = 4
 
 [[section.param]]

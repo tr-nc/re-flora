@@ -604,9 +604,16 @@ impl PlayerToolRuntime {
         action: ContinuousTerrainToolAction,
         center: Vec3,
     ) -> crate::app::world_edits::TerrainBrushEdit {
-        self.strokes
-            .tracker(action)
-            .edit(center, self.terrain_edit_radius)
+        self.stroke_edit_with_radius(action, center, self.terrain_edit_radius)
+    }
+
+    pub(super) fn stroke_edit_with_radius(
+        &self,
+        action: ContinuousTerrainToolAction,
+        center: Vec3,
+        radius: f32,
+    ) -> crate::app::world_edits::TerrainBrushEdit {
+        self.strokes.tracker(action).edit(center, radius)
     }
 
     pub(super) fn previous_stroke_center(
@@ -646,13 +653,8 @@ impl PlayerToolRuntime {
         }
     }
 
-    pub(super) fn soil_deposition_budget(
-        &mut self,
-        now: Instant,
-        rate: f32,
-        quantum: Duration,
-    ) -> (u32, u32) {
-        self.soil_flow.take(now, rate, quantum)
+    pub(super) fn soil_deposition_budget(&mut self, now: Instant, rate: f32) -> (u32, u32) {
+        self.soil_flow.take(now, rate)
     }
 
     pub(super) fn flora_paint_dab(
@@ -753,8 +755,7 @@ mod tests {
         );
         assert!(!runtime.has_secondary_pointer_action());
         let now = Instant::now();
-        let quantum = Duration::from_millis(80);
-        assert_eq!(runtime.soil_deposition_budget(now, 1000., quantum).0, 80);
+        assert_eq!(runtime.soil_deposition_budget(now, 1000.).0, 1);
         runtime.record_stroke_dab(ContinuousTerrainToolAction::SoilDeposit, now, Vec3::ZERO);
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         runtime.finish_pointer_release();
@@ -764,9 +765,9 @@ mod tests {
         );
         assert_eq!(
             runtime
-                .soil_deposition_budget(now + Duration::from_secs(10), 1000., quantum)
+                .soil_deposition_budget(now + Duration::from_secs(10), 1000.)
                 .0,
-            80
+            1
         );
         runtime.select_item_panel_slot(super::SHOVEL_SLOT_INDEX);
         runtime.set_pointer_button_state(MouseButton::Right, ElementState::Pressed);

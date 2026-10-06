@@ -9,7 +9,12 @@ use glam::{UVec3, Vec3};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-const SETTLE_STEPS: u32 = 16;
+const SETTLE_DISTANCE: u32 = 32;
+const CLICK_HOLD_DELAY: Duration = Duration::from_millis(200);
+// Every f32 rate >= 1 is represented exactly at this scale. Integer nanosecond credit
+// avoids frame-by-frame floating-point rounding losing a voxel at an integral boundary.
+const FLOW_RATE_SCALE: u128 = 1 << 23;
+const FLOW_VOXEL_UNITS: u128 = FLOW_RATE_SCALE * 1_000_000_000;
 pub(crate) const MAX_DEPOSITION_BATCH: u32 = 32_768;
 
 #[derive(Clone, Copy, Debug)]
@@ -29,11 +34,15 @@ impl DepositionRequest {
         self.start.is_finite()
             && self.end.is_finite()
             && self.radius.is_finite()
-            && self.radius > 0.0
-            && (1..=4).contains(&self.clump_radius)
+            && self.radius >= 0.0
+            && self.clump_radius <= 4
             && self.repose_slope.is_finite()
             && self.repose_slope >= 0.25
             && self.volume <= MAX_DEPOSITION_BATCH
+    }
+
+    pub(crate) fn horizontal_halo(self) -> f32 {
+        self.radius + self.clump_radius as f32 + SETTLE_DISTANCE as f32 + 1.
     }
 
     /// Exclusive sampling bounds. Only X/Z depend on spread; Y retains the legal world range.
@@ -41,7 +50,7 @@ impl DepositionRequest {
         if !self.valid() || self.volume == 0 || legal.min().cmpge(legal.max()).any() {
             return None;
         }
-        let halo = self.radius + self.clump_radius as f32 + SETTLE_STEPS as f32 + 1.0;
+        let halo = self.horizontal_halo();
         let low = (self.start.min(self.end) - Vec3::splat(halo)).floor();
         let high = (self.start.max(self.end) + Vec3::splat(halo)).ceil();
         let min = UVec3::new(
@@ -154,8 +163,14 @@ pub(crate) fn deposit(
         let Some(mut column) = column_at(&mut columns, x, z) else {
             continue;
         };
-        for _ in 0..SETTLE_STEPS {
+        let source = (x, z);
+        let source_height = (column.next + 1) as f32;
+        for _ in 0..SETTLE_DISTANCE {
+            // Loose soil cannot hold another grain on a one-column/one-axis pedestal,
+            // even when a deliberately steep repose setting would otherwise let it stop.
+            let supported_base = soil_base_is_broad(data, dim, x, z, column.next, floor_local);
             let mut best = (x, z, column);
+            let mut best_grade = 0.;
             let turn = (rng.unit() * 8.0) as usize;
             const NEIGHBORS: [(i32, i32); 8] = [
                 (1, 0),
@@ -177,18 +192,26 @@ pub(crate) fn deposit(
                 let Some(next) = column_at(&mut columns, nx as u32, nz as u32) else {
                     continue;
                 };
-                let distance = if dx != 0 && dz != 0 {
+                // Carry the grain's source height and true radial travel through the entire
+                // slide. Resetting the comparison after each integer voxel hop turns both
+                // unit and diagonal steps into a one-voxel limit: a square pyramid metric.
+                let distance = (nx as f32 - source.0 as f32).hypot(nz as f32 - source.1 as f32);
+                let step = if dx != 0 && dz != 0 {
                     std::f32::consts::SQRT_2
                 } else {
-                    1.0
+                    1.
                 };
-                if (column.next + 1) as f32 - next.next as f32 > request.repose_slope * distance
-                    && next.next < best.2.next
+                let grade = column.next.saturating_sub(next.next) as f32 / step;
+                if distance <= SETTLE_DISTANCE as f32
+                    && (!supported_base || source_height - next.next as f32 > request.repose_slope * distance)
+                    && next.next <= column.next
+                    && grade > best_grade
                     && next.next < next.ceiling
                     // Do not descend into an air interval through its solid ceiling.
                     && column.next <= next.ceiling
                 {
                     best = (nx as u32, nz as u32, next);
+                    best_grade = grade;
                 }
             }
             if (best.0, best.1) == (x, z) {
@@ -196,7 +219,9 @@ pub(crate) fn deposit(
             }
             (x, z, column) = best;
         }
-        if column.next >= column.ceiling {
+        if column.next >= column.ceiling
+            || !soil_base_is_broad(data, dim, x, z, column.next, floor_local)
+        {
             continue;
         }
         let pos = UVec3::new(x, column.next, z) + offset;
@@ -218,6 +243,22 @@ pub(crate) fn deposit(
         result.changed = Some(UAabb3::new(changed_min, changed_max));
     }
     result
+}
+
+/// Rigid substrate / an explicit model plane can support a first grain. Stacking on
+/// soil additionally needs solid shoulders under it in both horizontal axes. This is
+/// a contact constraint, not a smoothing/deletion pass or a cap on a whole pile's height.
+fn soil_base_is_broad(data: &[u8], dim: UVec3, x: u32, z: u32, y: u32, floor: Option<u32>) -> bool {
+    if y == 0 || floor == Some(y) {
+        return true;
+    }
+    let solid = |x, z| data[((z * dim.y + y - 1) * dim.x + x) as usize] & VOXEL_TYPE_MASK;
+    if solid(x, z) != VOXEL_TYPE_DIRT as u8 {
+        return true;
+    }
+    let x_support = (x > 0 && solid(x - 1, z) != 0) || (x + 1 < dim.x && solid(x + 1, z) != 0);
+    let z_support = (z > 0 && solid(x, z - 1) != 0) || (z + 1 < dim.z && solid(x, z + 1) != 0);
+    x_support && z_support
 }
 
 fn find_column(
@@ -265,37 +306,56 @@ fn find_column(
 }
 
 /// Time-based material budget. Reset on release/miss/tool change, retaining only the RNG serial.
-/// A click releases one small quantum immediately; holding adds elapsed-time volume. Fractional
+/// A press releases one voxel immediately; short taps do not repeat. After the hold delay,
+/// continuous flow adds elapsed-time volume without borrowing the shovel's coarse cadence. Fractional
 /// voxels survive sampling, so ordinary frame cadence and footprint size do not change flow.
 /// Catch-up after a stall is capped at 250 ms; stopped time never produces a giant dose.
 #[derive(Debug, Default)]
 pub(crate) struct DepositionFlow {
     last: Option<Instant>,
-    fraction: f64,
+    fraction: u128,
     serial: u32,
 }
 impl DepositionFlow {
     pub(crate) fn reset(&mut self) {
         self.last = None;
-        self.fraction = 0.0;
+        self.fraction = 0;
     }
 
-    pub(crate) fn take(&mut self, now: Instant, rate: f32, quantum: Duration) -> (u32, u32) {
-        let elapsed = self
-            .last
-            .map_or(quantum, |last| now.saturating_duration_since(last));
-        self.last = Some(now);
-        let amount = if rate.is_finite() {
-            f64::from(rate.max(0.0)) * elapsed.as_secs_f64().min(0.25) + self.fraction
+    pub(crate) fn take(&mut self, now: Instant, rate: f32) -> (u32, u32) {
+        let credit = if !rate.is_finite() || rate <= 0. {
+            self.last = Some(now + CLICK_HOLD_DELAY);
+            self.fraction = 0;
+            0
+        } else if let Some(last) = self.last {
+            if now < last {
+                self.fraction
+            } else {
+                self.last = Some(now);
+                let elapsed = now
+                    .saturating_duration_since(last)
+                    .min(Duration::from_millis(250));
+                let scaled_rate = (f64::from(rate) * FLOW_RATE_SCALE as f64).round() as u128;
+                elapsed
+                    .as_nanos()
+                    .saturating_mul(scaled_rate)
+                    .saturating_add(self.fraction)
+            }
         } else {
-            0.0
+            // The first repeat budget starts after the tap/hold distinction, not at press.
+            self.last = Some(now + CLICK_HOLD_DELAY);
+            FLOW_VOXEL_UNITS
         };
-        let whole = amount.floor().min(f64::from(MAX_DEPOSITION_BATCH)) as u32;
-        self.fraction = amount - amount.floor();
+        let whole = (credit / FLOW_VOXEL_UNITS).min(u128::from(MAX_DEPOSITION_BATCH)) as u32;
+        self.fraction = credit % FLOW_VOXEL_UNITS;
         self.serial = self.serial.wrapping_add(1);
         (whole, self.serial.wrapping_mul(0x9e3779b9))
     }
 }
+
+#[cfg(test)]
+#[path = "terrain_deposition/report.rs"]
+mod report;
 
 #[cfg(test)]
 mod tests {
@@ -355,6 +415,49 @@ mod tests {
             .iter()
             .enumerate()
             .any(|(i, v)| *v != 0 && (i as u32 / DIM.x) % DIM.y > 2 + r.radius as u32));
+    }
+
+    #[test]
+    fn stationary_pile_cross_sections_are_round_not_grid_aligned_pyramids() {
+        let mut data = empty();
+        let mut r = request(2048);
+        r.radius = 0.;
+        r.clump_radius = 0;
+        for seed in 1..=8 {
+            r.seed = seed;
+            assert_eq!(
+                deposit(&mut data, UVec3::ZERO, DIM, Some(2), r).added,
+                r.volume
+            );
+        }
+        assert_eq!(count(&data), 16384);
+        let top = (2..DIM.y)
+            .rev()
+            .find(|&y| (0..DIM.z).any(|z| (0..DIM.x).any(|x| data[idx(x, y, z)] != 0)))
+            .unwrap();
+        for y in [2 + (top - 2) / 3, 2 + (top - 2) / 2] {
+            let mut widths = Vec::new();
+            for direction in 0..16 {
+                let angle = direction as f32 * std::f32::consts::PI / 16.;
+                let (sin, cos) = angle.sin_cos();
+                let mut min = f32::INFINITY;
+                let mut max = f32::NEG_INFINITY;
+                for z in 0..DIM.z {
+                    for x in 0..DIM.x {
+                        if data[idx(x, y, z)] != 0 {
+                            let projected = x as f32 * cos + z as f32 * sin;
+                            min = min.min(projected);
+                            max = max.max(projected);
+                        }
+                    }
+                }
+                widths.push(max - min);
+            }
+            let min = widths.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = widths.iter().copied().fold(0., f32::max);
+            let anisotropy = max / min;
+            assert!(anisotropy < 1.15, "stationary pile is directionally biased at y={y}: width ratio {anisotropy:.3}; round sections should not have square/diamond pyramid silhouettes");
+        }
     }
 
     #[test]
@@ -518,30 +621,154 @@ mod tests {
     }
 
     #[test]
+    fn random_individual_grains_have_a_broad_base_and_no_internal_voids() {
+        let mut data = empty();
+        for z in 0..DIM.z {
+            for x in 0..DIM.x {
+                data[idx(x, 1, z)] = 7;
+            }
+        }
+        let mut r = request(1);
+        r.clump_radius = 0;
+        r.repose_slope = 2.;
+        for grain in 1u32..=4096 {
+            r.seed = grain.wrapping_mul(0x9e3779b9);
+            let result = deposit(&mut data, UVec3::ZERO, DIM, None, r);
+            assert_eq!(result.added, 1);
+            let p = result.changed.unwrap().min();
+            if p.y > 2 {
+                let y = p.y - 1;
+                let x_support = (p.x > 0 && data[idx(p.x - 1, y, p.z)] != 0)
+                    || (p.x + 1 < DIM.x && data[idx(p.x + 1, y, p.z)] != 0);
+                let z_support = (p.z > 0 && data[idx(p.x, y, p.z - 1)] != 0)
+                    || (p.z + 1 < DIM.z && data[idx(p.x, y, p.z + 1)] != 0);
+                assert!(x_support && z_support, "grain {grain} created a narrow elevated column at {p:?}: x_support={x_support}, z_support={z_support}");
+            }
+        }
+        assert_eq!(count(&data), 4096);
+        let heights: Vec<u32> = (0..DIM.z)
+            .flat_map(|z| {
+                let data = &data;
+                (0..DIM.x).map(move |x| {
+                    (2..DIM.y)
+                        .filter(|&y| data[idx(x, y, z)] == VOXEL_TYPE_DIRT as u8)
+                        .count() as u32
+                })
+            })
+            .collect();
+        for layer in 1..=*heights.iter().max().unwrap() {
+            assert_eq!(
+                super::report::layer_holes(&heights, DIM, layer),
+                0,
+                "layer {layer} has an interior mesh-like hole"
+            );
+        }
+        for z in 0..DIM.z {
+            for x in 0..DIM.x {
+                let mut air = false;
+                for y in 2..DIM.y {
+                    if data[idx(x, y, z)] == 0 {
+                        air = true;
+                    } else {
+                        assert!(!air, "soil bridged an unfilled column at ({x}, {y}, {z})");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn targeted_single_grain_changes_exactly_one_voxel() {
+        let mut data = empty();
+        let mut r = request(1);
+        r.start = Vec3::new(24.5, 2., 24.5);
+        r.end = r.start;
+        r.radius = 0.;
+        r.clump_radius = 0;
+        let result = deposit(&mut data, UVec3::ZERO, DIM, Some(2), r);
+        assert_eq!(result.added, 1);
+        assert_eq!(count(&data), 1);
+        assert_eq!(data[idx(24, 2, 24)], VOXEL_TYPE_DIRT as u8);
+        assert_eq!(
+            result.changed.unwrap(),
+            UAabb3::new(UVec3::new(24, 2, 24), UVec3::new(24, 2, 24))
+        );
+    }
+
+    #[test]
+    fn every_click_releases_one_grain_and_holding_uses_the_configured_rate() {
+        let start = Instant::now();
+        for rate in [1., 20., 6000.] {
+            let mut flow = DepositionFlow::default();
+            assert_eq!(
+                flow.take(start, rate).0,
+                1,
+                "one click must not emit a whole rate-derived clump"
+            );
+            let mut added = 1;
+            // Includes 200 ms tap grace followed by one second of continuous emission.
+            for i in 1..=24 {
+                added += flow.take(start + Duration::from_millis(i * 50), rate).0;
+            }
+            assert_eq!(added, 1 + rate as u32);
+            flow.reset();
+            assert_eq!(flow.take(start + Duration::from_secs(10), rate).0, 1);
+        }
+    }
+
+    #[test]
+    fn short_taps_do_not_repeat_and_bad_rates_cannot_create_material() {
+        let start = Instant::now();
+        let mut flow = DepositionFlow::default();
+        assert_eq!(flow.take(start, 20.).0, 1);
+        for ms in [50, 100, 150, 200] {
+            assert_eq!(flow.take(start + Duration::from_millis(ms), 20.).0, 0);
+        }
+        assert_eq!(flow.take(start + Duration::from_millis(250), 20.).0, 1);
+        assert_eq!(
+            flow.take(start + Duration::from_secs(100), 20.).0,
+            5,
+            "stall catch-up must be capped at 250 ms"
+        );
+        for rate in [0., -1., f32::NAN, f32::INFINITY] {
+            flow.reset();
+            assert_eq!(flow.take(start, rate).0, 0);
+        }
+    }
+
+    #[test]
+    fn a_narrow_soil_pedestal_is_not_allowed_to_grow_into_a_needle() {
+        let mut data = empty();
+        data[idx(24, 1, 24)] = 7;
+        let mut r = request(1);
+        r.start = Vec3::new(24.5, 2., 24.5);
+        r.end = r.start;
+        r.radius = 0.;
+        r.clump_radius = 0;
+        r.repose_slope = 2.;
+        assert_eq!(deposit(&mut data, UVec3::ZERO, DIM, None, r).added, 1);
+        r.volume = 8;
+        assert_eq!(deposit(&mut data, UVec3::ZERO, DIM, None, r).added, 0);
+        assert_eq!(count(&data), 1);
+        assert_eq!(data[idx(24, 1, 24)], 7);
+    }
+
+    #[test]
     fn time_budget_preserves_fractions_and_is_sampling_rate_independent() {
         let start = Instant::now();
-        let quantum = Duration::from_millis(80);
         let mut fast = DepositionFlow::default();
         let mut slow = DepositionFlow::default();
-        let mut a = fast.take(start, 101.25, quantum).0;
-        let mut b = slow.take(start, 101.25, quantum).0;
+        let mut a = fast.take(start, 101.25).0;
+        let mut b = slow.take(start, 101.25).0;
         for i in 1..=100 {
-            a += fast
-                .take(start + Duration::from_millis(i * 10), 101.25, quantum)
-                .0;
+            a += fast.take(start + Duration::from_millis(i * 10), 101.25).0;
         }
         for i in 1..=10 {
-            b += slow
-                .take(start + Duration::from_millis(i * 100), 101.25, quantum)
-                .0;
+            b += slow.take(start + Duration::from_millis(i * 100), 101.25).0;
         }
         assert_eq!(a, b);
-        assert_eq!(a, 109);
+        assert_eq!(a, 82);
         fast.reset();
-        assert_eq!(
-            fast.take(start + Duration::from_secs(100), 101.25, quantum)
-                .0,
-            8
-        );
+        assert_eq!(fast.take(start + Duration::from_secs(100), 101.25).0, 1);
     }
 }
