@@ -121,11 +121,12 @@ impl LeafCanopy {
                 if growth <= 0.0 {
                     return None;
                 }
-                let load = wind
+                let speed = wind
                     .sample_world(socket.position.as_vec3() / 256.0)
-                    .length_squared()
-                    * growth
-                    * growth;
+                    .length();
+                // Flexible leaves turn/fold rather than remaining broadside.
+                // Art-directed effective drag, not SI wind units.
+                let load = speed * speed / (1. + speed / 4.) * growth * growth;
                 (load >= socket.strength(now, settings)).then_some(LeafDetachment {
                     id: LeafId {
                         tree: self.tree,
@@ -200,13 +201,30 @@ impl Socket {
     }
 
     fn strength(&self, now: f64, settings: LeafLifecycleSettings) -> f32 {
-        let threshold_speed = 0.7 + 2.0 * unit(self.life_seed());
+        // Healthy attachments withstand ordinary hand gusts. Game wind units,
+        // not botanical breaking-force measurements.
+        let threshold_speed = 8. + 8. * unit(self.life_seed());
         let initial = threshold_speed * threshold_speed;
         let mature = self.growing_since.map_or(self.mature_since, |start| {
             start + f64::from(self.growth_duration(settings))
         });
-        let age = (now - mature).max(0.0);
-        let decay = (-age / f64::from(settings.half_life_seconds.max(0.01))).exp2() as f32;
+        let half_life = f64::from(settings.half_life_seconds.max(0.01));
+        let healthy_duration =
+            half_life * 4. * f64::from(0.8 + 0.4 * unit(self.life_seed() ^ 0x4d392abc));
+        // Established canopies have mixed ages and a small senescent tail.
+        // Replacement generations begin young, never pre-weakened.
+        let initial_age = if self.growing_since.is_some() {
+            0.
+        } else {
+            let age_fraction = unit(self.seed ^ 0x68bc21eb);
+            if age_fraction < 0.02 {
+                healthy_duration + half_life * f64::from(6. + age_fraction * 200.)
+            } else {
+                healthy_duration * f64::from((age_fraction - 0.02) / 0.98)
+            }
+        };
+        let senescent_age = ((now - mature).max(0.0) + initial_age - healthy_duration).max(0.0);
+        let decay = (-senescent_age / half_life).exp2() as f32;
         // No spontaneous shedding at zero wind, even after a very long time.
         (0.09 + (initial - 0.09) * decay) * settings.strength.max(0.001)
     }
@@ -239,17 +257,35 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_gust_does_not_strip_a_healthy_canopy() {
+        let canopy = canopy();
+        let settings = LeafLifecycleSettings::default();
+        let events = canopy.plan(0., settings, &WindFieldFrame::uniform(Vec2::X * 8.));
+        println!(
+            "ordinary gust: {} / {} detached",
+            events.len(),
+            canopy.len()
+        );
+        assert!(
+            events.len() < canopy.len() / 10,
+            "ordinary gust detached {}/{} leaves",
+            events.len(),
+            canopy.len()
+        );
+    }
+
+    #[test]
     fn strong_wind_detaches_every_leaf_immediately_without_a_retention_floor() {
         let settings = LeafLifecycleSettings::default();
         let mut canopy = canopy();
-        let events = canopy.plan(0.0, settings, &WindFieldFrame::uniform(Vec2::X * 10.0));
+        let events = canopy.plan(0.0, settings, &WindFieldFrame::uniform(Vec2::X * 100.0));
         assert_eq!(events.len(), canopy.len());
         for event in events {
             assert!(canopy.commit(event, 0.0, settings));
             assert!(!canopy.commit(event, 0.0, settings));
         }
         assert!(canopy
-            .plan(0.0, settings, &WindFieldFrame::uniform(Vec2::X * 10.0))
+            .plan(0.0, settings, &WindFieldFrame::uniform(Vec2::X * 100.0))
             .is_empty());
         assert!((0..canopy.len()).all(|i| canopy.growth(i, 0.0, settings) == 0.0));
     }
@@ -277,12 +313,25 @@ mod tests {
     }
 
     #[test]
+    fn healthy_replacements_do_not_weaken_during_their_stable_phase() {
+        let mut canopy = canopy();
+        let settings = LeafLifecycleSettings::default();
+        let event = canopy.plan(0., settings, &WindFieldFrame::uniform(Vec2::X * 100.))[0];
+        assert!(canopy.commit(event, 0., settings));
+        let socket = &canopy.sockets[event.id.socket as usize];
+        let mature = socket.growing_since.unwrap() + f64::from(socket.growth_duration(settings));
+        let young = socket.strength(mature, settings);
+        assert_eq!(young, socket.strength(mature + 120., settings));
+        assert!(socket.strength(mature + 1500., settings) < young);
+    }
+
+    #[test]
     fn local_wind_reaches_real_leaf_not_a_cluster_representative() {
         let canopy = LeafCanopy::new(7, 11, &[UVec3::ZERO, UVec3::new(511, 128, 0)], 0.0);
-        let mut wind = WindFieldFrame::uniform(Vec2::X * 10.0);
+        let mut wind = WindFieldFrame::uniform(Vec2::X * 100.0);
         for (i, pair) in wind.cells.iter_mut().enumerate() {
-            pair[0] = if i * 2 % 32 == 31 { 10.0 } else { 0.0 };
-            pair[2] = if (i * 2 + 1) % 32 == 31 { 10.0 } else { 0.0 };
+            pair[0] = if i * 2 % 32 == 31 { 100.0 } else { 0.0 };
+            pair[2] = if (i * 2 + 1) % 32 == 31 { 100.0 } else { 0.0 };
         }
         let events = canopy.plan(0.0, LeafLifecycleSettings::default(), &wind);
         assert_eq!(events.len(), 1);
@@ -296,13 +345,13 @@ mod tests {
         assert!(canopy
             .plan(1e9, settings, &WindFieldFrame::default())
             .is_empty());
-        let event = canopy.plan(0.0, settings, &WindFieldFrame::uniform(Vec2::X * 10.0))[0];
+        let event = canopy.plan(0.0, settings, &WindFieldFrame::uniform(Vec2::X * 100.0))[0];
         assert!(canopy.commit(event, 0.0, settings));
         assert_eq!(canopy.growth(0, 0.0, settings), 0.0);
         assert!((0.0..1.0).contains(&canopy.growth(0, 15.0, settings)));
         assert_eq!(canopy.growth(0, 40.0, settings), 1.0);
         assert!(!canopy.commit(event, 40.0, settings));
-        let next = canopy.plan(40.0, settings, &WindFieldFrame::uniform(Vec2::X * 10.0))[0];
+        let next = canopy.plan(40.0, settings, &WindFieldFrame::uniform(Vec2::X * 100.0))[0];
         assert_eq!(next.id.generation, event.id.generation + 1);
         assert_ne!(next.seed, event.seed);
     }
@@ -329,9 +378,11 @@ mod tests {
         use crate::wind_field::WindField;
         for manual in [false, true] {
             let root = UVec3::new(0, 128, 128);
-            let canopy = LeafCanopy::new(1, 1, &[root], 0.0);
+            // Intentionally senescent subject: this checks field arrival and
+            // transfer timing, not the resistance of a healthy leaf.
+            let canopy = LeafCanopy::new(1, 1, &[root], -1e6);
             let settings = LeafLifecycleSettings {
-                strength: 0.01,
+                strength: 0.001,
                 ..Default::default()
             };
             let mut field = WindField::default();
@@ -347,7 +398,8 @@ mod tests {
                 let time = frame as f32 / 60.0;
                 field.advance(time);
                 let wind = field.frame();
-                let local = wind.sample_world(root.as_vec3() / 256.0).length_squared();
+                let speed = wind.sample_world(root.as_vec3() / 256.0).length();
+                let local = speed * speed / (1. + speed / 4.);
                 let above = local >= canopy.sockets[0].strength(time as f64, settings);
                 assert_eq!(!canopy.plan(time as f64, settings, &wind).is_empty(), above,
                     "manual={manual} frame={frame}: no emission accumulator is allowed after arrival");
@@ -367,7 +419,7 @@ mod tests {
     fn replacement_and_reset_do_not_inherit_stale_missing_leaves() {
         let settings = LeafLifecycleSettings::default();
         let mut canopy = canopy();
-        let wind = WindFieldFrame::uniform(Vec2::X * 10.0);
+        let wind = WindFieldFrame::uniform(Vec2::X * 100.0);
         let event = canopy.plan(0.0, settings, &wind)[0];
         let mut replacement = LeafCanopy::new(7, 12, &[event.world_voxel], 0.0);
         assert!(!replacement.commit(event, 0.0, settings));

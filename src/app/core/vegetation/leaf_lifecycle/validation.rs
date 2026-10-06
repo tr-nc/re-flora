@@ -27,7 +27,9 @@ impl Validation {
 
     pub fn wind(&self) -> WindFieldFrame {
         if self.stage == 1 || self.stage == 3 {
-            WindFieldFrame::uniform(Vec2::X * 10.0)
+            // Deliberately catastrophic load validates complete handoff, not
+            // the amount of shedding expected from an ordinary manual gust.
+            WindFieldFrame::uniform(Vec2::X * 100.0)
         } else {
             WindFieldFrame::default()
         }

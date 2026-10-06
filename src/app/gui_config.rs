@@ -810,7 +810,7 @@ fn render_gui_from_config(
                 return;
             }
             if section.name == "Falling Leaves" {
-                ui_text::hint(ui, "Leaves detach from the canopy and regrow. Strong wind may strip the entire canopy; canopy progress is session-only. Model appearance, size and pixel resolution change only the falling leaves' display, not their physics.");
+                ui_text::hint(ui, "Healthy leaves retain strong attachments before age-related weakening. Ordinary gusts mainly shed the older leaves; extreme wind can still strip the canopy. The weakening half-life also sets the healthy lifetime scale. Detached leaves regrow as ordinary blocks; canopy progress is session-only.");
             }
             render_section_controls(ui, section, adjustables, has_debug);
             if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
