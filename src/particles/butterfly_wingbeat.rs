@@ -109,15 +109,13 @@ fn average_strokes(phase: f32, dt: f32) -> (f32, f32) {
 pub struct ButterflyWingbeatPose {
     pub phase: f32,
     pub blend: f32,
-    pub orientation: Quat,
+    /// Decorative roll only; primary orientation is derived from velocity.
+    pub bank: f32,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct WingbeatCoupling {
     pub pose: ButterflyWingbeatPose,
-    heading: Option<f32>,
-    pitch: f32,
-    bank: f32,
 }
 
 impl WingbeatCoupling {
@@ -134,45 +132,65 @@ impl WingbeatCoupling {
         // renderer and dynamics, rather than retaining an infinitesimal experiment.
         let target = if enabled { 1. } else { 0. };
         self.pose.blend += (target - self.pose.blend).clamp(-dt * 4., dt * 4.);
-        let speed = air_velocity.x.hypot(air_velocity.z);
-        let yaw_target = if speed > 0.001 {
-            (-air_velocity.x).atan2(-air_velocity.z)
-        } else {
-            self.heading.unwrap_or(0.)
-        };
-        let heading = self.heading.get_or_insert(yaw_target);
-        let delta = (yaw_target - *heading + std::f32::consts::PI)
-            .rem_euclid(std::f32::consts::TAU)
-            - std::f32::consts::PI;
-        *heading += (delta * (1. - (-dt / 0.15).exp())).clamp(-3. * dt, 3. * dt);
-        let forward = Quat::from_rotation_y(*heading) * -Vec3::Z;
+        let forward = air_velocity.normalize_or_zero();
         let bank_target = (forward.cross(steering).y * 3.).clamp(-0.45, 0.45);
-        self.bank += (bank_target - self.bank) * (1. - (-dt / 0.18).exp());
-        // Low-pass air-relative pitch so beat-induced vertical velocity does not
-        // amplify the source animation's existing cycle pitch.
-        let pitch_target = air_velocity.y.atan2(speed.max(0.01)).clamp(-0.3, 0.3);
-        self.pitch += (pitch_target - self.pitch) * (1. - (-dt / 0.35).exp());
-        self.pose.orientation = Quat::from_rotation_y(*heading)
-            * Quat::from_rotation_x(self.pitch)
-            * Quat::from_rotation_z(self.bank);
+        self.pose.bank += (bank_target - self.pose.bank) * (1. - (-dt / 0.18).exp());
     }
 
-    pub fn acceleration(&self, speed: f32, vertical: f32, dt: f32) -> Vec3 {
+    pub fn acceleration(&self, velocity: Vec3, speed: f32, vertical: f32, dt: f32) -> Vec3 {
         if self.pose.blend == 0. || dt <= 0. {
             return Vec3::ZERO;
         }
         let (down, up) = average_strokes(self.pose.phase, dt);
-        let support = self.pose.orientation * Vec3::Y;
-        let forward = self.pose.orientation * -Vec3::Z;
+        let orientation = flight_orientation(velocity, self.pose.bank);
+        let support = orientation * Vec3::Y;
+        let forward = orientation * -Vec3::Z;
         self.pose.blend
             * speed
             * (support * (0.08 * vertical * (down - 1.)) + forward * (0.10 * (up - 1.)))
     }
 }
 
+/// The model's local -Z axis follows the published displacement velocity.
+/// Roll cannot change that axis. At rest use a deterministic finite basis.
+pub(crate) fn flight_orientation(velocity: Vec3, bank: f32) -> Quat {
+    if !velocity.is_finite() || velocity.length_squared() <= 1e-12 {
+        return Quat::IDENTITY;
+    }
+    let planar = velocity.x.hypot(velocity.z);
+    let yaw = if planar > 1e-6 {
+        (-velocity.x).atan2(-velocity.z)
+    } else {
+        0.
+    };
+    let pitch = velocity.y.atan2(planar);
+    Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch) * Quat::from_rotation_z(bank)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn velocity_is_the_only_heading_authority_even_with_bank() {
+        for velocity in [
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::NEG_Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+            Vec3::new(1., 2., -3.),
+        ] {
+            for bank in [-0.45, 0., 0.45] {
+                let rotation = flight_orientation(velocity, bank);
+                assert!((rotation * Vec3::NEG_Z).dot(velocity.normalize()) > 0.99999);
+                assert!((rotation.length() - 1.).abs() < 1e-6);
+            }
+        }
+        assert_eq!(flight_orientation(Vec3::ZERO, 0.4), Quat::IDENTITY);
+        assert_eq!(flight_orientation(Vec3::NAN, 0.), Quat::IDENTITY);
+    }
 
     #[test]
     fn actual_animation_strokes_have_unit_mean_and_correct_direction() {
@@ -201,11 +219,11 @@ mod tests {
                     pose: ButterflyWingbeatPose {
                         phase: (offset + tick as f32 / 120.).rem_euclid(1.),
                         blend: 1.,
-                        orientation: Quat::IDENTITY,
+                        bank: 0.,
                     },
                     ..Default::default()
                 };
-                integral += coupling.acceleration(1., 4., 1. / 120.) / 120.;
+                integral += coupling.acceleration(Vec3::NEG_Z, 1., 4., 1. / 120.) / 120.;
             }
             assert!(integral.length() < 1e-6, "net cycle impulse {integral:?}");
         }
@@ -219,13 +237,16 @@ mod tests {
             left.advance(i as f32 / 120., true, 1. / 120., -Vec3::Z * 0.05, -Vec3::X);
             right.advance(i as f32 / 120., true, 1. / 120., -Vec3::Z * 0.05, Vec3::X);
         }
-        assert!(left.bank > 0. && right.bank < 0.);
-        assert!((left.bank + right.bank).abs() < 1e-6);
-        assert!(left.bank <= 0.45);
+        assert!(left.pose.bank > 0. && right.pose.bank < 0.);
+        assert!((left.pose.bank + right.pose.bank).abs() < 1e-6);
+        assert!(left.pose.bank <= 0.45);
         for _ in 0..31 {
             left.advance(0., false, 1. / 120., Vec3::ZERO, Vec3::ZERO);
         }
         assert_eq!(left.pose.blend, 0.);
-        assert_eq!(left.acceleration(1., 4., 1. / 120.), Vec3::ZERO);
+        assert_eq!(
+            left.acceleration(Vec3::NEG_Z, 1., 4., 1. / 120.),
+            Vec3::ZERO
+        );
     }
 }

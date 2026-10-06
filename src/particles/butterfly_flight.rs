@@ -470,7 +470,7 @@ impl DartingFlightState {
             (self.acceleration
                 + self
                     .wingbeat
-                    .acceleration(tuning.speed, tuning.vertical_strength, dt))
+                    .acceleration(velocity, tuning.speed, tuning.vertical_strength, dt))
             .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed)
         } else {
             // Preserve the original limiter/settling semantics exactly when off.

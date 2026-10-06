@@ -7,7 +7,9 @@ use crate::{
 };
 use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::{Quat, Vec3};
+#[cfg(test)]
+use glam::Quat;
+use glam::Vec3;
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
 const CAPACITY: usize = 256;
@@ -123,21 +125,8 @@ impl ButterflyMeshRenderer {
             });
             let transforms = source.transforms(phase, 0);
             let root_motion = transforms[source.node("Flight pose")].w_axis.truncate();
-            let speed = s.velocity.x.hypot(s.velocity.z);
-            let yaw = if speed > 0.0001 {
-                (-s.velocity.x).atan2(-s.velocity.z)
-            } else {
-                0.
-            };
-            let pitch = s.velocity.y.atan2(speed.max(0.001)).clamp(-0.4, 0.4);
-            let facing = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
-            let facing = coupling.map_or(facing, |p| {
-                if blend == 1. {
-                    p.orientation
-                } else {
-                    facing.slerp(p.orientation, blend)
-                }
-            });
+            let bank = coupling.map_or(0., |p| p.bank * blend);
+            let facing = crate::particles::butterfly_wingbeat::flight_orientation(s.velocity, bank);
             let rgb = ButterflyPalettePreset::from_index(s.palette_index).base_color_srgb();
             self.instances.push(Instance {
                 position_size: (s.position_ws
@@ -221,11 +210,11 @@ mod tests {
     #[test]
     fn coupled_pose_preserves_publication_and_has_no_duplicate_bob() {
         let mut s = snapshot(ParticleRenderKind::Butterfly);
-        let orientation = Quat::from_rotation_y(0.7);
+        let orientation = Quat::from_rotation_z(0.2);
         s.butterfly_wingbeat = Some(crate::particles::ButterflyWingbeatPose {
             phase: 0.413,
             blend: 1.,
-            orientation,
+            bank: 0.2,
         });
         let mut r = ButterflyMeshRenderer::default();
         r.prepare_frame_models(&[s], settings(), Vec3::ZERO)
@@ -240,7 +229,9 @@ mod tests {
         s.velocity = Vec3::Y;
         r.prepare_frame_models(&[s], settings(), Vec3::ZERO)
             .unwrap();
-        assert_eq!(first, bytemuck::cast_slice::<Instance, u8>(&r.instances));
+        assert_ne!(first, bytemuck::cast_slice::<Instance, u8>(&r.instances));
+        let forward = Quat::from_array(r.instances[0].view_orientation) * Vec3::NEG_Z;
+        assert!(forward.dot(s.velocity.normalize()) > 0.9999);
     }
     #[test]
     fn invalid_publication_does_not_retain_previous_instances() {
