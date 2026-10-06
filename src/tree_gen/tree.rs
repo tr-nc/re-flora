@@ -173,6 +173,20 @@ impl Tree {
         &self.built_objects.trunks
     }
 
+    /// The exact world-voxel wood used by stamping, surface extraction and ownership.
+    /// Keep translation arithmetic identical; a local-space sign test is not equivalent
+    /// at f32 voxel boundaries. `origin` is in world units, cones are in voxel units.
+    pub fn world_trunks(&self, origin: Vec3) -> Vec<RoundCone> {
+        self.trunks()
+            .iter()
+            .cloned()
+            .map(|mut cone| {
+                cone.transform(origin * 256.);
+                cone
+            })
+            .collect()
+    }
+
     /// Obtain the leaf positions relative to the tree position.
     pub fn relative_leaf_positions(&self) -> &[Vec3] {
         &self.built_objects.leaf_positions

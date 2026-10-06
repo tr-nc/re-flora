@@ -433,12 +433,7 @@ impl TreePlacementService {
             tree.trunks(),
             canopy_sample_budget,
         );
-        let mut round_cones = Vec::with_capacity(tree.trunks().len());
-        for tree_trunk in tree.trunks() {
-            let mut round_cone = tree_trunk.clone();
-            round_cone.transform(tree_pos * 256.0);
-            round_cones.push(round_cone);
-        }
+        let round_cones = tree.world_trunks(tree_pos);
 
         let (radius_min, radius_max, length_min, length_max, short_count, steep_count) =
             analyze_round_cones(&round_cones);

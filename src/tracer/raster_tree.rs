@@ -205,6 +205,10 @@ impl RasterTreeMesh {
             .and_then(|mesh| mesh.binding_cache.get(&tree_id))
             .filter(|cache| Arc::ptr_eq(&cache.tree, tree) && cache.origin == origin);
         let binder = RestSkinBinder::new(tree);
+        // Extraction tests the stamped world-space cones. Repeating that test in
+        // local space can change its sign at a voxel boundary after f32 translation.
+        let world_cones = tree.world_trunks(origin);
+        let ownership = RoundConeClearanceIndex::new(&world_cones);
         let mut corners = BTreeMap::new();
         let mut cell_owner = None;
         for (vertex, binding) in self.vertices.iter().zip(&mut self.bindings) {
@@ -215,8 +219,8 @@ impl RasterTreeMesh {
             let owns_cell = match cell_owner {
                 Some((key, owns)) if key == center_key => owns,
                 _ => {
-                    let center = (Vec3::from_array(vertex.center) - origin) * 256.;
-                    let owns = binder.owns_cell(center);
+                    let center = Vec3::from_array(vertex.center) * 256.;
+                    let owns = !ownership.has_minimum_clearance(center, 0.);
                     cell_owner = Some((center_key, owns));
                     owns
                 }
@@ -685,6 +689,34 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn translated_surface_cells_keep_their_extraction_owner_at_float_boundaries() {
+        let tree = small_tree();
+        let origin = Vec3::from_array([1065356240, 1051367764, 1067107866].map(f32::from_bits));
+        let mut cones = tree.trunks().to_vec();
+        for cone in &mut cones {
+            cone.transform(origin * 256.);
+        }
+        let cell = UVec3::new(256, 128, 300);
+        let center = cell.as_vec3() + Vec3::splat(0.5);
+        assert!(!RoundConeClearanceIndex::new(&cones).has_minimum_clearance(center, 0.));
+        assert!(!RestSkinBinder::new(&tree).owns_cell((center / 256. - origin) * 256.));
+        let mut bytes = vec![0; 125];
+        bytes[2 + 5 * (2 + 5 * 2)] = 5;
+        let mut mesh = RasterTreeMesh::default();
+        mesh.append_region(cell - UVec3::splat(2), UVec3::splat(5), &bytes, &cones)
+            .unwrap();
+        mesh.finish().unwrap();
+        mesh.bind_tree(7, origin, &tree, None).unwrap();
+        assert_eq!(
+            mesh.gpu_skin()
+                .expect("extracted wood must retain its owner")
+                .bindings
+                .len(),
+            8
+        );
     }
 
     #[test]
