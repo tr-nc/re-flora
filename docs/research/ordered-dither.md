@@ -1,5 +1,19 @@
 # Re: Flora 有序 dither：研究与原生实验
 
+## 当前实现：仅全局 Bayer（`03b16c91`）
+
+按用户决定收敛为一个保存的 `Global scene dither (Bayer 4x4, A/B)`，保留 Brightness levels 与 Strength 两个全局调整参数。删除 Pattern choice、四个局部 checkbox、flags/precedence 编码、另一种阈值表，以及 terrain/sky/rays/flare/glass 中对应的局部量化与位置切换逻辑。Shader 只在 `post_processing.slang` 做一次固定 Bayer 4×4；原生 HUD/Debug UI 不变。
+
+关闭或 Strength 0 保持原输出；整数 scene blocks、partial edges、独立 source density、HDR average / Contrast-aware 与整份 source-color resolve 不变。玻璃相机效果恢复 canonical-cell owner，不再因局部候选改采样位置。旧配置加载时丢弃退休字段，刷新现存 label/条件，保留 global/levels/strength 用户值；不会把旧 local=true 当成 global=true。加载不写文件，统一 Save 才输出三项。
+
+当前 hidden fixture 为原效果 → global Bayer → Strength 0 → 原效果返回四阶段；grid 仍为四档 ratio × 两档 density × 两种 resolve，共 16 阶段。主工作区通过 Release/check/fmt、native smoke / compare / sun / glass / grid / GUI（29 PNG），Vulkan validation 与同步验证无 ERROR/VUID/panic。37 Slang CPU 测试通过；用同一源代码及出厂配置的隔离副本跑完整 Rust：1366 app + 4 library passed，5 ignored。未覆盖/重置用户工作区配置。
+
+[HTML](ordered-dither.html) 已移除分项/多图案选项，打包本次原生图片与[报告](ordered-dither-assets/bayer-only/evidence.json)。开发途中全套测试还发现六个既有 fixture 依赖用户当前的石材/玻璃/模型/像素设置；出厂配置隔离副本通过，未借机更改这些不相关的用户设置或重写测试。
+
+以下保留初次研究及其历史捕获；其中局部控件、多图案和 11 阶段序列**不是当前 API**，不可据此指导现在的 GUI 或验证脚本。美术、运动稳定性与 Release 性能接受仍分开，未新增性能批准。
+
+## 历史：最初研究与候选实验
+
 基线：`main d9f5a66af1a89d517d8273bd4af812932df3dd41`；独立分支 `agent/dither`。这是候选实验，不代表用户视觉批准或性能验收。离线交互比较见 [ordered-dither.html](ordered-dither.html)，直接打开即可，保留相邻 `ordered-dither-assets/` 文件夹。渲染实现提交：`5ab43c4417f6e39b70056d12cf9896a9717a3e74`。
 
 ## 一手资料与证据边界
@@ -93,4 +107,4 @@ node scripts/validate-ordered-dither.mjs gui
 
 脚本拒绝已有输出目录，重跑前移到本工作区其他路径保留旧证据。强制 validation 需设置本机 `VK_LAYER_PATH` 和 `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`，不要在无层的机器上宣称执行了 layer 检查。脚本自行获取 GPU lock，不需要嵌套另一个 flock。
 
-游戏内：Debug Panel 搜索 `ordered dithering`。保持同一 Scene Pixel Sampling 档位/density/resolve，先只勾 `Global scene dither (A/B)`，切换 Pattern 两种选项；再取消 global，分别勾 God Rays / Camera Lens Flare / terrain ambient，flare 应朝向可见太阳。Sky background 单独比较背景，不把它叫天光。把 levels 从 8 改为 4 / 16 看规律变化；Strength 0 或取消勾选回到原效果。统一 Save 保存，全部新开关默认 false。
+当前游戏内：Debug Panel 搜索 `ordered dithering`。保持同一 Scene Pixel Sampling 档位/density/resolve，只切 `Global scene dither (Bayer 4x4, A/B)`；调 Brightness levels / Strength，统一 Save。Strength 0 或取消勾选回原效果；不再有分项开关或 Pattern choice。

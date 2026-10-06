@@ -11,7 +11,7 @@
 <article>
 <h2>1 · 规律 pattern / ordered dither</h2>
 <p><a href="ordered-dither.html">打开离线交互对照与真实游戏截图</a> · <a href="ordered-dither.md">一手研究与实验结论</a></p>
-<p>Debug 搜索 <code>ordered dithering</code>：global、God Rays、Camera Lens Flare、Sky background、Skylight / ambient: terrain。共享 Bayer/Halftone、亮度阶数和强度。Global 优先且只量化一次，覆盖合成后的所有场景；HUD/UI 保持原生。蓝色环境光的独立局部开关只覆盖正常 hybrid 地形接收的环境项，不能说所有植被/模型天光都被独立处理。</p>
+<p>Debug 搜索 <code>ordered dithering</code>：仅一个 Global scene dither (Bayer 4x4, A/B) 开关，保留全局亮度阶数与强度。覆盖合成后的完整场景一次，HUD/UI 保持原生。分项开关、其局部处理逻辑和 Pattern choice 已删除。</p>
 </article>
 <article>
 <h2>2 · 随机 low-poly 石板 / 景观石</h2>

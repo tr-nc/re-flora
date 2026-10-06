@@ -1,0 +1,390 @@
+{
+  "implementation": "03b16c91",
+  "scope": "single global Bayer 4x4; no local dither or pattern selector",
+  "rust_tests": {
+    "app_passed": 1366,
+    "library_passed": 4,
+    "ignored": 5,
+    "configuration": "isolated checked-in defaults; same modified source"
+  },
+  "slang_tests_passed": 37,
+  "runs": [
+    {
+      "mode": "compare",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora/target/release/re-flora",
+        "/home/terence/code/re-flora/target/ordered-dither-native/compare/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora/target/re-flora-logs/re-flora-20261006-131838.885-1495598.log",
+      "images": [
+        {
+          "file": "global-bayer.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "5c2901edf36c0a858df04809b046a63865a334a40760d28bcb1f7f416e3e2ab9"
+        },
+        {
+          "file": "original-return.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "e693334490f376cbb94259e092c3c4351118c6d124f3f53d0783c89b8e79eed0"
+        },
+        {
+          "file": "original.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "84a30cf4a8cd248d5581096d5cb85c62e872ed0c4aba0fff7e4661c0d1501ff5"
+        },
+        {
+          "file": "zero-strength.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "b213802bfdae880d14938a8ce1e0dcfde041be4c1f4090171cd20739e47c7e01"
+        }
+      ],
+      "phases": [
+        "[13:18:42.909 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=original app_frame=137 enabled=false pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:44.507 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=global-bayer app_frame=201 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:46.151 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=zero-strength app_frame=265 enabled=true pattern=bayer4 levels=8 strength=0 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:47.386 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=original-return app_frame=329 enabled=false pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:48.874 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=4 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "sun",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora/target/release/re-flora",
+        "/home/terence/code/re-flora/target/ordered-dither-native/sun/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora/target/re-flora-logs/re-flora-20261006-131849.084-1497061.log",
+      "images": [
+        {
+          "file": "global-bayer.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "e3ce89c56f1a5a1ca85f081596bcfe8268f264be3e9ecb75c9f00e52ff5ffdd0"
+        },
+        {
+          "file": "original-return.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "92bb1b3b2f23ccc000d955e7adc6520bfa364728d8ad28f978ca225a63d45477"
+        },
+        {
+          "file": "original.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "bb72b76ae5f710faead031a53e45e2eac57d304e994e777e1d4b7988a6894ddd"
+        },
+        {
+          "file": "zero-strength.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "6c63083f2b527066419c2a58b865a51fec90a3b2cc53d7855615192e8a7d21ef"
+        }
+      ],
+      "phases": [
+        "[13:18:53.688 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=original app_frame=165 enabled=false pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:54.784 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=global-bayer app_frame=229 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:55.874 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=zero-strength app_frame=293 enabled=true pattern=bayer4 levels=8 strength=0 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:56.968 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=original-return app_frame=357 enabled=false pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:18:58.062 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=4 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "glass",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora/target/release/re-flora",
+        "/home/terence/code/re-flora/target/ordered-dither-native/glass/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--glass-voxel-test-scene",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora/target/re-flora-logs/re-flora-20261006-131858.211-1497448.log",
+      "images": [
+        {
+          "file": "global-bayer.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "dd1c169a01e038d24a5ca3108658ddb0895d90d7d49d9417ce8085a49ad03649"
+        },
+        {
+          "file": "original-return.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "1a9b3adcc50aee5970ed2d644688ed9d11a94a4fd5b005f718a5ba1bf32284b7"
+        },
+        {
+          "file": "original.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "a424490cc4c0011377d984553dd18d69a1f8bb9b32667e8bee69065e09a4dec7"
+        },
+        {
+          "file": "zero-strength.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "6b536232ecb2559c013cf4bf9d7beed0f5236ae6f3a36122542d01a04664271a"
+        }
+      ],
+      "phases": [
+        "[13:19:36.944 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=original app_frame=142 enabled=false pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:19:38.042 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=global-bayer app_frame=206 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:19:39.138 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=zero-strength app_frame=270 enabled=true pattern=bayer4 levels=8 strength=0 ratio=3 density=0 resolve=1 saved=false",
+        "[13:19:40.236 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=original-return app_frame=334 enabled=false pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:19:41.332 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=4 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "smoke",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora/target/release/re-flora",
+        "/home/terence/code/re-flora/target/ordered-dither-native/smoke/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "0.5"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora/target/re-flora-logs/re-flora-20261006-131835.739-1495265.log",
+      "images": [],
+      "phases": [],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "grid",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora/target/release/re-flora",
+        "/home/terence/code/re-flora/target/ordered-dither-native/grid/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--auto-exit",
+        "180"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora/target/re-flora-logs/re-flora-20261006-131941.467-1497541.log",
+      "images": [
+        {
+          "file": "grid-0.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "7fe0a1b0669fc6e399e94b342ccdabdc26d461233283e040e237434674a434e7"
+        },
+        {
+          "file": "grid-1.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "a0805d953ac42b54c9506ba455c505fa00e350d13436f27ca5e86b31d631f283"
+        },
+        {
+          "file": "grid-10.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "f67a44ea074e84e3f21d888d827815eb9118c60048da39350103fad96efb782b"
+        },
+        {
+          "file": "grid-11.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "2a757a78d7ed3f903e137659bab7e883ca9c6b17f0eddf9b0cef5ab978a5fe0d"
+        },
+        {
+          "file": "grid-12.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "6a40cf4fc275fef1635616dbb7f15c47328e7ed8632f22456c6cf3362f0bbd3d"
+        },
+        {
+          "file": "grid-13.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "28870485752cdbe180943e6e0794f377baf096323faade0d1b7696f09b6bd742"
+        },
+        {
+          "file": "grid-14.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "7a5f4305792e1e28dbc40d745232a86bc05b8f6f8a3d46871bc16551c4a8fcef"
+        },
+        {
+          "file": "grid-15.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "bbdd15bdc54609ec838cdbfef6e30c648218ea816f07ee8e57a53db6c92bdeca"
+        },
+        {
+          "file": "grid-2.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "66829f83f8fca2197a7ab1b7a71dae55c29a9dff4374eb10a56fe6bf22499b32"
+        },
+        {
+          "file": "grid-3.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "8e3761fbe702b244bd2a71f25e51f0ffd88536249bcafc93323d5cec95e26946"
+        },
+        {
+          "file": "grid-4.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "920c8bd94d48fad540fe516458e1c31a1f9cf849fe4e6f282a1e2d6eab355afb"
+        },
+        {
+          "file": "grid-5.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "0939bf66fc1366749494654287f6c3d00013dca33ecf48c6f0b7a6bbb953f335"
+        },
+        {
+          "file": "grid-6.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "9be85afc8939c5463fd0221ebe63af3470d38452a8b233a02b87d417ee0bffa2"
+        },
+        {
+          "file": "grid-7.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "f7b84be88a7de78255e1d9103d1df20a741781457b9ca56459f9066cc7c49fe5"
+        },
+        {
+          "file": "grid-8.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "6581849c21a8c0955fea518f674fe79ed32526bc1a0a756a7861c58335d1a3b0"
+        },
+        {
+          "file": "grid-9.png",
+          "width": 1023,
+          "height": 767,
+          "sha256": "c68af8e3c677919dbfb350d91fda6a45a3a7bf13c54a55219e4210f466f2501f"
+        }
+      ],
+      "phases": [
+        "[13:19:45.121 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=0 case=grid app_frame=151 enabled=true pattern=bayer4 levels=8 strength=1 ratio=0 density=0 resolve=0 saved=false",
+        "[13:19:46.220 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=1 case=grid app_frame=215 enabled=true pattern=bayer4 levels=8 strength=1 ratio=0 density=0 resolve=1 saved=false",
+        "[13:19:47.316 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=2 case=grid app_frame=279 enabled=true pattern=bayer4 levels=8 strength=1 ratio=0 density=1 resolve=0 saved=false",
+        "[13:19:48.414 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=3 case=grid app_frame=343 enabled=true pattern=bayer4 levels=8 strength=1 ratio=0 density=1 resolve=1 saved=false",
+        "[13:19:49.510 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=4 case=grid app_frame=407 enabled=true pattern=bayer4 levels=8 strength=1 ratio=1 density=0 resolve=0 saved=false",
+        "[13:19:50.627 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=5 case=grid app_frame=471 enabled=true pattern=bayer4 levels=8 strength=1 ratio=1 density=0 resolve=1 saved=false",
+        "[13:19:51.831 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=6 case=grid app_frame=535 enabled=true pattern=bayer4 levels=8 strength=1 ratio=1 density=1 resolve=0 saved=false",
+        "[13:19:52.905 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=7 case=grid app_frame=599 enabled=true pattern=bayer4 levels=8 strength=1 ratio=1 density=1 resolve=1 saved=false",
+        "[13:19:54.000 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=8 case=grid app_frame=663 enabled=true pattern=bayer4 levels=8 strength=1 ratio=2 density=0 resolve=0 saved=false",
+        "[13:19:55.091 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=9 case=grid app_frame=727 enabled=true pattern=bayer4 levels=8 strength=1 ratio=2 density=0 resolve=1 saved=false",
+        "[13:19:56.188 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=10 case=grid app_frame=791 enabled=true pattern=bayer4 levels=8 strength=1 ratio=2 density=1 resolve=0 saved=false",
+        "[13:19:57.283 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=11 case=grid app_frame=855 enabled=true pattern=bayer4 levels=8 strength=1 ratio=2 density=1 resolve=1 saved=false",
+        "[13:19:58.383 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=12 case=grid app_frame=919 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=0 saved=false",
+        "[13:19:59.484 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=13 case=grid app_frame=983 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=0 resolve=1 saved=false",
+        "[13:20:00.580 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=14 case=grid app_frame=1047 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=1 resolve=0 saved=false",
+        "[13:20:01.680 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] phase=15 case=grid app_frame=1111 enabled=true pattern=bayer4 levels=8 strength=1 ratio=3 density=1 resolve=1 saved=false",
+        "[13:20:02.775 INFO re_flora::app::core::ordered_dither_review] [ORDERED_DITHER_REVIEW] complete phases=16 saved=false"
+      ],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    },
+    {
+      "mode": "gui",
+      "command": [
+        "flock",
+        "--close",
+        "/tmp/re-flora-summer-gpu.lock",
+        "bash",
+        "-c",
+        "\"$1\" \"${@:3}\"; status=$?; \"$1\" --latest-log > \"$2\"; exit \"$status\"",
+        "ordered-dither-native",
+        "/home/terence/code/re-flora/target/release/re-flora",
+        "/home/terence/code/re-flora/target/ordered-dither-native/gui/latest-log.txt",
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--screenshot",
+        "player-default",
+        "/home/terence/code/re-flora/target/ordered-dither-native/gui/controls.png",
+        "--screenshot-delay",
+        "2",
+        "--auto-exit",
+        "4"
+      ],
+      "validation_layers": "VK_LAYER_KHRONOS_validation",
+      "logfile": "/home/terence/code/re-flora/target/re-flora-logs/re-flora-20261006-132002.971-1497636.log",
+      "images": [
+        {
+          "file": "controls.png",
+          "width": 2560,
+          "height": 1440,
+          "sha256": "46cb1dd1a99ba95818f5983c702a9eb164584c8f64e968fb8638067d13ba83a6"
+        }
+      ],
+      "phases": [],
+      "errors": 0,
+      "settings_written": false,
+      "performance_measured": false
+    }
+  ]
+}
