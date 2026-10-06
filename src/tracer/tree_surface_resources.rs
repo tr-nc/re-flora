@@ -2,7 +2,9 @@
 //! until preparation succeeds; a quiesced publication swaps this set as one value.
 use super::tree_lookup::{MIN_TREE_LOOKUP_CAPACITY, TREE_PUBLICATION_BUDGET_BYTES};
 use anyhow::{ensure, Context, Result};
-use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation, Resource};
+use re_flora_vkn::{
+    vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation, Resource, VulkanContext,
+};
 use resource_container_derive::ResourceContainer;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -89,6 +91,29 @@ impl TreeBufferLayout {
         );
         Ok(Self { sizes, bytes })
     }
+
+    pub(super) fn validate_complete_budget(
+        &self,
+        resident: usize,
+        indices: usize,
+        staging: usize,
+    ) -> Result<()> {
+        ensure!(
+            self.bytes
+                .checked_add(indices)
+                .is_some_and(|n| n <= TREE_PUBLICATION_BUDGET_BYTES),
+            "complete tree publication exceeds memory budget"
+        );
+        ensure!(
+            resident
+                .checked_add(self.bytes)
+                .and_then(|n| n.checked_add(indices))
+                .and_then(|n| n.checked_add(staging))
+                .is_some_and(|n| n <= 2 * TREE_PUBLICATION_BUDGET_BYTES),
+            "tree publication peak memory budget exceeded (including temporary staging)"
+        );
+        Ok(())
+    }
 }
 
 #[derive(ResourceContainer)]
@@ -111,19 +136,21 @@ pub struct TreeSurfaceResources {
 }
 
 impl TreeSurfaceResources {
-    pub fn empty(device: Device, allocator: Allocator) -> Result<Self> {
+    pub fn empty(context: &VulkanContext, allocator: Allocator) -> Result<Self> {
         let layout = TreeBufferLayout::new(TreeSurfaceCounts::default(), usize::MAX)?;
-        let resources = Self::allocate(device, allocator, layout)?;
+        let resources = Self::allocate(context.device().clone(), allocator.clone(), layout)?;
         resources.tree_scene_info.fill(&[[0u32; 4]])?;
-        resources
-            .raster_tree_cells
-            .fill(&vec![[0u32; 4]; MIN_TREE_LOOKUP_CAPACITY])?;
-        resources
-            .tree_scene_rest_cells
-            .fill(&vec![[0u32; 4]; MIN_TREE_LOOKUP_CAPACITY])?;
-        resources
-            .tree_attachment_keys
-            .fill(&vec![[0u32; 4]; MIN_TREE_LOOKUP_CAPACITY])?;
+        let zeros = vec![[0u32; 4]; MIN_TREE_LOOKUP_CAPACITY];
+        let data = bytemuck::cast_slice(&zeros);
+        super::tree_upload::upload(
+            context,
+            &allocator,
+            &[
+                (&resources.raster_tree_cells, data),
+                (&resources.tree_scene_rest_cells, data),
+                (&resources.tree_attachment_keys, data),
+            ],
+        )?;
         Ok(resources)
     }
 
@@ -146,7 +173,9 @@ impl TreeSurfaceResources {
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(
-                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::TRANSFER_SRC
+                        | vk::BufferUsageFlags::TRANSFER_DST,
                 ),
                 MemoryLocation::GpuOnly,
                 layout.sizes[index] as u64,
@@ -154,18 +183,18 @@ impl TreeSurfaceResources {
         };
         Ok(Self {
             tree_scene_info: host(0)?,
-            tree_skin_rest: host(1)?,
-            tree_skin_bindings: host(2)?,
+            tree_skin_rest: gpu(1)?,
+            tree_skin_bindings: gpu(2)?,
             tree_skin_poses: host(3)?,
-            tree_refit_order: host(4)?,
-            tree_scene_rest_cells: host(5)?,
-            tree_attachment_keys: host(6)?,
+            tree_refit_order: gpu(4)?,
+            tree_scene_rest_cells: gpu(5)?,
+            tree_attachment_keys: gpu(6)?,
             tree_attachment_poses: host(7)?,
             tree_scene_nodes: gpu(8)?,
-            tree_scene_primitives: host(9)?,
+            tree_scene_primitives: gpu(9)?,
             tree_scene_vertices: gpu(10)?,
-            tree_scene_cell_vertices: host(11)?,
-            raster_tree_cells: host(12)?,
+            tree_scene_cell_vertices: gpu(11)?,
+            raster_tree_cells: gpu(12)?,
             raster_tree_light_cache: gpu(13)?,
             bytes: layout.bytes,
         })
@@ -194,6 +223,17 @@ mod tests {
         assert!(layout.sizes[1] >= 146904 * 48);
         assert!(layout.sizes[8] >= 202239 * 32);
         assert!(layout.bytes < TREE_PUBLICATION_BUDGET_BYTES);
+    }
+    #[test]
+    fn temporary_staging_is_included_in_the_old_plus_new_peak_budget() {
+        let layout = TreeBufferLayout::new(TreeSurfaceCounts::default(), usize::MAX).unwrap();
+        let resident = 2 * TREE_PUBLICATION_BUDGET_BYTES - layout.bytes - 4;
+        layout.validate_complete_budget(resident, 4, 0).unwrap();
+        assert!(layout.validate_complete_budget(resident, 4, 4).is_err());
+        assert!(layout.validate_complete_budget(usize::MAX, 4, 4).is_err());
+        assert!(layout
+            .validate_complete_budget(0, TREE_PUBLICATION_BUDGET_BYTES, 0)
+            .is_err());
     }
     #[test]
     fn device_and_total_budgets_are_preflighted_before_allocation() {

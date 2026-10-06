@@ -102,7 +102,10 @@ the following responsibilities rather than teaching individual editing tools how
   every prepared descriptor generation and swaps the complete resource set and geometry.
 - `TreeSurfaceResources` sizes vertices, indices, skin/palette, BVH/refit, occupancy, attachment,
   lookup, and lighting buffers from actual demand, subject to Vulkan `maxStorageBufferRange`, a
-  256 MiB publication budget, and a 512 MiB old-plus-new logical buffer peak budget. Lookup tables
+  256 MiB publication budget, and a 512 MiB old-plus-new logical buffer peak budget (including
+  temporary upload staging). Immutable GPU inputs and indices are device-local, populated by one
+  off-side managed transfer; tiny changing headers/palettes remain mapped. Persistent shader reads
+  must not depend on remaining space in a host-visible BAR heap. Lookup tables
   maintain a less-than-half load and grow again if the shader's 64-probe bound would be exceeded.
   Pipeline collections visit all required/optional pipelines; reflection selects the tree
   bindings each actually consumes. New buffers cannot silently leave consumers bound to old ones.

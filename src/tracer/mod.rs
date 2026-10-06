@@ -40,6 +40,7 @@ mod tree_lookup;
 mod tree_publication;
 pub(crate) use tree_publication::PreparedRasterTreePublication;
 mod tree_surface_resources;
+mod tree_upload;
 pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
@@ -1759,11 +1760,7 @@ impl Tracer {
         }
         for buffer in [
             &self.resources.tree.tree_scene_info,
-            &self.resources.tree.tree_skin_rest,
-            &self.resources.tree.tree_skin_bindings,
             &self.resources.tree.tree_skin_poses,
-            &self.resources.tree.tree_refit_order,
-            &self.resources.tree.tree_scene_primitives,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }

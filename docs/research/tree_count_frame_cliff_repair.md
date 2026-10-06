@@ -139,7 +139,22 @@ The 27.191 ms frame / roughly 5 ms surface-update scope is therefore not CPU def
 Permanent shader inputs must not depend on the remaining host-visible BAR heap. This logging is
 opt-in; normal frames/settings are unchanged.
 
-## Remaining implementation stages
+## Device-local immutable GPU inputs
 
-Move immutable GPU inputs through bounded staging into device-local storage, then reuse compilation
-for unaffected trees. The validated CPU/capacity results do not claim these remaining stages complete.
+Immutable skin inputs, primitive/refit data, occupancy/surface/attachment lookups and indices now
+use GPU-only device-local buffers. One fallible, bounded, off-side staging upload prepares them;
+managed transfer dependencies replace per-frame fictitious host-write declarations. Only tiny
+changing headers and pose palettes remain mapped. Temporary staging is included in the 512 MiB
+old-plus-new logical peak preflight; upload errors cannot swap the resident publication.
+
+`target/tree-scaling-local-01` passes every per-count GPU/BVH/lighting/collision check, with all seven
+logged hot buffers reporting `DEVICE_LOCAL`. Six-tree frames are **21.360 / 21.423 ms** (about 47 FPS),
+`frame.render` **8.421 / 8.142 ms**, and `tree_surface_update.pass` **0.231 / 0.211 ms** versus about
+14.4 / 5.0 ms before. Zero errors/cliffs/contention. Full raster smoke, rejected-placement exact
+rollback, 23 tree/cache/upload/budget tests, format/check, Release build and hidden launch pass.
+Shader equations/rendering quality are unchanged. This fixes the measured heap fallback rather
+than reducing tree detail or accepting host-visible allocation luck.
+
+## Remaining implementation stage
+
+Reuse compilation for unaffected trees; these measurements do not claim that stage complete.

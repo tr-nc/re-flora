@@ -1434,7 +1434,7 @@ impl TracerResources {
                 allocator.clone(),
             ),
             tree: super::tree_surface_resources::TreeSurfaceResources::empty(
-                device.clone(),
+                vulkan_ctx,
                 allocator.clone(),
             )
             .expect("empty tree resource placeholders"),

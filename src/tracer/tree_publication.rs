@@ -2,7 +2,7 @@
 //! resident buffers, topology, bindings, attachments, or pose history.
 use super::{
     raster_tree::{RasterTreeGeometry, RasterTreeMesh},
-    tree_lookup::{build_tree_lookup, TREE_PUBLICATION_BUDGET_BYTES},
+    tree_lookup::build_tree_lookup,
     tree_scene::{TreeAttachment, TreeScene},
     tree_surface_resources::{TreeBufferLayout, TreeSurfaceCounts, TreeSurfaceResources},
     Tracer,
@@ -150,22 +150,22 @@ impl Tracer {
             .checked_mul(4)
             .context("tree index byte size overflow")?
             .max(4);
-        ensure!(
-            layout
-                .bytes
-                .checked_add(index_bytes)
-                .is_some_and(|n| n <= TREE_PUBLICATION_BUDGET_BYTES),
-            "complete tree publication exceeds memory budget"
-        );
+
+        let static_data: [&[u8]; 9] = [
+            bytemuck::cast_slice(&mesh.indices),
+            bytemuck::cast_slice(&skin.rest),
+            bytemuck::cast_slice(&skin.bindings),
+            bytemuck::cast_slice(&refit.records),
+            bytemuck::cast_slice(&scene.primitives),
+            bytemuck::cast_slice(&rest_cells),
+            bytemuck::cast_slice(&mesh.cell_vertex_indices),
+            bytemuck::cast_slice(&keys),
+            bytemuck::cast_slice(cells),
+        ];
+        let staging_bytes = super::tree_upload::byte_len(&static_data)?;
         let resident_bytes =
             self.resources.tree.bytes + self.raster_trees.indices.get_size_bytes() as usize;
-        ensure!(
-            resident_bytes
-                .checked_add(layout.bytes)
-                .and_then(|n| n.checked_add(index_bytes))
-                .is_some_and(|n| n <= 2 * TREE_PUBLICATION_BUDGET_BYTES),
-            "tree publication peak memory budget exceeded"
-        );
+        layout.validate_complete_budget(resident_bytes, index_bytes, staging_bytes)?;
         let resources = TreeSurfaceResources::allocate(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
@@ -174,8 +174,10 @@ impl Tracer {
         let indices = Buffer::try_new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
-            BufferUsage::from_flags(vk::BufferUsageFlags::INDEX_BUFFER),
-            MemoryLocation::CpuToGpu,
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::GpuOnly,
             index_bytes as u64,
         )?;
         if std::env::var_os("RE_FLORA_TREE_SCALE_DIAGNOSTIC").is_some() {
@@ -195,21 +197,25 @@ impl Tracer {
                 );
             }
         }
-        if index_count > 0 {
-            indices.fill(&mesh.indices)?;
-        }
+        let targets = [
+            &indices,
+            &*resources.tree_skin_rest,
+            &*resources.tree_skin_bindings,
+            &*resources.tree_refit_order,
+            &*resources.tree_scene_primitives,
+            &*resources.tree_scene_rest_cells,
+            &*resources.tree_scene_cell_vertices,
+            &*resources.tree_attachment_keys,
+            &*resources.raster_tree_cells,
+        ];
+        let uploads: Vec<_> = targets.into_iter().zip(static_data).collect();
+        super::tree_upload::upload(&self.vulkan_ctx, &self.allocator, &uploads)?;
         resources.tree_scene_info.fill(&[[
             u32::from(wind_active),
             scene.nodes.len() as u32,
             0,
             skin.bindings.len() as u32,
         ]])?;
-        resources.raster_tree_cells.fill(cells)?;
-        resources.tree_scene_rest_cells.fill(&rest_cells)?;
-        resources
-            .tree_scene_cell_vertices
-            .fill(&mesh.cell_vertex_indices)?;
-        resources.tree_attachment_keys.fill(&keys)?;
         let palette: Vec<[f32; 4]> = skin
             .poses
             .iter()
@@ -222,16 +228,6 @@ impl Tracer {
                 .flat_map(|p| [p.rotation.to_array(), p.translation.extend(0.).to_array()])
                 .collect();
             resources.tree_attachment_poses.fill(&palette)?;
-        }
-        if !skin.bindings.is_empty() {
-            resources.tree_skin_rest.fill(&skin.rest)?;
-            resources.tree_skin_bindings.fill(&skin.bindings)?;
-        }
-        if !refit.records.is_empty() {
-            resources.tree_refit_order.fill(&refit.records)?;
-        }
-        if !scene.primitives.is_empty() {
-            resources.tree_scene_primitives.fill(&scene.primitives)?;
         }
         let geometry = RasterTreeGeometry {
             skin,
