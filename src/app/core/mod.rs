@@ -1539,7 +1539,7 @@ impl App {
                 scene_supersampling::SceneSupersamplingReview::from_environment(),
             ordered_dither_review: ordered_dither_review::OrderedDitherReview::from_environment(),
             egui_texture_lifecycle_test,
-            time_info: TimeInfo::default(),
+            time_info: TimeInfo::new(fps_chart::DISPLAY_INTERVAL_MS),
             fps_history: fps_chart::FpsHistory::default(),
             world_clock,
             render_flags,

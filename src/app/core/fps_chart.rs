@@ -3,6 +3,8 @@
 use super::ui_style::{FLOWER_ACCENT, GOLD_ACCENT, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR};
 use std::collections::VecDeque;
 
+// Refresh the numeric readout independently of the lower-frequency history.
+pub(super) const DISPLAY_INTERVAL_MS: u64 = 100;
 const HISTORY_SECONDS: f64 = 30.0;
 const SAMPLE_SECONDS: f64 = 0.5;
 const MAX_SAMPLES: usize = 62;
@@ -217,6 +219,12 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numeric_readout_refreshes_faster_than_history_sampling() {
+        let interval = DISPLAY_INTERVAL_MS as f64 / 1000.0;
+        assert!(interval > 0.0 && interval < SAMPLE_SECONDS);
+    }
 
     #[test]
     fn history_is_bounded_time_based_and_samples_unchanged_fps() {
