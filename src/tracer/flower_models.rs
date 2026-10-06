@@ -1,4 +1,4 @@
-//! Six-vertex analytic stem proxy shared by every flower.
+//! Resident square-tube topology shared by grass and prepared flower stems.
 //! ModelPixelFrame supplies geometry/parts, never a second retirement owner.
 use crate::{flora::models, resource::Resource};
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
@@ -7,8 +7,6 @@ use resource_container_derive::ResourceContainer;
 #[derive(ResourceContainer)]
 pub struct FlowerModelResources {
     pub flower_parts: Resource<Buffer>,
-    pub flower_stem_vertices: Resource<Buffer>,
-    pub flower_stem_indices: Resource<Buffer>,
     pub stem_band_vertices: Resource<Buffer>,
     pub stem_band_indices: Resource<Buffer>,
 }
@@ -27,24 +25,15 @@ impl FlowerModelResources {
                 .expect("flower topology upload");
             Resource::new(buffer)
         };
-        let stem_indices = (0..6u32).collect::<Vec<_>>();
         let (band_vertices, band_indices) =
             super::stem_band_mesh::topology(super::stem_band_mesh::MAX_GRASS_BANDS);
         log::info!(
-            "[FLOWER_MODELS] assets={} source=head_models assembly=native heads=1 calyx=head leaves=0 stem=continuous_tapered wind=live",
+            "[FLOWER_MODELS] assets={} source=head_models assembly=native heads=1 calyx=head leaves=0 stem=prepared_mesh_bands colors=flat wind=live",
             models::flowers().len()
         );
         Self {
             // Descriptor initializer; draws bind the current shared part metadata.
             flower_parts: make(&[0; 64], vk::BufferUsageFlags::STORAGE_BUFFER),
-            flower_stem_vertices: make(
-                bytemuck::cast_slice(&stem_indices),
-                vk::BufferUsageFlags::VERTEX_BUFFER,
-            ),
-            flower_stem_indices: make(
-                bytemuck::cast_slice(&stem_indices),
-                vk::BufferUsageFlags::INDEX_BUFFER,
-            ),
             stem_band_vertices: make(
                 bytemuck::cast_slice(&band_vertices),
                 vk::BufferUsageFlags::VERTEX_BUFFER,

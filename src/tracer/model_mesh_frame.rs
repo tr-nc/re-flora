@@ -16,10 +16,41 @@ use crate::{flora::models, particles::ParticleSnapshot};
 use anyhow::Result;
 use glam::{Mat4, Vec3};
 use re_flora_vkn::{
-    vk, Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, DescriptorResource, Device,
-    GraphicsPipeline, MemoryLocation, PreparedDrawDescriptors, PushConstantInfo, VulkanContext,
+    vk, Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, ComputePipeline,
+    DescriptorResource, Device, Extent3D, GraphicsPipeline, MemoryLocation,
+    PreparedDrawDescriptors, PushConstantInfo, VulkanContext,
 };
 use std::sync::Arc;
+
+// ceil(colors * ceil(curve_segments / colors)) is at most colors + 11
+// for the 12-segment main path; branches need only four subdivisions.
+fn flower_stem_capacity(maximum_world_height: f32, cell_height_voxels: f32) -> u32 {
+    ((maximum_world_height.max(0.) * 256. / cell_height_voxels.clamp(0.1, 4.)).ceil() as u32).max(1)
+        + 11
+}
+
+#[cfg(test)]
+mod stem_tests {
+    use super::flower_stem_capacity;
+
+    #[test]
+    fn full_growth_allocation_covers_material_and_curve_subdivisions() {
+        for max_height_voxels in [1., 4., 16., 64., 128.] {
+            for cell in [0.1, 0.5, 1., 4.] {
+                let capacity = flower_stem_capacity(max_height_voxels / 256., cell);
+                for growth in [0., 0.01, 0.5, 1.] {
+                    for (fraction, minimum_segments) in [(1., 12u32), (0.34, 4)] {
+                        let colors =
+                            ((max_height_voxels * fraction * growth / cell).ceil() as u32).max(1);
+                        let subdivisions = minimum_segments.div_ceil(colors);
+                        assert!(colors * subdivisions <= capacity);
+                        assert!(colors * subdivisions >= minimum_segments);
+                    }
+                }
+            }
+        }
+    }
+}
 
 pub(super) struct MeshPass<'a> {
     pub display: &'a GraphicsPipeline,
@@ -127,21 +158,22 @@ pub(super) struct PreparedFlowerModels {
     stems: PreparedDrawDescriptors,
     stem_pipeline: GraphicsPipeline,
     count: u32,
-    push: PushConstantInfo,
+    bands: Arc<Buffer>,
 }
 impl PreparedFlowerModels {
     pub fn record(&self, cmdbuf: &CommandBuffer, resources: &TracerResources) {
-        cmdbuf.bind_index_buffer_u32(&resources.flower_models.flower_stem_indices);
-        cmdbuf.bind_vertex_buffers(0, &[&resources.flower_models.flower_stem_vertices]);
+        cmdbuf.bind_index_buffer_u32(&resources.flower_models.stem_band_indices);
+        cmdbuf.bind_vertex_buffers(0, &[&resources.flower_models.stem_band_vertices]);
+        let _keep_bands_alive = &self.bands;
         self.stem_pipeline.record_indexed_with_prepared_descriptors(
             cmdbuf,
             &self.stems,
-            6,
+            36,
             self.count,
             0,
             0,
             0,
-            Some(&self.push),
+            None,
         );
         self.heads.record(cmdbuf, 0);
     }
@@ -152,6 +184,8 @@ struct Frame {
     geometry: Option<Arc<Geometry>>,
     particles: Option<Arc<Buffer>>,
     cache: [Option<Arc<CacheBuffers>>; 3],
+    stem_bands: Vec<(u64, Arc<Buffer>)>,
+    stem_draws: usize,
 }
 pub(super) struct ModelMeshFrame {
     device: Device,
@@ -262,7 +296,12 @@ impl ModelMeshFrame {
             log::info!("[MODEL_VIEW_DRAW] object={object} instances={count} shader={} bank_binding=19 count={:?}", if cached { "cached_surface_cells" } else { "native_triangle" }, self.view_count);
         }
     }
-    pub fn begin_frame(&mut self, slot: usize, _: &ComputePipelines, _: &GraphicsPipelines) {
+    pub fn begin_frame(
+        &mut self,
+        slot: usize,
+        compute: &ComputePipelines,
+        graphics: &GraphicsPipelines,
+    ) {
         self.frames
             .resize_with((slot + 1).max(self.frames.len()), Frame::default);
         self.slot = slot;
@@ -270,6 +309,13 @@ impl ModelMeshFrame {
         // buffers if a live shape change creates a new geometry generation.
         self.frames[slot].geometry = None;
         self.frames[slot].cache = Default::default();
+        self.frames[slot].stem_draws = 0;
+        compute
+            .flower_stem_bands_ppl
+            .begin_transient_descriptor_frame(slot);
+        graphics
+            .flower_stem_experiment_ppl
+            .begin_transient_descriptor_frame(slot);
     }
     pub fn startup_cache_progress(&self) -> f32 {
         if (0..3).all(|kind| self.cache[kind].ready(self.cache_options.for_kind(kind))) {
@@ -473,8 +519,10 @@ impl ModelMeshFrame {
         cmd: &CommandBuffer,
         pass: MeshPass<'_>,
         stem_pipeline: &GraphicsPipeline,
+        preparation: &ComputePipeline,
+        settings: models::StemExperiment,
         count: u32,
-        push: crate::generated::gpu_structs::PushConstantFlowerPixel,
+        mut push: crate::generated::gpu_structs::PushConstantFlowerPixel,
         pose: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
         self.review_draw(8, "flower_heads", count);
@@ -486,10 +534,50 @@ impl ModelMeshFrame {
             "model_cache_palette",
             DescriptorResource::Buffer(&g.palette),
         ));
-        let mut stem_resources = pose.to_vec();
-        stem_resources.push(("flower_parts", DescriptorResource::Buffer(&g.parts)));
         let parts = &g.source.flower_parts
             [(push.species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize * 4..][..4];
+        // A rest-length material band can contain several curve subdivisions.
+        // Allocate for full growth; wind and spawn translation do not add bands.
+        let maximum_height = parts[0].maximum_stem_length() * push.world_scale;
+        let capacity = flower_stem_capacity(maximum_height, settings.cell_height_voxels);
+        let branches = if settings.branches { 3 } else { 1 };
+        let band_count = count
+            .checked_mul(capacity)
+            .and_then(|n| n.checked_mul(branches))
+            .ok_or_else(|| anyhow::anyhow!("flower stem band count overflow"))?;
+        let bytes = u64::from(band_count) * 112; // seven float4s in StemMeshBand
+        let frame = &mut self.frames[self.slot];
+        let index = frame.stem_draws;
+        if index == frame.stem_bands.len() || frame.stem_bands[index].0 < bytes {
+            let buffer = Arc::new(Buffer::try_new_sized(
+                self.device.clone(),
+                self.allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::GpuOnly,
+                bytes.max(16),
+            )?);
+            log::info!("[FLOWER_STEM_MESH] plants={count} branches={branches} capacity={capacity} bytes={bytes} pose=gpu_prepared colors=flat depth=raster");
+            if index == frame.stem_bands.len() {
+                frame.stem_bands.push((bytes, buffer));
+            } else {
+                frame.stem_bands[index] = (bytes, buffer);
+            }
+        }
+        frame.stem_draws += 1;
+        let bands = frame.stem_bands[index].1.clone();
+        let mut stem_resources = pose.to_vec();
+        stem_resources.push(("flower_parts", DescriptorResource::Buffer(&g.parts)));
+        stem_resources.push(("flower_stem_bands", DescriptorResource::Buffer(&bands)));
+        // These assembly fields are unused by flowerPlantPose: compute dispatch
+        // uses prepare_object for plant count and padding for per-branch stride.
+        push.prepare_object = count;
+        push.padding = capacity;
+        preparation.record_with_descriptors(
+            cmd,
+            &stem_resources,
+            Extent3D::new(count, 1, 1),
+            Some(bytemuck::bytes_of(&push)),
+        )?;
         let heads = parts[0].range[3];
         let vertices = parts[1..=heads as usize]
             .iter()
@@ -501,13 +589,13 @@ impl ModelMeshFrame {
             push_constants: bytemuck::bytes_of(&push).to_vec(),
         };
         Ok(PreparedFlowerModels {
-            stems: stem_pipeline.prepare_draw_descriptors(cmd, &stem_resources)?,
+            stems: stem_pipeline.prepare_draw_descriptors(
+                cmd,
+                &[("flower_stem_bands", DescriptorResource::Buffer(&bands))],
+            )?,
             stem_pipeline: stem_pipeline.clone(),
-            count,
-            push: PushConstantInfo {
-                shader_stage: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                push_constants: constant.push_constants.clone(),
-            },
+            count: band_count,
+            bands,
             heads: self.prepare(
                 cmd,
                 pass,

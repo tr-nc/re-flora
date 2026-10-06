@@ -72,6 +72,11 @@ pub(super) struct FlowerPart {
     distribution: [f32; 4],
     socket: [f32; 4],
 }
+impl FlowerPart {
+    pub fn maximum_stem_length(&self) -> f32 {
+        self.stem[3] * self.distribution[1]
+    }
+}
 #[derive(Clone)]
 pub(super) struct Source {
     pub triangles: Vec<Triangle>,

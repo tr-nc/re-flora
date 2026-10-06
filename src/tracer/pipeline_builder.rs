@@ -598,9 +598,9 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
-        let flower_stem_experiment_frag_sm = ShaderModule::from_precompiled(
+        let flower_stem_bands_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
-            "shader/foliage/flower_stem_experiment.frag",
+            "shader/foliage/flower_stem_bands.comp",
             "main",
         )
         .unwrap();
@@ -738,7 +738,7 @@ impl PipelineBuilder {
             flower_pixel_vert_sm,
             flower_pixel_frag_sm,
             flower_stem_experiment_vert_sm,
-            flower_stem_experiment_frag_sm,
+            flower_stem_bands_sm,
             grass_band_vert_sm,
             grass_band_cached_vert_sm,
             flora_lighting_band_cache_sm,
@@ -918,6 +918,21 @@ impl PipelineBuilder {
                 ],
             })
             .expect("band preparation static descriptors");
+        let flower_stem_bands_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.flower_stem_bands_sm, pool);
+        flower_stem_bands_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            })
+            .expect("flower band preparation static descriptors");
         let tree_leaf_lighting_cache_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.tree_leaf_lighting_cache_sm,
@@ -1114,6 +1129,7 @@ impl PipelineBuilder {
             tree_refit_ppl,
             flora_lighting_cache_ppl,
             flora_lighting_band_cache_ppl,
+            flower_stem_bands_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
             tracer_shadow_ppl,
@@ -1320,7 +1336,7 @@ impl PipelineBuilder {
         let flower_stem_experiment_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.flower_stem_experiment_vert_sm,
-            &shader_modules.flower_stem_experiment_frag_sm,
+            &shader_modules.stem_band_frag_sm,
             &render_passes.render_pass_color_and_depth,
             None,
             pool,
@@ -1331,10 +1347,13 @@ impl PipelineBuilder {
                 ..Default::default()
             },
         );
-        for pipeline in [&flower_pixel_ppl, &flower_stem_experiment_ppl] {
+        for (pipeline, anchor) in [
+            (&flower_pixel_ppl, "gui_input"),
+            (&flower_stem_experiment_ppl, "camera_info"),
+        ] {
             pipeline
                 .initialize_descriptors(DescriptorUpdate::SetContaining {
-                    anchor: "gui_input",
+                    anchor,
                     providers: &flora_resources,
                 })
                 .expect("flower static descriptors");
@@ -1972,7 +1991,7 @@ declare_ddgi_consumer_registry! {
     ButterflyTiles => Graphics(graphics.butterfly_tile_ppl),
     AppleTreeTiles => Graphics(graphics.apple_pixel_tree_ppl),
     FlowerTiles => Graphics(graphics.flower_pixel_ppl),
-    FlowerStemExperiment => Graphics(graphics.flower_stem_experiment_ppl),
+    FlowerStemPreparation => Compute(compute.flower_stem_bands_ppl),
     GrassBands => Graphics(graphics.grass_band_ppl),
     DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
     CpuStemBands => Graphics(graphics.cpu_stem_band_ppl),
@@ -2366,7 +2385,6 @@ impl PipelineTopology {
             &self.graphics.flora_ppl,
             &self.graphics.flora_lod_ppl,
             &self.graphics.flower_pixel_ppl,
-            &self.graphics.flower_stem_experiment_ppl,
             &self.graphics.grass_band_ppl,
             &self.graphics.grass_band_cached_ppl,
         ] {
@@ -2379,6 +2397,14 @@ impl PipelineTopology {
                 "graphics descriptor set update failed during extent publication",
             );
         }
+        retire_graphics(
+            &self.graphics.flower_stem_experiment_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "camera_info",
+                providers: &all_resources,
+            },
+            "flower mesh extent descriptors must resolve",
+        );
         for pipeline in [
             &self.graphics.leaves_ppl,
             &self.graphics.leaves_lod_ppl,
@@ -2950,7 +2976,7 @@ pub struct ShaderModules {
     pub cpu_stem_band_vert_sm: ShaderModule,
     pub cpu_stem_band_shadow_vert_sm: ShaderModule,
     pub flower_stem_experiment_vert_sm: ShaderModule,
-    pub flower_stem_experiment_frag_sm: ShaderModule,
+    pub flower_stem_bands_sm: ShaderModule,
     pub apple_pixel_tree_vert_sm: ShaderModule,
     pub apple_pixel_dynamic_vert_sm: ShaderModule,
     pub apple_pixel_frag_sm: ShaderModule,
@@ -2986,6 +3012,7 @@ pub struct ComputePipelines {
     pub tree_refit_ppl: ComputePipeline,
     pub flora_lighting_cache_ppl: ComputePipeline,
     pub flora_lighting_band_cache_ppl: ComputePipeline,
+    pub flower_stem_bands_ppl: ComputePipeline,
     pub tree_leaf_lighting_cache_ppl: ComputePipeline,
     pub tracer_ppl: ComputePipeline,
     pub tracer_shadow_ppl: ComputePipeline,

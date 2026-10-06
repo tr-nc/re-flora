@@ -4857,6 +4857,8 @@ impl Tracer {
                                             .flower_pixel_ppl,
                                     },
                                     &self.pipeline_topology.graphics().flower_stem_experiment_ppl,
+                                    &self.pipeline_topology.compute().flower_stem_bands_ppl,
+                                    self.flower_stem_experiment,
                                     count,
                                     push,
                                     &descriptors,

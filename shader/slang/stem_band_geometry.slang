@@ -5,6 +5,17 @@ public struct StemBandVertex {
     public float4 position:SV_Position;
     [[vk::location(0)]] public nointerpolation float3 color:COLOR0;
 };
+// Prepared mesh adapter shared by path-authored stems. Final color is flat;
+// geometry subdivision never changes the material band's representative sample.
+public struct StemMeshBand {
+    public float4 a_radius;
+    public float4 b_radius;
+    public float4 tangent_a;
+    public float4 tangent_b;
+    public float4 side;
+    public float4 color_valid;
+    public float4 socket;
+};
 public float3 stemBandSide(float3 tangent,float3 preferredSide) {
     float3 side=preferredSide-tangent*dot(preferredSide,tangent);
     if(dot(side,side)<1e-8) {
@@ -51,6 +62,15 @@ public float3 stemBandPoint(float3 a,float3 b,float3 tangentA,float3 tangentB,
 public float3 stemBandCorner(uint vertex) {
     return float3((vertex&1u)!=0u?0.5:-0.5,(vertex&2u)!=0u?0.5:-0.5,
         (vertex&4u)!=0u?0.5:-0.5);
+}
+public float3 preparedStemBandPoint(StemMeshBand band, uint corner) {
+    float3 point=stemBandPoint(band.a_radius.xyz,band.b_radius.xyz,
+        band.tangent_a.xyz,band.tangent_b.xyz,band.side.xyz,band.side.xyz,
+        float2(band.a_radius.w),float2(band.b_radius.w),stemBandCorner(corner));
+    // Close the terminal cross-section on the head socket plane. No fragment
+    // discard, depth override or surface-ray intersection is needed.
+    float outside=max(0.0,dot(band.socket.xyz,point)-band.socket.w);
+    return point-band.socket.xyz*outside;
 }
 public uint stemColorBand(float restArc,float fullArc,uint bands) {
     return min(uint(floor(saturate(restArc/max(fullArc,1e-7))*float(max(bands,1u)))),max(bands,1u)-1u);

@@ -68,14 +68,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shading_block_height_does_not_overwrite_geometry_edge() {
+    fn prepared_mesh_replaces_surface_rays_and_keeps_flat_band_colors() {
         let vertex = include_str!("../../../shader/slang/flower_stem_experiment.vert.slang")
             .split_whitespace()
             .collect::<String>();
-        // motion_edge.w owns the base geometry dimension used for radius.
-        // Shading cell size must never replace this geometry dimension.
-        assert!(!vertex.contains("output.motion_edge.w="));
-        assert!(!vertex.contains("stemWorldCellSize("));
+        assert!(vertex.contains("preparedStemBandPoint(band,input.vertex)"));
+        assert!(vertex.contains("output.color=band.color_valid.xyz;"));
+        assert!(!vertex.contains("flowerPlantPose("));
+        assert!(!vertex.contains("shadeFlower("));
+        assert!(!vertex.contains("projectStemProxy("));
         let geometry = include_str!("../../../shader/slang/flower_stem_experiment.slang")
             .split_once("public StemGeometry stemGeometry(")
             .unwrap()
@@ -86,13 +87,17 @@ mod tests {
         assert!(!geometry.contains("stemWorldCellSize"));
         assert!(!geometry.contains("flowerStemShapeSettings().y"));
         assert!(!geometry.contains("flowerStemShapeSettings().z"));
-        let fragment = include_str!("../../../shader/slang/flower_stem_experiment.frag.slang")
+        let fragment = include_str!("../../../shader/slang/stem_band.frag.slang")
             .split_whitespace()
             .collect::<String>();
-        assert!(!fragment.contains("stemSurfaceCell("));
-        assert!(!fragment.contains("stemModelSampleRay("));
-        assert!(fragment.contains("float3sampleRay=displayRay;"));
-        assert!(!fragment.contains("flowerStemShapeSettings().y"));
+        assert!(fragment.contains("returnfloat4(input.color,1.0);"));
+        assert!(!fragment.contains(":SV_Depth"));
+        let preparation = include_str!("../../../shader/slang/flower_stem_bands.comp.slang");
+        assert!(preparation.contains("stemWorldCellSize("));
+        assert!(preparation.contains("band.color_valid=float4(color,"));
+        assert!(!preparation.contains("traceStem("));
+        let shared = include_str!("../../../shader/slang/stem_band_geometry.slang");
+        assert!(shared.contains("nointerpolation float3 color"));
     }
 
     #[test]

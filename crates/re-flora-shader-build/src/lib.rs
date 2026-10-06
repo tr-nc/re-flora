@@ -379,10 +379,10 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
-        logical_path: "shader/foliage/flower_stem_experiment.frag",
-        source_path: "shader/slang/flower_stem_experiment.frag.slang",
+        logical_path: "shader/foliage/flower_stem_bands.comp",
+        source_path: "shader/slang/flower_stem_bands.comp.slang",
         module_path: "shader/slang",
-        stage: ShaderStage::Fragment,
+        stage: ShaderStage::Compute,
     },
     ShaderConfig {
         logical_path: "shader/props/apple_pixel_tree.vert",
