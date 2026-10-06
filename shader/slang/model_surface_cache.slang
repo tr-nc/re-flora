@@ -15,6 +15,18 @@ struct CachedModelEntry { uint4 layout; float4 bounds; };
 public struct CachedModelVertex {
     public bool visible; public float4 clip; public float3 position; public float3 normal; public float2 uv; public uint material;
 };
+// Pure projection seam shared by the native adapters and clipping regressions.
+public bool projectCachedModelSurfaceVertex(float4 planeClip,float4 surfaceClip,out float4 clip) {
+    clip=planeClip;
+    // Surface depth is shared by every vertex of a cache cell: reject the
+    // entire cell if that depth is outside the camera's Vulkan depth range.
+    if(surfaceClip.w<=1e-7||surfaceClip.z<0.0||surfaceClip.z>surfaceClip.w)return false;
+    // Image-plane W varies across a cell near the eye plane. Keep its signed
+    // homogeneous coordinates for Vulkan to clip; replacing only some corners
+    // with emptyModelMeshVertex stretches the remaining triangles across screen.
+    clip.z=(surfaceClip.z/surfaceClip.w)*clip.w;
+    return true;
+}
 public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame physical,float3 pivot,out CachedModelVertex output) {
     output.visible=false;output.clip=float4(2,2,2,1);output.position=float3(0);output.normal=float3(0,1,0);output.uv=float2(0);output.material=0u;
     CachedModelEntry entry;
@@ -48,9 +60,8 @@ public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame 
     output.uv=sample.uv.xy;output.material=uint(sample.normal.w+0.5);
     // Put each cell on one common image plane; reconstruct its baked surface
     // depth without changing its N×N projected footprint or joining depth seams.
-    output.clip=mul(camera_info.view_proj_mat,float4(modelViewWorldPoint(rendered,plane),1));
+    float4 planeClip=mul(camera_info.view_proj_mat,float4(modelViewWorldPoint(rendered,plane),1));
     float4 depth=mul(camera_info.view_proj_mat,float4(output.position,1));
-    if(output.clip.w<=1e-7||depth.w<=1e-7)return true;
-    output.clip.z=(depth.z/depth.w)*output.clip.w;
-    output.visible=true;return true;
+    output.visible=projectCachedModelSurfaceVertex(planeClip,depth,output.clip);
+    return true;
 }
