@@ -238,13 +238,14 @@ max = 24
 
 [[section.param]]
 id = "scene_pixel_ratio"
-kind = "choice"
-label = "Scene: final pixel resolution"
-type = "Choice"
+kind = "uint"
+label = "Scene: pixel size (N x N screen pixels)"
+type = "Uint"
 
 [section.param.data]
-value = 3
-options = ["1:1 (native)", "4:1 (2x2 screen pixels)", "16:1 (4x4 screen pixels)", "64:1 (8x8 screen pixels, original)"]
+value = 5
+min = 1
+max = 8
 
 [[section.param]]
 id = "scene_supersampling_enabled"

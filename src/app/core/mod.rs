@@ -1258,7 +1258,7 @@ impl App {
         // Session-only live review preset; edits the real saved-field controls,
         // never writes their file. The user can compare modes and explicitly Save.
         if std::env::var_os("RE_FLORA_SCENE_PIXEL_TRYOUT").is_some() {
-            debug_settings.adjustables.scene_pixel_ratio.value = 3;
+            debug_settings.adjustables.scene_pixel_ratio.value = 8;
             debug_settings.adjustables.scene_supersampling_enabled.value = true;
             debug_settings.adjustables.scene_supersampling_quality.value = 0;
             debug_settings.adjustables.scene_pixel_resolve_mode.value = 1;

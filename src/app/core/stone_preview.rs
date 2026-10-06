@@ -167,7 +167,7 @@ impl App {
                 // stone frames. The final grid ratio stays original 64:1.
                 settings.scene_supersampling_enabled.value = phase == 7 || phase == 8;
                 settings.scene_supersampling_quality.value = u32::from(phase == 8);
-                settings.scene_pixel_ratio.value = if phase == 7 { 2 } else { 3 };
+                settings.scene_pixel_ratio.value = if phase == 7 { 4 } else { 8 };
             }
             if let Some(style) = self.stone_preview.style_review.as_deref() {
                 settings.model_pixel_view_count.value = match style {

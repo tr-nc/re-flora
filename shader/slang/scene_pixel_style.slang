@@ -12,7 +12,7 @@ public float pixelLightness(float3 rgb)
     return 116.0 * f - 16.0;
 }
 
-// One 2x2 or 4x4 source block. Sort luminance statistics, never RGB components.
+// One 2x2, capped 3x3 or 4x4 source block. Sort lightness, never RGB components.
 // Min/max ties retain the first source sample; fallback retains the row-major
 // middle sample. Returning an untouched tuple prevents new hues and gamut clips.
 public float3 contrastPixelColor(float3 colors[16], uint count)

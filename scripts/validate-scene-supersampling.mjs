@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
 const help = `Usage: node scripts/validate-scene-supersampling.mjs [--help]
-Validate Release startup and runtime scene pixel controls: 1:1/4:1/16:1/64:1,
+Validate Release startup and runtime scene pixel controls: integer size 1-8 (N*N:1),
 4/16 source pixels, both color resolves, native capping and odd/tiny windows. Hidden and muted;
 the real saved Debug field is edited in memory only. No config files are saved.
 Requires: cargo build --release, a Vulkan display and VK_LAYER_KHRONOS_validation
@@ -59,7 +59,8 @@ try {
     }));
     assert.ok(plans.length > 0, `${name}: no sampling plans logged`);
     for (const plan of plans) {
-      assert.ok([1, 2, 4].includes(plan.samplesPerAxis));
+      assert.ok([1, 2, 3, 4].includes(plan.samplesPerAxis));
+      assert.ok(Number.isInteger(plan.stride) && plan.stride >= 1 && plan.stride <= 8);
       assert.equal(plan.ratio, plan.stride * plan.stride);
       assert.deepEqual(plan.pixels, plan.screen.map(size => Math.max(1, Math.ceil(size / plan.stride))));
       assert.equal(plan.samplesPerAxis, Math.min(Math.sqrt(plan.requestedSamples), plan.stride));
@@ -67,13 +68,14 @@ try {
       assert.ok(plan.filter === (plan.samplesPerAxis === 1 ? 'point' : `box${plan.samplesPerAxis}x${plan.samplesPerAxis}`) || (plan.samplesPerAxis > 1 && plan.filter === 'contrast'));
     }
     if (lifecycle) {
-      assert.match(log, /SCENE_SUPERSAMPLING_REVIEW\] phase=complete frames=66/);
-      for (const ratio of [1, 4, 16, 64]) assert.ok(plans.some(plan => plan.ratio === ratio), `missing ratio ${ratio}:1`);
-      for (const axis of [1, 2, 4]) assert.ok(plans.some(plan => plan.samplesPerAxis === axis), `missing sampling axis ${axis}`);
-      for (const axis of [2, 4]) assert.ok(plans.some(plan => plan.samplesPerAxis === axis && plan.filter === 'contrast'), `missing contrast density ${axis}`);
-      for (const stride of [2, 4, 8]) assert.ok(plans.some(plan => plan.stride === stride && plan.filter === 'contrast'), `missing contrast group stride ${stride}`);
+      assert.match(log, /SCENE_SUPERSAMPLING_REVIEW\] phase=complete frames=108/);
+      for (const ratio of [1, 4, 9, 16, 25, 36, 49, 64]) assert.ok(plans.some(plan => plan.ratio === ratio), `missing ratio ${ratio}:1`);
+      for (const axis of [1, 2, 3, 4]) assert.ok(plans.some(plan => plan.samplesPerAxis === axis), `missing sampling axis ${axis}`);
+      for (const axis of [2, 3, 4]) assert.ok(plans.some(plan => plan.samplesPerAxis === axis && plan.filter === 'contrast'), `missing contrast density ${axis}`);
+      for (const stride of [2, 3, 4, 5, 6, 7, 8]) assert.ok(plans.some(plan => plan.stride === stride && plan.filter === 'contrast'), `missing contrast group stride ${stride}`);
       assert.ok(plans.some(plan => plan.ratio === 1 && plan.requestedSamples === 16 && plan.samplesPerAxis === 1), 'native AA bypass missing');
-      assert.ok(plans.some(plan => plan.ratio === 4 && plan.requestedSamples === 16 && plan.samplesPerAxis === 2), '4:1 AA cap missing');
+      assert.ok(plans.some(plan => plan.ratio === 4 && plan.requestedSamples === 16 && plan.samplesPerAxis === 2), '4:1 source cap missing');
+      for (const filter of ['box3x3', 'contrast']) assert.ok(plans.some(plan => plan.stride === 3 && plan.requestedSamples === 16 && plan.samplesPerAxis === 3 && plan.filter === filter), `9:1 capped resolve missing: ${filter}`);
       assert.ok(plans.some(plan => plan.screen[0] === 1023 && plan.screen[1] === 767 && plan.samplesPerAxis === 4), 'odd-size 16x phase missing');
       assert.ok(plans.some(plan => plan.screen[0] === 9 && plan.screen[1] === 8 && plan.samplesPerAxis === 1), 'one-pixel-high 2D scene missing');
       assert.ok(plans.some(plan => plan.screen[0] === 1280 && plan.screen[1] === 720 && plan.samplesPerAxis === 2), 'resized 4x phase missing');

@@ -66,9 +66,9 @@ impl OrderedDitherReview {
         gui.ordered_dither_strength.value = strength;
         gui.ordered_dither_levels.value = 8;
         gui.scene_pixel_ratio.value = if self.grid {
-            (self.phase / 4) as u32
+            [1, 2, 4, 8][self.phase / 4]
         } else {
-            3
+            8
         };
         gui.scene_supersampling_enabled.value = true;
         gui.scene_supersampling_quality.value = if self.grid {

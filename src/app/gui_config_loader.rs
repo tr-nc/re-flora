@@ -107,8 +107,8 @@ impl GuiConfigLoader {
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         Self::migrate_model_view_quantization(&mut config);
+        Self::migrate_scene_pixel_size(&mut config);
         for id in [
-            "scene_pixel_ratio",
             "scene_supersampling_enabled",
             "scene_supersampling_quality",
             "scene_pixel_resolve_mode",
@@ -259,6 +259,60 @@ impl GuiConfigLoader {
         );
 
         config
+    }
+
+    // Keep the saved ID, but distinguish old dropdown indices from new strides
+    // by the serialized value type. Legacy 0/1/2/3 become 1/2/4/8, not 1/1/2/3.
+    // Loading refreshes the slider schema in memory and never writes the file.
+    fn migrate_scene_pixel_size(config: &mut GuiConfigFile) {
+        let saved_stride = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "scene_pixel_ratio")
+            .and_then(|p| match &p.value {
+                GuiParamValue::Choice { value, .. } => {
+                    Some([1, 2, 4, 8].get(*value as usize).copied().unwrap_or(8))
+                }
+                GuiParamValue::Uint { value, .. } => Some(
+                    crate::tracer::scene_resolution::normalize_pixel_stride(*value),
+                ),
+                _ => None,
+            });
+        let mut seen = false;
+        for section in &mut config.section {
+            let canonical_owner = section.name == "Debug";
+            section.param.retain(|p| {
+                if p.id != "scene_pixel_ratio" {
+                    return true;
+                }
+                let keep = canonical_owner && !seen;
+                seen |= keep;
+                keep
+            });
+        }
+        Self::add_missing_param(config, "Debug", "scene_pixel_ratio");
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        let schema = defaults
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "scene_pixel_ratio")
+            .unwrap();
+        let param = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Debug")
+            .unwrap()
+            .param
+            .iter_mut()
+            .find(|p| p.id == "scene_pixel_ratio")
+            .unwrap();
+        *param = schema.clone();
+        if let (Some(saved), GuiParamValue::Uint { value, .. }) = (saved_stride, &mut param.value) {
+            *value = saved;
+        }
     }
 
     // Quantization is always active. Keep one count under the old global ID,
@@ -1265,6 +1319,87 @@ mod tests {
     }
 
     #[test]
+    fn scene_pixel_dropdown_migrates_to_saved_integer_stride_without_writing() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for (old, expected) in [(0, 1), (1, 2), (2, 4), (3, 8), (u32::MAX, 8)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == "scene_pixel_ratio")
+                .unwrap();
+            param.kind = crate::app::gui_config_model::GuiParamKind::Choice;
+            param.label = "Scene: final pixel resolution".into();
+            param.value = GuiParamValue::Choice {
+                value: old,
+                options: ["1:1", "4:1", "16:1", "64:1"].map(String::from).to_vec(),
+            };
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            let migrated = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "scene_pixel_ratio")
+                .unwrap();
+            assert!(matches!(
+                migrated.kind,
+                crate::app::gui_config_model::GuiParamKind::Uint
+            ));
+            assert!(
+                matches!(migrated.value, GuiParamValue::Uint { value, min: Some(1), max: Some(8) } if value == expected)
+            );
+            assert!(migrated.enabled_if.is_none());
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                crate::app::GuiAdjustables::from_config(&reloaded)
+                    .scene_pixel_ratio
+                    .value,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn scene_pixel_slider_clamps_invalid_values_and_preserves_valid_sizes() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for saved in [0, 1, 2, 3, 4, 5, 6, 7, 8, u32::MAX] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == "scene_pixel_ratio")
+                .unwrap();
+            param.value = GuiParamValue::Uint {
+                value: saved,
+                min: None,
+                max: None,
+            };
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(
+                crate::app::GuiAdjustables::from_config(&loaded)
+                    .scene_pixel_ratio
+                    .value,
+                saved.clamp(1, 8)
+            );
+        }
+    }
+
+    #[test]
     fn older_saves_get_disabled_supersampling_and_saved_choices_survive_reload() {
         use crate::app::gui_config_model::GuiParamValue;
         for saved in [None, Some(false), Some(true)] {
@@ -1304,7 +1439,7 @@ mod tests {
                 "loading must not save"
             );
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
-            assert_eq!(gui.scene_pixel_ratio.value, 3);
+            assert_eq!(gui.scene_pixel_ratio.value, 5);
             assert_eq!(gui.scene_supersampling_quality.value, 0);
             assert_eq!(gui.scene_pixel_resolve_mode.value, 0);
             assert!(loaded

@@ -14,8 +14,10 @@ export __extern_cpp int main()
 {
     float3 values[16];
     for (uint i = 0u; i < 16u; i++) values[i] = float3(0.0);
-    for (uint count = 4u; count <= 16u; count *= 4u)
+    for (uint axis = 2u; axis <= 4u; axis++)
     {
+        uint count = axis * axis;
+        uint darkCount = (count + 1u) / 2u;
         // Uniform blocks preserve exact RGB tuples, including the lightness toe.
         for (uint level = 0u; level < 5u; level++)
         {
@@ -25,7 +27,7 @@ export __extern_cpp int main()
             if (!isSourceColor(contrastPixelColor(values, count), values, count)) return 2;
         }
         // Balanced dark/bright coverage chooses contrast instead of grey average.
-        for (uint i = 0u; i < count; i++) values[i] = float3(i < count / 2u ? 0.0 : 1.0);
+        for (uint i = 0u; i < count; i++) values[i] = float3(i < darkCount ? 0.0 : 1.0);
         if (!near(contrastPixelColor(values, count), float3(0.0))) return 3;
         // A bright majority still wins: this is not minority-detail protection.
         values[0] = float3(0.0);
@@ -35,13 +37,13 @@ export __extern_cpp int main()
         // Both 2x2 and 4x4 balanced edge blocks reproduce the old Lab splice.
         float3 foliage = float3(0.05, 0.35, 0.02);
         float3 sky = float3(0.22, 0.48, 0.95);
-        for (uint i = 0u; i < count; i++) values[i] = i < count / 2u ? foliage : sky;
+        for (uint i = 0u; i < count; i++) values[i] = i < darkCount ? foliage : sky;
         float3 edge = contrastPixelColor(values, count);
         if (edge.r < 0.04 && edge.g > 0.15 && edge.b > 0.15) return 16;
         if (!isSourceColor(edge, values, count)) return 17;
         if (!near(edge, foliage)) return 18;
         // Exercise the actual caller's per-source HDR tone-map order.
-        for (uint i = 0u; i < count; i++) values[i] = toneMapForDisplay(i < count / 2u ? foliage * 3.0 : sky * 2.0);
+        for (uint i = 0u; i < count; i++) values[i] = toneMapForDisplay(i < darkCount ? foliage * 3.0 : sky * 2.0);
         if (!isSourceColor(contrastPixelColor(values, count), values, count)) return 20;
         // All foliage/sky coverage patterns in 2x2; deterministic patterns in 4x4.
         // Legitimate blue sky is allowed: the invariant is source membership.
@@ -53,7 +55,7 @@ export __extern_cpp int main()
         }
         // Genuine dark blue content must survive, not be removed by hue clamping.
         float3 blue = float3(0.01, 0.04, 0.4);
-        for (uint i = 0u; i < count; i++) values[i] = i < count / 2u ? blue : float3(0.4, 0.9, 0.05);
+        for (uint i = 0u; i < count; i++) values[i] = i < darkCount ? blue : float3(0.4, 0.9, 0.05);
         if (!near(contrastPixelColor(values, count), blue)) return 22;
         // Mixed chroma remains finite and display-gamut bounded.
         for (uint i = 0u; i < count; i++) values[i] = float3(float(i % 3u) / 2.0, float(i % 5u) / 4.0, float(i % 7u) / 6.0);
@@ -65,7 +67,8 @@ export __extern_cpp int main()
     uint state = 7u;
     for (uint trial = 0u; trial < 256u; trial++)
     {
-        uint count = trial % 2u == 0u ? 4u : 16u;
+        uint axis = 2u + trial % 3u;
+        uint count = axis * axis;
         for (uint i = 0u; i < count; i++)
         {
             state = state * 1664525u + 1013904223u;

@@ -48,31 +48,40 @@ impl App {
             return false;
         }
         let frame = review.frame;
-        if frame == 66 {
-            log::info!("[SCENE_SUPERSAMPLING_REVIEW] phase=complete frames=66 saved=false");
+        if frame == 108 {
+            log::info!("[SCENE_SUPERSAMPLING_REVIEW] phase=complete frames=108 saved=false");
             return true;
         }
         review.frame += 1;
-        let (ratio, enabled, quality) = match frame / 6 {
-            0 => (3, false, 0),
-            1 => (3, true, 0),
-            2 => (3, true, 1),
-            3 => (2, true, 1),
-            4 => (1, true, 1),
-            5 => (0, true, 1),
-            6 => (3, true, 0),
-            7 => (3, false, 0),
-            _ => (3, true, 0),
+        let (stride, enabled, quality) = match frame / 6 {
+            0 => (8, false, 0),
+            1 => (8, true, 0),
+            2 => (8, true, 1),
+            3 => (4, true, 1),
+            4 => (2, true, 1),
+            5 => (1, true, 1),
+            6 => (8, true, 0),
+            7 => (8, false, 0),
+            8 => (8, true, 0),
+            9 | 10 => (3, true, 1),
+            11 => (5, true, 1),
+            12 => (5, false, 0),
+            13 => (6, true, 1),
+            14 => (7, true, 1),
+            15 => (2, false, 0),
+            16 => (1, false, 0),
+            _ => (8, true, 0),
         };
         let gui = &mut self.debug_settings.adjustables;
-        gui.scene_pixel_ratio.value = ratio;
+        gui.scene_pixel_ratio.value = stride;
         gui.scene_supersampling_enabled.value = enabled;
         gui.scene_supersampling_quality.value = quality;
-        gui.scene_pixel_resolve_mode.value = if matches!(frame / 6, 1 | 3 | 4 | 6 | 9) {
-            1
-        } else {
-            0
-        };
+        gui.scene_pixel_resolve_mode.value =
+            if matches!(frame / 6, 1 | 3 | 4 | 6 | 9 | 11 | 13 | 14) {
+                1
+            } else {
+                0
+            };
         let resize = match frame {
             18 => Some((1023, 767)),
             36 => Some((9, 8)),
@@ -90,7 +99,7 @@ impl App {
             log::info!("[SCENE_SUPERSAMPLING_REVIEW] frame={frame} resize={width}x{height} accepted={accepted:?} saved=false");
         }
         if frame.is_multiple_of(6) {
-            log::info!("[SCENE_SUPERSAMPLING_REVIEW] frame={frame} ratio_choice={ratio} enabled={enabled} quality_choice={quality} saved=false");
+            log::info!("[SCENE_SUPERSAMPLING_REVIEW] frame={frame} pixel_stride={stride} enabled={enabled} quality_choice={quality} saved=false");
         }
         false
     }
@@ -132,7 +141,7 @@ mod tests {
     #[test]
     fn pixel_controls_resolve_without_mutating_the_saved_preferences() {
         let mut gui = crate::app::gui_config::DebugSettings::load().adjustables;
-        gui.scene_pixel_ratio.value = 0;
+        gui.scene_pixel_ratio.value = 1;
         gui.scene_supersampling_enabled.value = true;
         gui.scene_supersampling_quality.value = 1;
         let settings = super::from_gui(&gui);

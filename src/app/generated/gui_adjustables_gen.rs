@@ -111,8 +111,8 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
         id: "scene_pixel_ratio",
-        kind: "choice",
-        label: "Scene: final pixel resolution",
+        kind: "uint",
+        label: "Scene: pixel size (N x N screen pixels)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1512,7 +1512,7 @@ pub struct GuiAdjustables {
     pub stone_variation: crate::gui_adjustables::FloatParam,
     pub stone_slab_edge_cut: crate::gui_adjustables::FloatParam,
     pub stone_rock_facets: crate::gui_adjustables::UintParam,
-    pub scene_pixel_ratio: crate::gui_adjustables::ChoiceParam,
+    pub scene_pixel_ratio: crate::gui_adjustables::UintParam,
     pub scene_supersampling_enabled: crate::gui_adjustables::BoolParam,
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
     pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
@@ -1770,7 +1770,7 @@ impl GuiAdjustables {
         let mut stone_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut stone_slab_edge_cut_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut stone_rock_facets_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut scene_pixel_ratio_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut scene_pixel_ratio_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut scene_supersampling_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
@@ -2096,8 +2096,10 @@ impl GuiAdjustables {
                         }
                     }
                     "scene_pixel_ratio" => {
-                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
-                            scene_pixel_ratio_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            scene_pixel_ratio_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "scene_supersampling_enabled" => {
@@ -4085,6 +4087,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
     match id {
         "stone_seed" => Some(&adjustables.stone_seed),
         "stone_rock_facets" => Some(&adjustables.stone_rock_facets),
+        "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
         "flower_stem_model_resolution" => Some(&adjustables.flower_stem_model_resolution),
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
@@ -4110,7 +4113,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
     match id {
         "stone_kind" => Some(&adjustables.stone_kind),
-        "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
@@ -4377,6 +4379,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
     match id {
         "stone_seed" => Some(&mut adjustables.stone_seed),
         "stone_rock_facets" => Some(&mut adjustables.stone_rock_facets),
+        "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
         "flower_stem_model_resolution" => Some(&mut adjustables.flower_stem_model_resolution),
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
@@ -4402,7 +4405,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
     match id {
         "stone_kind" => Some(&mut adjustables.stone_kind),
-        "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),

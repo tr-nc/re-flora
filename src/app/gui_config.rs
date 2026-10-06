@@ -1905,11 +1905,11 @@ mod tests {
     }
 
     #[test]
-    fn pixel_presets_and_requested_quality_survive_save_and_reload() {
+    fn pixel_sizes_and_requested_quality_survive_save_and_reload() {
         let mut settings = DebugSettings::load();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
-        for ratio in 0..4 {
+        for ratio in 1..=8 {
             for enabled in [false, true] {
                 settings.adjustables.scene_pixel_ratio.value = ratio;
                 settings.adjustables.scene_supersampling_enabled.value = enabled;
