@@ -1183,24 +1183,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "New Leaf Growth (Seconds)",
     },
     GeneratedGuiParamDescriptor {
-        section: "Falling Leaves",
-        id: "falling_leaf_mesh",
-        kind: "bool",
-        label: "Model Leaves (Unchecked = Source Voxels)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Falling Leaves",
-        id: "falling_leaf_size_scale",
-        kind: "float",
-        label: "Model Leaf Display Size (Physics Unchanged)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Falling Leaves",
-        id: "falling_leaf_pixel_resolution",
-        kind: "uint",
-        label: "Pixels per Falling Leaf (N x N, Independent of Butterflies)",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Terrain Harvest Particles",
         id: "terrain_harvest_particles_enabled",
         kind: "bool",
@@ -1691,9 +1673,6 @@ pub struct GuiAdjustables {
     pub leaf_connection_half_life: crate::gui_adjustables::FloatParam,
     pub leaf_regrowth_delay: crate::gui_adjustables::FloatParam,
     pub leaf_regrowth_duration: crate::gui_adjustables::FloatParam,
-    pub falling_leaf_mesh: crate::gui_adjustables::BoolParam,
-    pub falling_leaf_size_scale: crate::gui_adjustables::FloatParam,
-    pub falling_leaf_pixel_resolution: crate::gui_adjustables::UintParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
@@ -1949,9 +1928,6 @@ impl GuiAdjustables {
         let mut leaf_connection_half_life_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_regrowth_delay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_regrowth_duration_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut falling_leaf_mesh_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut falling_leaf_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut falling_leaf_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3292,25 +3268,6 @@ impl GuiAdjustables {
                             leaf_regrowth_duration_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "falling_leaf_mesh" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            falling_leaf_mesh_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "falling_leaf_size_scale" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            falling_leaf_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "falling_leaf_pixel_resolution" => {
-                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0);
-                            let max = max.unwrap_or(100);
-                            falling_leaf_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
-                        }
-                    }
                     "terrain_harvest_particles_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             terrain_harvest_particles_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -3831,9 +3788,6 @@ impl GuiAdjustables {
             leaf_connection_half_life: leaf_connection_half_life_field.expect("Missing parameter: leaf_connection_half_life"),
             leaf_regrowth_delay: leaf_regrowth_delay_field.expect("Missing parameter: leaf_regrowth_delay"),
             leaf_regrowth_duration: leaf_regrowth_duration_field.expect("Missing parameter: leaf_regrowth_duration"),
-            falling_leaf_mesh: falling_leaf_mesh_field.expect("Missing parameter: falling_leaf_mesh"),
-            falling_leaf_size_scale: falling_leaf_size_scale_field.expect("Missing parameter: falling_leaf_size_scale"),
-            falling_leaf_pixel_resolution: falling_leaf_pixel_resolution_field.expect("Missing parameter: falling_leaf_pixel_resolution"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
@@ -4033,7 +3987,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_connection_half_life" => Some(&adjustables.leaf_connection_half_life),
         "leaf_regrowth_delay" => Some(&adjustables.leaf_regrowth_delay),
         "leaf_regrowth_duration" => Some(&adjustables.leaf_regrowth_duration),
-        "falling_leaf_size_scale" => Some(&adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
@@ -4101,7 +4054,6 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "model_flower_pixel_resolution" => Some(&adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
-        "falling_leaf_pixel_resolution" => Some(&adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&adjustables.terrain_material_seed),
@@ -4147,7 +4099,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
-        "falling_leaf_mesh" => Some(&adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
@@ -4325,7 +4276,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_connection_half_life" => Some(&mut adjustables.leaf_connection_half_life),
         "leaf_regrowth_delay" => Some(&mut adjustables.leaf_regrowth_delay),
         "leaf_regrowth_duration" => Some(&mut adjustables.leaf_regrowth_duration),
-        "falling_leaf_size_scale" => Some(&mut adjustables.falling_leaf_size_scale),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
         "butterfly_wing_transmission" => Some(&mut adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),
@@ -4393,7 +4343,6 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "model_flower_pixel_resolution" => Some(&mut adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
-        "falling_leaf_pixel_resolution" => Some(&mut adjustables.falling_leaf_pixel_resolution),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "terrain_material_seed" => Some(&mut adjustables.terrain_material_seed),
@@ -4439,7 +4388,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&mut adjustables.glass_stored_voxel_normal),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
-        "falling_leaf_mesh" => Some(&mut adjustables.falling_leaf_mesh),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),

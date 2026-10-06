@@ -14,7 +14,7 @@ pub(crate) use capture_frame::{
 mod butterfly_mesh;
 #[cfg(test)]
 mod model_pixel_bounds;
-pub use butterfly_mesh::{ButterflyMeshSettings, LeafModelSettings};
+pub use butterfly_mesh::ButterflyMeshSettings;
 mod butterfly_palette;
 pub use butterfly_palette::*;
 
@@ -54,10 +54,8 @@ use stem_band_resources::StemBandResources;
 mod model_geometry;
 mod model_mesh_frame;
 mod stone_preview;
-pub use stone_preview::Request as StonePreviewRequest;
-#[cfg(test)]
-mod model_pixel_tiles;
 use model_mesh_frame::{MeshPass, ModelMeshFrame, PreparedModelMeshes};
+pub use stone_preview::Request as StonePreviewRequest;
 pub(crate) mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
 
@@ -7184,7 +7182,6 @@ impl Tracer {
         &mut self,
         snapshots: &[ParticleSnapshot],
         butterfly_mesh: ButterflyMeshSettings,
-        leaf_model: LeafModelSettings,
     ) -> Result<()> {
         let count = snapshots.len();
         self.tree_leaf_particle_scratch.clear();
@@ -7193,9 +7190,7 @@ impl Tracer {
         self.translucent_particle_instance_scratch.clear();
         self.translucent_particle_instance_scratch.reserve(count);
         for snap in snapshots {
-            if snap.kind == crate::particles::ParticleRenderKind::Butterfly
-                || leaf_model.uses_model(snap)
-            {
+            if snap.kind == crate::particles::ParticleRenderKind::Butterfly {
                 continue;
             }
             let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);
@@ -7207,7 +7202,7 @@ impl Tracer {
                     .unwrap_or(glam::Quat::IDENTITY)
                     .to_array(),
                 position: snap.position_ws.to_array(),
-                size: leaf_model.render_size(snap),
+                size: snap.size,
                 color: snap.color.to_array(),
             };
             if snap.leaf_geometry.is_some() {
@@ -7235,7 +7230,6 @@ impl Tracer {
         self.model_mesh_frame.prepare_particle_models(
             snapshots,
             butterfly_mesh,
-            leaf_model,
             self.camera.position(),
         )
     }

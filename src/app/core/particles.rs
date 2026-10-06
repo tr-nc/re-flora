@@ -581,14 +581,9 @@ impl App {
             fps: settings.butterfly_animation_fps.value,
             transmission: settings.butterfly_wing_transmission.value,
         };
-        let leaf_model = crate::tracer::LeafModelSettings {
-            enabled: settings.falling_leaf_mesh.value,
-            resolution: settings.falling_leaf_pixel_resolution.value,
-            size_scale: settings.falling_leaf_size_scale.value,
-        };
-        if let Err(err) =
-            self.tracer
-                .upload_particles(&self.particle_snapshots, butterfly_mesh, leaf_model)
+        if let Err(err) = self
+            .tracer
+            .upload_particles(&self.particle_snapshots, butterfly_mesh)
         {
             log::error!("Failed to upload particles: {}", err);
         }
@@ -700,14 +695,10 @@ impl App {
         settings.fruit_cycle.value = if dropped { 1.0 } else { 0.7 };
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
             settings.butterfly_mesh_preview.value = true;
-            settings.falling_leaf_mesh.value = true;
-            settings.falling_leaf_size_scale.value = 1.;
-            let (leaf_pixels, butterfly_pixels) =
-                [(8, 64), (16, 8), (64, 16)][(frame / 30) as usize % 3];
-            settings.falling_leaf_pixel_resolution.value = leaf_pixels;
+            let butterfly_pixels = [64, 8, 16][(frame / 30) as usize % 3];
             settings.butterfly_pixel_resolution.value = butterfly_pixels;
             if frame.is_multiple_of(30) {
-                log::info!("[MODEL_PIXEL_ORTHO_REVIEW] leaf_pixels={leaf_pixels} butterfly_pixels={butterfly_pixels} apple_pixels={n}");
+                log::info!("[MODEL_PIXEL_ORTHO_REVIEW] butterfly_pixels={butterfly_pixels} apple_pixels={n} leaves=voxels");
             }
         }
         if frame.is_multiple_of(30) && frame / 30 <= 11 {

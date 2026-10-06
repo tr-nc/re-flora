@@ -3,7 +3,6 @@ import model_mesh;
 import model_mesh_view;
 import model_view_quantization;
 import model_pixel_types;
-import leaf_lighting;
 import model_bake_triangle;
 import model_mesh_lighting;
 import model_mesh_types;
@@ -30,13 +29,9 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint index:SV_VulkanInstanceI
     float3 color;
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,position,normal);
     float3 ambient=sampleDiffuseEnvironment(gui_input,shading_info,position,normal);
-    if((instance.metadata.w&2u)!=0u) {
-        color=shadeLeafWithEnvironment(instance.color.rgb,ambient,shadow.sun_transmittance,position,normal,camera_info.pos.xyz,sun_info,gui_input.leaf_transmission_strength);
-    } else {
-        float d=dot(normal,normalize(sun_info.sun_dir));
-        float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
-        color=applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*shadow.sun_transmittance,ambient);
-    }
+    float d=dot(normal,normalize(sun_info.sun_dir));
+    float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
+    color=applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*shadow.sun_transmittance,ambient);
     ModelMeshOutput output;output.position=mul(camera_info.view_proj_mat,float4(position,1));
     output.color=float4(color,instance.color.w);return output;
 }

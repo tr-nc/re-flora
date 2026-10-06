@@ -40,7 +40,7 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
         views: gui.model_pixel_view_count.value,
         apple_resolution: gui.apple_pixel_resolution.value,
         particle_resolutions: [
-            gui.falling_leaf_pixel_resolution.value,
+            8, // retained loading adapter slot; leaves have no model cache
             gui.butterfly_pixel_resolution.value,
         ],
         flowers: crate::flora::models::Settings {
@@ -292,14 +292,13 @@ mod tests {
         let gui = &mut settings.adjustables;
         gui.model_pixel_view_count.value = 64;
         gui.apple_pixel_resolution.value = 24;
-        gui.falling_leaf_pixel_resolution.value = 22;
         gui.butterfly_pixel_resolution.value = 16;
         gui.model_flower_pixel_resolution.value = 35;
         gui.model_flower_head_scale.value = 1.25;
         let cache = model_cache_inputs(&settings);
         assert_eq!(cache.views, 64);
         assert_eq!(cache.apple_resolution, 24);
-        assert_eq!(cache.particle_resolutions, [22, 16]);
+        assert_eq!(cache.particle_resolutions, [8, 16]);
         assert_eq!(cache.flowers.resolution, 35);
         assert_eq!(cache.flowers.views, 64);
         assert_eq!(cache.flowers.shape.head_scale, 1.25);

@@ -2,7 +2,7 @@
 //! per-view surface baking, relighting passes or sampled-depth reconstruction.
 //! Geometry and published simulation poses retain acquired-frame-slot ownership.
 use super::{
-    butterfly_mesh::{ButterflyMeshRenderer, ButterflyMeshSettings, LeafModelSettings},
+    butterfly_mesh::{ButterflyMeshRenderer, ButterflyMeshSettings},
     dynamic_fruit_resources::DynamicFruitRendererResources,
     model_geometry::{self, Source},
     model_pixel_views,
@@ -253,11 +253,10 @@ impl ModelMeshFrame {
         &mut self,
         snapshots: &[ParticleSnapshot],
         settings: ButterflyMeshSettings,
-        leaves: LeafModelSettings,
         camera: Vec3,
     ) -> Result<()> {
         self.particles
-            .prepare_frame_models(snapshots, settings, leaves, camera)
+            .prepare_frame_models(snapshots, settings, camera)
     }
     pub fn particle_count(&self) -> u32 {
         self.particles.count()
@@ -270,9 +269,7 @@ impl ModelMeshFrame {
         _: Mat4,
     ) -> Result<PreparedModelMeshes> {
         if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some() {
-            let (butterflies, leaves) = self.particles.model_counts();
-            self.review_draw(1, "mesh_butterflies", butterflies);
-            self.review_draw(2, "mesh_leaves", leaves);
+            self.review_draw(1, "mesh_butterflies", self.particles.count());
         }
         let frame = &mut self.frames[self.slot];
         self.particles.publish_mesh_frame(|bytes| {
@@ -351,7 +348,7 @@ impl ModelMeshFrame {
             cmd,
             pass,
             count,
-            g.source.ranges[64][1] * 3,
+            g.source.ranges[model_geometry::APPLE_SOURCE as usize][1] * 3,
             resources,
             Some(PushConstantInfo {
                 shader_stage: vk::ShaderStageFlags::VERTEX,
@@ -427,7 +424,7 @@ impl ModelMeshFrame {
             cmd,
             pass,
             fruit.instance_count,
-            g.source.ranges[64][1] * 3,
+            g.source.ranges[model_geometry::APPLE_SOURCE as usize][1] * 3,
             resources,
             None,
         )

@@ -62,7 +62,6 @@ impl Validation {
             .count();
         match self.stage {
             0 => {
-                app.debug_settings.adjustables.falling_leaf_mesh.value = false;
                 if self.sentinel.is_none() {
                     self.sentinel = app.particle_system.spawn(ParticleSpawn {
                         position: Vec3::new(1.0, 1.0, 1.0),
@@ -86,7 +85,6 @@ impl Validation {
                     .sum();
                 assert!(self.count > 0, "leaf validation needs the startup tree");
                 let a = &mut app.debug_settings.adjustables;
-                a.falling_leaf_mesh.value = true;
                 a.leaf_connection_strength.value = 1.0;
                 a.leaf_regrowth_delay.value = 0.1;
                 a.leaf_regrowth_duration.value = 1.0;
@@ -145,7 +143,6 @@ impl Validation {
                 assert!(app.particle_system.capacity() >= source_particles);
                 self.gpu_growth_is(app, 0.0);
                 log::info!("[LEAF_LIFECYCLE][VALIDATE] second_generation=passed source_particles={source_particles} capacity={}", app.particle_system.capacity());
-                app.debug_settings.adjustables.falling_leaf_mesh.value = false;
                 self.stage = 4;
             }
             4 | 5 => {
@@ -166,12 +163,11 @@ impl Validation {
                     "appearance switch removed an unrelated particle"
                 );
                 if self.stage == 4 {
-                    app.debug_settings.adjustables.falling_leaf_mesh.value = true;
                     self.stage = 5;
                 } else {
                     app.particle_system.despawn(self.sentinel.take().unwrap());
                     self.stage = 6;
-                    log::info!("[LEAF_LIFECYCLE][VALIDATE] PASS all_leaf_transfer=true generations=2 regrowth=true gpu_publication=true ecology=true appearance_switch=true unrelated_particles=preserved");
+                    log::info!("[LEAF_LIFECYCLE][VALIDATE] PASS all_leaf_transfer=true generations=2 regrowth=true gpu_publication=true ecology=true voxel_particles=true unrelated_particles=preserved");
                 }
             }
             _ => {}

@@ -5,8 +5,11 @@ use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use std::sync::OnceLock;
 
 pub const BUTTERFLY_BYTES: &[u8] = include_bytes!("../assets/models/butterfly.glb");
+#[cfg(test)]
 pub const LEAF_BYTES: &[u8] = include_bytes!("../assets/models/leaf.glb");
+#[cfg(test)]
 pub const LEAF_VARIANT_COUNT: usize = 64;
+#[cfg(test)]
 pub const LEAF_VARIANTS_BYTES: &[u8] = include_bytes!("../assets/models/leaf-variants.glb");
 
 #[derive(Clone, Debug)]
@@ -55,6 +58,7 @@ pub fn leaf() -> &'static Model {
     MODEL.get_or_init(|| Model::load(LEAF_BYTES).expect("validated shared leaf GLB"))
 }
 
+#[cfg(test)]
 pub fn leaf_variants() -> &'static Model {
     static MODEL: OnceLock<Model> = OnceLock::new();
     MODEL.get_or_init(|| Model::load(LEAF_VARIANTS_BYTES).expect("validated derived leaf variants"))

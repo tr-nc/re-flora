@@ -97,8 +97,6 @@ impl App {
         gui.model_pixel_view_count.value = count;
         gui.model_flower_height_variance.value = 0.;
         gui.model_flower_head_scale.value = 1.;
-        gui.falling_leaf_mesh.value = true;
-        gui.falling_leaf_size_scale.value = 1.;
         gui.butterfly_mesh_preview.value = false;
         // Retain attached fruit for fixed counts; sweep uses the existing production
         // fruit-cycle handoff to submit the dynamic apple vertex path too.

@@ -21,13 +21,10 @@ impl App {
         s.model_pixel_view_count.value = views;
         s.model_flower_head_scale.value = 1.;
         s.model_flower_height_scale.value = 1.;
-        s.falling_leaf_pixel_resolution.value = resolutions[0];
         s.apple_pixel_resolution.value = resolutions[1];
         s.butterfly_pixel_resolution.value = resolutions[2];
         s.model_flower_pixel_resolution.value = resolutions[3];
         s.butterfly_mesh_preview.value = true;
-        s.falling_leaf_mesh.value = true;
-        s.falling_leaf_size_scale.value = 1.;
         s.fruit_cycle.value = if phase >= 6 { 1. } else { 0.7 };
         s.model_flower_size_scale.value = if phase == 1 { 2. } else { 1. };
         s.flora_growth_override_enabled.value = true;

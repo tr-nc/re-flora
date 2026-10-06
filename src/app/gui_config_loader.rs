@@ -491,11 +491,13 @@ impl GuiConfigLoader {
                         | "tree_pixel_size"
                         | "attached_leaf_rotation"
                         | "real_leaf_lifecycle"
+                        | "falling_leaf_mesh"
+                        | "falling_leaf_size_scale"
+                        | "falling_leaf_pixel_resolution"
                 )
             });
         }
         Self::add_missing_param(config, "Debug", "raster_tree_wind");
-        Self::add_missing_param(config, "Falling Leaves", "falling_leaf_mesh");
         if !has_wind {
             if let Some(value) = old_wind {
                 if let Some(param) = config
@@ -513,10 +515,7 @@ impl GuiConfigLoader {
         for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
             if matches!(
                 param.id.as_str(),
-                "falling_leaf_mesh"
-                    | "falling_leaf_size_scale"
-                    | "falling_leaf_pixel_resolution"
-                    | "leaf_connection_strength"
+                "leaf_connection_strength"
                     | "leaf_connection_half_life"
                     | "leaf_regrowth_delay"
                     | "leaf_regrowth_duration"
@@ -2122,8 +2121,16 @@ mod tests {
                 .flat_map(|s| &s.param)
                 .all(|p| p.id != "real_leaf_lifecycle"));
             assert_eq!(gui.leaf_connection_strength.value, 0.7);
-            assert_eq!(gui.falling_leaf_size_scale.value, 2.0);
-            assert_eq!(gui.falling_leaf_pixel_resolution.value, 32);
+            assert!(loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .all(|p| !matches!(
+                    p.id.as_str(),
+                    "falling_leaf_mesh"
+                        | "falling_leaf_size_scale"
+                        | "falling_leaf_pixel_resolution"
+                )));
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             assert_eq!(
                 toml::to_string(&loaded).unwrap(),

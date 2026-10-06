@@ -9,7 +9,8 @@ use glam::{Mat3, Vec2, Vec3};
 use std::sync::LazyLock;
 
 pub const ANIMATION_FRAMES: u32 = 32;
-pub const BUTTERFLY_SOURCE_BASE: u32 = 65;
+pub const APPLE_SOURCE: u32 = 0;
+pub const BUTTERFLY_SOURCE_BASE: u32 = 1;
 pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
 fn representatives() -> &'static [usize] {
     static IDS: LazyLock<Vec<usize>> = LazyLock::new(|| {
@@ -71,6 +72,7 @@ pub(super) struct FlowerPart {
     distribution: [f32; 4],
     socket: [f32; 4],
 }
+#[derive(Clone)]
 pub(super) struct Source {
     pub triangles: Vec<Triangle>,
     pub ranges: Vec<[u32; 4]>,
@@ -92,22 +94,6 @@ pub(super) fn source(shape: Shape) -> Source {
     let mut triangles = Vec::new();
     let mut ranges = Vec::new();
     let mut palette = Vec::new();
-    let leaves = model_assets::leaf_variants();
-    let transforms = leaves.transforms(0., 0);
-    for variant in 0..64 {
-        let first = triangles.len() as u32;
-        for t in leaves.triangles.iter().filter(|t| t.node == variant) {
-            let m = transforms[t.node];
-            let normal = Mat3::from_mat4(m).inverse().transpose();
-            triangles.push(triangle(
-                t.positions.map(|p| m.transform_point3(p)),
-                t.normals.map(|n| (normal * n).normalize()),
-                t.uvs,
-                0,
-            ));
-        }
-        ranges.push([first, triangles.len() as u32 - first, 0, variant as u32]);
-    }
     let apple = super::apple_preview::mesh();
     let first = triangles.len() as u32;
     for ids in apple.indices.chunks_exact(3) {
@@ -262,7 +248,7 @@ mod tests {
         for p in &geometry.flower_parts {
             assert!((p.range[0] + p.range[1]) as usize <= geometry.triangles.len());
         }
-        assert_eq!(geometry.ranges[64][1], 780);
+        assert_eq!(geometry.ranges[APPLE_SOURCE as usize][1], 780);
         assert_eq!(geometry.flower_parts.len(), models::flowers().len() * 4);
     }
     #[test]

@@ -74,7 +74,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Model View Quantization",
-        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies, modeled leaves and direct stones. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
+        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies and direct stones. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
         initially_open: false,
         params: &["model_pixel_view_count"],
     },
@@ -131,7 +131,6 @@ const GROUPS: &[ControlGroup] = &[
 const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
     ("Debug", "apple_pixel_resolution"),
     ("Butterflies", "butterfly_pixel_resolution"),
-    ("Falling Leaves", "falling_leaf_pixel_resolution"),
     ("Flora", "model_flower_pixel_resolution"),
 ];
 
@@ -414,7 +413,7 @@ mod tests {
             .unwrap();
         assert_eq!(global.parent, None);
         assert_eq!(global.params, &["apple_pixel_resolution"]);
-        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 4);
+        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 3);
         let config: crate::app::gui_config_model::GuiConfigFile =
             toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
         for &(section, id) in PIXEL_MODEL_CONTROLS {
