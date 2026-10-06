@@ -8,6 +8,7 @@ pub struct StemExperiment {
     pub model_resolution: u32,
     pub radius_scale: f32,
     pub tip_radius_ratio: f32,
+    pub stepped_width: bool,
     pub branches: bool,
 }
 
@@ -20,6 +21,7 @@ impl Default for StemExperiment {
             model_resolution: 128,
             radius_scale: 4.0,
             tip_radius_ratio: 0.6,
+            stepped_width: false,
             branches: true,
         }
     }
@@ -98,6 +100,28 @@ mod tests {
         assert!(!preparation.contains("traceStem("));
         let shared = include_str!("../../../shader/slang/stem_band_geometry.slang");
         assert!(shared.contains("nointerpolation float3 color"));
+    }
+
+    #[test]
+    fn stepped_width_is_opt_in_and_shared_by_every_subdivision_of_a_color_block() {
+        assert!(!StemExperiment::default().stepped_width);
+        assert!(
+            StemExperiment {
+                stepped_width: true,
+                ..Default::default()
+            }
+            .normalized()
+            .stepped_width
+        );
+        let shader = include_str!("../../../shader/slang/flower_stem_bands.comp.slang");
+        let block_radius = shader
+            .find("float blockRadius=stemRadius(s,branch,blockT);")
+            .unwrap();
+        let subdivisions = shader.find("for(uint subdivision=").unwrap();
+        assert!(block_radius < subdivisions);
+        assert!(shader.contains("stepped?blockRadius:stemRadius(s,branch,t0)"));
+        assert!(shader.contains("stepped?blockRadius:stemRadius(s,branch,t1)"));
+        assert!(shader.contains("float blockT=colors>1u?float(colorBand)/float(colors-1u):0.0;"));
     }
 
     #[test]

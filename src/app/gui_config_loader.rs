@@ -155,6 +155,7 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::migrate_stem_rendering_controls(&mut config);
+        Self::add_missing_param(&mut config, "Debug", "flower_stem_stepped_width");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");

@@ -356,6 +356,15 @@ min = 0.25
 max = 10
 
 [[section.param]]
+id = "flower_stem_stepped_width"
+kind = "bool"
+label = "Flower stems: constant width per color block (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "flower_stem_tip_radius_ratio"
 kind = "float"
 label = "Flower stems: top / bottom thickness ratio"

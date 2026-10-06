@@ -16,7 +16,7 @@ public struct U_GuiInput
     public float3 flower_stem_bottom;
     public float3 flower_stem_tip;
     public uint4 flower_stem_sampling; // surface-cell shading, pixelized rays, samples per stem height, branches
-    public float4 flower_stem_shape; // radius scale, reserved, world block height, reserved
+    public float4 flower_stem_shape; // radius scale, stepped block width, world block height, tip radius ratio
     public float3 grass_bottom_dark;
     public float3 grass_bottom_light;
     public float3 grass_tip_dark;
