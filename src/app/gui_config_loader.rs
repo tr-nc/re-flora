@@ -155,7 +155,6 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::migrate_stem_rendering_controls(&mut config);
-        Self::add_missing_param(&mut config, "Debug", "flower_stem_stepped_width");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
@@ -376,9 +375,12 @@ impl GuiConfigLoader {
 
     fn migrate_stem_rendering_controls(config: &mut GuiConfigFile) {
         for section in &mut config.section {
-            section
-                .param
-                .retain(|p| !matches!(p.id.as_str(), "stem_band_mode" | "grass_stem_rendering"));
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "stem_band_mode" | "grass_stem_rendering" | "flower_stem_stepped_width"
+                )
+            });
         }
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
@@ -1309,6 +1311,8 @@ mod tests {
             retired_checkbox.value = super::GuiParamValue::Bool {
                 value: old_mode % 2 == 0,
             };
+            section.param.push(retired_checkbox.clone());
+            retired_checkbox.id = "flower_stem_stepped_width".into();
             section.param.push(retired_checkbox);
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("gui.toml");
@@ -1319,7 +1323,10 @@ mod tests {
                 .section
                 .iter()
                 .flat_map(|s| &s.param)
-                .any(|p| matches!(p.id.as_str(), "stem_band_mode" | "grass_stem_rendering")));
+                .any(|p| matches!(
+                    p.id.as_str(),
+                    "stem_band_mode" | "grass_stem_rendering" | "flower_stem_stepped_width"
+                )));
             assert_eq!(std::fs::read(&path).unwrap(), bytes);
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             let saved: GuiConfigFile =
@@ -1328,7 +1335,10 @@ mod tests {
                 .section
                 .iter()
                 .flat_map(|s| &s.param)
-                .any(|p| matches!(p.id.as_str(), "stem_band_mode" | "grass_stem_rendering")));
+                .any(|p| matches!(
+                    p.id.as_str(),
+                    "stem_band_mode" | "grass_stem_rendering" | "flower_stem_stepped_width"
+                )));
         }
     }
 

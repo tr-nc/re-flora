@@ -25,13 +25,6 @@ impl App {
         s.flower_stem_model_resolution.value = p.model_resolution;
         s.flower_stem_radius_scale.value = p.radius_scale;
         s.flower_stem_test_branches.value = p.branches;
-        if let Ok(value) = std::env::var("RE_FLORA_FLOWER_STEM_STEPPED_WIDTH") {
-            ensure!(
-                matches!(value.as_str(), "0" | "1"),
-                "flower stem stepped width must be 0 or 1"
-            );
-            s.flower_stem_stepped_width.value = value == "1";
-        }
         let target = self.flower_model_review.as_ref().unwrap().target.unwrap();
         let step = (frame % 24) as f32 / 23.;
         let offset = Vec3::new(0., 0.14, 0.43);

@@ -316,7 +316,7 @@ impl BufferUpdater {
             flower_stem_sampling: [0, 0, stems.model_resolution, stems.branches as u32],
             flower_stem_shape: [
                 stems.radius_scale,
-                stems.stepped_width as u32 as f32,
+                0.,
                 stems.cell_height_voxels / 256.,
                 stems.tip_radius_ratio,
             ],

@@ -3109,7 +3109,7 @@ impl Tracer {
         self.flower_model_settings = flowers;
         let stems = vegetation.appearance.stem_experiment.normalized();
         if stems != self.flower_stem_experiment {
-            log::info!("[FLOWER_STEM_SAMPLING] pixelized={} surface_cells={} radius_scale={} branches={} model_resolution={} stepped_width={} wind=live head_cache_unchanged=true", stems.pixelized, stems.surface_cells, stems.radius_scale, stems.branches, stems.model_resolution, stems.stepped_width);
+            log::info!("[FLOWER_STEM_SAMPLING] pixelized={} surface_cells={} radius_scale={} branches={} model_resolution={} wind=live head_cache_unchanged=true", stems.pixelized, stems.surface_cells, stems.radius_scale, stems.branches, stems.model_resolution);
         }
         self.flower_stem_experiment = stems;
         if self.grass_band_pose_reuse != vegetation.appearance.grass_band_pose_reuse {

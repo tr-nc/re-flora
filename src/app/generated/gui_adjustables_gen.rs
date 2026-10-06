@@ -176,12 +176,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "flower_stem_stepped_width",
-        kind: "bool",
-        label: "Flower stems: constant width per color block (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "flower_stem_tip_radius_ratio",
         kind: "float",
         label: "Flower stems: top / bottom thickness ratio",
@@ -1529,7 +1523,6 @@ pub struct GuiAdjustables {
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
     pub flower_stem_cell_height_voxels: crate::gui_adjustables::FloatParam,
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
-    pub flower_stem_stepped_width: crate::gui_adjustables::BoolParam,
     pub flower_stem_tip_radius_ratio: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
     pub apple_cache_enabled: crate::gui_adjustables::BoolParam,
@@ -1788,7 +1781,6 @@ impl GuiAdjustables {
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut flower_stem_cell_height_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut flower_stem_stepped_width_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_tip_radius_ratio_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2166,11 +2158,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             flower_stem_radius_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "flower_stem_stepped_width" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            flower_stem_stepped_width_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "flower_stem_tip_radius_ratio" => {
@@ -3674,7 +3661,6 @@ impl GuiAdjustables {
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
             flower_stem_cell_height_voxels: flower_stem_cell_height_voxels_field.expect("Missing parameter: flower_stem_cell_height_voxels"),
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
-            flower_stem_stepped_width: flower_stem_stepped_width_field.expect("Missing parameter: flower_stem_stepped_width"),
             flower_stem_tip_radius_ratio: flower_stem_tip_radius_ratio_field.expect("Missing parameter: flower_stem_tip_radius_ratio"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
             apple_cache_enabled: apple_cache_enabled_field.expect("Missing parameter: apple_cache_enabled"),
@@ -4146,7 +4132,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
-        "flower_stem_stepped_width" => Some(&adjustables.flower_stem_stepped_width),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
         "apple_cache_enabled" => Some(&adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
@@ -4439,7 +4424,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
-        "flower_stem_stepped_width" => Some(&mut adjustables.flower_stem_stepped_width),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
         "apple_cache_enabled" => Some(&mut adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
