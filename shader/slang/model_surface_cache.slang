@@ -13,10 +13,10 @@ struct CachedModelEntry { uint4 layout; float4 bounds; };
 [[vk::binding(24,1)]] StructuredBuffer<CachedModelSample> model_cached_flower_surfaces;
 [[vk::binding(25,1)]] StructuredBuffer<CachedModelEntry> model_cached_flower_entries;
 public struct CachedModelVertex {
-    public bool visible; public float4 clip; public float3 position; public float3 normal; public float2 uv; public uint material;
+    public bool visible; public float4 clip; public float3 position; public float3 normal; public float3 localPosition; public float2 uv; public uint material;
 };
 public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame physical,float3 pivot,out CachedModelVertex output) {
-    output.visible=false;output.clip=float4(2,2,2,1);output.position=float3(0);output.normal=float3(0,1,0);output.uv=float2(0);output.material=0u;
+    output.visible=false;output.clip=float4(2,2,2,1);output.position=float3(0);output.normal=float3(0,1,0);output.localPosition=float3(0);output.uv=float2(0);output.material=0u;
     CachedModelEntry entry;
     if(kind==1u) entry=model_cached_apple_entries[source];
     else if(kind==2u) entry=model_cached_butterfly_entries[source];
@@ -43,6 +43,7 @@ public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame 
     float2 coordinate=(grid/float(n)*2.0-1.0)*entry.bounds.w;
     float3 plane=entry.bounds.xyz+axisX*coordinate.x+axisY*coordinate.y;
     ModelPixelFrame rendered=modelMeshViewFrame(physical,pivot);
+    output.localPosition=sample.position.xyz;
     output.position=modelViewWorldPoint(rendered,sample.position.xyz);
     output.normal=normalize(modelViewWorldVector(rendered,sample.normal.xyz));
     output.uv=sample.uv.xy;output.material=uint(sample.normal.w+0.5);

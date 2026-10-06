@@ -1364,6 +1364,7 @@ pub struct MaterialFrameInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraAppearanceFrameInput {
     pub apple_size_scale: f32,
+    pub apple_appearance: crate::flora::apple::Appearance,
     pub model_flowers: crate::flora::models::Settings,
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_band_pose_reuse: bool,

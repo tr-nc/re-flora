@@ -1345,8 +1345,9 @@ impl App {
             debug_settings.adjustables.tree_age.value = 1.;
             debug_settings.adjustables.fruit_cycle.value = 0.7;
         }
-        let apple_pixel_review =
-            std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref() == Ok("resolution");
+        let apple_pixel_review = std::env::var("RE_FLORA_APPLE_MODEL_REVIEW").as_deref()
+            == Ok("resolution")
+            || std::env::var_os("RE_FLORA_APPLE_APPEARANCE_REVIEW").is_some();
         if apple_pixel_review {
             // Initialize before the startup tree/physics publication; otherwise
             // the saved mature cycle can drop fruit before the first review tick.

@@ -415,6 +415,71 @@ max = 2.0
 step = 0.05
 
 [[section.param]]
+id = "apple_directional_lighting"
+kind = "bool"
+label = "Apples: directional sunlight (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "apple_environment_fill"
+kind = "float"
+label = "Apples: environment fill"
+type = "Float"
+
+[section.param.enabled_if]
+param = "apple_directional_lighting"
+equals = true
+
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 1.5
+step = 0.05
+
+[[section.param]]
+id = "apple_light_bands"
+kind = "bool"
+label = "Apples: stepped sunlight bands (A/B)"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "apple_directional_lighting"
+equals = true
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "apple_color_patches"
+kind = "bool"
+label = "Apples: large peel color patches (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "apple_color_stripes"
+kind = "bool"
+label = "Apples: warm yellow-red peel stripes (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "apple_sun_gloss"
+kind = "bool"
+label = "Apples: live sun highlight (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "apple_cache_enabled"
 kind = "bool"
 label = "Apples: use model pre-cache"

@@ -710,6 +710,51 @@ impl App {
                 );
             }
         }
+        if let Ok(request) = std::env::var("RE_FLORA_APPLE_APPEARANCE_REVIEW") {
+            let stage = match request.as_str() {
+                "sweep" => (frame / 30) % 7,
+                "baseline" => 0,
+                "lighting" => 1,
+                "bands" => 2,
+                "patches" => 3,
+                "stripes" => 4,
+                "gloss" => 5,
+                "all" => 6,
+                _ => panic!("apple appearance review: use sweep, baseline, lighting, bands, patches, stripes, gloss or all"),
+            };
+            settings.apple_directional_lighting.value = matches!(stage, 1 | 2 | 5 | 6);
+            settings.apple_light_bands.value = matches!(stage, 2 | 6);
+            settings.apple_color_patches.value = matches!(stage, 3 | 6);
+            settings.apple_color_stripes.value = matches!(stage, 4 | 6);
+            settings.apple_sun_gloss.value = matches!(stage, 5 | 6);
+            settings.apple_environment_fill.value = 1.0;
+            settings.apple_pixel_resolution.value = 32;
+            if request == "sweep" {
+                settings.apple_cache_enabled.value = (frame / 30) % 2 == 1;
+            } else {
+                // Single-mode screenshots keep attached fruit instead of changing
+                // the scene when the frame-rate-dependent drop stage is reached.
+                settings.fruit_cycle.value = 0.7;
+                if std::env::var_os("RE_FLORA_APPLE_APPEARANCE_CLOSEUP").is_some() {
+                    settings.apple_size_scale.value = 2.0;
+                    if let Ok(Some(center)) = self
+                        .terrain_physics
+                        .attached_apple_review_center(&self.tracer)
+                    {
+                        let eye = center + Vec3::new(0.04, 0.015, 0.06);
+                        if !self.tracer.set_camera_pose_looking_at(eye, center) {
+                            log::error!("Invalid apple review camera pose");
+                        }
+                        if frame == 0 {
+                            log::info!("[APPLE_APPEARANCE_CLOSEUP] center={center:?} camera={eye:?} saved=false");
+                        }
+                    }
+                }
+            }
+            if frame.is_multiple_of(30) {
+                log::info!("[APPLE_APPEARANCE_REVIEW] frame={frame} stage={stage} drop_requested={} cache={} pure_red={} saved=false", settings.fruit_cycle.value >= 1.0, settings.apple_cache_enabled.value, !settings.apple_color_patches.value && !settings.apple_color_stripes.value);
+            }
+        }
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {
             settings.butterfly_mesh_preview.value = true;
             let butterfly_pixels = [64, 8, 16][(frame / 30) as usize % 3];
@@ -718,7 +763,10 @@ impl App {
                 log::info!("[MODEL_PIXEL_ORTHO_REVIEW] butterfly_pixels={butterfly_pixels} apple_pixels={n} leaves=voxels");
             }
         }
-        if frame.is_multiple_of(30) && frame / 30 <= 11 {
+        if std::env::var_os("RE_FLORA_APPLE_APPEARANCE_REVIEW").is_none()
+            && frame.is_multiple_of(30)
+            && frame / 30 <= 11
+        {
             log::info!("[APPLE_PIXEL_REVIEW] phase={phase} dropped={dropped} resolution={n} diagnostic_only=true saved=false");
         }
     }

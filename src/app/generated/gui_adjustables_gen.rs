@@ -194,6 +194,42 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "apple_directional_lighting",
+        kind: "bool",
+        label: "Apples: directional sunlight (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "apple_environment_fill",
+        kind: "float",
+        label: "Apples: environment fill",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "apple_light_bands",
+        kind: "bool",
+        label: "Apples: stepped sunlight bands (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "apple_color_patches",
+        kind: "bool",
+        label: "Apples: large peel color patches (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "apple_color_stripes",
+        kind: "bool",
+        label: "Apples: warm yellow-red peel stripes (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "apple_sun_gloss",
+        kind: "bool",
+        label: "Apples: live sun highlight (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "apple_cache_enabled",
         kind: "bool",
         label: "Apples: use model pre-cache",
@@ -1532,6 +1568,12 @@ pub struct GuiAdjustables {
     pub flower_stem_tip_radius_ratio: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
     pub apple_size_scale: crate::gui_adjustables::FloatParam,
+    pub apple_directional_lighting: crate::gui_adjustables::BoolParam,
+    pub apple_environment_fill: crate::gui_adjustables::FloatParam,
+    pub apple_light_bands: crate::gui_adjustables::BoolParam,
+    pub apple_color_patches: crate::gui_adjustables::BoolParam,
+    pub apple_color_stripes: crate::gui_adjustables::BoolParam,
+    pub apple_sun_gloss: crate::gui_adjustables::BoolParam,
     pub apple_cache_enabled: crate::gui_adjustables::BoolParam,
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
@@ -1791,6 +1833,12 @@ impl GuiAdjustables {
         let mut flower_stem_tip_radius_ratio_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut apple_directional_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_environment_fill_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut apple_light_bands_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_color_patches_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_color_stripes_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut apple_sun_gloss_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2185,6 +2233,38 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             apple_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "apple_directional_lighting" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_directional_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_environment_fill" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            apple_environment_fill_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "apple_light_bands" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_light_bands_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_color_patches" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_color_patches_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_color_stripes" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_color_stripes_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "apple_sun_gloss" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            apple_sun_gloss_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "apple_cache_enabled" => {
@@ -3679,6 +3759,12 @@ impl GuiAdjustables {
             flower_stem_tip_radius_ratio: flower_stem_tip_radius_ratio_field.expect("Missing parameter: flower_stem_tip_radius_ratio"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
             apple_size_scale: apple_size_scale_field.expect("Missing parameter: apple_size_scale"),
+            apple_directional_lighting: apple_directional_lighting_field.expect("Missing parameter: apple_directional_lighting"),
+            apple_environment_fill: apple_environment_fill_field.expect("Missing parameter: apple_environment_fill"),
+            apple_light_bands: apple_light_bands_field.expect("Missing parameter: apple_light_bands"),
+            apple_color_patches: apple_color_patches_field.expect("Missing parameter: apple_color_patches"),
+            apple_color_stripes: apple_color_stripes_field.expect("Missing parameter: apple_color_stripes"),
+            apple_sun_gloss: apple_sun_gloss_field.expect("Missing parameter: apple_sun_gloss"),
             apple_cache_enabled: apple_cache_enabled_field.expect("Missing parameter: apple_cache_enabled"),
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
@@ -3917,6 +4003,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flower_stem_radius_scale" => Some(&adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&adjustables.apple_size_scale),
+        "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
@@ -4150,6 +4237,11 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
+        "apple_directional_lighting" => Some(&adjustables.apple_directional_lighting),
+        "apple_light_bands" => Some(&adjustables.apple_light_bands),
+        "apple_color_patches" => Some(&adjustables.apple_color_patches),
+        "apple_color_stripes" => Some(&adjustables.apple_color_stripes),
+        "apple_sun_gloss" => Some(&adjustables.apple_sun_gloss),
         "apple_cache_enabled" => Some(&adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
@@ -4210,6 +4302,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flower_stem_radius_scale" => Some(&mut adjustables.flower_stem_radius_scale),
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
+        "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
@@ -4443,6 +4536,11 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
+        "apple_directional_lighting" => Some(&mut adjustables.apple_directional_lighting),
+        "apple_light_bands" => Some(&mut adjustables.apple_light_bands),
+        "apple_color_patches" => Some(&mut adjustables.apple_color_patches),
+        "apple_color_stripes" => Some(&mut adjustables.apple_color_stripes),
+        "apple_sun_gloss" => Some(&mut adjustables.apple_sun_gloss),
         "apple_cache_enabled" => Some(&mut adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),

@@ -312,6 +312,8 @@ impl BufferUpdater {
             terrain_ray_origin_offset_world: terrain.ray_origin_offset_world.max(0.0),
             terrain_self_shadow_tolerance_voxels: terrain.self_shadow_tolerance_voxels,
             apple_size_scale: appearance.apple_size_scale,
+            apple_appearance_flags: appearance.apple_appearance.shader_flags(),
+            apple_environment_fill: appearance.apple_appearance.normalized_environment_fill(),
             flower_stem_bottom: appearance.flower_stem_bottom.to_array(),
             flower_stem_tip: appearance.flower_stem_tip.to_array(),
             flower_stem_sampling: [0, 0, stems.model_resolution, stems.branches as u32],

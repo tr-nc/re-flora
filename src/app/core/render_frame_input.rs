@@ -116,6 +116,14 @@ pub(super) fn freeze_render_frame_inputs(
     let vegetation = VegetationFrameInput {
         appearance: FloraAppearanceFrameInput {
             apple_size_scale: crate::flora::apple::normalize_size_scale(gui.apple_size_scale.value),
+            apple_appearance: crate::flora::apple::Appearance {
+                directional_lighting: gui.apple_directional_lighting.value,
+                light_bands: gui.apple_light_bands.value,
+                color_patches: gui.apple_color_patches.value,
+                color_stripes: gui.apple_color_stripes.value,
+                sun_gloss: gui.apple_sun_gloss.value,
+                environment_fill: gui.apple_environment_fill.value,
+            },
             model_flowers: model_cache.flowers,
             grass_band_pose_reuse: gui.grass_band_pose_reuse.value,
             grass_band_pixelization: false,
@@ -367,6 +375,12 @@ mod tests {
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_tip_radius_ratio.value = 0.35;
         gui.apple_size_scale.value = 0.7;
+        gui.apple_directional_lighting.value = true;
+        gui.apple_light_bands.value = true;
+        gui.apple_color_patches.value = true;
+        gui.apple_color_stripes.value = true;
+        gui.apple_sun_gloss.value = true;
+        gui.apple_environment_fill.value = 0.5;
         gui.flower_stem_test_branches.value = false;
         gui.flora_growth_override_enabled.value = true;
         gui.apple_pixel_resolution.value = 24;
@@ -522,6 +536,14 @@ mod tests {
             vegetation: VegetationFrameInput {
                 appearance: FloraAppearanceFrameInput {
                     apple_size_scale: 0.7,
+                    apple_appearance: crate::flora::apple::Appearance {
+                        directional_lighting: true,
+                        light_bands: true,
+                        color_patches: true,
+                        color_stripes: true,
+                        sun_gloss: true,
+                        environment_fill: 0.5,
+                    },
                     model_flowers: crate::flora::models::Settings {
                         resolution: 24,
                         views: 37,

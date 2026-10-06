@@ -155,7 +155,17 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::migrate_stem_rendering_controls(&mut config);
-        Self::add_missing_param(&mut config, "Debug", "apple_size_scale");
+        for id in [
+            "apple_size_scale",
+            "apple_directional_lighting",
+            "apple_environment_fill",
+            "apple_light_bands",
+            "apple_color_patches",
+            "apple_color_stripes",
+            "apple_sun_gloss",
+        ] {
+            Self::add_missing_param(&mut config, "Debug", id);
+        }
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");

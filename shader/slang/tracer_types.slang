@@ -14,6 +14,8 @@ public struct U_GuiInput
     public float terrain_ray_origin_offset_world;
     public float terrain_self_shadow_tolerance_voxels;
     public float apple_size_scale;
+    public uint apple_appearance_flags;
+    public float apple_environment_fill;
     public float3 flower_stem_bottom;
     public float3 flower_stem_tip;
     public uint4 flower_stem_sampling; // surface-cell shading, pixelized rays, samples per stem height, branches

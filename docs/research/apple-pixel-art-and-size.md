@@ -2,7 +2,7 @@
 
 ## 范围与结论
 
-初次调研只做外观参考和实现检查；后续按用户要求增加苹果尺寸调节，见文末实施记录。果皮外观尚未修改。
+初次调研只做外观参考和实现检查；后续按用户要求增加苹果尺寸调节，见文末实施记录。现已增加可保存的外观/光照 A/B 开关，全部关闭仍是原效果，见文末。
 
 - 检查到的三个样本都很抽象，但都不是一块纯红：用少量成片的明暗色阶、轮廓和果柄建立识别。
 - Minecraft / Stardew Valley 的本次样本是物品图标，不能直接代表挂在树上的 3D 苹果。Minetest Game 的苹果纹理同时用于世界节点和物品栏，世界节点使用 `plantlike`，不是实体球状 mesh。
@@ -37,7 +37,7 @@
 - 上宽下窄的肩部变化、顶部凹陷和底部凹陷；
 - 单独的果柄和叶片。
 
-但 `shader/slang/model_mesh.slang` 的 `appleMeshVertex` 中，native 和 cached 两条分支都按 material ID 选择固定色：
+调研时 `shader/slang/model_mesh.slang` 的 `appleMeshVertex` 中，native 和 cached 两条分支都按 material ID 选择固定色（现已归入共享的 `apple_appearance.slang`，原色保留）：
 
 - 果肉：RGB `(203, 48, 47)`；
 - 果柄：RGB `(116, 80, 46)`；
@@ -57,7 +57,7 @@
 
 不能把缓存分辨率、树大小或 Fruit Cycle 当成苹果尺寸调节：它们改变的是不同概念。
 
-## 对本项目的建议（尚未实现）
+## 对本项目的原建议（可选实验见文末）
 
 ### 外观优先级
 
@@ -89,3 +89,22 @@
 挂树苹果的 native / pre-cache 路径及其阴影共用该倍率；落地苹果的模型、阴影、凸包碰撞和 contact skin 同步缩放。更新现有碰撞形状不重建刚体 ID，保留位置、旋转和速度，并唤醒刚体重新求解。成熟阶段和掉落时序不变。
 
 扩大已落地果子前会检查更大的地形碰撞覆盖；若尚未导入，会排队补齐，期间保持落地果子的旧显示/碰撞尺寸，准备好后同步切换。挂树苹果的主画面和阴影剔除边界会在倍率大于 1 时扩大，并保留原有运动余量；不需要每次调节重建实例缓冲。
+
+## 后续实施：Apple Appearance & Lighting 实验
+
+Debug 中新增同名组，所有开关默认关闭、可以组合和保存：
+
+- **Directional sunlight**：保持单一红色果皮，改用 `max(dot(N, L), 0)` 直射光；背光面没有直射光，但仍能接收环境光。
+- **Environment fill**：方向光实验的间接补光倍率，默认 1（不变），范围 0–1.5。不要把环境亮度与太阳遮挡混为一谈。
+- **Stepped sunlight bands**：把方向光分成五档明暗，需先开 Directional sunlight。
+- **Large peel color patches**：少量、大面积的暖红/深红色素区域，不是预先画死的阴影。
+- **Warm yellow-red peel stripes**：较粗的局部坐标条纹，不用细碎逐像素随机噪声。
+- **Live sun highlight**：果皮的实时镜面亮块，随太阳和视角变化，并乘以当前太阳透射率；没有太阳直射时不出现。
+
+原来的 `flora_shadow.slang::directionWeight` 为背光保留至少 0.7 的直射权重，这是体积明暗被压平的明确因素，不是缓存丢了法线。实验只改变苹果，其他对象的风格化光照不动。环境补光也可能使背部较亮，提供独立滑杆供比较；不把当前实现宣称为完整的物理 BRDF 或新增的自阴影烘焙。
+
+native 与 pre-cache、挂树与落地路径使用共享材质/照明入口。缓存的 canonical surface position 控制果皮图案，重建的 world position / normal 控制实时光照、场景太阳遮挡和环境查询；原有缓存深度继续用于硬件深度测试。改变这些开关不重烘几何缓存，不修改大小或碰撞。
+
+已通过 shader 编译、外观/帧输入/通用保存测试，以及 Release 隐藏运行。`RE_FLORA_APPLE_APPEARANCE_REVIEW=sweep` 的真实场景循环覆盖原版、纯红方向光、分档、色块、条纹、高光、组合以及 native/pre-cache 和掉落。固定候选用 `baseline|lighting|bands|patches|stripes|gloss|all`；再加 `RE_FLORA_APPLE_APPEARANCE_CLOSEUP=1` 可跟随一个挂树苹果近拍，临时尺寸 2、Fruit Cycle 0.7，不写保存文件。近拍会覆盖本次测试视角，不用于普通玩家启动。
+
+已查看 `target/apple-appearance/{baseline,lighting,bands,stripes,all}.png`：纯红方案确实呈现更暗的背光面和连续体积变化，组合方案出现明显条纹/色块。近拍仍有真实树叶遮挡，未隐藏场景几何来美化对比。这里是视觉候选，不是性能验收；等待用户在实际游戏距离下选择。

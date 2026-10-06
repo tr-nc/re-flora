@@ -34,9 +34,9 @@ public ModelMeshOutput appleMeshVertex(uint vertex,uint source,ApplePixelVertex 
     CachedModelVertex cached;
     if(cachedModelVertex(vertex,source,1u,physical,float3(0),cached)) {
         if(!cached.visible)return emptyModelMeshVertex();
-        float3 srgb=cached.material==0u?float3(203,48,47)/255.0:cached.material==1u?float3(116,80,46)/255.0:float3(77,145,62)/255.0;
         ModelMeshOutput output;output.position=cached.clip;
-        output.color=float4(meshShade(srgbToLinear(srgb),cached.position,cached.normal),1);return output;
+        output.color=float4(shadeAppleSurface(gui_input,sun_info,shading_info,shadow_camera_info,
+            cached.position,cached.normal,cached.localPosition,cached.material,camera_info.pos.xyz),1);return output;
     }
     uint4 range=model_mesh_ranges[source];
     if(vertex>=range.y*3u)return emptyModelMeshVertex();
@@ -46,8 +46,9 @@ public ModelMeshOutput appleMeshVertex(uint vertex,uint source,ApplePixelVertex 
     float3 position=modelViewWorldPoint(rendered,point);
     float3 normal=normalize(modelViewWorldVector(rendered,n));
     uint material=uint(t.uv2.z+0.5);
-    float3 srgb=material==0u?float3(203,48,47)/255.0:material==1u?float3(116,80,46)/255.0:float3(77,145,62)/255.0;
     ModelMeshOutput output;output.position=mul(camera_info.view_proj_mat,float4(position,1));
-    output.color=float4(meshShade(srgbToLinear(srgb),position,normal),1);return output;
+    output.color=float4(shadeAppleSurface(gui_input,sun_info,shading_info,shadow_camera_info,
+        position,normal,point,material,camera_info.pos.xyz),1);return output;
 }
 import apple_pixel_frame;
+import apple_appearance;

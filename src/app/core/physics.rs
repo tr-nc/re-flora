@@ -699,6 +699,27 @@ impl TerrainPhysics {
         tree_ids
     }
 
+    /// Opt-in visual-fixture focus; no mutation of fruit or physics state.
+    pub(super) fn attached_apple_review_center(
+        &self,
+        tracer: &Tracer,
+    ) -> anyhow::Result<Option<Vec3>> {
+        let Some(fruit) = self
+            .fruits_by_tree
+            .values()
+            .flat_map(BTreeMap::values)
+            .filter(|fruit| fruit.phase == FruitSweepPhase::Armed)
+            .max_by_key(|fruit| fruit.spec.position_voxels.z)
+        else {
+            return Ok(None);
+        };
+        let root = fruit.spec.position_voxels;
+        let poses = tracer.attached_fruit_handoff(&[root])?;
+        Ok(poses
+            .first()
+            .map(|(offset, _)| (root.as_vec3() + *offset) / VOXELS_PER_WORLD_UNIT))
+    }
+
     fn spawn_pending_fruits(&mut self, tracer: &Tracer) -> anyhow::Result<()> {
         let imported_terrain_bricks = &self.imported_terrain_bricks;
         let ready = self
