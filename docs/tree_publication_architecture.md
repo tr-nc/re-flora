@@ -123,6 +123,16 @@ resource generation remains resident for recovery. This temporary fallback is no
 publication and does not turn off the saved wind setting. New tree transactions instead reject and
 restore the previous complete garden.
 
+Per-tree derived fragments memoize immutable tree identity, placement, exact world cone bits,
+read extent and the sampler's full radius-two **material** input. Reuse compares actual material
+bytes, not a revision/count/hash, so normal-only edits and newly exposed/cut wood rebuild correctly.
+The sampler and input projection share one material decoder; moisture/state bits that do not enter
+geometry do not invalidate it. Assembly preserves full extraction's normal/face order and lowest-ID
+wood ownership with exact per-corner bindings. Cached data is bounded conservatively to 256 MiB;
+when full, geometry still assembles correctly without retaining that optional fragment. Removed
+and failed candidate histories are not accumulated. Readbacks and whole-forest BVH/resource
+publication still occur; this is compilation reuse, not a second canonical tree owner.
+
 The immutable CPU interaction plan shares only identical world rest positions and complete skin
 bindings. It preserves visual vertex indexing, per-cell normal/confidence data and ordered triangle
 IDs, while collision uses equivalent compact points and immutable mapped topology. Pose double

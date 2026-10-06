@@ -20,6 +20,12 @@ use crate::{
 };
 
 mod cpu_surface;
+mod fragments;
+
+/// Exactly the material input consumed by extraction, faces and radius-two normals.
+fn surface_material(byte: u8) -> u8 {
+    byte & 15
+}
 use cpu_surface::CpuDeformationPlan;
 pub use cpu_surface::PosedTreeSurface;
 
@@ -60,6 +66,9 @@ pub struct RasterTreeMesh {
     bindings: Vec<Option<(u32, SkinBinding)>>,
     binding_cache: BTreeMap<u32, TreeBindingCache>,
     cpu_plan: Option<Arc<CpuDeformationPlan>>,
+    fragments: BTreeMap<u32, Arc<fragments::TreeSurfaceFragment>>,
+    fragment_cache_bytes: usize,
+    fragment_bindings: BTreeMap<[u32; 3], (u32, [SkinBinding; 8])>,
     dependencies: TreeSurfaceDependencies,
     pub cell_vertex_indices: Vec<u32>,
 }
@@ -99,7 +108,9 @@ impl RasterTreeMesh {
             if p.cmplt(IVec3::ZERO).any() || p.cmpge(dim.as_ivec3()).any() {
                 return 0;
             }
-            bytes[(p.x as u32 + dim.x * (p.y as u32 + dim.y * p.z as u32)) as usize] & 15
+            surface_material(
+                bytes[(p.x as u32 + dim.x * (p.y as u32 + dim.y * p.z as u32)) as usize],
+            )
         };
         // Same solid predicate as surface_extraction.slang.
         let solid = |p: IVec3| sample(p) != 0;

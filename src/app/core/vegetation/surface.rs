@@ -70,6 +70,7 @@ impl PreparedTreeSurface {
         let started = Instant::now();
         let mut read_ms = 0.;
         let mut append_ms = 0.;
+        let mut cache_hits = 0;
         let mut mesh = RasterTreeMesh::default();
         let world_dim = app.world_chunk_dim * super::super::VOXEL_DIM_PER_CHUNK;
         let mut read_bounds = Vec::with_capacity(sources.len());
@@ -83,24 +84,31 @@ impl PreparedTreeSurface {
             let bytes = app.plain_builder.read_chunk_atlas_region(origin, dim)?;
             read_ms += stage.elapsed().as_secs_f64() * 1000.;
             let stage = Instant::now();
-            mesh.append_region(origin, dim, &bytes, &source.cones)?;
+            cache_hits += usize::from(mesh.append_cached_tree_region(
+                source.id,
+                &source.tree,
+                source.position,
+                origin,
+                dim,
+                &bytes,
+                &source.cones,
+                &app.tracer.raster_trees.rest_mesh,
+            )?);
             append_ms += stage.elapsed().as_secs_f64() * 1000.;
         }
         let stage = Instant::now();
+        log::info!(
+            "[TREE][COMPILE_CACHE] reused={cache_hits} rebuilt={}",
+            sources.len() - cache_hits
+        );
         let cells = mesh.finish()?;
         let finish_ms = stage.elapsed().as_secs_f64() * 1000.;
         let stage = Instant::now();
         let mut anchors = BTreeMap::new();
-        let mut mesh_bind_ms = 0.;
+        let bind_started = Instant::now();
+        mesh.bind_compiled_fragments()?;
+        let mesh_bind_ms = bind_started.elapsed().as_secs_f64() * 1000.;
         for source in sources {
-            let bind_started = Instant::now();
-            mesh.bind_tree(
-                source.id,
-                source.position,
-                &source.tree,
-                Some(&app.tracer.raster_trees.rest_mesh),
-            )?;
-            mesh_bind_ms += bind_started.elapsed().as_secs_f64() * 1000.;
             for (leaf, &branch) in source
                 .tree
                 .relative_leaf_placements()

@@ -155,6 +155,46 @@ rollback, 23 tree/cache/upload/budget tests, format/check, Release build and hid
 Shader equations/rendering quality are unchanged. This fixes the measured heap fallback rather
 than reducing tree detail or accepting host-visible allocation luck.
 
-## Remaining implementation stage
+## Unaffected-tree compilation reuse
 
-Reuse compilation for unaffected trees; these measurements do not claim that stage complete.
+The resident mesh keeps bounded derived per-tree fragments. Immutable tree identity, placement,
+exact world cone bits, read extent and actual sampler material bytes must all match; a revision,
+count or hash alone cannot reuse geometry. Moisture/state bits are excluded only because the same
+shared material decoder demonstrably excludes them from extraction/normals. Forest assembly keeps
+complete extraction's normals/faces and stable lowest-ID binding ownership. The optional cache has
+a conservative 256 MiB bound; over-budget fragments still assemble but are not retained. Removed
+trees and failed candidate publications leave no accumulating history or second canonical owner.
+
+Regressions compare against complete uncached forest compilation for overlap, cut wood, normal-only
+neighbor changes, state-bit-only changes, replacement identity and cache-budget fallback. Raster
+suite 15 and vegetation suite 42 pass, along with full GPU smoke (age/remove/replace/Conifer/saved
+restoration and exact failed-placement rollback), format/check, Release build and short launch.
+
+`target/tree-scaling-fragments-02`: six-tree medians **21.647 / 21.612 ms**, zero errors/cliffs/contention,
+per-count CPU/GPU/BVH/lighting/query checks. Planting the fifth tree reuses four fragments; the sixth
+correctly reuses four and rebuilds two (neighboring material input changed). Run-1 full derived
+preparation at five/six trees decreases **153.879 / 195.792 → 137.435 / 182.833 ms** versus the
+preceding device-local stage. GPU readback, whole-forest acceleration/collision construction and
+resource/descriptor preparation still cost time. **One-time planting hitches are reduced, not
+eliminated**; no healthy-frame improvement is attributed to this compilation cache.
+
+## Final boundary validation and scope
+
+- `target/tree-scaling-final-garden-01`: nine size-16 Garden Trees, one uncontended run, all count-level
+  GPU checks pass; six/nine medians **21.467 / 39.129 ms**, zero errors/cliffs.
+- `target/tree-scaling-final-conifer-01`: seven-tree mixed forest (initial Garden Tree, then Conifers),
+  seeds 923 onward, one uncontended run, all GPU checks pass; seventh median **16.871 ms**. This
+  different species workload is correctness/boundary evidence, not an identical-scene speedup claim.
+- The authoritative original six-tree workload was **111.226 / 110.239 ms**; final two-run same-scene
+  result is **21.647 / 21.612 ms** (roughly 9 → 46 FPS). Full geometry and rendering settings remain.
+
+These repairs cover ownership, demand capacity/descriptors, complete garden publication/rollback,
+failed-input suppression, exact healthy CPU/collision reuse, static GPU memory placement and
+unaffected compilation. Cost still scales with genuine tree/leaf/shadow work. Arbitrarily large
+forests are not promised constant FPS; explicit resource budgets reject rather than silently omit
+geometry. Real driver OOM/device-loss recovery and whole-world snapshot-load rollback were not
+fault-injected; pure budget/allocation-bound guards and preparation failure semantics were tested.
+Existing neighboring-tree redraw behavior (authored cones can recreate earlier cuts on a successful
+neighbor change) is unchanged; failed-operation rollback now restores cuts/soil exactly. External
+VRAM release still requires explicit invalidation/another tree operation, not automatic retry.
+The full repository suite remains unclaimed as noted above; targeted suites are green.
