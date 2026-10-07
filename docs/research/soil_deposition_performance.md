@@ -63,6 +63,16 @@ Primary-source research:
 
 Probe logging is opt-in to the soil benchmark, `[PERF][SOIL_STAGE]`, with read/plan/crop/upload/dirty timings and transfer bytes. Stage report: `target/soil-perf/profile-large.json`; log `/tmp/terrain-magic-soil-perf-profile-large.log`. `cargo check`, Release build, matched replay and ordinary hidden startup passed; source/planner behavior did not change.
 
+## Experiment1: reuse a sampling-reach estimate
+
+A new saved runtime checkbox, **Debug → Soil Deposition → Soil: faster sampling and settling (A/B)**, leaves the original path unchecked and selects experiments checked. Default remainsunchecked for comparison. Benchmark `RE_FLORA_SOIL_PERF_FAST=1` selects the same saved field in memory, not a separate production algorithm.
+
+The candidate remembers only the accepted horizontal sampling reach near the previous stroke and within the same legal bounds. It does **not** cache occupancy: every request still reads authoritative atlas bytes; misses/changed locations use the original minimum, and expansion/replay still handles growth. Changing terrain or material cannot make cached bytes stale because no bytes are cached.
+
+Matched same-binary large run: original event mean26.946ms/median26.347ms/p9530.589ms; reach candidate mean21.126ms/median20.280ms/p9524.470ms. This is approximately1.28× event improvement, not10×. Frame p95 reduced32.668→26.522ms while mean remained17.07→17.04ms. Hash`299ee6dcf37284dd` and40960 added voxels match exactly. Candidate expands once on the first event, then reads6500352 instead of8125440 bytes with no repeated speculative plan. Artifacts: `target/soil-perf/{reach-baseline-large,reach-large}.json`.
+
+Reach guard test, full deposition regressions, generic saved-field round-trip, cargo check/Release build and normal hidden smoke passed. No shader change. The checkbox is source-declarative; generated GUI changes follow from cargo check. User spread13 remains local.
+
 ## Implementation sources
 
 - `src/terrain_deposition.rs`: per-grain supported settling and speculative retry contract.

@@ -2660,6 +2660,15 @@ value = 1.0
 min = 0.25
 max = 2.0
 
+[[section.param]]
+id = "soil_deposition_fast_path"
+kind = "bool"
+label = "Soil: faster sampling and settling (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
 [[section]]
 name = "Terrain Material"
 

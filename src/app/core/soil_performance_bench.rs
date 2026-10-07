@@ -97,6 +97,10 @@ impl App {
             data.iter().all(|v| v & VOXEL_TYPE_MASK == 0),
             "soil benchmark requires an empty rooftop soil atlas"
         );
+        self.debug_settings
+            .adjustables
+            .soil_deposition_fast_path
+            .value = std::env::var_os("RE_FLORA_SOIL_PERF_FAST").is_some();
         bench.center = (offset + dim / 2).as_vec3();
         bench.center.y = offset.y as f32;
         let start = Instant::now();
@@ -266,6 +270,7 @@ impl App {
         let report = serde_json::json!({
             "fixture_voxels": bench.fixture_voxels, "added": bench.added, "atlas_voxels": count,
             "atlas_hash": format!("{hash:016x}"), "peak_y": bench.peak, "idle": bench.idle,
+            "fast_path": self.debug_settings.adjustables.soil_deposition_fast_path.value,
             "batch": self.debug_settings.adjustables.soil_deposition_batch_size.value,
             "rate": self.debug_settings.adjustables.soil_deposition_rate.value,
             "spread": self.debug_settings.adjustables.soil_deposition_spread_radius.value,

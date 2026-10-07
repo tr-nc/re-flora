@@ -76,6 +76,36 @@ impl DepositionRequest {
     }
 }
 
+/// A spatial estimate only, never cached occupancy. Every request still reads authoritative bytes.
+#[derive(Default)]
+pub(crate) struct DepositionSamplingHint {
+    last: Option<(Vec3, UAabb3, f32)>,
+}
+
+impl DepositionSamplingHint {
+    pub(crate) fn initial_halo(&self, request: DepositionRequest, legal: UAabb3) -> f32 {
+        let base = request.horizontal_halo();
+        let Some((center, previous_legal, halo)) = self.last else {
+            return base;
+        };
+        let delta = request.end - center;
+        if legal == previous_legal && delta.x.abs().max(delta.z.abs()) <= INITIAL_SETTLE_HALO as f32
+        {
+            base.max(halo)
+        } else {
+            base
+        }
+    }
+
+    pub(crate) fn remember(&mut self, request: DepositionRequest, legal: UAabb3, halo: f32) {
+        self.last = Some((request.end, legal, halo));
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.last = None;
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DepositionResult {
     pub added: u32,
@@ -773,6 +803,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn sampling_hint_is_only_a_local_reach_estimate_not_an_occupancy_cache() {
+        let legal = UAabb3::new(UVec3::ZERO, UVec3::new(256, 64, 256));
+        let r = request(512);
+        let base = r.horizontal_halo();
+        let mut hint = DepositionSamplingHint::default();
+        assert_eq!(hint.initial_halo(r, legal), base);
+        hint.remember(r, legal, base * 2.);
+        assert_eq!(hint.initial_halo(r, legal), base * 2.);
+        assert_eq!(
+            hint.initial_halo(
+                DepositionRequest {
+                    radius: base * 4.,
+                    ..r
+                },
+                legal
+            ),
+            base * 4. + INITIAL_SETTLE_HALO as f32 + r.clump_radius as f32 + 1.
+        );
+        assert_eq!(
+            hint.initial_halo(
+                DepositionRequest {
+                    end: r.end + Vec3::X * 64.,
+                    ..r
+                },
+                legal
+            ),
+            base
+        );
+        assert_eq!(
+            hint.initial_halo(r, UAabb3::new(UVec3::ZERO, UVec3::new(512, 64, 512))),
+            base
+        );
+        hint.reset();
+        assert_eq!(hint.initial_halo(r, legal), base);
     }
 
     #[test]

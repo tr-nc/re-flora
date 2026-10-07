@@ -346,6 +346,7 @@ pub struct PlainBuilder {
     next_soil_mix_dither_seed: u32,
     #[allow(dead_code)]
     chunk_atlas_readback_buffer: Option<Buffer>,
+    soil_sampling_hint: crate::terrain_deposition::DepositionSamplingHint,
 }
 
 impl PlainBuilder {
@@ -583,6 +584,7 @@ impl PlainBuilder {
             next_moisture_dither_seed: 1,
             next_soil_mix_dither_seed: 1,
             chunk_atlas_readback_buffer: None,
+            soil_sampling_hint: Default::default(),
         };
 
         fn init_atlas_images(vulkan_context: &VulkanContext, resources: &PlainBuilderResources) {
@@ -793,12 +795,21 @@ impl PlainBuilder {
         request: crate::terrain_deposition::DepositionRequest,
         legal: UAabb3,
         support_floor: Option<u32>,
+        fast_path: bool,
     ) -> Result<crate::terrain_deposition::DepositionResult> {
         let start = Instant::now();
         let Some(mut sample) = request.sampling_bounds(legal) else {
             return Ok(crate::terrain_deposition::DepositionResult::default());
         };
         let mut halo = request.horizontal_halo();
+        if fast_path {
+            halo = self.soil_sampling_hint.initial_halo(request, legal);
+            sample = request
+                .sampling_bounds_with_halo(legal, halo)
+                .context("soil reach hint produced invalid bounds")?;
+        } else {
+            self.soil_sampling_hint.reset();
+        }
         let mut expansions = 0;
         let profile = std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some();
         let mut read_ms = 0.;
@@ -840,6 +851,9 @@ impl PlainBuilder {
             expansions += 1;
         };
         result.sampling_halo = halo;
+        if fast_path {
+            self.soil_sampling_hint.remember(request, legal, halo);
+        }
         if let Some(changed) = result.changed {
             let write_dim = changed.max() - changed.min() + UVec3::ONE;
             let stage = Instant::now();

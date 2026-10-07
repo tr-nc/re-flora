@@ -1411,6 +1411,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Soil pile slope (rise / run)",
     },
     GeneratedGuiParamDescriptor {
+        section: "Soil Deposition",
+        id: "soil_deposition_fast_path",
+        kind: "bool",
+        label: "Soil: faster sampling and settling (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Terrain Material",
         id: "terrain_soil_strength",
         kind: "float",
@@ -1807,6 +1813,7 @@ pub struct GuiAdjustables {
     pub soil_deposition_spread_radius: crate::gui_adjustables::FloatParam,
     pub soil_deposition_clump_radius: crate::gui_adjustables::UintParam,
     pub soil_deposition_repose_slope: crate::gui_adjustables::FloatParam,
+    pub soil_deposition_fast_path: crate::gui_adjustables::BoolParam,
     pub terrain_soil_strength: crate::gui_adjustables::FloatParam,
     pub terrain_rock_strength: crate::gui_adjustables::FloatParam,
     pub terrain_material_seed: crate::gui_adjustables::UintParam,
@@ -2078,6 +2085,7 @@ impl GuiAdjustables {
         let mut soil_deposition_spread_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_deposition_clump_radius_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_repose_slope_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut soil_deposition_fast_path_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_soil_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_rock_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_material_seed_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -3628,6 +3636,11 @@ impl GuiAdjustables {
                             soil_deposition_repose_slope_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "soil_deposition_fast_path" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            soil_deposition_fast_path_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "terrain_soil_strength" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -4050,6 +4063,7 @@ impl GuiAdjustables {
             soil_deposition_spread_radius: soil_deposition_spread_radius_field.expect("Missing parameter: soil_deposition_spread_radius"),
             soil_deposition_clump_radius: soil_deposition_clump_radius_field.expect("Missing parameter: soil_deposition_clump_radius"),
             soil_deposition_repose_slope: soil_deposition_repose_slope_field.expect("Missing parameter: soil_deposition_repose_slope"),
+            soil_deposition_fast_path: soil_deposition_fast_path_field.expect("Missing parameter: soil_deposition_fast_path"),
             terrain_soil_strength: terrain_soil_strength_field.expect("Missing parameter: terrain_soil_strength"),
             terrain_rock_strength: terrain_rock_strength_field.expect("Missing parameter: terrain_rock_strength"),
             terrain_material_seed: terrain_material_seed_field.expect("Missing parameter: terrain_material_seed"),
@@ -4359,6 +4373,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&adjustables.rooftop_voxel_scene),
         "infinite_materials" => Some(&adjustables.infinite_materials),
+        "soil_deposition_fast_path" => Some(&adjustables.soil_deposition_fast_path),
         "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
     }
@@ -4664,6 +4679,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&mut adjustables.rooftop_voxel_scene),
         "infinite_materials" => Some(&mut adjustables.infinite_materials),
+        "soil_deposition_fast_path" => Some(&mut adjustables.soil_deposition_fast_path),
         "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,
     }

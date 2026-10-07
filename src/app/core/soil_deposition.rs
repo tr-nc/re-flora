@@ -122,7 +122,14 @@ impl App {
                 None,
             )
         };
-        let result = self.plain_builder.deposit_soil(request, legal, floor)?;
+        let fast_path = self
+            .debug_settings
+            .adjustables
+            .soil_deposition_fast_path
+            .value;
+        let result = self
+            .plain_builder
+            .deposit_soil(request, legal, floor, fast_path)?;
         if let Some(changed) = result.changed {
             // Debit the authoritative write, even if a downstream publication later fails.
             // Existing soil is never fertilized, replaced or debited.
