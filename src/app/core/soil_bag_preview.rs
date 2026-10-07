@@ -70,12 +70,15 @@ impl State {
         now: Instant,
     ) {
         self.observe_target(observation, now);
-        self.instance = self
-            .target
-            .map(|(hit, _)| Instance::over_surface(hit.center, camera, pouring));
         if !pouring || self.target.is_none_or(|(hit, _)| !hit.is_editable) {
             self.allow_flow = false;
         }
+        // Display the pour pose for an accepted stream, not on idle hover or
+        // unsuccessful holds. Keep that stream visible across pending GPU picks.
+        self.instance = self
+            .target
+            .filter(|_| pouring && self.allow_flow)
+            .map(|(hit, _)| Instance::over_surface(hit.center, camera, true));
     }
     pub fn note_added(&mut self, added: u32) {
         self.allow_flow = true;
@@ -156,11 +159,7 @@ impl App {
         );
         let instance = self.soil_bag_preview.current_instance();
         if let Some(review) = &mut self.soil_bag_preview.review {
-            review.observe_instance(instance);
-        }
-        if let (Some(review), Some(pose)) = (&mut self.soil_bag_preview.review, instance) {
-            review.hover_seen |= !pose.pouring;
-            review.pour_seen |= pose.pouring;
+            review.observe_instance(instance, observation.hit().is_some(), pouring);
         }
         self.tracer.set_soil_bag_instance(instance);
     }
@@ -192,6 +191,57 @@ impl App {
 mod tests {
     use super::*;
     #[test]
+    fn soil_bag_is_hidden_on_hover_and_only_visible_during_successful_release() {
+        let now = Instant::now();
+        let camera = Vec3::new(0., 1., 2.);
+        let hit = TerrainEditHoverObservation::Hit(TerrainEditHover {
+            center: Vec3::ZERO,
+            is_editable: true,
+        });
+        let mut state = State::default();
+        state.update_instance(hit, camera, false, now);
+        assert!(
+            state.current_instance().is_none(),
+            "hover must not display a bag"
+        );
+        state.update_instance(hit, camera, true, now);
+        assert!(
+            state.current_instance().is_none(),
+            "holding without accepted soil must not pretend to pour"
+        );
+        state.note_added(512);
+        state.update_instance(hit, camera, true, now);
+        assert!(state.current_instance().unwrap().pouring);
+        state.update_instance(
+            TerrainEditHoverObservation::Pending,
+            camera,
+            true,
+            now + Duration::from_millis(50),
+        );
+        assert!(
+            state.current_instance().unwrap().pouring,
+            "bag must stay visible between releases while hover is pending"
+        );
+        state.allow_flow = false; // Empty supply or a rejected release.
+        state.update_instance(hit, camera, true, now + Duration::from_millis(51));
+        assert!(state.current_instance().is_none());
+        state.note_added(512);
+        state.update_instance(hit, camera, true, now + Duration::from_millis(52));
+        assert!(state.current_instance().is_some());
+        state.update_instance(
+            TerrainEditHoverObservation::Pending,
+            camera,
+            false,
+            now + Duration::from_millis(53),
+        );
+        assert!(
+            state.current_instance().is_none(),
+            "release must hide, not show a sealed hover bag"
+        );
+        assert!(!state.allow_flow);
+    }
+
+    #[test]
     fn soil_bag_pending_gpu_work_keeps_only_the_world_instance_not_an_edit_hit() {
         let now = Instant::now();
         let camera = Vec3::new(0., 1., 2.);
@@ -200,8 +250,8 @@ mod tests {
             is_editable: true,
         };
         let mut state = State::default();
-        state.update_instance(TerrainEditHoverObservation::Hit(hit), camera, true, now);
         state.note_added(512);
+        state.update_instance(TerrainEditHoverObservation::Hit(hit), camera, true, now);
         let before = state.current_instance().unwrap();
         let pending = TerrainEditHoverObservation::Pending;
         assert!(
@@ -230,8 +280,9 @@ mod tests {
             TerrainEditHoverObservation::Unavailable,
         ] {
             let mut state = State::default();
-            state.update_instance(hit, Vec3::Z, true, now);
             state.note_added(512);
+            state.update_instance(hit, Vec3::Z, true, now);
+            assert!(state.current_instance().is_some());
             state.update_instance(stop, Vec3::Z, true, now + Duration::from_millis(1));
             assert!(state.current_instance().is_none());
             assert!(!state.allow_flow);
@@ -286,7 +337,7 @@ mod tests {
             false,
             now + MAX_PICK_AGE + Duration::from_millis(21),
         );
-        assert!(!state.current_instance().unwrap().pouring);
+        assert!(state.current_instance().is_none());
         assert!(!state.allow_flow);
         state.advance(0.05, |_, _| false);
         assert!(state.grains.is_empty());

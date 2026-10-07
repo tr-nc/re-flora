@@ -140,8 +140,9 @@ require Node or ImageMagick. Build fingerprints reject stale geometry or hand-ed
 
 The explicit native adaptation is **two immutable complete snapshots**: the sealed hover pose
 and the already-open midpoint of the pouring clip. Tab vertices use the same authored hinge and
-rotation, and normals use the same Three.js BufferGeometry computation. Gameplay switches states
-immediately; it does not approximate dynamic mouth animation with GLB TRS, import the web flow mesh,
+rotation, and normals use the same Three.js BufferGeometry computation. Native gameplay displays
+only the fixed pour snapshot while successfully releasing soil; idle hover and release hide the bag.
+Both snapshots remain available to authoring. The game does not approximate dynamic mouth animation with GLB TRS, import the web flow mesh,
 or claim native support for morph animation. The native consumer instantiates a tool-owned world
 model: color/depth and direct-sun shadows share one acquired-frame transform buffer. The complete
 published mesh casts into the ordinary scene shadow map; visible surfaces retain shared pixel

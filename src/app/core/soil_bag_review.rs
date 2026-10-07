@@ -11,8 +11,11 @@ pub(super) struct Review {
     before: usize,
     stock: u32,
     pub added: u32,
-    pub hover_seen: bool,
-    pub pour_seen: bool,
+    hover_seen: bool,
+    pour_seen: bool,
+    hover_target_seen: bool,
+    inactive_frames: usize,
+    visible_inactive_frames: usize,
     pub peak_grains: usize,
     pub contacts: usize,
     shadow_pixels: Option<usize>,
@@ -41,6 +44,9 @@ impl Review {
             added: 0,
             hover_seen: false,
             pour_seen: false,
+            hover_target_seen: false,
+            inactive_frames: 0,
+            visible_inactive_frames: 0,
             peak_grains: 0,
             contacts: 0,
             shadow_pixels: None,
@@ -50,7 +56,21 @@ impl Review {
             done: false,
         }))
     }
-    pub fn observe_instance(&mut self, instance: Option<crate::soil_bag::Instance>) {
+    pub fn observe_instance(
+        &mut self,
+        instance: Option<crate::soil_bag::Instance>,
+        has_hover: bool,
+        holding: bool,
+    ) {
+        self.hover_target_seen |= has_hover && !holding;
+        if let Some(pose) = instance {
+            self.hover_seen |= !pose.pouring;
+            self.pour_seen |= pose.pouring;
+        }
+        if !holding {
+            self.inactive_frames += 1;
+            self.visible_inactive_frames += usize::from(instance.is_some());
+        }
         if self.mode == "stability" && (13..=50).contains(&self.frame) {
             self.holding_frames += 1;
             self.missing_holding_frames += usize::from(instance.is_none_or(|pose| !pose.pouring));
@@ -123,16 +143,16 @@ impl App {
                     ensure!(pixels > 0, "world bag did not write real sun depth");
                     review.shadow_pixels = Some(pixels);
                 }
-                if review.frame == 50 {
-                    self.select_item_panel_slot(2);
-                }
-                if review.frame == 70 {
+                if review.frame == 60 {
                     let pixels = self.tracer.soil_bag_shadow_depth_pixels()?;
-                    ensure!(pixels == 0, "removed world bag left shadow geometry behind");
+                    ensure!(
+                        pixels == 0,
+                        "released world bag left shadow geometry behind"
+                    );
                     review.removed_shadow_pixels = Some(pixels);
                 }
             }
-            if matches!(review.mode.as_str(), "pour" | "cycle" | "stability") {
+            if review.mode != "hover" {
                 if review.frame == 10 {
                     self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Pressed);
                     ensure!(
@@ -155,6 +175,13 @@ impl App {
                     );
                     log::info!("[SOIL_BAG_REVIEW] release frame=50");
                 }
+                if review.frame == 51 {
+                    ensure!(
+                        self.soil_bag_preview.current_instance().is_none()
+                            && !self.soil_bag_preview.allow_flow,
+                        "release must immediately hide the bag and stop emission"
+                    );
+                }
                 if review.frame == 70 {
                     self.select_item_panel_slot(2); // Slot 3 = Edit, never Soil.
                     log::info!("[SOIL_BAG_REVIEW] switched_to_edit frame=70");
@@ -172,8 +199,15 @@ impl App {
                         == review.stock,
                     "visual grains changed real stock"
                 );
-                ensure!(review.hover_seen, "review must render hover pose");
-                if matches!(review.mode.as_str(), "pour" | "cycle" | "stability") {
+                ensure!(
+                    review.hover_target_seen && !review.hover_seen,
+                    "valid idle hover must not display the bag"
+                );
+                ensure!(
+                    review.inactive_frames > 0 && review.visible_inactive_frames == 0,
+                    "bag must remain hidden before pouring and after release"
+                );
+                if review.mode != "hover" {
                     ensure!(
                         review.pour_seen
                             && review.added > 0
@@ -207,9 +241,9 @@ impl App {
                         "world shadow lifecycle review incomplete"
                     );
                     ensure!(self.soil_bag_preview.current_instance().is_none());
-                    log::info!("[SOIL_BAG_REVIEW][WORLD_CHECK] sun_depth_pixels={} after_removal=0 shared_frame_instance=true world_lighting=true terrain_unchanged=true", review.shadow_pixels.unwrap());
+                    log::info!("[SOIL_BAG_REVIEW][WORLD_CHECK] sun_depth_pixels={} after_release=0 shared_frame_instance=true world_lighting=true terrain_conserved=true", review.shadow_pixels.unwrap());
                 }
-                log::info!("[SOIL_BAG_REVIEW][CHECK] hover={} pour={} added={} peak_grains={} contacts={} conserved=true real_inventory_preserved=true no_animation=true",review.hover_seen,review.pour_seen,review.added,review.peak_grains,review.contacts);
+                log::info!("[SOIL_BAG_REVIEW][CHECK] hover={} pour={} inactive_frames={} visible_inactive_frames={} added={} peak_grains={} contacts={} conserved=true real_inventory_preserved=true no_animation=true",review.hover_seen,review.pour_seen,review.inactive_frames,review.visible_inactive_frames,review.added,review.peak_grains,review.contacts);
                 review.done = true;
             }
             review.frame += 1;

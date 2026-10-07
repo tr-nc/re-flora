@@ -2,9 +2,9 @@
 
 ## 交互与范围
 
-- `B / Soil` 的实际地形悬停显示封口土袋；按住 LMB 立即切到已开口、袋口向下的固定姿态，不播放撕开或倾倒动画。松开恢复悬停姿态；确认没有地形目标、鼠标被 UI 占用或切换工具时隐藏袋子。等待新 GPU 回答不是确认 miss：展示锚点可短暂续用，但绝不用于编辑。
+- `B / Soil` 的鼠标悬停不显示土袋。实际成功释放土后、仍按住 LMB 时才显示已开口、袋口向下的固定姿态，不播放撕开或倾倒动画；松开直接隐藏，不恢复封口姿态。确认没有地形目标、鼠标被 UI 占用或切换工具时也隐藏。等待新 GPU 回答不是确认 miss：正在释放的展示锚点可短暂续用，但绝不用于编辑。
 - 土量仍由既有立即出第一批、随后按保存频率的 Soil 调度器决定。个体沉积、形状、材料字节、肥力、有限背包、Infinite Materials 与同步 Visible Terrain Publication 未改。
-- 只有成功的权威写入允许视觉落土流；空背包／拒绝放置不会制造颗粒假装成功。松开立即停止发射，已经飞出的颗粒继续落地后消失。
+- 只有成功的权威写入允许袋子展示和视觉落土流；空背包／拒绝放置不会假装成功。两批之间保留成功流许可，避免重新出现逐批闪隐。松开立即隐藏/停止发射，已经飞出的颗粒继续落地后消失。
 - 颗粒是共享 terrain-particle 渲染路径上的简单不透明方粒，90 粒/秒、最多128个、最多0.7秒寿命；重力轨迹使用逐帧扫掠地形/场景射线检测，接触即消失。无土块模拟、粒间碰撞、额外体素写入、落地结算或购买逻辑；视觉粒子数不是实际体素数量。
 
 ## 共享来源与渲染
@@ -73,6 +73,17 @@ RGB 贴纸在 Linear-sRGB 解码后 Nearest 查找，不插值、不用 mipmap�
 
 重现的单命令见下方 `stability` 模式；主要日志：`/tmp/terrain-magic-soil-bag-stability-{red-1,red-2,probe-red,size-red,check,tests,picking-tests,all-tests,release,green-1,green-2,world,rooftop,size-visual,smoke,tail}.log`。没有自动开启可见游戏，也没有声称新的性能预算、其他GPU或用户最终尺寸/手感验收。
 
+## 仅实际撒土时展示（2026-10-08）
+
+用户接受缩小/稳定性修复后，要求取消 idle hover 袋子。展示层现在同时要求 Soil 按住、可编辑展示锚点和成功流许可，仅实例化固定 pour 姿态；不改出料量/频率、拾取所有权、250ms展示租约、粒子结算、模型/贴纸、尺寸或投影管线。共享资产仍保留完整两态供作者使用。
+
+- 新回归先 RED 在 `hover must not display a bag`，再验证 idle hover、成功前按住、拒绝/耗尽均隐藏，成功流与 Pending 期间可见，松开在 Pending 中也直接隐藏。13袋子/FX与3 picking测试通过。
+- 原生 hover 模式：100个非按住观察帧、袋子可见0帧，零土/零颗粒，并要求真实有效 hover 已解析，不能用无效目标让断言空过。实际 production stability：38个倾倒帧/缺失0，非按住60帧/可见0；加入6656，颗粒峰值15/接触58，土量/库存守恒，释放后的下一帧即断言隐藏/无新发射。
+- `world` 模式改为相同真实按住/写土，不再用已移除的 idle hover：实际 sun-depth **76覆盖像素 → 松开后0**，且在换 Edit 之前读回。加入6656、土量守恒；不再宣称此模式 terrain unchanged/零写入。旧章节的 hover 图和depth数字都是历史结果。
+- 完整 rooftop 5批量、即时出土和4224支撑写入检查通过，普通隐藏静音启动日志无 ERROR/VUID/panic。fmt/check/Release通过，无新警告或生成文件变动；完整 Rust **1467 passed / 4 known baseline failed / 6 ignored**，碰撞另4项通过。既有4项保存默认值失败未改。没有新 Debug 控件、可见游戏自动启动或性能验收声称；用户 `config/gui.toml` 与开始备份逐字节一致。
+
+日志：`/tmp/terrain-magic-soil-bag-pour-only-{red,check,tests,picking-tests,all-tests,release,hover,stability,world,rooftop,smoke,tail}.log`。
+
 ## 重现 / 手动试用
 
 ```sh
@@ -84,12 +95,12 @@ cargo run --release -- --rooftop-poc
 RE_FLORA_SOIL_BAG_REVIEW=cycle \
   RUST_LOG='warn,re_flora::app::core::soil_bag_review=info,re_flora::tracer::model_mesh_frame=info,re_flora::run_log_binding=info' \
   cargo run --release -- --hidden --mute --rooftop-poc --auto-exit 5
-# hover 模式验证不点击时的零写入/零颗粒。
+# hover 模式验证有效悬停时袋子隐藏、零写入/零颗粒。
 # stability 模式在真实写土期间断言袋子逐帧不消失：
 RE_FLORA_SOIL_BAG_REVIEW=stability \
   RUST_LOG='warn,re_flora::app::core::soil_bag_review=info,re_flora::run_log_binding=info' \
   cargo run --release -- --hidden --mute --rooftop-poc --auto-exit 5
-# world 模式验证真实太阳 depth 的写入/移除（空 rooftop、零土量）。
+# world 模式用真实撒土验证太阳 depth，松开后清除投影，并检查土量守恒。
 # 观察实际体素地板投影；不改变保存的默认模式：
 RE_FLORA_ROOFTOP_VOXELS=1 cargo run --release -- --rooftop-poc
 ```
