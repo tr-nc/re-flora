@@ -41,6 +41,8 @@ impl std::ops::DerefMut for GuiConfigFile {
 pub struct TreeGuiConfig {
     #[serde(default = "default_true")]
     pub render_leaves: bool,
+    #[serde(default = "default_true")]
+    pub conifer_axis_model: bool,
     #[serde(default)]
     pub desc: TreeDesc,
 }
@@ -49,6 +51,7 @@ impl Default for TreeGuiConfig {
     fn default() -> Self {
         Self {
             render_leaves: true,
+            conifer_axis_model: true,
             desc: TreeDesc::default(),
         }
     }
@@ -262,6 +265,7 @@ mod tests {
                 butterfly_flight: Default::default(),
                 tree: TreeGuiConfig {
                     render_leaves: false,
+                    conifer_axis_model: false,
                     desc: desc.clone(),
                 },
                 ..Default::default()
@@ -274,6 +278,7 @@ mod tests {
         let parsed_tree = &parsed.tree;
 
         assert!(!parsed_tree.render_leaves);
+        assert!(!parsed_tree.conifer_axis_model);
         assert_eq!(parsed_tree.desc, desc);
     }
 

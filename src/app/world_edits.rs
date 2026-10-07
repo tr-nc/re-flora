@@ -6,7 +6,10 @@ use crate::{
 };
 use anyhow::Result;
 use glam::{Quat, UVec3, Vec2, Vec3};
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
@@ -93,6 +96,12 @@ pub(crate) enum VoxelAtlasStateWrite {
 
 #[derive(Clone, Debug)]
 pub(crate) enum VoxelEdit {
+    /// Roll back an already-captured region byte-for-byte, including material state.
+    RestoreAtlasRegion {
+        origin: UVec3,
+        dim: UVec3,
+        data: Arc<[u8]>,
+    },
     StampRoundCones {
         bvh_nodes: Vec<BvhNode>,
         round_cones: Vec<RoundCone>,
@@ -281,6 +290,11 @@ impl WorldEditTransaction {
 
 fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result<()> {
     match edit {
+        VoxelEdit::RestoreAtlasRegion { origin, dim, data } => {
+            plain_builder.write_chunk_atlas_region(origin, dim, &data)?;
+            plain_builder.mark_all_solid_workgroups_dirty();
+            Ok(())
+        }
         VoxelEdit::ClearVoxelRegion(edit) => plain_builder.chunk_init(edit.offset, edit.dim),
         VoxelEdit::StampRoundCones {
             bvh_nodes,

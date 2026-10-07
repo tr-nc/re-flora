@@ -169,6 +169,7 @@ impl App {
     }
 
     pub(super) fn toggle_camera_control_mode(&mut self) {
+        self.cancel_pointer_pick();
         let entered_orbit_edit = self.camera_control.cycle_mode();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
@@ -611,6 +612,7 @@ impl App {
     }
 
     fn prepare_camera_zoom_switch(&mut self) {
+        self.cancel_pointer_pick();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
         self.reset_camera_movement_input();
@@ -695,7 +697,7 @@ impl App {
         }
     }
 
-    pub(super) fn execute_continuous_terrain_tool_action(
+    pub(super) fn execute_resolved_terrain_tool_action(
         &mut self,
         action: ContinuousTerrainToolAction,
         now: Instant,
@@ -717,6 +719,7 @@ impl App {
         if !update.changed() {
             return;
         }
+        self.cancel_pointer_pick();
         if update.active_tool_changed() {
             self.wind_prototype.cancel();
             self.stop_terrain_edit_loop_sound();
@@ -735,13 +738,7 @@ impl App {
     }
 
     pub(super) fn current_flora_paint_selection(&self) -> species::FloraPaintSelection {
-        let selections = species::PLAYER_FLORA_PAINT_SELECTIONS;
-        let selection_idx = self.player_tools.flora_paint_selection_index % selections.len();
-        selections[selection_idx]
-    }
-
-    pub(super) fn current_flora_paint_selection_label(&self) -> &'static str {
-        species::flora_paint_selection_label(self.current_flora_paint_selection())
+        self.player_tools.planting.flora()
     }
 
     pub(super) fn current_flora_paint_dab_interval(&self) -> Duration {
@@ -773,30 +770,36 @@ impl App {
             return;
         }
 
-        let current_selection_idx = self.player_tools.flora_paint_selection_index % selection_count;
-        if selection_idx == current_selection_idx {
-            self.player_tools.flora_paint_selection_index = selection_idx;
-            return;
-        }
-
-        self.player_tools.flora_paint_selection_index = selection_idx;
-        self.player_tools
-            .restart_stroke(ContinuousTerrainToolAction::StaffRegenerate);
-        self.play_item_panel_scroll_sound();
-        log::info!(
-            "Grow brush flora selection: {}",
-            self.current_flora_paint_selection_label()
-        );
+        self.select_plant_variety(super::plant_catalog::PlantVariety::Flora(
+            species::PLAYER_FLORA_PAINT_SELECTIONS[selection_idx],
+        ));
     }
 
-    pub(super) fn cycle_flora_paint_selection(&mut self) {
-        let selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
-        if selection_count == 0 {
-            return;
+    pub(super) fn select_plant_type(&mut self, plant_type: super::plant_catalog::PlantType) {
+        if self.player_tools.select_plant_type(plant_type) {
+            self.cancel_pointer_pick();
+            self.stop_terrain_edit_loop_sound();
+            self.play_item_panel_scroll_sound();
         }
+    }
 
-        let current_selection_idx = self.player_tools.flora_paint_selection_index % selection_count;
-        self.select_flora_paint_selection_index((current_selection_idx + 1) % selection_count);
+    pub(super) fn select_plant_variety(&mut self, variety: super::plant_catalog::PlantVariety) {
+        let old_tree_species = self.player_tools.planting.tree_species;
+        if self.player_tools.select_plant_variety(variety) {
+            self.cancel_pointer_pick();
+            self.stop_terrain_edit_loop_sound();
+            self.play_item_panel_scroll_sound();
+            if old_tree_species != self.player_tools.planting.tree_species {
+                if let Err(err) = self.sync_tree_placement_preview_from_gui() {
+                    log::error!("Failed to update tree species preview: {err}");
+                }
+            }
+            log::info!("Grow variety selection: {}", variety.label());
+        }
+    }
+
+    pub(super) fn cycle_plant_variety(&mut self) {
+        self.select_plant_variety(self.player_tools.planting.next_variety());
     }
 
     pub(super) fn is_shovel_selected(&self) -> bool {
@@ -812,7 +815,8 @@ impl App {
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.player_tools.selected_tool() == PlayerTool::Soil {
+        if self.player_tools.selected_tool() == PlayerTool::Soil || self.is_tree_planting_selected()
+        {
             TerrainEditPreviewShape::SurfaceCircle
         } else if self.is_place_tool_selected() {
             match self.current_placeable_kind() {
@@ -833,8 +837,18 @@ impl App {
         }
     }
 
-    pub(super) fn is_staff_selected(&self) -> bool {
-        self.player_tools.selected_tool() == PlayerTool::Staff
+    pub(super) fn is_grow_selected(&self) -> bool {
+        self.player_tools.selected_tool() == PlayerTool::Grow
+    }
+
+    pub(super) fn is_tree_planting_selected(&self) -> bool {
+        self.is_grow_selected()
+            && self.player_tools.planting.plant_type == super::plant_catalog::PlantType::Tree
+    }
+
+    fn is_flora_planting_selected(&self) -> bool {
+        self.is_grow_selected()
+            && self.player_tools.planting.plant_type == super::plant_catalog::PlantType::Flora
     }
 
     pub(super) fn is_hoe_selected(&self) -> bool {
@@ -921,6 +935,9 @@ impl App {
     }
 
     pub(super) fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
+        if let Some(pick) = self.pointer_picking.active {
+            return Some((pick.ray.origin, pick.ray.direction));
+        }
         if self.is_orbit_edit_camera_mode() {
             let extent = self.window_state.window_extent();
             let cursor_pos = self.cursor_position_physical.unwrap_or_else(|| {
@@ -941,16 +958,27 @@ impl App {
             return Ok(None);
         }
 
-        let Some((origin, direction)) = self.terrain_edit_ray() else {
+        let Some((_, direction)) = self.terrain_edit_ray() else {
             return Ok(None);
         };
         if direction.length_squared() <= f32::EPSILON {
             return Ok(None);
         }
 
-        Ok(self
-            .query_terrain_ray_cpu(origin, direction)
-            .map(|hit| hit.position)
+        self.pointer_picking
+            .active
+            .ok_or_else(|| anyhow::anyhow!("edit attempted without a resolved GPU pick"))
+            .map(|pick| self.filter_pointer_pick(pick, max_distance))
+    }
+
+    fn filter_pointer_pick(
+        &self,
+        pick: super::terrain_picking::Resolved,
+        max_distance: f32,
+    ) -> Option<Vec3> {
+        let (origin, direction) = (pick.ray.origin, pick.ray.direction);
+        pick.hit
+            .map(|hit| hit.world_position)
             .filter(|hit| (*hit - origin).length() <= max_distance)
             .filter(|hit| {
                 self.rooftop_scene.is_none()
@@ -964,7 +992,7 @@ impl App {
                         s.ray_hit(origin, direction)
                             .is_none_or(|p| p.distance(*hit) > 1e-5)
                     })
-            }))
+            })
     }
 
     pub(super) fn query_terrain_ray_cpu(
@@ -991,66 +1019,16 @@ impl App {
                 });
             }
         }
-        if self.tracer.raster_trees.posed_surface.is_none() {
-            return terrain;
-        }
-        let cells = &self.tracer.raster_trees.rest_mesh.solid_cells;
-        for _ in 0..2048 {
-            let Some(hit) = terrain else {
-                break;
-            };
-            let cell = ((hit.position + direction * 1e-6) * 256.)
-                .floor()
-                .as_uvec3();
-            if hit.voxel_type != 5 || !cells.contains(&cell.to_array()) {
-                break;
-            }
-            let lower = cell.as_vec3() / 256.;
-            let upper = lower + Vec3::splat(1. / 256.);
-            let mut advance = f32::INFINITY;
-            for axis in 0..3 {
-                if direction[axis].abs() > 1e-8 {
-                    let face = if direction[axis] > 0. {
-                        upper[axis]
-                    } else {
-                        lower[axis]
-                    };
-                    advance = advance.min((face - hit.position[axis]) / direction[axis]);
-                }
-            }
-            terrain = self.contree_builder.query_terrain_ray_cpu(
-                hit.position + direction * (advance.max(0.) + 1e-6),
-                direction,
-            );
-        }
-        if let Some(hit) = self.query_tree_surface_ray(origin, direction) {
-            if terrain.is_none_or(|terrain| hit.distance < terrain.position.distance(origin)) {
-                return Some(crate::builder::ContreeCpuRayHit {
-                    position: hit.world_position,
-                    voxel_type: 5,
-                });
-            }
-        }
+        // Grounding, footsteps, water and camera landing use authoritative rest
+        // terrain. Visual pointer queries have a separate GPU-owned path.
         terrain
     }
 
-    pub(super) fn query_tree_surface_ray(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-    ) -> Option<crate::tree_gen::skin::SurfaceHit> {
-        self.tracer.raster_trees.posed_surface.as_ref()?;
-        self.tracer.raster_trees.raycast(
-            origin,
-            direction,
-            self.terrain_physics.tree_ray_candidates(origin, direction),
-        )
-    }
-
     fn tree_edit_rest_center(&self, center: Vec3) -> Option<Vec3> {
-        let (origin, direction) = self.terrain_edit_ray()?;
-        let hit = self.query_tree_surface_ray(origin, direction)?;
-        (hit.world_position.distance(center) < 1e-4).then_some(hit.rest_position)
+        let hit = self.pointer_picking.active?.hit?;
+        (hit.world_position.distance(center) < 1e-4)
+            .then(|| hit.tree_rest_position())
+            .flatten()
     }
 
     pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {
@@ -1197,7 +1175,7 @@ impl App {
 
     pub(super) fn try_staff_regenerate(&mut self, now: Instant) {
         let action = ContinuousTerrainToolAction::StaffRegenerate;
-        if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_flora_planting_selected() {
             self.stop_terrain_edit_loop_sound();
             self.player_tools.interrupt_stroke(action);
             return;
@@ -1274,7 +1252,7 @@ impl App {
 
     pub(super) fn try_staff_remove_flora(&mut self, now: Instant) {
         let action = ContinuousTerrainToolAction::StaffRemove;
-        if !self.terrain_edit_pointer_available() || !self.is_staff_selected() {
+        if !self.terrain_edit_pointer_available() || !self.is_flora_planting_selected() {
             self.stop_terrain_edit_loop_sound();
             self.player_tools.interrupt_stroke(action);
             return;
@@ -1361,16 +1339,14 @@ impl App {
             return None;
         }
 
-        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(hit) => hit.map(|center| TerrainEditHover {
-                center,
-                is_editable: self.terrain_edit_preview_position_is_editable(center),
-            }),
-            Err(err) => {
-                log::error!("Terrain edit preview query failed: {}", err);
-                None
-            }
-        }
+        super::terrain_picking::captured_pick_or_hover(self.pointer_picking.active, || {
+            self.request_pointer_hover()
+        })
+        .and_then(|pick| self.filter_pointer_pick(pick, super::SHOVEL_RAY_QUERY_DISTANCE))
+        .map(|center| TerrainEditHover {
+            center,
+            is_editable: self.terrain_edit_preview_position_is_editable(center),
+        })
     }
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {
@@ -1600,13 +1576,19 @@ impl App {
         }
     }
 
-    pub(super) fn try_placeable_placement(&mut self) {
-        if !self.terrain_edit_pointer_available() || !self.is_place_tool_selected() {
+    pub(super) fn try_discrete_placement(&mut self) {
+        if !self.terrain_edit_pointer_available()
+            || !(self.is_place_tool_selected() || self.is_tree_planting_selected())
+        {
             self.stop_terrain_edit_loop_sound();
             return;
         }
 
-        let placeable_kind = self.current_placeable_kind();
+        let placeable_kind = if self.is_tree_planting_selected() {
+            PlaceableKind::Tree
+        } else {
+            self.current_placeable_kind()
+        };
 
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {

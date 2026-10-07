@@ -1,4 +1,7 @@
-# 真实落叶与叶位再生：可逆 GUI 实验
+# 真实落叶与叶位再生：可逆 GUI 实验（历史归档）
+
+> 用户已要求移除真实逐叶脱落、寿命与再生。当前树冠固定，风响应保留在 GPU，落叶为独立视觉特效。
+> 以下记录仅描述已退出的历史功能，不代表当前行为。见 [视觉落叶与静态输入修复](research/visual_leaf_retirement.md)。
 
 实现位于 `pretty-leaves`，现已合入 `main` 的 `6522e8d1`，恢复其体素派生树干与树上体素叶显示。连续树干、树干像素化、树上模型叶/旋转比较及模型表面缓存/通用 GPU 分页实验已退出当前路径，完整历史保留于 `archive/pretty-leaves-experiments-ae8cdf21`。详见[迁移与验证记录](evidence/pretty-leaves-retirement.md)。
 

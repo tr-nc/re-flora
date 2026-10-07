@@ -71,9 +71,17 @@ impl TreeSnapshot {
             );
             let branching =
                 u64::from(branch.branch_count_max + u32::from(branch.continue_main_axis)).max(1);
-            let budget = branching
-                .checked_pow(branch.iterations)
-                .and_then(|n| n.checked_mul(u64::from(desc.subdivision_count_max.max(1))))
+            let segment_budget =
+                if desc.species == crate::tree_gen::TreeSpecies::Conifer && desc.axis_model {
+                    // Bounded authored axes do not inherit the recursive generator's exponential cost.
+                    crate::tree_gen::MAX_AXIS_SEGMENTS as u64
+                } else {
+                    branching
+                        .checked_pow(branch.iterations)
+                        .context("saved tree complexity overflow")?
+                };
+            let budget = segment_budget
+                .checked_mul(u64::from(desc.subdivision_count_max.max(1)))
                 .context("saved tree complexity overflow")?;
             total_budget = total_budget
                 .checked_add(budget)
@@ -113,6 +121,103 @@ impl TreeSnapshot {
             publications,
             next_generation,
         })
+    }
+}
+
+impl GardenTrees {
+    /// The terrain owner has already restored the authoritative saved atlas. This
+    /// owner replaces the entire observer/surface forest with one final canonical commit.
+    fn restore_snapshot(
+        &mut self,
+        snapshot: PreparedTreeSnapshot,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<()> {
+        let by_id: HashMap<_, _> = snapshot
+            .publications
+            .iter()
+            .map(|p| (p.tree_id, p))
+            .collect();
+        let mut ids: Vec<_> = self
+            .records
+            .keys()
+            .copied()
+            .chain(by_id.keys().copied())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let mut executor = TreePublicationExecutor::new(host);
+        executor.prepare_retained_trunks(&[])?;
+        for &id in &ids {
+            let previous = self.records.get(&id);
+            let publication = by_id.get(&id).copied();
+            let operation = if publication.is_none() {
+                TreePublicationOperation::Remove
+            } else if previous.is_some() {
+                TreePublicationOperation::Replace
+            } else {
+                TreePublicationOperation::Place
+            };
+            executor.prepare(operation, id, publication, previous)?;
+        }
+        let mut forest: Vec<_> = snapshot
+            .publications
+            .iter()
+            .map(|p| (p.tree_id, &p.record))
+            .collect();
+        forest.sort_unstable_by_key(|(id, _)| *id);
+        let revision = self
+            .canonical_revision
+            .wrapping_add(self.records.len() as u64)
+            .wrapping_add(snapshot.publications.len() as u64);
+        let result: Result<()> = (|| {
+            executor.prepare_surface(&forest, revision)?;
+            // Remove every old fruit registry entry without destroying checkpointed bodies.
+            for &id in self.records.keys() {
+                executor.execute(TreePublicationAction::RemoveLeaves, id, None)?;
+                executor.execute(TreePublicationAction::RemoveFruitLifecycle, id, None)?;
+                executor.execute(TreePublicationAction::RemoveCanopyAudio, id, None)?;
+            }
+            executor
+                .host
+                .prepare_restored_fruit_cycle(snapshot.fruit_cycle)?;
+            for publication in &snapshot.publications {
+                for &action in TreePublicationPlan::RESTORE_ACTIONS {
+                    executor.execute(action, publication.tree_id, Some(publication))?;
+                }
+            }
+            executor.execute(TreePublicationAction::CommitPublication, 0, None)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if ids.is_empty() {
+                return Err(error).context("preparing empty saved forest");
+            }
+            return match executor.compensate() {
+                Ok(()) => Err(error).context("restoring complete tree forest"),
+                Err(restore) => Err(anyhow::anyhow!(
+                    "tree restoration failed: {error:#}; compensation failed: {restore:#}"
+                )),
+            };
+        }
+        let old_ids: Vec<_> = self.records.keys().copied().collect();
+        for id in old_ids {
+            self.commit_removal(id);
+        }
+        self.previous_bound = UAabb3::default();
+        self.staged_tuned_mature_desc = None;
+        self.next_tree_id = snapshot
+            .publications
+            .iter()
+            .map(|p| p.tree_id + 1)
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        self.next_canopy_acoustic_generation = snapshot.next_generation;
+        for publication in snapshot.publications {
+            self.commit_placement(publication.tree_id, publication.record);
+        }
+        debug_assert_eq!(self.canonical_revision, revision);
+        Ok(())
     }
 }
 
@@ -221,48 +326,11 @@ impl App {
         &mut self,
         snapshot: PreparedTreeSnapshot,
     ) -> Result<()> {
-        self.transact_garden_trees(|trees, host| {
-            let old_records = trees.records.clone();
-            for (&id, record) in &old_records {
-                host.prepare(TreePublicationOperation::Remove, id, None, Some(record))?;
-                host.remove_leaves(id)?;
-                host.remove_fruit_lifecycle(id)?;
-                host.remove_canopy_audio(id)?;
-                trees.commit_removal(id);
-            }
-            host.commit_publication()?;
-            host.app
-                .terrain_physics
-                .set_fruit_cycle(snapshot.fruit_cycle, &mut host.app.tracer)?;
-            trees.previous_bound = UAabb3::default();
-            trees.staged_tuned_mature_desc = None;
-            trees.next_tree_id = snapshot
-                .publications
-                .iter()
-                .map(|p| p.tree_id + 1)
-                .max()
-                .unwrap_or(1)
-                .max(1);
-            trees.next_canopy_acoustic_generation = snapshot.next_generation;
-            for publication in snapshot.publications {
-                let id = publication.tree_id;
-                host.publish_leaves(id, &publication)?;
-                host.app.terrain_physics.restore_saved_tree_fruits(
-                    id,
-                    publication.record.fruit_specs.clone(),
-                    &mut host.app.tracer,
-                )?;
-                host.publish_attached_fruit(id)?;
-                host.publish_canopy_audio(id, &publication)?;
-                trees.commit_placement(id, publication.record);
-            }
-            host.app
-                .tracer
-                .invalidate_local_direct_sun_shadow_histories();
-            Ok(())
-        })?;
-        self.debug_settings.adjustables.tree_age.value = snapshot.age;
-        self.debug_settings.adjustables.fruit_cycle.value = snapshot.fruit_cycle;
+        let age = snapshot.age;
+        let fruit_cycle = snapshot.fruit_cycle;
+        self.transact_garden_trees(|trees, host| trees.restore_snapshot(snapshot, host))?;
+        self.debug_settings.adjustables.tree_age.value = age;
+        self.debug_settings.adjustables.fruit_cycle.value = fruit_cycle;
         if let Some(record) = self.trees.tuned_record() {
             self.debug_settings.tree.desc = record.mature_desc.clone();
         }
@@ -316,6 +384,40 @@ mod tests {
             second.publications[0].record.fruit_specs
         );
         assert_eq!(first.publications[0].tree_id, 7);
+    }
+
+    #[test]
+    fn mixed_species_snapshot_preserves_identity_seed_and_both_architectures() {
+        let mut snapshot = fixture();
+        for (id, axis_model) in [(8, true), (9, false)] {
+            let mut desc = crate::tree_gen::TreeSpecies::Conifer.mature_desc(&TreeDesc::default());
+            desc.branching.seed = 811 + id as u64;
+            desc.axis_model = axis_model;
+            snapshot.trees.push(SavedTree {
+                id,
+                position: [0.5 + (id - 7) as f32 * 0.5, 0.5, 0.5],
+                mature_desc: desc,
+            });
+        }
+        let decoded: TreeSnapshot =
+            serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        assert_eq!(snapshot, decoded);
+        let prepared = decoded
+            .prepare(1, CanopyAcousticDescriptor::DEFAULT_SAMPLE_BUDGET)
+            .unwrap();
+        for (saved, published) in snapshot.trees.iter().zip(prepared.publications.iter()) {
+            assert_eq!(saved.mature_desc, published.record.mature_desc);
+            assert_eq!(saved.id, published.tree_id);
+            let expected = Tree::new(saved.mature_desc.at_age(snapshot.age));
+            assert_eq!(expected.branches(), published.record.rest_tree.branches());
+            if saved.mature_desc.species == crate::tree_gen::TreeSpecies::Conifer {
+                assert!(published.record.fruit_specs.is_empty());
+                assert_eq!(
+                    !published.record.rest_tree.axis_segments().is_empty(),
+                    saved.mature_desc.axis_model
+                );
+            }
+        }
     }
 
     #[test]

@@ -21,6 +21,7 @@ impl<'a> RestSkinBinder<'a> {
         }
     }
 
+    #[cfg(test)]
     pub fn owns_cell(&self, local_center: Vec3) -> bool {
         !self.cones.has_minimum_clearance(local_center, 0.)
     }

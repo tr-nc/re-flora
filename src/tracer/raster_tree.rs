@@ -19,7 +19,16 @@ use crate::{
     },
 };
 
-pub const TREE_CELL_CAPACITY: usize = 1 << 18;
+mod cpu_surface;
+mod fragments;
+
+/// Exactly the material input consumed by extraction, faces and radius-two normals.
+fn surface_material(byte: u8) -> u8 {
+    byte & 15
+}
+use cpu_surface::CpuDeformationPlan;
+pub use cpu_surface::PosedTreeSurface;
+
 const NEIGHBORS: [IVec3; 6] = [
     IVec3::NEG_Y,
     IVec3::Y,
@@ -56,6 +65,10 @@ pub struct RasterTreeMesh {
     pub solid_cells: std::collections::BTreeSet<[u32; 3]>,
     bindings: Vec<Option<(u32, SkinBinding)>>,
     binding_cache: BTreeMap<u32, TreeBindingCache>,
+    cpu_plan: Option<Arc<CpuDeformationPlan>>,
+    fragments: BTreeMap<u32, Arc<fragments::TreeSurfaceFragment>>,
+    fragment_cache_bytes: usize,
+    fragment_bindings: BTreeMap<[u32; 3], (u32, [SkinBinding; 8])>,
     dependencies: TreeSurfaceDependencies,
     pub cell_vertex_indices: Vec<u32>,
 }
@@ -95,7 +108,9 @@ impl RasterTreeMesh {
             if p.cmplt(IVec3::ZERO).any() || p.cmpge(dim.as_ivec3()).any() {
                 return 0;
             }
-            bytes[(p.x as u32 + dim.x * (p.y as u32 + dim.y * p.z as u32)) as usize] & 15
+            surface_material(
+                bytes[(p.x as u32 + dim.x * (p.y as u32 + dim.y * p.z as u32)) as usize],
+            )
         };
         // Same solid predicate as surface_extraction.slang.
         let solid = |p: IVec3| sample(p) != 0;
@@ -135,34 +150,32 @@ impl RasterTreeMesh {
 
     pub fn finish(&mut self) -> Result<Vec<[u32; 4]>> {
         ensure!(
-            self.cells.len() < TREE_CELL_CAPACITY / 2,
-            "static tree comparison exceeds {} surface cells",
-            TREE_CELL_CAPACITY / 2
+            self.cells.len() <= super::tree_lookup::TREE_PUBLICATION_BUDGET_BYTES / (8 * 48),
+            "tree surface exceeds preparation memory budget"
         );
-        let mut table = vec![[0u32; 4]; TREE_CELL_CAPACITY];
-        self.cell_vertex_indices = vec![u32::MAX; TREE_CELL_CAPACITY];
+        let entries: Vec<_> = self
+            .cells
+            .iter()
+            .map(|(&cell, &(normal, _, faces))| {
+                let mask = faces
+                    .iter()
+                    .enumerate()
+                    .fold(0u32, |mask, (i, &visible)| mask | (u32::from(visible) << i));
+                [
+                    cell[0],
+                    cell[1],
+                    cell[2],
+                    (pack_normal_oct16(normal) + 1) | (mask << 17),
+                ]
+            })
+            .collect();
+        let lookup = super::tree_lookup::build_tree_lookup(&entries)?;
+        let table = lookup.table;
+        self.cell_vertex_indices = vec![u32::MAX; table.len()];
+        self.cpu_plan = None;
         self.vertices.clear();
         self.indices.clear();
-        for (&cell, &(normal, confidence, faces)) in &self.cells {
-            let hash = tree_cell_hash(cell) as usize;
-            let slot = (0..64)
-                .map(|i| (hash + i) & (TREE_CELL_CAPACITY - 1))
-                .find(|&s| table[s][3] == 0);
-            let slot = slot
-                .ok_or_else(|| anyhow::anyhow!("static tree cell lookup probe budget exhausted"))?;
-            // Low 17 bits preserve the normal+1 empty sentinel; next six bits
-            // identify exposed faces in CUBE_INDICES order. Confidence stays f32
-            // in the resident normal's spare W component, without another buffer.
-            let face_mask = faces
-                .iter()
-                .enumerate()
-                .fold(0u32, |mask, (i, &visible)| mask | (u32::from(visible) << i));
-            table[slot] = [
-                cell[0],
-                cell[1],
-                cell[2],
-                (pack_normal_oct16(normal) + 1) | (face_mask << 17),
-            ];
+        for ((&cell, &(normal, confidence, faces)), slot) in self.cells.iter().zip(lookup.slots) {
             let min = UVec3::from_array(cell).as_vec3();
             let base = u32::try_from(self.vertices.len())?;
             self.cell_vertex_indices[slot] = base;
@@ -201,10 +214,15 @@ impl RasterTreeMesh {
             self.bindings.len() == self.vertices.len(),
             "finish tree mesh before binding"
         );
+        self.cpu_plan = None;
         let previous = previous
             .and_then(|mesh| mesh.binding_cache.get(&tree_id))
             .filter(|cache| Arc::ptr_eq(&cache.tree, tree) && cache.origin == origin);
         let binder = RestSkinBinder::new(tree);
+        // Extraction tests the stamped world-space cones. Repeating that test in
+        // local space can change its sign at a voxel boundary after f32 translation.
+        let world_cones = tree.world_trunks(origin);
+        let ownership = RoundConeClearanceIndex::new(&world_cones);
         let mut corners = BTreeMap::new();
         let mut cell_owner = None;
         for (vertex, binding) in self.vertices.iter().zip(&mut self.bindings) {
@@ -215,8 +233,8 @@ impl RasterTreeMesh {
             let owns_cell = match cell_owner {
                 Some((key, owns)) if key == center_key => owns,
                 _ => {
-                    let center = (Vec3::from_array(vertex.center) - origin) * 256.;
-                    let owns = binder.owns_cell(center);
+                    let center = Vec3::from_array(vertex.center) * 256.;
+                    let owns = !ownership.has_minimum_clearance(center, 0.);
                     cell_owner = Some((center_key, owns));
                     owns
                 }
@@ -285,29 +303,50 @@ impl RasterTreeMesh {
             ]);
         }
         ensure!(
-            result.branches.len() < super::tree_scene::MAX_TREE_VERTICES,
-            "GPU tree pose capacity exceeded"
+            result.branches.len() < u32::MAX as usize,
+            "GPU tree palette exceeds u32 addressing"
         );
         Ok(result)
+    }
+
+    /// Finalize the immutable CPU interaction plan after the last topology/binding change.
+    pub(crate) fn compile_cpu_deformation(&mut self) -> Result<()> {
+        let plan = CpuDeformationPlan::compile(self)?;
+        let (points, transforms) = plan.counts();
+        log::info!(
+            "[TREE][CPU_PLAN] visual_vertices={} exact_points={points} transforms={transforms}",
+            self.vertices.len()
+        );
+        self.cpu_plan = Some(Arc::new(plan));
+        Ok(())
+    }
+
+    /// Immutable, compact no-wind collision geometry. Publication uses this
+    /// regardless of the current visual pose or wind toggle.
+    pub(crate) fn rest_collision_geometry(&self) -> Result<(Vec<Vec3>, Arc<[[u32; 3]]>)> {
+        let plan = match &self.cpu_plan {
+            Some(plan) => plan.clone(),
+            None => Arc::new(CpuDeformationPlan::compile(self)?),
+        };
+        Ok(plan.rest_collision_geometry())
     }
 
     pub fn posed_surface<'a>(
         &self,
         poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
     ) -> Result<PosedTreeSurface> {
-        ensure!(
-            self.bindings.len() == self.vertices.len(),
-            "missing tree bindings"
-        );
-        let mut positions = Vec::with_capacity(self.vertices.len());
-        for (vertex, binding) in self.vertices.iter().zip(&self.bindings) {
-            let (tree_id, binding) =
-                binding.ok_or_else(|| anyhow::anyhow!("unbound tree vertex"))?;
-            let transform = binding
-                .transform(poses(tree_id).ok_or_else(|| anyhow::anyhow!("tree pose missing"))?)?;
-            positions.push(transform.point(Vec3::from_array(vertex.position)));
-        }
-        Ok(PosedTreeSurface { positions })
+        self.posed_surface_reusing(poses, None)
+    }
+    pub(crate) fn posed_surface_reusing<'a>(
+        &self,
+        poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
+        scratch: Option<PosedTreeSurface>,
+    ) -> Result<PosedTreeSurface> {
+        let plan = match &self.cpu_plan {
+            Some(plan) => plan.clone(),
+            None => Arc::new(CpuDeformationPlan::compile(self)?),
+        };
+        plan.pose(poses, scratch)
     }
 
     /// Exact surface query used to validate rest-coordinate editing. The future
@@ -356,6 +395,12 @@ impl RasterTreeMesh {
         self.cells.len()
     }
 
+    pub(super) fn rest_positions(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.vertices
+            .iter()
+            .map(|vertex| Vec3::from(vertex.position))
+    }
+
     /// Exposed on both sides of at least two axes: actual published one-voxel
     /// cross sections (including isolated cells), not inferred from cone radii.
     pub fn single_voxel_cross_sections(&self) -> usize {
@@ -399,7 +444,7 @@ impl RasterTreeMesh {
     /// Smoke-only validation of the actual compute output, not just CPU metadata.
     pub fn validate_lighting_cache(&self, data: &[[f32; 4]], hybrid: bool) -> Result<()> {
         ensure!(
-            data.len() == TREE_CELL_CAPACITY,
+            data.len() == self.cell_vertex_indices.len(),
             "tree lighting cache size mismatch"
         );
         for (slot, &base) in self.cell_vertex_indices.iter().enumerate() {
@@ -423,27 +468,6 @@ impl RasterTreeMesh {
             );
         }
         Ok(())
-    }
-}
-
-/// Exact CPU interaction geometry. Normals belong to the GPU shading surface;
-/// physics needs no duplicate normal array.
-pub struct PosedTreeSurface {
-    positions: Vec<Vec3>,
-}
-
-impl PosedTreeSurface {
-    pub fn vertex_count(&self) -> usize {
-        self.positions.len()
-    }
-    pub fn position(&self, index: usize) -> Vec3 {
-        self.positions[index]
-    }
-    pub fn positions(&self) -> impl Iterator<Item = Vec3> + '_ {
-        self.positions.iter().copied()
-    }
-    pub fn is_finite(&self) -> bool {
-        self.positions.iter().all(|p| p.is_finite())
     }
 }
 
@@ -488,6 +512,9 @@ pub struct RasterTreeGeometry {
     pub attachment_poses: Vec<BranchPose>,
     pub previous_attachment_poses: Vec<BranchPose>,
     pub attachment_dt: f32,
+    /// Render/query activation does not depend on retaining a CPU reference.
+    pub gpu_wind_active: bool,
+    /// Opt-in CPU oracle only; absent on normal gameplay frames.
     pub posed_surface: Option<PosedTreeSurface>,
 }
 
@@ -513,6 +540,7 @@ impl RasterTreeGeometry {
             attachment_poses: Vec::new(),
             previous_attachment_poses: Vec::new(),
             attachment_dt: 0.,
+            gpu_wind_active: false,
             posed_surface: None,
         }
     }
@@ -561,11 +589,15 @@ impl RasterTreeGeometry {
     }
 
     /// Hidden-app contract: compare every GPU result with the exact CPU surface
-    /// retained for physics, including normals and the disabled-wind rest pose.
+    /// retained for visual queries, including normals and the disabled-wind rest pose.
     pub fn validate_gpu_surface(&self, data: &[[f32; 4]]) -> Result<()> {
         ensure!(
             data.len() == self.rest_mesh.vertices.len() * 2,
             "GPU tree surface size mismatch"
+        );
+        ensure!(
+            !self.gpu_wind_active || self.posed_surface.is_some(),
+            "GPU wind validation needs an explicit CPU oracle"
         );
         let mut max_position_error = 0.0_f32;
         let mut max_normal_error = 0.0_f32;
@@ -574,7 +606,7 @@ impl RasterTreeGeometry {
                 .posed_surface
                 .as_ref()
                 .map_or(Vec3::from(vertex.position), |s| s.position(i));
-            let normal = if self.posed_surface.is_some() {
+            let normal = if self.gpu_wind_active {
                 let [branch, parent, weight, _] = self.skin.bindings[i];
                 SkinBinding {
                     branch: branch as usize,
@@ -594,7 +626,9 @@ impl RasterTreeGeometry {
             );
             ensure!(
                 data[i * 2 + 1][3] == vertex.normal_confidence,
-                "GPU tree confidence changed under skinning at vertex {i}"
+                "GPU tree confidence changed under skinning at vertex {i}: expected={} actual={}",
+                vertex.normal_confidence,
+                data[i * 2 + 1][3]
             );
             max_position_error = max_position_error.max(position.distance(gpu_position));
             max_normal_error = max_normal_error.max(normal.distance(gpu_normal));
@@ -605,46 +639,13 @@ impl RasterTreeGeometry {
         );
         log::info!("[TREE][GPU_SKIN] vertices={} elements={} bones={} active={} position_error={} normal_error={}",
             self.rest_mesh.vertices.len(), self.skin.bindings.len(), self.skin.branches.len(),
-            self.posed_surface.is_some(), max_position_error, max_normal_error);
+            self.gpu_wind_active, max_position_error, max_normal_error);
         Ok(())
     }
 
     /// Both color and shadow draws use the same resident exposed-face surface.
     pub fn draw_counts(&self) -> (u32, u32) {
         (self.index_count, 1)
-    }
-
-    /// Caller has quiesced frames before atlas readback and replacement.
-    pub fn upload(
-        &mut self,
-        device: Device,
-        allocator: Allocator,
-        mesh: &RasterTreeMesh,
-    ) -> Result<()> {
-        let count = u32::try_from(mesh.indices.len())?;
-        let draw_indices = mesh.indices.as_slice();
-        let indices = Self::buffer(
-            device,
-            allocator,
-            vk::BufferUsageFlags::INDEX_BUFFER,
-            std::mem::size_of_val(draw_indices),
-        );
-        if count > 0 {
-            indices.fill(draw_indices)?;
-        }
-        self.skin = mesh.gpu_skin()?;
-        self.indices = Resource::new(indices);
-        let positions: Vec<_> = mesh
-            .vertices
-            .iter()
-            .map(|v| Vec3::from(v.position))
-            .collect();
-        self.scene = super::tree_scene::TreeScene::new(&mesh.indices, &positions)?;
-        self.refit = self.scene.refit_schedule();
-        self.posed_surface = None;
-        self.rest_mesh = mesh.clone();
-        self.index_count = count;
-        Ok(())
     }
 }
 
@@ -685,6 +686,34 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn translated_surface_cells_keep_their_extraction_owner_at_float_boundaries() {
+        let tree = small_tree();
+        let origin = Vec3::from_array([1065356240, 1051367764, 1067107866].map(f32::from_bits));
+        let mut cones = tree.trunks().to_vec();
+        for cone in &mut cones {
+            cone.transform(origin * 256.);
+        }
+        let cell = UVec3::new(256, 128, 300);
+        let center = cell.as_vec3() + Vec3::splat(0.5);
+        assert!(!RoundConeClearanceIndex::new(&cones).has_minimum_clearance(center, 0.));
+        assert!(!RestSkinBinder::new(&tree).owns_cell((center / 256. - origin) * 256.));
+        let mut bytes = vec![0; 125];
+        bytes[2 + 5 * (2 + 5 * 2)] = 5;
+        let mut mesh = RasterTreeMesh::default();
+        mesh.append_region(cell - UVec3::splat(2), UVec3::splat(5), &bytes, &cones)
+            .unwrap();
+        mesh.finish().unwrap();
+        mesh.bind_tree(7, origin, &tree, None).unwrap();
+        assert_eq!(
+            mesh.gpu_skin()
+                .expect("extracted wood must retain its owner")
+                .bindings
+                .len(),
+            8
+        );
     }
 
     #[test]
@@ -915,7 +944,7 @@ mod tests {
                 pack_normal_oct16(Vec3::from(vertex.normal))
             );
         }
-        let mut cache = vec![[0.; 4]; TREE_CELL_CAPACITY];
+        let mut cache = vec![[0.; 4]; mesh.cell_vertex_indices.len()];
         mesh.validate_lighting_cache(&cache, true).unwrap();
         assert!(mesh.validate_lighting_cache(&cache, false).is_err());
         for &base in mesh.cell_vertex_indices.iter().filter(|&&v| v != u32::MAX) {

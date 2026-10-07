@@ -1,5 +1,4 @@
 import tree_scene;
-import leaf_lifecycle;
 import apple_preview_vertex;
 import flora_motion;
 import flora_types;
@@ -223,11 +222,9 @@ VertexOutput main(VertexInput input)
         for (uint member = 0u; member < leafInstance.response_source_count; ++member)
         {
             uint2 source = leaf_shadow_response_sources.data[leafInstance.response_source_offset + member];
-            float growth = treeLeafGrowth(source.x);
-            float weight = growth * growth;
-            area += weight;
-            if (attachedVegetationResponseEnabled() && weight > 0.0)
-                response += weight * sampleVegetationResponse(uint3(0u), source.y,
+            area += 1.0;
+            if (attachedVegetationResponseEnabled())
+                response += sampleVegetationResponse(uint3(0u), source.y,
                     FLORA_SPECIES_TREE_LEAF, source.x, pc.response_offset);
         }
         if (area <= 0.0)

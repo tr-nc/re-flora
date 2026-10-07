@@ -113,6 +113,20 @@ pub struct TreePose {
 }
 
 impl TreePose {
+    /// Axis wind response uses authored thickness, not the number of trunk sample segments.
+    pub fn for_tree(tree: &super::Tree, origin_world: Vec3) -> Result<Self> {
+        let mut pose = Self::new(tree.branches(), origin_world)?;
+        if let Some(root) = tree.axis_segments().first() {
+            let root_radius = root.radius_start.max(1e-5);
+            for (joint, segment) in pose.joints.iter_mut().zip(tree.axis_segments()) {
+                let thickness = (segment.radius_start / root_radius).clamp(0., 1.);
+                joint.compliance = 0.002 + 0.025 * (1. - thickness).powf(2.);
+                joint.frequency = 0.65 + 0.8 * (1. - thickness);
+            }
+        }
+        Ok(pose)
+    }
+
     pub fn new(topology: &[BranchSegment], origin_world: Vec3) -> Result<Self> {
         ensure!(origin_world.is_finite(), "nonfinite tree origin");
         let mut joints = Vec::with_capacity(topology.len());

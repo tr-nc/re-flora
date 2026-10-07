@@ -29,6 +29,16 @@ RGB 贴纸在 Linear-sRGB 解码后 Nearest 查找，不插值、不用 mipmap�
 
 日志：`/tmp/terrain-magic-soil-bag-game-{check,tests,cache-tests,geometry-tests,frame-tests,all-tests,node-tests,release,hover,cycle,rooftop,smoke,tail}.log`。最终普通 startup：`target/re-flora-logs/re-flora-20261007-213511.491-2229480.log`。
 
+## 合入主分支 `b2b7d55a` 后的验证
+
+合并保留主分支的 Grow 统一种植目录、异步 GPU 拾取/点击所有权和完整管线注册，同时保留 Soil、无限材料、土袋/颗粒与 Debug 根栏目字母排序。Soil 编辑只使用当前已解析的捕获点击（包括 miss，不替换成别的 hover ray）；不继承 Edit 的80ms间隔，批量/频率仍由保存的 Soil 时钟管理。没有把同步拾取加回普通交互；startup-only rooftop 检查像主分支的其他检查一样显式取得诊断 GPU 答案后运行已解析生产编辑体。
+
+普通悬停/点击现在继承主分支的异步回答延迟（通常1–2帧），并在 terrain publication 后等待新的有效 hover，土袋/发射可短暂隐藏/暂停。缺少回答不制造猜测目标或颗粒、不清除上次成功剂量的视觉许可；已解析 miss/拒绝、松开、失去指针权限和换工具仍停止发射。没有宣称零输入延迟或完成合并后的手感/性能验收。
+
+`cargo fmt --check` / `cargo check` / Release 构建通过；生成文件由正常检查再生成。Node **50/50**；完整 Rust **1460 passed / 4 known baseline failed / 6 ignored**，碰撞另4项通过。剩余4项仍为原有石头/玻璃/保存采样默认值断言；旧 gain-lifecycle 用例随主分支生命周期退役自然更新，不修改无关默认值。新增回归涵盖 Soil 独立时钟、捕获 miss 的所有权和等待 hover 时的颗粒暂停。
+
+隐藏静音普通启动、完整 rooftop 数量/时序检查和真实异步 held-input cycle 通过，日志无 ERROR/VUID/panic。合并后 cycle：`added=6656 peak_grains=9 contacts=16 conserved=true real_inventory_preserved=true`；不同于合并前的同步输入数量/粒子峰值，不能混作匹配性能或相同手感证据。日志在 `/tmp/terrain-magic-main-merge-{check,all-tests,node-tests,release,rooftop,bag-cycle,smoke,tail}.log`。本地 spread13/浮点格式保留、不提交；主分支对 GUI 声明的合法变更保留。
+
 ## 重现 / 手动试用
 
 ```sh

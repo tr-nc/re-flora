@@ -500,7 +500,7 @@ impl App {
                 &mut self.particle_system,
                 dt,
                 &self.wind_prototype.field.frame(),
-                false, // Real canopy detachment replaces decorative emission.
+                self.render_flags.enable_leaves, // Independent visual effects, never canopy removal.
             );
             let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
             self.sprinklers.advance_particles(
@@ -539,9 +539,6 @@ impl App {
             );
         }
         let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
-        if let Err(error) = self.advance_leaf_lifecycle(dt) {
-            log::error!("[LEAF_LIFECYCLE] handoff not committed: {error:#}");
-        }
 
         let collect_start = Instant::now();
         self.update_terrain_harvest_particle_collection(dt);

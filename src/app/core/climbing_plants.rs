@@ -448,7 +448,7 @@ impl App {
         // and camera. Yield before the demo authors a wall or requests camera focus.
         if !climbing_scene_available(
             self.launch_owners.test_scene_frame_plan(),
-            self.fallen_leaf_review.is_some() || self.leaf_lifecycle_validation_active(),
+            self.fallen_leaf_review.is_some(),
         ) {
             return Ok(());
         }

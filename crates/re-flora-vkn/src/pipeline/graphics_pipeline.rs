@@ -470,6 +470,11 @@ impl GraphicsPipeline {
         )
     }
 
+    /// Semantic resource names actually present in this pipeline's reflection.
+    pub fn descriptor_resource_names(&self) -> impl Iterator<Item = &str> {
+        self.0.descriptors.resource_names()
+    }
+
     pub fn tracked_texture_binding_count(&self) -> usize {
         self.0.descriptors.tracked_texture_binding_count()
     }

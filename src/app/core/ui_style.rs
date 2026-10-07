@@ -1,3 +1,4 @@
+use super::plant_catalog::{PlantType, PlantVariety};
 use super::voxel_backpack::BackpackVoxel;
 use egui::style::WidgetVisuals;
 use egui::{Color32, TextureHandle};
@@ -38,11 +39,8 @@ pub(crate) const ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH: &str =
 pub(crate) const ITEM_PANEL_TILLER_ICON_PATH: &str = "assets/texture/tool_icons/till.png";
 pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
-pub(crate) const ITEM_PANEL_TREE_ICON_PATH: &str = "assets/texture/tool_icons/tree.png";
-pub(crate) const ITEM_PANEL_TREE_ICON_FALLBACK_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/8_Wooden_Axe.PNG";
-pub(crate) const HAND_SLOT_INDEX: usize = 0;
-pub(crate) const STAFF_SLOT_INDEX: usize = 1;
+pub(crate) const GROW_SLOT_INDEX: usize = 0;
+pub(crate) const HAND_SLOT_INDEX: usize = 1;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
 pub(crate) const SMOOTH_SLOT_INDEX: usize = 3;
 pub(crate) const HOE_SLOT_INDEX: usize = 4;
@@ -50,19 +48,15 @@ pub(crate) const WATERING_SLOT_INDEX: usize = 5;
 pub(crate) const SOIL_INSPECTOR_SLOT_INDEX: usize = 6;
 pub(crate) const TILLER_SLOT_INDEX: usize = 7;
 pub(crate) const WIND_SLOT_INDEX: usize = 8;
-pub(crate) const PLACE_TOOL_SLOT_INDEX: usize = 9;
-pub(crate) const TREE_SLOT_INDEX: usize = PLACE_TOOL_SLOT_INDEX;
 pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const MOWER_SLOT_INDEX: usize = 11;
 pub(crate) const SOIL_DEPOSITION_SLOT_INDEX: usize = 12;
-pub(crate) const TREE_PLACEABLE_SLOT_INDEX: usize = 0;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
 pub(crate) const SMOOTH_TOOL_ACCENT: Color32 = Color32::from_rgb(190, 156, 106);
 pub(crate) const STAFF_TOOL_ACCENT: Color32 = Color32::from_rgb(129, 189, 122);
 pub(crate) const HOE_TOOL_ACCENT: Color32 = Color32::from_rgb(219, 128, 152);
-pub(crate) const TREE_TOOL_ACCENT: Color32 = Color32::from_rgb(82, 154, 90);
 pub(crate) const WATER_TOOL_ACCENT: Color32 = Color32::from_rgb(96, 171, 218);
 pub(crate) const SOIL_INSPECTOR_TOOL_ACCENT: Color32 = Color32::from_rgb(166, 132, 88);
 pub(crate) const TILLER_TOOL_ACCENT: Color32 = Color32::from_rgb(151, 113, 76);
@@ -86,15 +80,16 @@ pub(crate) struct ToolPanelResponse {
 
 pub(crate) type ItemPanelResponse = ToolPanelResponse;
 
-pub(crate) struct FloraPaintPanelEntry {
-    pub index: usize,
+pub(crate) struct PlantPanelEntry {
+    pub variety: PlantVariety,
     pub label: &'static str,
     pub selected: bool,
 }
 
 #[derive(Default)]
-pub(crate) struct FloraPaintPanelResponse {
-    pub clicked_selection_index: Option<usize>,
+pub(crate) struct PlantPanelResponse {
+    pub clicked_variety: Option<PlantVariety>,
+    pub clicked_type: Option<PlantType>,
 }
 
 #[derive(Clone, Copy)]
@@ -210,12 +205,13 @@ pub(crate) fn draw_item_panel(
 const FLORA_PAINT_PANEL_WIDTH: f32 = 190.0;
 const FLORA_PAINT_BUTTON_HEIGHT: f32 = 34.0;
 
-pub(crate) fn draw_flora_paint_panel(
+pub(crate) fn draw_plant_panel(
     ctx: &egui::Context,
-    entries: &[FloraPaintPanelEntry],
+    entries: &[PlantPanelEntry],
+    plant_type: PlantType,
     interaction_enabled: bool,
-) -> FloraPaintPanelResponse {
-    let mut panel_response = FloraPaintPanelResponse::default();
+) -> PlantPanelResponse {
+    let mut panel_response = PlantPanelResponse::default();
     let selected_stroke = if entries.iter().any(|entry| entry.selected) {
         GOLD_ACCENT
     } else {
@@ -242,9 +238,14 @@ pub(crate) fn draw_flora_paint_panel(
 
             panel_frame.show(ui, |ui| {
                 ui.set_width(FLORA_PAINT_PANEL_WIDTH);
+                // Keep both catalogs at half the viewport height, including frame margins.
+                ui.set_height(
+                    (ctx.content_rect().height() * 0.5 - panel_frame.total_margin().sum().y)
+                        .max(0.0),
+                );
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("Plant Brush")
+                        egui::RichText::new("Planting")
                             .color(GOLD_ACCENT)
                             .size(12.0)
                             .strong(),
@@ -262,18 +263,31 @@ pub(crate) fn draw_flora_paint_panel(
                 ui.separator();
                 ui.add_space(4.0);
 
-                // Reserve room for the header, screen margins and bottom tool
-                // tray. Every catalog entry remains reachable on short windows.
+                ui.add_enabled_ui(interaction_enabled, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Type");
+                        for category in PlantType::ALL {
+                            if ui
+                                .selectable_label(plant_type == category, category.label())
+                                .clicked()
+                            {
+                                panel_response.clicked_type = Some(category);
+                            }
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+                ui.label("Variety");
+
+                // The catalog fills the remaining fixed panel space, even for one tree.
                 egui::ScrollArea::vertical()
-                    .id_salt("flora_paint_options")
-                    .max_height(
-                        (ctx.content_rect().height() - 200.0).max(FLORA_PAINT_BUTTON_HEIGHT),
-                    )
-                    .auto_shrink([false, true])
+                    .id_salt(("plant_varieties", plant_type))
+                    .max_height(ui.available_height().max(FLORA_PAINT_BUTTON_HEIGHT))
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for entry in entries {
-                            if draw_flora_paint_panel_entry(ui, entry, interaction_enabled) {
-                                panel_response.clicked_selection_index = Some(entry.index);
+                            if draw_plant_panel_entry(ui, entry, interaction_enabled) {
+                                panel_response.clicked_variety = Some(entry.variety);
                             }
                             ui.add_space(4.0);
                         }
@@ -284,9 +298,9 @@ pub(crate) fn draw_flora_paint_panel(
     panel_response
 }
 
-fn draw_flora_paint_panel_entry(
+fn draw_plant_panel_entry(
     ui: &mut egui::Ui,
-    entry: &FloraPaintPanelEntry,
+    entry: &PlantPanelEntry,
     interaction_enabled: bool,
 ) -> bool {
     let sense = if interaction_enabled {
@@ -1291,14 +1305,14 @@ mod hover_layout_tests {
             .iter()
             .copied()
             .enumerate()
-            .map(|(index, selection)| FloraPaintPanelEntry {
-                index,
+            .map(|(index, selection)| PlantPanelEntry {
+                variety: PlantVariety::Flora(selection),
                 label: species::flora_paint_selection_label(selection),
                 selected: index == 0,
             })
             .collect::<Vec<_>>();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640., 480.));
-        let draw = |events: Vec<egui::Event>, entries: &[FloraPaintPanelEntry]| {
+        let draw = |events: Vec<egui::Event>, entries: &[PlantPanelEntry]| {
             let mut clicked = None;
             let output = context.run_ui(
                 egui::RawInput {
@@ -1308,7 +1322,7 @@ mod hover_layout_tests {
                 },
                 |_| {
                     clicked =
-                        draw_flora_paint_panel(&context, entries, true).clicked_selection_index;
+                        draw_plant_panel(&context, entries, PlantType::Flora, true).clicked_variety;
                 },
             );
             (output, clicked)
@@ -1380,15 +1394,155 @@ mod hover_layout_tests {
             );
             assert_eq!(
                 clicked,
-                Some(index),
+                Some(PlantVariety::Flora(*selection)),
                 "Grow click must resolve {label} to its real planting selection"
             );
             for entry in &mut entries {
-                entry.selected = entry.index == index;
+                entry.selected = entry.variety == PlantVariety::Flora(*selection);
             }
             selected += 1;
         }
         assert_eq!(selected, crate::flora::models::MODEL_COUNT);
+    }
+
+    #[test]
+    fn grow_panel_height_is_half_the_viewport_for_both_catalogs() {
+        let context = egui::Context::default();
+        let mut style = (*context.global_style()).clone();
+        apply_gui_style(&mut style);
+        context.set_global_style(style);
+        for height in [480.0, 720.0, 1080.0] {
+            let mut heights = Vec::new();
+            for plant_type in [PlantType::Flora, PlantType::Tree, PlantType::Flora] {
+                let entries = plant_type
+                    .varieties()
+                    .into_iter()
+                    .map(|variety| PlantPanelEntry {
+                        variety,
+                        label: variety.label(),
+                        selected: false,
+                    })
+                    .collect::<Vec<_>>();
+                for _ in 0..4 {
+                    let _ = context.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(640.0, height),
+                            )),
+                            ..Default::default()
+                        },
+                        |_| {
+                            draw_plant_panel(&context, &entries, plant_type, true);
+                        },
+                    );
+                }
+                let rect = context
+                    .memory(|memory| memory.area_rect(egui::Id::new("flora_paint_panel")))
+                    .unwrap();
+                assert!(
+                    (rect.height() - height * 0.5).abs() <= 1.0,
+                    "{plant_type:?}: panel {} vs viewport {height}",
+                    rect.height()
+                );
+                heights.push(rect.height());
+            }
+            assert_eq!(heights[0], heights[1]);
+            assert_eq!(heights[1], heights[2]);
+        }
+    }
+
+    #[test]
+    fn grow_panel_type_menu_and_tree_variety_resolve_typed_selections() {
+        let context = egui::Context::default();
+        let mut style = (*context.global_style()).clone();
+        apply_gui_style(&mut style);
+        context.set_global_style(style);
+        let draw = |plant_type: PlantType, events: Vec<egui::Event>, enabled: bool| {
+            let entries = plant_type
+                .varieties()
+                .into_iter()
+                .map(|variety| PlantPanelEntry {
+                    variety,
+                    label: variety.label(),
+                    selected: false,
+                })
+                .collect::<Vec<_>>();
+            let mut response = PlantPanelResponse::default();
+            let output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(640., 480.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |_| {
+                    response = draw_plant_panel(&context, &entries, plant_type, enabled);
+                },
+            );
+            (output, response)
+        };
+        let click = |plant_type, label: &str, enabled| {
+            let mut frame = draw(plant_type, vec![], enabled).0;
+            for _ in 0..3 {
+                frame = draw(plant_type, vec![], enabled).0;
+            }
+            let point = frame
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == label => {
+                        let point = text.pos + text.galley.size() * 0.5;
+                        shape.clip_rect.contains(point).then_some(point)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing menu entry {label}"));
+            draw(
+                plant_type,
+                vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                enabled,
+            );
+            draw(
+                plant_type,
+                vec![egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                enabled,
+            )
+            .1
+        };
+        assert_eq!(
+            click(PlantType::Flora, "Tree", true).clicked_type,
+            Some(PlantType::Tree)
+        );
+        let tree = PlantType::Tree.varieties()[0];
+        assert_eq!(
+            click(PlantType::Tree, tree.label(), true).clicked_variety,
+            Some(tree)
+        );
+        assert_eq!(
+            click(PlantType::Tree, "Flora", true).clicked_type,
+            Some(PlantType::Flora)
+        );
+        assert_eq!(click(PlantType::Flora, "Tree", false).clicked_type, None);
+        assert_eq!(
+            click(PlantType::Tree, tree.label(), false).clicked_variety,
+            None
+        );
     }
 
     #[test]

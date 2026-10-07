@@ -853,7 +853,20 @@ impl App {
         else {
             anyhow::bail!("Edit RMB did not resolve to a continuous tool action");
         };
-        self.execute_continuous_terrain_tool_action(action, Instant::now());
+        // This opt-in startup fixture has no intervening render frame to resolve
+        // asynchronous pointer intent. Obtain an explicit diagnostic GPU answer
+        // and exercise the same resolved production body (never a live fallback).
+        let (origin, direction) = self
+            .terrain_edit_ray()
+            .context("review pointer ray missing")?;
+        let ray = crate::tracer::TerrainRayQuery { origin, direction };
+        let hit = self.tracer.query_surface_pick_now(ray)?;
+        self.apply_resolved_pointer_pick(
+            PlayerToolPointerAction::Continuous(action),
+            ray,
+            hit,
+            Instant::now(),
+        );
         self.set_tool_mouse_button_state(MouseButton::Right, ElementState::Released);
         self.refresh_terrain_edit_hold_from_mouse_buttons();
         anyhow::ensure!(
@@ -890,6 +903,28 @@ impl App {
     }
 
     // Opt-in real atlas/publication/input fixture, never a normal startup unit test.
+    fn check_soil_resolved_pointer_action(
+        &mut self,
+        action: player_tools::ContinuousTerrainToolAction,
+        now: Instant,
+    ) -> Result<()> {
+        // This startup-only check has no frames to complete asynchronous picks.
+        // Match the other roof fixtures: explicitly obtain a diagnostic GPU
+        // answer, then exercise the captured, resolved production edit body.
+        let (origin, direction) = self
+            .terrain_edit_ray()
+            .context("Soil review pointer ray missing")?;
+        let ray = crate::tracer::TerrainRayQuery { origin, direction };
+        let hit = self.tracer.query_surface_pick_now(ray)?;
+        self.apply_resolved_pointer_pick(
+            PlayerToolPointerAction::Continuous(action),
+            ray,
+            hit,
+            now,
+        );
+        Ok(())
+    }
+
     fn validate_rooftop_deposition(&mut self) -> Result<()> {
         let center = Vec3::new(320., SOIL_MIN.y as f32, 300.) / 256.;
         let edit = TerrainBrushEdit {
@@ -1033,7 +1068,7 @@ impl App {
                 "Soil invoked the geometry brush"
             );
             let press = Instant::now();
-            self.execute_continuous_terrain_tool_action(action, press);
+            self.check_soil_resolved_pointer_action(action, press)?;
             let after_pointer = self
                 .plain_builder
                 .read_chunk_atlas_region(pointer_offset, pointer_dim)?;
@@ -1043,7 +1078,7 @@ impl App {
                 "production Soil click did not emit the configured {size} atomic voxels"
             );
             self.contree_builder.flush_cpu_chunk_cache_jobs();
-            self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(49));
+            self.check_soil_resolved_pointer_action(action, press + Duration::from_millis(49))?;
             let before_repeat = self
                 .plain_builder
                 .read_chunk_atlas_region(pointer_offset, pointer_dim)?;
@@ -1052,10 +1087,7 @@ impl App {
                 "Soil repeated before its configured batch interval"
             );
             for (ms, batches) in [(50, 1), (100, 1), (250, 3)] {
-                self.execute_continuous_terrain_tool_action(
-                    action,
-                    press + Duration::from_millis(ms),
-                );
+                self.check_soil_resolved_pointer_action(action, press + Duration::from_millis(ms))?;
                 let held = self
                     .plain_builder
                     .read_chunk_atlas_region(pointer_offset, pointer_dim)?;
@@ -1092,7 +1124,7 @@ impl App {
         self.cursor_position_physical = cursor;
         self.tracer.apply_camera_pose(opening);
         self.contree_builder.flush_cpu_chunk_cache_jobs();
-        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true batch_sizes=1,10,50,512,1024 click_counts_exact=true hold_counts_exact=true continuous_from_press=true repeat_after_ms=50 before_period_no_repeat=true new_voxels_supported={} backpack_preserved=true",
+        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true resolved_production_body=true diagnostic_sync_pick=true batch_sizes=1,10,50,512,1024 click_counts_exact=true hold_counts_exact=true continuous_from_press=true repeat_after_ms=50 before_period_no_repeat=true new_voxels_supported={} backpack_preserved=true",
             initial.added, total, height(&thin), height(&thick), checked_new);
         if std::env::var_os("RE_FLORA_SOIL_REPORT_CLOSEUP").is_some() {
             // A separate clean plot avoids showing old geometry-brush soil as the new

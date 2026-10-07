@@ -11,7 +11,10 @@ use re_flora_physics::{
     StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 mod fruit_ground_trace;
 mod surface_motion;
@@ -199,9 +202,19 @@ impl DirtyTerrainBrickQueue {
     }
 }
 
+pub(super) struct PreparedTreeCollisionSurface {
+    positions: Vec<Vec3>,
+    topology: Option<Arc<[[u32; 3]]>>,
+    geometry: re_flora_physics::PreparedDeformingGeometry,
+    cells: Vec<IVec3>,
+    revision: Option<u32>,
+}
+
 pub(super) struct TerrainPhysics {
     collision_world: CollisionWorld,
     tree_surface_revision: Option<u32>,
+    tree_surface_topology: Option<Arc<[[u32; 3]]>>,
+    tree_surface_positions: Vec<Vec3>,
     dirty_terrain_bricks: DirtyTerrainBrickQueue,
     imported_terrain_bricks: HashSet<StaticVoxelBrickId>,
     failed_terrain_bricks: HashSet<StaticVoxelBrickId>,
@@ -228,41 +241,101 @@ impl TerrainPhysics {
             .map_err(anyhow::Error::msg)
     }
 
-    pub(super) fn tree_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
-        self.collision_world
-            .deforming_ray_candidates(origin * 256., direction)
+    /// Read-only broad phase for the *visual* posed surface. The caller supplies
+    /// its exact displacement bound; padding never changes physical collisions.
+    pub(super) fn tree_ray_candidates(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        margin: Vec3,
+    ) -> Vec<u32> {
+        self.collision_world.deforming_ray_candidates_with_margin(
+            origin * VOXELS_PER_WORLD_UNIT,
+            direction,
+            margin * VOXELS_PER_WORLD_UNIT,
+        )
     }
 
-    pub(super) fn publish_tree_surface(
-        &mut self,
-        revision: Option<u32>,
-        cells: &std::collections::BTreeSet<[u32; 3]>,
-        surface: Option<&crate::tracer::PosedTreeSurface>,
-        indices: &[u32],
-    ) -> anyhow::Result<()> {
-        if self.tree_surface_revision != revision {
-            self.collision_world.set_deforming_surface_exclusions(
-                cells
-                    .iter()
-                    .filter(|_| revision.is_some())
-                    .map(|&p| UVec3::from(p).as_ivec3()),
-            );
-            self.tree_surface_revision = revision;
-        }
-        if let Some(surface) = surface {
-            let positions: Vec<_> = surface.positions().map(|p| p * 256.).collect();
-            let triangles: Vec<_> = indices
-                .chunks_exact(3)
-                .map(|t| [t[0], t[1], t[2]])
-                .collect();
-            self.collision_world
-                .set_deforming_surface(&positions, &triangles)
-                .map_err(anyhow::Error::msg)?;
-        } else {
+    pub(super) fn prepare_tree_collision_surface(
+        revision: u32,
+        mesh: &crate::tracer::RasterTreeMesh,
+    ) -> anyhow::Result<PreparedTreeCollisionSurface> {
+        // Build only at geometry publication. In particular, never seed collision
+        // with retained trees' current wind poses during placement/restoration.
+        let (positions, indices) = mesh.rest_collision_geometry()?;
+        let positions: Vec<_> = positions
+            .into_iter()
+            .map(|p| p * VOXELS_PER_WORLD_UNIT)
+            .collect();
+        let topology = (!indices.is_empty()).then_some(indices);
+        let triangles = topology.as_deref().unwrap_or(&[]);
+        let geometry = CollisionWorld::prepare_deforming_geometry(
+            re_flora_physics::DeformingGeometry::Triangles {
+                positions: &positions,
+                indices: triangles,
+            },
+        )
+        .map_err(anyhow::Error::msg)?;
+        let cells = mesh
+            .solid_cells
+            .iter()
+            .filter(|_| !triangles.is_empty())
+            .map(|&p| UVec3::from(p).as_ivec3())
+            .collect();
+        Ok(PreparedTreeCollisionSurface {
+            positions,
+            revision: topology.as_ref().map(|_| revision),
+            topology,
+            geometry,
+            cells,
+        })
+    }
+
+    pub(super) fn commit_tree_collision_surface(&mut self, prepared: PreparedTreeCollisionSurface) {
+        self.collision_world
+            .set_deforming_surface_exclusions(prepared.cells);
+        self.collision_world
+            .publish_prepared_deforming_geometry(prepared.geometry);
+        self.tree_surface_revision = prepared.revision;
+        self.tree_surface_topology = prepared.topology;
+        self.tree_surface_positions = prepared.positions;
+    }
+
+    /// Committed-terrain failure falls back to authoritative voxels. Ordinary
+    /// wind frames and wind toggles must never clear/refit the rest collider.
+    pub(super) fn clear_tree_collision_surface(&mut self) -> anyhow::Result<()> {
+        if self.tree_surface_revision.is_some() {
             self.collision_world
                 .set_deforming_surface(&[], &[])
                 .map_err(anyhow::Error::msg)?;
+            self.collision_world.set_deforming_surface_exclusions([]);
+            self.tree_surface_revision = None;
+            self.tree_surface_topology = None;
+            self.tree_surface_positions.clear();
         }
+        Ok(())
+    }
+
+    pub(super) fn validate_tree_rest_collision(
+        &self,
+        mesh: &crate::tracer::RasterTreeMesh,
+    ) -> anyhow::Result<()> {
+        let (positions, triangles) = mesh.rest_collision_geometry()?;
+        anyhow::ensure!(
+            self.tree_surface_positions.len() == positions.len()
+                && self
+                    .tree_surface_positions
+                    .iter()
+                    .zip(positions)
+                    .all(|(old, rest)| *old == rest * VOXELS_PER_WORLD_UNIT)
+                && self.tree_surface_topology.as_deref().unwrap_or(&[]) == triangles.as_ref(),
+            "tree collision differs from immutable rest geometry"
+        );
+        log::info!(
+            "[TREE][REST_COLLISION] verified=true wind_independent=true points={} triangles={}",
+            self.tree_surface_positions.len(),
+            triangles.len()
+        );
         Ok(())
     }
 
@@ -285,6 +358,8 @@ impl TerrainPhysics {
         Self {
             collision_world,
             tree_surface_revision: None,
+            tree_surface_topology: None,
+            tree_surface_positions: Vec::new(),
             dirty_terrain_bricks: DirtyTerrainBrickQueue::default(),
             imported_terrain_bricks: HashSet::new(),
             failed_terrain_bricks: HashSet::new(),
@@ -433,7 +508,9 @@ impl TerrainPhysics {
         frame_delta_time: f32,
         tracer: &mut Tracer,
         apple_size_scale: f32,
+        perf_frame: Option<u64>,
     ) -> anyhow::Result<()> {
+        let started = perf_frame.map(|_| Instant::now());
         self.set_apple_size_scale(apple_size_scale, tracer)?;
         if let Some(mut trace) = self.ground_trace.take() {
             trace.prepare(self, tracer)?;
@@ -445,10 +522,18 @@ impl TerrainPhysics {
             .values()
             .flat_map(BTreeMap::values)
             .any(|fruit| fruit.body.is_some());
+        let setup_us = started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
         if !has_fruit_bodies {
-            return self.sync_dynamic_fruit_rendering(tracer);
+            let result = self.sync_dynamic_fruit_rendering(tracer);
+            if let Some(frame) = perf_frame {
+                log::info!("[PERF][FRUIT_UPDATE] frame={frame} bodies=0 steps=0 setup_us={setup_us:.2} step_us=0 maintenance_us=0 render_us={:.2}", started.unwrap().elapsed().as_secs_f64()*1e6 - setup_us);
+            }
+            return result;
         }
+        let step_started = perf_frame.map(|_| Instant::now());
         let step = self.collision_world.advance(frame_delta_time);
+        let step_us = step_started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
+        let maintenance_started = perf_frame.map(|_| Instant::now());
         if let Some(trace) = &mut self.ground_trace {
             trace.stepped(frame_delta_time, step);
         }
@@ -473,8 +558,22 @@ impl TerrainPhysics {
                 }
             }
         }
-        self.sync_dynamic_fruit_rendering(tracer)
-            .context("updating dynamic fruit geometry")
+        let maintenance_us = maintenance_started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
+        let render_started = perf_frame.map(|_| Instant::now());
+        let result = self
+            .sync_dynamic_fruit_rendering(tracer)
+            .context("updating dynamic fruit geometry");
+        if let Some(frame) = perf_frame {
+            let bodies = self
+                .fruits_by_tree
+                .values()
+                .flat_map(BTreeMap::values)
+                .filter(|fruit| fruit.body.is_some())
+                .count();
+            log::info!("[PERF][FRUIT_UPDATE] frame={frame} bodies={bodies} steps={} setup_us={setup_us:.2} step_us={step_us:.2} maintenance_us={maintenance_us:.2} render_us={:.2} dropped_us={:.2}",
+                step.steps, render_started.unwrap().elapsed().as_secs_f64()*1e6, step.dropped_seconds*1e6);
+        }
+        result
     }
 
     pub(super) fn publish_tree_fruits(
@@ -619,6 +718,22 @@ impl TerrainPhysics {
             self.attached_fruit_refresh_trees
                 .remove(&checkpoint.tree_id);
         }
+    }
+
+    /// Snapshot restoration first unpublishes all old tree fruits while their bodies
+    /// remain checkpointed. Change only the season metadata; do not delete those bodies.
+    pub(super) fn set_restored_tree_fruit_cycle(&mut self, cycle: f32) -> anyhow::Result<f32> {
+        anyhow::ensure!(
+            self.fruits_by_tree.is_empty() && cycle.is_finite() && (0. ..=1.).contains(&cycle),
+            "saved fruit cycle requires an unpublished, valid forest"
+        );
+        let previous = self.fruit_cycle;
+        self.fruit_cycle = cycle;
+        Ok(previous)
+    }
+
+    pub(super) fn restore_tree_fruit_cycle_metadata(&mut self, previous: f32) {
+        self.fruit_cycle = previous;
     }
 
     pub(super) fn set_fruit_cycle(
@@ -1204,6 +1319,182 @@ fn single_source_revision(block: &ContreeCpuVoxelBlock) -> Result<u64, &'static 
 mod tests {
     use super::*;
     use crate::builder::ContreeCpuVoxelSourceDependency;
+
+    fn tree_collision_fixture(
+        origin: Vec3,
+    ) -> (
+        crate::tracer::RasterTreeMesh,
+        Vec<crate::tree_gen::pose::BranchPose>,
+    ) {
+        let mut desc = crate::tree_gen::TreeDesc::default();
+        desc.branching.iterations = 3;
+        let tree = Arc::new(crate::tree_gen::Tree::new(desc));
+        let mut mesh = crate::tracer::RasterTreeMesh::default();
+        let voxel_origin = (origin * VOXELS_PER_WORLD_UNIT).as_uvec3();
+        mesh.append_region(
+            voxel_origin,
+            UVec3::splat(4),
+            &[5; 64],
+            &tree.world_trunks(origin),
+        )
+        .unwrap();
+        mesh.finish().unwrap();
+        assert!(!mesh.indices.is_empty());
+        mesh.bind_tree(7, origin, &tree, None).unwrap();
+        mesh.compile_cpu_deformation().unwrap();
+        let poses = vec![
+            crate::tree_gen::pose::BranchPose {
+                rotation: glam::Quat::IDENTITY,
+                translation: Vec3::ZERO,
+            };
+            tree.branches().len()
+        ];
+        (mesh, poses)
+    }
+
+    #[test]
+    fn tree_collision_publication_uses_rest_geometry_not_current_wind() {
+        let (mesh, rest_poses) = tree_collision_fixture(Vec3::ZERO);
+        let rest = mesh.posed_surface(|_| Some(rest_poses.as_slice())).unwrap();
+        let wind_poses: Vec<_> = rest_poses
+            .iter()
+            .map(|p| crate::tree_gen::pose::BranchPose {
+                translation: p.translation + Vec3::X * 32.,
+                ..*p
+            })
+            .collect();
+        let wind = mesh.posed_surface(|_| Some(wind_poses.as_slice())).unwrap();
+        assert!(mesh.max_displacement(&wind) > 0.01);
+        let prepared = TerrainPhysics::prepare_tree_collision_surface(1, &mesh).unwrap();
+        assert_eq!(
+            prepared.positions,
+            rest.collision_positions()
+                .iter()
+                .map(|p| *p * VOXELS_PER_WORLD_UNIT)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn rest_tree_collision_keeps_player_queries_fixed_and_replaces_only_on_geometry_commit() {
+        let (mesh, rest_poses) = tree_collision_fixture(Vec3::ZERO);
+        let mut physics = TerrainPhysics::new(0.);
+        physics.commit_tree_collision_surface(
+            TerrainPhysics::prepare_tree_collision_surface(1, &mesh).unwrap(),
+        );
+        let origin = Vec3::new(-4., 2., 2.);
+        let hit = physics
+            .collision_world
+            .cast_character_surface_ray(origin, Vec3::X, 20.)
+            .unwrap();
+        assert!(hit.position.x.abs() < 1e-5);
+        let movement = physics
+            .collision_world
+            .move_capsule_character(re_flora_physics::CapsuleCharacterMove {
+                center: origin,
+                radius: 0.5,
+                half_height: 0.5,
+                desired_translation: Vec3::X * 10.,
+                dt: 1. / 60.,
+            })
+            .unwrap();
+        assert!(movement.translation.x < 4.);
+        let original_topology = physics.tree_surface_topology.as_ref().unwrap().clone();
+        for frame in 0..16 {
+            let poses: Vec<_> = rest_poses
+                .iter()
+                .map(|p| crate::tree_gen::pose::BranchPose {
+                    translation: Vec3::X * (frame as f32 * 2.),
+                    ..*p
+                })
+                .collect();
+            let surface = mesh.posed_surface(|_| Some(poses.as_slice())).unwrap();
+            let rest = mesh.posed_surface(|_| Some(rest_poses.as_slice())).unwrap();
+            // Sample posed triangle rays outside the original BVH bounds. Padding
+            // must preserve all actual visual hits without touching the collider.
+            for (id, t) in mesh.indices.chunks_exact(3).enumerate() {
+                let points = [
+                    surface.position(t[0] as usize),
+                    surface.position(t[1] as usize),
+                    surface.position(t[2] as usize),
+                ];
+                let normal = (points[1] - points[0])
+                    .cross(points[2] - points[0])
+                    .normalize_or_zero();
+                if normal == Vec3::ZERO {
+                    continue;
+                }
+                let ray_origin = (points[0] + points[1] + points[2]) / 3. + normal * 0.01;
+                assert!(crate::tree_gen::skin::intersect_surface_triangle(
+                    ray_origin,
+                    -normal,
+                    points,
+                    [
+                        rest.position(t[0] as usize),
+                        rest.position(t[1] as usize),
+                        rest.position(t[2] as usize)
+                    ]
+                )
+                .is_some());
+                assert!(physics
+                    .tree_ray_candidates(ray_origin, -normal, surface.query_margin())
+                    .contains(&(id as u32)));
+            }
+            physics.validate_tree_rest_collision(&mesh).unwrap();
+            assert!(Arc::ptr_eq(
+                &original_topology,
+                physics.tree_surface_topology.as_ref().unwrap()
+            ));
+            physics.collision_world.advance(1. / 60.);
+            let current = physics
+                .collision_world
+                .cast_character_surface_ray(origin, Vec3::X, 20.)
+                .unwrap();
+            assert_eq!(current.position, hit.position);
+        }
+        let (replacement, _) = tree_collision_fixture(Vec3::X * (16. / VOXELS_PER_WORLD_UNIT));
+        let prepared = TerrainPhysics::prepare_tree_collision_surface(2, &replacement).unwrap();
+        // Preparation and failed preparation do not alter the resident collider.
+        assert!(
+            physics
+                .tree_ray_candidates(origin / VOXELS_PER_WORLD_UNIT, Vec3::X, Vec3::ZERO)
+                .len()
+                > 0
+        );
+        let mut invalid = crate::tracer::RasterTreeMesh::default();
+        invalid.indices.push(0);
+        assert!(TerrainPhysics::prepare_tree_collision_surface(3, &invalid).is_err());
+        physics.validate_tree_rest_collision(&mesh).unwrap();
+        physics.commit_tree_collision_surface(prepared);
+        physics.validate_tree_rest_collision(&replacement).unwrap();
+        let shifted = physics
+            .collision_world
+            .cast_character_surface_ray(origin, Vec3::X, 30.)
+            .unwrap();
+        assert!((shifted.position.x - 16.).abs() < 1e-5);
+        physics.commit_tree_collision_surface(
+            TerrainPhysics::prepare_tree_collision_surface(
+                4,
+                &crate::tracer::RasterTreeMesh::default(),
+            )
+            .unwrap(),
+        );
+        assert!(physics
+            .collision_world
+            .cast_character_surface_ray(origin, Vec3::X, 30.)
+            .is_none());
+        assert!(physics.tree_surface_revision.is_none());
+        // Terrain-publication fallback also clears the mesh and restores voxel ownership.
+        physics.commit_tree_collision_surface(
+            TerrainPhysics::prepare_tree_collision_surface(5, &mesh).unwrap(),
+        );
+        physics.clear_tree_collision_surface().unwrap();
+        physics.clear_tree_collision_surface().unwrap();
+        assert!(physics
+            .collision_world
+            .cast_character_surface_ray(origin, Vec3::X, 30.)
+            .is_none());
+    }
 
     fn block_with_dependencies(
         source_dependencies: Vec<ContreeCpuVoxelSourceDependency>,

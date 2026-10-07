@@ -72,6 +72,15 @@ impl Deref for Buffer {
     }
 }
 
+fn validate_mapped_write(byte_offset: u64, byte_count: u64, buffer_size: u64) -> Result<()> {
+    anyhow::ensure!(
+        byte_offset <= buffer_size && byte_count <= buffer_size - byte_offset,
+        "Write range [{}, {}) is outside buffer size {}",
+        byte_offset, byte_offset.saturating_add(byte_count), buffer_size
+    );
+    Ok(())
+}
+
 impl Buffer {
     pub fn from_uniform_layout(device: Device, allocator: Allocator, layout: BufferLayout) -> Self {
         Self::from_buffer_layout(
@@ -259,6 +268,11 @@ impl Buffer {
         self.get_element_size_bytes() * self.0.desc.element_length
     }
 
+    /// Actual selected memory flags (CpuToGpu may fall back to non-device-local heaps).
+    pub fn memory_properties(&self) -> vk::MemoryPropertyFlags {
+        self.0.allocated_mem.memory_properties()
+    }
+
     /// Returns the buffer usage flags.
     pub fn get_usage(&self) -> BufferUsage {
         self.0.desc.usage
@@ -275,6 +289,7 @@ impl Buffer {
     }
 
     fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<()> {
+        validate_mapped_write(byte_offset, data.len() as u64, self.get_size_bytes())?;
         // try to get the raw mapped pointer
         if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
             unsafe {
@@ -361,6 +376,7 @@ impl Buffer {
     /// * `Ok(())` if the operation was successful
     /// * `Err` with a description if memory mapping failed
     pub fn fill<T: Copy>(&self, data: &[T]) -> Result<()> {
+        validate_mapped_write(0, std::mem::size_of_val(data) as u64, self.get_size_bytes())?;
         if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
             let size_of_slice = std::mem::size_of_val(data) as vk::DeviceSize;
             unsafe {
@@ -525,6 +541,18 @@ mod tests {
     use crate::Image;
 
     fn assert_clone<T: Clone>() {}
+
+    #[test]
+    fn mapped_writes_cannot_overrun_the_allocation_or_overflow_a_range() {
+        use super::validate_mapped_write;
+        assert!(validate_mapped_write(0, 32, 32).is_ok());
+        // Untyped float literals infer f64; a palette allocated for f32 must reject them.
+        let palette = [[0.0f64; 4]; 2];
+        assert!(validate_mapped_write(0, std::mem::size_of_val(&palette) as u64, 32).is_err());
+        assert!(validate_mapped_write(33, 0, 32).is_err());
+        assert!(validate_mapped_write(u64::MAX, 1, u64::MAX).is_err());
+        assert!(validate_mapped_write(32, 0, 32).is_ok());
+    }
 
     #[test]
     fn owned_buffer_and_image_handles_are_leaseable() {

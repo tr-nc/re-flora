@@ -105,7 +105,14 @@ impl App {
             .map(|hit| {
                 Preview::over_surface(hit.center, self.tracer.camera_pose().position, pouring)
             });
-        if preview.is_none() || !pouring || hover.is_none_or(|hit| !hit.is_editable) {
+        // A fresh asynchronous hover may be temporarily absent after terrain
+        // publication. Hide/suspend the cue without forgetting the last accepted
+        // dose; a resolved miss/rejection still stops flow in try_soil_deposition.
+        if !pouring
+            || self.player_tools.selected_tool() != PlayerTool::Soil
+            || !self.terrain_edit_pointer_available()
+            || hover.is_some_and(|hit| !hit.is_editable)
+        {
             self.soil_bag_preview.allow_flow = false;
         }
         self.soil_bag_preview.preview = preview;
@@ -173,6 +180,20 @@ mod tests {
         }
         assert!(state.grains.is_empty());
     }
+    #[test]
+    fn pending_hover_suspends_grains_without_inventing_a_source_or_resetting_accepted_flow() {
+        let mut state = State {
+            allow_flow: true,
+            ..State::default()
+        };
+        state.advance(0.1, |_, _| false);
+        assert!(state.grains.is_empty());
+        assert_eq!(state.credit, 0.);
+        state.preview = Some(Preview::over_surface(Vec3::ZERO, Vec3::Z, true));
+        state.advance(0.05, |_, _| false);
+        assert_eq!(state.grains.len(), 4);
+    }
+
     #[test]
     fn soil_bag_grain_contacts_expire_without_creating_any_material() {
         let mut state = State {

@@ -2307,53 +2307,6 @@ type = "Color"
 value = "#98CE00"
 
 [[section]]
-name = "Falling Leaves"
-
-[[section.param]]
-id = "leaf_connection_strength"
-kind = "float"
-label = "Connection Strength Multiplier"
-type = "Float"
-
-[section.param.data]
-value = 4
-min = 0.1
-max = 4
-
-[[section.param]]
-id = "leaf_connection_half_life"
-kind = "float"
-label = "Connection Weakening Half-life (Seconds)"
-type = "Float"
-
-[section.param.data]
-value = 420
-min = 5
-max = 600
-
-[[section.param]]
-id = "leaf_regrowth_delay"
-kind = "float"
-label = "Empty Socket Recovery (Seconds)"
-type = "Float"
-
-[section.param.data]
-value = 8
-min = 0
-max = 60
-
-[[section.param]]
-id = "leaf_regrowth_duration"
-kind = "float"
-label = "New Leaf Growth (Seconds)"
-type = "Float"
-
-[section.param.data]
-value = 20
-min = 1
-max = 120
-
-[[section]]
 name = "Terrain Harvest Particles"
 
 [[section.param]]
