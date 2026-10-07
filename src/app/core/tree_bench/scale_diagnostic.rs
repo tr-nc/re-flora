@@ -28,12 +28,22 @@ pub(super) struct TreeScaleDiagnostic {
     conifer: bool,
     first_seed: u64,
     validate_gpu: bool,
+    final_hold: Duration,
 }
 
 impl TreeScaleDiagnostic {
     pub(super) fn new(maximum: u32) -> Self {
         Self {
             trees: 1,
+            final_hold: Duration::from_secs_f64(
+                std::env::var("RE_FLORA_TREE_SCALE_FINAL_SECONDS")
+                    .map(|value| {
+                        value
+                            .parse()
+                            .expect("diagnostic final hold must be seconds")
+                    })
+                    .unwrap_or(2.),
+            ),
             maximum: maximum.clamp(1, OFFSETS.len() as u32 + 1),
             phase_start: None,
             conifer: std::env::var("RE_FLORA_TREE_SCALE_SPECIES").as_deref() == Ok("conifer"),
@@ -64,7 +74,12 @@ impl TreeScaleDiagnostic {
                 self.trees, timing.frame, timing.total_ms, timing.gpu_present_ms, timing.untracked_cpu_ms,
             );
         }
-        if elapsed < Duration::from_secs(2) {
+        let hold = if self.trees == self.maximum {
+            self.final_hold
+        } else {
+            Duration::from_secs(2)
+        };
+        if elapsed < hold {
             return false;
         }
         if self.validate_gpu {

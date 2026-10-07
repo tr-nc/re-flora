@@ -102,6 +102,8 @@ def main():
     parser.add_argument("output", type=Path, help="New evidence directory")
     parser.add_argument("--trees", type=int, default=8, choices=range(2, 13))
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--final-seconds", type=float, default=2,
+                        help="Hold the final forest for this many seconds (at least 2); earlier phases stay 2s")
     parser.add_argument("--species", choices=["garden", "conifer"], default="garden",
                         help="Species added through the same description compiler as Grow")
     parser.add_argument("--seed", type=int, default=123, help="First added tree seed")
@@ -117,6 +119,8 @@ def main():
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
+    if not 2 <= args.final_seconds < float("inf"):
+        parser.error("--final-seconds must be finite and at least 2")
     if not 0 <= args.seed <= 2**64 - args.trees + 1:
         parser.error("--seed must fit u64 including subsequent placement seeds")
     if args.tree_size is not None and not 0 < args.tree_size < float("inf"):
@@ -132,15 +136,17 @@ def main():
     env["RE_FLORA_TREE_SCALE_DIAGNOSTIC"] = "1"
     env["RE_FLORA_TREE_SCALE_SPECIES"] = args.species
     env["RE_FLORA_TREE_SCALE_SEED"] = str(args.seed)
+    env["RE_FLORA_TREE_SCALE_FINAL_SECONDS"] = str(args.final_seconds)
     if args.validate_gpu:
         env["RE_FLORA_TREE_SCALE_VALIDATE_GPU"] = "1"
     else:
         env.pop("RE_FLORA_TREE_SCALE_VALIDATE_GPU", None)
+    auto_exit = max(45, (args.trees - 1) * 2 + args.final_seconds + 20)
     command = [str(binary), "--hidden", "--mute", "--perf", "--tree-bench",
-               "--tree-bench-samples", str(args.trees), "--auto-exit", "45", *args.app_arg]
+               "--tree-bench-samples", str(args.trees), "--auto-exit", str(auto_exit), *args.app_arg]
     report = {"command": command, "species": args.species, "first_added_seed": args.seed,
               "tree_size_override": args.tree_size, "wind_off": args.wind_off,
-              "validate_gpu": args.validate_gpu,
+              "validate_gpu": args.validate_gpu, "final_seconds": args.final_seconds,
               "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "runs": []}
@@ -175,7 +181,7 @@ def main():
                 log_path = out / f"run-{run}.log"
                 with log_path.open("w") as log:
                     result = subprocess.run(command, cwd=ROOT, env=env, stdout=log,
-                                            stderr=subprocess.STDOUT, timeout=120, check=False)
+                                            stderr=subprocess.STDOUT, timeout=max(120, auto_exit + 30), check=False)
                 if result.returncode:
                     raise ValueError(f"app exit code {result.returncode}: {log_path}")
                 phases = summarize(log_path.read_text(), args.trees, args.validate_gpu)

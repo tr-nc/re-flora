@@ -423,6 +423,8 @@ pub struct App {
     frame_manager: SwapchainFrameManager,
     gpu_profiler: Option<GpuProfiler>,
     gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
+    gpu_profiler_slot_frames: Vec<Option<u64>>,
+    gpu_profiler_latest_frame: Option<u64>,
     time_info: TimeInfo,
     fps_history: fps_chart::FpsHistory,
     world_clock: WorldClock,
@@ -830,6 +832,11 @@ impl App {
                 }
                 self.launch_owners
                     .observe_connectivity_gpu_completion(frame_slot, &results);
+                self.gpu_profiler_latest_frame = self
+                    .gpu_profiler_slot_frames
+                    .get(frame_slot)
+                    .copied()
+                    .flatten();
                 self.gpu_profiler_latest_results = Some(results);
             }
             Ok(None) => {}
@@ -839,7 +846,12 @@ impl App {
         }
     }
 
-    fn log_gpu_profiler_frame(&self, frame_count: u64) {
+    fn log_gpu_profiler_frame(&self) {
+        // Queries belong to the previous submission in this acquired frame slot,
+        // not the CPU frame that happens to collect their completed timestamps.
+        let Some(frame_count) = self.gpu_profiler_latest_frame else {
+            return;
+        };
         let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
             return;
         };
@@ -1512,6 +1524,8 @@ impl App {
             frame_manager,
             gpu_profiler,
             gpu_profiler_latest_results: None,
+            gpu_profiler_slot_frames: Vec::new(),
+            gpu_profiler_latest_frame: None,
 
             tracer,
             local_lights: LocalLightRegistry::default(),
@@ -2385,16 +2399,18 @@ impl App {
                         log::error!("[LOCAL_LIGHT][VOXEL_PROVIDER] advance failed: {err:#}");
                     }
                 }
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .publish_acoustic_scene(self.contree_builder.acoustic_scene_snapshot())
-                {
-                    log::warn!("Failed to publish acoustic terrain snapshot: {err}");
-                }
-                if self.loading_state.is_none() {
-                    self.terrain_physics
-                        .process_terrain_collider_updates(&self.contree_builder);
-                }
+                cpu_timings.time(FrameCpuScope::SceneServices, || {
+                    if let Err(err) = self
+                        .spatial_sound_manager
+                        .publish_acoustic_scene(self.contree_builder.acoustic_scene_snapshot())
+                    {
+                        log::warn!("Failed to publish acoustic terrain snapshot: {err}");
+                    }
+                    if self.loading_state.is_none() {
+                        self.terrain_physics
+                            .process_terrain_collider_updates(&self.contree_builder);
+                    }
+                });
                 if self.loading_state.is_some() {
                     let water_terrain = self.advance_loading_water_terrain(frame_timing_enabled);
                     cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
@@ -2448,11 +2464,13 @@ impl App {
                     frame_delta_time
                 };
                 if self.terrain_persistence.allows_world_updates() {
-                    if let Err(err) = self.terrain_physics.advance_dynamic_bodies(
-                        frame_delta_time,
-                        &mut self.tracer,
-                        self.debug_settings.adjustables.apple_size_scale.value,
-                    ) {
+                    if let Err(err) = cpu_timings.time(FrameCpuScope::FruitPhysics, || {
+                        self.terrain_physics.advance_dynamic_bodies(
+                            frame_delta_time,
+                            &mut self.tracer,
+                            self.debug_settings.adjustables.apple_size_scale.value,
+                        )
+                    }) {
                         log::error!("Failed to advance dynamic bodies: {err:#}");
                     }
                 }
@@ -2480,7 +2498,10 @@ impl App {
                     .field
                     .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
                 self.wind_prototype.advance(visual_time_since_start);
-                self.advance_tree_poses(frame_delta_time)
+                cpu_timings
+                    .time(FrameCpuScope::TreePoseSubmit, || {
+                        self.advance_tree_poses(frame_delta_time)
+                    })
                     .expect("tree pose update must publish finite transforms");
                 let wind = match canopy_audio_frame.wind_policy() {
                     launch_owners::CanopyAudioWindPolicy::Configured => {
@@ -2493,21 +2514,25 @@ impl App {
                         )
                     }
                 };
-                if let Err(err) = self.tree_audio_manager.update(
-                    time_since_start,
-                    &wind,
-                    self.debug_settings
-                        .adjustables
-                        .wind_audio_attack_decay
-                        .value,
-                    self.debug_settings
-                        .adjustables
-                        .wind_audio_release_decay
-                        .value,
-                ) {
+                if let Err(err) = cpu_timings.time(FrameCpuScope::CanopyAudio, || {
+                    self.tree_audio_manager.update(
+                        time_since_start,
+                        &wind,
+                        self.debug_settings
+                            .adjustables
+                            .wind_audio_attack_decay
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .wind_audio_release_decay
+                            .value,
+                    )
+                }) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                self.update_environmental_acoustics_quality();
+                cpu_timings.time(FrameCpuScope::AcousticQuality, || {
+                    self.update_environmental_acoustics_quality()
+                });
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
@@ -2594,7 +2619,8 @@ impl App {
                 let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
-                let terrain_edit_hover = self.terrain_edit_hover();
+                let terrain_edit_hover =
+                    cpu_timings.time(FrameCpuScope::TerrainHover, || self.terrain_edit_hover());
                 let show_tree_preview = self.is_tree_planting_selected();
                 if show_tree_preview {
                     if let Some(hover) = terrain_edit_hover {
@@ -3269,7 +3295,9 @@ impl App {
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
                 }
-                if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
+                if let Err(error) = cpu_timings.time(FrameCpuScope::Ecology, || {
+                    self.update_ambient_ecology(f64::from(time_since_start))
+                }) {
                     log::warn!("[ECOLOGY] update failed: {error:#}");
                 }
                 if self.render_flags.enable_particles {
@@ -3338,6 +3366,12 @@ impl App {
                 let render_record_start = frame_perf_enabled.then(Instant::now);
                 cmdbuf.begin(false);
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
+                    self.gpu_profiler_slot_frames.resize(
+                        self.gpu_profiler_slot_frames.len().max(frame_slot + 1),
+                        None,
+                    );
+                    self.gpu_profiler_slot_frames[frame_slot] =
+                        Some(self.time_info.total_frame_count());
                     profiler.begin_frame(frame_slot, cmdbuf);
                 }
                 let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
@@ -3932,7 +3966,9 @@ impl App {
                     cpu_timings.snapshot(frame_count, total_ms, egui_ms, gpu_ms);
                 self.frame_timing_snapshot = frame_timing_snapshot;
                 if frame_perf_enabled
-                    && (response_bench_time.is_some() || frame_count.is_multiple_of(30))
+                    && (response_bench_time.is_some()
+                        || self.launch_owners.tree_bench.is_some()
+                        || frame_count.is_multiple_of(30))
                 {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
@@ -3941,9 +3977,9 @@ impl App {
                         egui_ms,
                         gpu_ms
                     );
-                    self.log_gpu_profiler_frame(frame_count);
+                    self.log_gpu_profiler_frame();
                     log::info!(
-                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us emissive_voxel.scan={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us",
+                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us emissive_voxel.scan={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us app.scene_services={:.0}us app.fruit_physics={:.0}us app.tree_pose_submit={:.0}us app.canopy_audio={:.0}us app.acoustic_quality={:.0}us app.terrain_hover={:.0}us app.ecology={:.0}us",
                         frame_count,
                         total_ms * 1000.0,
                         egui_ms * 1000.0,
@@ -3956,6 +3992,13 @@ impl App {
                         frame_timing_snapshot.render_submit_present_ms * 1000.0,
                         frame_timing_snapshot.tracked_cpu_ms * 1000.0,
                         frame_timing_snapshot.untracked_cpu_ms * 1000.0,
+                        frame_timing_snapshot.scene_services_ms * 1000.0,
+                        frame_timing_snapshot.fruit_physics_ms * 1000.0,
+                        frame_timing_snapshot.tree_pose_submit_ms * 1000.0,
+                        frame_timing_snapshot.canopy_audio_ms * 1000.0,
+                        frame_timing_snapshot.acoustic_quality_ms * 1000.0,
+                        frame_timing_snapshot.terrain_hover_ms * 1000.0,
+                        frame_timing_snapshot.ecology_ms * 1000.0,
                     );
                 }
                 if frame_perf_enabled {
