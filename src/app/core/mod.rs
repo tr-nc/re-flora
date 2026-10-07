@@ -2836,18 +2836,7 @@ impl App {
                                         settings_scroll = settings_scroll.vertical_scroll_offset(0.);
                                     }
                                     debug_panel::show_scroll_area(settings_scroll, ui, |ui| {
-                                            extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
-                                                ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
-                                                terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
-                                                if ui.button("Plant all flowers & grasses around me").clicked() {
-                                                    plant_flora_showcase_requested = true;
-                                                }
-                                                ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
-                                                if let Some(status) = &self.flora_showcase_status {
-                                                    ui_text::status(ui, status);
-                                                }
-                                            }).is_some());
-                                            tree_desc_changed |= self.debug_settings.draw(ui, |section, ui| {
+                                            tree_desc_changed |= self.debug_settings.draw_with_extra_sections(ui, |section, ui| {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
@@ -2856,28 +2845,47 @@ impl App {
                                                         self.climbing_plants.draw_actions(ui);
                                                     });
                                                 }
+                                            }, debug_panel::EXTRA_SECTIONS, |section, ui| {
+                                                match section {
+                                                    "Camera Snapshots" => {
+                                                        let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Add current camera", "Apply", "Update", "Delete", "Name", "Description"], |ui| draw_camera_snapshots_ui(
+                                                            ui,
+                                                            &mut self.camera_snapshots,
+                                                            &mut self.camera_snapshot_draft_name,
+                                                            &mut self.camera_snapshot_draft_description,
+                                                            &mut self.camera_snapshot_error,
+                                                            current_camera_pose,
+                                                            current_camera_is_free_fly,
+                                                        ));
+                                                        extra_search_matches += usize::from(camera_search_result.is_some());
+                                                        camera_snapshot_to_apply = camera_search_result.flatten();
+                                                    }
+                                                    "Environment Probes" => {
+                                                        extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested"], |ui| {
+                                                            environment_probe_rebuild_requested = environment_probe_ui::draw(
+                                                                ui,
+                                                                &mut self.environment_probe_spacing_draft,
+                                                                self.tracer.ddgi_runtime_status().active().grid.spacing_voxels(),
+                                                                &mut environment_probe_visualization,
+                                                            );
+                                                        }).is_some());
+                                                    }
+                                                    "Terrain & Plants" => {
+                                                        extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
+                                                            ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
+                                                            terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
+                                                            if ui.button("Plant all flowers & grasses around me").clicked() {
+                                                                plant_flora_showcase_requested = true;
+                                                            }
+                                                            ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
+                                                            if let Some(status) = &self.flora_showcase_status {
+                                                                ui_text::status(ui, status);
+                                                            }
+                                                        }).is_some());
+                                                    }
+                                                    _ => unreachable!("unregistered Debug Panel action group: {section}"),
+                                                }
                                             });
-
-                                            extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested"], |ui| {
-                                                environment_probe_rebuild_requested = environment_probe_ui::draw(
-                                                    ui,
-                                                    &mut self.environment_probe_spacing_draft,
-                                                    self.tracer.ddgi_runtime_status().active().grid.spacing_voxels(),
-                                                    &mut environment_probe_visualization,
-                                                );
-                                            }).is_some());
-
-                                            let camera_search_result = debug_search.section(ui, "Camera Snapshots", &["Add current camera", "Apply", "Update", "Delete", "Name", "Description"], |ui| draw_camera_snapshots_ui(
-                                                ui,
-                                                &mut self.camera_snapshots,
-                                                &mut self.camera_snapshot_draft_name,
-                                                &mut self.camera_snapshot_draft_description,
-                                                &mut self.camera_snapshot_error,
-                                                current_camera_pose,
-                                                current_camera_is_free_fly,
-                                            ));
-                                            extra_search_matches += usize::from(camera_search_result.is_some());
-                                            camera_snapshot_to_apply = camera_search_result.flatten();
 
                                             if debug_search.is_active() && !self.debug_settings.search_has_results() && extra_search_matches == 0 {
                                                 ui_text::hint(ui, "No matching controls. Try fewer words or Clear.");

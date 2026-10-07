@@ -27,6 +27,8 @@
 
 Debug Panel 用于调参和明确的操作，不是运行时诊断信息展示平台。Probe revisions、tokens、内存、计数、当前 camera pose 等诊断应按需写入日志，不常驻面板。不要为不相关的组硬凑父分类或分类 separator；保留具体控制组及其保存归属。所有控制组（包括 Terrain & Plants）放在同一滚动内容内，顶部仅保留 Save 和 Search。
 
+普通浏览时，所有顶层栏目按**实际英文显示名称、不区分大小写的 A–Z 顺序**自动排列。声明式 section、跨存储 section 的 Debug 调整组、Camera Snapshots／Environment Probes／Terrain & Plants 等 App 自定义操作组共用一个排序入口，不能把某类栏目单独置顶或追加在尾部。新增声明式栏目自动参与排序；新增 App 操作栏目通过 `draw_with_extra_sections` 注册。显示别名（如 Sky → Atmos、Voxel → Terrain）决定位置，不改存储 section、参数 ID、控件单一归属、保存绑定、折叠 ID 或默认展开状态。组内参数保留 adjustment-first 的调参顺序，不要求逐个滑杆按字母排列。
+
 Save 按钮用橙色边框表示保存文档有修改；成功保存后清除，失败时保留并在日志/按钮 tooltip 报错，不新增常驻 “Settings saved” 元素。比较统一保存文档，覆盖声明式和自定义字段，不为单个控件加 dirty/save hook；搜索及临时工具不计入。
 
 Camera Snapshots 上方追加当前视角，下方每条提供 Apply / Update / Delete；游戏内增删更新同时维护内存库和文件，不需要手动 Refresh。启动时读取文件，外部修改需重启游戏，不监视或轮询文件。不要显示路径、当前 pose 或空列表/使用说明 hint；操作失败仍需明确报错。
@@ -113,6 +115,15 @@ settings.draw(ui, |section, temporary| {
 - 隐藏静音 Release 启动及餐馆场景的 `restaurant`、`flight height`、无匹配查询截图已查看；成功运行的日志无 ERROR/panic/VUID，正常退出 `failures=0`。没有启动可见游戏。
 - 本地截图：`target/debug-search-restaurant.png`、`target/debug-search-custom.png`、`target/debug-search-empty.png`。测试日志：`target/debug-search-all-tests.log`。
 - 搜索 UI 状态不进入配置保存；运行未产生 `config/gui.toml` 或生成文件差异。
+
+## 顶层栏目字母排序验证
+
+- 先用真实 egui 绘制复现旧顺序错误：Camera View／Stone Geometry 等 Debug 调整组独占前缀，配置栏目依赖声明顺序，App 操作组分散在首尾。
+- 新增4项回归：真实绘制的显示名称顺序、三类来源与未来声明／兜底栏目共用排序、缺失父级的子栏目保持可见、App 自定义操作组实际绘制一次且与保存设置交错排序。既有完整展开、单一归属、搜索、保存及滚动条测试仍通过。
+- `cargo fmt --check`、`cargo check`、Release构建通过；未引入Rust warning。全量测试 **1416 passed／5 failed／6 ignored**，另有碰撞测试 **4 passed**。5项失败仍是此前确认的石头、玻璃、增益／采样默认值基线断言，不通过修改无关默认值修复。
+- 隐藏静音Release启动及截图检查通过：`target/debug-panel-alphabetical.png`。首页显示 Apple Appearance & Lighting → Atmos → Audio → Butterflies → Camera → Camera Snapshots → Camera View → Climbing Plants → Environment Probes 等正确顺序。
+- 日志：`target/re-flora-logs/re-flora-20261007-125510.492-2036245.log`，正常退出，无ERROR／panic／VUID；既有fruit-physics hitch警告未处理。未自动启动可见窗口。
+- 用户已保存的 `config/gui.toml` 修改（批量512、散布13及浮点格式规范化）原样保留、不纳入本次提交；生成文件、shader、沉积算法与持久化格式不变。
 
 ## 搜索栏横向膨胀回归
 

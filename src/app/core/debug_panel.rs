@@ -1,3 +1,7 @@
+// App-owned actions participate in the same root ordering as saved settings.
+pub(super) const EXTRA_SECTIONS: &[&str] =
+    &["Camera Snapshots", "Environment Probes", "Terrain & Plants"];
+
 pub(super) fn scroll_area() -> egui::ScrollArea {
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
@@ -82,6 +86,66 @@ mod tests {
             });
             assert_eq!(has_orange_border, dirty);
         }
+    }
+
+    #[test]
+    fn custom_action_groups_are_drawn_once_in_the_saved_settings_order() {
+        let mut settings = crate::app::gui_config::DebugSettings::load();
+        settings.config.section.reverse();
+        let before = serde_json::to_value(&settings.config).unwrap();
+        let context = egui::Context::default();
+        let mut called = Vec::new();
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            settings.draw_with_extra_sections(
+                ui,
+                |_, _| {},
+                EXTRA_SECTIONS,
+                |title, ui| {
+                    called.push(title.to_owned());
+                    ui.collapsing(title, |_| {});
+                },
+            );
+        });
+        assert_eq!(called, EXTRA_SECTIONS);
+        fn collect(shape: &egui::Shape, titles: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(shape) => {
+                    let text = &shape.galley.job.text;
+                    if [
+                        "Atmos",
+                        "Audio",
+                        "Camera",
+                        "Camera Snapshots",
+                        "Camera View",
+                        "Environment Probes",
+                        "Soil Deposition",
+                        "Terrain",
+                        "Terrain & Plants",
+                        "Terrain Material",
+                        "World Timing",
+                    ]
+                    .contains(&text.as_str())
+                    {
+                        titles.push(text.clone());
+                    }
+                }
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, titles);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut titles = Vec::new();
+        for shape in &output.shapes {
+            collect(&shape.shape, &mut titles);
+        }
+        assert_eq!(titles.len(), 11);
+        let mut sorted = titles.clone();
+        sorted.sort_by_key(|title| title.to_ascii_lowercase());
+        assert_eq!(titles, sorted);
+        assert_eq!(serde_json::to_value(&settings.config).unwrap(), before);
     }
 
     #[test]

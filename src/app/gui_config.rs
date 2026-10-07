@@ -118,10 +118,23 @@ impl DebugSettings {
         self.search_matches > 0
     }
 
+    /// Saved-settings-only harness; the app also registers its custom action groups.
+    #[cfg(test)]
     pub fn draw(
         &mut self,
         ui: &mut egui::Ui,
+        temporary_controls: impl FnMut(&str, &mut saved_controls::TemporaryControls<'_>),
+    ) -> bool {
+        self.draw_with_extra_sections(ui, temporary_controls, &[], |_, _| {})
+    }
+
+    /// Custom action groups share the saved settings' display-name order, not a second block.
+    pub(crate) fn draw_with_extra_sections(
+        &mut self,
+        ui: &mut egui::Ui,
         mut temporary_controls: impl FnMut(&str, &mut saved_controls::TemporaryControls<'_>),
+        extra_titles: &[&str],
+        mut extra_section: impl FnMut(&str, &mut egui::Ui),
     ) -> bool {
         let filter = SearchFilter::new(&self.search.query);
         if filter.is_active() {
@@ -171,6 +184,9 @@ impl DebugSettings {
                 temporary_controls(&section.name, &mut controls);
                 matches += controls.matches();
             }
+            for title in extra_titles {
+                extra_section(title, ui);
+            }
             self.search_matches = matches;
             return tree_desc_changed;
         }
@@ -182,29 +198,36 @@ impl DebugSettings {
         } = self;
         let custom = &mut config.custom;
         let mut tree_desc_changed = false;
-        render_gui_from_config(ui, &config.section, adjustables, |section_name, ui| {
-            if section_name == "Audio" {
-                audio_mix::draw(&mut saved_controls::SavedControls::new(ui, custom));
-            }
-            if section_name == "Butterflies" {
-                self::butterfly_flight::draw_butterfly_flight_controls(
-                    &mut saved_controls::SavedControls::new(ui, custom),
-                );
-            }
-            if section_name == "Flora" {
-                ui.collapsing("Tree", |ui| {
-                    tree_desc_changed |= edit_tree_desc(
-                        ui,
-                        &mut custom.tree.desc,
-                        Some(&mut custom.tree.render_leaves),
+        render_gui_from_config(
+            ui,
+            &config.section,
+            adjustables,
+            extra_titles,
+            &mut extra_section,
+            |section_name, ui| {
+                if section_name == "Audio" {
+                    audio_mix::draw(&mut saved_controls::SavedControls::new(ui, custom));
+                }
+                if section_name == "Butterflies" {
+                    self::butterfly_flight::draw_butterfly_flight_controls(
+                        &mut saved_controls::SavedControls::new(ui, custom),
                     );
-                });
-            }
-            temporary_controls(
-                section_name,
-                &mut saved_controls::TemporaryControls::new(ui),
-            );
-        });
+                }
+                if section_name == "Flora" {
+                    ui.collapsing("Tree", |ui| {
+                        tree_desc_changed |= edit_tree_desc(
+                            ui,
+                            &mut custom.tree.desc,
+                            Some(&mut custom.tree.render_leaves),
+                        );
+                    });
+                }
+                temporary_controls(
+                    section_name,
+                    &mut saved_controls::TemporaryControls::new(ui),
+                );
+            },
+        );
 
         tree_desc_changed
     }
@@ -751,15 +774,40 @@ fn render_search_results(
     matches
 }
 
-fn render_gui_from_config(
-    ui: &mut egui::Ui,
-    config: &[crate::app::gui_config_model::GuiSection],
-    adjustables: &mut GuiAdjustables,
-    mut after_section: impl FnMut(&str, &mut egui::Ui),
-) {
-    let has_debug = config.iter().any(|s| s.name == "Debug");
-    if let Some(debug) = config.iter().find(|s| s.name == "Debug") {
-        debug_groups::render(ui, debug, config, adjustables, None);
+enum PanelSection<'a> {
+    Config(&'a crate::app::gui_config_model::GuiSection),
+    DebugGroup(&'static debug_groups::ControlGroup),
+    OtherDiagnostics,
+    Extra(&'a str),
+}
+
+impl PanelSection<'_> {
+    fn title(&self) -> &str {
+        match self {
+            Self::Config(section) => section_title(&section.name),
+            Self::DebugGroup(group) => group.title,
+            Self::OtherDiagnostics => "Other Diagnostics",
+            Self::Extra(title) => title,
+        }
+    }
+}
+
+fn panel_sections<'a>(
+    config: &'a [crate::app::gui_config_model::GuiSection],
+    extra_titles: &'a [&str],
+) -> Vec<PanelSection<'a>> {
+    let debug = config.iter().find(|s| s.name == "Debug");
+    let has_debug = debug.is_some();
+    let mut sections = Vec::new();
+    if let Some(debug) = debug {
+        sections.extend(
+            debug_groups::groups(None)
+                .into_iter()
+                .map(PanelSection::DebugGroup),
+        );
+        if debug_groups::has_ungrouped(debug) {
+            sections.push(PanelSection::OtherDiagnostics);
+        }
     }
     for section in config {
         if section.name == "Debug" {
@@ -781,6 +829,39 @@ fn render_gui_from_config(
         {
             continue;
         }
+        sections.push(PanelSection::Config(section));
+    }
+    sections.extend(extra_titles.iter().copied().map(PanelSection::Extra));
+    sections.sort_by_key(|section| section.title().to_ascii_lowercase());
+    sections
+}
+
+fn render_gui_from_config(
+    ui: &mut egui::Ui,
+    config: &[crate::app::gui_config_model::GuiSection],
+    adjustables: &mut GuiAdjustables,
+    extra_titles: &[&str],
+    mut extra_section: impl FnMut(&str, &mut egui::Ui),
+    mut after_section: impl FnMut(&str, &mut egui::Ui),
+) {
+    let debug = config.iter().find(|s| s.name == "Debug");
+    let has_debug = debug.is_some();
+    for entry in panel_sections(config, extra_titles) {
+        let section = match entry {
+            PanelSection::Config(section) => section,
+            PanelSection::DebugGroup(group) => {
+                debug_groups::render_group(ui, debug.unwrap(), config, adjustables, group);
+                continue;
+            }
+            PanelSection::OtherDiagnostics => {
+                debug_groups::render_ungrouped(ui, debug.unwrap(), adjustables);
+                continue;
+            }
+            PanelSection::Extra(title) => {
+                extra_section(title, ui);
+                continue;
+            }
+        };
         ui.collapsing(section_title(&section.name), |ui| {
             if section.name == "Audio" {
                 after_section(&section.name, ui);
@@ -817,15 +898,16 @@ fn render_gui_from_config(
                 debug_groups::render(ui, debug, config, adjustables, Some(&section.name));
             }
             after_section(&section.name, ui);
-            for child in config {
-                if child.name != "Grass Wind Response"
+            let mut children: Vec<_> = config.iter().filter(|child| {
+                child.name != "Grass Wind Response"
                     && section_parent(&child.name) == Some(section.name.as_str())
-                {
-                    ui.collapsing(section_title(&child.name), |ui| {
-                        render_section_controls(ui, child, adjustables, has_debug);
-                        after_section(&child.name, ui);
-                    });
-                }
+            }).collect();
+            children.sort_by_key(|child| section_title(&child.name).to_ascii_lowercase());
+            for child in children {
+                ui.collapsing(section_title(&child.name), |ui| {
+                    render_section_controls(ui, child, adjustables, has_debug);
+                    after_section(&child.name, ui);
+                });
             }
         });
     }
@@ -869,6 +951,90 @@ fn render_section_controls(
         {
             render_gui_param_from_config(ui, param, &section.name, adjustables);
         }
+    }
+}
+
+#[cfg(test)]
+mod section_order_tests {
+    use super::*;
+
+    #[test]
+    fn all_root_sources_and_future_sections_share_one_case_insensitive_order() {
+        let mut config = GuiConfigLoader::load();
+        let extras = ["Terrain & Plants", "Environment Probes", "Camera Snapshots"];
+        let before = serde_json::to_value(&config).unwrap();
+        let titles = |config: &GuiConfigFile| -> Vec<String> {
+            panel_sections(&config.section, &extras)
+                .iter()
+                .map(|section| section.title().to_owned())
+                .collect()
+        };
+        let original = titles(&config);
+        let mut sorted = original.clone();
+        sorted.sort_by_key(|title| title.to_ascii_lowercase());
+        assert_eq!(original, sorted);
+        assert_eq!(serde_json::to_value(&config).unwrap(), before);
+        for title in [
+            "Atmos",
+            "Camera",
+            "Camera Snapshots",
+            "Camera View",
+            "Environment Probes",
+            "Soil Deposition",
+            "Terrain",
+            "Terrain & Plants",
+        ] {
+            assert_eq!(
+                original.iter().filter(|name| *name == title).count(),
+                1,
+                "{title}"
+            );
+        }
+        for title in ["Debug", "Sky", "Voxel", "HeadBob", "GodRay", "Starlight"] {
+            assert!(
+                !original.iter().any(|name| name == title),
+                "stored/child section leaked: {title}"
+            );
+        }
+        config.section.reverse();
+        assert_eq!(titles(&config), original);
+        config
+            .section
+            .push(crate::app::gui_config_model::GuiSection {
+                name: "aardvark future settings".into(),
+                param: vec![],
+            });
+        assert_eq!(titles(&config)[0], "aardvark future settings");
+        let debug = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Debug")
+            .unwrap();
+        let mut unknown = debug.param[0].clone();
+        unknown.id = "future_debug_setting".into();
+        debug.param.push(unknown);
+        assert_eq!(
+            titles(&config)
+                .iter()
+                .filter(|title| *title == "Other Diagnostics")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn child_sections_without_their_parent_remain_visible_and_sorted() {
+        let mut config = GuiConfigLoader::load();
+        config.section.retain(|section| section.name != "Sky");
+        let titles: Vec<_> = panel_sections(&config.section, &[])
+            .iter()
+            .map(|section| section.title().to_owned())
+            .collect();
+        assert!(titles.iter().any(|title| title == "GodRay"));
+        assert!(titles.iter().any(|title| title == "Starlight"));
+        let mut sorted = titles.clone();
+        sorted.sort_by_key(|title| title.to_ascii_lowercase());
+        assert_eq!(titles, sorted);
     }
 }
 

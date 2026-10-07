@@ -3,9 +3,9 @@ use super::{render_gui_param_from_config, GuiAdjustables};
 use crate::app::gui_config_model::GuiSection;
 use crate::app::ui_text;
 
-struct ControlGroup {
+pub(super) struct ControlGroup {
     parent: Option<&'static str>,
-    title: &'static str,
+    pub(super) title: &'static str,
     description: &'static str,
     initially_open: bool,
     params: &'static [&'static str],
@@ -197,6 +197,17 @@ fn is_grouped(id: &str) -> bool {
     GROUPS.iter().any(|group| group.params.contains(&id))
 }
 
+pub(super) fn groups(parent: Option<&str>) -> Vec<&'static ControlGroup> {
+    let mut groups: Vec<_> = GROUPS
+        .iter()
+        .filter(|group| {
+            group.parent == parent && !group.params.iter().all(|id| retired_pixel_control(id))
+        })
+        .collect();
+    groups.sort_by_key(|group| group.title.to_ascii_lowercase());
+    groups
+}
+
 pub(super) fn render(
     ui: &mut egui::Ui,
     section: &GuiSection,
@@ -204,80 +215,94 @@ pub(super) fn render(
     adjustables: &mut GuiAdjustables,
     parent: Option<&str>,
 ) {
-    for group in GROUPS.iter().filter(|group| {
-        group.parent == parent && !group.params.iter().all(|id| retired_pixel_control(id))
-    }) {
-        if parent == Some("Wind") {
-            ui_text::section(ui, group.title);
-            for id in group.params {
-                if let Some(param) = section.param.iter().find(|p| p.id == *id) {
-                    render_gui_param_from_config(ui, param, &section.name, adjustables);
-                }
+    for group in groups(parent) {
+        render_group(ui, section, config, adjustables, group);
+    }
+    if parent.is_none() && has_ungrouped(section) {
+        render_ungrouped(ui, section, adjustables);
+    }
+}
+
+pub(super) fn render_group(
+    ui: &mut egui::Ui,
+    section: &GuiSection,
+    config: &[GuiSection],
+    adjustables: &mut GuiAdjustables,
+    group: &ControlGroup,
+) {
+    if group.parent == Some("Wind") {
+        ui_text::section(ui, group.title);
+        for id in group.params {
+            if let Some(param) = section.param.iter().find(|p| p.id == *id) {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
-            continue;
         }
-        egui::CollapsingHeader::new(group.title)
-            .id_salt(("debug_controls", group.title))
-            .default_open(group.initially_open)
-            .show(ui, |ui| {
-                if group.title == "Flower Stem Geometry & Color" {
-                    for (title, ids) in [
-                        (
-                            "Geometry",
-                            &[
-                                "model_flower_voxel_scale",
-                                "flower_stem_radius_scale",
-                                "flower_stem_tip_radius_ratio",
-                                "flower_stem_test_branches",
-                            ][..],
-                        ),
-                        (
-                            "Shading",
-                            &[
-                                "flower_stem_cell_height_voxels",
-                                "model_flower_stem_bottom_color",
-                                "model_flower_stem_tip_color",
-                            ][..],
-                        ),
-                    ] {
-                        ui_text::section(ui, title);
-                        for id in ids {
-                            for owner in config {
-                                if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
-                                    render_gui_param_from_config(
-                                        ui,
-                                        param,
-                                        &owner.name,
-                                        adjustables,
-                                    );
-                                }
+        return;
+    }
+    egui::CollapsingHeader::new(group.title)
+        .id_salt(("debug_controls", group.title))
+        .default_open(group.initially_open)
+        .show(ui, |ui| {
+            if group.title == "Flower Stem Geometry & Color" {
+                for (title, ids) in [
+                    (
+                        "Geometry",
+                        &[
+                            "model_flower_voxel_scale",
+                            "flower_stem_radius_scale",
+                            "flower_stem_tip_radius_ratio",
+                            "flower_stem_test_branches",
+                        ][..],
+                    ),
+                    (
+                        "Shading",
+                        &[
+                            "flower_stem_cell_height_voxels",
+                            "model_flower_stem_bottom_color",
+                            "model_flower_stem_tip_color",
+                        ][..],
+                    ),
+                ] {
+                    ui_text::section(ui, title);
+                    for id in ids {
+                        for owner in config {
+                            if let Some(param) = owner.param.iter().find(|p| p.id == *id) {
+                                render_gui_param_from_config(ui, param, &owner.name, adjustables);
                             }
                         }
                     }
-                    return;
                 }
-                ui_text::hint(ui, group.description);
-                ui.add_space(4.0);
-                for id in group.params {
-                    for owner in config {
-                        if let Some(param) = owner.param.iter().find(|param| param.id == *id) {
-                            render_gui_param_from_config(ui, param, &owner.name, adjustables);
-                        }
+                return;
+            }
+            ui_text::hint(ui, group.description);
+            ui.add_space(4.0);
+            for id in group.params {
+                for owner in config {
+                    if let Some(param) = owner.param.iter().find(|param| param.id == *id) {
+                        render_gui_param_from_config(ui, param, &owner.name, adjustables);
                     }
-                }
-            });
-    }
-    // New/unrecognized settings must never silently disappear. The coverage test below requires
-    // intentional classification of all settings shipped in our config.
-    if parent.is_none() && section.param.iter().any(|param| !is_grouped(&param.id)) {
-        ui.collapsing("Other Diagnostics", |ui| {
-            for param in &section.param {
-                if !is_grouped(&param.id) {
-                    render_gui_param_from_config(ui, param, &section.name, adjustables);
                 }
             }
         });
-    }
+}
+
+// Future controls must stay visible, with the fallback participating in root ordering too.
+pub(super) fn has_ungrouped(section: &GuiSection) -> bool {
+    section.param.iter().any(|param| !is_grouped(&param.id))
+}
+
+pub(super) fn render_ungrouped(
+    ui: &mut egui::Ui,
+    section: &GuiSection,
+    adjustables: &mut GuiAdjustables,
+) {
+    ui.collapsing("Other Diagnostics", |ui| {
+        for param in &section.param {
+            if !is_grouped(&param.id) {
+                render_gui_param_from_config(ui, param, &section.name, adjustables);
+            }
+        }
+    });
 }
 
 #[cfg(test)]
@@ -469,6 +494,58 @@ mod tests {
                 .filter(|(_, id)| id.ends_with("pixel_resolution"))
                 .collect(),
             "retired model pixel resolutions must not gain new live owners"
+        );
+    }
+
+    #[test]
+    fn root_sections_follow_display_name_alphabetical_order() {
+        let mut settings = DebugSettings::load();
+        // Presentation must not depend on the saved declaration order.
+        settings.config.section.reverse();
+        let context = egui::Context::default();
+        let output = context.run_ui(egui::RawInput::default(), |ui| {
+            settings.draw(ui, |_, _| {});
+        });
+        fn collect(shape: &egui::Shape, titles: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(shape) => {
+                    let text = &shape.galley.job.text;
+                    if [
+                        "Apple Appearance & Lighting",
+                        "Atmos",
+                        "Audio",
+                        "Camera",
+                        "Camera View",
+                        "Material Supply",
+                        "Soil Deposition",
+                        "Stone Geometry",
+                        "Stone Rendering",
+                        "Terrain",
+                        "World Timing",
+                    ]
+                    .contains(&text.as_str())
+                    {
+                        titles.push(text.clone());
+                    }
+                }
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, titles);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut titles = Vec::new();
+        for shape in &output.shapes {
+            collect(&shape.shape, &mut titles);
+        }
+        assert_eq!(titles.len(), 11);
+        let mut sorted = titles.clone();
+        sorted.sort_by_key(|title| title.to_ascii_lowercase());
+        assert_eq!(
+            titles, sorted,
+            "all root group kinds must share one display-name order"
         );
     }
 
