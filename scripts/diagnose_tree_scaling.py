@@ -27,6 +27,7 @@ SAMPLE = re.compile(
 GPU = re.compile(r"([\w.]+)=(\d+)us")
 FRAME_SCOPE = re.compile(r"\[PERF\]\[(CPU_FRAME_SCOPE|GPU_FRAME_SCOPE)\] frame (\d+) (.*)")
 TREE_UPDATE = re.compile(r"\[PERF\]\[TREE_UPDATE\] frame=(\d+) (.*)")
+FRUIT_UPDATE = re.compile(r"\[PERF\]\[FRUIT_UPDATE\] frame=(\d+) (.*)")
 CPU_US = re.compile(r"(\w+)_us=([\d.]+)")
 
 
@@ -34,11 +35,17 @@ def summarize(log, count, validate_gpu=False):
     phases = {i: {"samples": [], "errors": []} for i in range(1, count + 1)}
     current = 0
     updates = {}
+    fruit_updates = {}
     frame_scopes = {"CPU_FRAME_SCOPE": {}, "GPU_FRAME_SCOPE": {}}
     for line in log.splitlines():
         update = TREE_UPDATE.search(line)
         if update:
             updates[int(update[1])] = {name: float(value) for name, value in CPU_US.findall(update[2])}
+        fruit_update = FRUIT_UPDATE.search(line)
+        if fruit_update:
+            fruit_updates[int(fruit_update[1])] = {
+                name: float(value) for name, value in CPU_US.findall(fruit_update[2])
+            }
         phase = PHASE.search(line)
         if phase:
             current = int(phase[1])
@@ -66,6 +73,12 @@ def summarize(log, count, validate_gpu=False):
         phase["cpu_update_medians_us"] = {
             name: statistics.median(row[name] for row in cpu if name in row)
             for name in sorted({key for row in cpu for key in row})
+        }
+        fruit = [fruit_updates[sample["frame"]] for sample in phase["samples"]
+                 if sample["frame"] in fruit_updates]
+        phase["fruit_update_medians_us"] = {
+            name: statistics.median(row[name] for row in fruit if name in row)
+            for name in sorted({key for row in fruit for key in row})
         }
         for kind, label in [("CPU_FRAME_SCOPE", "cpu"), ("GPU_FRAME_SCOPE", "gpu")]:
             rows = [frame_scopes[kind][sample["frame"]] for sample in phase["samples"]
@@ -109,6 +122,8 @@ def main():
     parser.add_argument("--seed", type=int, default=123, help="First added tree seed")
     parser.add_argument("--tree-size", type=float, help="Diagnostic input size, not a new default")
     parser.add_argument("--wind-off", action="store_true", help="One-variable wind ablation")
+    parser.add_argument("--fruit-cycle", type=float,
+                        help="Temporary fruit season [0,1]; 0 prevents dropped-body work, restores saved config on exit")
     parser.add_argument("--validate-gpu", action="store_true",
                         help="Validate CPU/GPU surface, BVH, lighting and collision between phases")
     parser.add_argument("--binary", type=Path, default=ROOT / "target/release/re-flora")
@@ -123,6 +138,8 @@ def main():
         parser.error("--final-seconds must be finite and at least 2")
     if not 0 <= args.seed <= 2**64 - args.trees + 1:
         parser.error("--seed must fit u64 including subsequent placement seeds")
+    if args.fruit_cycle is not None and not 0 <= args.fruit_cycle <= 1:
+        parser.error("--fruit-cycle must be finite and in [0,1]")
     if args.tree_size is not None and not 0 < args.tree_size < float("inf"):
         parser.error("--tree-size must be positive and finite")
     out = args.output.resolve()
@@ -146,6 +163,7 @@ def main():
                "--tree-bench-samples", str(args.trees), "--auto-exit", str(auto_exit), *args.app_arg]
     report = {"command": command, "species": args.species, "first_added_seed": args.seed,
               "tree_size_override": args.tree_size, "wind_off": args.wind_off,
+              "fruit_cycle_override": args.fruit_cycle,
               "validate_gpu": args.validate_gpu, "final_seconds": args.final_seconds,
               "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
               "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -175,6 +193,8 @@ def main():
                 raise ValueError("missing authored tree size")
         if args.wind_off:
             source = setting(source, "raster_tree_wind", "false")
+        if args.fruit_cycle is not None:
+            source = setting(source, "fruit_cycle", str(args.fruit_cycle))
         try:
             for run in range(1, args.runs + 1):
                 config_files[0].write_text(source)

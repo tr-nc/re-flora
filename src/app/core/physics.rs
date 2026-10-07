@@ -511,7 +511,9 @@ impl TerrainPhysics {
         frame_delta_time: f32,
         tracer: &mut Tracer,
         apple_size_scale: f32,
+        perf_frame: Option<u64>,
     ) -> anyhow::Result<()> {
+        let started = perf_frame.map(|_| Instant::now());
         self.set_apple_size_scale(apple_size_scale, tracer)?;
         if let Some(mut trace) = self.ground_trace.take() {
             trace.prepare(self, tracer)?;
@@ -523,10 +525,18 @@ impl TerrainPhysics {
             .values()
             .flat_map(BTreeMap::values)
             .any(|fruit| fruit.body.is_some());
+        let setup_us = started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
         if !has_fruit_bodies {
-            return self.sync_dynamic_fruit_rendering(tracer);
+            let result = self.sync_dynamic_fruit_rendering(tracer);
+            if let Some(frame) = perf_frame {
+                log::info!("[PERF][FRUIT_UPDATE] frame={frame} bodies=0 steps=0 setup_us={setup_us:.2} step_us=0 maintenance_us=0 render_us={:.2}", started.unwrap().elapsed().as_secs_f64()*1e6 - setup_us);
+            }
+            return result;
         }
+        let step_started = perf_frame.map(|_| Instant::now());
         let step = self.collision_world.advance(frame_delta_time);
+        let step_us = step_started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
+        let maintenance_started = perf_frame.map(|_| Instant::now());
         if let Some(trace) = &mut self.ground_trace {
             trace.stepped(frame_delta_time, step);
         }
@@ -551,8 +561,22 @@ impl TerrainPhysics {
                 }
             }
         }
-        self.sync_dynamic_fruit_rendering(tracer)
-            .context("updating dynamic fruit geometry")
+        let maintenance_us = maintenance_started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
+        let render_started = perf_frame.map(|_| Instant::now());
+        let result = self
+            .sync_dynamic_fruit_rendering(tracer)
+            .context("updating dynamic fruit geometry");
+        if let Some(frame) = perf_frame {
+            let bodies = self
+                .fruits_by_tree
+                .values()
+                .flat_map(BTreeMap::values)
+                .filter(|fruit| fruit.body.is_some())
+                .count();
+            log::info!("[PERF][FRUIT_UPDATE] frame={frame} bodies={bodies} steps={} setup_us={setup_us:.2} step_us={step_us:.2} maintenance_us={maintenance_us:.2} render_us={:.2} dropped_us={:.2}",
+                step.steps, render_started.unwrap().elapsed().as_secs_f64()*1e6, step.dropped_seconds*1e6);
+        }
+        result
     }
 
     pub(super) fn publish_tree_fruits(

@@ -2469,6 +2469,7 @@ impl App {
                             frame_delta_time,
                             &mut self.tracer,
                             self.debug_settings.adjustables.apple_size_scale.value,
+                            frame_perf_enabled.then_some(self.time_info.total_frame_count()),
                         )
                     }) {
                         log::error!("Failed to advance dynamic bodies: {err:#}");

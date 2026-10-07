@@ -94,6 +94,17 @@ class TreeScalingParserTests(unittest.TestCase):
         self.assertEqual(len(phases), 12)
         self.assertFalse(phases[12]["frame_cliff"])
 
+    def test_fruit_step_profile_excludes_other_phase_and_unsampled_hitches(self):
+        log = replay([17, 25]) + (
+            "\n[PERF][FRUIT_UPDATE] frame=1 bodies=10 steps=2 step_us=8000 render_us=20"
+            "\n[PERF][FRUIT_UPDATE] frame=2 bodies=10 steps=1 step_us=4000 render_us=20"
+            "\n[PERF][FRUIT_UPDATE] frame=4 bodies=20 steps=2 step_us=12000 render_us=30"
+            "\n[PERF][FRUIT_UPDATE] frame=99 bodies=20 steps=4 step_us=99000 render_us=40"
+        )
+        phases = summarize(log, 2)
+        self.assertEqual(phases[1]["fruit_update_medians_us"]["step"], 6000)
+        self.assertEqual(phases[2]["fruit_update_medians_us"]["step"], 12000)
+
     def test_validation_error_is_invalid_not_green(self):
         with self.assertRaisesRegex(ValueError, "validation failed"):
             summarize(replay([17, 100]) + "\nVUID-example", 2)
