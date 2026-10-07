@@ -59,13 +59,13 @@ node scripts/serve-model-preview.mjs
 现有一只蜜蜂和一只三趾翠鸟；原麻雀、燕子已移除，**小狗仍已取消**。均为本仓库原创程序化低模，无下载模型／贴图，无游戏注册或行为逻辑。
 
 - 蜜蜂保持原样：七段交替条纹腹部、六足、双触角、两对不透明浅色翅。
-- 三趾翠鸟（`Ceyx erithaca`）：按维基照片重建大头、扁平橙红长喙、紫粉冠与暖色羽尖、金黄胸腹、白喉 / 颈侧斑、亮蓝耳斑、蓝黑翼底与三排蓝色覆羽、短尾。每足两趾向前、一趾向后。不是旧鸟换色，也不是写实扫描。
-- 身体 / 头部采用连续曲面色区；收拢翅膀贴合身体侧面的曲率，长羽先细分再映射到曲面，不用穿过身体的大平面。头冠颜色以 Linear-sRGB 混合两个可调 palette 槽，改色不重建几何。
+- 三趾翠鸟（`Ceyx erithaca`）：按用户给出的侧面照片修正扁圆小头、向后展开的饱满身体、宽根橙红长喙、铜红顶冠与粉紫侧冠、柠檬黄胸腹、白喉 / 颈侧斑、蓝耳斑、炭灰翼底与不规则蓝覆羽斑、短尾和收拢弯趾。每足两趾向前、一趾向后。仍是原创低模，不是写实扫描；羽毛细密感和蓬松边缘仍需要人工审美验收。
+- 头部 / 身体以独立侧面轮廓定义连续曲面；收拢翅膀与细分长羽映射到身体侧面的曲率。五张原创、不透明的程序羽色 / 喙色权重图以 Linear-sRGB 混合七个 palette 槽，三张细纹 bump 图只影响材质光照（原始与像素画布共享同一材质）；改色复用像素存储与 GPU 贴图，不重建几何。不是参考照片投影或 alpha 羽片。
 - 两种时间轴片段：静止姿态／拍翼展示。共用暂停、播放、相位、逐帧；同一时刻绝对采样，不累计旋转、不另开时钟。拍翼仅旋转翼根，不展开真正的飞羽扇面，足仍保持停栖示意姿态；不是物理飞行。
 - 调整模型大小、翅长、拍翼幅度与各部位配色；固定取景包含最大参数下的拍翼包围，不随姿态缩放。身体／左翅／右翅三个修复组。
-- 蜜蜂默认 48²，三趾翠鸟默认 64²，可切 8–128²。共用现有后处理开关，不增加鸟专用补点。低分辨率下羽斑、眼高光和足趾仍会变粗、丢失或合并。
+- 蜜蜂默认 48²，三趾翠鸟默认 96²，可切 8–128²；32² / 64² 仍覆盖在回归检查中。新鸟完整拍翼包围比旧模型大，固定 span 为 6，不缩小最大参数来规避取景检查。共用现有后处理开关，不增加鸟专用补点。低分辨率下羽斑、眼高光和足趾仍会变粗、丢失或合并。
 
-报告：[三趾翠鸟网页验证](../../docs/evidence/web-preview-kingfisher.md)；[旧动物交付记录](../../docs/evidence/web-preview-animals.md)。
+报告：[照片对照修正与当前验证](../../docs/evidence/kingfisher-reference-correction.md)；[首版三趾翠鸟记录（用户指出还原不足）](../../docs/evidence/web-preview-kingfisher.md)；[旧动物交付记录](../../docs/evidence/web-preview-animals.md)。
 
 ## 模块与接口
 
@@ -77,7 +77,9 @@ node scripts/serve-model-preview.mjs
 | `assets/models/parametric-flower.mjs` | 无 DOM / Three.js 的确定性几何、UV、参数边界 |
 | `assets/models/palette-mask.mjs` | 两端共用的权重模板、验证、线性 palette 混色 |
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
-| `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
+| `models/animal-geometry.mjs` / `animals.js` | 动物目录、纯函数姿态与 Three.js 适配；仅网页 |
+| `models/kingfisher-geometry.mjs` | 翠鸟的轮廓曲面、UV、闭合折翼 / 短尾和弯趾；无 DOM / Three.js |
+| `models/kingfisher-plumage.mjs` | 原创羽色权重 / 细纹、线性 palette 解析与存储复用；不改几何 |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度与透明合成，不另建 renderer |
 | `geometry.js` / `connectivity.mjs` / `postprocess.mjs` | 当前姿态几何投影、分组连通与通用修复 |
@@ -105,4 +107,4 @@ node experiments/model-preview/tests/animals-browser.cjs
 
 支持 `CHROME_EXECUTABLE` / `PREVIEW_ARTIFACT_DIR`。脚本自行创建／关闭服务与 headless Chrome；不启动游戏，不保存 GUI 设置。
 
-完整 Node 套件：36 个纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。当前动物验证 89 个姿态、27,394 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，默认产物在 `target/animal-preview-review/`（本次交付在 `target/new-bird-review/browser/`）。不提交二进制截图。游戏的性能和美术接受需另行验证。
+完整 Node 套件：40 个纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。当前动物验证 89 个姿态、32,429 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，默认产物在 `target/animal-preview-review/`（本次修正在 `target/kingfisher-correction/browser/`）。不提交二进制截图。游戏的性能和美术接受需另行验证。

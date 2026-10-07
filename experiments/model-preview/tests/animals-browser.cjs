@@ -77,7 +77,7 @@ const path=require('node:path');
         for(const key of ['backColor','bellyColor','wingColor','accentColor','throatColor','cheekColor']){
           await page.locator('#model-'+key).evaluate(picker=>{picker.value='#54d3ae';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();await verify();
         }
-        assert.deepEqual((await state()).rendererMemory,memory,'plumage color blends do not recreate GPU resources');
+        assert.deepEqual((await state()).rendererMemory,memory,'plumage color / bump maps reuse GPU resources during palette changes');
       }
       await page.locator('#reset-all').click();await stable();assert.equal(await image('pixel'),rest);
       await page.locator('#clip').selectOption('1');await input('phase',150);
@@ -114,7 +114,7 @@ const path=require('node:path');
     await page.setViewportSize({width:390,height:844});await stable();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
     assert.deepEqual(errors,[]);assert.ok(requests.every(url=>url.startsWith(base)));assert.ok(originalSamples>1000);
     const sheet=await browser.newPage({viewport:{width:1050,height:1100}});
-    await sheet.setContent(`<style>body{background:#17231f;color:#e4e8d6;font:16px system-ui;padding:24px}section{display:grid;grid-template-columns:180px 1fr 1fr;align-items:center;border-top:1px solid #526449}img{width:330px;height:300px;object-fit:contain}.pixel{image-rendering:pixelated}</style><h1>Web-only animal studies</h1><p>Bee · Ceyx erithaca — shared postprocessing, 48² / 64²</p>${rows.map(r=>`<section><div>${r.label}<p>${r.triangles} triangles</p></div><img src="${r.source}"><img class="pixel" src="${r.pixel}"></section>`).join('')}`);
+    await sheet.setContent(`<style>body{background:#17231f;color:#e4e8d6;font:16px system-ui;padding:24px}section{display:grid;grid-template-columns:180px 1fr 1fr;align-items:center;border-top:1px solid #526449}img{width:330px;height:300px;object-fit:contain}.pixel{image-rendering:pixelated}</style><h1>Web-only animal studies</h1><p>Bee · Ceyx erithaca — shared postprocessing, 48² / 96²</p>${rows.map(r=>`<section><div>${r.label}<p>${r.triangles} triangles</p></div><img src="${r.source}"><img class="pixel" src="${r.pixel}"></section>`).join('')}`);
     await sheet.screenshot({path:path.join(output,'contact-sheet.png'),fullPage:true});await sheet.close();
     await fs.writeFile(path.join(output,'summary.json'),JSON.stringify({models:rows.map(({source,pixel,...row})=>row),poses,originalSamples,centerMisses,bounds,errors},null,2)+'\n');
     console.log(`PASS: ${rows.length} animals, ${poses} poses, ${originalSamples} preserved source samples; animation, coverage A/B, controls, bounds, PNG, disposal and mobile. ${output}`);

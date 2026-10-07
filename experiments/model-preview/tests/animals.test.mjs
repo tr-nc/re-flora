@@ -11,11 +11,11 @@ test('bee and kingfisher have deterministic opaque finite meshes and explicit wi
     assert.deepEqual(Object.keys(geometry.hinges),['leftWing','rightWing']);
     const groups=new Set();let triangles=0;
     for(const mesh of geometry.meshes){
-      groups.add(mesh.group);assert.ok(spec.colors[mesh.color]||['eye','shine'].includes(mesh.color));
+      groups.add(mesh.group);assert.ok(spec.colors[mesh.color]||['eye','shine','iris','billSeam'].includes(mesh.color));
       assert.ok(mesh.positions.every(Number.isFinite));assert.equal(mesh.positions.length%3,0);
-      if(mesh.colorBlend){
-        assert.ok(spec.colors[mesh.colorBlend.key]);assert.equal(mesh.colorBlend.weights.length,mesh.positions.length/3);
-        assert.ok(mesh.colorBlend.weights.every(w=>Number.isFinite(w)&&w>=0&&w<=1));
+      if(mesh.appearance){
+        assert.ok(['head','body','wing','tail','bill'].includes(mesh.appearance));
+        assert.equal(mesh.uvs.length,mesh.positions.length/3*2);assert.ok(mesh.uvs.every(Number.isFinite));
       }
       if(mesh.normals){
         assert.equal(mesh.normals.length,mesh.positions.length);assert.ok(mesh.normals.every(Number.isFinite));
@@ -28,7 +28,7 @@ test('bee and kingfisher have deterministic opaque finite meshes and explicit wi
         assert.ok(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])>1e-10);
       }triangles+=mesh.indices.length/3;
     }
-    assert.deepEqual([...groups].sort(),['body','leftWing','rightWing']);assert.ok(triangles>200&&triangles<8000);
+    assert.deepEqual([...groups].sort(),['body','leftWing','rightWing']);assert.ok(triangles>200&&triangles<(spec.id==='bee'?4000:10000));
   }
   assert.equal(shapes.size,2);
   const bee=animalGeometry('bee').meshes;
@@ -42,13 +42,13 @@ test('kingfisher has a long flattened bill, short tail, plumage regions and two 
   assert.ok(extent(bill,2)>3*extent(bill,0));assert.ok(extent(bill,0)>extent(bill,1));
   const head=meshes.filter(m=>m.name.startsWith('Kingfisher head'));
   assert.ok(Math.max(...axis(bill,2))-Math.max(...head.flatMap(m=>axis(m,2)))>.75);
-  for(const color of ['bodyColor','backColor','bellyColor','wingColor','accentColor','throatColor','cheekColor'])assert.ok(meshes.some(m=>m.color===color));
+  assert.deepEqual([...new Set(meshes.filter(m=>m.appearance).map(m=>m.appearance))].sort(),['bill','body','head','tail','wing']);
   for(const side of [-1,1]){
     const toes=meshes.filter(m=>m.name.startsWith(`Toe ${side}:`));assert.equal(toes.length,3);
     assert.equal(toes.filter(m=>m.name.includes('front')).length,2);
     assert.ok(Math.max(...axis(toes.find(m=>m.name.endsWith('rear')),2))<.10);
     const group=side<0?'leftWing':'rightWing';
-    assert.equal(meshes.filter(m=>m.group===group&&m.name.startsWith('Blue covert')).length,12);
+    assert.equal(meshes.filter(m=>m.group===group&&m.appearance==='wing').length,6);
     assert.equal(meshes.filter(m=>m.group===group&&m.name.startsWith('Primary feather')).length,5);
   }
   const tails=meshes.filter(m=>m.name.startsWith('Short tail'));assert.equal(tails.length,3);
@@ -56,7 +56,7 @@ test('kingfisher has a long flattened bill, short tail, plumage regions and two 
 });
 test('curved kingfisher feathers have closed subdivided rims without T-junctions',()=>{
   const feathers=animalGeometry('kingfisher').meshes.filter(m=>/^(Folded wing|Primary feather|Primary blue edge|Blue covert|Short tail|Rufous tail tip)/.test(m.name));
-  assert.ok(feathers.length>30);
+  assert.equal(feathers.length,15);
   for(const mesh of feathers){
     const edges=new Map();
     for(let i=0;i<mesh.indices.length;i+=3)for(let j=0;j<3;j++){
