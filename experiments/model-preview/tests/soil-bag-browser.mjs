@@ -38,15 +38,39 @@ const inspect=()=>evaluate(`(()=>{
  return {model:p.model,settings:p.modelSettings,review:p.modelReview,time:p.time,pixelTime:p.pixelTime,sourceTime:p.sourceTime,playing:p.playing,failed:p.failed,size:p.pixelBuffer,linked:p.linkedRotation,memory:p.rendererMemory,parts:p.pixelPartCount,alpha,hash,originalSamples,preserved,label:document.querySelector('#model-info').textContent,overflow:document.documentElement.scrollWidth>innerWidth};
 })()`);
 const samples=[],checks=[];
-const record=name=>{const value=inspect();assert.equal(value.failed,false);assert.equal(value.linked,true);assert.equal(value.sourceTime,value.pixelTime);assert.ok(value.alpha>0);if(value.parts===0){assert.equal(value.preserved,true,'shared pipeline must preserve every original sample');assert.ok(value.alpha<value.size[0]*value.size[1]);}samples.push({name,...value});return value;};
+const record=name=>{const value=inspect();assert.equal(value.failed,false);assert.equal(value.linked,true);assert.equal(value.sourceTime,value.pixelTime);assert.ok(value.alpha>0);if(value.model==='soil-bag')assert.deepEqual(value.review.stickerSampling,{minFilter:nearest,magFilter:nearest,mipmaps:false,imageSmoothing:false},'actual bag texture must use nearest sampling, including imports');if(value.parts===0){assert.equal(value.preserved,true,'shared pipeline must preserve every original sample');assert.ok(value.alpha<value.size[0]*value.size[1]);}samples.push({name,...value});return value;};
 run('set','viewport','1440','1000');run('open',origin+'/model-preview/?model=soil-bag');settle();
+const nearest=evaluate('import("three").then(m=>m.NearestFilter)');
+const labelRaster=evaluate(`(async()=>{
+  const {drawSoilBagSticker}=await import('./models/soil-bag-stickers.js');
+  const settings=readModelPreview().modelSettings,c=document.createElement('canvas');c.width=512;c.height=640;
+  const inspect=()=>{const bytes=c.getContext('2d').getImageData(0,0,c.width,c.height).data,colors=new Set();let opaque=true;for(let i=0;i<bytes.length;i+=4){colors.add((bytes[i]<<16)|(bytes[i+1]<<8)|bytes[i+2]);if(bytes[i+3]!==255)opaque=false;}return {colors:[...colors].sort((a,b)=>a-b),opaque,smoothing:c.getContext('2d').imageSmoothingEnabled};};
+  const native=['sprout','layers','flower'].map(stickerDesign=>{drawSoilBagSticker(c,{...settings,stickerDesign});return {design:stickerDesign,...inspect()};});
+  const image=document.createElement('canvas');image.width=image.height=8;const ctx=image.getContext('2d');ctx.fillStyle='#315ca4';ctx.fillRect(0,0,4,8);ctx.fillStyle='#ffffff';ctx.fillRect(4,0,4,4);ctx.fillStyle='#db7844';ctx.fillRect(4,4,4,4);ctx.clearRect(0,0,2,2);
+  drawSoilBagSticker(c,{...settings,stickerDesign:'custom'},image);
+  return {native,custom:inspect(),labelColor:parseInt(settings.labelColor.slice(1),16),inkColor:parseInt(settings.inkColor.slice(1),16)};
+})()`);
+for(const mark of labelRaster.native){assert.equal(mark.opaque,true);assert.equal(mark.smoothing,false);assert.deepEqual(mark.colors,[labelRaster.labelColor,labelRaster.inkColor].sort((a,b)=>a-b),'built-in raster must have exactly two colors, with no font antialiasing');}
+assert.equal(labelRaster.custom.opaque,true);assert.equal(labelRaster.custom.smoothing,false);assert.deepEqual(labelRaster.custom.colors,[0x315ca4,0xffffff,0xdb7844,labelRaster.labelColor].sort((a,b)=>a-b),'nearest image resize must not introduce interpolated colors; transparent cells use label background');
+checks.push('real texture min/mag are NearestFilter with no mipmaps; two-color font-free art and opaque nearest image resizing introduce no blended edge colors');
+for(const n of [32,64,128]){
+  input('resolution',n);const marks=[];
+  for(const design of ['sprout','layers','flower']){
+    run('select','#model-stickerDesign',design);settle();const mark=record(`large-mark-${design}-${n}`);marks.push(mark);
+    run('scroll','up','3000');run('screenshot',resolve(artifacts,`soil-bag-preview-sticker-${design}-${n}.png`));
+    const png=evaluate('document.getElementById("pixel").toDataURL("image/png")');writeFileSync(resolve(artifacts,`soil-bag-sticker-${design}-${n}.png`),Buffer.from(png.split(',')[1],'base64'));
+  }
+  assert.equal(new Set(marks.map(mark=>mark.hash)).size,3,'same colors and geometry must still distinguish all three silhouettes');
+  assert.ok(marks.every(mark=>mark.alpha===marks[0].alpha));assert.ok(marks.every(mark=>JSON.stringify(mark.memory)===JSON.stringify(marks[0].memory)));
+}
+run('select','#model-stickerDesign','sprout');input('resolution',64);checks.push('large sprout/soil-layer/flower marks differ at 32/64/128 with identical palette, coverage and resource counts');
 run('click','#edge');settle();const roundSide=record('side-round');assert.equal(roundSide.settings.sideFlatness,0);
 assert.deepEqual(evaluate('(()=>{const s=document.querySelector("#model-sideFlatness");return [s.min,s.max,s.step];})()'),['0','1','0.01']);
 run('scroll','up','3000');run('screenshot',resolve(artifacts,'soil-bag-preview-side-round.png'));
 input('model-sideFlatness',1);const flatSide=record('side-flat');assert.equal(flatSide.settings.sideFlatness,1);assert.notEqual(flatSide.hash,roundSide.hash);assert.deepEqual(flatSide.memory,roundSide.memory);
 run('scroll','up','3000');run('screenshot',resolve(artifacts,'soil-bag-preview-side-flat.png'));
 input('model-sideFlatness',0);assert.equal(record('side-round-restored').hash,roundSide.hash);run('click','#reset-view');settle();checks.push('declarative side-flatness slider changes real side geometry and pixel result, returns exactly to the original, and keeps resource counts');
-const png=evaluate('(()=>{const c=document.createElement("canvas");c.width=240;c.height=320;const x=c.getContext("2d");x.fillStyle="#315ca4";x.beginPath();x.arc(120,130,80,0,Math.PI*2);x.fill();x.fillStyle="#fff";x.font="bold 56px sans-serif";x.textAlign="center";x.fillText("SOIL",120,151);x.fillStyle="#db7844";x.fillRect(50,238,140,22);return c.toDataURL("image/png");})()');
+const png=evaluate('(()=>{const c=document.createElement("canvas");c.width=c.height=8;const x=c.getContext("2d");x.fillStyle="#315ca4";x.fillRect(0,0,4,8);x.fillStyle="#ffffff";x.fillRect(4,0,4,4);x.fillStyle="#db7844";x.fillRect(4,4,4,4);x.clearRect(0,0,2,2);return c.toDataURL("image/png");})()');
 writeFileSync(resolve(artifacts,'upload-sticker.png'),Buffer.from(png.split(',')[1],'base64'));
 run('click','button[data-preset="花园配方"]');settle();run('click','#model-bagColor button');const flower=record('flower-packaging');assert.equal(flower.settings.stickerDesign,'flower');
 run('fill','#model-bagColor .hex-input','#58809c');run('click','button[aria-label="关闭颜色选择器"]');settle();const blue=record('bag-color-edit');assert.equal(blue.settings.bagColor,'#58809c');assert.notEqual(blue.hash,flower.hash);checks.push('actual HEX picker changes bag and pixel result');
@@ -76,7 +100,7 @@ checks.push('three apple/butterfly/flower/pouch cycles keep existing behavior an
 run('set','viewport','390','844');settle();const mobile=record('mobile');assert.equal(mobile.overflow,false);run('scroll','up','3000');run('screenshot','--full',resolve(artifacts,'soil-bag-preview-mobile.png'));
 run('set','viewport','1440','1000');settle();const desktop=record('desktop');assert.equal(desktop.overflow,false);run('scroll','up','3000');run('screenshot',resolve(artifacts,'soil-bag-preview-closed.png'));checks.push('390px mobile and 1440px desktop have no horizontal overflow');
 const errors=run('errors');assert.deepEqual(errors.errors??[],[],JSON.stringify(errors));
-writeFileSync(resolve(artifacts,'soil-bag-preview-qa.json'),JSON.stringify({passed:true,checks,samples,errors},null,2));console.log(JSON.stringify({passed:true,checks,samples:samples.length},null,2));
+writeFileSync(resolve(artifacts,'soil-bag-preview-qa.json'),JSON.stringify({passed:true,checks,labelRaster,samples,errors},null,2));console.log(JSON.stringify({passed:true,checks,samples:samples.length},null,2));
 }catch(error){
   try{
     console.error(execFileSync('agent-browser',['--json','eval','({url:location.href,status:document.querySelector("#status")?.textContent,preview:window.readModelPreview?.()})'],{env:browserEnv,encoding:'utf8'}));

@@ -13,7 +13,7 @@
 - **撕开一个袋口（1.65 s）**：完整封口 → 仅右上角袋口分开 → 撕条抬起，左侧封口保留。
 - **倾倒营养土（3.8 s）**：独立片段从已开口袋子开始，袋口法线转向下；粗略土流从同一世界位置沿重力落下，随后收回袋子，末帧保留开口。
 - 两个一次性动作在共用时间轴声明 `loop:false`。末帧不绕回封口；播放重播、相位、逐帧检查均走同一时间采样。蝴蝶／动物默认循环不变。
-- 土流仅是位置／方向示意，不是土块粒子、落地碰撞或沉积系统；包装上的“2 L”没有库存或出土量含义。
+- 土流仅是位置／方向示意，不是土块粒子、落地碰撞或沉积系统；当前贴纸色块没有库存或出土量含义。
 
 ## 原始候选验证（2cecc148）
 
@@ -56,6 +56,28 @@ node experiments/model-preview/tests/soil-bag-browser.mjs
   ```
 
 产物位于 `target/soil-bag-side-profile-window-review/`，含 `soil-bag-preview-side-{round,flat}.png` 与扩展的 QA JSON；不提交截图。
+
+## Nearest 采样与低分辨率贴纸更新
+
+内置贴纸改成原创的双叶芽／三层土／五瓣花大轮廓，每张仅保留主体与一条实心标题色块；移除此前所有包装字样（含“2 L”）、细边框／根系和淡色细节。32×40 二值配方在现有 512×640 画布中用整数矩形绘制，保留底色与图案色控件，不增加字体／图片依赖。参考了 Miracle-Gro／COMPO SANA／Westland 官方包装的视觉层级，不使用其商标、照片或包装资产；来源与取舍见 [调研](../research/soil_bag_low_resolution_packaging.md)。
+
+实际贴纸材质设置 `minFilter = magFilter = NearestFilter`、`generateMipmaps = false`；Canvas 图片缩放也关闭 `imageSmoothingEnabled`，避免 GPU 最近邻之前就已经混糊。透明图仍正常铺到底色上。袋体纸纹、共享采色／修复、形态／动作和包装预设不变，没有游戏或配置变更。
+
+- 新的绘图守卫首先在旧代码上复现 **6 次文字绘制 != 0** 与 **imageSmoothingEnabled=true != false**，修改后通过。
+- **48/48** Node 测试通过；新增 4 项涵盖确定性二值大轮廓／实心色块、8×10 中心缩小下的形态差异、无字体／细线／分数边缘，以及等比最近邻图片导入。
+- **45 个网页状态**通过（窗口渲染／私有虚拟显示）：所有袋子状态检查真实纹理的 min／mag／mipmap 与 Canvas 平滑设置；真实 Canvas 输出验证内置图案只有两种颜色、全部 alpha=255；8×8 透明测试图缩放后只出现原图颜色与底色，没有插值色。
+- 在同一袋色／底色／图案色／几何下，三种图案的 **32／64／128²** 输出均不同，袋体 alpha 覆盖和几何／纹理数量相同；检查实际 32／64² 截图，主体明显大于旧版微小字。hash 差异是渲染回归证据，不是最终人类辨认或用户美术批准。
+- 侧面扁平度还原、贴纸导入／错误恢复、两个动作、一次性时钟、旧模型循环与资源释放、共享两种覆盖模式、RGBA 保留和移动布局均继续通过，浏览器错误为空。
+- `cargo fmt --check`、`cargo check`、Release 构建和普通隐藏静音启动通过；新日志首帧就绪、成功退出，无 ERROR／panic／VUID，仍有既有 fruit-physics hitch 警告。没有生成文件变化，用户本地 GUI 配置逐字保持不变。
+- 本轮沿用上节已成功的窗口渲染验证路径，没有宣称此前 headless SwiftShader 上下文丢失已修复，也没有自动重试到绿或关闭断言。Nearest 仍可能在旋转／极小分辨率下跳像素，不能恢复不存在的像素。
+
+```sh
+env -u DISPLAY -u WAYLAND_DISPLAY AGENT_BROWSER_HEADED=true \
+  PREVIEW_ARTIFACT_DIR=target/soil-bag-sticker-window-review \
+  node experiments/model-preview/tests/soil-bag-browser.mjs
+```
+
+本轮截图／QA JSON 在 `target/soil-bag-sticker-window-review/`，包括 `soil-bag-preview-sticker-{sprout,layers,flower}-{32,64,128}.png`、原始透明像素 PNG 和全部原有动作／布局截图，不提交图片。
 
 ## 验收与后续
 

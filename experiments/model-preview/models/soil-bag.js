@@ -34,18 +34,19 @@ export const soilBagDefinition={
     {key:'fullness',label:'袋子充盈 / 鼓起程度',min:.35,max:1.25,step:.01},
     {key:'sideFlatness',label:'侧面扁平度（上下更饱满）',min:0,max:1,step:.01},
     {type:'note',label:'0 = 原来的圆弧侧面；1 = 上下更饱满、中段更平直。充盈度调厚度，扁平度调侧面轮廓；点“侧面”最容易看区别。'},
-    {key:'stickerDesign',label:'更换正面贴纸',type:'select',options:[['sprout','嫩芽与根系'],['layers','土层与养分'],['flower','花朵配方'],['custom','自定义贴纸（先导入图片）']]},
+    {key:'stickerDesign',label:'更换正面贴纸',type:'select',options:[['sprout','双叶芽 · 大图案'],['layers','三层土 · 大图案'],['flower','五瓣花 · 大图案'],['custom','自定义贴纸（先导入图片）']]},
     {key:'labelColor',label:'贴纸底色',type:'color'},
-    {key:'inkColor',label:'内置贴纸图案 / 文字颜色',type:'color'},
+    {key:'inkColor',label:'内置贴纸图案 / 色块颜色',type:'color'},
     {key:'labelScale',label:'贴纸大小',min:.7,max:1.08,step:.01},
     {key:'customSticker',label:'导入自定义贴纸 · PNG / JPG / WebP',type:'image',accept:'image/png,image/jpeg,image/webp'},
-    {type:'note',label:'导入图片保持比例，透明部分铺在贴纸底色上。改完可切回内置贴纸或包装预设；本次页面内调整，不自动发布游戏资产。'},
+    {type:'note',label:'贴纸使用 Nearest 最近邻采样，不混糊边缘。内置贴纸只有大图案与实心色块，没有小字；导入保持比例，透明部分铺在底色上。调整只留在本次页面，不自动发布游戏资产。'},
     {type:'note',label:'时间轴可选“撕开”和“倾倒”，播放一次后停在末帧，拖动或逐帧检查。土流仅示意重力方向，不含土块粒子细节。'},
   ],
   async create(){
     const scene=new THREE.Scene(),root=new THREE.Group(),tab=new THREE.Group();scene.add(root);root.add(tab);
     const canvas=document.createElement('canvas');canvas.width=512;canvas.height=640;
     const stickerTexture=new THREE.CanvasTexture(canvas);stickerTexture.colorSpace=THREE.SRGBColorSpace;
+    stickerTexture.minFilter=stickerTexture.magFilter=THREE.NearestFilter;stickerTexture.generateMipmaps=false;
     const paper=paperTexture();
     const materials={
       bag:new THREE.MeshStandardMaterial({map:paper,roughness:.92,side:THREE.DoubleSide}),
@@ -101,7 +102,7 @@ export const soilBagDefinition={
         if(currentClip===0)return pose.opening<.001?'完整封口':pose.opening>.999?'已撕开 · 单一袋口':`撕开袋口 · ${Math.round(pose.opening*100)}%`;
         return pose.flow>1e-5?'袋口朝下 · 简化土流':pose.phase>.99?'倾倒结束 · 保留开口':'已开口 · 准备 / 收回倾倒';
       },
-      reviewState(){return {opening:pose.opening,openingCount:pose.opening>0?1:0,mouthNormal:[...pose.mouthNormal],mouthWorld:[...pose.mouthWorld],flowVisible:flowMesh.visible,flow:pose.flow,fill:pose.fill,customSticker:Boolean(customImage)};},
+      reviewState(){return {opening:pose.opening,openingCount:pose.opening>0?1:0,mouthNormal:[...pose.mouthNormal],mouthWorld:[...pose.mouthWorld],flowVisible:flowMesh.visible,flow:pose.flow,fill:pose.fill,customSticker:Boolean(customImage),stickerSampling:{minFilter:stickerTexture.minFilter,magFilter:stickerTexture.magFilter,mipmaps:stickerTexture.generateMipmaps,imageSmoothing:canvas.getContext('2d').imageSmoothingEnabled}};},
       preparePass(){},get shadows(){return false;},
       dispose(){disposed=true;imageRequest++;customImage?.close();customImage=null;disposeScene(scene);},
     };
