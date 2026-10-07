@@ -5,7 +5,21 @@ use glam::{Vec2, Vec3};
 use std::time::{Duration, Instant};
 
 // Opt-in diagnostic only: retain normal rendering and the real Grow publication path.
-// No GUI settings are changed; --tree-bench-samples is the final tree count (up to 9).
+// No GUI settings are changed; --tree-bench-samples is the final tree count (up to 12).
+// Preserve the original nine-tree workload prefix for historical comparisons.
+const OFFSETS: [Vec2; 11] = [
+    Vec2::new(0.48, 0.0),
+    Vec2::new(0.0, 0.48),
+    Vec2::new(-0.48, 0.0),
+    Vec2::new(0.0, -0.48),
+    Vec2::new(0.36, 0.36),
+    Vec2::new(-0.36, 0.36),
+    Vec2::new(0.36, -0.36),
+    Vec2::new(-0.36, -0.36),
+    Vec2::new(0.72, 0.0),
+    Vec2::new(-0.72, 0.0),
+    Vec2::new(0.0, 0.72),
+];
 #[derive(Debug)]
 pub(super) struct TreeScaleDiagnostic {
     trees: u32,
@@ -20,7 +34,7 @@ impl TreeScaleDiagnostic {
     pub(super) fn new(maximum: u32) -> Self {
         Self {
             trees: 1,
-            maximum: maximum.clamp(1, 9),
+            maximum: maximum.clamp(1, OFFSETS.len() as u32 + 1),
             phase_start: None,
             conifer: std::env::var("RE_FLORA_TREE_SCALE_SPECIES").as_deref() == Ok("conifer"),
             validate_gpu: std::env::var_os("RE_FLORA_TREE_SCALE_VALIDATE_GPU").is_some(),
@@ -74,16 +88,6 @@ impl TreeScaleDiagnostic {
             log::info!("[TREE_SCALE_DIAG] completed trees={}", self.trees);
             return true;
         }
-        const OFFSETS: [Vec2; 8] = [
-            Vec2::new(0.48, 0.0),
-            Vec2::new(0.0, 0.48),
-            Vec2::new(-0.48, 0.0),
-            Vec2::new(0.0, -0.48),
-            Vec2::new(0.36, 0.36),
-            Vec2::new(-0.36, 0.36),
-            Vec2::new(0.36, -0.36),
-            Vec2::new(-0.36, -0.36),
-        ];
         let horizontal = Vec2::new(app.debug_tree_pos.x, app.debug_tree_pos.z)
             + OFFSETS[(self.trees - 1) as usize];
         let position = Vec3::new(
@@ -117,5 +121,20 @@ impl TreeScaleDiagnostic {
             publication.elapsed().as_secs_f64() * 1000.0,
         );
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn twelve_tree_replay_preserves_original_prefix_and_has_distinct_placements() {
+        assert_eq!(OFFSETS.len(), 11);
+        assert_eq!(OFFSETS[0], Vec2::new(0.48, 0.));
+        assert_eq!(OFFSETS[7], Vec2::new(-0.36, -0.36));
+        for (i, offset) in OFFSETS.iter().enumerate() {
+            assert!(offset.is_finite() && *offset != Vec2::ZERO);
+            assert!(!OFFSETS[..i].contains(offset));
+        }
     }
 }

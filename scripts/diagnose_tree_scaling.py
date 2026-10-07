@@ -25,14 +25,16 @@ SAMPLE = re.compile(
     r"total_ms=([\d.]+) gpu_present_ms=([\d.]+) untracked_cpu_ms=([\d.]+)"
 )
 GPU = re.compile(r"([\w.]+)=(\d+)us")
+FRAME_SCOPE = re.compile(r"\[PERF\]\[(CPU_FRAME_SCOPE|GPU_FRAME_SCOPE)\] frame (\d+) (.*)")
 TREE_UPDATE = re.compile(r"\[PERF\]\[TREE_UPDATE\] frame=(\d+) (.*)")
 CPU_US = re.compile(r"(\w+)_us=([\d.]+)")
 
 
 def summarize(log, count, validate_gpu=False):
-    phases = {i: {"samples": [], "errors": [], "gpu_scopes_us": {}} for i in range(1, count + 1)}
+    phases = {i: {"samples": [], "errors": []} for i in range(1, count + 1)}
     current = 0
     updates = {}
+    frame_scopes = {"CPU_FRAME_SCOPE": {}, "GPU_FRAME_SCOPE": {}}
     for line in log.splitlines():
         update = TREE_UPDATE.search(line)
         if update:
@@ -48,9 +50,11 @@ def summarize(log, count, validate_gpu=False):
             })
         if current and "[TREE][RASTER_STATIC] preparation failed" in line:
             phases[current]["errors"].append(line)
-        if current and "[PERF][GPU_FRAME_SCOPE]" in line and len(phases[current]["samples"]) > 2:
-            for name, duration in GPU.findall(line):
-                phases[current]["gpu_scopes_us"].setdefault(name, []).append(int(duration))
+        scope = FRAME_SCOPE.search(line)
+        if scope:
+            frame_scopes[scope[1]][int(scope[2])] = {
+                name: int(duration) for name, duration in GPU.findall(scope[3])
+            }
     for tree_count, phase in phases.items():
         if len(phase["samples"]) < 3:
             raise ValueError(f"tree count {tree_count}: fewer than three settled frames")
@@ -63,9 +67,18 @@ def summarize(log, count, validate_gpu=False):
             name: statistics.median(row[name] for row in cpu if name in row)
             for name in sorted({key for row in cpu for key in row})
         }
-        phase["gpu_scope_medians_us"] = {
-            name: statistics.median(values) for name, values in phase["gpu_scopes_us"].items()
-        }
+        for kind, label in [("CPU_FRAME_SCOPE", "cpu"), ("GPU_FRAME_SCOPE", "gpu")]:
+            rows = [frame_scopes[kind][sample["frame"]] for sample in phase["samples"]
+                    if sample["frame"] in frame_scopes[kind]]
+            scopes = {
+                name: [row[name] for row in rows if name in row]
+                for name in sorted({key for row in rows for key in row})
+            }
+            phase[f"{label}_scopes_us"] = scopes
+            phase[f"{label}_scope_medians_us"] = {
+                name: statistics.median(values) for name, values in scopes.items()
+            }
+            phase[f"{label}_scope_sample_counts"] = {name: len(values) for name, values in scopes.items()}
         prior = phases.get(tree_count - 1)
         phase["frame_cliff"] = bool(
             prior and phase["median_total_ms"] >= 80
@@ -87,7 +100,7 @@ def summarize(log, count, validate_gpu=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="New evidence directory")
-    parser.add_argument("--trees", type=int, default=8, choices=range(2, 10))
+    parser.add_argument("--trees", type=int, default=8, choices=range(2, 13))
     parser.add_argument("--runs", type=int, default=2)
     parser.add_argument("--species", choices=["garden", "conifer"], default="garden",
                         help="Species added through the same description compiler as Grow")
@@ -104,8 +117,8 @@ def main():
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
-    if not 0 <= args.seed <= 2**64 - 9:
-        parser.error("--seed must fit u64 including eight subsequent seeds")
+    if not 0 <= args.seed <= 2**64 - args.trees + 1:
+        parser.error("--seed must fit u64 including subsequent placement seeds")
     if args.tree_size is not None and not 0 < args.tree_size < float("inf"):
         parser.error("--tree-size must be positive and finite")
     out = args.output.resolve()

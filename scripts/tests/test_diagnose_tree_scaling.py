@@ -69,6 +69,31 @@ class TreeScalingParserTests(unittest.TestCase):
         self.assertEqual(phases[1]["cpu_update_medians_us"]["cpu_skin"], 100.0)
         self.assertEqual(phases[1]["cpu_update_medians_us"]["total_cpu"], 160.0)
 
+    def test_frame_scopes_match_settled_frame_ids_even_when_gpu_results_arrive_late(self):
+        log = replay([17, 25]) + (
+            "\n[PERF][CPU_FRAME_SCOPE] frame 1 render.record=1000us render.acquire=6000us"
+            "\n[PERF][CPU_FRAME_SCOPE] frame 2 render.record=3000us"
+            "\n[PERF][CPU_FRAME_SCOPE] frame 99 render.record=90000us"
+            "\n[PERF][GPU_FRAME_SCOPE] frame 1 frame.render=4000us"
+            "\n[PERF][GPU_FRAME_SCOPE] frame 2 frame.render=6000us"
+            "\n[PERF][GPU_FRAME_SCOPE] frame 4 frame.render=8000us"
+            "\n[PERF][GPU_FRAME_SCOPE] frame 99 frame.render=99000us"
+        )
+        phases = summarize(log, 2)
+        self.assertEqual(phases[1]["cpu_scope_medians_us"]["render.record"], 2000)
+        self.assertEqual(phases[1]["gpu_scope_medians_us"]["frame.render"], 5000)
+        self.assertEqual(phases[2]["gpu_scope_medians_us"]["frame.render"], 8000)
+        self.assertEqual(phases[1]["gpu_scope_sample_counts"]["frame.render"], 2)
+        self.assertEqual(phases[1]["cpu_scope_sample_counts"]["render.acquire"], 1)
+
+    def test_twelve_tree_replay_completes_and_validates_every_count(self):
+        log = replay([17] * 12) + "\n" + "\n".join(
+            f"[TREE_SCALE_DIAG] validated trees={i}" for i in range(1, 13)
+        )
+        phases = summarize(log, 12, validate_gpu=True)
+        self.assertEqual(len(phases), 12)
+        self.assertFalse(phases[12]["frame_cliff"])
+
     def test_validation_error_is_invalid_not_green(self):
         with self.assertRaisesRegex(ValueError, "validation failed"):
             summarize(replay([17, 100]) + "\nVUID-example", 2)
