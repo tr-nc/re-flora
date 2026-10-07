@@ -372,6 +372,7 @@ impl ResponseCheck {
                 log::info!("[VEGETATION_RESPONSE][SCENE] action=replant-same-brush");
             }
             35 | 75 => {
+                app.terrain_physics.set_fruit_cycle(0.0, &mut app.tracer)?;
                 app.terrain_physics.set_fruit_cycle(0.8, &mut app.tracer)?;
                 let trees = app.terrain_physics.take_attached_fruit_refresh_trees();
                 app.refresh_attached_tree_fruits(&trees)?;
@@ -384,6 +385,7 @@ impl ResponseCheck {
             }
             38 => {
                 app.terrain_physics.set_fruit_cycle(1., &mut app.tracer)?;
+                app.terrain_physics.request_diagnostic_fruit_kicks();
                 let trees = app.terrain_physics.take_attached_fruit_refresh_trees();
                 app.refresh_attached_tree_fruits(&trees)?;
             }

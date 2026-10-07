@@ -52,15 +52,17 @@ pub(super) struct TreeFruitSpec {
     pub position_voxels: UVec3,
     pub grow_start_phase: f32,
     pub full_growth_phase: f32,
-    pub drop_phase: f32,
     pub linear_velocity_voxels: Vec3,
     pub angular_velocity: Vec3,
 }
 
 impl TreeFruitSpec {
     pub(super) fn attached_radius_voxels(&self, cycle: f32) -> Option<u32> {
-        if cycle < self.grow_start_phase || cycle >= self.drop_phase {
+        if cycle < self.grow_start_phase {
             return None;
+        }
+        if cycle >= self.full_growth_phase {
+            return Some(TREE_FRUIT_MAX_RADIUS_VOXELS);
         }
         let duration = (self.full_growth_phase - self.grow_start_phase).max(f32::EPSILON);
         let progress = ((cycle - self.grow_start_phase) / duration).clamp(0.0, 1.0);
@@ -86,16 +88,10 @@ fn fruit_phase_after_cycle_change(
     phase: FruitSweepPhase,
     previous_cycle: f32,
     fruit_cycle: f32,
-    drop_phase: f32,
+    growth_start: f32,
 ) -> FruitSweepPhase {
-    if fruit_cycle < previous_cycle && fruit_cycle < drop_phase {
+    if fruit_cycle < previous_cycle && fruit_cycle < growth_start {
         FruitSweepPhase::Armed
-    } else if fruit_cycle > previous_cycle
-        && phase == FruitSweepPhase::Armed
-        && previous_cycle < drop_phase
-        && fruit_cycle >= drop_phase
-    {
-        FruitSweepPhase::PendingDrop
     } else {
         phase
     }
@@ -107,6 +103,47 @@ struct RegisteredFruit {
     required_bricks: Vec<StaticVoxelBrickId>,
     phase: FruitSweepPhase,
     body: Option<DynamicBodyId>,
+    handoff: Option<crate::tracer::FruitReleaseTicket>,
+}
+
+impl RegisteredFruit {
+    fn held(spec: TreeFruitSpec, required_bricks: Vec<StaticVoxelBrickId>) -> Self {
+        Self {
+            spec,
+            required_bricks,
+            phase: FruitSweepPhase::Armed,
+            body: None,
+            handoff: None,
+        }
+    }
+}
+
+// One kick chooses a bounded subset of the still-held crop, without scanning/releasing
+// anything during ordinary wind or elapsed-time updates.
+fn request_fruit_kick(
+    fruits: &mut BTreeMap<u64, RegisteredFruit>,
+    cycle: f32,
+    fraction: f32,
+) -> usize {
+    if !fraction.is_finite() || fraction <= 0. {
+        return 0;
+    }
+    let ids: Vec<_> = fruits
+        .iter()
+        .filter(|(_, fruit)| {
+            fruit.phase == FruitSweepPhase::Armed && cycle >= fruit.spec.full_growth_phase
+        })
+        .map(|(&id, _)| id)
+        .collect();
+    let count = ((ids.len() as f32 * fraction.min(1.)).ceil() as usize).min(256);
+    // Evenly sample the remaining stable IDs rather than stripping one side first.
+    for index in 0..count {
+        fruits
+            .get_mut(&ids[index * ids.len() / count])
+            .unwrap()
+            .phase = FruitSweepPhase::PendingDrop;
+    }
+    count
 }
 
 pub(super) struct TreeFruitPublicationCheckpoint {
@@ -595,20 +632,15 @@ impl TerrainPhysics {
                 }
             }
             let fruit = if let Some(mut existing) = previous.remove(&spec.id) {
+                if existing.spec != spec && existing.phase == FruitSweepPhase::PendingDrop {
+                    existing.phase = FruitSweepPhase::Armed;
+                    existing.handoff = None;
+                }
                 existing.spec = spec;
                 existing.required_bricks = required_bricks;
                 existing
             } else {
-                RegisteredFruit {
-                    phase: if self.fruit_cycle >= spec.drop_phase {
-                        FruitSweepPhase::PendingDrop
-                    } else {
-                        FruitSweepPhase::Armed
-                    },
-                    spec,
-                    required_bricks,
-                    body: None,
-                }
+                RegisteredFruit::held(spec, required_bricks)
             };
             registered.insert(fruit.spec.id, fruit);
         }
@@ -617,8 +649,8 @@ impl TerrainPhysics {
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
-    /// Restore the fruiting season without replaying fruit drops that already happened.
-    /// Loose fruit bodies are transient; sweeping the cycle backwards will arm a new crop.
+    /// Restore a held crop, never releases based on a saved growth value.
+    /// Loose bodies and harvest state are transient.
     pub(super) fn restore_saved_tree_fruits(
         &mut self,
         tree_id: u32,
@@ -633,21 +665,7 @@ impl TerrainPhysics {
             tree_id,
             specs
                 .iter()
-                .map(|spec| {
-                    (
-                        spec.id,
-                        RegisteredFruit {
-                            phase: if self.fruit_cycle >= spec.drop_phase {
-                                FruitSweepPhase::Dropped
-                            } else {
-                                FruitSweepPhase::Armed
-                            },
-                            spec: spec.clone(),
-                            required_bricks: Vec::new(),
-                            body: None,
-                        },
-                    )
-                })
+                .map(|spec| (spec.id, RegisteredFruit::held(spec.clone(), Vec::new())))
                 .collect(),
         );
         self.publish_tree_fruits(tree_id, specs, tracer)
@@ -750,25 +768,17 @@ impl TerrainPhysics {
                         fruit.phase,
                         previous_cycle,
                         fruit_cycle,
-                        fruit.spec.drop_phase,
+                        fruit.spec.grow_start_phase,
                     );
                     if next_phase == FruitSweepPhase::Armed {
                         if let Some(body) = fruit.body.take() {
                             self.collision_world.remove_dynamic_body(body);
                         }
                     }
+                    if fruit.phase != next_phase {
+                        fruit.handoff = None;
+                    }
                     fruit.phase = next_phase;
-                }
-            }
-        } else if fruit_cycle > previous_cycle {
-            for fruits in self.fruits_by_tree.values_mut() {
-                for fruit in fruits.values_mut() {
-                    fruit.phase = fruit_phase_after_cycle_change(
-                        fruit.phase,
-                        previous_cycle,
-                        fruit_cycle,
-                        fruit.spec.drop_phase,
-                    );
                 }
             }
         }
@@ -791,9 +801,8 @@ impl TerrainPhysics {
                     FruitSweepPhase::Armed => {
                         fruit.spec.attached_radius_voxels(self.fruit_cycle)?
                     }
-                    // Crossing the threshold only requests a drop. Keep the fruit attached until
-                    // every collider brick along its fall path is imported and detachment can be
-                    // represented continuously by a dynamic body.
+                    // Only a kick requests release. Keep it attached until its collider path
+                    // and frame-owned GPU-to-physics pose handoff are both ready.
                     FruitSweepPhase::PendingDrop => TREE_FRUIT_MAX_RADIUS_VOXELS,
                     FruitSweepPhase::Dropped => return None,
                 };
@@ -835,7 +844,56 @@ impl TerrainPhysics {
             .map(|(offset, _)| (root.as_vec3() + *offset) / VOXELS_PER_WORLD_UNIT))
     }
 
-    fn spawn_pending_fruits(&mut self, tracer: &Tracer) -> anyhow::Result<()> {
+    pub(super) fn request_tree_fruit_kick(&mut self, tree: u32, fraction: f32) -> usize {
+        self.fruits_by_tree.get_mut(&tree).map_or(0, |fruits| {
+            request_fruit_kick(fruits, self.fruit_cycle, fraction)
+        })
+    }
+
+    /// Explicit opt-in drop fixtures use the same release policy, not growth-threshold tricks.
+    pub(super) fn request_diagnostic_fruit_kicks(&mut self) {
+        for fruits in self.fruits_by_tree.values_mut() {
+            request_fruit_kick(fruits, self.fruit_cycle, 1.);
+        }
+    }
+
+    pub(super) fn tree_fruit_counts(&self, tree: u32) -> (usize, usize, usize) {
+        let Some(fruits) = self.fruits_by_tree.get(&tree) else {
+            return (0, 0, 0);
+        };
+        (
+            fruits.len(),
+            fruits
+                .values()
+                .filter(|f| f.phase == FruitSweepPhase::Armed)
+                .count(),
+            fruits
+                .values()
+                .filter(|f| f.phase == FruitSweepPhase::Dropped)
+                .count(),
+        )
+    }
+
+    fn spawn_pending_fruits(&mut self, tracer: &mut Tracer) -> anyhow::Result<()> {
+        let mut completed = Vec::new();
+        for (ticket, pose) in tracer.poll_fruit_releases()? {
+            for (&tree, fruits) in &mut self.fruits_by_tree {
+                for (&id, fruit) in fruits {
+                    if fruit.handoff != Some(ticket) {
+                        continue;
+                    }
+                    fruit.handoff = None;
+                    if fruit.phase != FruitSweepPhase::PendingDrop {
+                        continue;
+                    }
+                    if let Some(pose) = pose {
+                        completed.push((tree, id, fruit.spec.clone(), pose));
+                    } else {
+                        fruit.phase = FruitSweepPhase::Armed;
+                    }
+                }
+            }
+        }
         let imported_terrain_bricks = &self.imported_terrain_bricks;
         let ready = self
             .fruits_by_tree
@@ -843,6 +901,7 @@ impl TerrainPhysics {
             .flat_map(|(&tree_id, fruits)| {
                 fruits.iter().filter_map(move |(&fruit_id, fruit)| {
                     (fruit.phase == FruitSweepPhase::PendingDrop
+                        && fruit.handoff.is_none()
                         && fruit.body.is_none()
                         && fruit
                             .required_bricks
@@ -853,18 +912,26 @@ impl TerrainPhysics {
             })
             .collect::<Vec<_>>();
 
-        let poses = if ready.is_empty() {
-            vec![]
-        } else {
-            tracer.attached_fruit_handoff(
-                &ready
-                    .iter()
-                    .map(|(_, _, spec)| spec.position_voxels)
-                    .collect::<Vec<_>>(),
-            )?
-        };
-        for ((tree_id, fruit_id, spec), (offset, velocity)) in ready.into_iter().zip(poses) {
-            let release_position = spec.position_voxels.as_vec3() + offset;
+        // Register completed tickets before re-admitting unready requests. All copies are
+        // recorded in ordinary rendering; this path never submits or waits for a GPU job.
+        let completing: HashSet<_> = completed
+            .iter()
+            .map(|(tree, fruit, _, _)| (*tree, *fruit))
+            .collect();
+        for (tree, id, spec) in ready {
+            if completing.contains(&(tree, id)) {
+                continue;
+            }
+            let ticket = tracer.request_fruit_release(spec.position_voxels)?;
+            self.fruits_by_tree
+                .get_mut(&tree)
+                .unwrap()
+                .get_mut(&id)
+                .unwrap()
+                .handoff = ticket;
+        }
+        for (tree_id, fruit_id, spec, pose) in completed {
+            let release_position = spec.position_voxels.as_vec3() + pose.offset;
             let missing: Vec<_> = fruit_drop_path_bricks(
                 release_position.max(Vec3::ZERO).as_uvec3(),
                 self.apple_size_scale,
@@ -880,13 +947,12 @@ impl TerrainPhysics {
             }
             let mut desc = scaled_apple_dynamic_body_desc(
                 release_position,
-                spec.linear_velocity_voxels + velocity,
+                spec.linear_velocity_voxels + pose.velocity,
                 spec.angular_velocity,
                 self.apple_size_scale,
             );
-            let (rotation, angular_velocity) = tracer.attached_fruit_rotation(spec.position_voxels);
-            desc.rotation = rotation;
-            desc.angular_velocity += angular_velocity;
+            desc.rotation = pose.rotation;
+            desc.angular_velocity += pose.angular_velocity;
             let body = self
                 .collision_world
                 .spawn_dynamic_body(desc)
@@ -1514,7 +1580,6 @@ mod tests {
             position_voxels: UVec3::new(64, 96, 64),
             grow_start_phase: 0.55,
             full_growth_phase: 0.70,
-            drop_phase: 0.88,
             linear_velocity_voxels: Vec3::ZERO,
             angular_velocity: Vec3::ZERO,
         }
@@ -1527,6 +1592,7 @@ mod tests {
             required_bricks: Vec::new(),
             phase: FruitSweepPhase::Dropped,
             body: Some(body),
+            handoff: None,
         }
     }
 
@@ -1635,14 +1701,24 @@ mod tests {
     }
 
     #[test]
-    fn fruit_grows_through_discrete_voxel_radius_stages_then_detaches() {
+    fn fruit_grows_through_discrete_voxel_radius_stages_then_stays_held() {
         let fruit = fruit_spec();
         assert_eq!(fruit.attached_radius_voxels(0.54), None);
         assert_eq!(fruit.attached_radius_voxels(0.55), Some(1));
         assert_eq!(fruit.attached_radius_voxels(0.60), Some(1));
         assert_eq!(fruit.attached_radius_voxels(0.625), Some(2));
-        assert_eq!(fruit.attached_radius_voxels(0.70), Some(2));
-        assert_eq!(fruit.attached_radius_voxels(0.88), None);
+        assert_eq!(
+            fruit.attached_radius_voxels(0.70),
+            Some(TREE_FRUIT_MAX_RADIUS_VOXELS)
+        );
+        assert_eq!(
+            fruit.attached_radius_voxels(0.88),
+            Some(TREE_FRUIT_MAX_RADIUS_VOXELS)
+        );
+        assert_eq!(
+            fruit.attached_radius_voxels(1.),
+            Some(TREE_FRUIT_MAX_RADIUS_VOXELS)
+        );
     }
 
     #[test]
@@ -1723,18 +1799,36 @@ mod tests {
     }
 
     #[test]
-    fn backward_scrub_rearms_each_fruit_for_another_upward_sweep() {
-        let drop_phase = 0.88;
-        let first_drop =
-            fruit_phase_after_cycle_change(FruitSweepPhase::Armed, 0.70, 0.90, drop_phase);
-        assert_eq!(first_drop, FruitSweepPhase::PendingDrop);
-
-        let rearmed =
-            fruit_phase_after_cycle_change(FruitSweepPhase::Dropped, 0.90, 0.60, drop_phase);
-        assert_eq!(rearmed, FruitSweepPhase::Armed);
+    fn only_kicks_release_mature_fruit_not_growth_or_elapsed_time() {
         assert_eq!(
-            fruit_phase_after_cycle_change(rearmed, 0.60, 0.90, drop_phase),
-            FruitSweepPhase::PendingDrop,
+            fruit_phase_after_cycle_change(FruitSweepPhase::Armed, 0.7, 1., 0.55),
+            FruitSweepPhase::Armed
+        );
+        assert_eq!(
+            fruit_spec().attached_radius_voxels(1.),
+            Some(TREE_FRUIT_MAX_RADIUS_VOXELS)
+        );
+        let mut crop: BTreeMap<_, _> = (0..8)
+            .map(|id| {
+                let mut spec = fruit_spec();
+                spec.id = id;
+                (id, RegisteredFruit::held(spec, vec![]))
+            })
+            .collect();
+        assert_eq!(request_fruit_kick(&mut crop, 0.6, 0.25), 0);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 0.25), 2);
+        assert_eq!(
+            crop.values()
+                .filter(|f| f.phase == FruitSweepPhase::PendingDrop)
+                .count(),
+            2
+        );
+        assert_eq!(request_fruit_kick(&mut crop, 1., 0.25), 2);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 1.), 4);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 1.), 0);
+        assert_eq!(
+            fruit_phase_after_cycle_change(FruitSweepPhase::Dropped, 1., 0.4, 0.55),
+            FruitSweepPhase::Armed
         );
     }
 

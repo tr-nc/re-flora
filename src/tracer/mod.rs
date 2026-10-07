@@ -70,7 +70,9 @@ pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
+mod fruit_release;
 mod vegetation_response;
+pub(crate) use fruit_release::FruitReleaseTicket;
 use vegetation_response::VegetationResponse;
 
 mod flora_frame_plan;
@@ -1629,6 +1631,7 @@ pub struct Tracer {
     flora_lighting_cache: FloraLightingCache,
     grass_band_cache: grass_band_cache::GrassBandCache,
     vegetation_response: VegetationResponse,
+    fruit_releases: fruit_release::FruitReleases,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
     ddgi_history_retention: f32,
@@ -1997,6 +2000,7 @@ impl Tracer {
             flora_lighting_cache: FloraLightingCache::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
+            fruit_releases: fruit_release::FruitReleases::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
             ddgi_history_retention: 0.99,
@@ -6707,29 +6711,6 @@ impl Tracer {
             }
         }
         Ok(handoffs)
-    }
-
-    pub(crate) fn attached_fruit_rotation(&self, root: UVec3) -> (glam::Quat, Vec3) {
-        if self.raster_trees.gpu_wind_active {
-            if let Some(index) = self
-                .raster_trees
-                .attachments
-                .iter()
-                .position(|a| a.anchor == root)
-            {
-                let pose = self.raster_trees.attachment_poses[index];
-                let angular = self
-                    .raster_trees
-                    .previous_attachment_poses
-                    .get(index)
-                    .map_or(Vec3::ZERO, |previous| {
-                        (pose.rotation * previous.rotation.conjugate()).to_scaled_axis()
-                            / self.raster_trees.attachment_dt.max(1e-6)
-                    });
-                return (pose.rotation, angular);
-            }
-        }
-        (glam::Quat::IDENTITY, Vec3::ZERO)
     }
 
     pub fn project_screen_point_to_world(

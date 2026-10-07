@@ -30,6 +30,12 @@ impl App {
         s.flora_growth_override_enabled.value = true;
         s.flora_growth_override.value = if phase == 1 { 0.55 } else { 1. };
         s.auto_daynight_cycle.value = false;
+        if frame == 6 * 24 {
+            self.terrain_physics
+                .set_fruit_cycle(1., &mut self.tracer)
+                .expect("diagnostic fruit growth");
+            self.terrain_physics.request_diagnostic_fruit_kicks();
+        }
         if frame.is_multiple_of(24) && frame <= 12 * 24 {
             self.set_manual_time_of_day(if phase == 1 { 0.2 } else { 0.45 });
             log::info!("[MODEL_CACHE_PHASE] phase={phase} views={views} resolutions={}/{}/{}/{} heads_only={} dropped={} saved=false",resolutions[0],resolutions[1],resolutions[2],resolutions[3],true,phase>=6);

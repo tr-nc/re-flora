@@ -167,7 +167,15 @@ impl FallenLeafEmitter {
         }
     }
 
-    fn spawn_leaf(&mut self, system: &mut ParticleSystem) {
+    // An explicit burst ignores wind thresholds/spawn cadence. Capacity exhaustion
+    // drops excess VFX immediately; it never becomes a later automatic emission.
+    pub fn burst(&mut self, system: &mut ParticleSystem, count: usize) -> usize {
+        (0..count.min(128))
+            .take_while(|_| self.spawn_leaf(system))
+            .count()
+    }
+
+    fn spawn_leaf(&mut self, system: &mut ParticleSystem) -> bool {
         let spawn_position = if self.leaf_positions.is_empty() {
             self.center
         } else {
@@ -214,7 +222,7 @@ impl FallenLeafEmitter {
             despawn_below_ground: true,
             update: LEAF_UPDATE,
         };
-        let _ = system.spawn(spawn);
+        system.spawn(spawn).is_some()
     }
 
     fn wind_spawn_multiplier(&self, wind: &WindFieldFrame) -> f32 {
@@ -239,7 +247,7 @@ impl FallenLeafEmitter {
         let effective_spawn_rate = self.spawn_rate * wind_multiplier;
         self.spawn_accumulator += effective_spawn_rate * dt;
         while self.spawn_accumulator >= 1.0 {
-            self.spawn_leaf(system);
+            let _ = self.spawn_leaf(system);
             self.spawn_accumulator -= 1.0;
         }
     }

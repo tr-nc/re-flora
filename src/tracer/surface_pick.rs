@@ -280,6 +280,9 @@ pub(super) struct SurfacePicker {
     banks: Vec<Bank>,
 }
 impl SurfacePicker {
+    pub(super) fn generation(&self) -> u64 {
+        self.generation
+    }
     pub fn invalidate_geometry(&mut self) {
         self.generation = self
             .generation
@@ -361,6 +364,7 @@ impl Tracer {
         Ok(self.surface_picker.answers.drain(..).collect())
     }
     pub(crate) fn complete_surface_pick_slot(&mut self, frame_slot: usize) -> Result<()> {
+        self.complete_fruit_release_slot(frame_slot)?;
         if let Some(bank) = self.surface_picker.banks.get_mut(frame_slot) {
             bank.collect(&mut self.surface_picker.answers)?;
         }
@@ -373,6 +377,7 @@ impl Tracer {
         frame: &AcquiredFrame,
         terrain: u32,
     ) -> Result<()> {
+        self.record_frame_fruit_releases(frame)?;
         if self.surface_picker.queued.is_empty() {
             return Ok(());
         }

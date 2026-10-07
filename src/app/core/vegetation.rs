@@ -376,9 +376,6 @@ fn tree_fruit_specs(
         let grow_start_phase = 0.52 + unit_hash(seed, leaf_index, 0xD1B5_4A35, leaf_pos) * 0.12;
         let full_growth_phase =
             grow_start_phase + 0.10 + unit_hash(seed, leaf_index, 0x94D0_49BB, leaf_pos) * 0.06;
-        let drop_phase = (0.82 + unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos) * 0.16)
-            .max(full_growth_phase + 0.06)
-            .min(0.99);
         let horizontal_velocity = Vec2::new(
             unit_hash(seed, leaf_index, 0xDB4F_0B91, leaf_pos) * 2.0 - 1.0,
             unit_hash(seed, leaf_index, 0xBBE0_56B5, leaf_pos) * 2.0 - 1.0,
@@ -401,7 +398,6 @@ fn tree_fruit_specs(
             position_voxels,
             grow_start_phase,
             full_growth_phase,
-            drop_phase,
             linear_velocity_voxels: Vec3::new(
                 horizontal_velocity.x,
                 -unit_hash(seed, leaf_index, 0x4CF5_AD43, leaf_pos) * 2.0,
@@ -1900,7 +1896,6 @@ impl AppTreePublicationHost<'_> {
             anyhow::ensure!(
                 fruit.grow_start_phase.is_finite()
                     && fruit.full_growth_phase.is_finite()
-                    && fruit.drop_phase.is_finite()
                     && fruit.linear_velocity_voxels.is_finite()
                     && fruit.angular_velocity.is_finite(),
                 "tree {} fruit {} contains non-finite publication data",
@@ -1908,8 +1903,7 @@ impl AppTreePublicationHost<'_> {
                 fruit.id,
             );
             anyhow::ensure!(
-                fruit.grow_start_phase < fruit.full_growth_phase
-                    && fruit.full_growth_phase < fruit.drop_phase,
+                fruit.grow_start_phase < fruit.full_growth_phase && fruit.full_growth_phase <= 1.0,
                 "tree {} fruit {} lifecycle phases are not ordered",
                 publication.tree_id,
                 fruit.id,
@@ -4036,10 +4030,26 @@ impl App {
         direction: Vec3,
         tuning: crate::tree_gen::kick::KickTuning,
     ) -> Result<bool> {
-        match self.trees.records.get_mut(&id) {
-            Some(r) => r.pose.kick(direction, tuning),
-            None => Ok(false),
+        let accepted = match self.trees.records.get_mut(&id) {
+            Some(r) => r.pose.kick(direction, tuning)?,
+            None => false,
+        };
+        if accepted {
+            let fruit = self.terrain_physics.request_tree_fruit_kick(
+                id,
+                self.debug_settings
+                    .adjustables
+                    .tree_kick_fruit_fraction
+                    .value,
+            );
+            let leaves = self.trees.leaf_emitters.burst(
+                id,
+                &mut self.particle_system,
+                self.debug_settings.adjustables.tree_kick_leaf_count.value as usize,
+            );
+            log::info!("[TREE_KICK][RELEASE] tree={id} requested_fruit={fruit} leaves={leaves} one_shot=true");
         }
+        Ok(accepted)
     }
 
     pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
@@ -5509,13 +5519,11 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.len() > 8);
         assert!(first.iter().all(|fruit| {
-            fruit.grow_start_phase < fruit.full_growth_phase
-                && fruit.full_growth_phase < fruit.drop_phase
-                && fruit.drop_phase <= 0.99
+            fruit.grow_start_phase < fruit.full_growth_phase && fruit.full_growth_phase <= 0.99
         }));
         let distinct_drop_millis = first
             .iter()
-            .map(|fruit| (fruit.drop_phase * 1_000.0).round() as u32)
+            .map(|fruit| (fruit.full_growth_phase * 1_000.0).round() as u32)
             .collect::<HashSet<_>>();
         assert!(distinct_drop_millis.len() > 4);
     }
@@ -5542,7 +5550,6 @@ mod tests {
             sapling.id == mature.id
                 && sapling.grow_start_phase == mature.grow_start_phase
                 && sapling.full_growth_phase == mature.full_growth_phase
-                && sapling.drop_phase == mature.drop_phase
         }));
         assert!(sapling
             .iter()

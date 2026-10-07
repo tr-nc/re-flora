@@ -191,6 +191,9 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
         Self::add_missing_param(&mut config, "Butterflies", "butterfly_wing_transmission");
         for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if param.id == "fruit_cycle" {
+                param.label = "Fruit Growth (held until kick)".into();
+            }
             if param.id == "butterfly_animation_fps" {
                 param.label = "Butterfly Update FPS (Position + Heading + Wings)".into();
             }
@@ -202,6 +205,8 @@ impl GuiConfigLoader {
             "tree_kick_damping",
             "tree_kick_reach",
             "tree_kick_cooldown",
+            "tree_kick_fruit_fraction",
+            "tree_kick_leaf_count",
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
@@ -1876,6 +1881,8 @@ mod tests {
             "tree_kick_damping",
             "tree_kick_reach",
             "tree_kick_cooldown",
+            "tree_kick_fruit_fraction",
+            "tree_kick_leaf_count",
         ];
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -1895,10 +1902,14 @@ mod tests {
                 .flat_map(|s| &mut s.param)
                 .find(|p| p.id == id)
                 .unwrap();
-            if let GuiParamValue::Float { value, min, max } = &mut p.value {
-                *value = (min.unwrap() + max.unwrap()) * 0.5;
-            } else {
-                panic!("kick setting is not a float");
+            match &mut p.value {
+                GuiParamValue::Float { value, min, max } => {
+                    *value = (min.unwrap() + max.unwrap()) * 0.5
+                }
+                GuiParamValue::Int { value, min, max } => {
+                    *value = (min.unwrap() + max.unwrap()) / 2
+                }
+                _ => panic!("kick setting is not numeric"),
             }
         }
         GuiConfigLoader::save_to_path(&loaded, &file).unwrap();

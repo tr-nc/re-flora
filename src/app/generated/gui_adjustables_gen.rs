@@ -302,6 +302,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "tree_kick_fruit_fraction",
+        kind: "float",
+        label: "Tree kick fruit release fraction",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_leaf_count",
+        kind: "int",
+        label: "Tree kick decorative leaves per burst",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_growth_override_enabled",
         kind: "bool",
         label: "Override Flora Growth",
@@ -322,7 +334,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "fruit_cycle",
         kind: "float",
-        label: "Fruit Cycle",
+        label: "Fruit Growth (held until kick)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1592,6 +1604,8 @@ pub struct GuiAdjustables {
     pub tree_kick_damping: crate::gui_adjustables::FloatParam,
     pub tree_kick_reach: crate::gui_adjustables::FloatParam,
     pub tree_kick_cooldown: crate::gui_adjustables::FloatParam,
+    pub tree_kick_fruit_fraction: crate::gui_adjustables::FloatParam,
+    pub tree_kick_leaf_count: crate::gui_adjustables::IntParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -1858,6 +1872,8 @@ impl GuiAdjustables {
         let mut tree_kick_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_cooldown_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_fruit_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_leaf_count_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2349,6 +2365,20 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_kick_cooldown_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_fruit_fraction" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_fruit_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_leaf_count" => {
+                        if let (GuiParamKind::Int, GuiParamValue::Int { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tree_kick_leaf_count_field = Some(crate::gui_adjustables::IntParam::new(*value, min..=max));
                         }
                     }
                     "flora_growth_override_enabled" => {
@@ -3792,6 +3822,8 @@ impl GuiAdjustables {
             tree_kick_damping: tree_kick_damping_field.expect("Missing parameter: tree_kick_damping"),
             tree_kick_reach: tree_kick_reach_field.expect("Missing parameter: tree_kick_reach"),
             tree_kick_cooldown: tree_kick_cooldown_field.expect("Missing parameter: tree_kick_cooldown"),
+            tree_kick_fruit_fraction: tree_kick_fruit_fraction_field.expect("Missing parameter: tree_kick_fruit_fraction"),
+            tree_kick_leaf_count: tree_kick_leaf_count_field.expect("Missing parameter: tree_kick_leaf_count"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -4026,6 +4058,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "tree_kick_damping" => Some(&adjustables.tree_kick_damping),
         "tree_kick_reach" => Some(&adjustables.tree_kick_reach),
         "tree_kick_cooldown" => Some(&adjustables.tree_kick_cooldown),
+        "tree_kick_fruit_fraction" => Some(&adjustables.tree_kick_fruit_fraction),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
         "fruit_cycle" => Some(&adjustables.fruit_cycle),
@@ -4195,6 +4228,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::IntParam> {
     match id {
+        "tree_kick_leaf_count" => Some(&adjustables.tree_kick_leaf_count),
         "starlight_iterations" => Some(&adjustables.starlight_iterations),
         "starlight_volsteps" => Some(&adjustables.starlight_volsteps),
         _ => None,
@@ -4326,6 +4360,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "tree_kick_damping" => Some(&mut adjustables.tree_kick_damping),
         "tree_kick_reach" => Some(&mut adjustables.tree_kick_reach),
         "tree_kick_cooldown" => Some(&mut adjustables.tree_kick_cooldown),
+        "tree_kick_fruit_fraction" => Some(&mut adjustables.tree_kick_fruit_fraction),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
         "fruit_cycle" => Some(&mut adjustables.fruit_cycle),
@@ -4495,6 +4530,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
 #[allow(dead_code)]
 pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::IntParam> {
     match id {
+        "tree_kick_leaf_count" => Some(&mut adjustables.tree_kick_leaf_count),
         "starlight_iterations" => Some(&mut adjustables.starlight_iterations),
         "starlight_volsteps" => Some(&mut adjustables.starlight_volsteps),
         _ => None,

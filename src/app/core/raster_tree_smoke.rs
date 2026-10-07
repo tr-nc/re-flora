@@ -36,6 +36,7 @@ impl RasterTreeSmoke {
         match self.frame {
             1 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                app.terrain_physics.set_fruit_cycle(1., &mut app.tracer)?;
             }
             21 => {
                 self.light = Some(
@@ -57,6 +58,22 @@ impl RasterTreeSmoke {
             }
             30 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                let tree = app
+                    .tracer
+                    .raster_trees
+                    .skin
+                    .branches
+                    .first()
+                    .context("kick tree")?
+                    .0;
+                let (total, held, dropped) = app.terrain_physics.tree_fruit_counts(tree);
+                ensure!(
+                    total > 0 && held == total && dropped == 0,
+                    "fruit fell without a kick"
+                );
+                log::info!(
+                    "[TREE_KICK][HELD_FRUIT] tree={tree} count={total} automatic_drop=false"
+                );
                 app.tree_kick_pose_smoke(true)?;
             }
             35 => {
@@ -68,6 +85,20 @@ impl RasterTreeSmoke {
                     app.tracer.raster_trees.gpu_wind_active,
                     "kick did not activate GPU deformation without wind"
                 );
+                let tree = app
+                    .tracer
+                    .raster_trees
+                    .skin
+                    .branches
+                    .first()
+                    .context("kick tree")?
+                    .0;
+                let (total, held, dropped) = app.terrain_physics.tree_fruit_counts(tree);
+                ensure!(
+                    held > 0 && held < total,
+                    "kick did not request a partial fruit release"
+                );
+                log::info!("[TREE_KICK][PARTIAL_FRUIT] tree={tree} total={total} held={held} dropped={dropped}");
                 app.validate_tree_surface_pose()?;
                 app.tracer.validate_gpu_tree_surface()?;
                 let posed = app

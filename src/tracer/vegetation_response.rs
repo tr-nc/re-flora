@@ -10,7 +10,7 @@ use re_flora_vkn::{
 };
 use std::collections::HashMap;
 
-mod fruit_handoff;
+pub(super) mod fruit_handoff;
 mod leaves;
 pub(crate) mod morphology;
 mod validation;
@@ -151,6 +151,15 @@ pub(super) struct VegetationResponse {
 }
 
 impl VegetationResponse {
+    pub(super) fn held_fruit_source(&self) -> Option<(Buffer, [f32; 4], [u32; 4])> {
+        (self.enabled && self.comparison != "legacy" && self.grid.grid[3] >= 2.)
+            .then(|| {
+                self.previous_output
+                    .clone()
+                    .map(|buffer| (buffer, self.grid.grid, self.grid.shape))
+            })
+            .flatten()
+    }
     pub fn invalidate_history(&mut self) {
         // Reuse allocations, but do not attach old-world motion to restored identities.
         self.last_time = None;

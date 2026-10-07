@@ -127,7 +127,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Tree Kick",
         description: "Walk near a tree, aim at its wood and press K. Kick motion is independent of wind and never moves the physical collider. Impulse sets strength; speed and damping shape the rebound. These controls are saved with Debug Panel Save.",
         initially_open: false,
-        params: &["tree_kick_strength", "tree_kick_frequency", "tree_kick_damping", "tree_kick_reach", "tree_kick_cooldown"],
+        params: &["tree_kick_strength", "tree_kick_frequency", "tree_kick_damping", "tree_kick_reach", "tree_kick_cooldown", "tree_kick_fruit_fraction", "tree_kick_leaf_count"],
     },
     ControlGroup {
         parent: None,
