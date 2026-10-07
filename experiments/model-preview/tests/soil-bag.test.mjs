@@ -69,12 +69,17 @@ test('side flatness fills upper and lower shoulders without changing peak thickn
   }
 });
 
-test('side flatness defaults to the approved round profile and invalid or out-of-range values are bounded',()=>{
-  assert.equal(soilBagDefaults.sideFlatness,0);
-  const original=soilBagGeometry();assert.deepEqual(soilBagGeometry({sideFlatness:0}),original);
-  for(const value of [-1,NaN,Infinity,-Infinity])assert.deepEqual(soilBagGeometry({sideFlatness:value}),original);
+test('the selected flat profile is the recipe default and no preset exposes the retired side-flatness setting',()=>{
+  assert.equal(Object.hasOwn(soilBagDefaults,'sideFlatness'),false);
+  assert.deepEqual(soilBagGeometry(),soilBagGeometry({sideFlatness:1}),'new loads and resets use the selected flat profile');
+  for(const preset of soilBagPresets){
+    assert.equal(Object.hasOwn(preset.values,'sideFlatness'),false);
+    assert.deepEqual(soilBagGeometry(preset.values),soilBagGeometry({...preset.values,sideFlatness:1}));
+  }
+  // Keep explicit low-level inputs bounded for the geometry/shape regressions;
+  // they are no longer a page setting or a runtime model control.
+  for(const value of [-1,NaN,Infinity,-Infinity])assert.deepEqual(soilBagGeometry({sideFlatness:value}),soilBagGeometry({sideFlatness:0}));
   assert.deepEqual(soilBagGeometry({sideFlatness:2}),soilBagGeometry({sideFlatness:1}));
-  for(const preset of soilBagPresets)assert.equal(preset.values.sideFlatness,0);
 });
 
 test('actions are absolute and hold their end pose; pouring starts open and only flows with the mouth down',()=>{

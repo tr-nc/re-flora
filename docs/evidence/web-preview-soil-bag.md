@@ -79,6 +79,19 @@ env -u DISPLAY -u WAYLAND_DISPLAY AGENT_BROWSER_HEADED=true \
 
 本轮截图／QA JSON 在 `target/soil-bag-sticker-window-review/`，包括 `soil-bag-preview-sticker-{sprout,layers,flower}-{32,64,128}.png`、原始透明像素 PNG 和全部原有动作／布局截图，不提交图片。
 
+## 固定扁平侧面并移除控件
+
+按用户选择，页面袋型固定为此前 `sideFlatness=1`：几何配方默认 1，页面默认值／包装预设不再包含该字段，运行时不再从页面参数读取它；滑杆与调节说明一起移除。充盈度、Nearest 简洁贴纸与两个动作保持原有控制方式。纯几何接口保留显式形态输入，仅供已有形态／边界回归，不是隐藏页面设置。
+
+- 新的默认／预设守卫在旧代码上先复现字段仍存在（`true != false`），修改后 **48/48** Node 测试通过。
+- 与变更前 `0d09ad1a` 的显式 `sideFlatness=1` 对照 **108 组**开口／充盈度／贴纸大小／余土输入，全部位置、索引、UV、袋口与撕条信息精确相等，不重新设计用户选中的袋型。
+- 本轮窗口渲染全流程通过前三种图案的 32／64／128² 断言，包括无滑杆／无页面字段与真实 Nearest 材质检查；随后切换侧面时刷新等待超时，未产生完整通过的 QA JSON。诊断时页面 visible、WebGL 上下文未丢失、无浏览器错误，但 `dirty=true`、相机暂未同步，独立 `requestAnimationFrame` 也超时；截图请求后能观察到正确扁平侧面与已移除的控件。
+- 在同一私有窗口中切到未修改的苹果，侧面切换复现相同刷新等待超时；激活标签也未解决。因此没有修改共享时钟／渲染代码或将截图强制刷新加入测试来规避断言。此自动化窗口刷新问题仍未修复，不以该诊断冒充完整网页验收。
+- 另外独立检查默认 headless 路径，再次出现此前记录的 `THREE.WebGLRenderer: Context Lost.`（随后 Restored）；应用明确报告上下文丢失，全流程同样未通过。两种路径的失败均保留，没有重试到绿。
+- `cargo fmt --check`、`cargo check`、Release 构建和普通隐藏静音启动通过；首帧就绪、成功退出，无 ERROR／panic／VUID，仍有既有 fruit-physics hitch 警告。没有 Rust、shader 或生成文件变化，用户 GUI 配置逐字保持不变。
+
+部分窗口产物在 `target/soil-bag-fixed-profile-window-review/`，最小侧面诊断图为 `target/soil-bag-fixed-minimal-side.png`；独立 headless 产物在 `target/soil-bag-fixed-profile-headless-review/`。这些不是全流程通过记录，不提交图片；此前贴纸更新的 45 状态通过记录仍属于上一版本。
+
 ## 验收与后续
 
 本轮没有宣称用户已经批准、原生端已经接入或满足游戏性能预算。网页灯光不等于游戏光照，浏览器测试不是 Release 性能证据。

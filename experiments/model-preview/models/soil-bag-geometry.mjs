@@ -10,7 +10,7 @@ export const soilBagClips=[
   {name:'撕开一个袋口',duration:1.65,loop:false},
   {name:'袋口朝下 · 倾倒营养土',duration:3.8,loop:false},
 ];
-export const soilBagDefaults={bagColor:'#829477',labelColor:'#f5e9c6',inkColor:'#304c3c',stickerDesign:'sprout',fullness:1,sideFlatness:0,labelScale:1};
+export const soilBagDefaults={bagColor:'#829477',labelColor:'#f5e9c6',inkColor:'#304c3c',stickerDesign:'sprout',fullness:1,labelScale:1};
 export const soilBagPresets=[
   {name:'林下营养土',values:{...soilBagDefaults}},
   {name:'育苗基质',values:{...soilBagDefaults,bagColor:'#bd956d',labelColor:'#ffefcc',inkColor:'#63513e',stickerDesign:'layers',fullness:.85}},
@@ -45,7 +45,8 @@ function surface(v,angle,opening,fullness,sideFlatness){
   return [x,v*HEIGHT-TOP,z];
 }
 
-export function soilBagGeometry({opening=0,fullness=1,sideFlatness=0,labelScale=1,fill=1}={}){
+// The selected side profile is 1; explicit alternatives remain only for shape regressions.
+export function soilBagGeometry({opening=0,fullness=1,sideFlatness=1,labelScale=1,fill=1}={}){
   opening=clamp(opening,0,1);fullness=clamp(fullness,.35,1.25);sideFlatness=clamp(sideFlatness,0,1);labelScale=clamp(labelScale,.7,1.08);fill=clamp(fill,0,1);
   const body=part('Soft pouch with gussets','bag'),rows=[];
   for(let r=0;r<=16;r++)rows.push(angles.map(angle=>body.v(surface(r/16,angle,opening,fullness,sideFlatness),[angle/TAU,r/16])));
