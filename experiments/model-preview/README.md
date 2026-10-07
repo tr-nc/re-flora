@@ -15,6 +15,7 @@ node scripts/serve-model-preview.mjs
 - 参数化花型：`wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`coneflower`、`tulip`、`white-geranium`、`gillenia`。
 - 新候选：`four-petal`（四瓣蓝白）、`five-star`（五瓣尖星）、`custom-flower`（自定义花朵）。顶部下拉框也可选择。
 - 仅网页动物：`bee`（蜜蜂）、`sparrow`（圆身麻雀风格）、`swallow`（长尾燕子风格）。
+- 营养土袋网页候选：`soil-bag`（包装预设、换色、贴纸导入、撕开与倾倒动作）。
 - `?model=star-strawberry` 旧书签仍规范化为 `gillenia`。
 - `&variant=compare` / `model` / `pixel` 切换布局。
 
@@ -54,6 +55,19 @@ node scripts/serve-model-preview.mjs
 
 落叶／蝴蝶仍读取正式 GLB，苹果仍读取共用 `apple-source.mjs`；修改正式配方需遵守 [资产发布规则](../../assets/models/README.md)。网页灯光和尺寸不是游戏最终效果，也不是 Release 性能证据。
 
+## 营养土袋 · 网页验收候选
+
+打开 `http://127.0.0.1:8765/model-preview/?model=soil-bag`（端口可由 `--port` 改）。先选包装预设，再调袋色、充盈度、贴纸底色／内置图案色和大小。三种内置贴纸可直接切换，也可导入 PNG／JPG／WebP；图片保留比例，透明部分铺在贴纸底色上，仍是共享管线支持的不透明贴图，不增加 alpha/cutout 特例。文件限 8 MB、边长 8192。自定义图片不受内置图案色控制。
+
+- “撕开一个袋口”：从完整封口开始，只分开右上角的一处真实几何开口；左侧封口保留，撕条仍连接在袋上。
+- “袋口朝下 · 倾倒营养土”：独立片段，从已开口姿态开始；开口法线朝下才显示粗略土流，土流从同一个实际袋口沿世界重力下落，再收回袋子，保留开口。
+- 两个动作共用时间轴，播放一次后保持精确末帧，再点播放重播；相位／逐帧可检查。既有蝴蝶和动物片段仍默认循环。
+- 土流只示意出土位置与方向，**没有土块粒子／碰撞／地面沉积动画**。印刷的“2 L”只是包装文字，不是库存或实际出土量。
+- 袋子、贴纸和土流复用同一个 `pipeline.js` 与通用后处理 A/B。袋体一组、独立土流一组，不为袋子复制渲染器、相机或时钟。默认 64²、固定取景包含两个动作，不逐帧自动撑满画布。
+- 调整与导入仅在页面内存，切换模型／恢复默认后清除；不恢复花朵贴纸编辑器，也不自动保存工程或发布资产。
+
+**当前只验收网页外观与动作，不替换游戏 Soil 工具，不改堆土、库存、肥力或出土节奏。** 批准后才统一发布双端资产并接入游戏交互。候选的动态袋口顶点／贴纸需要明确的发布适配，不能假称已经是原生 GLB/TRS 加载器可直接使用的成品。验证见 [营养土袋网页验证](../../docs/evidence/web-preview-soil-bag.md)。
+
 ## 仅网页动物
 
 新增一只蜜蜂和两种小鸟；**小狗已取消**。均为本仓库原创程序化低模，无下载模型／贴图，无游戏注册或行为逻辑。
@@ -77,14 +91,18 @@ node scripts/serve-model-preview.mjs
 | `assets/models/palette-mask.mjs` | 两端共用的权重模板、验证、线性 palette 混色 |
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
 | `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
+| `models/soil-bag-geometry.mjs` / `soil-bag.js` / `soil-bag-stickers.js` | 营养土袋候选几何／绝对动作、Three.js 适配、可替换的不透明贴纸；仅网页 |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度与透明合成，不另建 renderer |
 | `geometry.js` / `connectivity.mjs` / `postprocess.mjs` | 当前姿态几何投影、分组连通与通用修复 |
-| `timeline.mjs` | 共用静态／动画时间采样 |
+| `timeline.mjs` | 共用静态／循环／一次性动作的时间采样与逐帧 |
 
 新模型定义注册到 `models/index.js`，提供：
 
-- `id`、`label`、`defaults`、`controls`（range / checkbox / color / select / note）、`preview`。
+- `id`、`label`、`defaults`、`controls`（range / checkbox / color / select / note / image）、`preview`。
+- 可选 `colorPresets: [{name,colors}]`（仍仅覆盖颜色），或 `presets: [{name,values}]` / `presetLabel`（覆盖明确的模型参数）。
+- `image` 控件调用模型的异步 `importImage(key,file)`，返回要合并的参数或 `null`；导入失败显示错误，模型切换后不应用旧结果。模型拥有并释放图片资源。
+- `clips` 可声明 `loop:false` 来保持精确末帧；未声明时沿用循环。可选 `stateDescription` / `reviewState()` 提供当前姿态说明与浏览器验收数据。
 - `async create()` → `scene`、`meshes`、固定 `view`、`clips`、`apply(settings)`、可跳到任意时刻的 `sample(time,clip)`、`preparePass`、`shadows`、`description`、`dispose()`。
 - `repairGroups: [{id,label,meshes}]`；非零唯一 ID，一个 mesh 只归一组，不能把不应相连的对象硬缝起来。
 - 花头可提供 `pixelParts: [{id,label,meshes,center,span,anchor}]`；完整花头与同 ID repair group 匹配，center/span 是旋转安全固定包围，不另建姿态或相机权威。
@@ -100,8 +118,10 @@ node experiments/model-preview/tests/browser.cjs
 node experiments/model-preview/tests/flowers-browser.cjs
 node experiments/model-preview/tests/head-platform-browser.cjs
 node experiments/model-preview/tests/animals-browser.cjs
+# 需要 agent-browser；独立本地服务／私有浏览器会话，结束时自动关闭
+node experiments/model-preview/tests/soil-bag-browser.mjs
 ```
 
 支持 `CHROME_EXECUTABLE` / `PREVIEW_ARTIFACT_DIR`。脚本自行创建／关闭服务与 headless Chrome；不启动游戏，不保存 GUI 设置。
 
-完整 Node 套件：34 个纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。不提交二进制截图。游戏的性能和美术接受需另行验证。
+完整 Node 套件：42 个语法／纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认花型没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。营养土袋额外验证 32 个网页状态，覆盖真实 HEX 改色、内置／自定义贴纸与导入失败恢复、末帧／重播／奇数 FPS 逐帧、重力流向、共享 A/B／分辨率／视向、三轮旧模型切换和资源计数、390px 移动布局；产物在 `target/soil-bag-preview-review/`。不提交二进制截图。游戏的性能和美术接受需另行验证。

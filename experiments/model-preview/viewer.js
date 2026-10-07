@@ -3,7 +3,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {PreviewPipeline} from './pipeline.js';
 import {PART_COMPOSITE_SIZE} from './part-composite.js';
 import {modelDefinitions,definitionFor} from './models/index.js';
-import {sampleTime,advanceTime} from './timeline.mjs';
+import {sampleTime,advanceTime,stepTime} from './timeline.mjs';
 import {projectGroups} from './geometry.js';
 import './color-picker.js';
 
@@ -15,7 +15,11 @@ const state={ready:false,loading:false,failed:false,model:'leaf',dirty:true,play
 
 function message(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error);}
 function dirty(){state.dirty=true;}
-function setPlaying(value){state.playing=value&&Boolean(asset?.clips.length);$('play').textContent=state.playing?'暂停':'播放';$('play').setAttribute('aria-pressed',String(state.playing));last=performance.now();}
+function setPlaying(value){
+  const clip=asset?.clips[state.clip];
+  if(value&&clip?.loop===false&&state.time>=clip.duration){state.time=0;dirty();}
+  state.playing=value&&Boolean(clip?.duration>0);$('play').textContent=state.playing?'暂停':'播放';$('play').setAttribute('aria-pressed',String(state.playing));last=performance.now();
+}
 function cameraFor(kind){
   const near=asset?.view.near??.05,far=asset?.view.far??100;
   return kind==='perspective'?new THREE.PerspectiveCamera(35,1,near,far):new THREE.OrthographicCamera(-1.7,1.7,1.7,-1.7,near,far);
@@ -64,6 +68,14 @@ function setVariant(value){
 function updateURL(){const url=new URL(location.href);url.searchParams.set('model',state.model);url.searchParams.set('variant',state.variant);history.replaceState(null,'',url);}
 function cycleVariant(direction){const options=['compare','model','pixel'];setVariant(options[(options.indexOf(state.variant)+direction+3)%3]);}
 function updateBackground(){document.documentElement.style.setProperty('--stage',state.background);document.body.classList.toggle('checker',state.checker);}
+function syncModelControlValues(){
+  for(const schema of definition.controls){
+    if(['note','image'].includes(schema.type))continue;
+    const input=$(`model-${schema.key}`);if(!input)continue;
+    if(schema.type==='checkbox')input.checked=modelSettings[schema.key];else input.value=modelSettings[schema.key];
+    const output=$(`model-${schema.key}-value`);if(output)output.textContent=modelSettings[schema.key];
+  }
+}
 function buildModelControls(){
   $('model-controls').replaceChildren();
   for(const schema of definition.controls){
@@ -80,32 +92,47 @@ function buildModelControls(){
       label.textContent=schema.label;input.setAttribute('label',schema.label);input.setAttribute('value',modelSettings[schema.key]);
     }else if(schema.type==='checkbox'){
       input.type='checkbox';input.checked=modelSettings[schema.key];label.append(input,document.createTextNode(` ${schema.label}`));
+    }else if(schema.type==='image'){
+      label.htmlFor=input.id;label.textContent=schema.label;input.type='file';input.accept=schema.accept??'image/*';
     }else{
       label.htmlFor=input.id;label.textContent=schema.label;
       const output=document.createElement('output');output.id=`model-${schema.key}-value`;output.textContent=modelSettings[schema.key];label.append(output);
       input.type='range';input.min=schema.min;input.max=schema.max;input.step=schema.step;input.value=modelSettings[schema.key];
     }
     $('model-controls').append(label);if(schema.type!=='checkbox')$('model-controls').append(input);
-    input.addEventListener('input',()=>{
+    if(schema.type==='image'){
+      input.addEventListener('change',async()=>{
+        const file=input.files?.[0],receiver=asset;if(!file)return;
+        input.disabled=true;
+        try{
+          const patch=await receiver.importImage(schema.key,file);
+          if(asset!==receiver||patch===null)return;
+          Object.assign(modelSettings,patch);syncModelControlValues();asset.apply(modelSettings);dirty();
+          message(`${asset.description} · 已导入：${file.name}`);
+        }catch(error){if(asset===receiver)message(`图片导入失败：${error.message}`,true);}
+        finally{if(asset===receiver)input.disabled=state.loading||state.failed;}
+      });continue;
+    }
+    input.addEventListener(schema.type==='select'?'change':'input',()=>{
       modelSettings[schema.key]=['color','select'].includes(schema.type)?input.value:schema.type==='checkbox'?input.checked:Number(input.value);
       const output=$(`model-${schema.key}-value`);if(output)output.textContent=modelSettings[schema.key];asset.apply(modelSettings);dirty();
     });
   }
-  if(definition.colorPresets){
+  const presets=definition.presets??definition.colorPresets;
+  if(presets){
     const section=document.createElement('div');section.className='color-presets';
-    const title=document.createElement('strong');title.textContent='配色预设 · 仅覆盖颜色';section.append(title);
+    const title=document.createElement('strong');title.textContent=definition.presetLabel??(definition.presets?'模型参数预设':'配色预设 · 仅覆盖颜色');section.append(title);
     const buttons=document.createElement('div');buttons.className='preset-buttons';section.append(buttons);
-    for(const preset of definition.colorPresets){
+    for(const preset of presets){
       const button=document.createElement('button');button.type='button';button.textContent=preset.name;
       button.dataset.preset=preset.name;
       button.addEventListener('click',()=>{
-        Object.assign(modelSettings,preset.colors);
-        for(const [key,color] of Object.entries(preset.colors))$(`model-${key}`).value=color;
+        Object.assign(modelSettings,preset.values??preset.colors);syncModelControlValues();
         asset.apply(modelSettings);dirty();
       });
       buttons.append(button);
     }
-    $('model-controls').append(section);
+    if(definition.presets)$('model-controls').prepend(section);else $('model-controls').append(section);
   }
 }
 function syncControls(){
@@ -124,7 +151,8 @@ function syncControls(){
   for(const [index,clip]of (asset?.clips??[]).entries())$('clip').add(new Option(clip.name,String(index)));
   if(!asset?.clips.length)$('clip').add(new Option('无动画','0'));
   $('clip').value=state.clip;
-  $('phase').max=Math.max(0,Math.ceil((asset?.clips[state.clip]?.duration??0)*1000)-1);
+  const clip=asset?.clips[state.clip];
+  $('phase').max=Math.max(0,Math.ceil((clip?.duration??0)*1000)-(clip?.loop===false?0:1));
   const disabled=!state.ready||state.loading||state.failed;
   for(const element of document.querySelectorAll('button,input,select'))if(element.id!=='model')element.disabled=disabled;
   for(const id of ['play','previous-frame','next-frame','clip','phase','fps','speed'])$(id).disabled=disabled||!asset?.clips.length;
@@ -153,9 +181,10 @@ async function loadModel(id){
 function render(){
   const triangles=asset.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0);
   $('geometry-info').textContent=`${triangles} 三角形 · ${asset.repairGroups.length} 个补点组`;
-  const duration=asset.clips[state.clip]?.duration??0,time=sampleTime(state.time,duration,state.fps);
+  const clip=asset.clips[state.clip],duration=clip?.duration??0,time=sampleTime(state.time,duration,state.fps,clip?.loop!==false);
   syncPixelCamera();
   const frame=pipeline.render(asset,camera,pixelCamera,{time,clip:state.clip,wireframe:state.wireframe,conservativeCoverage:state.conservativeCoverage});
+  $('model-info').textContent=asset.stateDescription??definition.label;
   $('phase').value=Math.floor(state.time*1000);$('phase-value').textContent=duration?`${time.toFixed(3)} / ${duration.toFixed(3)} s`:'静态模型 · t = 0';
   let repairMessage=state.conservativeCoverage?'通用保守覆盖 + 八邻接补点':'旧八邻接补点';
   if(frame.repair){
@@ -177,9 +206,10 @@ function tick(now){
   if(state.ready&&!state.loading&&!state.failed){
     try{
       if(state.playing){
-        const duration=asset.clips[state.clip].duration;
-        state.time=advanceTime(state.time,delta,duration,state.speed);
-        if(sampleTime(state.time,duration,state.fps)!==pipeline.last?.pixelTime)dirty();
+        const clip=asset.clips[state.clip],loop=clip.loop!==false;
+        state.time=advanceTime(state.time,delta,clip.duration,state.speed,loop);
+        if(sampleTime(state.time,clip.duration,state.fps,loop)!==pipeline.last?.pixelTime)dirty();
+        if(!loop&&state.time>=clip.duration)setPlaying(false);
       }
       if(state.rotate){camera.position.sub(target).applyAxisAngle(new THREE.Vector3(0,1,0),Math.min(delta,.05)*.4).add(target);camera.lookAt(target);controls.forEach(control=>control.update());dirty();}
       if(state.dirty)render();
@@ -190,9 +220,8 @@ function tick(now){
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function stepFrame(direction){
   if(!asset?.clips.length)return;setPlaying(false);
-  const duration=asset.clips[state.clip].duration,count=Math.ceil(duration*state.fps);
-  const index=Math.floor((sampleTime(state.time,duration,state.fps)+1e-10)*state.fps);
-  state.time=((index+direction+count)%count)/state.fps;dirty();
+  const clip=asset.clips[state.clip];
+  state.time=stepTime(state.time,clip.duration,state.fps,direction,clip.loop!==false);dirty();
 }
 function init(){
   pipeline=new PreviewPipeline(sourceCanvas,pixelCanvas);camera=cameraFor('orthographic');
@@ -249,7 +278,7 @@ window.readModelPreview=(includeGeometry=false)=>({
     ...(includeGeometry?{rgba:Array.from(tile.rgba),original:Array.from(tile.original),depth:Array.from(tile.depth),projectedGroups:tile.projectedGroups}:{}),
   })),
   rendererMemory:pipeline?{source:{...pipeline.source.info.memory},pixel:{...pipeline.pixel.info.memory}}:null,
-  clips:asset?.clips,meshes:asset?.meshes.map(mesh=>mesh.name),
+  clips:asset?.clips,modelReview:asset?.reviewState?.(),meshes:asset?.meshes.map(mesh=>mesh.name),
   triangles:asset?.meshes.reduce((sum,mesh)=>sum+(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3,0),
   ...(includeGeometry&&asset?{projectedGroups:projectGroups(asset,pixelCamera,state.resolution),originalRgba:Array.from(pipeline?.last?.original??[]),owners:Array.from(pipeline?.last?.owners??[])}:{}),
 });
