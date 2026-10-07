@@ -98,7 +98,7 @@ impl RasterTreeSmoke {
                 }
                 if self.frame >= 60 {
                     ensure!(
-                        app.tracer.raster_trees.posed_surface.is_some(),
+                        app.tracer.raster_trees.gpu_wind_active,
                         "wind surface not published"
                     );
                 }
@@ -146,7 +146,7 @@ impl RasterTreeSmoke {
             }
             88 => {
                 ensure!(
-                    app.tracer.raster_trees.posed_surface.is_none(),
+                    !app.tracer.raster_trees.gpu_wind_active,
                     "wind toggle did not restore rest surface"
                 );
                 app.tracer.validate_gpu_tree_surface()?;
@@ -190,7 +190,7 @@ impl RasterTreeSmoke {
             }
             135 => {
                 ensure!(
-                    app.tracer.raster_trees.posed_surface.is_none(),
+                    !app.tracer.raster_trees.gpu_wind_active,
                     "wind did not restore static surface"
                 );
                 app.tracer.validate_gpu_tree_surface()?;

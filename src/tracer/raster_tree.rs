@@ -512,8 +512,10 @@ pub struct RasterTreeGeometry {
     pub attachment_poses: Vec<BranchPose>,
     pub previous_attachment_poses: Vec<BranchPose>,
     pub attachment_dt: f32,
+    /// Render/query activation does not depend on retaining a CPU reference.
+    pub gpu_wind_active: bool,
+    /// Opt-in CPU oracle only; absent on normal gameplay frames.
     pub posed_surface: Option<PosedTreeSurface>,
-    pub(crate) pose_scratch: Option<PosedTreeSurface>,
 }
 
 impl RasterTreeGeometry {
@@ -538,8 +540,8 @@ impl RasterTreeGeometry {
             attachment_poses: Vec::new(),
             previous_attachment_poses: Vec::new(),
             attachment_dt: 0.,
+            gpu_wind_active: false,
             posed_surface: None,
-            pose_scratch: None,
         }
     }
     fn buffer(
@@ -593,6 +595,10 @@ impl RasterTreeGeometry {
             data.len() == self.rest_mesh.vertices.len() * 2,
             "GPU tree surface size mismatch"
         );
+        ensure!(
+            !self.gpu_wind_active || self.posed_surface.is_some(),
+            "GPU wind validation needs an explicit CPU oracle"
+        );
         let mut max_position_error = 0.0_f32;
         let mut max_normal_error = 0.0_f32;
         for (i, vertex) in self.rest_mesh.vertices.iter().enumerate() {
@@ -600,7 +606,7 @@ impl RasterTreeGeometry {
                 .posed_surface
                 .as_ref()
                 .map_or(Vec3::from(vertex.position), |s| s.position(i));
-            let normal = if self.posed_surface.is_some() {
+            let normal = if self.gpu_wind_active {
                 let [branch, parent, weight, _] = self.skin.bindings[i];
                 SkinBinding {
                     branch: branch as usize,
@@ -633,7 +639,7 @@ impl RasterTreeGeometry {
         );
         log::info!("[TREE][GPU_SKIN] vertices={} elements={} bones={} active={} position_error={} normal_error={}",
             self.rest_mesh.vertices.len(), self.skin.bindings.len(), self.skin.branches.len(),
-            self.posed_surface.is_some(), max_position_error, max_normal_error);
+            self.gpu_wind_active, max_position_error, max_normal_error);
         Ok(())
     }
 

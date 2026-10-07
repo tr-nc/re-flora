@@ -328,7 +328,7 @@ impl Tracer {
             terrain,
             trees: self.surface_picker.generation,
             enabled: self.raster_trees.enabled,
-            wind: self.raster_trees.posed_surface.is_some(),
+            wind: self.raster_trees.gpu_wind_active,
         }
     }
     pub(crate) fn request_surface_pick(

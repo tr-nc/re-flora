@@ -87,22 +87,13 @@ impl Tracer {
         if self.raster_trees.publication_valid
             && self.raster_trees.rest_mesh.same_surface(mesh)
             && self.raster_trees.attachments == attachments
-            && self.raster_trees.posed_surface.is_some() == wind_active
+            && self.raster_trees.gpu_wind_active == wind_active
             && (!wind_active
                 || (same_poses(&skin.poses, &self.raster_trees.skin.poses)
                     && same_poses(&attachment_poses, &self.raster_trees.attachment_poses)))
         {
             return Ok(None);
         }
-        let posed_surface = if wind_active {
-            Some(mesh.posed_surface(&poses)?)
-        } else {
-            None
-        };
-        ensure!(
-            posed_surface.as_ref().is_none_or(|s| s.is_finite()),
-            "nonfinite prepared tree surface"
-        );
         let positions: Vec<Vec3> = mesh.rest_positions().collect();
         let scene = TreeScene::new(&mesh.indices, &positions)?;
         let refit = scene.refit_schedule();
@@ -241,8 +232,8 @@ impl Tracer {
             previous_attachment_poses: attachment_poses.clone(),
             attachment_poses,
             attachment_dt: 0.,
-            posed_surface,
-            pose_scratch: None,
+            gpu_wind_active: wind_active,
+            posed_surface: None,
         };
         self.descriptor_generation
             .checked_add(1)

@@ -1014,61 +1014,9 @@ impl App {
                 });
             }
         }
-        if self.tracer.raster_trees.posed_surface.is_none() {
-            return terrain;
-        }
-        let cells = &self.tracer.raster_trees.rest_mesh.solid_cells;
-        for _ in 0..2048 {
-            let Some(hit) = terrain else {
-                break;
-            };
-            let cell = ((hit.position + direction * 1e-6) * 256.)
-                .floor()
-                .as_uvec3();
-            if hit.voxel_type != 5 || !cells.contains(&cell.to_array()) {
-                break;
-            }
-            let lower = cell.as_vec3() / 256.;
-            let upper = lower + Vec3::splat(1. / 256.);
-            let mut advance = f32::INFINITY;
-            for axis in 0..3 {
-                if direction[axis].abs() > 1e-8 {
-                    let face = if direction[axis] > 0. {
-                        upper[axis]
-                    } else {
-                        lower[axis]
-                    };
-                    advance = advance.min((face - hit.position[axis]) / direction[axis]);
-                }
-            }
-            terrain = self.contree_builder.query_terrain_ray_cpu(
-                hit.position + direction * (advance.max(0.) + 1e-6),
-                direction,
-            );
-        }
-        if let Some(hit) = self.query_tree_surface_ray(origin, direction) {
-            if terrain.is_none_or(|terrain| hit.distance < terrain.position.distance(origin)) {
-                return Some(crate::builder::ContreeCpuRayHit {
-                    position: hit.world_position,
-                    voxel_type: 5,
-                });
-            }
-        }
+        // Grounding, footsteps, water and camera landing use authoritative rest
+        // terrain. Visual pointer queries have a separate GPU-owned path.
         terrain
-    }
-
-    pub(super) fn query_tree_surface_ray(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-    ) -> Option<crate::tree_gen::skin::SurfaceHit> {
-        let surface = self.tracer.raster_trees.posed_surface.as_ref()?;
-        self.tracer.raster_trees.raycast(
-            origin,
-            direction,
-            self.terrain_physics
-                .tree_ray_candidates(origin, direction, surface.query_margin()),
-        )
     }
 
     fn tree_edit_rest_center(&self, center: Vec3) -> Option<Vec3> {

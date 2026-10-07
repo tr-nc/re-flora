@@ -93,7 +93,7 @@ impl TreeScaleDiagnostic {
             app.tracer
                 .validate_gpu_tree_lighting(true)
                 .expect("tree scale GPU lighting agreement");
-            if app.tracer.raster_trees.posed_surface.is_some() {
+            if app.tracer.raster_trees.gpu_wind_active {
                 app.validate_tree_surface_queries(false)
                     .expect("tree scale collision/query agreement");
             }

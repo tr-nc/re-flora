@@ -1771,7 +1771,7 @@ impl Tracer {
             Extent3D::new(self.raster_trees.skin.bindings.len() as u32, 1, 1),
             None,
         );
-        if self.raster_trees.posed_surface.is_some() {
+        if self.raster_trees.gpu_wind_active {
             for range in &self.raster_trees.refit.levels {
                 self.pipeline_topology.compute().tree_refit_ppl.record(
                     cmdbuf,
@@ -6684,7 +6684,7 @@ impl Tracer {
             &gui,
             roots,
         )?;
-        if self.raster_trees.posed_surface.is_some() {
+        if self.raster_trees.gpu_wind_active {
             for (&root, (offset, velocity)) in roots.iter().zip(&mut handoffs) {
                 if let Some(index) = self
                     .raster_trees
@@ -6710,7 +6710,7 @@ impl Tracer {
     }
 
     pub(crate) fn attached_fruit_rotation(&self, root: UVec3) -> (glam::Quat, Vec3) {
-        if self.raster_trees.posed_surface.is_some() {
+        if self.raster_trees.gpu_wind_active {
             if let Some(index) = self
                 .raster_trees
                 .attachments
@@ -6915,7 +6915,7 @@ impl Tracer {
         if bytes == 0 {
             return Ok(());
         }
-        let node_bytes = if self.raster_trees.posed_surface.is_some() {
+        let node_bytes = if self.raster_trees.gpu_wind_active {
             self.raster_trees.scene.nodes.len() as u64 * 32
         } else {
             0
@@ -7005,7 +7005,12 @@ impl Tracer {
     }
 
     /// Called after acquiring the sole in-flight frame; previous readers have completed.
-    pub fn publish_tree_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
+    pub fn publish_tree_surface(
+        &mut self,
+        active: bool,
+        reference: Option<PosedTreeSurface>,
+    ) -> Result<()> {
+        let surface = reference;
         if let Some(ref posed) = surface {
             anyhow::ensure!(posed.is_finite(), "nonfinite CPU tree surface");
             anyhow::ensure!(
@@ -7013,13 +7018,16 @@ impl Tracer {
                 "tree surface topology mismatch"
             );
         }
-        let active = surface.is_some();
+        anyhow::ensure!(
+            active || surface.is_none(),
+            "disabled GPU wind has a posed CPU reference"
+        );
+        self.raster_trees.gpu_wind_active = active;
         if !active {
             self.raster_trees.attachment_poses.clear();
             self.raster_trees.previous_attachment_poses.clear();
         }
-        self.raster_trees.pose_scratch =
-            std::mem::replace(&mut self.raster_trees.posed_surface, surface);
+        self.raster_trees.posed_surface = surface;
         self.resources.tree.tree_scene_info.fill(&[[
             u32::from(active),
             self.raster_trees.scene.nodes.len() as u32,

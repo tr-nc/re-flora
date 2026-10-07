@@ -3831,7 +3831,6 @@ impl App {
             .collect();
         let mut checked = 0;
         for ray in rays {
-            let cpu = self.query_terrain_ray_cpu(ray.origin, ray.direction);
             let gpu = self.tracer.query_terrain_ray_with_validity(ray)?;
             let mapped: Option<crate::tracer::SurfacePickHit> =
                 self.tracer.query_surface_pick_now(ray)?;
@@ -3846,23 +3845,21 @@ impl App {
                 );
                 if let Some(rest) = hit.tree_rest_position() {
                     let reference = self
-                        .query_tree_surface_ray(ray.origin, ray.direction)
+                        .tracer
+                        .raster_trees
+                        .raycast(
+                            ray.origin,
+                            ray.direction,
+                            0..self.tracer.raster_trees.scene.primitives.len() as u32,
+                        )
                         .context("GPU tree pick has no reference surface hit")?;
                     anyhow::ensure!(
-                        rest.distance(reference.rest_position) < 0.00003,
+                        rest.distance(reference.rest_position) < 0.00003
+                            && hit.world_position.distance(reference.world_position) < 0.00003,
                         "GPU barycentric rest pick differs from CPU reference"
                     );
+                    checked += 1;
                 }
-            }
-            if let Some(cpu) = cpu {
-                anyhow::ensure!(
-                    gpu.is_valid && cpu.position.distance(gpu.position) < 0.00003,
-                    "dynamic tree CPU/GPU query mismatch cpu={:?} gpu={:?} valid={}",
-                    cpu.position,
-                    gpu.position,
-                    gpu.is_valid
-                );
-                checked += 1;
             }
         }
         anyhow::ensure!(checked >= 4, "insufficient dynamic surface query samples");
@@ -3886,8 +3883,16 @@ impl App {
         let target = surface.position(index);
         let origin = target + Vec3::new(0.003, 0.02, 0.003);
         let hit = self
-            .query_tree_surface_ray(origin, (target - origin).normalize())
-            .context("posed tree edit fixture missed")?;
+            .tracer
+            .query_surface_pick_now(crate::tracer::TerrainRayQuery {
+                origin,
+                direction: (target - origin).normalize(),
+            })?
+            .context("GPU posed tree edit fixture missed")?;
+        anyhow::ensure!(
+            hit.tree_primitive.is_some(),
+            "posed edit did not pick GPU wood"
+        );
         let readback = self.apply_surface_terrain_removal(
             TerrainRemovalEdit {
                 center: hit.rest_position,
@@ -3912,20 +3917,23 @@ impl App {
 
     pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
         let started = Instant::now();
-        let surface = if self.tracer.raster_trees.enabled
-            && self.debug_settings.adjustables.raster_tree_wind.value
-        {
-            let scratch = self.tracer.raster_trees.pose_scratch.take();
-            Some(self.tracer.raster_trees.rest_mesh.posed_surface_reusing(
-                |id| self.trees.records.get(&id).map(|r| r.pose.branches()),
-                scratch,
-            )?)
+        let active = self.tracer.raster_trees.enabled
+            && self.debug_settings.adjustables.raster_tree_wind.value;
+        // Full CPU geometry is a hidden smoke oracle, never an input to live
+        // picking, physics, GPU skin/refit, attachments, or their activation.
+        let surface = if active && self.launch_owners.raster_tree_smoke.is_some() {
+            Some(
+                self.tracer
+                    .raster_trees
+                    .rest_mesh
+                    .posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?,
+            )
         } else {
             None
         };
         let skin_us = started.elapsed().as_secs_f64() * 1e6;
         let palette_started = Instant::now();
-        if surface.is_some() {
+        if active {
             self.tracer.publish_tree_skin_poses(|id| {
                 self.trees
                     .records
@@ -3949,7 +3957,7 @@ impl App {
         }
         let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
         let query_started = Instant::now();
-        self.tracer.publish_tree_surface(surface)?;
+        self.tracer.publish_tree_surface(active, surface)?;
         let query_us = query_started.elapsed().as_secs_f64() * 1e6;
         if self.perf_logging {
             let pose = &self.tracer.tree_pose_solver.timings;
@@ -3961,12 +3969,19 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
+    pub(super) fn validate_tree_surface_pose(&mut self) -> Result<()> {
         let mesh = &self.tracer.raster_trees.rest_mesh;
         self.terrain_physics.validate_tree_rest_collision(mesh)?;
-        let surface =
-            mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
-        anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");
+        let reference = if self.tracer.raster_trees.gpu_wind_active {
+            Some(mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?)
+        } else {
+            None
+        };
+        anyhow::ensure!(
+            reference.as_ref().is_none_or(|s| s.is_finite()),
+            "nonfinite posed tree position"
+        );
+        self.tracer.raster_trees.posed_surface = reference;
         // Normals are validated against the GPU surface by the smoke readback;
         // normal frames no longer construct an unused CPU shading-normal array.
         Ok(())
