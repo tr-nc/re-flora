@@ -593,7 +593,7 @@ label = "Tree kick reach (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 30
+value = 100
 min = 16
 max = 100
 
@@ -604,7 +604,7 @@ label = "Tree kick cooldown (seconds)"
 type = "Float"
 
 [section.param.data]
-value = 0.35
+value = 0.15
 min = 0.15
 max = 1.5
 
@@ -615,7 +615,7 @@ label = "Tree kick wave speed (voxels/s, low = slower)"
 type = "Float"
 
 [section.param.data]
-value = 600
+value = 550
 min = 100
 max = 2000
 
@@ -626,7 +626,7 @@ label = "Tree kick fruit release chance scale"
 type = "Float"
 
 [section.param.data]
-value = 0.25
+value = 0.5
 min = 0
 max = 1
 
@@ -637,7 +637,7 @@ label = "Tree kick decorative leaves per burst"
 type = "Int"
 
 [section.param.data]
-value = 24
+value = 16
 min = 0
 max = 128
 
@@ -648,7 +648,7 @@ label = "Tree kick leaf rustle volume (dB)"
 type = "Float"
 
 [section.param.data]
-value = -6
+value = -3
 min = -40
 max = 6
 
@@ -659,7 +659,7 @@ label = "Tree kick leaf rustle tail (seconds)"
 type = "Float"
 
 [section.param.data]
-value = 1.1
+value = 2
 min = 0.25
 max = 3
 
@@ -670,7 +670,7 @@ label = "Leaf rustle body (low = crisper)"
 type = "Float"
 
 [section.param.data]
-value = 0.28
+value = 0.5
 min = 0
 max = 1.5
 
@@ -681,7 +681,7 @@ label = "Tree kick leaf rustle brightness"
 type = "Float"
 
 [section.param.data]
-value = 0.42
+value = 1
 min = 0
 max = 1
 
@@ -692,7 +692,7 @@ label = "Tree kick leaf contact detail (low = softer)"
 type = "Float"
 
 [section.param.data]
-value = 0.18
+value = 0.2
 min = 0
 max = 1
 
