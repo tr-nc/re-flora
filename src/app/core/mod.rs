@@ -39,6 +39,7 @@ mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
 mod soil_deposition;
+mod soil_performance_bench;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -464,6 +465,7 @@ pub struct App {
     camera_snapshot_error: Option<String>,
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
+    soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
     card_display_visible: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_smooth_icon: Option<TextureHandle>,
@@ -1562,6 +1564,7 @@ impl App {
             camera_snapshot_error: None,
             frame_timing_panel_visible: render.perf_logging,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
+            soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
             card_display_visible: false,
             item_panel_shovel_icon: None,
             item_panel_smooth_icon: None,
@@ -3241,6 +3244,8 @@ impl App {
                     log::error!("Failed to rebuild resident tree rustle clip: {err:#}");
                 }
 
+                self.advance_soil_performance_bench()
+                    .expect("soil performance replay");
                 if TreeBench::run_next(self) {
                     self.on_terminate(event_loop);
                     return;
@@ -4035,6 +4040,13 @@ impl App {
                             water_terrain.cache_inflight,
                         );
                     }
+                }
+                if self
+                    .finish_soil_performance_bench_frame(frame_timing_snapshot)
+                    .expect("soil performance frame and conservation")
+                {
+                    self.on_terminate(event_loop);
+                    return;
                 }
                 let complete = self
                     .observe_completed_connectivity_benchmark_frame(frame_timing_snapshot)
