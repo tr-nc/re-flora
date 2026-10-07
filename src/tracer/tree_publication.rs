@@ -21,9 +21,6 @@ impl PreparedRasterTreePublication {
     pub(crate) fn mesh(&self) -> &RasterTreeMesh {
         &self.geometry.rest_mesh
     }
-    pub(crate) fn surface(&self) -> Option<&super::PosedTreeSurface> {
-        self.geometry.posed_surface.as_ref()
-    }
 }
 
 impl Tracer {

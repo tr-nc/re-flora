@@ -321,6 +321,16 @@ impl RasterTreeMesh {
         Ok(())
     }
 
+    /// Immutable, compact no-wind collision geometry. Publication uses this
+    /// regardless of the current visual pose or wind toggle.
+    pub(crate) fn rest_collision_geometry(&self) -> Result<(Vec<Vec3>, Arc<[[u32; 3]]>)> {
+        let plan = match &self.cpu_plan {
+            Some(plan) => plan.clone(),
+            None => Arc::new(CpuDeformationPlan::compile(self)?),
+        };
+        Ok(plan.rest_collision_geometry())
+    }
+
     pub fn posed_surface<'a>(
         &self,
         poses: impl Fn(u32) -> Option<&'a [BranchPose]>,
@@ -577,7 +587,7 @@ impl RasterTreeGeometry {
     }
 
     /// Hidden-app contract: compare every GPU result with the exact CPU surface
-    /// retained for physics, including normals and the disabled-wind rest pose.
+    /// retained for visual queries, including normals and the disabled-wind rest pose.
     pub fn validate_gpu_surface(&self, data: &[[f32; 4]]) -> Result<()> {
         ensure!(
             data.len() == self.rest_mesh.vertices.len() * 2,

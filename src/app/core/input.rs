@@ -1045,11 +1045,12 @@ impl App {
         origin: Vec3,
         direction: Vec3,
     ) -> Option<crate::tree_gen::skin::SurfaceHit> {
-        self.tracer.raster_trees.posed_surface.as_ref()?;
+        let surface = self.tracer.raster_trees.posed_surface.as_ref()?;
         self.tracer.raster_trees.raycast(
             origin,
             direction,
-            self.terrain_physics.tree_ray_candidates(origin, direction),
+            self.terrain_physics
+                .tree_ray_candidates(origin, direction, surface.query_margin()),
         )
     }
 

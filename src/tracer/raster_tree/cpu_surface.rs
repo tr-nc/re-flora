@@ -111,6 +111,7 @@ impl CpuDeformationPlan {
                 plan: self.clone(),
                 positions: Vec::with_capacity(self.points.len()),
                 transforms: Vec::with_capacity(self.transforms.len()),
+                query_margin: Vec3::ZERO,
             });
         // Resolve the canonical pose only once per tree, not once per visual corner.
         let poses = self
@@ -125,26 +126,51 @@ impl CpuDeformationPlan {
                 .push(spec.binding.transform(poses[spec.tree])?);
         }
         surface.positions.clear();
+        surface.query_margin = Vec3::ZERO;
         for point in &self.points {
             let position = surface.transforms[point.transform].point(point.rest);
             ensure!(position.is_finite(), "nonfinite posed tree position");
+            // Bounds for read-only visual queries over the immutable rest BVH.
+            // Every triangle lies in its rest AABB expanded by this componentwise
+            // displacement; physics itself never receives the wind positions.
+            surface.query_margin = surface.query_margin.max((position - point.rest).abs());
             surface.positions.push(position);
         }
         Ok(surface)
     }
+    pub(super) fn rest_collision_geometry(&self) -> (Vec<Vec3>, Arc<[[u32; 3]]>) {
+        (
+            self.points.iter().map(|p| p.rest).collect(),
+            self.triangles.clone(),
+        )
+    }
+
     pub(super) fn counts(&self) -> (usize, usize) {
         (self.points.len(), self.transforms.len())
     }
 }
 
 /// Visual vertex indexing is preserved for GPU validation, rays, and rest-space editing.
-/// Collision has the same ordered triangles over a smaller exact point array.
+/// Visual queries preserve the same ordered triangles over a smaller exact point array.
+/// Physical collisions use the plan's immutable rest geometry instead.
 pub struct PosedTreeSurface {
     plan: Arc<CpuDeformationPlan>,
     positions: Vec<Vec3>,
     transforms: Vec<SkinTransform>,
+    query_margin: Vec3,
 }
 impl PosedTreeSurface {
+    pub(crate) fn query_margin(&self) -> Vec3 {
+        if self.query_margin == Vec3::ZERO {
+            return Vec3::ZERO;
+        }
+        // Displacement subtraction can round down; bound it outward too.
+        Vec3::new(
+            self.query_margin.x.next_up(),
+            self.query_margin.y.next_up(),
+            self.query_margin.z.next_up(),
+        )
+    }
     pub fn vertex_count(&self) -> usize {
         self.plan.visual_to_point.len()
     }
@@ -160,9 +186,11 @@ impl PosedTreeSurface {
     pub fn is_finite(&self) -> bool {
         self.positions.iter().all(|p| p.is_finite())
     }
+    #[cfg(test)]
     pub(crate) fn collision_positions(&self) -> &[Vec3] {
         &self.positions
     }
+    #[cfg(test)]
     pub(crate) fn collision_triangles(&self) -> &Arc<[[u32; 3]]> {
         &self.plan.triangles
     }

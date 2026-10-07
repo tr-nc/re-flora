@@ -3795,6 +3795,8 @@ impl App {
 
     pub(super) fn validate_tree_surface_queries(&mut self, require_motion: bool) -> Result<()> {
         self.vulkan_ctx.device().wait_idle();
+        self.terrain_physics
+            .validate_tree_rest_collision(&self.tracer.raster_trees.rest_mesh)?;
         let surface = self
             .tracer
             .raster_trees
@@ -3921,13 +3923,9 @@ impl App {
         }
         let palette_us = palette_started.elapsed().as_secs_f64() * 1e6;
         let physics_started = Instant::now();
-        self.terrain_physics.publish_tree_surface(
-            surface
-                .as_ref()
-                .and(self.tracer.raster_trees.source.terrain_revision()),
-            &self.tracer.raster_trees.rest_mesh.solid_cells,
-            surface.as_ref(),
-        )?;
+        if !self.tracer.raster_trees.enabled {
+            self.terrain_physics.clear_tree_collision_surface()?;
+        }
         let physics_us = physics_started.elapsed().as_secs_f64() * 1e6;
         let query_started = Instant::now();
         self.tracer.publish_tree_surface(surface)?;
@@ -3944,6 +3942,7 @@ impl App {
 
     pub(super) fn validate_tree_surface_pose(&self) -> Result<()> {
         let mesh = &self.tracer.raster_trees.rest_mesh;
+        self.terrain_physics.validate_tree_rest_collision(mesh)?;
         let surface =
             mesh.posed_surface(|id| self.trees.records.get(&id).map(|r| r.pose.branches()))?;
         anyhow::ensure!(surface.is_finite(), "nonfinite posed tree position");

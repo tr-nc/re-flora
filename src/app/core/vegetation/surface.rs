@@ -156,7 +156,6 @@ impl PreparedTreeSurface {
                 super::super::physics::TerrainPhysics::prepare_tree_collision_surface(
                     app.visible_terrain_revision,
                     publication.mesh(),
-                    publication.surface(),
                 )
             })
             .transpose()?;

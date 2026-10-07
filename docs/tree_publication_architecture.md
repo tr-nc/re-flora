@@ -133,11 +133,24 @@ when full, geometry still assembles correctly without retaining that optional fr
 and failed candidate histories are not accumulated. Readbacks and whole-forest BVH/resource
 publication still occur; this is compilation reuse, not a second canonical tree owner.
 
-The immutable CPU interaction plan shares only identical world rest positions and complete skin
+Physical tree collision now uses the immutable **no-wind rest surface**, independently of visual
+wind enablement and current poses. `PreparedTreeSurface` prepares that compact geometry off-side
+and commits it with the complete forest publication. Only geometry publication (planting, removal,
+replacement, age rebuild, edited wood, restoration) can replace the collider; steady wind frames
+never publish positions, refit its BVH or invalidate Rapier contact workspaces. A committed-terrain
+failure clears it and restores authoritative voxel collision. Upper branches can visibly move away
+from their rest collision; this is an explicitly accepted interaction approximation, not quantized
+motion or a skipped invalidation on a mutated shape.
+
+The immutable CPU visual-query plan shares only identical world rest positions and complete skin
 bindings. It preserves visual vertex indexing, per-cell normal/confidence data and ordered triangle
-IDs, while collision uses equivalent compact points and immutable mapped topology. Pose double
-buffers and physics-unit scratch are reused; the topology-stable collision API never resubmits
-triangle arrays. Exact unchanged points bypass refit, not approximately equal or quantized motion.
+IDs. Posed double buffers still support precise picking, barycentric rest-space editing and GPU
+validation. They compute a componentwise maximum displacement while skinning. Visual ray queries
+traverse the unchanged rest BVH with read-only outward-rounded bounds expanded by that displacement,
+then intersect the exact posed triangles; padding never alters physical collision bounds. Thus a
+branch outside the physical rest AABB is still selectable, without maintaining a second per-frame
+CPU hierarchy. See [`research/rest_tree_collision.md`](research/rest_tree_collision.md) for validation
+and Release measurements.
 
 Terrain changes can affect tree shading without removing any wood. Neither dependency tracking
 nor publication equality may use a removed-wood count as a shortcut. Shared sampling radius,

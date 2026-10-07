@@ -934,17 +934,24 @@ impl CollisionWorld {
         Ok(())
     }
 
-    /// Candidate primitive IDs in the most recently published deforming geometry.
-    /// Editing can reuse the exact physics BVH instead of maintaining a second
-    /// per-frame CPU hierarchy. Inputs are in physics voxel units.
+    /// Candidate primitive IDs in the most recently published geometry.
+    /// Inputs are in physics voxel units.
     pub fn deforming_ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
-        if !origin.is_finite() || !direction.is_finite() || direction == Vec3::ZERO {
+        self.deforming_ray_candidates_with_margin(origin, direction, Vec3::ZERO)
+    }
+
+    /// Read-only candidate search for a separately posed visual surface, bounded
+    /// by its componentwise displacement from this geometry. The caller performs
+    /// exact triangle intersections; no collider bounds, contacts or BVH are changed.
+    pub fn deforming_ray_candidates_with_margin(&self, origin: Vec3, direction: Vec3, margin: Vec3) -> Vec<u32> {
+        if !origin.is_finite() || !direction.is_finite() || direction == Vec3::ZERO
+            || !margin.is_finite() || margin.cmplt(Vec3::ZERO).any() {
             return Vec::new();
         }
         self.deforming_surface
             .and_then(|handle| self.physics.colliders.get(handle))
             .and_then(|collider| collider.shape().as_shape::<DeformingShape>())
-            .map_or_else(Vec::new, |shape| shape.ray_candidates(origin, direction))
+            .map_or_else(Vec::new, |shape| shape.ray_candidates_with_margin(origin, direction, margin))
     }
 
     /// Updates exact geometry in place when its topology is unchanged. Both
@@ -1578,6 +1585,27 @@ mod tests {
         assert_eq!(world.deforming_ray_candidates(ray, Vec3::Z), [0]);
         world.set_deforming_surface(&[], &[]).unwrap();
         assert!(world.update_deforming_triangle_positions(&next).is_err());
+    }
+
+    #[test]
+    fn padded_visual_candidates_do_not_move_colliders_or_invalidate_contacts() {
+        let mut world = CollisionWorld::new();
+        let positions = [Vec3::new(-1., -1., 0.), Vec3::new(1., -1., 0.), Vec3::new(0., 1., 0.)];
+        world.set_deforming_surface(&positions, &[[0, 1, 2]]).unwrap();
+        world.sync_capsule_character_broad_phase();
+        let handle = world.deforming_surface.unwrap();
+        let bounds = world.physics.colliders[handle].compute_aabb();
+        let origin = Vec3::X * 10. - Vec3::Z;
+        assert!(world.deforming_ray_candidates(origin, Vec3::Z).is_empty());
+        assert_eq!(world.deforming_ray_candidates_with_margin(origin, Vec3::Z, Vec3::X * 10.), [0]);
+        assert_eq!(world.deforming_surface, Some(handle));
+        assert_eq!(world.physics.colliders[handle].compute_aabb(), bounds);
+        assert!(world.capsule_character_modified_colliders.is_empty());
+        assert!(world.deforming_ray_candidates(origin, Vec3::Z).is_empty());
+        assert_eq!(world.deforming_ray_candidates(Vec3::NEG_Z, Vec3::Z), [0]);
+        for margin in [Vec3::NEG_X, Vec3::splat(f32::NAN), Vec3::splat(f32::INFINITY)] {
+            assert!(world.deforming_ray_candidates_with_margin(origin, Vec3::Z, margin).is_empty());
+        }
     }
 
     #[test]
