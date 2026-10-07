@@ -43,8 +43,11 @@ wind_drift = 1.0
 
 [tree]
 render_leaves = true
+conifer_axis_model = true
 
 [tree.desc]
+species = "garden_tree"
+axis_model = false
 size = 20.0
 trunk_thickness = 0.4
 thickness_reduction = 0.61
@@ -557,7 +560,7 @@ label = "Tree kick impulse (rad/s)"
 type = "Float"
 
 [section.param.data]
-value = 1.6
+value = 0.2
 min = 0
 max = 4
 
@@ -568,7 +571,7 @@ label = "Tree kick shake speed (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 3
+value = 2.55
 min = 1
 max = 7
 
@@ -579,7 +582,7 @@ label = "Tree kick damping (low = longer)"
 type = "Float"
 
 [section.param.data]
-value = 0.22
+value = 0.3
 min = 0.1
 max = 0.9
 
@@ -590,7 +593,7 @@ label = "Tree kick reach (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 44
+value = 30
 min = 16
 max = 100
 
