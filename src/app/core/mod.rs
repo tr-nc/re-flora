@@ -37,6 +37,7 @@ mod ordered_dither_review;
 mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
+mod terrain_picking;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -473,6 +474,7 @@ pub struct App {
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
+    pointer_picking: terrain_picking::PointerPicking,
     mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
 
@@ -1580,6 +1582,7 @@ impl App {
             item_panel_soil_inspector_icon: None,
             item_panel_tiller_icon: None,
             mower: mower::MowerRuntime::default(),
+            pointer_picking: Default::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -2318,19 +2321,8 @@ impl App {
                     match state {
                         ElementState::Pressed => {
                             let now = Instant::now();
-                            match self.player_tools.begin_pointer_action(button) {
-                                Some(PlayerToolPointerAction::Continuous(action)) => {
-                                    self.execute_continuous_terrain_tool_action(action, now);
-                                }
-                                Some(
-                                    PlayerToolPointerAction::PlaceablePlacement
-                                    | PlayerToolPointerAction::PlantTree,
-                                ) => {
-                                    self.stop_terrain_edit_loop_sound();
-                                    self.try_discrete_placement();
-                                }
-
-                                None => {}
+                            if let Some(action) = self.player_tools.begin_pointer_action(button) {
+                                self.queue_pointer_pick(action, now, false);
                             }
                         }
                         ElementState::Released => {
@@ -2429,6 +2421,8 @@ impl App {
                 let frame_delta_time = denoiser_timeline.frame_delta_seconds;
                 let visual_time_since_start = denoiser_timeline.visual_time_seconds;
 
+                self.poll_pointer_picks()
+                    .expect("collect asynchronous pointer picks");
                 if self.terrain_persistence.allows_world_updates()
                     && self.player_tools.continuous_hold_active()
                 {
@@ -3346,6 +3340,9 @@ impl App {
                     .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
                 self.tracer
+                    .complete_surface_pick_slot(frame_slot)
+                    .expect("completed pick readback slot");
+                self.tracer
                     .publish_particle_state(frame_slot)
                     .expect("publish acquired-frame particle state");
                 self.collect_gpu_profiler_frame(frame_slot);
@@ -3797,6 +3794,9 @@ impl App {
                     }
                 }
 
+                self.tracer
+                    .record_frame_surface_picks(&frame, self.visible_terrain_revision)
+                    .expect("record asynchronous surface picks");
                 cmdbuf.end();
                 if let Some(start) = render_record_start {
                     cpu_timings.add_ms(

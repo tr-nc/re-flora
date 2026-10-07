@@ -42,7 +42,7 @@ pub(crate) use tree_publication::PreparedRasterTreePublication;
 mod surface_pick;
 mod tree_surface_resources;
 mod tree_upload;
-pub(crate) use surface_pick::SurfacePickHit;
+pub(crate) use surface_pick::{PickAnswer, PickPurpose, PickTicket, SurfacePickHit};
 pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
@@ -1654,6 +1654,7 @@ pub struct Tracer {
     frame_retirement_sink: FrameRetirementSink,
     descriptor_generation: u64,
     tree_instance_generation: u64,
+    surface_picker: surface_pick::SurfacePicker,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -2022,6 +2023,7 @@ impl Tracer {
             frame_retirement_sink,
             descriptor_generation: 1,
             tree_instance_generation: 1,
+            surface_picker: Default::default(),
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             raster_lighting_state,

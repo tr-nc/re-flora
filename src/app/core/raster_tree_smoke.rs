@@ -72,6 +72,14 @@ impl RasterTreeSmoke {
                     self.thin_fingerprint = app.tracer.raster_trees.rest_mesh.rest_fingerprint();
                 }
                 if self.frame == 60 {
+                    app.tracer.request_surface_pick(
+                        crate::tracer::TerrainRayQuery {
+                            origin: glam::Vec3::ZERO,
+                            direction: glam::Vec3::Y,
+                        },
+                        app.visible_terrain_revision,
+                        crate::tracer::PickPurpose::Validation,
+                    )?;
                     let mesh = &app.tracer.raster_trees.rest_mesh;
                     ensure!(
                         mesh.rest_fingerprint() == self.thin_fingerprint,

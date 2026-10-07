@@ -695,7 +695,7 @@ impl App {
         }
     }
 
-    pub(super) fn execute_continuous_terrain_tool_action(
+    pub(super) fn execute_resolved_terrain_tool_action(
         &mut self,
         action: ContinuousTerrainToolAction,
         now: Instant,
@@ -716,6 +716,7 @@ impl App {
         if !update.changed() {
             return;
         }
+        self.cancel_pointer_pick();
         if update.active_tool_changed() {
             self.wind_prototype.cancel();
             self.stop_terrain_edit_loop_sound();
@@ -773,6 +774,7 @@ impl App {
 
     pub(super) fn select_plant_type(&mut self, plant_type: super::plant_catalog::PlantType) {
         if self.player_tools.select_plant_type(plant_type) {
+            self.cancel_pointer_pick();
             self.stop_terrain_edit_loop_sound();
             self.play_item_panel_scroll_sound();
         }
@@ -781,6 +783,7 @@ impl App {
     pub(super) fn select_plant_variety(&mut self, variety: super::plant_catalog::PlantVariety) {
         let old_tree_species = self.player_tools.planting.tree_species;
         if self.player_tools.select_plant_variety(variety) {
+            self.cancel_pointer_pick();
             self.stop_terrain_edit_loop_sound();
             self.play_item_panel_scroll_sound();
             if old_tree_species != self.player_tools.planting.tree_species {
@@ -928,6 +931,9 @@ impl App {
     }
 
     pub(super) fn terrain_edit_ray(&self) -> Option<(Vec3, Vec3)> {
+        if let Some(pick) = self.pointer_picking.active {
+            return Some((pick.ray.origin, pick.ray.direction));
+        }
         if self.is_orbit_edit_camera_mode() {
             let extent = self.window_state.window_extent();
             let cursor_pos = self.cursor_position_physical.unwrap_or_else(|| {
@@ -948,16 +954,27 @@ impl App {
             return Ok(None);
         }
 
-        let Some((origin, direction)) = self.terrain_edit_ray() else {
+        let Some((_, direction)) = self.terrain_edit_ray() else {
             return Ok(None);
         };
         if direction.length_squared() <= f32::EPSILON {
             return Ok(None);
         }
 
-        Ok(self
-            .query_terrain_ray_cpu(origin, direction)
-            .map(|hit| hit.position)
+        self.pointer_picking
+            .active
+            .ok_or_else(|| anyhow::anyhow!("edit attempted without a resolved GPU pick"))
+            .map(|pick| self.filter_pointer_pick(pick, max_distance))
+    }
+
+    fn filter_pointer_pick(
+        &self,
+        pick: super::terrain_picking::Resolved,
+        max_distance: f32,
+    ) -> Option<Vec3> {
+        let (origin, direction) = (pick.ray.origin, pick.ray.direction);
+        pick.hit
+            .map(|hit| hit.world_position)
             .filter(|hit| (*hit - origin).length() <= max_distance)
             .filter(|hit| {
                 self.rooftop_scene.is_none()
@@ -970,7 +987,7 @@ impl App {
                         s.ray_hit(origin, direction)
                             .is_none_or(|p| p.distance(*hit) > 1e-5)
                     })
-            }))
+            })
     }
 
     pub(super) fn query_terrain_ray_cpu(
@@ -1055,9 +1072,10 @@ impl App {
     }
 
     fn tree_edit_rest_center(&self, center: Vec3) -> Option<Vec3> {
-        let (origin, direction) = self.terrain_edit_ray()?;
-        let hit = self.query_tree_surface_ray(origin, direction)?;
-        (hit.world_position.distance(center) < 1e-4).then_some(hit.rest_position)
+        let hit = self.pointer_picking.active?.hit?;
+        (hit.world_position.distance(center) < 1e-4)
+            .then(|| hit.tree_rest_position())
+            .flatten()
     }
 
     pub(super) fn query_terrain_height_cpu(&self, pos_xz: Vec2) -> f32 {
@@ -1353,16 +1371,12 @@ impl App {
             return None;
         }
 
-        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(hit) => hit.map(|center| TerrainEditHover {
+        self.request_pointer_hover()
+            .and_then(|pick| self.filter_pointer_pick(pick, super::SHOVEL_RAY_QUERY_DISTANCE))
+            .map(|center| TerrainEditHover {
                 center,
                 is_editable: self.terrain_edit_preview_position_is_editable(center),
-            }),
-            Err(err) => {
-                log::error!("Terrain edit preview query failed: {}", err);
-                None
-            }
-        }
+            })
     }
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {

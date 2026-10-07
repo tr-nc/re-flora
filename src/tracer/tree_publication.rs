@@ -279,6 +279,7 @@ impl Tracer {
             geometry.attachments.len(), resources.bytes);
         self.resources.tree = resources;
         self.raster_trees = geometry;
+        self.surface_picker.invalidate_geometry();
         self.invalidate_local_direct_sun_shadow_histories();
     }
 }

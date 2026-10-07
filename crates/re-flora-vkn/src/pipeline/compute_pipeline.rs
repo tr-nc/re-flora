@@ -250,6 +250,47 @@ impl ComputePipeline {
         Ok(())
     }
 
+    /// Dispatch with a named subset of overrides, inheriting every other
+    /// reflected binding from the current complete generation. This does not
+    /// change defaults used by subsequent dispatches. The caller must retain
+    /// the returned descriptor generation until the submission completes.
+    #[must_use = "retain the descriptor generation until GPU completion"]
+    pub fn record_with_overrides(
+        &self,
+        cmdbuf: &CommandBuffer,
+        overrides: &[super::DescriptorWrite<'_>],
+        dispatch_extent: Extent3D,
+        push_constants: Option<&[u8]>,
+    ) -> Result<PreparedDescriptorGeneration> {
+        let pending = self
+            .0
+            .descriptors
+            .prepare(DescriptorUpdate::Named(overrides))?;
+        self.record_bind(cmdbuf);
+        self.0
+            .descriptors
+            .bind_prepared(cmdbuf, &pending, |first, sets| {
+                self.0.device.cmd_bind_descriptor_sets_compute_raw(
+                    cmdbuf.as_raw(),
+                    self.0.pipeline_layout.as_raw(),
+                    first,
+                    sets,
+                );
+            })?;
+        if let Some(constants) = push_constants {
+            self.record_push_constants(cmdbuf, constants);
+        }
+        self.record_dispatch(
+            cmdbuf,
+            [
+                dispatch_extent.width,
+                dispatch_extent.height,
+                dispatch_extent.depth,
+            ],
+        );
+        Ok(pending)
+    }
+
     /// Record the compute pipeline into the command buffer.
     ///
     /// This function will bind the pipeline, bind the descriptor sets, push the push constants, and dispatch the compute work.
