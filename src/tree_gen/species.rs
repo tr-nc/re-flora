@@ -30,10 +30,12 @@ impl TreeSpecies {
             }
             Self::Conifer => {
                 // The recursive parameters are the A-mode comparison, not the axis architecture.
-                let mut desc = TreeDesc::default();
-                desc.species = Self::Conifer;
-                desc.axis_model = true;
-                desc.size = authored.size;
+                let mut desc = TreeDesc {
+                    species: Self::Conifer,
+                    axis_model: true,
+                    size: authored.size,
+                    ..TreeDesc::default()
+                };
                 desc.branching.seed = authored.branching.seed;
                 desc.trunk_thickness = 0.16;
                 desc.thickness_reduction = 0.66;

@@ -35,6 +35,7 @@ mod raster_tree;
 mod tree_scene;
 pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
+pub(crate) use raster_tree::TreeSurfaceRegion;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh};
 mod tree_lookup;
 mod tree_publication;
@@ -4868,14 +4869,20 @@ impl Tracer {
                             || {
                                 self.model_mesh_frame.flowers(
                                     cmdbuf,
-                                    MeshPass {
+                                    model_mesh_frame::FlowerPass {
                                         display: &self
                                             .pipeline_topology
                                             .graphics()
                                             .flower_pixel_ppl,
+                                        stem: &self
+                                            .pipeline_topology
+                                            .graphics()
+                                            .flower_stem_experiment_ppl,
+                                        preparation: &self
+                                            .pipeline_topology
+                                            .compute()
+                                            .flower_stem_bands_ppl,
                                     },
-                                    &self.pipeline_topology.graphics().flower_stem_experiment_ppl,
-                                    &self.pipeline_topology.compute().flower_stem_bands_ppl,
                                     self.flower_stem_experiment,
                                     count,
                                     push,

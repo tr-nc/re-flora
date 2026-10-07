@@ -268,7 +268,7 @@ impl Tree {
             .enumerate()
             .filter(|(i, meta)| meta.order == 0 && visible(*i))
             .map(|(i, _)| i)
-            .last();
+            .next_back();
         let leaf_anchors = segments
             .iter()
             .enumerate()
