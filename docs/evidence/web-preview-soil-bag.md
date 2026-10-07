@@ -92,6 +92,23 @@ env -u DISPLAY -u WAYLAND_DISPLAY AGENT_BROWSER_HEADED=true \
 
 部分窗口产物在 `target/soil-bag-fixed-profile-window-review/`，最小侧面诊断图为 `target/soil-bag-fixed-minimal-side.png`；独立 headless 产物在 `target/soil-bag-fixed-profile-headless-review/`。这些不是全流程通过记录，不提交图片；此前贴纸更新的 45 状态通过记录仍属于上一版本。
 
+## 平滑原始贴纸，只由共享后处理像素化
+
+按用户要求移除原始贴纸的预制马赛克：`soil-bag-sticker-art.mjs` 改为连续的贝塞尔曲线／椭圆配方，80×100 仅是逻辑坐标，直接缩放到现有 512×640 原始贴图绘制，不生成 32×40 二值 mask、不把低分辨率图再最近邻放大。双叶芽、波浪土层和五瓣花保持大轮廓、实心色块与无文字风格。左侧原模型显示平滑轮廓；右侧像素风仍完全由同一个 `pipeline.js` 生成，没有第二套后处理。
+
+贴图 min／mag 仍为 Nearest，无 mipmap，自定义图片缩放仍关闭平滑；正常 Canvas 曲线边缘抗锯齿与图片 Linear 过滤不是同一件事。轮廓覆盖先正常合成到贴纸底色，整体 alpha=255，不增加透明材质例外。固定扁平袋型、其他控件与动作不变。
+
+- 绘图守卫先在旧格子实现上复现失败：`source silhouettes must use continuous curves before shared pixel processing`；修改后 **48/48** Node 测试通过。测试采样轮廓验证有限／确定性和低分辨率区分，但生产绘图没有采样网格。
+- **42 个完整网页状态**本轮首次窗口渲染运行通过：实际 Canvas 原始轮廓存在窄边缘抗锯齿（非主色像素低于原始贴图的 2%），全部不透明，而且不由恒定 16×16 块组成。自定义 8×8 透明图等比缩放仍只有原图颜色与底色，真实 min／mag／mipmap 设置保持正确。
+- 同色三图案 32／64／128²、固定侧面与已移除滑杆、实际 HEX 改色、预设同步、图片导入／错误恢复、撕开与倾倒、7 FPS 精确末帧／逐帧、源／像素时间同步、共享两种覆盖模式／RGBA 保留、三个旧模型切换周期／稳定资源计数和移动布局均通过，浏览器错误为空。
+- 查看 512×640 原始图案以及双视图截图，叶片／波浪土层／花瓣在左侧是平滑大图案、右侧仍是像素结果；没有通过修改模型取景或共享修复来掩盖原始马赛克。
+- 这次通过记录不表示上一轮窗口刷新停滞或既有 headless 上下文丢失已修复，没有重试到绿、截图强制刷新或应用时钟改动。
+- `cargo fmt --check`、`cargo check`、Release 构建和隐藏静音启动通过；首帧就绪、成功退出，无 ERROR／panic／VUID，保留既有 fruit-physics hitch 警告。没有 Rust、shader 或生成文件变化，用户 GUI 配置逐字保持不变。
+
+产物在 `target/soil-bag-vector-source-window-review/`：`soil-bag-sticker-source-{sprout,layers,flower}.png` 为原始贴图，`soil-bag-preview-sticker-*-{32,64,128}.png` 为实际双视图，另有动作／移动截图和本轮通过的 QA JSON；不提交图片。
+
+用户表示这一处调整之后接近游戏接入阶段；本提交只完成原始图案修正与候选验证，没有偷偷替换游戏 Soil 或发布未经适配的动态袋口资产。
+
 ## 验收与后续
 
 本轮没有宣称用户已经批准、原生端已经接入或满足游戏性能预算。网页灯光不等于游戏光照，浏览器测试不是 Release 性能证据。

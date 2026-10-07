@@ -44,15 +44,30 @@ const nearest=evaluate('import("three").then(m=>m.NearestFilter)');
 const labelRaster=evaluate(`(async()=>{
   const {drawSoilBagSticker}=await import('./models/soil-bag-stickers.js');
   const settings=readModelPreview().modelSettings,c=document.createElement('canvas');c.width=512;c.height=640;
-  const inspect=()=>{const bytes=c.getContext('2d').getImageData(0,0,c.width,c.height).data,colors=new Set();let opaque=true;for(let i=0;i<bytes.length;i+=4){colors.add((bytes[i]<<16)|(bytes[i+1]<<8)|bytes[i+2]);if(bytes[i+3]!==255)opaque=false;}return {colors:[...colors].sort((a,b)=>a-b),opaque,smoothing:c.getContext('2d').imageSmoothingEnabled};};
-  const native=['sprout','layers','flower'].map(stickerDesign=>{drawSoilBagSticker(c,{...settings,stickerDesign});return {design:stickerDesign,...inspect()};});
+  const inspect=()=>{
+    const bytes=c.getContext('2d').getImageData(0,0,c.width,c.height).data,colors=new Set(),background=parseInt(settings.labelColor.slice(1),16),ink=parseInt(settings.inkColor.slice(1),16);
+    let opaque=true,edgePixels=0,mixedBlocks=0;
+    for(let i=0;i<bytes.length;i+=4){const color=(bytes[i]<<16)|(bytes[i+1]<<8)|bytes[i+2];colors.add(color);if(bytes[i+3]!==255)opaque=false;if(color!==background&&color!==ink)edgePixels++;}
+    for(let y=0;y<c.height;y+=16)for(let x=0;x<c.width;x+=16){
+      const first=(y*c.width+x)*4;let mixed=false;
+      for(let dy=0;dy<16&&!mixed;dy++)for(let dx=0;dx<16;dx++){const i=((y+dy)*c.width+x+dx)*4;if(bytes[i]!==bytes[first]||bytes[i+1]!==bytes[first+1]||bytes[i+2]!==bytes[first+2]){mixed=true;break;}}
+      if(mixed)mixedBlocks++;
+    }
+    return {colors:[...colors].sort((a,b)=>a-b),opaque,smoothing:c.getContext('2d').imageSmoothingEnabled,edgePixels,mixedBlocks};
+  };
+  const native=['sprout','layers','flower'].map(stickerDesign=>{drawSoilBagSticker(c,{...settings,stickerDesign});return {design:stickerDesign,...inspect(),png:c.toDataURL('image/png')};});
   const image=document.createElement('canvas');image.width=image.height=8;const ctx=image.getContext('2d');ctx.fillStyle='#315ca4';ctx.fillRect(0,0,4,8);ctx.fillStyle='#ffffff';ctx.fillRect(4,0,4,4);ctx.fillStyle='#db7844';ctx.fillRect(4,4,4,4);ctx.clearRect(0,0,2,2);
   drawSoilBagSticker(c,{...settings,stickerDesign:'custom'},image);
   return {native,custom:inspect(),labelColor:parseInt(settings.labelColor.slice(1),16),inkColor:parseInt(settings.inkColor.slice(1),16)};
 })()`);
-for(const mark of labelRaster.native){assert.equal(mark.opaque,true);assert.equal(mark.smoothing,false);assert.deepEqual(mark.colors,[labelRaster.labelColor,labelRaster.inkColor].sort((a,b)=>a-b),'built-in raster must have exactly two colors, with no font antialiasing');}
+for(const mark of labelRaster.native){
+  assert.equal(mark.opaque,true);assert.equal(mark.smoothing,false);assert.ok(mark.colors.includes(labelRaster.labelColor)&&mark.colors.includes(labelRaster.inkColor));
+  assert.ok(mark.edgePixels>0&&mark.edgePixels<512*640*.02,'vector contour antialiasing is confined to narrow edges, not a blurred whole label');
+  assert.ok(mark.mixedBlocks>10,'source artwork must not consist of constant 16 by 16 mosaic blocks');
+  writeFileSync(resolve(artifacts,`soil-bag-sticker-source-${mark.design}.png`),Buffer.from(mark.png.split(',')[1],'base64'));delete mark.png;
+}
 assert.equal(labelRaster.custom.opaque,true);assert.equal(labelRaster.custom.smoothing,false);assert.deepEqual(labelRaster.custom.colors,[0x315ca4,0xffffff,0xdb7844,labelRaster.labelColor].sort((a,b)=>a-b),'nearest image resize must not introduce interpolated colors; transparent cells use label background');
-checks.push('real texture min/mag are NearestFilter with no mipmaps; two-color font-free art and opaque nearest image resizing introduce no blended edge colors');
+checks.push('real texture min/mag remain NearestFilter without mipmaps; native-resolution vector contours are smooth and opaque, not pre-pixelized; image imports still use nearest resizing');
 for(const n of [32,64,128]){
   input('resolution',n);const marks=[];
   for(const design of ['sprout','layers','flower']){

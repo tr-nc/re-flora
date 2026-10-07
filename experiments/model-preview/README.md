@@ -59,7 +59,7 @@ node scripts/serve-model-preview.mjs
 
 打开 `http://127.0.0.1:8765/model-preview/?model=soil-bag`（端口可由 `--port` 改）。先选包装预设，再调袋色、充盈度、贴纸底色／内置图案色和大小。三种内置贴纸可直接切换，也可导入 PNG／JPG／WebP；图片保留比例，透明部分铺在贴纸底色上，仍是共享管线支持的不透明贴图，不增加 alpha/cutout 特例。文件限 8 MB、边长 8192。自定义图片不受内置图案色控制。
 
-- **最近邻贴纸**：贴纸放大／缩小均用 Nearest，不生成 mipmap；导入缩放也关闭平滑。三种内置图案是大双叶芽／三层土／五瓣花，只有底色、图案与一条实心标题色块，没有任何包装文字。保留低分辨率轮廓，不靠微小细节；32/64/128² 有实际截图，极小尺寸不承诺全部可读。设计参考与取舍见 [低分辨率包装调研](../../docs/research/soil_bag_low_resolution_packaging.md)。
+- **最近邻贴纸**：贴纸放大／缩小均用 Nearest，不生成 mipmap；导入缩放也关闭平滑。三种内置图案是大双叶芽／三层土／五瓣花，用连续贝塞尔曲线／椭圆在原始 512×640 贴图上绘制，只有底色、大图案与一条实心标题色块，没有任何包装文字。左侧不预先做马赛克或低分辨率放大；像素风仅由共享后处理生成。保留低分辨率轮廓，不靠微小细节；32/64/128² 有实际截图，极小尺寸不承诺全部可读。设计参考与取舍见 [低分辨率包装调研](../../docs/research/soil_bag_low_resolution_packaging.md)。
 - **固定扁平侧面**：已按用户选择固定为原滑杆的 1，填满上下肩部、中段侧壁更平直；滑杆及其说明已移除。所有包装预设、重新加载／恢复默认和两个动作使用同一袋型，贴纸跟随袋面；充盈度仍可单独调厚薄。
 - “撕开一个袋口”：从完整封口开始，只分开右上角的一处真实几何开口；左侧封口保留，撕条仍连接在袋上。
 - “袋口朝下 · 倾倒营养土”：独立片段，从已开口姿态开始；开口法线朝下才显示粗略土流，土流从同一个实际袋口沿世界重力下落，再收回袋子，保留开口。
@@ -94,7 +94,7 @@ node scripts/serve-model-preview.mjs
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
 | `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
 | `models/soil-bag-geometry.mjs` / `soil-bag.js` | 营养土袋候选几何／绝对动作与 Three.js 适配；仅网页 |
-| `models/soil-bag-sticker-art.mjs` / `soil-bag-stickers.js` | 原创二值大图案、无文字色块与不透明最近邻贴纸绘制／导入；仅网页 |
+| `models/soil-bag-sticker-art.mjs` / `soil-bag-stickers.js` | 原创连续矢量大图案、无文字色块与原始尺寸不透明贴纸绘制／最近邻导入；仅网页 |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |
 | `part-composite.js` / `part-depth.mjs` | 花头裁切、GPU 深度与透明合成，不另建 renderer |
 | `geometry.js` / `connectivity.mjs` / `postprocess.mjs` | 当前姿态几何投影、分组连通与通用修复 |
@@ -130,4 +130,4 @@ env -u DISPLAY -u WAYLAND_DISPLAY AGENT_BROWSER_HEADED=true \
 
 支持 `CHROME_EXECUTABLE` / `PREVIEW_ARTIFACT_DIR`。脚本自行创建／关闭服务与 headless Chrome；不启动游戏，不保存 GUI 设置。
 
-完整 Node 套件：48 个语法／纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认花型没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。营养土袋上一轮贴纸更新验证 45 个网页状态（窗口渲染／私有虚拟显示），覆盖真实 Nearest／无 mipmap 材质、无文字两色贴纸与不混色的图片缩放、32/64/128² 同色大图案、侧面扁平度 0/1/还原与倾倒、真实 HEX 改色、内置／自定义贴纸与导入失败恢复、末帧／重播／奇数 FPS 逐帧、重力流向、共享 A/B／分辨率／视向、三轮旧模型切换和资源计数、390px 移动布局；原始产物在 `target/soil-bag-preview-review/`，扁平度产物在 `target/soil-bag-side-profile-window-review/`，本轮贴纸产物在 `target/soil-bag-sticker-window-review/`。本轮固定袋型通过 48 项 Node 测试和 108 组与旧滑杆=1 的精确几何对照；网页全流程被虚拟显示刷新等待／既有 headless 上下文丢失阻断，未宣称本轮全套网页通过，详见验收报告。不提交二进制截图。游戏的性能和美术接受需另行验证。
+完整 Node 套件：48 个语法／纯函数／资产回归测试。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认花型没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。营养土袋本轮验证 42 个网页状态（窗口渲染／私有虚拟显示），覆盖原始尺寸连续矢量贴纸／窄边缘抗锯齿／无预制马赛克、真实 Nearest／无 mipmap 材质与不混色的图片缩放、32/64/128² 同色大图案、固定扁平袋型与已移除的滑杆、真实 HEX 改色、贴纸导入与失败恢复、末帧／重播／奇数 FPS 逐帧、重力流向、共享 A/B／分辨率／视向、三轮旧模型切换与资源计数、390px 移动布局。新原始贴纸、对照截图和 QA JSON 在 `target/soil-bag-vector-source-window-review/`；此前版本的 45 状态通过、108 组固定袋型几何对照以及窗口刷新／headless 上下文失败记录保留在验收报告，没有宣称已修复整个浏览器环境。不提交二进制截图。游戏的性能和美术接受需另行验证。

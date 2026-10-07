@@ -37,7 +37,7 @@ export const soilBagDefinition={
     {key:'inkColor',label:'内置贴纸图案 / 色块颜色',type:'color'},
     {key:'labelScale',label:'贴纸大小',min:.7,max:1.08,step:.01},
     {key:'customSticker',label:'导入自定义贴纸 · PNG / JPG / WebP',type:'image',accept:'image/png,image/jpeg,image/webp'},
-    {type:'note',label:'贴纸使用 Nearest 最近邻采样，不混糊边缘。内置贴纸只有大图案与实心色块，没有小字；导入保持比例，透明部分铺在底色上。调整只留在本次页面，不自动发布游戏资产。'},
+    {type:'note',label:'内置贴纸是平滑的大图案与实心色块，没有小字；像素风仅由共享后处理生成。贴图仍用 Nearest 最近邻采样；导入保持比例，透明部分铺在底色上。调整只留在本次页面，不自动发布游戏资产。'},
     {type:'note',label:'时间轴可选“撕开”和“倾倒”，播放一次后停在末帧，拖动或逐帧检查。土流仅示意重力方向，不含土块粒子细节。'},
   ],
   async create(){

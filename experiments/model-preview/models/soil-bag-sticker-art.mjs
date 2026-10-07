@@ -1,34 +1,25 @@
-// Original preview packaging marks, authored on a coarse grid for small pixel tiles.
+// Original, continuous vector artwork. View-box units are not a raster/pixel grid.
 // One large silhouette + one solid title block; no lettering, logos or brand assets.
-export const soilBagStickerGrid=Object.freeze({width:32,height:40});
-const inside=(x,y,points)=>{
-  let hit=false;
-  for(let i=0,j=points.length-1;i<points.length;j=i++){
-    const [a,b]=points[i],[c,d]=points[j];
-    if((b>y)!==(d>y)&&x<(c-a)*(y-b)/(d-b)+a)hit=!hit;
-  }
-  return hit;
-};
-const leaves=[[[4,8],[10,8],[15,12],[17,19],[10,18],[6,14]],[[28,6],[21,6],[16,11],[15,19],[22,16],[26,12]]];
-const layers=Array.from({length:3},(_,i)=>[[4,11],[12,8],[20,10],[28,9],[28,14],[20,15],[12,13],[4,16]].map(([x,y])=>[x,y+i*7]));
+const path=(commands,fill='ink')=>({kind:'path',commands,fill});
+const layer=offset=>path([
+  ['moveTo',10,27.5+offset],['bezierCurveTo',30,15+offset,42.5,32+offset,70,22.5+offset],
+  ['lineTo',70,35+offset],['bezierCurveTo',42.5,43+offset,30,27.5+offset,10,40+offset],['closePath'],
+]);
 
-export function soilBagStickerMask(design='sprout'){
-  const {width,height}=soilBagStickerGrid,mask=new Uint8Array(width*height);
-  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
-    const px=x+.5,py=y+.5;
-    let ink;
-    if(design==='layers')ink=layers.some(points=>inside(px,py,points));
-    else if(design==='flower'){
-      ink=false;
-      for(let petal=0;petal<5;petal++){
-        const angle=-Math.PI/2+petal*Math.PI*2/5,c=Math.cos(angle),s=Math.sin(angle);
-        const dx=px-16-7*c,dy=py-18-7*s;
-        if(((dx*c+dy*s)/6)**2+((-dx*s+dy*c)/4.8)**2<=1)ink=true;
-      }
-      if((px-16)**2+(py-18)**2<3.2**2)ink=false;
-    }else ink=leaves.some(points=>inside(px,py,points))||(px>=14&&px<18&&py>=16&&py<31);
-    if(px>=4&&px<28&&py>=34&&py<37)ink=true;
-    mask[y*width+x]=ink?1:0;
-  }
-  return mask;
+export function soilBagStickerArt(design='sprout'){
+  let shapes;
+  if(design==='layers')shapes=[0,17.5,35].map(layer);
+  else if(design==='flower'){
+    shapes=Array.from({length:5},(_,i)=>{
+      const rotation=-Math.PI/2+i*Math.PI*2/5;
+      return {kind:'ellipse',x:40+17.5*Math.cos(rotation),y:45+17.5*Math.sin(rotation),rx:15,ry:12,rotation,fill:'ink'};
+    });
+    shapes.push({kind:'ellipse',x:40,y:45,rx:8,ry:8,rotation:0,fill:'background'});
+  }else shapes=[
+    path([['moveTo',35,40],['bezierCurveTo',36,52,36,66,35,77.5],['lineTo',45,77.5],['bezierCurveTo',44,66,44,52,45,40],['closePath']]),
+    path([['moveTo',40,47.5],['bezierCurveTo',20,50,10,37.5,10,20],['bezierCurveTo',27.5,17.5,42.5,27.5,40,47.5],['closePath']]),
+    path([['moveTo',40,45],['bezierCurveTo',37.5,25,50,15,70,15],['bezierCurveTo',70,35,57.5,47.5,40,45],['closePath']]),
+  ];
+  shapes.push({kind:'rect',x:10,y:85,width:60,height:7.5,fill:'ink'});
+  return {viewBox:{width:80,height:100},shapes};
 }

@@ -1,4 +1,4 @@
-import {soilBagStickerGrid,soilBagStickerMask} from './soil-bag-sticker-art.mjs';
+import {soilBagStickerArt} from './soil-bag-sticker-art.mjs';
 
 // Opaque, replaceable label art. Alpha in imported images is flattened over labelColor;
 // no model-specific alpha/cutout exception is added to the shared pixel pipeline.
@@ -11,14 +11,17 @@ export function drawSoilBagSticker(canvas,settings,image=null){
     const width=image.width*scale,height=image.height*scale;
     ctx.drawImage(image,(w-width)/2,(h-height)/2,width,height);return;
   }
-  const {width,height}=soilBagStickerGrid,mask=soilBagStickerMask(settings.stickerDesign);
-  ctx.fillStyle=settings.inkColor;
-  // Merge horizontal runs, on integer canvas edges: exactly two colors, no font
-  // dependency or antialiased contours before the shared lighting/pixel pipeline.
-  for(let y=0;y<height;y++)for(let x=0;x<width;){
-    if(!mask[y*width+x]){x++;continue;}
-    const start=x;while(x<width&&mask[y*width+x])x++;
-    const left=Math.round(start*w/width),top=Math.round(y*h/height);
-    ctx.fillRect(left,top,Math.round(x*w/width)-left,Math.round((y+1)*h/height)-top);
+  const {viewBox,shapes}=soilBagStickerArt(settings.stickerDesign);
+  // Draw continuous curves at the actual texture resolution, with normal Canvas
+  // contour antialiasing. Only the shared model pipeline makes the pixel-style tile.
+  ctx.save();ctx.scale(w/viewBox.width,h/viewBox.height);
+  for(const shape of shapes){
+    ctx.fillStyle=shape.fill==='background'?settings.labelColor:settings.inkColor;
+    ctx.beginPath();
+    if(shape.kind==='path')for(const [method,...args] of shape.commands)ctx[method](...args);
+    else if(shape.kind==='ellipse')ctx.ellipse(shape.x,shape.y,shape.rx,shape.ry,shape.rotation,0,Math.PI*2);
+    else ctx.rect(shape.x,shape.y,shape.width,shape.height);
+    ctx.fill();
   }
+  ctx.restore();
 }
