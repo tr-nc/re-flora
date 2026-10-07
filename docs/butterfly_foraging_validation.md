@@ -39,3 +39,21 @@ Correctness validation:
   - Original mode, 20 s: choices/landings/departures stay zero; no contact dispatch after diagnostic seeding.
 - All successful native fixtures and the final 0.5 s Release smoke: shutdown `failures=0`, no ERROR/panic/VUID. Latest logs were inspected using this worktree's log helpers. Final post-clock-change 8 s visiting rerun also reaches complete-cycle/distinct-host PASS.
 - These establish behavioral/resource safety. Subjective visual approval, dense-world/stress performance acceptance and any ecological nectar/pollination effects remain separate; no visible game was automatically launched.
+
+## Step 3: Release measurements and hidden visual capture
+
+GPU: NVIDIA GeForce RTX 3060 Ti. Hidden normal native Vulkan surface/swapchain, 5120×2880 physical output; existing render settings retained, present mode auto-selected. GPU runs serialized with the shared lock. Four 10-second Release runs in **off → visits → visits → off** order; discard the first three seconds after seeding. Same fixture, six nearby authored heads, two butterflies, 1× self-flight and 1 s dwell. This is a small candidate measurement, not a dense-world or saved-default performance acceptance test.
+
+| Run | Particle CPU median / p95 (ms) | Flower-contact GPU median / p95 (µs) | GPU frame mean (ms) |
+| --- | --- | --- | --- |
+| off-1 | 0.016 / 0.026 | 1 / 1 (empty scope, no dispatch) | 6.691 |
+| visits-1 | 0.016 / 0.025 | 33 / 39 | 6.707 |
+| visits-2 | 0.016 / 0.023 | 38 / 39 | 6.804 |
+| off-2 | 0.015 / 0.023 | 1 / 1 (empty scope, no dispatch) | 10.470 |
+
+- Each run contributes 403–406 particle samples and 14 completed GPU scope samples. Contact publication is ~0.04 ms in this fixture. Particle simulation median is 0.009 ms in all four runs; CPU frame medians are 17.10–17.18 ms. Whole-frame GPU variation is substantial, including the slower second baseline, so these data do **not** establish a causal whole-frame speedup or a general regression budget pass. No performance workaround or behavior downgrade was introduced.
+- Raw data: `target/butterfly-foraging-perf-{off,visits}-{1,2}.log`; parsed statistics: `target/butterfly-foraging-perf-summary.json`. `models.flowers.contacts` is an explicit GPU timestamp scope, rather than estimated CPU dispatch time. All four runs shut down with `failures=0`, no ERROR/panic/VUID.
+- Five native screenshots captured and first/last inspected: `target/butterfly-foraging-native.000000.png` through `.000004.png`. They show the approved small butterfly mesh near moving flower heads, with position changes during the visiting loop; the actual attachment is visibly small at the wide fixture camera distance. The local crop is inspection-only, not a change in game size/palette/camera defaults. Screenshot sequence and normal completion marker passed without launching a visible window. Static captures do not constitute subjective animation approval.
+- The resize-lifecycle CLI fixture plus visiting scene completed its cycle without ERROR/panic/VUID and with shutdown `failures=0`. Do not interpret this as exhaustive device-loss or every possible swapchain recreation coverage.
+
+For a normal manual try-out, run `cargo run --release` from `new-bird` (no `--hidden`, no `--perf`). Debug Panel → Flower visiting → **Flower-visiting behavior (A/B)** toggles the candidate against original roaming live; Save persists the choice. Performance tuning and denser/ecological behavior should follow visual feedback, not block trying this candidate.
