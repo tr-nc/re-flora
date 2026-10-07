@@ -1510,6 +1510,38 @@ fn validate_shared_apple_asset() {
         "Stale {path}. Run node scripts/publish-apple-model.mjs, review, and commit the generated mesh.");
 }
 
+fn validate_shared_soil_bag_asset() {
+    let mut hash = crc32fast::Hasher::new();
+    for source in [
+        "assets/models/soil-bag-source.mjs",
+        "assets/models/soil-bag-sticker-art.mjs",
+        "scripts/publish-soil-bag-model.mjs",
+    ] {
+        println!("cargo:rerun-if-changed={source}");
+        hash.update(&fs::read(source).expect("shared soil-bag authoring source"));
+    }
+    let path = "assets/models/soil-bag.json";
+    println!("cargo:rerun-if-changed={path}");
+    let json: serde_json::Value = serde_json::from_slice(
+        &fs::read(path).expect("run node scripts/publish-soil-bag-model.mjs"),
+    )
+    .expect("published soil-bag JSON");
+    assert_eq!(
+        json["source_crc32"].as_u64(),
+        Some(u64::from(hash.finalize())),
+        "Stale {path}. Run node scripts/publish-soil-bag-model.mjs and commit the derived assets."
+    );
+    let texture = "assets/models/soil-bag-sticker.png";
+    println!("cargo:rerun-if-changed={texture}");
+    assert_eq!(
+        json["texture_crc32"].as_u64(),
+        Some(u64::from(crc32fast::hash(
+            &fs::read(texture).expect("published soil-bag sticker")
+        ))),
+        "Soil-bag sticker differs from the published fingerprint; republish, do not hand-edit."
+    );
+}
+
 fn validate_shared_flower_assets() {
     let mut hash = crc32fast::Hasher::new();
     for source in [
@@ -1576,6 +1608,7 @@ fn validate_shared_flower_assets() {
 fn main() {
     validate_shared_leaf_asset();
     validate_shared_apple_asset();
+    validate_shared_soil_bag_asset();
     validate_shared_flower_assets();
     // Tell Cargo to rerun this script if these files/directories change.
     // config/gui.toml drives GuiAdjustables codegen.

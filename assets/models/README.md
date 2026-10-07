@@ -130,6 +130,24 @@ See [the study and native screenshots](../../docs/research/stylized-flower-model
 and `node scripts/validate-flower-models.mjs --help` for the bounded real-game checks.
 Large-population Release performance acceptance remains separate from this visual candidate.
 
+## Publish the Soil tool bag
+
+`soil-bag-source.mjs` and `soil-bag-sticker-art.mjs` are the single shared pouch/vector-art
+sources. Browser compatibility entrypoints re-export them. Run
+`node scripts/publish-soil-bag-model.mjs` (authoring requires ImageMagick, `magick`) to publish
+`soil-bag.json` and the opaque 512×640 RGB `soil-bag-sticker.png`; packaged/native builds do not
+require Node or ImageMagick. Build fingerprints reject stale geometry or hand-edited texture bytes.
+
+The explicit native adaptation is **two immutable complete snapshots**: the sealed hover pose
+and the already-open midpoint of the pouring clip. Tab vertices use the same authored hinge and
+rotation, and normals use the same Three.js BufferGeometry computation. Gameplay switches states
+immediately; it does not approximate dynamic mouth animation with GLB TRS, import the web flow mesh,
+or claim native support for morph animation. Placement/scale, environment shading and visual
+falling grains belong to the game consumer. The default smooth sprout graphic is published from
+the same continuous paths at original texture resolution; only shared model sampling pixelizes it.
+Native sampling is opaque Nearest/no mipmaps. Web color/import experiments remain page-only and
+never publish automatically.
+
 ## Publish a leaf shape
 
 Edit `leaf-source.mjs` (including `leafDefaults` for approved width/length/fold/curl), then run:
