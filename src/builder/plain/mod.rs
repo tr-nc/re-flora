@@ -800,9 +800,20 @@ impl PlainBuilder {
         };
         let mut halo = request.horizontal_halo();
         let mut expansions = 0;
+        let profile = std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some();
+        let mut read_ms = 0.;
+        let mut plan_ms = 0.;
+        let mut crop_ms = 0.;
+        let mut upload_ms = 0.;
+        let mut dirty_ms = 0.;
+        let mut read_bytes = 0_usize;
         let (data, dim, mut result) = loop {
             let dim = sample.max() - sample.min();
+            let stage = Instant::now();
             let mut data = self.read_chunk_atlas_region(sample.min(), dim)?;
+            read_ms += stage.elapsed().as_secs_f64() * 1000.;
+            read_bytes += data.len();
+            let stage = Instant::now();
             let result = crate::terrain_deposition::deposit_in_bounds(
                 &mut data,
                 sample.min(),
@@ -811,6 +822,7 @@ impl PlainBuilder {
                 request,
                 legal,
             );
+            plan_ms += stage.elapsed().as_secs_f64() * 1000.;
             if !result.needs_more_space {
                 break (data, dim, result);
             }
@@ -830,10 +842,19 @@ impl PlainBuilder {
         result.sampling_halo = halo;
         if let Some(changed) = result.changed {
             let write_dim = changed.max() - changed.min() + UVec3::ONE;
+            let stage = Instant::now();
             let write_data =
                 extract_volume_region_u8(&data, dim, changed.min() - sample.min(), write_dim);
+            crop_ms = stage.elapsed().as_secs_f64() * 1000.;
+            let stage = Instant::now();
             self.write_chunk_atlas_region(changed.min(), write_dim, &write_data)?;
+            upload_ms = stage.elapsed().as_secs_f64() * 1000.;
+            let stage = Instant::now();
             self.mark_all_solid_workgroups_dirty();
+            dirty_ms = stage.elapsed().as_secs_f64() * 1000.;
+        }
+        if profile {
+            log::info!("[PERF][SOIL_STAGE] read_ms={read_ms:.3} plan_ms={plan_ms:.3} crop_ms={crop_ms:.3} upload_ms={upload_ms:.3} dirty_ms={dirty_ms:.3} read_bytes={read_bytes} expansions={expansions}");
         }
         log::info!(
             "[SOIL_DEPOSITION] requested={} added={} sample={:?} expanded_regions={} changed={:?} total={:.2}ms",

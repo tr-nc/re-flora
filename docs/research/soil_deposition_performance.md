@@ -50,6 +50,19 @@ NVIDIA GeForce RTX3060Ti;5120×2880 native hidden window; same saved rendering s
 
 No10×/100× total-speedup claim is justified by these initial measurements. Stage profiling and repeated order-reversed matched runs come next.
 
+## Stage probe and variability
+
+The next matched large-pile run preserved hash`299ee6dcf37284dd` but was faster than the first run: event mean27.371ms, median26.607ms, p9531.017ms; frame p9533.382ms. **The original86ms event tail is not a stable baseline.** Use repeated interleaved measurements, not the most dramatic first number.
+
+Stage means across80 events: readback9.564ms, planning9.912ms, crop0.146ms, upload1.454ms, dirty flags0.108ms. Visible publication contributes the remainder, roughly4–8ms depending on affected chunks. Each event reads8125440 bytes including one speculative replay. `perf` is not installed on this host; no CPU flame graph is claimed.
+
+Primary-source research:
+
+- [NVIDIA APOD and strong scaling](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#strong-scaling-and-amdahl-s-law): assess hotspots and bound fixed-work total speedup by the fraction actually optimized. Its memory guidance prioritizes minimizing host/device transfers. These are general principles; this application is Vulkan/Rust, not CUDA.
+- [Khronos CPU/GPU synchronization sample](https://github.khronos.org/Vulkan-Site/samples/latest/samples/performance/wait_idle/README.html): broad idle waits drain the GPU pipeline; per-resource fences can avoid some bubbles. Its22% Mali example is **not** a prediction for this GPU/application, and visible terrain still must publish coherently.
+
+Probe logging is opt-in to the soil benchmark, `[PERF][SOIL_STAGE]`, with read/plan/crop/upload/dirty timings and transfer bytes. Stage report: `target/soil-perf/profile-large.json`; log `/tmp/terrain-magic-soil-perf-profile-large.log`. `cargo check`, Release build, matched replay and ordinary hidden startup passed; source/planner behavior did not change.
+
 ## Implementation sources
 
 - `src/terrain_deposition.rs`: per-grain supported settling and speculative retry contract.
