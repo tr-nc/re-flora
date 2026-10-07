@@ -294,6 +294,11 @@ mod tests {
     #[test]
     fn saved_control_adapter_uses_type_specific_dimensions_and_one_source_spec() {
         let mut s = GuiAdjustables::from_config(&GuiConfigLoader::load());
+        // Exercise the adapter with explicit dimensions, independent of saved tuning.
+        s.stone_width.value = 0.24;
+        s.stone_depth.value = 0.22;
+        s.stone_slab_thickness.value = 0.035;
+        s.stone_rock_height.value = 0.20;
         for kind in [0, 1] {
             s.stone_kind.value = kind;
             s.stone_seed.value = 19;
@@ -309,5 +314,10 @@ mod tests {
                 }
             );
         }
+        // The adapter must retain the model owner's safety limit for narrow slabs.
+        s.stone_kind.value = 0;
+        s.stone_depth.value = 0.10;
+        s.stone_slab_thickness.value = 0.09;
+        assert_eq!(spec(&s).size, Vec3::new(0.24, 0.10 * 0.3, 0.10));
     }
 }
