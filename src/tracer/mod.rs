@@ -7249,7 +7249,7 @@ impl Tracer {
             tree_instance.resources.shadow_instances_len = 0;
         }
 
-        tree_instance.resources.response_instances = instances_data;
+        tree_instance.resources.response_instances = instances_data.into();
         Ok(tree_instance)
     }
 

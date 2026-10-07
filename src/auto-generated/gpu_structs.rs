@@ -564,7 +564,9 @@ pub struct PushConstantVegetationResponse {
     pub flutter_frequency_curve: [f32; 4],
     pub grass_amplitude: [f32; 4],
     pub grass_frequency: [f32; 4],
-    pub grass_curve: [f32; 4],
+    pub grass_curve: [f32; 2],
+    pub leaf_first: u32,
+    pub leaf_flags: u32,
 }
 
 /// Auto-generated from `PushConstantVisibilityFilter` (native Slang source of truth).

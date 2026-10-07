@@ -11,7 +11,7 @@ use re_flora_vkn::{
     MemoryLocation, ResourceContainer, ResourceLookup, ShaderModule, Texture, TextureLayout,
 };
 use resource_container_derive::ResourceContainer;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 pub const MAX_FLORA_INSTANCES_PER_SPECIES: u32 = 40_000;
 
@@ -28,8 +28,8 @@ pub struct TreeLeafInstanceResource {
     // bandwidth must not change visible foliage geometry, LOD, or its compact instance stride.
     pub instances_buf: Resource<Buffer>,
     pub instances_len: u32,
-    // CPU mirror of the compact draw stream for lifetime-keyed response remapping.
-    pub response_instances: Vec<TreeLeafInstance>,
+    // Immutable publication identity: replacement allocates a new Arc, never mutates in place.
+    pub response_instances: Arc<[TreeLeafInstance]>,
     pub shadow_instances_buf: Resource<Buffer>,
     pub shadow_instances_len: u32,
     pub shadow_response_sources: Resource<Buffer>,
@@ -96,7 +96,7 @@ impl TreeLeafInstanceResource {
         Self {
             instances_buf: Resource::new(instances_buf),
             instances_len: 0,
-            response_instances: Vec::new(),
+            response_instances: Arc::from([]),
             shadow_instances_buf: Resource::new(shadow_instances_buf),
             shadow_instances_len: 0,
             shadow_response_sources: Resource::new(shadow_response_sources),
