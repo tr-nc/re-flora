@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="结合蝴蝶访花与风响应研究、Re: Flora 当前源码，提出轻量、可见、可验证的行为优化路线。">
+  <title>Re: Flora · 让蝴蝶有自己的打算</title>
+  <style>
+    :root{color-scheme:light;--paper:#f6f5ed;--panel:#fffef8;--ink:#243e34;--muted:#546b60;--green:#34644b;--line:#d7dfd2;--lavender:#eee9f4;--sand:#f4e9cd;--blue:#e8f0f4;--rose:#f4e8e7}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.85 system-ui,-apple-system,"Noto Sans CJK SC","Microsoft YaHei",sans-serif}a{color:var(--green);text-underline-offset:4px}a:hover{color:#1c442e}a:focus-visible,.table-wrap:focus-visible{outline:3px solid #806633;outline-offset:4px}p{margin:.65em 0 1em}h1,h2,h3{line-height:1.4;text-wrap:balance}h1{font-size:clamp(32px,4.5vw,53px);letter-spacing:-.03em;margin:.25em 0 .45em}h2{font-size:27px;margin:0 0 18px}h3{font-size:19px;margin:0 0 10px}ul,ol{padding-left:1.35em}li{margin:.4em 0}strong{font-weight:700}code{font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;background:#edf0e8;padding:2px 5px;border-radius:4px}small,.small{font-size:13px;color:var(--muted)}sup{font-size:12px;margin-left:4px}sup a{text-decoration:none;font-weight:700}.skip{position:absolute;left:16px;top:-90px;z-index:10;padding:8px 16px;background:var(--panel)}.skip:focus{top:16px}
+    .layout{max-width:1330px;margin:auto;display:grid;grid-template-columns:205px minmax(0,1fr);gap:46px;padding:38px 38px 64px}.sidebar{align-self:start;position:sticky;top:30px}.brand{font-size:20px;font-weight:800;letter-spacing:.04em}.side-label{font-size:12px;text-transform:uppercase;letter-spacing:.15em;color:var(--muted);margin:8px 0 28px}.sidebar nav{display:grid;gap:4px}.sidebar nav a{padding:8px 0;font-size:14px;text-decoration:none;border-bottom:1px solid var(--line)}.sidebar .small{margin-top:28px;line-height:1.7}main{min-width:0}.eyebrow{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.15em;text-transform:uppercase}.hero{position:relative;padding:36px 38px;background:var(--panel);border:1px solid var(--line);border-radius:20px;overflow:hidden}.hero>*{position:relative;z-index:1}.hero:after{content:"";position:absolute;z-index:0;width:140px;height:140px;border:35px solid var(--lavender);border-radius:50%;right:-68px;top:-66px;pointer-events:none}.deck{font-size:19px;max-width:720px;color:var(--muted)}.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:24px}.pill{font-size:12px;line-height:1.7;padding:4px 11px;border:1px solid var(--line);border-radius:99px;background:var(--paper)}section{margin-top:44px}.section-no{font-size:12px;letter-spacing:.12em;color:var(--muted);display:block;margin-bottom:8px}.lead{font-size:18px}.callout{padding:20px 24px;background:#e9efe3;border-left:4px solid var(--green);border-radius:0 12px 12px 0;margin:20px 0}.callout p:last-child{margin-bottom:0}.caution{background:var(--sand);border-left-color:#8c6b29}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:23px}.card p:last-child{margin-bottom:0}.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:12px;color:var(--green)}.translation{border-top:1px solid var(--line);padding-top:12px;font-size:14px}.translation b{color:var(--green)}.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:15px 17px;border-bottom:1px solid var(--line)}th{background:#edf1e7;font-size:12px;letter-spacing:.03em}tr:last-child td{border-bottom:0}td:first-child{min-width:135px;font-weight:600}.table-wrap.wide table{min-width:640px}.source-link{display:inline-block;font-size:12px;margin-top:7px;font-weight:400}.statline{display:flex;flex-wrap:wrap;gap:10px;margin:17px 0}.stat{padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px}.stat b{display:block;font-size:20px}.stat small{display:block}.figure{margin:22px 0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}.figure svg{display:block;width:100%;height:auto}.figure figcaption{font-size:13px;color:var(--muted);margin-top:14px}.story{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0}.story article{border-top:3px solid var(--green);padding:12px 8px 0}.story .time{font-size:12px;color:var(--muted)}.story h3{font-size:16px;margin:6px 0}.story p{font-size:14px}.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:20px 0}.state{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;min-width:110px}.state b{display:block}.state small{display:block}.arrow{color:var(--muted)}.formula{padding:18px 20px;border-radius:10px;background:#e9efe3;line-height:1.9;font-size:15px}.layers{display:grid;gap:10px;margin:22px 0}.layer{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:16px 20px;display:grid;grid-template-columns:170px 1fr;gap:18px}.layer p{margin:0;font-size:14px}.layer b{font-size:16px}.roadmap{display:grid;gap:14px;counter-reset:phase}.phase{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 24px}.phase h3{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.priority{font-size:11px;background:#e9efe3;color:var(--green);padding:3px 8px;border-radius:6px}.priority.later{background:var(--lavender);color:#63507d}.phase p{font-size:14px;margin-bottom:0}.source-list{list-style:none;padding:0;display:grid;gap:12px}.source-list li{padding:18px 20px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-size:14px}.source-list h3{font-size:15px;margin-bottom:5px}.source-list p{font-size:13px;margin:6px 0 0;color:var(--muted)}.quote{display:block;font-size:12px;color:var(--muted);margin-top:8px;padding-left:12px;border-left:2px solid var(--line);overflow-wrap:anywhere}.footer{margin-top:38px;border-top:1px solid var(--line);padding-top:20px;font-size:13px;color:var(--muted)}details{margin:18px 0;border:1px solid var(--line);border-radius:10px;padding:14px 20px;background:var(--panel)}summary{cursor:pointer;font-weight:600}details p{font-size:14px}#sources li:target{outline:3px solid #9b8450;outline-offset:3px}
+    @media(max-width:1050px){.layout{grid-template-columns:160px minmax(0,1fr);gap:25px;padding:28px}.hero{padding:28px}.story{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:760px){.layout{display:block;padding:20px 16px 45px}.sidebar{position:static;margin-bottom:25px}.side-label{margin:3px 0 14px}.sidebar nav{display:flex;flex-wrap:wrap;gap:8px 18px}.sidebar nav a{padding:2px 0;font-size:13px}.sidebar .small{display:none}.hero{padding:25px 22px}.deck{font-size:17px}.grid{grid-template-columns:1fr}.layer{grid-template-columns:1fr;gap:5px}h2{font-size:24px}.card{padding:20px}.figure{padding:12px}.story{gap:10px}.callout{padding:17px 19px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{html{scroll-behavior:auto}body{background:white;font-size:11pt;color:#17281f}.layout{display:block;max-width:none;padding:0}.sidebar,.skip{display:none}.hero{padding:18px;border-radius:0}.hero:after{display:none}section{margin-top:24px}.card,.phase,.layer,.source-list li{break-inside:avoid;box-shadow:none}.grid{gap:12px}.table-wrap{overflow:visible}.table-wrap.wide table{min-width:0}th,td{padding:8px}h2,h3{break-after:avoid}.figure{break-inside:avoid}details{display:none}a{color:inherit}.source-list a{overflow-wrap:anywhere}.footer{font-size:10pt}}
+  </style>
+</head>
+<body>
+<a class="skip" href="#main">跳到报告正文</a>
+<div class="layout">
+  <aside class="sidebar" aria-label="报告目录">
+    <div class="brand">Re: Flora</div>
+    <div class="side-label">Field notes / 蝴蝶行为</div>
+    <nav aria-label="章节导航">
+      <a href="#conclusion">01 · 先看结论</a>
+      <a href="#research">02 · 现实给我们的启发</a>
+      <a href="#current">03 · 当前游戏做到了什么</a>
+      <a href="#experience">04 · 希望玩家看见什么</a>
+      <a href="#behavior">05 · 轻量行为模型</a>
+      <a href="#integration">06 · 如何接入现有游戏</a>
+      <a href="#roadmap">07 · 优先级与验收</a>
+      <a href="#sources">08 · 研究与源码索引</a>
+    </nav>
+    <p class="small">2026-10-07<br>调研与设计报告<br>单文件 · 离线可读<br>浏览器打印可另存 PDF</p>
+  </aside>
+
+  <main id="main">
+    <header class="hero">
+      <div class="eyebrow">Butterfly / Foraging / Wind</div>
+      <h1>让蝴蝶<br>有自己的打算。</h1>
+      <p class="deck">不是把随机飞行调得更复杂，而是让它看见一朵花、想去那里、停一会儿，再因为新的机会或一阵风改变主意。</p>
+      <div class="meta">
+        <span class="pill">7 项研究 / 机构资料</span>
+        <span class="pill">对照当前 Rust / Shader 实现</span>
+        <span class="pill">只交付报告，尚未改动游戏行为</span>
+      </div>
+      <p class="small">源码基线：<code>new-bird @ 256b77c4</code>。现状来自静态代码审阅，不是实机观感、性能或生物学拟合验证。全文标注的时间与调参范围均为游戏设计建议，除非明确注明为研究结果。</p>
+    </header>
+
+    <section id="conclusion" aria-labelledby="conclusion-heading">
+      <span class="section-no">01 / THE RECOMMENDATION</span>
+      <h2 id="conclusion-heading">最值得先做：从“围着出生点飞”变成“在花之间生活”</h2>
+      <p class="lead">保留已有的扑翼、急转、惯性和风漂移，在上面加一个小型<strong>访花行为层</strong>。最有价值的变化不是更多蝴蝶，而是单只蝴蝶的一段行为变得可读。</p>
+      <div class="grid">
+        <article class="card"><span class="tag">FIRST · 花有吸引力</span><h3>喜欢一些花，但不只认一种花</h3><p>花的种类、外观与可取食程度形成偏好；每只蝴蝶略有不同。优先访问附近合适的花，不总是锁定最近一朵，也不全体追同一个点。</p></article>
+        <article class="card"><span class="tag">SECOND · 飞行有目的</span><h3>跨花飞行，靠近时明显减速</h3><p>远处是带轻微曲折的转移，近处是犹豫、对齐、落稳。随机机动服从意图，而不是持续把它从目标旁边弹开。</p></article>
+        <article class="card"><span class="tag">THIRD · 停留有区别</span><h3>取食停驻 ≠ 空中徘徊 ≠ 休息</h3><p>先做好花上取食的停驻，再扩展石头、叶面上的休息。停下来时翅膀与身体也要改变，不能只是速度变成零、原动画照播。</p></article>
+        <article class="card"><span class="tag">FOURTH · 改主意有原因</span><h3>风吹偏、花不合适、目标消失</h3><p>小风中保留目标并纠偏，大风中可以放弃或暂歇；一次取食不理想后更愿意尝试另一类花。不是每帧重新抽一次目标。</p></article>
+      </div>
+      <div class="callout"><strong>一句话路线：</strong><p>先完成“选花 → 接近 → 停驻 → 起飞去下一朵”的闭环，再让风与短期记忆改变这个闭环。不要先做完整昆虫生态、气味流体或空气动力学。</p></div>
+    </section>
+
+    <section id="research" aria-labelledby="research-heading">
+      <span class="section-no">02 / REAL BEHAVIOR, USEFUL ABSTRACTIONS</span>
+      <h2 id="research-heading">现实里的六条规律，够用就好</h2>
+      <p>以下将“研究发现”与“游戏转译”分开。物种、实验材料和环境会改变结果；没有一个适用于所有蝴蝶的万能花色或固定停留秒数。</p>
+      <div class="grid">
+        <article class="card">
+          <span class="tag">研究 · 颜色与奖励</span><h3>吸引它的，不只是“漂亮”</h3>
+          <p><i lang="la">Leptophobia aripa</i> 的人工花实验中，未训练个体更偏好红色；它也能学习颜色与糖奖励的关系。<i lang="la">Papilio xuthus</i> 的另一组实验则较多访问蓝、紫色人工花，视觉与气味都会影响访问。<sup><a href="#s1" aria-label="查看来源 1">[1]</a><a href="#s2" aria-label="查看来源 2">[2]</a></sup></p>
+          <p class="translation"><b>游戏转译：</b>用“花的吸引标签 + 蝴蝶个体偏好”，不要硬编码“所有蝴蝶都爱紫花”。初版以种类与可见外观为线索；香味先作为抽象吸引参数，不做气味扩散场。装饰用翅膀配色不必直接等同真实物种。</p>
+        </article>
+        <article class="card">
+          <span class="tag">研究 · 访花恒常性与学习</span><h3>有偏爱，也能重新学会喜欢</h3>
+          <p>绿脉粉蝶 <i lang="la">Pieris napi</i> 在人工双色花实验中，个体会连续偏向一种颜色。仅一种颜色有花蜜的三天训练能改变偏好，再训练也能反转这种偏好。<sup><a href="#s3" aria-label="查看来源 3">[3]</a></sup></p>
+          <p class="translation"><b>游戏转译：</b>最近几次取食成功，会让它更愿意去相似的花；但留一点探索机会。游戏里用秒级短期记忆，是节奏压缩，不是把三天实验改写为自然时间规律。</p>
+        </article>
+        <article class="card">
+          <span class="tag">研究 · 离开与换花</span><h3>上一朵不理想，下一次更可能换种类</h3>
+          <p><i lang="la">Thymelicus flavus</i> 的野外研究发现：上一朵花奖励低于平均水平后，更常发生花种切换；换种后花朵处理时间平均增加约 0.85 秒，而且没有因此缩短飞行时间。<sup><a href="#s4" aria-label="查看来源 4">[4]</a></sup></p>
+          <p class="translation"><b>游戏转译：</b>停留长短与“这次是否值得”相关，离开后偶尔试别的花。0.85 秒是该研究的处理时间差，不是通用停驻时长；也不要让每次路线都像最短路径算法。</p>
+        </article>
+        <article class="card">
+          <span class="tag">研究 · 风与飞行活动</span><h3>强风不只带来漂移，也会减少飞行</h3>
+          <p><i lang="la">Colias</i> 的风洞 / 野外研究中，风影响散热与飞行：风洞里偏好 0.5–1.5 m/s 的气流，达到 2.5 m/s 时未观察到飞行；野外主动起飞发生在不超过约 1.4 m/s 的条件。<sup><a href="#s5" aria-label="查看来源 5">[5]</a></sup></p>
+          <p class="translation"><b>游戏转译：</b>弱风轻微吹偏，中风需要修正，强风允许放弃目标或寻找遮蔽。上面是特定物种 / 条件的结果，不能当全体蝴蝶阈值；游戏风场强度也不是 m/s。</p>
+        </article>
+        <article class="card">
+          <span class="tag">机构实践 · 休息与微环境</span><h3>花不是唯一值得停下来的地方</h3>
+          <p>Butterfly Conservation 建议花园同时提供富含花蜜的花、幼虫食草、阳光下的石头 / 裸地，以及挡风树篱等遮蔽。成蝶补充花蜜、晒太阳与幼虫取食，是不同需求。<sup><a href="#s7" aria-label="查看来源 7">[7]</a></sup></p>
+          <p class="translation"><b>游戏转译：</b>以后可以让它偶尔落在暖石头、叶片或避风角落。成蝶访花目标与“从哪种植被生成”应分开，不能把所有草和树叶都当成花蜜来源。</p>
+        </article>
+        <article class="card">
+          <span class="tag">研究 · 时间记忆，留给以后</span><h3>有些蝴蝶会记住什么时候去哪儿</h3>
+          <p>Heliconiini 实验显示，部分物种能学习早晚不同的颜色奖励关系；<i lang="la">Heliconius</i> 的固定访问路线与它们特殊的花粉取食生态有关。<sup><a href="#s6" aria-label="查看来源 6">[6]</a></sup></p>
+          <p class="translation"><b>游戏转译：</b>成熟版本可出现熟悉的花簇与回访路线。但初版只需“刚去过哪里、取食是否成功”；不要强迫所有蝴蝶按同一条循环航线飞。</p>
+        </article>
+      </div>
+      <div class="callout caution"><strong>证据边界</strong><p>上述研究支持偏好、学习、换花和受风限制。报告中的“飞到一半改目标”“小回旋”“有限抗风控制”是游戏设计推演，不是这些论文直接证明的通用行为。也没有用蜜蜂的实验替代蝴蝶结论。</p></div>
+    </section>
+
+    <section id="current" aria-labelledby="current-heading">
+      <span class="section-no">03 / CODE AUDIT</span>
+      <h2 id="current-heading">现有底盘值得保留，缺的是行为意图</h2>
+      <div class="table-wrap wide" role="region" aria-label="当前实现对照表，可横向滚动" tabindex="0">
+        <table>
+          <caption class="small" style="padding:12px;text-align:left">当前行为链：植被提供生成机会 → 发射器创建个体 → 固定步长飞行 → 统一姿态发布 → 模型渲染。</caption>
+          <thead><tr><th scope="col">环节</th><th scope="col">当前已有</th><th scope="col">与期望的差距</th></tr></thead>
+          <tbody>
+            <tr><td>生成与植被<a class="source-link" href="#c1">源码 C1</a></td><td>草、人工花卉、树冠按供给分组；人工植被的蝴蝶生成偏重为 1.5，草与树冠为 1。低频更新机会，已有总量 / 局部密度限制。</td><td>这是“在哪出现”的权重，不是“飞向哪朵花”。生成点来自植被根部或树叶，并未提供可访花的实时花头目标。</td></tr>
+            <tr><td>个体与目标<a class="source-link" href="#c2">源码 C2</a></td><td><code>ActiveButterfly</code> 持有粒子句柄、噪声状态、离地阶段和飞行状态。</td><td>没有花头句柄、访花阶段、取食 / 休息计时或最近访问记忆，因而还没有花到花的闭环。</td></tr>
+            <tr><td>飞行动力<a class="source-link" href="#c3">源码 C3</a></td><td>120 Hz 固定步长；巡航 + 有种子的随机机动；限制加速度 / jerk；地形与边界保护；偏离出生栖息中心后软拉回。</td><td>水平栖息半径常量为 0.32 世界单位，中心不是当前花目标。直接加一股“花吸力”会与旧恢复力、随机机动争夺控制。</td></tr>
+            <tr><td>风响应<a class="source-link" href="#c4">源码 C4</a></td><td>按所在位置读取水平风场，平滑独立漂移速度，自飞速度与风漂移分别调节。</td><td>已有被吹走的基础，不需重写风。缺少目标保持、到达失败 / 放弃的条件、强风暂停策略；此 CPU 风采样本身没有花旁几何遮蔽信息。</td></tr>
+            <tr><td>展示与停驻<a class="source-link" href="#c5">源码 C5</a></td><td>位置、速度和扑翼在同一展示 tick 发布；已有扑翼耦合 A/B。模型朝向由发布的速度决定，零速度返回固定朝向。</td><td>不能只把速度设零：停驻需要独立的稳定朝向、花头法线与翼姿。受风时身体朝向也可能需要与地面位移方向分离。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="statline" role="group" aria-label="仓库保存配置中的蝴蝶参数">
+        <div class="stat"><b>120 Hz</b><small>飞行积分，不由展示 FPS 驱动</small></div>
+        <div class="stat"><b>8 FPS</b><small>仓库配置：位置 / 朝向 / 翅膀展示</small></div>
+        <div class="stat"><b>50–60 s</b><small>仓库配置：个体生命周期</small></div>
+        <div class="stat"><b>0.25× / 1.0×</b><small>仓库配置：自飞 / 风漂移</small></div>
+      </div>
+      <p class="small">这里是 <code>config/gui.toml</code> 的已保存值：<code>Darting</code>，扑翼耦合开启，<code>maneuver_tempo = 2.75</code>，离地高度 0.08。构造器兜底值不同，例如生命周期 10–15 秒、耦合关闭；用户本地配置还可能覆盖它们。不能拿旧文档默认值当作当前效果。</p>
+      <div class="callout caution"><strong>一个值得实机检查的比例，不是已经复现的缺陷</strong><p>按当前 0.25× 自飞配置，基础巡航约 0.025–0.040 世界单位 / 秒，自飞速度上限 0.075；风强度为 1、漂移为 1× 时，漂移目标为 0.060。由此可知风可能与自飞同量级甚至超过巡航。下一步应检查“有意图地被吹偏”是否变成“持续被拖走”，而不是盲目再加大风。以上是常量换算，没有测量实际轨迹。</p></div>
+    </section>
+
+    <section id="experience" aria-labelledby="experience-heading">
+      <span class="section-no">04 / A SMALL GARDEN STORY</span>
+      <h2 id="experience-heading">一段十几秒的小故事，比一串随机急转更有生命感</h2>
+      <figure class="figure">
+        <svg viewBox="0 0 880 290" role="img" aria-labelledby="scene-title scene-desc" xmlns="http://www.w3.org/2000/svg">
+          <title id="scene-title">访花与阵风的概念路径</title>
+          <desc id="scene-desc">蝴蝶在花 A 停驻后飞向花 B，途中被阵风吹偏，随后选择附近的花 C。图中路径仅为设计示意，不是游戏截图。</desc>
+          <defs>
+            <marker id="green-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#34644b"/></marker>
+            <marker id="wind-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#608195"/></marker>
+            <g id="flower-icon"><path d="M0 2 Q-3 42 0 68" fill="none" stroke="#749777" stroke-width="4"/><path d="M0 43 Q-30 24 -28 46 Q-6 58 0 43" fill="#b2c8a0"/><ellipse cy="-14" rx="13" ry="18" fill="currentColor"/><ellipse cx="17" cy="-2" rx="18" ry="13" fill="currentColor"/><ellipse cx="10" cy="16" rx="13" ry="18" fill="currentColor"/><ellipse cx="-14" cy="12" rx="13" ry="18" fill="currentColor"/><ellipse cx="-18" cy="-6" rx="18" ry="13" fill="currentColor"/><circle r="10" fill="#dec06b"/></g>
+            <g id="butterfly-icon"><path d="M0 0 C-40 -45 -43 10 -5 8 C-34 44 -16 47 0 17 C16 47 34 44 5 8 C43 10 40 -45 0 0" fill="#bfa8cb" stroke="#806e8c" stroke-width="1.6"/><path d="M0 -8 L0 23 M0 -7 L-7 -15 M0 -7 L7 -15" stroke="#3b483d" stroke-width="3" fill="none"/></g>
+          </defs>
+          <path d="M25 230 Q245 211 445 231 T855 229" stroke="#d7dfd2" stroke-width="2" fill="none"/>
+          <use href="#flower-icon" x="115" y="160" color="#c698b7"/>
+          <use href="#flower-icon" x="498" y="168" color="#c6accb"/>
+          <use href="#flower-icon" x="754" y="160" color="#e5c27c"/>
+          <use href="#butterfly-icon" transform="translate(119 112) scale(.52)"/>
+          <use href="#butterfly-icon" transform="translate(353 76) rotate(16) scale(.52)"/>
+          <use href="#butterfly-icon" transform="translate(618 122) rotate(-12) scale(.52)"/>
+          <path d="M145 107 C210 23 262 133 333 78" stroke="#34644b" stroke-width="2.5" fill="none" marker-end="url(#green-arrow)"/>
+          <path d="M380 85 Q450 77 482 132" stroke="#809781" stroke-width="2" stroke-dasharray="6 7" fill="none"/>
+          <path d="M382 85 C473 117 494 54 566 110 S658 121 722 135" stroke="#34644b" stroke-width="2.5" fill="none" marker-end="url(#green-arrow)"/>
+          <path d="M439 25 Q496 2 573 28 M426 44 Q489 21 556 50" stroke="#608195" stroke-width="2.5" fill="none" marker-end="url(#wind-arrow)"/>
+          <g fill="#243e34" font-family="system-ui,sans-serif" font-size="16"><text x="60" y="266">A · 取食后离开</text><text x="442" y="266">B · 原来的目标</text><text x="702" y="266">C · 顺势改选</text></g>
+          <g fill="#546b60" font-family="system-ui,sans-serif" font-size="13"><text x="198" y="179">有目标，但不走尺子画的直线</text><text x="585" y="46">阵风吹偏，不瞬移</text></g>
+        </svg>
+        <figcaption>概念图，不是游戏截图或可运行模拟。并不是每阵风都要换目标：有时纠偏回 B，有时改选 C，这种差异才有意思。</figcaption>
+      </figure>
+      <div class="story">
+        <article><div class="time">片段 1 · 约 0–2 秒</div><h3>发现一朵喜欢的花</h3><p>朝它转向，带一点侧倾；绕过后再靠近，而不是直接贴上去。</p></article>
+        <article><div class="time">片段 2 · 约 2–6 秒</div><h3>减速，落稳，取食</h3><p>脚落在花头合适位置，身体跟着花轻摇。翅膀进入停驻姿态，偶尔轻开合。</p></article>
+        <article><div class="time">片段 3 · 约 6–9 秒</div><h3>离开，去下一朵</h3><p>先离开花面，再沿略带弯曲的路径转移。短期内不立刻回同一个接触点。</p></article>
+        <article><div class="time">片段 4 · 约 9–14 秒</div><h3>被风打断，再作决定</h3><p>先产生侧向位移，随后修正；如果前进受阻，就放弃，改去附近另一朵花。</p></article>
+      </div>
+      <p class="small">这是一次视觉审阅用的编排，不是每只蝴蝶都必须遵守的时间表。花间距离、取食结果与风会改变节奏，不能所有个体同时停驻、同时起飞。</p>
+    </section>
+
+    <section id="behavior" aria-labelledby="behavior-heading">
+      <span class="section-no">05 / THE LIGHTWEIGHT MODEL</span>
+      <h2 id="behavior-heading">一个小状态机，加一点记忆，就能解释大多数动作</h2>
+      <div class="flow" role="group" aria-label="建议的访花状态顺序">
+        <div class="state"><b>探索 / 选花</b><small>找局部可见候选</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="state"><b>转移飞行</b><small>目标主导，轻微曲折</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="state"><b>接近 / 落稳</b><small>减速、对齐花头</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="state"><b>停驻取食</b><small>跟随宿主，不巡航</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="state"><b>起飞 / 离开</b><small>释放接触，再选花</small></div>
+      </div>
+      <p><strong>打断分支：</strong>飞行中被明显吹偏 → 恢复控制 → 返回原目标或重新选花；目标被删 / 不再有效 → 立即释放引用，安全离开；后续再加“休息 / 避风”。风偏移首先是运动结果，不必每次都跳状态。</p>
+      <div class="grid">
+        <article class="card">
+          <span class="tag">选哪朵 · 不是全局最优</span><h3>只比较附近少量候选</h3>
+          <p>先过滤真实存在、可见生长状态足够、具有可接近花头的候选。按附近花簇搜索，再在少量较优候选中做有种子的加权选择。</p>
+          <div class="formula">吸引分 = 个体花类偏好 + 可见花头吸引力 + 记忆中的预期收益<br>− 距离 / 逆风代价 − 最近访问惩罚 − 接触点拥挤代价</div>
+          <p class="small">这是示意评分，不是自然界公式。未访问过的花用初始收益估计，真正奖励在停驻后确认；不要让蝴蝶远距离“读到”所有花的实时花蜜。拥挤惩罚是防穿模的游戏规则。</p>
+        </article>
+        <article class="card">
+          <span class="tag">何时换目标 · 有承诺，也有例外</span><h3>保留原计划，直到有充分理由</h3>
+          <ul><li>定时低频评估，而非每个积分步抽目标。</li><li>有效目标有短暂承诺期；新目标明显更好才考虑切换。</li><li>接近时更少换目标，避免“就差一点又折返”。</li><li>目标消失、路径失败或强风阻止前进时，可立即解除承诺。</li><li>落空 / 收益低后降低相关花类估计，但不永久拉黑。</li></ul>
+          <p class="small">记住最近 2–4 个花头即可起步；决策 2–4 Hz、承诺约 1–3 秒可作为首轮调参起点，均是设计建议。个体错开决策时刻。</p>
+        </article>
+        <article class="card">
+          <span class="tag">怎么停 · 接触不是“暂停粒子”</span><h3>靠近会慢，停下会稳，离开会起飞</h3>
+          <ul><li>以相对花头的距离和速度判断是否落稳，不只看世界坐标距离。</li><li>抵近时衰减随机机动和巡航支撑，避免在花边一直弹跳。</li><li>停驻使用花头局部接触点、法线和独立朝向；选择合适的收翅 / 半开翼姿态。</li><li>取食计时有长短变化；先可用 2–6 秒的有界分布试观感，不必模拟每滴花蜜。</li><li>起飞先清空接触，再离开花面；不把位置瞬间切到下一朵花。</li></ul>
+        </article>
+        <article class="card">
+          <span class="tag">风怎么参与 · 有限能力，而非抵消一切</span><h3>弱风纠偏，强风允许失败</h3>
+          <ul><li>继续使用现有局部风漂移，不另加第二套风力。</li><li>控制器以花目标误差请求有限的空气相对推进；保留最大速度和加速度约束。</li><li>一段时间没有接近目标，才判定逆风到达失败。</li><li>大阵风中允许明显偏移，随后恢复或改选，不瞬时把它拉回航线。</li><li>花上停驻时跟随宿主约束，不把自由飞行漂移继续叠上去。强风若触发离开，应有起飞过程。</li></ul>
+          <p class="small">纠偏与放弃是游戏控制设计；这次资料没有验证花园访花时的具体补偿率。不要宣称它是实测抗风模型。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="integration" aria-labelledby="integration-heading">
+      <span class="section-no">06 / FITTING THE EXISTING ARCHITECTURE</span>
+      <h2 id="integration-heading">正确接入，比直接增加“花的吸引力”重要</h2>
+      <div class="layers">
+        <div class="layer"><b>花源观察层<br><small>提供事实，不控制蝴蝶</small></b><p>从已提交植被维护局部花头目录，发布稳定身份、生长 / 可见性、花类与接触点。借鉴现有 ecology 的分组与 token 思路，但访花资源独立于出生机会调度。通过增删 / 生长更新失效，避免每只蝴蝶逐帧扫描所有植物。</p></div>
+        <div class="layer"><b>访花意图层<br><small>选什么、什么时候离开</small></b><p>建议新增独立的 <code>ButterflyBehavior</code>，由发射器拥有个体状态；只输出飞行目标、接近模式、停驻请求及原因。记忆、偏好与承诺在这一层，不塞进模型 renderer，也不把动物状态塞入共享 ecology 调度器。</p></div>
+        <div class="layer"><b>运动与接触层<br><small>怎么到达、如何安全停驻</small></b><p>在 <code>DartingFlightState</code> 加受意图控制的 steering，按状态调整随机机动与高度策略；保留 120 Hz、有界积分、风漂移与地形保护。目标有效时，不再被原出生点恢复力持续拉回。停驻后以宿主约束取代巡航，失效时安全脱离。</p></div>
+        <div class="layer"><b>姿态与展示层<br><small>让动作可读，不反驱模拟</small></b><p>快照增加停驻 / 起飞姿态语义与显式朝向，渲染消费它。保持完整姿态同帧发布。延续当前飞行扑翼与像素节奏，不把 8 FPS 展示或 6 Hz 随机垂直意图误当生物拍翼频率。</p></div>
+      </div>
+      <div class="callout caution"><strong>最容易被低估的工程点：真实花头的位置</strong><p>当前 ecology 取到的是根部坐标；<code>flowerPlantPose</code> 的实时花头还受层数、尺寸、生长、生成动画、朝向、风响应等共同影响。现有 <code>socket</code> 是花茎与花头的接合平面，不是蝴蝶脚下可直接使用的花瓣表面。需要单独定义花头上的安全接触点，并共享同一姿态事实。<a href="#c6">见源码 C6</a>。</p></div>
+      <ul>
+        <li><strong>不复制一套会漂移的花头公式。</strong>发布可复用的花姿态 / 附着契约，或共享纯姿态求值；若采用 GPU 小批量异步发布，需要 revision、时间戳和失效规则。目录可低频刷新，已锁定宿主姿态需足够及时。</li>
+        <li><strong>不把稀疏 GPU 读回扩大为热路径。</strong>现有 <code>sample_ecology_root</code> 每次读取 8 字节实例，只在少量机会下使用；不能把它放进“所有蝴蝶 × 所有花 × 120 Hz”循环。要先确定 CPU 可见的已提交花源数据如何维护。</li>
+        <li><strong>花会摇，附着不能锁旧世界坐标。</strong>明确接触态的共同展示时间 / 宿主变换：避免花每帧摇动、蝴蝶保持旧位置而脚下滑动，同时不能破坏位置、朝向与翅膀的一致发布。</li>
+        <li><strong>目标需要稳定身份，不依赖数组 slot。</strong>slot 只能是定位提示，须验证 root token、花头编号与世界 / 发布代际。拔花、剪草、重载世界或 GPU 实例重排都不能误绑到另一朵花。</li>
+        <li><strong>不要把避风当成已经存在。</strong>当前 CPU 水平风场不表达石头、树篱后的局部遮蔽。初期只做风偏移 / 失败 / 恢复；真正的避风点需新增经验证的遮蔽资源，不能只因靠近树就声称风已经减弱。</li>
+        <li><strong>不要只改 renderer 假装落花。</strong>世界模拟与接触状态必须一起成立。当前地形射线保护也不等于完整的花头 / 茎叶碰撞，需要有界接近与脚点验证。</li>
+      </ul>
+      <details>
+        <summary>未来开发时，预计影响的文件边界</summary>
+        <p>访花目录与身份：<code>src/builder/surface/</code>、<code>src/flora/</code>，必要时为花姿态提供小型共享发布接口。个体意图：新增 <code>src/particles/butterfly_behavior.rs</code>，接入 <code>emitters.rs</code>；动力改动限制在 <code>butterfly_flight.rs</code>。停驻姿态触及 <code>system.rs</code>、<code>butterfly_presentation.rs</code> 与 <code>src/tracer/butterfly_mesh.rs</code>；若已有模型没有停驻姿态，再补相应动画数据。配置沿用 <code>SavedCustomSettings</code> / <code>SavedControls</code>，不手改生成文件。</p>
+      </details>
+    </section>
+
+    <section id="roadmap" aria-labelledby="roadmap-heading">
+      <span class="section-no">07 / PRIORITIES &amp; ACCEPTANCE</span>
+      <h2 id="roadmap-heading">先做一个可看的候选，不一次性做完整生态</h2>
+      <div class="roadmap">
+        <article class="phase"><h3><span class="priority">P0 · 基础闭环</span>两簇花、一只蝴蝶，先证明它真的在访花</h3><p>以真实可用花头目录为前提，实现选花、转移、接近、停驻与再次起飞。保留原模式；不改蝶模型风格，不扩大全局数量。需要看到它能够离开原出生圈、稳定落在实际花头上、停留之后去另一朵。若宿主姿态暂不能可靠共享，标明“接近花”的未完成候选，不能把花上方悬浮冒充落花。</p></article>
+        <article class="phase"><h3><span class="priority">P1 · 风与改主意</span>同一个体，同一阵风，让打断有因果</h3><p>加入有限纠偏、无进展放弃、目标失效与短期访问记忆。应看到被吹偏的位移先发生，然后才出现修正 / 改选；去掉花时应安全离开。此阶段先用抽象取食成功率 / 有界停留，不上全局花蜜守恒系统。</p></article>
+        <article class="phase"><h3><span class="priority later">P2 · 生活感与生态联系</span>在视觉结果确认之后，再加个性与微环境</h3><p>扩展不同花类偏好、叶面 / 石面休息、真实遮蔽、回访路线；如果花期与日照系统值得支持，再接入它们。之后可让开花、适度浇水与花簇布局影响访花机会，但遵循花园的温和后果，不做饥饿惩罚或玩家离线时的不可逆损失。</p></article>
+      </div>
+      <h3 style="margin-top:27px">A/B 必须在游戏里切，不是只看这个网页</h3>
+      <p>建议新增可保存、可搜索的 Debug 复选框 <strong>“Flower-visiting behavior (A/B)”</strong>：未勾选保留当前飞行，勾选启用访花。它与现有 <em>Wingbeat-coupled flight</em> 独立。切换保留个体、位置、颜色、寿命和连续相位；关闭访花时先安全释放宿主，不瞬移回出生点。</p>
+      <p class="small">按仓库设置规则绑定保存字段，不加 App-only slider 或独立 save hook。按调整目的组织“访花 / 停驻”“风响应”，而非把同一关注点散到每种植物面板。状态 / 目标 / 失败原因记入日志，不堆在 Debug 面板。见 <a href="../agents/gui-settings.md">Debug 设置接入规则</a>。</p>
+      <div class="table-wrap wide" role="region" aria-label="建议的验收场景，可横向滚动" tabindex="0">
+        <table>
+          <thead><tr><th scope="col">观察场景</th><th scope="col">视觉 / 正确性验收</th><th scope="col">避免的假成功</th></tr></thead>
+          <tbody>
+            <tr><td>无风、两簇花</td><td>能去不同花头；接近明显变慢；停驻后有起飞过渡；能跨原出生圈。</td><td>仍在出生点附近随机游走，只是偶然路过花。</td></tr>
+            <tr><td>局部阵风</td><td>先吹偏，再有限纠偏；强风无法前进时可放弃；风散后恢复。</td><td>完全抵消风，或无限逆风扑向同一个目标。</td></tr>
+            <tr><td>花摇、花被删 / 世界重载</td><td>接触点跟随正确宿主；引用失效即释放；不穿地、不误绑新实例。</td><td>悬在花上、脚滑，或仍锁定已删除花的坐标。</td></tr>
+            <tr><td>无花 / 多只蝴蝶</td><td>无花时自然探索；个体偏好与停留错开；接触点不严重重叠。</td><td>无花卡死，或所有个体同步往同一朵花飞。</td></tr>
+            <tr><td>切换与不同展示 FPS</td><td>A/B 无跳位；2 / 8 / 16 / 60 FPS 不改变行为 / 飞行结果；接触态展示一致。</td><td>视觉采样频率反过来改变决策或动力。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>验证分两步：</strong>先用固定种子、固定镜头的 Release 实机 A/B 评审“有没有生活感”，再单独做密集花簇 / 个体上限的 Release 性能测量。记录花源更新、候选查询、GPU 读回与 CPU 轨迹成本；本报告没有性能数据，也不承诺“低频决策就一定便宜”。</p>
+      <p class="small">后续 Rust / shader 实现应执行 <code>cargo fmt --check</code>、<code>cargo check</code>、快且确定性的状态 / 身份 / 切换测试、<code>cargo build --release</code>，以及 <code>cargo run --release -- --hidden --mute --auto-exit 0.5</code> 并检查日志。隐藏启动只验证运行安全，不证明访花观感；视觉批准与性能验收分别记录。</p>
+      <div class="callout"><strong>推荐的下一步只有一个：</strong><p>先做带运行时 A/B 的“真实花头之间飞行与停驻”候选。确认“它是来花园访花的”成立，再做更聪明的学习、更真实的遮蔽和更多生态互动。</p></div>
+    </section>
+
+    <section id="sources" aria-labelledby="sources-heading">
+      <span class="section-no">08 / EVIDENCE &amp; READING MAP</span>
+      <h2 id="sources-heading">研究与源码索引</h2>
+      <p class="small">检索 / 核对日期：2026-10-07。以原始实验论文、作者所在大学记录和保护机构资料为主。Springer 与 Stirling 页面仅核对公开摘要；PMC 核对公开正文相关部分。没有把检索工具的自动摘要当成独立证据；访问受限、未核验的条目没有用于结论。</p>
+      <ol class="source-list">
+        <li id="s1"><h3>[1] Innate and learnt color preferences in the common green-eyed white butterfly (<i>Leptophobia aripa</i>): experimental evidence</h3><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC8638565/" target="_blank" rel="noopener noreferrer">PeerJ · 2021 · PMC 原论文全文</a><p>核对 Abstract、Introduction 与颜色训练实验部分。支持特定物种的先天花色偏好、糖奖励联想与重新学习；不支持所有蝴蝶偏好同一颜色。</p><q class="quote" lang="en">Butterflies learn to associate colors with sugar rewards.</q></li>
+        <li id="s2"><h3>[2] Comparative analysis on visual and olfactory signals of <i>Papilio xuthus</i> during foraging and courtship</h3><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9242464/" target="_blank" rel="noopener noreferrer">PLOS ONE · 2022 · PMC 原论文全文</a><p>核对 Abstract 与访花实验。彩色人工花及蜂蜜水条件影响访问；视觉与气味共同参与。人工材料 / 蜂蜜水条件不能直接等同真实花种吸引度或推导感知距离。</p><q class="quote" lang="en">visual and olfactory perceptions both play important roles during foraging.</q></li>
+        <li id="s3"><h3>[3] Goulson &amp; Cory · Flower constancy and learning in foraging preferences of the green-veined white butterfly <i>Pieris napi</i></h3><a href="https://www.stir.ac.uk/research/hub/publication/787663" target="_blank" rel="noopener noreferrer">Ecological Entomology · 1993 · 作者大学记录 / 摘要</a><p>DOI: 10.1111/j.1365-2311.1993.tb01107.x。核对摘要：人工双色花、连续三天条件化、个体偏好可反转。用于解释短期访花记忆的设计启发，不照搬训练时长。</p><q class="quote" lang="en">This preference could subsequently be switched to the other flower colour following a further 3 days of conditioning.</q></li>
+        <li id="s4"><h3>[4] Goulson, Stout &amp; Hawson · Can flower constancy in nectaring butterflies be explained by Darwin’s interference hypothesis?</h3><a href="https://link.springer.com/article/10.1007/s004420050304" target="_blank" rel="noopener noreferrer">Oecologia · 1997 · 出版社摘要</a><p>核对公开 Abstract；<i>Thymelicus flavus</i> 野外数据：花种切换后的平均处理时间差约 0.85 秒，低奖励后更易切换。不当作所有物种的时间参数。</p><q class="quote" lang="en">Switching was more frequent following a lower than average reward from the last flower visited.</q></li>
+        <li id="s5"><h3>[5] Tsuji, Kingsolver &amp; Watt · Thermal physiological ecology of <i>Colias</i> butterflies in flight</h3><a href="https://link.springer.com/article/10.1007/BF00377616" target="_blank" rel="noopener noreferrer">Oecologia · 1986 · 出版社摘要</a><p>核对公开 Summary；包含风洞气流、散热、野外起飞风速与植被附近微环境结果。不能外推统一强风阈值，也没有直接验证花园访花控制中的抗风补偿率。</p><q class="quote" lang="en">Voluntary flight initiation in the wild occurs only at air speeds ≦1.4 m/s.</q></li>
+        <li id="s6"><h3>[6] Heliconiini butterflies can learn time-dependent reward associations</h3><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7532716/" target="_blank" rel="noopener noreferrer">Biology Letters · 2020 · PMC 原论文全文</a><p>核对 Abstract、Introduction、实验条件；研究部分 Heliconiini 的早晚颜色奖励学习。固定回访路线是文中相关生态背景，不是本文对所有蝴蝶的实验结论。</p><q class="quote" lang="en">Heliconius hecale can learn opposing colour preferences in two time periods.</q></li>
+        <li id="s7"><h3>[7] Butterfly Conservation · Get gardening</h3><a href="https://butterfly-conservation.org/how-you-can-help/get-involved/gardening/get-gardening" target="_blank" rel="noopener noreferrer">保护机构的一线花园建议</a><p>核对 Do / Don't 清单：富蜜花、幼虫食草、晒太阳表面、树篱挡风与休息遮蔽。这是实践指南，不是定量飞行实验。</p><q class="quote" lang="en">Create a shelter-belt of trees, plant a mixed, native hedge, which will protect butterflies and moths from the wind.</q></li>
+      </ol>
+      <h3>源码审阅定位 · 固定于 256b77c4</h3>
+      <div class="table-wrap" role="region" aria-label="源码索引，可横向滚动" tabindex="0">
+        <table>
+          <thead><tr><th scope="col">索引</th><th scope="col">文件与重点</th></tr></thead>
+          <tbody>
+            <tr id="c1"><td>C1 · 出现机会</td><td><code>src/ecology.rs:54–133</code>：分组偏重、机会计时与组间冷却。<code>src/app/core/ambient_ecology.rs:37–142</code>：0.5 秒观察更新、植被生成来源。<code>src/builder/surface/ecology.rs:7–72</code>：根部实例读回、token 与位置。</td></tr>
+            <tr id="c2"><td>C2 · 个体状态</td><td><code>src/particles/emitters.rs:249–344, 435–530, 590–639</code>：构造器兜底、个体数据、生成、局部密度与固定步长引导。<code>src/app/core/particles.rs:24–37, 420–452</code>：世界数量上限与 GUI 描述装配。</td></tr>
+            <tr id="c3"><td>C3 · 飞行意图</td><td><code>src/particles/butterfly_flight.rs:1–146, 234–348, 365–527</code>：固定步长、配置、随机机动、栖息恢复与边界 / 地形约束。原模式的噪声规划在 <code>src/app/core/particles.rs:1041–1256</code>，引导模式跳过该规划。</td></tr>
+            <tr id="c4"><td>C4 · 风</td><td><code>src/wind_field.rs:14–49</code>：CPU 水平局部场采样。<code>src/particles/butterfly_flight.rs:17–20, 398–414</code>：强度到世界漂移的换算、平滑和有界响应。<code>src/app/gui_config/butterfly_flight.rs:33–36</code>：自飞 / 漂移独立保存控件。</td></tr>
+            <tr id="c5"><td>C5 · 姿态与节奏</td><td><code>src/particles/butterfly_presentation.rs:7–72</code>、<code>src/particles/system.rs:721–742</code>：同 tick 完整发布。<code>src/tracer/butterfly_mesh.rs:116–153</code>、<code>src/particles/butterfly_wingbeat.rs:109–115, 153–169</code>：动画、侧倾、速度朝向与零速度处理。保存值见 <code>config/gui.toml:31–43, 2360–2368, 2435–2455</code>。</td></tr>
+            <tr id="c6"><td>C6 · 花头事实</td><td><code>src/flora/models.rs:124–156</code>：作者空间 attachment、head 与 socket。<code>shader/slang/flower_model.slang:15–21, 51–116</code>：生长、层数、风与实时花姿态。<code>src/flora/species.rs:68–142</code>：物种描述，当前还没有蝶访花 / 花蜜属性。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">相关项目背景：<a href="butterfly_wing_motion_coupling.md">此前扑翼耦合调研</a>、<a href="../ecology_spawning.md">生态生成说明</a>、<a href="../../CONTEXT.md">花园体验术语</a>。旧文档是背景，不替代本次基线的源码事实；打开这些链接需要保留仓库相对目录。</p>
+    </section>
+    <footer class="footer">交付范围：网络调研、源码对照、行为优化建议。未修改 Rust、shader、模型或用户配置；未实现访花，未声称通过游戏视觉或性能验收。报告自身不依赖 CDN、远程字体或 JavaScript，直接打开即可阅读。</footer>
+  </main>
+</div>
+</body>
+</html>
