@@ -169,6 +169,7 @@ impl App {
     }
 
     pub(super) fn toggle_camera_control_mode(&mut self) {
+        self.cancel_pointer_pick();
         let entered_orbit_edit = self.camera_control.cycle_mode();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
@@ -611,6 +612,7 @@ impl App {
     }
 
     fn prepare_camera_zoom_switch(&mut self) {
+        self.cancel_pointer_pick();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
         self.reset_camera_movement_input();

@@ -853,7 +853,20 @@ impl App {
         else {
             anyhow::bail!("Edit RMB did not resolve to a continuous tool action");
         };
-        self.execute_continuous_terrain_tool_action(action, Instant::now());
+        // This opt-in startup fixture has no intervening render frame to resolve
+        // asynchronous pointer intent. Obtain an explicit diagnostic GPU answer
+        // and exercise the same resolved production body (never a live fallback).
+        let (origin, direction) = self
+            .terrain_edit_ray()
+            .context("review pointer ray missing")?;
+        let ray = crate::tracer::TerrainRayQuery { origin, direction };
+        let hit = self.tracer.query_surface_pick_now(ray)?;
+        self.apply_resolved_pointer_pick(
+            PlayerToolPointerAction::Continuous(action),
+            ray,
+            hit,
+            Instant::now(),
+        );
         self.set_tool_mouse_button_state(MouseButton::Right, ElementState::Released);
         self.refresh_terrain_edit_hold_from_mouse_buttons();
         anyhow::ensure!(

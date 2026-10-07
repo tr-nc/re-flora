@@ -25,6 +25,18 @@ pub(super) struct PointerPicking {
     pub active: Option<Resolved>,
     hover: Option<(PickAnswer, Instant)>,
 }
+fn hold_matches(
+    action: PlayerToolPointerAction,
+    require_hold: bool,
+    active: Option<ContinuousTerrainToolAction>,
+) -> bool {
+    !require_hold
+        || match action {
+            PlayerToolPointerAction::Continuous(a) => active == Some(a),
+            _ => true,
+        }
+}
+
 impl App {
     pub(super) fn cancel_pointer_pick(&mut self) {
         if let Some(pending) = self.pointer_picking.pending.take() {
@@ -123,13 +135,11 @@ impl App {
                 && pending.variety == self.player_tools.planting.variety()
                 && pending.placeable == self.player_tools.selected_placeable()
                 && pending.radius == self.player_tools.terrain_edit_radius.to_bits();
-            let hold_matches = !pending.require_hold
-                || match pending.action {
-                    PlayerToolPointerAction::Continuous(a) => {
-                        self.player_tools.active_continuous_action() == Some(a)
-                    }
-                    _ => true,
-                };
+            let hold_matches = hold_matches(
+                pending.action,
+                pending.require_hold,
+                self.player_tools.active_continuous_action(),
+            );
             if !available
                 || !controls_match
                 || !hold_matches
@@ -141,15 +151,7 @@ impl App {
             }
             // Only this answer is visible to the edit body. Camera motion cannot
             // replace the captured click ray or trigger a second query for wood.
-            self.pointer_picking.active = Some(self.resolve_pointer_pick(answer.ray, answer.hit));
-            match pending.action {
-                PlayerToolPointerAction::Continuous(a) => {
-                    self.execute_resolved_terrain_tool_action(a, now)
-                }
-                PlayerToolPointerAction::PlaceablePlacement
-                | PlayerToolPointerAction::PlantTree => self.try_discrete_placement(),
-            }
-            self.pointer_picking.active = None;
+            self.apply_resolved_pointer_pick(pending.action, answer.ray, answer.hit, now);
             // A quick press/release still applies its initial dab. It must not
             // leave connectivity hold work open after the release happened.
             if !self.player_tools.continuous_hold_active() {
@@ -158,6 +160,25 @@ impl App {
         }
         Ok(())
     }
+    pub(super) fn apply_resolved_pointer_pick(
+        &mut self,
+        action: PlayerToolPointerAction,
+        ray: TerrainRayQuery,
+        hit: Option<SurfacePickHit>,
+        now: Instant,
+    ) {
+        self.pointer_picking.active = Some(self.resolve_pointer_pick(ray, hit));
+        match action {
+            PlayerToolPointerAction::Continuous(a) => {
+                self.execute_resolved_terrain_tool_action(a, now)
+            }
+            PlayerToolPointerAction::PlaceablePlacement | PlayerToolPointerAction::PlantTree => {
+                self.try_discrete_placement()
+            }
+        }
+        self.pointer_picking.active = None;
+    }
+
     fn resolve_pointer_pick(
         &self,
         ray: TerrainRayQuery,
@@ -202,5 +223,31 @@ impl App {
             return None;
         }
         Some(self.resolve_pointer_pick(answer.ray, answer.hit))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn initial_click_survives_release_but_queued_hold_dabs_require_the_original_action() {
+        let dig = PlayerToolPointerAction::Continuous(ContinuousTerrainToolAction::ShovelDig);
+        assert!(hold_matches(dig, false, None));
+        assert!(!hold_matches(dig, true, None));
+        assert!(!hold_matches(
+            dig,
+            true,
+            Some(ContinuousTerrainToolAction::ShovelPlace)
+        ));
+        assert!(hold_matches(
+            dig,
+            true,
+            Some(ContinuousTerrainToolAction::ShovelDig)
+        ));
+        assert!(hold_matches(
+            PlayerToolPointerAction::PlantTree,
+            false,
+            None
+        ));
     }
 }

@@ -2091,6 +2091,7 @@ impl App {
             &event,
             WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. }
         ) {
+            self.cancel_pointer_pick();
             self.mower.cancel_drag();
         }
         if matches!(
