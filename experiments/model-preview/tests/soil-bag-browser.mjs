@@ -40,6 +40,12 @@ const inspect=()=>evaluate(`(()=>{
 const samples=[],checks=[];
 const record=name=>{const value=inspect();assert.equal(value.failed,false);assert.equal(value.linked,true);assert.equal(value.sourceTime,value.pixelTime);assert.ok(value.alpha>0);if(value.parts===0){assert.equal(value.preserved,true,'shared pipeline must preserve every original sample');assert.ok(value.alpha<value.size[0]*value.size[1]);}samples.push({name,...value});return value;};
 run('set','viewport','1440','1000');run('open',origin+'/model-preview/?model=soil-bag');settle();
+run('click','#edge');settle();const roundSide=record('side-round');assert.equal(roundSide.settings.sideFlatness,0);
+assert.deepEqual(evaluate('(()=>{const s=document.querySelector("#model-sideFlatness");return [s.min,s.max,s.step];})()'),['0','1','0.01']);
+run('scroll','up','3000');run('screenshot',resolve(artifacts,'soil-bag-preview-side-round.png'));
+input('model-sideFlatness',1);const flatSide=record('side-flat');assert.equal(flatSide.settings.sideFlatness,1);assert.notEqual(flatSide.hash,roundSide.hash);assert.deepEqual(flatSide.memory,roundSide.memory);
+run('scroll','up','3000');run('screenshot',resolve(artifacts,'soil-bag-preview-side-flat.png'));
+input('model-sideFlatness',0);assert.equal(record('side-round-restored').hash,roundSide.hash);run('click','#reset-view');settle();checks.push('declarative side-flatness slider changes real side geometry and pixel result, returns exactly to the original, and keeps resource counts');
 const png=evaluate('(()=>{const c=document.createElement("canvas");c.width=240;c.height=320;const x=c.getContext("2d");x.fillStyle="#315ca4";x.beginPath();x.arc(120,130,80,0,Math.PI*2);x.fill();x.fillStyle="#fff";x.font="bold 56px sans-serif";x.textAlign="center";x.fillText("SOIL",120,151);x.fillStyle="#db7844";x.fillRect(50,238,140,22);return c.toDataURL("image/png");})()');
 writeFileSync(resolve(artifacts,'upload-sticker.png'),Buffer.from(png.split(',')[1],'base64'));
 run('click','button[data-preset="花园配方"]');settle();run('click','#model-bagColor button');const flower=record('flower-packaging');assert.equal(flower.settings.stickerDesign,'flower');
@@ -55,6 +61,7 @@ input('fps',7);run('click','#previous-frame');settle();assert.equal(inspect().pi
 run('click','#play');wait('readModelPreview().playing && readModelPreview().time<1');run('click','#play');settle();assert.ok(inspect().time<1);input('fps',60);
 run('select','#clip','1');settle();const initialPour=record('pour-start-open');assert.equal(initialPour.review.openingCount,1);assert.equal(initialPour.review.flowVisible,false);
 input('phase',1900);const pour=record('pour-gravity');assert.ok(pour.review.mouthNormal[1]<-.7);assert.equal(pour.review.flowVisible,true);assert.equal(pour.label,'袋口朝下 · 简化土流');run('scroll','up','3000');run('screenshot',resolve(artifacts,'soil-bag-preview-pouring.png'));
+input('model-sideFlatness',1);const flatPour=record('side-flat-pouring');assert.equal(flatPour.review.flowVisible,true);assert.deepEqual(flatPour.review.mouthWorld,pour.review.mouthWorld);assert.deepEqual(flatPour.review.mouthNormal,pour.review.mouthNormal);input('model-sideFlatness',0);
 input('phase',3800);const end=record('pour-held-end');assert.equal(end.review.openingCount,1);assert.equal(end.review.flowVisible,false);checks.push('pour starts opened; middle mouth points down and flows; final pose keeps opening and stops flow');
 input('phase',1900);run('uncheck','#conservative-coverage');settle();const old=record('existing-shared-bridge-mode');run('check','#conservative-coverage');settle();const covered=record('existing-shared-coverage-mode');assert.ok(covered.alpha>=old.alpha);
 for(const n of [16,32,64,128]){input('resolution',n);assert.deepEqual(record(`resolution-${n}`).size,[n,n]);}

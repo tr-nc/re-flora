@@ -32,6 +32,8 @@ export const soilBagDefinition={
     {type:'note',label:'先验收网页外观和动作，不改变游戏里的Soil工具。撕开片段只生成一个角部袋口；倾倒片段从已开口的袋子开始。'},
     {key:'bagColor',label:'袋子颜色',type:'color'},
     {key:'fullness',label:'袋子充盈 / 鼓起程度',min:.35,max:1.25,step:.01},
+    {key:'sideFlatness',label:'侧面扁平度（上下更饱满）',min:0,max:1,step:.01},
+    {type:'note',label:'0 = 原来的圆弧侧面；1 = 上下更饱满、中段更平直。充盈度调厚度，扁平度调侧面轮廓；点“侧面”最容易看区别。'},
     {key:'stickerDesign',label:'更换正面贴纸',type:'select',options:[['sprout','嫩芽与根系'],['layers','土层与养分'],['flower','花朵配方'],['custom','自定义贴纸（先导入图片）']]},
     {key:'labelColor',label:'贴纸底色',type:'color'},
     {key:'inkColor',label:'内置贴纸图案 / 文字颜色',type:'color'},
@@ -88,7 +90,7 @@ export const soilBagDefinition={
       },
       sample(time,clip){
         currentClip=clip;pose=soilBagPose(time,clip);
-        const next=soilBagGeometry({opening:pose.opening,fullness:settings.fullness*(.75+.25*pose.fill),labelScale:settings.labelScale,fill:pose.fill});
+        const next=soilBagGeometry({opening:pose.opening,fullness:settings.fullness*(.75+.25*pose.fill),sideFlatness:settings.sideFlatness,labelScale:settings.labelScale,fill:pose.fill});
         next.parts.forEach((part,i)=>updateGeometry(meshes[i],part));
         root.position.fromArray(pose.root);root.rotation.set(0,0,pose.angle);tab.rotation.z=pose.tabAngle;
         flowMesh.visible=pose.flow>1e-5;

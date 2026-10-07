@@ -15,7 +15,7 @@
 - 两个一次性动作在共用时间轴声明 `loop:false`。末帧不绕回封口；播放重播、相位、逐帧检查均走同一时间采样。蝴蝶／动物默认循环不变。
 - 土流仅是位置／方向示意，不是土块粒子、落地碰撞或沉积系统；包装上的“2 L”没有库存或出土量含义。
 
-## 验证
+## 原始候选验证（2cecc148）
 
 ```sh
 node --test experiments/model-preview/tests/*.test.mjs
@@ -38,6 +38,24 @@ node experiments/model-preview/tests/soil-bag-browser.mjs
 
 - `target/soil-bag-preview-review/soil-bag-preview-qa.json`
 - `target/soil-bag-preview-review/soil-bag-preview-{closed,opened,pouring,custom-sticker,mobile}.png`
+
+## 侧面扁平度更新
+
+新增声明式滑杆 `sideFlatness`（0–1，步长 0.01，默认 0），放在充盈度旁边；0 保持原来的圆弧侧面，1 增加上下肩部厚度，让中段轮廓更平直。它不缩放整个袋子，也不改变中间峰值厚度、袋宽／袋高、两处封口和单一袋口；贴纸使用同一表面配方同步变形。包装预设／恢复默认仍回到 0，没有游戏或保存规则改变。
+
+- 与变更前 `2cecc148` 的原配方比较 **72 个输入组合**，`sideFlatness=0` 的全部位置／索引／UV／袋口信息精确相等。
+- 默认袋体在 y=±0.615 的侧面厚度约 **0.229 → 0.348**，中间 y=0 的 **0.411** 不变；填肩而不是压薄。两端封口保持相同位置。
+- **44/44** Node 测试通过：新增形态／连续插值与边界守卫；原有有限非退化三角形、固定拓扑与动作取景测试覆盖扁平度 0／0.5／1 和充盈度极值。
+- **36 个网页状态**在窗口渲染／自动私有虚拟显示中完整通过；实际滑杆改变侧面原模型与共享像素结果，还原 0 后像素 hash 精确回到原值，几何／纹理计数不增加；倾倒时袋口位置／法线、土流开关保持一致。旧模型切换、RGBA 保留、移动布局等断言继续通过。
+- 默认 headless SwiftShader 仍复现上轮已记录的上下文丢失；额外 headless GL 诊断不能创建上下文。二者没有被算作通过，没有更改应用渲染或弱化断言。窗口渲染验证命令：
+
+  ```sh
+  env -u DISPLAY -u WAYLAND_DISPLAY AGENT_BROWSER_HEADED=true \
+    PREVIEW_ARTIFACT_DIR=target/soil-bag-side-profile-window-review \
+    node experiments/model-preview/tests/soil-bag-browser.mjs
+  ```
+
+产物位于 `target/soil-bag-side-profile-window-review/`，含 `soil-bag-preview-side-{round,flat}.png` 与扩展的 QA JSON；不提交截图。
 
 ## 验收与后续
 

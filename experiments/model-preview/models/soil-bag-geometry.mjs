@@ -10,7 +10,7 @@ export const soilBagClips=[
   {name:'撕开一个袋口',duration:1.65,loop:false},
   {name:'袋口朝下 · 倾倒营养土',duration:3.8,loop:false},
 ];
-export const soilBagDefaults={bagColor:'#829477',labelColor:'#f5e9c6',inkColor:'#304c3c',stickerDesign:'sprout',fullness:1,labelScale:1};
+export const soilBagDefaults={bagColor:'#829477',labelColor:'#f5e9c6',inkColor:'#304c3c',stickerDesign:'sprout',fullness:1,sideFlatness:0,labelScale:1};
 export const soilBagPresets=[
   {name:'林下营养土',values:{...soilBagDefaults}},
   {name:'育苗基质',values:{...soilBagDefaults,bagColor:'#bd956d',labelColor:'#ffefcc',inkColor:'#63513e',stickerDesign:'layers',fullness:.85}},
@@ -30,26 +30,31 @@ function box(mesh,min,max){
   const vertices=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]].map(p=>mesh.v(p.map((t,i)=>min[i]+t*(max[i]-min[i]))));
   for(const face of [[0,3,2,1],[4,5,6,7],[0,4,7,3],[1,2,6,5],[3,7,6,2],[0,1,5,4]])mesh.quad(...face.map(i=>vertices[i]));
 }
-function surface(v,angle,opening,fullness){
+function surface(v,angle,opening,fullness,sideFlatness){
   const wave=Math.sin(Math.PI*v),width=.48+.035*wave-.06*v;
   const x=width*signedPower(Math.cos(angle),POWER);
-  const base=.018+(.15+.035*fullness)*wave**.68;
+  const rounded=wave**.68;
+  // Fill the upper/lower shoulders to make the side walls flatter, independently
+  // of peak thickness. Keep both rims EXACTLY unchanged, including sin(pi) residue.
+  const flat=v===0||v===1?rounded:wave**.18;
+  const profile=rounded+sideFlatness*(flat-rounded);
+  const base=.018+(.15+.035*fullness)*profile;
   const aperture=opening*.135*smooth(.80,1,v)*smooth(OPEN_X,OPEN_X+.09,x);
   const crease=.009*wave*Math.sin(v*37+angle*3)*(.3+.7*Math.abs(Math.cos(angle))**4);
   const z=(base+aperture+crease)*signedPower(Math.sin(angle),POWER);
   return [x,v*HEIGHT-TOP,z];
 }
 
-export function soilBagGeometry({opening=0,fullness=1,labelScale=1,fill=1}={}){
-  opening=clamp(opening,0,1);fullness=clamp(fullness,.35,1.25);labelScale=clamp(labelScale,.7,1.08);fill=clamp(fill,0,1);
+export function soilBagGeometry({opening=0,fullness=1,sideFlatness=0,labelScale=1,fill=1}={}){
+  opening=clamp(opening,0,1);fullness=clamp(fullness,.35,1.25);sideFlatness=clamp(sideFlatness,0,1);labelScale=clamp(labelScale,.7,1.08);fill=clamp(fill,0,1);
   const body=part('Soft pouch with gussets','bag'),rows=[];
-  for(let r=0;r<=16;r++)rows.push(angles.map(angle=>body.v(surface(r/16,angle,opening,fullness),[angle/TAU,r/16])));
+  for(let r=0;r<=16;r++)rows.push(angles.map(angle=>body.v(surface(r/16,angle,opening,fullness,sideFlatness),[angle/TAU,r/16])));
   for(let r=0;r<16;r++)for(let i=0;i<angles.length;i++)body.quad(rows[r][i],rows[r+1][i],rows[r+1][(i+1)%angles.length],rows[r][(i+1)%angles.length]);
-  polygon(body,angles.map(angle=>surface(0,angle,opening,fullness)));
+  polygon(body,angles.map(angle=>surface(0,angle,opening,fullness,sideFlatness)));
 
   // Only the left part stays sealed. The right polygon is the ONE real opening;
   // its front/back lips separate, instead of painting a black hole on a closed box.
-  const topRing=angles.map(angle=>surface(1,angle,opening,fullness));
+  const topRing=angles.map(angle=>surface(1,angle,opening,fullness,sideFlatness));
   const fixed=part('Remaining sealed top','seam');
   polygon(fixed,topRing.filter(p=>p[0]<=OPEN_X+1e-8),true);
   box(fixed,[-TOP_WIDTH,TOP-.012,-.020],[OPEN_X,TOP+.042,.020]);
@@ -73,7 +78,7 @@ export function soilBagGeometry({opening=0,fullness=1,labelScale=1,fill=1}={}){
     stickerRows.push(Array.from({length:13},(_,i)=>{
       const normalizedX=(i/12*2-1)*.77*labelScale;
       const angle=Math.acos(signedPower(normalizedX,1/POWER));
-      const p=surface(v,angle,opening,fullness);p[2]+=.012;
+      const p=surface(v,angle,opening,fullness,sideFlatness);p[2]+=.012;
       return sticker.v(p,[i/12,r/14]);
     }));
   }

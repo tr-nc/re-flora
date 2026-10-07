@@ -21,8 +21,8 @@ const rotate=(p,angle)=>[p[0]*Math.cos(angle)-p[1]*Math.sin(angle),p[0]*Math.sin
 test('pouch recipe is deterministic and every opaque surface has finite nondegenerate indexed triangles',()=>{
   const base=soilBagGeometry();assert.deepEqual(soilBagGeometry(),base);
   assert.deepEqual(base.parts.map(p=>p.group),['bag','bag','tab','bag','bag','bag']);
-  for(const opening of [0,.1,.5,1])for(const fullness of [.35,1,1.25]){
-    const recipe=soilBagGeometry({opening,fullness,labelScale:1.08});
+  for(const opening of [0,.1,.5,1])for(const fullness of [.35,1,1.25])for(const sideFlatness of [0,.5,1]){
+    const recipe=soilBagGeometry({opening,fullness,sideFlatness,labelScale:1.08});
     for(let n=0;n<recipe.parts.length;n++){
       const part=recipe.parts[n];assert.ok(part.positions.every(Number.isFinite));assert.ok(part.uvs.every(Number.isFinite));
       assert.equal(part.positions.length%3,0);assert.equal(part.uvs.length,part.positions.length/3*2);
@@ -44,6 +44,37 @@ test('opening separates one right-hand mouth while the rest of the seal stays cl
   }
   assert.ok(moved>3);assert.ok(vertices(opened.parts[1]).every(p=>p[0]<=.12+1e-8),'fixed seal cannot cover the right aperture');
   assert.equal(soilBagPose(0,0).opening,0);assert.equal(soilBagPose(soilBagClips[0].duration,0).opening,1);
+});
+
+test('side flatness fills upper and lower shoulders without changing peak thickness, rims or topology',()=>{
+  const depthAt=(part,y)=>Math.max(...vertices(part).filter(p=>Math.abs(p[1]-y)<1e-8).map(p=>Math.abs(p[2])));
+  for(const fullness of [.35,1,1.25])for(const opening of [0,.5,1]){
+    const rounded=soilBagGeometry({fullness,opening,sideFlatness:0}),half=soilBagGeometry({fullness,opening,sideFlatness:.5}),flat=soilBagGeometry({fullness,opening,sideFlatness:1});
+    for(const y of [-.615,-.41,.41,.615]){
+      assert.ok(depthAt(flat.parts[0],y)>depthAt(rounded.parts[0],y)+.015,'flattening must fill both shoulders, not simply squash the whole bag');
+      assert.ok(depthAt(half.parts[0],y)>depthAt(rounded.parts[0],y)&&depthAt(half.parts[0],y)<depthAt(flat.parts[0],y));
+    }
+    for(const y of [-.82,0,.82])assert.equal(depthAt(flat.parts[0],y),depthAt(rounded.parts[0],y),'peak thickness and both sealed rims stay fixed');
+    assert.deepEqual(flat.parts.slice(1,5),rounded.parts.slice(1,5),'single opening, lining and tear strip must remain compatible');
+    assert.deepEqual(flat.tabHinge,rounded.tabHinge);assert.deepEqual(flat.mouthLocal,rounded.mouthLocal);
+    for(let i=0;i<flat.parts.length;i++){
+      assert.deepEqual(flat.parts[i].indices,rounded.parts[i].indices);assert.deepEqual(flat.parts[i].uvs,rounded.parts[i].uvs);
+      for(let n=0;n<flat.parts[i].positions.length;n++){
+        if(n%3!==2)assert.equal(flat.parts[i].positions[n],rounded.parts[i].positions[n]);
+        assert.ok(Math.abs(half.parts[i].positions[n]-(flat.parts[i].positions[n]+rounded.parts[i].positions[n])/2)<1e-12,'each vertex interpolates continuously, even when the outermost vertex changes');
+      }
+    }
+    const sticker=flat.parts.at(-1),oldSticker=rounded.parts.at(-1);
+    assert.ok(sticker.positions.some((v,i)=>i%3===2&&v>oldSticker.positions[i]+.015),'sticker must follow the changed bag surface');
+  }
+});
+
+test('side flatness defaults to the approved round profile and invalid or out-of-range values are bounded',()=>{
+  assert.equal(soilBagDefaults.sideFlatness,0);
+  const original=soilBagGeometry();assert.deepEqual(soilBagGeometry({sideFlatness:0}),original);
+  for(const value of [-1,NaN,Infinity,-Infinity])assert.deepEqual(soilBagGeometry({sideFlatness:value}),original);
+  assert.deepEqual(soilBagGeometry({sideFlatness:2}),soilBagGeometry({sideFlatness:1}));
+  for(const preset of soilBagPresets)assert.equal(preset.values.sideFlatness,0);
 });
 
 test('actions are absolute and hold their end pose; pouring starts open and only flows with the mouth down',()=>{
@@ -74,8 +105,8 @@ test('coarse soil flow starts at the actual mouth and falls in world gravity, no
 });
 
 test('fixed shared camera framing contains both actions including the opened strip and gravity flow',()=>{
-  for(const clip of [0,1])for(let frame=0;frame<=20;frame++){
-    const time=soilBagClips[clip].duration*frame/20,pose=soilBagPose(time,clip),recipe=soilBagGeometry({opening:pose.opening,fullness:1.25,labelScale:1.08,fill:pose.fill});
+  for(const clip of [0,1])for(const sideFlatness of [0,1])for(let frame=0;frame<=20;frame++){
+    const time=soilBagClips[clip].duration*frame/20,pose=soilBagPose(time,clip),recipe=soilBagGeometry({opening:pose.opening,fullness:1.25,sideFlatness,labelScale:1.08,fill:pose.fill});
     const world=[];
     for(const part of recipe.parts)for(let p of vertices(part)){
       if(part.group==='tab')p=rotate(p,pose.tabAngle).map((v,i)=>v+recipe.tabHinge[i]);
