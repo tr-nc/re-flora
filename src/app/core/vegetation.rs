@@ -3,9 +3,6 @@ mod snapshot;
 mod surface;
 mod trunk_checkpoint;
 use super::particles::TreeLeafEmitterRuntime;
-use surface::{PreparedTreeSurface, TreeSurfaceSource};
-use trunk_checkpoint::TreeAtlasCheckpoint;
-mod leaf_lifecycle;
 use super::physics::TreeFruitSpec;
 use super::planting::AuthoredFloraPlacementBatch;
 use super::visible_terrain::VisibleTerrainChange;
@@ -36,6 +33,8 @@ pub(super) use snapshot::{PreparedTreeSnapshot, TreeSnapshot};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use surface::{PreparedTreeSurface, TreeSurfaceSource};
+use trunk_checkpoint::TreeAtlasCheckpoint;
 
 const AUTHORED_FLORA_GROWTH_MATURE: u32 = 0xff;
 const AUTHORED_FLORA_NATURAL_CANDIDATES_PER_PLANT: u32 = 48;
@@ -1009,7 +1008,6 @@ struct TreeRecord {
     rest_tree: Arc<Tree>,
     pose: crate::tree_gen::pose::TreePose,
     leaf_clusters: Vec<ClusterResult>,
-    leaf_lifecycle: Option<leaf_lifecycle::CanopyState>,
 }
 
 struct PreparedTreePublication {
@@ -1060,7 +1058,6 @@ impl PreparedTreePublication {
                 .expect("generated tree must have valid connected topology"),
                 rest_tree: compiled.rest_tree,
                 leaf_clusters,
-                leaf_lifecycle: None,
             },
         }
     }
@@ -1125,7 +1122,6 @@ pub(super) struct GardenTrees {
     staged_tuned_mature_desc: Option<TreeDesc>,
     previous_bound: UAabb3,
     leaf_emitters: TreeLeafEmitterRuntime,
-    leaf_lifecycle: leaf_lifecycle::LeafLifecycleRuntime,
 }
 
 impl GardenTrees {
@@ -1140,7 +1136,6 @@ impl GardenTrees {
             staged_tuned_mature_desc: None,
             previous_bound: UAabb3::default(),
             leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
-            leaf_lifecycle: leaf_lifecycle::LeafLifecycleRuntime::new(),
         }
     }
 
@@ -1155,7 +1150,6 @@ impl GardenTrees {
             staged_tuned_mature_desc: None,
             previous_bound: self.previous_bound,
             leaf_emitters: self.leaf_emitters.empty_like(),
-            leaf_lifecycle: self.leaf_lifecycle.clone(),
         }
     }
 
@@ -1279,18 +1273,7 @@ impl GardenTrees {
         retained
     }
 
-    fn commit_placement(
-        &mut self,
-        tree_id: u32,
-        mut record: TreeRecord,
-    ) -> TreeCanonicalCommitTiming {
-        if self.leaf_lifecycle.enabled {
-            record.leaf_lifecycle = Some(leaf_lifecycle::CanopyState::new(
-                tree_id,
-                &record,
-                self.leaf_lifecycle.time,
-            ));
-        }
+    fn commit_placement(&mut self, tree_id: u32, record: TreeRecord) -> TreeCanonicalCommitTiming {
         let leaf_emitter_started_at = Instant::now();
         self.leaf_emitters.upsert(tree_id, &record.leaf_clusters);
         let leaf_emitter_elapsed = leaf_emitter_started_at.elapsed();
@@ -1620,11 +1603,7 @@ impl GardenTrees {
             .map(|(&id, r)| crate::ecology::Region {
                 key: crate::ecology::RegionKey::Canopy(id),
                 kind: 2,
-                count: r
-                    .leaf_lifecycle
-                    .as_ref()
-                    .map_or(r.leaf_render_positions.len(), |s| s.live_slots.len())
-                    as u32,
+                count: r.leaf_render_positions.len() as u32,
                 center: (r.bound.min().as_vec3() + r.bound.max().as_vec3()) * 0.5 / 256.,
                 radius: (r.bound.max().as_vec3() - r.bound.min().as_vec3()).length() * 0.5 / 256.,
             })
@@ -1637,19 +1616,10 @@ impl GardenTrees {
     ) -> Option<crate::ecology::Habitat> {
         let r = self.records.get(&id)?;
         let position = *r.leaf_render_positions.get(slot as usize)?;
-        if r.leaf_lifecycle
-            .as_ref()
-            .is_some_and(|s| s.growth[slot as usize] < 0.5)
-        {
-            return None;
-        }
         Some(crate::ecology::Habitat {
             region: crate::ecology::RegionKey::Canopy(id),
             slot,
-            token: r.canopy_acoustic_descriptor.generation()
-                ^ r.leaf_lifecycle.as_ref().map_or(0, |s| {
-                    s.canopy.generation(slot as usize) as u64 * 0x9e3779b9
-                }),
+            token: r.canopy_acoustic_descriptor.generation(),
             position: (position.as_vec3() + Vec3::splat(0.5)) / 256.,
             kind: 2,
         })
@@ -1660,13 +1630,7 @@ impl GardenTrees {
         id: u32,
         dense_slot: u32,
     ) -> Option<crate::ecology::Habitat> {
-        let record = self.records.get(&id)?;
-        let slot = if let Some(state) = &record.leaf_lifecycle {
-            *state.live_slots.get(dense_slot as usize)?
-        } else {
-            dense_slot
-        };
-        self.sample_ecology_leaf(id, slot)
+        self.sample_ecology_leaf(id, dense_slot)
     }
 
     pub(super) fn advance_leaf_emitters(
@@ -1986,20 +1950,6 @@ impl AppTreePublicationHost<'_> {
             &record.leaf_render_positions,
             &record.leaf_render_local_positions,
         )?;
-        if let Some(state) = &record.leaf_lifecycle {
-            if let Some(tree) = self
-                .app
-                .surface_builder
-                .resources
-                .instances
-                .leaves_instances
-                .get_mut(&tree_id)
-            {
-                if !state.growth.is_empty() {
-                    tree.resources.leaf_state.set(&state.growth);
-                }
-            }
-        }
         self.publish_attached_fruit_instances(tree_id)?;
         self.app
             .tracer

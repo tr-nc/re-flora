@@ -33,7 +33,6 @@ pub struct TreeLeafInstanceResource {
     pub shadow_instances_buf: Resource<Buffer>,
     pub shadow_instances_len: u32,
     pub shadow_response_sources: Resource<Buffer>,
-    pub leaf_state: super::leaf_state::LeafStatePublication,
 }
 
 impl InstanceResource {
@@ -86,11 +85,6 @@ impl TreeLeafInstanceResource {
             MemoryLocation::CpuToGpu,
             shadow_instance_size as u64 * max_shadow_instances,
         );
-        let leaf_state = super::leaf_state::LeafStatePublication::new(
-            max_instances as usize,
-            device.clone(),
-            allocator.clone(),
-        );
         let shadow_response_sources = Buffer::new_sized(
             device,
             allocator,
@@ -106,7 +100,6 @@ impl TreeLeafInstanceResource {
             shadow_instances_buf: Resource::new(shadow_instances_buf),
             shadow_instances_len: 0,
             shadow_response_sources: Resource::new(shadow_response_sources),
-            leaf_state,
         }
     }
 }

@@ -3269,7 +3269,6 @@ impl App {
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
                 }
-                self.sync_leaf_lifecycle_mode();
                 if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
                     log::warn!("[ECOLOGY] update failed: {error:#}");
                 }
@@ -3318,11 +3317,8 @@ impl App {
                     .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
                 self.tracer
-                    .publish_leaf_and_particle_state(
-                        &mut self.surface_builder.resources,
-                        frame_slot,
-                    )
-                    .expect("publish acquired-frame leaf and particle state");
+                    .publish_particle_state(frame_slot)
+                    .expect("publish acquired-frame particle state");
                 self.collect_gpu_profiler_frame(frame_slot);
                 self.launch_owners.record_connectivity_gpu_submission(
                     frame_slot,
@@ -3450,9 +3446,7 @@ impl App {
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,
                     },
                 );
-                frame_inputs.wind.field = self
-                    .leaf_validation_wind()
-                    .unwrap_or_else(|| self.wind_prototype.field.frame());
+                frame_inputs.wind.field = self.wind_prototype.field.frame();
                 let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture

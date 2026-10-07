@@ -358,13 +358,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let leaf_handoff_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/foliage/leaf_handoff.comp",
-            "main",
-        )
-        .unwrap();
-
         let flora_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flora.frag",
@@ -696,7 +689,6 @@ impl PipelineBuilder {
             terrain_query_sm,
             wind_volume_sm,
             vegetation_response_sm,
-            leaf_handoff_sm,
             flora_frag_sm,
             flora_lighting_cache_sm,
             tree_leaf_lighting_cache_sm,
@@ -936,21 +928,6 @@ impl PipelineBuilder {
                 ],
             })
             .expect("tree-leaf lighting cache static descriptors must resolve");
-        let leaf_handoff_ppl =
-            ComputePipeline::new_uninitialized(device, &shader_modules.leaf_handoff_sm, pool);
-        leaf_handoff_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &[
-                    resources,
-                    contree_builder_resources,
-                    scene_accel_resources,
-                    plain_builder_resources,
-                    ddgi_volume,
-                    ddgi_voxel_visibility,
-                ],
-            })
-            .expect("leaf handoff static descriptors must resolve");
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -1135,7 +1112,6 @@ impl PipelineBuilder {
             terrain_query_ppl,
             wind_volume_ppl,
             vegetation_response_ppl,
-            leaf_handoff_ppl,
             post_processing_ppl,
             stone_contree_preview_ppl,
         }
@@ -2353,14 +2329,6 @@ impl PipelineTopology {
             );
         }
 
-        retire_compute(
-            &self.compute.leaf_handoff_ppl,
-            DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &all_resources,
-            },
-            "model tile extent descriptor update failed",
-        );
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -2965,7 +2933,6 @@ pub struct ShaderModules {
     pub terrain_query_sm: ShaderModule,
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
-    pub leaf_handoff_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
     pub tree_leaf_lighting_cache_sm: ShaderModule,
@@ -3070,7 +3037,6 @@ pipeline_collection! {
         terrain_query_ppl,
         wind_volume_ppl,
         vegetation_response_ppl,
-        leaf_handoff_ppl,
         post_processing_ppl
     ];
     optional: [glass_resolve_ppl]

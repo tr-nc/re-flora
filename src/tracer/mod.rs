@@ -68,7 +68,6 @@ pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
-mod leaf_handoff;
 mod vegetation_response;
 use vegetation_response::VegetationResponse;
 
@@ -4930,12 +4929,6 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
-                if batch.kind() == TreeFoliageKind::Leaves {
-                    resources.push((
-                        "tree_leaf_state",
-                        DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
-                    ));
-                }
                 let descriptors = if batch.kind() == TreeFoliageKind::Apples {
                     let pixels = Self::with_gpu_scope(
                         gpu_profiler.as_deref_mut(),
@@ -5918,10 +5911,6 @@ impl Tracer {
                                 DescriptorResource::Buffer(
                                     &instance.resources.shadow_response_sources,
                                 ),
-                            ),
-                            (
-                                "tree_leaf_state",
-                                DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
                             ),
                             self.vegetation_response.descriptors()[0],
                             self.vegetation_response.descriptors()[1],
@@ -7114,23 +7103,7 @@ impl Tracer {
         )
     }
 
-    pub(crate) fn publish_leaf_and_particle_state(
-        &mut self,
-        surface: &mut SurfaceResources,
-        frame_slot: usize,
-    ) -> Result<()> {
-        for tree in surface
-            .instances
-            .leaves_instances
-            .values_mut()
-            .chain(surface.instances.apple_instances.values_mut())
-        {
-            tree.resources.leaf_state.publish(
-                frame_slot,
-                self.vulkan_ctx.device().clone(),
-                self.allocator.clone(),
-            )?;
-        }
+    pub(crate) fn publish_particle_state(&mut self, frame_slot: usize) -> Result<()> {
         self.particle_resources.publish_frame(
             frame_slot,
             self.vulkan_ctx.device().clone(),

@@ -169,14 +169,6 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
-        for id in [
-            "leaf_connection_strength",
-            "leaf_connection_half_life",
-            "leaf_regrowth_delay",
-            "leaf_regrowth_duration",
-        ] {
-            Self::add_missing_param(&mut config, "Falling Leaves", id);
-        }
         Self::validate(&config, config_path);
         Self::migrate_flutter_frequency(&mut config);
         Self::migrate_frequency_ceiling(&mut config);
@@ -486,7 +478,7 @@ impl GuiConfigLoader {
     }
 
     // Return saved experimental files to main's voxel-derived tree/leaf display.
-    // Keep authored wind and retained lifecycle values; never persist on load.
+    // Keep authored wind; retire real-leaf lifecycle settings without saving on load.
     fn retire_tree_display_experiments(config: &mut GuiConfigFile) {
         let old_wind = config
             .section
@@ -508,6 +500,10 @@ impl GuiConfigLoader {
                         | "tree_pixel_size"
                         | "attached_leaf_rotation"
                         | "real_leaf_lifecycle"
+                        | "leaf_connection_strength"
+                        | "leaf_connection_half_life"
+                        | "leaf_regrowth_delay"
+                        | "leaf_regrowth_duration"
                         | "falling_leaf_mesh"
                         | "falling_leaf_size_scale"
                         | "falling_leaf_pixel_resolution"
@@ -525,27 +521,6 @@ impl GuiConfigLoader {
                 {
                     param.value = value;
                 }
-            }
-        }
-        let defaults: GuiConfigFile =
-            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
-        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
-            if matches!(
-                param.id.as_str(),
-                "leaf_connection_strength"
-                    | "leaf_connection_half_life"
-                    | "leaf_regrowth_delay"
-                    | "leaf_regrowth_duration"
-            ) {
-                let schema = defaults
-                    .section
-                    .iter()
-                    .flat_map(|s| &s.param)
-                    .find(|p| p.id == param.id)
-                    .expect("falling leaf display schema");
-                // Schema migration preserves authored values and never implicitly saves.
-                param.enabled_if.clone_from(&schema.enabled_if);
-                param.label.clone_from(&schema.label);
             }
         }
     }
@@ -1644,7 +1619,7 @@ mod tests {
                     .section
                     .iter()
                     .flat_map(|s| &s.param)
-                    .find(|p| p.id == "leaf_connection_strength")
+                    .find(|p| p.id == "leaf_global_offset_scale")
                     .unwrap()
                     .clone();
                 let mut retired = other.clone();
@@ -2095,78 +2070,57 @@ mod tests {
     }
 
     #[test]
-    fn main_saves_gain_lifecycle_controls_without_changing_authored_display() {
+    fn retired_leaf_lifecycle_controls_are_removed_without_implicit_save() {
+        use crate::app::gui_config_model::GuiParamValue;
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        for section in &mut config.section {
-            section.param.retain(|p| {
-                !matches!(
-                    p.id.as_str(),
-                    "real_leaf_lifecycle"
-                        | "leaf_connection_strength"
-                        | "leaf_connection_half_life"
-                        | "leaf_regrowth_delay"
-                        | "leaf_regrowth_duration"
-                )
-            });
-            for param in &mut section.param {
-                if matches!(
-                    param.id.as_str(),
-                    "falling_leaf_mesh"
-                        | "falling_leaf_size_scale"
-                        | "falling_leaf_pixel_resolution"
-                ) {
-                    param.enabled_if = None; // Schema in main before real lifecycle existed.
-                }
-            }
+        let mut old = config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "leaf_global_offset_scale")
+            .unwrap()
+            .clone();
+        let retired = [
+            "real_leaf_lifecycle",
+            "leaf_connection_strength",
+            "leaf_connection_half_life",
+            "leaf_regrowth_delay",
+            "leaf_regrowth_duration",
+        ];
+        for id in retired {
+            old.id = id.into();
+            old.value = GuiParamValue::Float {
+                value: 0.7,
+                min: None,
+                max: None,
+            };
+            config.section[0].param.push(old.clone());
         }
-        let before = config.clone();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("gui.toml");
         GuiConfigLoader::save_to_path(&config, &path).unwrap();
-        let bytes = std::fs::read(&path).unwrap();
+        let original = std::fs::read(&path).unwrap();
         let loaded = GuiConfigLoader::load_from_path(&path);
         assert_eq!(
+            original,
             std::fs::read(&path).unwrap(),
-            bytes,
-            "migration must not save implicitly"
+            "loading must not rewrite authored settings"
         );
-        for old in before.section.iter().flat_map(|s| &s.param) {
-            let new = loaded
-                .section
-                .iter()
-                .flat_map(|s| &s.param)
-                .find(|p| p.id == old.id)
-                .unwrap();
-            let mut expected = old.clone();
-            if matches!(
-                old.id.as_str(),
-                "falling_leaf_mesh" | "falling_leaf_size_scale" | "falling_leaf_pixel_resolution"
-            ) {
-                expected.enabled_if = new.enabled_if.clone();
-                expected.label = new.label.clone();
-            }
-            assert_eq!(
-                toml::to_string(&expected).unwrap(),
-                toml::to_string(new).unwrap()
-            );
-        }
-        let gui = crate::app::GuiAdjustables::from_config(&loaded);
         assert!(loaded
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .all(|p| p.id != "real_leaf_lifecycle"));
+            .all(|p| !retired.contains(&p.id.as_str())));
+        let gui = crate::app::GuiAdjustables::from_config(&loaded);
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        let defaults = crate::app::GuiAdjustables::from_config(&defaults);
         assert_eq!(
-            gui.leaf_connection_strength.value,
-            defaults.leaf_connection_strength.value
+            gui.leaf_global_offset_scale.value,
+            crate::app::GuiAdjustables::from_config(&defaults)
+                .leaf_global_offset_scale
+                .value
         );
-        assert_eq!(gui.leaf_connection_half_life.value, 120.0);
-        assert_eq!(gui.leaf_regrowth_delay.value, 8.0);
-        assert_eq!(gui.leaf_regrowth_duration.value, 20.0);
         GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
         assert_eq!(
             toml::to_string(&loaded).unwrap(),
@@ -2175,7 +2129,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_tree_displays_preserve_wind_lifecycle_and_leaf_values() {
+    fn retired_tree_displays_preserve_wind_without_reviving_lifecycle() {
         use crate::app::gui_config_model::{
             GuiParamConditionValue, GuiParamEnabledIf, GuiParamValue,
         };
@@ -2201,12 +2155,6 @@ mod tests {
                         "raster_tree_wind" => {
                             p.value = GuiParamValue::Bool {
                                 value: canonical_wind.unwrap(),
-                            }
-                        }
-                        "real_leaf_lifecycle" => p.value = GuiParamValue::Bool { value: true },
-                        "leaf_connection_strength" => {
-                            if let GuiParamValue::Float { value, .. } = &mut p.value {
-                                *value = 0.7;
                             }
                         }
                         "falling_leaf_size_scale" => {
@@ -2280,7 +2228,6 @@ mod tests {
                 .iter()
                 .flat_map(|s| &s.param)
                 .all(|p| p.id != "real_leaf_lifecycle"));
-            assert_eq!(gui.leaf_connection_strength.value, 0.7);
             assert!(loaded
                 .section
                 .iter()

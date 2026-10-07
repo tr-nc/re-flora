@@ -1,5 +1,4 @@
 import tree_scene;
-import leaf_lifecycle;
 import flora_types;
 import flora_lighting_cache;
 import flora_vertex;
@@ -63,17 +62,15 @@ VertexOutput main(VertexInput input)
         INSTANCE_GROWTH_PROGRESS_MATURE, 1.0, 1.0,
         INSTANCE_SPAWN_INACTIVE, input.instance_index);
 
-    float growth = treeLeafGrowth(input.instance_index);
     VertexOutput output;
-    if (prepared.should_trim || growth <= 0.0)
+    if (prepared.should_trim)
     {
         output.position = float4(2.0, 2.0, 2.0, 1.0);
         output.color = float3(0.0);
         return output;
     }
 
-    float3 offset = growth == 1.0 ? float3(vertexOffset)
-        : (float3(vertexOffset) - 0.5) * growth + 0.5;
+    float3 offset = float3(vertexOffset);
     float3 vertexPosition = prepared.anchor_position +
         treeAttachmentVector(instancePosition, offset * FLORA_SCALING_FACTOR);
     output.position = applyFloraDepthOffset(vertexPosition, instancePosition);
