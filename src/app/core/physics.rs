@@ -6,6 +6,7 @@ use crate::tracer::{
 };
 use anyhow::Context;
 use glam::{IVec3, UVec3, Vec3};
+use rand::{rngs::SmallRng, RngExt, SeedableRng};
 use re_flora_physics::{
     BrickOccupancy, CollisionWorld, DynamicBodyDesc, DynamicBodyId, DynamicColliderShape,
     StaticVoxelBrickId, StaticVoxelBrickUpdate, STATIC_VOXEL_BRICK_DIM,
@@ -52,6 +53,7 @@ pub(super) struct TreeFruitSpec {
     pub position_voxels: UVec3,
     pub grow_start_phase: f32,
     pub full_growth_phase: f32,
+    pub connection_strength: f32,
     pub linear_velocity_voxels: Vec3,
     pub angular_velocity: Vec3,
 }
@@ -118,32 +120,30 @@ impl RegisteredFruit {
     }
 }
 
-// One kick chooses a bounded subset of the still-held crop, without scanning/releasing
-// anything during ordinary wind or elapsed-time updates.
+// Per-connection Russian roulette: each eligible apple gets a fresh independent
+// draw. Losing a draw changes no gameplay state; there is no quota/minimum winner.
 fn request_fruit_kick(
     fruits: &mut BTreeMap<u64, RegisteredFruit>,
     cycle: f32,
-    fraction: f32,
+    chance_scale: f32,
+    mut draw: impl FnMut() -> f32,
 ) -> usize {
-    if !fraction.is_finite() || fraction <= 0. {
+    if !chance_scale.is_finite() || chance_scale <= 0. {
         return 0;
     }
-    let ids: Vec<_> = fruits
-        .iter()
-        .filter(|(_, fruit)| {
-            fruit.phase == FruitSweepPhase::Armed && cycle >= fruit.spec.full_growth_phase
-        })
-        .map(|(&id, _)| id)
-        .collect();
-    let count = ((ids.len() as f32 * fraction.min(1.)).ceil() as usize).min(256);
-    // Evenly sample the remaining stable IDs rather than stripping one side first.
-    for index in 0..count {
-        fruits
-            .get_mut(&ids[index * ids.len() / count])
-            .unwrap()
-            .phase = FruitSweepPhase::PendingDrop;
+    let mut released = 0;
+    for fruit in fruits.values_mut() {
+        if fruit.phase != FruitSweepPhase::Armed || cycle < fruit.spec.full_growth_phase {
+            continue;
+        }
+        let threshold = 1. - chance_scale.min(1.) * (1. - fruit.spec.connection_strength);
+        let roll = draw();
+        if roll.is_finite() && (0. ..=1.).contains(&roll) && roll > threshold {
+            fruit.phase = FruitSweepPhase::PendingDrop;
+            released += 1;
+        }
     }
-    count
+    released
 }
 
 pub(super) struct TreeFruitPublicationCheckpoint {
@@ -259,6 +259,7 @@ pub(super) struct TerrainPhysics {
     fruits_by_tree: BTreeMap<u32, BTreeMap<u64, RegisteredFruit>>,
     attached_fruit_refresh_trees: HashSet<u32>,
     fruit_cycle: f32,
+    fruit_kick_rng: SmallRng,
     apple_size_scale: f32,
     ground_trace: Option<FruitGroundTrace>,
 }
@@ -404,6 +405,7 @@ impl TerrainPhysics {
             fruits_by_tree: BTreeMap::new(),
             attached_fruit_refresh_trees: HashSet::new(),
             fruit_cycle: fruit_cycle.clamp(0.0, 1.0),
+            fruit_kick_rng: SmallRng::from_rng(&mut rand::rng()),
             apple_size_scale: 1.0,
             ground_trace: FruitGroundTrace::from_env(),
         }
@@ -844,16 +846,22 @@ impl TerrainPhysics {
             .map(|(offset, _)| (root.as_vec3() + *offset) / VOXELS_PER_WORLD_UNIT))
     }
 
-    pub(super) fn request_tree_fruit_kick(&mut self, tree: u32, fraction: f32) -> usize {
+    pub(super) fn request_tree_fruit_kick(&mut self, tree: u32, chance_scale: f32) -> usize {
+        let rng = &mut self.fruit_kick_rng;
         self.fruits_by_tree.get_mut(&tree).map_or(0, |fruits| {
-            request_fruit_kick(fruits, self.fruit_cycle, fraction)
+            request_fruit_kick(fruits, self.fruit_cycle, chance_scale, || rng.random())
         })
+    }
+
+    /// Only the explicit hidden fixture pins luck; live kicks use the resident RNG.
+    pub(super) fn seed_fruit_kicks_for_diagnostic(&mut self, seed: u64) {
+        self.fruit_kick_rng = SmallRng::seed_from_u64(seed);
     }
 
     /// Explicit opt-in drop fixtures use the same release policy, not growth-threshold tricks.
     pub(super) fn request_diagnostic_fruit_kicks(&mut self) {
         for fruits in self.fruits_by_tree.values_mut() {
-            request_fruit_kick(fruits, self.fruit_cycle, 1.);
+            request_fruit_kick(fruits, self.fruit_cycle, 1., || 1.);
         }
     }
 
@@ -1580,6 +1588,7 @@ mod tests {
             position_voxels: UVec3::new(64, 96, 64),
             grow_start_phase: 0.55,
             full_growth_phase: 0.70,
+            connection_strength: 0.5,
             linear_velocity_voxels: Vec3::ZERO,
             angular_velocity: Vec3::ZERO,
         }
@@ -1815,21 +1824,92 @@ mod tests {
                 (id, RegisteredFruit::held(spec, vec![]))
             })
             .collect();
-        assert_eq!(request_fruit_kick(&mut crop, 0.6, 0.25), 0);
-        assert_eq!(request_fruit_kick(&mut crop, 1., 0.25), 2);
+        assert_eq!(
+            request_fruit_kick(&mut crop, 0.6, 0.25, || panic!(
+                "unripe fruit must not draw"
+            )),
+            0
+        );
+        let mut draws = [0.8, 0.9, 0.8, 0.8, 0.9, 0.8, 0.8, 0.8].into_iter();
+        assert_eq!(
+            request_fruit_kick(&mut crop, 1., 0.25, || draws.next().unwrap()),
+            2
+        );
         assert_eq!(
             crop.values()
                 .filter(|f| f.phase == FruitSweepPhase::PendingDrop)
                 .count(),
             2
         );
-        assert_eq!(request_fruit_kick(&mut crop, 1., 0.25), 2);
-        assert_eq!(request_fruit_kick(&mut crop, 1., 1.), 4);
-        assert_eq!(request_fruit_kick(&mut crop, 1., 1.), 0);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 0.25, || 0.8), 0);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 1., || 0.99), 6);
+        assert_eq!(
+            request_fruit_kick(&mut crop, 1., 1., || panic!(
+                "pending fruit cannot draw twice"
+            )),
+            0
+        );
         assert_eq!(
             fruit_phase_after_cycle_change(FruitSweepPhase::Dropped, 1., 0.4, 0.55),
             FruitSweepPhase::Armed
         );
+    }
+
+    #[test]
+    fn connection_roulette_can_all_fail_and_retries_draw_fresh_without_weakening() {
+        let mut crop = BTreeMap::from([(7, RegisteredFruit::held(fruit_spec(), vec![]))]);
+        let spec = crop[&7].spec.clone();
+        for roll in [0.1, 0.5] {
+            assert_eq!(request_fruit_kick(&mut crop, 1., 1., || roll), 0);
+            assert_eq!(crop[&7].spec, spec);
+            assert_eq!(crop[&7].phase, FruitSweepPhase::Armed);
+            assert!(crop[&7].body.is_none() && crop[&7].handoff.is_none());
+        }
+        assert_eq!(request_fruit_kick(&mut crop, 1., 1., || 0.51), 1);
+        assert_eq!(
+            request_fruit_kick(&mut crop, 1., 1., || panic!("no repeated detachment")),
+            0
+        );
+        assert_eq!(
+            request_fruit_kick(&mut crop, 1., 0., || panic!("disabled roulette")),
+            0
+        );
+    }
+
+    #[test]
+    fn weaker_connections_can_win_when_stronger_ones_do_nothing_without_a_quota() {
+        let mut weak = fruit_spec();
+        weak.id = 1;
+        weak.connection_strength = 0.2;
+        let mut strong = fruit_spec();
+        strong.id = 2;
+        strong.connection_strength = 0.8;
+        let mut crop = BTreeMap::from([
+            (1, RegisteredFruit::held(weak, vec![])),
+            (2, RegisteredFruit::held(strong, vec![])),
+        ]);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 1., || 0.5), 1);
+        assert_eq!(crop[&1].phase, FruitSweepPhase::PendingDrop);
+        assert_eq!(crop[&2].phase, FruitSweepPhase::Armed);
+        let mut draws = 0;
+        assert_eq!(
+            request_fruit_kick(&mut crop, 1., 0.25, || {
+                draws += 1;
+                0.94
+            }),
+            0
+        );
+        assert_eq!(draws, 1);
+        assert_eq!(request_fruit_kick(&mut crop, 1., 0.25, || 0.96), 1);
+        // GPU admission stays bounded; it must not turn many independent winners into a quota.
+        let mut large: BTreeMap<_, _> = (0..300)
+            .map(|id| {
+                let mut s = fruit_spec();
+                s.id = id;
+                (id, RegisteredFruit::held(s, vec![]))
+            })
+            .collect();
+        assert_eq!(request_fruit_kick(&mut large, 1., 1., || 0.99), 300);
     }
 
     #[test]

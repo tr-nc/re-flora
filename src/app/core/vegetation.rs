@@ -398,6 +398,8 @@ fn tree_fruit_specs(
             position_voxels,
             grow_start_phase,
             full_growth_phase,
+            connection_strength: (0.1 + 0.8 * unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos))
+                .clamp(0.1, 0.9),
             linear_velocity_voxels: Vec3::new(
                 horizontal_velocity.x,
                 -unit_hash(seed, leaf_index, 0x4CF5_AD43, leaf_pos) * 2.0,
@@ -1896,6 +1898,8 @@ impl AppTreePublicationHost<'_> {
             anyhow::ensure!(
                 fruit.grow_start_phase.is_finite()
                     && fruit.full_growth_phase.is_finite()
+                    && fruit.connection_strength.is_finite()
+                    && (0. ..=1.).contains(&fruit.connection_strength)
                     && fruit.linear_velocity_voxels.is_finite()
                     && fruit.angular_velocity.is_finite(),
                 "tree {} fruit {} contains non-finite publication data",
@@ -4039,7 +4043,7 @@ impl App {
                 id,
                 self.debug_settings
                     .adjustables
-                    .tree_kick_fruit_fraction
+                    .tree_kick_fruit_chance_scale
                     .value,
             );
             let leaves = self.trees.leaf_emitters.burst(
@@ -5537,6 +5541,14 @@ mod tests {
             .map(|fruit| (fruit.full_growth_phase * 1_000.0).round() as u32)
             .collect::<HashSet<_>>();
         assert!(distinct_drop_millis.len() > 4);
+        assert!(first
+            .iter()
+            .all(|fruit| (0.1..=0.9).contains(&fruit.connection_strength)));
+        let strengths: HashSet<_> = first
+            .iter()
+            .map(|fruit| fruit.connection_strength.to_bits())
+            .collect();
+        assert!(strengths.len() > 4);
     }
 
     #[test]
@@ -5561,6 +5573,7 @@ mod tests {
             sapling.id == mature.id
                 && sapling.grow_start_phase == mature.grow_start_phase
                 && sapling.full_growth_phase == mature.full_growth_phase
+                && sapling.connection_strength == mature.connection_strength
         }));
         assert!(sapling
             .iter()

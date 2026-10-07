@@ -41,8 +41,10 @@ impl RasterTreeSmoke {
                 app.debug_settings.adjustables.tree_kick_strength.value = 0.2;
                 app.debug_settings
                     .adjustables
-                    .tree_kick_fruit_fraction
-                    .value = 0.25;
+                    .tree_kick_fruit_chance_scale
+                    .value = 1.;
+                app.terrain_physics
+                    .seed_fruit_kicks_for_diagnostic(0x6b69_636b);
                 app.debug_settings.adjustables.tree_kick_leaf_count.value = 24;
             }
             21 => {

@@ -302,9 +302,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "tree_kick_fruit_fraction",
+        id: "tree_kick_fruit_chance_scale",
         kind: "float",
-        label: "Tree kick fruit release fraction",
+        label: "Tree kick fruit release chance scale",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1628,7 +1628,7 @@ pub struct GuiAdjustables {
     pub tree_kick_damping: crate::gui_adjustables::FloatParam,
     pub tree_kick_reach: crate::gui_adjustables::FloatParam,
     pub tree_kick_cooldown: crate::gui_adjustables::FloatParam,
-    pub tree_kick_fruit_fraction: crate::gui_adjustables::FloatParam,
+    pub tree_kick_fruit_chance_scale: crate::gui_adjustables::FloatParam,
     pub tree_kick_leaf_count: crate::gui_adjustables::IntParam,
     pub tree_kick_rustle_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_kick_rustle_duration: crate::gui_adjustables::FloatParam,
@@ -1900,7 +1900,7 @@ impl GuiAdjustables {
         let mut tree_kick_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_cooldown_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut tree_kick_fruit_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_fruit_chance_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_leaf_count_field: Option<crate::gui_adjustables::IntParam> = None;
         let mut tree_kick_rustle_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_rustle_duration_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2399,11 +2399,11 @@ impl GuiAdjustables {
                             tree_kick_cooldown_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "tree_kick_fruit_fraction" => {
+                    "tree_kick_fruit_chance_scale" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
-                            tree_kick_fruit_fraction_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                            tree_kick_fruit_chance_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "tree_kick_leaf_count" => {
@@ -3882,7 +3882,7 @@ impl GuiAdjustables {
             tree_kick_damping: tree_kick_damping_field.expect("Missing parameter: tree_kick_damping"),
             tree_kick_reach: tree_kick_reach_field.expect("Missing parameter: tree_kick_reach"),
             tree_kick_cooldown: tree_kick_cooldown_field.expect("Missing parameter: tree_kick_cooldown"),
-            tree_kick_fruit_fraction: tree_kick_fruit_fraction_field.expect("Missing parameter: tree_kick_fruit_fraction"),
+            tree_kick_fruit_chance_scale: tree_kick_fruit_chance_scale_field.expect("Missing parameter: tree_kick_fruit_chance_scale"),
             tree_kick_leaf_count: tree_kick_leaf_count_field.expect("Missing parameter: tree_kick_leaf_count"),
             tree_kick_rustle_volume_db: tree_kick_rustle_volume_db_field.expect("Missing parameter: tree_kick_rustle_volume_db"),
             tree_kick_rustle_duration: tree_kick_rustle_duration_field.expect("Missing parameter: tree_kick_rustle_duration"),
@@ -4122,7 +4122,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "tree_kick_damping" => Some(&adjustables.tree_kick_damping),
         "tree_kick_reach" => Some(&adjustables.tree_kick_reach),
         "tree_kick_cooldown" => Some(&adjustables.tree_kick_cooldown),
-        "tree_kick_fruit_fraction" => Some(&adjustables.tree_kick_fruit_fraction),
+        "tree_kick_fruit_chance_scale" => Some(&adjustables.tree_kick_fruit_chance_scale),
         "tree_kick_rustle_volume_db" => Some(&adjustables.tree_kick_rustle_volume_db),
         "tree_kick_rustle_duration" => Some(&adjustables.tree_kick_rustle_duration),
         "tree_kick_rustle_brightness" => Some(&adjustables.tree_kick_rustle_brightness),
@@ -4428,7 +4428,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "tree_kick_damping" => Some(&mut adjustables.tree_kick_damping),
         "tree_kick_reach" => Some(&mut adjustables.tree_kick_reach),
         "tree_kick_cooldown" => Some(&mut adjustables.tree_kick_cooldown),
-        "tree_kick_fruit_fraction" => Some(&mut adjustables.tree_kick_fruit_fraction),
+        "tree_kick_fruit_chance_scale" => Some(&mut adjustables.tree_kick_fruit_chance_scale),
         "tree_kick_rustle_volume_db" => Some(&mut adjustables.tree_kick_rustle_volume_db),
         "tree_kick_rustle_duration" => Some(&mut adjustables.tree_kick_rustle_duration),
         "tree_kick_rustle_brightness" => Some(&mut adjustables.tree_kick_rustle_brightness),

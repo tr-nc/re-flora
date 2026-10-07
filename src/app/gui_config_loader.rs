@@ -199,13 +199,31 @@ impl GuiConfigLoader {
             }
         }
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
+        // Rename the old quota control without rewriting saves or losing its value.
+        for section in &mut config.section {
+            let has_new = section
+                .param
+                .iter()
+                .any(|p| p.id == "tree_kick_fruit_chance_scale");
+            if has_new {
+                section.param.retain(|p| p.id != "tree_kick_fruit_fraction");
+            }
+            for param in &mut section.param {
+                if param.id == "tree_kick_fruit_fraction" {
+                    param.id = "tree_kick_fruit_chance_scale".into();
+                }
+                if param.id == "tree_kick_fruit_chance_scale" {
+                    param.label = "Tree kick fruit release chance scale".into();
+                }
+            }
+        }
         for id in [
             "tree_kick_strength",
             "tree_kick_frequency",
             "tree_kick_damping",
             "tree_kick_reach",
             "tree_kick_cooldown",
-            "tree_kick_fruit_fraction",
+            "tree_kick_fruit_chance_scale",
             "tree_kick_leaf_count",
             "tree_kick_rustle_volume_db",
             "tree_kick_rustle_duration",
@@ -1885,7 +1903,7 @@ mod tests {
             "tree_kick_damping",
             "tree_kick_reach",
             "tree_kick_cooldown",
-            "tree_kick_fruit_fraction",
+            "tree_kick_fruit_chance_scale",
             "tree_kick_leaf_count",
             "tree_kick_rustle_volume_db",
             "tree_kick_rustle_duration",
@@ -1920,6 +1938,43 @@ mod tests {
                 _ => panic!("kick setting is not numeric"),
             }
         }
+        GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
+        assert_eq!(
+            toml::to_string(&loaded).unwrap(),
+            toml::to_string(&GuiConfigLoader::load_from_path(&file)).unwrap()
+        );
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn old_kick_fruit_quota_migrates_to_chance_scale_without_rewriting_saved_tuning() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let param = config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "tree_kick_fruit_chance_scale")
+            .unwrap();
+        param.id = "tree_kick_fruit_fraction".into();
+        param.label = "Tree kick fruit release fraction".into();
+        if let GuiParamValue::Float { value, .. } = &mut param.value {
+            *value = 0.63;
+        }
+        let file =
+            std::env::temp_dir().join(format!("re-flora-fruit-chance-{}.toml", std::process::id()));
+        GuiConfigLoader::save_to_path(&config, &file).unwrap();
+        let before = std::fs::read(&file).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&file);
+        assert_eq!(before, std::fs::read(&file).unwrap());
+        let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+        assert!(!params.iter().any(|p| p.id == "tree_kick_fruit_fraction"));
+        let new = params
+            .iter()
+            .find(|p| p.id == "tree_kick_fruit_chance_scale")
+            .unwrap();
+        assert!(matches!(new.value, GuiParamValue::Float { value, .. } if value == 0.63));
         GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
         assert_eq!(
             toml::to_string(&loaded).unwrap(),

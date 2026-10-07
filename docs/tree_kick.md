@@ -4,7 +4,7 @@ Walk near visible tree wood and aim the center reticle at it. `K · Kick` appear
 while in reach and ready; press **K** once. Holding K does not auto-repeat. Editing/free-flight,
 GUI keyboard/pointer ownership, camera transitions, stale scene answers and out-of-reach hits
 cannot kick. Cooldown is player-wide. Each accepted kick shakes that tree and requests one
-burst of decorative falling leaves plus a fraction of its remaining mature fruit. It does not
+burst of decorative falling leaves plus independent release attempts on its remaining mature fruit. It does not
 damage wood, move physical tree collision, or add a foot animation.
 
 ## Saved tuning
@@ -18,7 +18,7 @@ Debug → **Tree Kick** groups all controls by the interaction concern. Use the 
 | Tree kick damping | 0.3 | 0.1–0.9 |
 | Tree kick reach | 30 voxels | 16–100 |
 | Tree kick cooldown | 0.35 s | 0.15–1.5 |
-| Fruit release fraction | 0.25 | 0–1 |
+| Fruit release chance scale | 0.25 | 0–1 |
 | Decorative leaves per burst | 24 | 0–128 |
 | Leaf rustle volume | −6 dB | −40…6 |
 | Leaf rustle tail | 1.1 s | 0.25…3 |
@@ -34,10 +34,17 @@ on Load; existing values survive Save/reload. Kick response itself is transient,
 
 Mature fruit remains attached at the end of the saved **Fruit Growth (held until kick)** control.
 Registration, loading, advancing the growth control, wind and elapsed time cannot schedule a drop.
-Only an accepted kick selects a subset of still-held, fully-grown fruit on its exact tree. Selection
-rounds up (a nonzero fraction releases at least one), is capped at 256 fruits per kick, and never
-selects a pending or already-dropped fruit twice. Zero fraction disables fruit release; zero leaf
-count disables the leaf burst. Remaining canopy geometry is unchanged: falling leaves are the
+Every authored apple gets a seed/anchor-stable random **connection strength** `s` in 0.1–0.9,
+preserved across age rebuilds and reloads. Each accepted kick draws new independent uniform luck
+`r` for every still-held, fully-grown apple on that tree. It releases only if
+`r > 1 - chance_scale * (1 - s)`; at scale 1 this is simply `r > s`. Stronger connections win less
+often. A failed draw changes nothing (no weakening, motion or queued drop); later kicks reroll.
+There is no quota, rounding-up, minimum winner or per-kick winner cap: **zero apples may fall**.
+Already-pending/dropped apples cannot draw twice. GPU admission still bounds concurrent handoffs
+at 256, deferring excess winners through the same frame-owned queue rather than omitting them.
+Zero chance scale disables fruit attempts; zero leaf count disables the leaf burst. The old saved
+fraction slider migrates to chance scale in memory with its numeric value unchanged; it no longer
+promises that percentage will fall. Remaining canopy geometry is unchanged: falling leaves are the
 existing independent decorative VFX, not a revived detachment/regrowth lifecycle. Ambient
 wind-driven decorative leaves are unchanged.
 
@@ -106,13 +113,16 @@ a fresh transient response. Wind off resets ambient branch deflection but does n
   `[TREE_KICK][GPU] passed wind_off=true moved=true rest_collision=true rest_geometry=true`.
   The diagnostic explicitly advances its transient response to rest before the unrelated wind-toggle
   fixtures; production input never performs that seek.
-- Fruit tests (16), particle/app burst tests (7), kick migration, unified Save and Debug grouping
-  pass. The Release raster smoke starts with **17/17 fruit held**, releases **5** and retains **12**
-  from one kick, emits **24** leaves, and records a **320-byte** async handoff with
-  `frame_fence=true query_wait=false`. Existing frame-owned pick, posed rest-space edits, leaf
+- Fruit/roulette tests, particle/app burst tests, kick migration, unified Save and Debug grouping
+  pass. The current Release smoke pins only its diagnostic RNG (live play is not pinned), starts
+  with **17/17 fruit held**, attempts scale 1, releases **9** and retains **8** from one kick,
+  emits **24** leaves, and records a **576-byte** async handoff with
+  `frame_fence=true query_wait=false`. Regression tests cover all-lost attempts, equality retaining
+  attachment, fresh retry draws, stronger/weaker thresholds, unchanged strength, no double draw,
+  more than 256 independent winners, and saved quota-to-chance migration. Existing frame-owned pick, posed rest-space edits, leaf
   response, replacement/removal, Conifer, lighting and exact rollback smoke remain green.
-  Evidence: `/tmp/tree-kick-release-smoke-02.out` and
-  `target/re-flora-logs/re-flora-20261007-220949.345-2253812.log`.
+  Roulette evidence: `/tmp/tree-roulette-smoke.out`. The former 5/17 fixed-quota result in
+  `/tmp/tree-kick-release-smoke-02.out` is historical, not the current release policy.
 - An intermediate smoke exposed a shader binding collision with imported `wind_field_info` at
   binding 4; root input now uses binding 5. That failing Vulkan run is excluded from validation.
 
