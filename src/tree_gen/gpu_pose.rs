@@ -19,7 +19,7 @@ struct Resources {
     tree_pose_state: Resource<Buffer>,
     tree_pose_ranges: Resource<Buffer>,
     tree_pose_step: Resource<Buffer>,
-    tree_pose_roots: Resource<Buffer>,
+    tree_pose_kicks: Resource<Buffer>,
     wind_field_info: Resource<Buffer>,
 }
 
@@ -85,7 +85,7 @@ impl Resident {
             )),
             tree_pose_ranges: host(std::mem::size_of_val(ranges.as_slice())),
             tree_pose_step: host(16),
-            tree_pose_roots: host(trees.len() * 32),
+            tree_pose_kicks: host(trees.len() * std::mem::size_of::<super::kick::GpuKickTree>()),
             wind_field_info: Resource::new(buffer(
                 std::mem::size_of::<WindFieldFrame>(),
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -212,19 +212,11 @@ impl GpuTreePoseSolver {
         let resident = self.resident.as_ref().unwrap();
         let resources = &resident.resources;
         resources.wind_field_info.fill_uniform(wind)?;
-        let roots: Vec<[f32; 4]> = trees
+        let kicks: Vec<_> = trees
             .iter()
-            .flat_map(|(_, pose)| {
-                let root = pose.root_motion();
-                [
-                    root.rotation.to_array(),
-                    root.translation
-                        .extend(if wind_enabled { 1. } else { 0. })
-                        .to_array(),
-                ]
-            })
+            .map(|(_, pose)| pose.gpu_kick(wind_enabled))
             .collect();
-        resources.tree_pose_roots.fill(&roots)?;
+        resources.tree_pose_kicks.fill(&kicks)?;
         resources.tree_pose_step.fill(&[[
             u32::try_from(trees.len())?,
             dt.to_bits(),
@@ -251,7 +243,7 @@ impl GpuTreePoseSolver {
         for buffer in [
             &resources.wind_field_info,
             &resources.tree_pose_step,
-            &resources.tree_pose_roots,
+            &resources.tree_pose_kicks,
         ] {
             command.use_buffer(buffer, BufferUse::HostWrite);
         }

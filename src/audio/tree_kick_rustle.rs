@@ -20,6 +20,7 @@ pub(crate) struct KickRustleTuning {
     pub duration: f32,
     pub brightness: f32,
     pub crackle: f32,
+    pub body: f32,
     pub shake_frequency: f32,
 }
 impl KickRustleTuning {
@@ -31,6 +32,8 @@ impl KickRustleTuning {
                 && (0. ..=1.).contains(&self.brightness)
                 && self.crackle.is_finite()
                 && (0. ..=1.).contains(&self.crackle)
+                && self.body.is_finite()
+                && (0. ..=1.5).contains(&self.body)
                 && self.shake_frequency.is_finite()
                 && (1. ..=7.).contains(&self.shake_frequency),
             "invalid kick rustle tuning"
@@ -51,18 +54,22 @@ pub(super) fn excitation_envelope(time: f32, duration: f32, frequency: f32) -> f
     let end_fade = ((duration - time) / 0.04).clamp(0., 1.);
     attack * decay * rebound * end_fade * end_fade
 }
-fn render_variant(tuning: KickRustleTuning, variant: usize) -> Result<ResidentClip> {
-    let control = Arc::new(TreeRustleControl::with_params(TreeRustleParams {
-        // Fresh canopy friction/contact, not a gale, dry paper or a branch-breaking impact.
+fn kick_params(tuning: KickRustleTuning) -> TreeRustleParams {
+    TreeRustleParams {
+        // Reduce the warm low/mid bed; prioritize friction/contact without
+        // inventing a foot/trunk thump or modifying ambient tree sound.
         gustiness: 0.,
         leaf_density: 1.35,
-        dryness: 0.2,
+        dryness: 0.28,
         branch: 0.,
-        air: 0.08,
-        leaf_body: 1.14,
-        brightness: tuning.brightness,
-        crackle: tuning.crackle,
-    }));
+        air: 0.02,
+        leaf_body: tuning.body,
+        brightness: 0.35 + 0.65 * tuning.brightness,
+        crackle: tuning.crackle.sqrt(),
+    }
+}
+fn render_variant(tuning: KickRustleTuning, variant: usize) -> Result<ResidentClip> {
+    let control = Arc::new(TreeRustleControl::with_params(kick_params(tuning)));
     let factory = TreeRustleFactory::new(
         0x6b69_636b_7275_7374 ^ (variant as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
         control,
@@ -178,11 +185,70 @@ mod tests {
         }
     }
     #[test]
+    fn clearer_kick_texture_has_more_high_band_contact_relative_to_the_low_bed() {
+        let tuning = KickRustleTuning {
+            duration: 1.1,
+            brightness: 0.42,
+            crackle: 0.18,
+            body: 0.28,
+            shake_frequency: 2.55,
+        };
+        let old = TreeRustleParams {
+            gustiness: 0.,
+            leaf_density: 1.35,
+            dryness: 0.2,
+            branch: 0.,
+            air: 0.08,
+            leaf_body: 1.14,
+            brightness: 0.42,
+            crackle: 0.18,
+        };
+        let ratio = |params, seed| {
+            let pcm =
+                TreeRustleFactory::new(seed, Arc::new(TreeRustleControl::with_params(params)))
+                    .render_excited_pcm(SAMPLE_RATE, tuning.duration, tuning.shake_frequency);
+            let mut low = 0_f64;
+            let mut mid = 0_f64;
+            let mut bass = 0_f64;
+            let mut high = 0_f64;
+            let a = 1. - (-std::f64::consts::TAU * 800. / SAMPLE_RATE as f64).exp();
+            let b = 1. - (-std::f64::consts::TAU * 2500. / SAMPLE_RATE as f64).exp();
+            for sample in pcm {
+                let x = sample as f64;
+                low += a * (x - low);
+                mid += b * (x - mid);
+                bass += low * low;
+                high += (x - mid).powi(2);
+            }
+            high / bass
+        };
+        let mut previous = 0.;
+        let mut candidate = 0.;
+        for seed in [11, 22, 33, 44] {
+            previous += ratio(old, seed);
+            candidate += ratio(kick_params(tuning), seed);
+        }
+        eprintln!(
+            "kick texture high/low proxy: previous={} candidate={}",
+            previous / 4.,
+            candidate / 4.
+        );
+        assert!(candidate > previous * 2.);
+        assert!(KickRustleTuning {
+            body: f32::NAN,
+            ..tuning
+        }
+        .validate()
+        .is_err());
+        assert!(KickRustleTuning { body: 2., ..tuning }.validate().is_err());
+    }
+    #[test]
     fn invalid_kick_rustle_parameters_are_rejected_before_allocating_or_playing() {
         let tuning = KickRustleTuning {
             duration: 1.1,
             brightness: 0.42,
             crackle: 0.18,
+            body: 0.28,
             shake_frequency: 2.55,
         };
         assert!(tuning.validate().is_ok());

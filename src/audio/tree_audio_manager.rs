@@ -371,6 +371,7 @@ mod tests {
             duration: 0.25,
             brightness: 0.42,
             crackle: 0.18,
+            body: 0.28,
             shake_frequency: 2.55,
         };
         audio.prepare_kick_rustle(tuning).unwrap();

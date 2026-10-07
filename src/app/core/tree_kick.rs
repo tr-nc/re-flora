@@ -40,6 +40,7 @@ impl App {
             duration: a.tree_kick_rustle_duration.value,
             brightness: a.tree_kick_rustle_brightness.value,
             crackle: a.tree_kick_rustle_crackle.value,
+            body: a.tree_kick_rustle_body.value,
             shake_frequency: a.tree_kick_frequency.value,
         }
     }
@@ -91,7 +92,8 @@ impl App {
         let hover = self.request_pointer_hover();
         self.tree_kick_ready(now)
             && hover.and_then(|h| h.hit).is_some_and(|hit| {
-                self.picked_tree_id(hit).is_some()
+                self.picked_tree_id(hit)
+                    .is_some_and(|id| self.can_accept_tree_kick(id))
                     && within_reach(
                         self.tracer.camera_position(),
                         hit.world_position,

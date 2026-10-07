@@ -30,11 +30,14 @@ choices requiring listening**, not empirical constants. No external recording/co
 
 ## Integrated candidate
 
-- An accepted, scene-checked K event calls the same tree-owned shake/leaf/fruit path and plays
-  exactly one finite leaf rustle when that tree has a canopy sample. Stale/rejected presses and
+- An accepted, scene-checked K event starts a tree-owned travelling bend. Its representative
+  canopy arrival calls the leaf/fruit path and plays exactly one finite rustle when the tree has
+  a canopy sample. Motion itself travels through GPU joint poses, not just a sound timer. Stale/rejected presses and
   OS key repeat cannot play it.
-- Reuse `TreeRustleVoice`'s existing warm leaf body, filtered friction/contact sheen and random
-  micro-grains. Reduce the air bed; branch creaks are disabled. No extra wood thump/foot sound.
+- Reuse `TreeRustleVoice`'s body, filtered friction/contact sheen and random micro-grains. The
+  current candidate reduces body from 1.14 to saved default 0.28, air from 0.08 to 0.02, uses
+  brightness `0.35 + 0.65 * slider` and detail `sqrt(slider)` to emphasize clear contact texture.
+  Ambient wind synthesis is not changed; branch creaks are disabled. No extra wood thump/foot sound.
 - Apply a 9 ms attack, exponential energy decay, mild squared-cosine energy modulation at the
   saved shake frequency (contacts on both directions), and a 40 ms smooth end fade. This is a
   phenomenological excited-source envelope, not a measured tree or room IR.
@@ -61,11 +64,12 @@ Previously saved impulse/frequency/damping/reach/cooldown values are unchanged.
 |---|---:|---:|---|
 | Leaf rustle volume | −6 dB | −40…6 | Event loudness, independent of ambient wind volume |
 | Leaf rustle tail | 1.1 s | 0.25…3 | Settle duration |
+| Leaf rustle body | 0.28 | 0…1.5 | Low/mid thickness; lower is crisper |
 | Leaf rustle brightness | 0.42 | 0…1 | Warm versus bright friction/contact texture |
 | Leaf contact detail | 0.18 | 0…1 | Softer/wet-ish versus more small crackly contacts |
 
 Shake speed also controls the gentle rebound modulation. Voice parameters/volume are captured when
-that event plays; changes affect the next kick, not a rewrite of an already-playing clip.
+that canopy event plays; changes affect the next sound event, not a rewrite of an already-playing clip.
 
 ## Validation
 
@@ -76,7 +80,7 @@ rejection, wind-independent admission, the eight-Voice cap and retirement withou
 checks into ordinary tests. Hidden muted Release smoke checks that one canonical kick creates one
 spatial finite source while tree wind is off, alongside the GPU shake and partial fruit/leaf burst.
 
-Release evidence: `/tmp/tree-kick-rustle-smoke-01.out` records preparation of four default
+Historical pre-transmission/pre-roulette evidence: `/tmp/tree-kick-rustle-smoke-01.out` records preparation of four default
 1.1-second variants in **9.562 ms**, one finite source at a tree canopy point with tree wind off,
 **24** leaves and a **5/17** fruit release, the 320-byte frame-fenced fruit handoff, existing GPU
 picking/lighting/exact rollback and successful shutdown (`failures=0`). Normal pure synthesis tests:
@@ -85,6 +89,20 @@ picking/lighting/exact rollback and successful shutdown (`failures=0`). Normal p
 `/tmp/tree-kick-rustle-smoke-final.out` passed the same gates (preparation **9.638 ms**);
 `target/re-flora-logs/re-flora-20261007-223751.387-2263977.log` is the inspected successful short
 hidden muted Release launch. Formatting/check and the final Release build pass. No full-suite claim.
+
+### Current transmission/clarity candidate
+
+`/tmp/tree-kick-wave-smoke-final.out` passes delayed GPU upper-axis bending (**268 waiting axes**),
+absence of sound/fruit before canopy arrival, and one wind-independent spatial source afterward.
+The same arrival emits **24** leaves and performs seeded independent roulette: **9/17** fruits
+release with scale 1, **8** remain held, **576 bytes** use the normal frame fence without query wait.
+Four current default clips prepare in **20.598 ms** on the main thread, about twice the historical
+bank preparation above; not realtime DSP/on-K synthesis and not a sustained performance acceptance.
+`/tmp/tree-kick-wave-sound-spectrum.out` checks the average >2.5 kHz high-pass residual / <800 Hz
+low-pass energy proxy: **0.241 → 2.240** across four fixed seeds. The spectral change is verified;
+it is not a measured kick spectrum or listening verdict. Wave speed (**600 voxels/s** default) is
+saved/art-directed, not an empirical wood wave velocity. The aggregate canopy event uses a median
+terminal path; it does not claim per-leaf contact/audio simulation. See [`../tree_kick.md`](../tree_kick.md).
 
 Listening and actual OS K/prompt review remain manual. Muted smoke cannot prove that the selected
 texture sounds natural or that its gain is right for this garden.

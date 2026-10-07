@@ -4012,12 +4012,39 @@ impl App {
                 "kick fixture was rejected"
             );
         } else {
-            let tuning = self.tree_kick_tuning();
             for record in self.trees.records.values_mut() {
-                record.pose.advance_kick(30., tuning)?;
+                record.pose.advance_kick(30.)?;
             }
         }
         Ok(())
+    }
+
+    // Explicit fixture advances the same packet clock; the next normal pose
+    // update, not this fixture, consumes canopy arrival and triggers consequences.
+    pub(super) fn tree_kick_canopy_smoke(&mut self) -> Result<()> {
+        self.finish_tree_poses()?;
+        let tuning = self.tree_kick_tuning();
+        for record in self.trees.records.values_mut() {
+            record
+                .pose
+                .advance_kick(record.pose.canopy_kick_delay(tuning) + 0.03)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn can_accept_tree_kick(&self, id: u32) -> bool {
+        self.trees
+            .records
+            .get(&id)
+            .is_some_and(|record| record.pose.can_accept_kick())
+    }
+    pub(super) fn validate_waiting_kick_axes(&self, id: u32) -> Result<usize> {
+        self.trees
+            .records
+            .get(&id)
+            .context("missing kick fixture tree")?
+            .pose
+            .validate_waiting_kick_axes()
     }
 
     pub(super) fn tree_kick_tuning(&self) -> crate::tree_gen::kick::KickTuning {
@@ -4026,6 +4053,7 @@ impl App {
             strength: a.tree_kick_strength.value,
             frequency: a.tree_kick_frequency.value,
             damping: a.tree_kick_damping.value,
+            propagation_speed: a.tree_kick_propagation_speed.value,
         }
     }
     pub(super) fn kick_tree(
@@ -4039,32 +4067,37 @@ impl App {
             None => false,
         };
         if accepted {
-            let fruit = self.terrain_physics.request_tree_fruit_kick(
-                id,
-                self.debug_settings
-                    .adjustables
-                    .tree_kick_fruit_chance_scale
-                    .value,
-            );
-            let leaves = self.trees.leaf_emitters.burst(
-                id,
-                &mut self.particle_system,
-                self.debug_settings.adjustables.tree_kick_leaf_count.value as usize,
-            );
-            if let Err(error) = self.tree_audio_manager.play_kick_rustle(
-                id,
-                self.time_info.time_since_start(),
-                self.tracer.camera_position(),
-                self.debug_settings
-                    .adjustables
-                    .tree_kick_rustle_volume_db
-                    .value,
-            ) {
-                log::warn!("[TREE_KICK] leaf-rustle playback failed: {error:#}");
-            }
-            log::info!("[TREE_KICK][RELEASE] tree={id} requested_fruit={fruit} leaves={leaves} one_shot=true");
+            let delay = self.trees.records[&id].pose.canopy_kick_delay(tuning);
+            log::info!("[TREE_KICK][WAVE] tree={id} canopy_delay={delay:.3} speed={} effects_at_arrival=true", tuning.propagation_speed);
         }
         Ok(accepted)
+    }
+
+    fn apply_canopy_kick_arrival(&mut self, id: u32) {
+        let fruit = self.terrain_physics.request_tree_fruit_kick(
+            id,
+            self.debug_settings
+                .adjustables
+                .tree_kick_fruit_chance_scale
+                .value,
+        );
+        let leaves = self.trees.leaf_emitters.burst(
+            id,
+            &mut self.particle_system,
+            self.debug_settings.adjustables.tree_kick_leaf_count.value as usize,
+        );
+        if let Err(error) = self.tree_audio_manager.play_kick_rustle(
+            id,
+            self.time_info.time_since_start(),
+            self.tracer.camera_position(),
+            self.debug_settings
+                .adjustables
+                .tree_kick_rustle_volume_db
+                .value,
+        ) {
+            log::warn!("[TREE_KICK] leaf-rustle playback failed: {error:#}");
+        }
+        log::info!("[TREE_KICK][RELEASE] tree={id} requested_fruit={fruit} leaves={leaves} one_shot=true propagated=true");
     }
 
     pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
@@ -4072,9 +4105,15 @@ impl App {
         // that job before touching its resources, then submit this frame's step.
         self.finish_tree_poses()?;
         let stiffness = self.tree_wind_stiffness()?;
-        let kick = self.tree_kick_tuning();
-        for record in self.trees.records.values_mut() {
-            record.pose.advance_kick(dt, kick)?;
+        let mut arrivals = Vec::new();
+        for (&id, record) in &mut self.trees.records {
+            record.pose.advance_kick(dt)?;
+            for _ in 0..record.pose.take_canopy_kick_arrivals() {
+                arrivals.push(id);
+            }
+        }
+        for id in arrivals {
+            self.apply_canopy_kick_arrival(id);
         }
         self.tracer.tree_pose_solver.submit(
             self.trees
