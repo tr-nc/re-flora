@@ -103,6 +103,16 @@ A larger1048576-voxel candidate also conserves40960 new voxels: hash`4e5e1e5177e
 
 Artifacts: `target/soil-perf/height-{large,million}.json`. Cargo check, Release build, differential tests, both real Vulkan replay runs and normal hidden smoke passed. No shader change, no async visual publication, no cross-request byte cache.
 
+## Native LMB / fixture artifact benchmark
+
+The harness now supports `RE_FLORA_SOIL_PERF_HOLD_SECONDS=5`: after warming rendered frames it selects the real Soil slot, presses the production mouse-button state and lets the ordinary frame loop drive hover, real-clock batch credit, strokes, audio (muted) and synchronous publication. It releases the button before final readback and verifies actual Dirt volume equals fixture plus every requested/written voxel. This is distinct from fixed-work replay; event volumes/positions/seeds depend on frame pacing and native ray hits, so native final hashes are not an A/B equivalence oracle.
+
+CPU reference fixtures are saved under `target/soil-perf/fixtures` with a versioned parameter key and verified byte checksum/count on reuse. Generation remains the unchecked reference solver and is outside measurements. Corrupt artifacts fail explicitly rather than silently substituting terrain. This accelerates repeated/interleaved app runs without touching production atlas caching. Reports include `fixture_hash` to verify shared starting bytes.
+
+Initial1048576-voxel native original run at512/20/spread13:5.056seconds,49152 added,82 measured frames,16.226FPS(mean61.628ms), p9584.279ms;69 callbacks because slower frames combine multiple batches. This reproduces a stronger large-pile slowdown than the user's ~30FPS observation, not an assertion about their exact hill. Artifact: `target/soil-perf/held-million-original-probe.json`; fixture hash`a519a462983da705`.
+
+23 differential deposition tests,13 player-tool tests, cargo check/Release build, native524288 candidate and1048576 reference runs, volume conservation and ordinary hidden startup passed. Final matched/interleaved comparisons and full-suite validation remain next.
+
 ## Implementation sources
 
 - `src/terrain_deposition.rs`: per-grain supported settling and speculative retry contract.

@@ -58,7 +58,17 @@ impl App {
             center,
             self.soil_deposition_radius(),
         );
-        match self.apply_soil_deposition(edit, volume, seed) {
+        let measure_hold = self.soil_performance_bench.is_some();
+        let started = measure_hold.then(Instant::now);
+        let deposition = self.apply_soil_deposition(edit, volume, seed);
+        if let (Some(started), Ok(result)) = (started, deposition.as_ref()) {
+            self.note_soil_performance_hold(
+                result,
+                volume,
+                started.elapsed().as_secs_f64() * 1000.,
+            );
+        }
+        match deposition {
             Ok(result) if result.added > 0 => {
                 self.start_terrain_edit_loop_sound(center);
                 self.player_tools.record_stroke_dab(action, now, center);
