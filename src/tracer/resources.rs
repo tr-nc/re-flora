@@ -920,6 +920,8 @@ pub struct TerrainQueryResources {
     pub terrain_query_count: Resource<Buffer>,
     pub terrain_query_info: Resource<Buffer>,
     pub terrain_query_result: Resource<Buffer>,
+    pub terrain_pick_result: Resource<Buffer>,
+    pub terrain_pick_readback: Resource<Buffer>,
 }
 
 #[derive(ResourceContainer)]
@@ -1133,6 +1135,22 @@ impl TerrainQueryResources {
             )),
             terrain_query_info: Resource::new(terrain_query_info),
             terrain_query_result: Resource::new(terrain_query_result),
+            terrain_pick_result: Resource::new(Buffer::new_sized(
+                device.clone(),
+                allocator.clone(),
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
+                ),
+                MemoryLocation::GpuOnly,
+                u64::from(max_terrain_queries) * 48,
+            )),
+            terrain_pick_readback: Resource::new(Buffer::new_sized(
+                device,
+                allocator,
+                BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+                MemoryLocation::GpuToCpu,
+                48,
+            )),
         }
     }
 }

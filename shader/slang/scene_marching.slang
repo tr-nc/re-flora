@@ -113,7 +113,7 @@ public MarchingResult marchTerrain(
 
 // Every secondary surface query compares the current tree surface with terrain.
 // Primary raster/background paths explicitly use marchTerrain instead.
-public MarchingResult marchScene(
+MarchingResult marchSceneTerrain(
     StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
     readonly RWTexture3D<uint2> scene, float3 origin, float3 direction,
     float3 inverseDirection, uint invocation)
@@ -129,5 +129,27 @@ public MarchingResult marchScene(
         hit = marchTerrain(nodes,leaves,scene,hit.position+direction*advance,direction,inverseDirection,invocation);
     }
     if (hit.is_hit) hit.distance = length(hit.position-origin);
-    return traceTreeScene(origin,direction,hit);
+    return hit;
+}
+
+public MarchingResult marchScene(
+    StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, float3 origin, float3 direction,
+    float3 inverseDirection, uint invocation)
+{
+    return traceTreeScene(origin, direction,
+        marchSceneTerrain(nodes, leaves, scene, origin, direction, inverseDirection, invocation));
+}
+
+// Picking retains the exact primitive and barycentric coordinates selected by
+// the same nearest-surface traversal used by lighting/ordinary scene queries.
+public MarchingResult marchSceneMapped(
+    StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, float3 origin, float3 direction,
+    float3 inverseDirection, uint invocation,
+    out uint primitive, out float2 barycentric)
+{
+    return traceTreeSceneMapped(origin, direction,
+        marchSceneTerrain(nodes, leaves, scene, origin, direction, inverseDirection, invocation),
+        primitive, barycentric);
 }

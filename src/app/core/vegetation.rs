@@ -3833,6 +3833,27 @@ impl App {
         for ray in rays {
             let cpu = self.query_terrain_ray_cpu(ray.origin, ray.direction);
             let gpu = self.tracer.query_terrain_ray_with_validity(ray)?;
+            let mapped: Option<crate::tracer::SurfacePickHit> =
+                self.tracer.query_surface_pick_now(ray)?;
+            anyhow::ensure!(
+                mapped.is_some() == gpu.is_valid,
+                "mapped GPU pick validity differs from scene query"
+            );
+            if let Some(hit) = mapped {
+                anyhow::ensure!(
+                    hit.world_position.distance(gpu.position) < 2e-6,
+                    "mapped GPU pick world differs"
+                );
+                if let Some(rest) = hit.tree_rest_position() {
+                    let reference = self
+                        .query_tree_surface_ray(ray.origin, ray.direction)
+                        .context("GPU tree pick has no reference surface hit")?;
+                    anyhow::ensure!(
+                        rest.distance(reference.rest_position) < 0.00003,
+                        "GPU barycentric rest pick differs from CPU reference"
+                    );
+                }
+            }
             if let Some(cpu) = cpu {
                 anyhow::ensure!(
                     gpu.is_valid && cpu.position.distance(gpu.position) < 0.00003,

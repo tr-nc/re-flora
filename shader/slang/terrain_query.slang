@@ -4,6 +4,7 @@ import marching_result;
 import ray;
 import scene_query;
 import scene_marching;
+import tree_scene;
 
 static const uint TERRAIN_QUERY_GROUP_SIZE = 64u;
 
@@ -40,6 +41,15 @@ RWStructuredBuffer<float4> terrain_query_result;
 [[vk::binding(6, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
 
+struct B_SurfacePickResult
+{
+    float4 position;       // world xyz, ray distance
+    float4 rest_position;  // barycentric rest xyz; never inverse a single bone
+    uint4 metadata;        // hit, tree primitive (or UINT_MAX), material, reserved
+};
+[[vk::binding(7, 0)]] RWStructuredBuffer<B_SurfacePickResult> terrain_pick_result;
+[[vk::binding(60, 0)]] StructuredBuffer<float4> tree_skin_rest;
+
 [shader("compute")]
 [numthreads(TERRAIN_QUERY_GROUP_SIZE, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID,
@@ -54,6 +64,33 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID,
     TerrainRayQuery query = terrain_query_info[queryIndex];
     float3 rayOrigin = query.origin.xyz;
     float3 rayDirection = query.direction.xyz;
+    if (query.origin.w < -0.5)
+    {
+        B_SurfacePickResult pick = (B_SurfacePickResult)0;
+        pick.metadata.y = 0xffffffffu;
+        if (dot(rayDirection, rayDirection) >= 1.0e-8)
+        {
+            rayDirection = normalize(rayDirection);
+            uint primitive; float2 barycentric;
+            MarchingResult hit = marchSceneMapped(
+                contree_node_data, contree_leaf_data, scene_tex,
+                rayOrigin, rayDirection, 1.0 / rayDirection, localInvocationIndex,
+                primitive, barycentric);
+            float3 rest = hit.position;
+            if (primitive != 0xffffffffu)
+            {
+                uint3 ids = treeScenePrimitive(primitive);
+                rest = tree_skin_rest[ids.x * 3u].xyz * (1.0 - barycentric.x - barycentric.y)
+                     + tree_skin_rest[ids.y * 3u].xyz * barycentric.x
+                     + tree_skin_rest[ids.z * 3u].xyz * barycentric.y;
+            }
+            pick.position = float4(hit.position, hit.distance);
+            pick.rest_position = float4(rest, 0.0);
+            pick.metadata = uint4(hit.is_hit ? 1u : 0u, primitive, hit.voxel_type, 0u);
+        }
+        terrain_pick_result[queryIndex] = pick;
+        return;
+    }
     if (dot(rayDirection, rayDirection) < 1.0e-8)
     {
         terrain_query_result[queryIndex] = float4(0.0);
