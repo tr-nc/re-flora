@@ -428,7 +428,7 @@ pub struct App {
     gpu_profiler_slot_frames: Vec<Option<u64>>,
     gpu_profiler_latest_frame: Option<u64>,
     time_info: TimeInfo,
-    fps_history: fps_chart::FpsHistory,
+    telemetry_panel: fps_chart::TelemetryPanel,
     world_clock: WorldClock,
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
@@ -1556,7 +1556,7 @@ impl App {
             ordered_dither_review: ordered_dither_review::OrderedDitherReview::from_environment(),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::new(fps_chart::DISPLAY_INTERVAL_MS),
-            fps_history: fps_chart::FpsHistory::default(),
+            telemetry_panel: fps_chart::TelemetryPanel::default(),
             world_clock,
             render_flags,
 
@@ -2376,9 +2376,14 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                self.fps_history.observe(
+                self.telemetry_panel.observe(
                     self.time_info.time_since_start_duration().as_secs_f64(),
                     self.time_info.display_fps(),
+                    self.tracer
+                        .get_screen_output_tex()
+                        .get_image()
+                        .get_allocator()
+                        .device_local_allocated_bytes(),
                 );
                 cpu_timings.time(FrameCpuScope::ContreePoll, || {
                     self.contree_builder.poll_cpu_chunk_cache_jobs(
@@ -3075,9 +3080,8 @@ impl App {
 
                         fps_chart::draw(
                             ctx,
-                            &self.fps_history,
+                            &mut self.telemetry_panel,
                             self.time_info.time_since_start_duration().as_secs_f64(),
-                            self.time_info.display_fps(),
                         );
 
                         draw_center_cross_mark(ctx);
