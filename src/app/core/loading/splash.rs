@@ -494,7 +494,11 @@ fn append_at_rotated(
 fn flower_pixels(kind: usize, palette: Palette) -> [Option<Color32>; 256] {
     let (petals, length, breadth, radius, notched) = FLOWER_SHAPES[kind / 2];
     let [_, _, _, cream, yellow, center, _] = palette.colors.map(rgb);
-    let petal_color = if kind % 2 == 0 { yellow } else { cream };
+    let petal_color = if kind.is_multiple_of(2) {
+        yellow
+    } else {
+        cream
+    };
     let mut pixels = [None; 16 * 16];
     for i in 0..petals {
         let angle = -std::f64::consts::FRAC_PI_2 + i as f64 * std::f64::consts::TAU / petals as f64;
@@ -526,7 +530,7 @@ fn flower_pixels(kind: usize, palette: Palette) -> [Option<Color32>; 256] {
     let mut outside = [false; 256];
     let mut queue = Vec::new();
     for i in 0..256 {
-        if (i < 16 || i >= 240 || i % 16 == 0 || i % 16 == 15) && pixels[i].is_none() {
+        if (!(16..240).contains(&i) || i % 16 == 0 || i % 16 == 15) && pixels[i].is_none() {
             outside[i] = true;
             queue.push(i);
         }

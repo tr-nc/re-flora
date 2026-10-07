@@ -1324,7 +1324,17 @@ mod search_tests {
 
     #[test]
     fn stone_search_checkbox_edit_save_and_reload_are_the_real_saved_fields() {
-        let mut settings = DebugSettings::load();
+        let mut config = GuiConfigLoader::load();
+        // Pin the click fixture rather than assuming the user's saved checkbox values.
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if matches!(
+                param.id.as_str(),
+                "stone_preview_enabled" | "stone_direct_triangles"
+            ) {
+                param.value = GuiParamValue::Bool { value: false };
+            }
+        }
+        let mut settings = DebugSettings::from_config(config);
         assert!(!settings.adjustables.stone_preview_enabled.value);
         assert!(!settings.adjustables.stone_direct_triangles.value);
         settings.search.query = "stone direct triangle".to_owned();
@@ -1951,10 +1961,32 @@ mod tests {
     }
 
     #[test]
-    fn glass_unrefracted_raster_fallback_defaults_off() {
-        let settings = DebugSettings::from_config(GuiConfigLoader::load());
-
-        assert!(!settings.adjustables.glass_unrefracted_raster_fallback.value);
+    fn glass_unrefracted_raster_fallback_preserves_both_saved_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for value in [false, true] {
+            let mut config = GuiConfigLoader::load();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == "glass_unrefracted_raster_fallback")
+                .unwrap();
+            param.value = GuiParamValue::Bool { value };
+            let mut settings = DebugSettings::from_config(config);
+            assert_eq!(
+                settings.adjustables.glass_unrefracted_raster_fallback.value,
+                value
+            );
+            settings.adjustables.glass_unrefracted_raster_fallback.value = !value;
+            assert!(settings.is_dirty());
+            settings.save_to_path(&path).unwrap();
+            let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(
+                reloaded.adjustables.glass_unrefracted_raster_fallback.value,
+                !value
+            );
+        }
     }
 
     #[test]

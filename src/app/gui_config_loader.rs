@@ -1534,8 +1534,11 @@ mod tests {
     }
 
     #[test]
-    fn older_saves_get_disabled_supersampling_and_saved_choices_survive_reload() {
+    fn older_saves_get_declared_supersampling_defaults_and_saved_values_survive_reload() {
         use crate::app::gui_config_model::GuiParamValue;
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let defaults = crate::app::GuiAdjustables::from_config(&defaults);
         for saved in [None, Some(false), Some(true)] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -1574,8 +1577,14 @@ mod tests {
             );
             let gui = crate::app::GuiAdjustables::from_config(&loaded);
             assert_eq!(gui.scene_pixel_ratio.value, 5);
-            assert_eq!(gui.scene_supersampling_quality.value, 0);
-            assert_eq!(gui.scene_pixel_resolve_mode.value, 0);
+            assert_eq!(
+                gui.scene_supersampling_quality.value,
+                defaults.scene_supersampling_quality.value
+            );
+            assert_eq!(
+                gui.scene_pixel_resolve_mode.value,
+                defaults.scene_pixel_resolve_mode.value
+            );
             assert!(loaded
                 .section
                 .iter()
@@ -1586,7 +1595,7 @@ mod tests {
                 .contains("pixelization"));
             assert_eq!(
                 gui.scene_supersampling_enabled.value,
-                saved.unwrap_or(false)
+                saved.unwrap_or(defaults.scene_supersampling_enabled.value)
             );
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             let reloaded = GuiConfigLoader::load_from_path(&path);
@@ -1594,8 +1603,30 @@ mod tests {
                 crate::app::GuiAdjustables::from_config(&reloaded)
                     .scene_supersampling_enabled
                     .value,
-                saved.unwrap_or(false)
+                saved.unwrap_or(defaults.scene_supersampling_enabled.value)
             );
+            // Existing selections must round-trip, not be replaced by today's defaults.
+            for value in [0, 1] {
+                let mut edited = reloaded.clone();
+                for param in edited.section.iter_mut().flat_map(|s| &mut s.param) {
+                    if matches!(
+                        param.id.as_str(),
+                        "scene_supersampling_quality" | "scene_pixel_resolve_mode"
+                    ) {
+                        if let GuiParamValue::Choice {
+                            value: selected, ..
+                        } = &mut param.value
+                        {
+                            *selected = value;
+                        }
+                    }
+                }
+                GuiConfigLoader::save_to_path(&edited, &path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                let gui = crate::app::GuiAdjustables::from_config(&loaded);
+                assert_eq!(gui.scene_supersampling_quality.value, value);
+                assert_eq!(gui.scene_pixel_resolve_mode.value, value);
+            }
             assert_eq!(
                 reloaded
                     .section

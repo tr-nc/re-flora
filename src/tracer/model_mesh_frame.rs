@@ -56,6 +56,13 @@ pub(super) struct MeshPass<'a> {
     pub display: &'a GraphicsPipeline,
 }
 
+/// Paired flower-head and stem pipelines, including GPU stem preparation.
+pub(super) struct FlowerPass<'a> {
+    pub display: &'a GraphicsPipeline,
+    pub stem: &'a GraphicsPipeline,
+    pub preparation: &'a ComputePipeline,
+}
+
 struct Geometry {
     shape: models::Shape,
     source: Arc<Source>,
@@ -563,14 +570,18 @@ impl ModelMeshFrame {
     pub fn flowers(
         &mut self,
         cmd: &CommandBuffer,
-        pass: MeshPass<'_>,
-        stem_pipeline: &GraphicsPipeline,
-        preparation: &ComputePipeline,
+        pass: FlowerPass<'_>,
         settings: models::StemExperiment,
         count: u32,
         mut push: crate::generated::gpu_structs::PushConstantFlowerPixel,
         pose: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
+        let FlowerPass {
+            display,
+            stem: stem_pipeline,
+            preparation,
+        } = pass;
+        let pass = MeshPass { display };
         self.review_draw(8, "flower_heads", count);
         let g = self.active.as_ref().unwrap();
         let mut resources = g.bindings().to_vec();

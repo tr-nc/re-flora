@@ -243,6 +243,7 @@ impl TerrainPhysics {
 
     /// Read-only broad phase for the *visual* posed surface. The caller supplies
     /// its exact displacement bound; padding never changes physical collisions.
+    #[cfg(test)]
     pub(super) fn tree_ray_candidates(
         &self,
         origin: Vec3,

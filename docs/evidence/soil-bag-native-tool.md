@@ -84,6 +84,15 @@ RGB 贴纸在 Linear-sRGB 解码后 Nearest 查找，不插值、不用 mipmap�
 
 日志：`/tmp/terrain-magic-soil-bag-pour-only-{red,check,tests,picking-tests,all-tests,release,hover,stability,world,rooftop,smoke,tail}.log`。
 
+## 再次合入主分支（2026-10-08）
+
+- 先将 `main=a5437e63` 合入 `terrain-magic`（`36f23b22`），保留 Soil 仅实际撒土时展示、共享无限材料、异步点击所有权和主分支访花/翠鸟/遥测。唯一文本冲突是预览台 README，保留当前翠鸟目录与土袋章节/共享验证记录；Soil方粒新增 `butterfly_body_pose: None`，不变成访花粒子。
+- 实际访花检查稳定捕获合并资源冲突：graphics set1 binding27 同时绑定访花输出和 Soil cache entries，导致13个资源只有12个槽。编译后的 SPIR-V 回归也 RED 在这两个语义资源别名上；将图形访花输出移到空闲28后 GREEN。Compute pass保留独立布局的27；没有虚假资源、关闭行为或放宽描述符校验。VKN完整60项测试通过，原生访花6个真实接触/完整循环/不同花目标通过。
+- 合并过程中主分支又推进到 `806d34f2`（含 `f89cea87` 保存值解耦测试修复），继续合入，不改保存默认值。最终 fmt/check/Release通过，应用 **1483 passed / 0 failed / 6 ignored**，碰撞另4项通过，VKN60项通过，Node56项通过。原有4项测试失败随主分支测试修复消失，不是改用户配置来消除。
+- 最终真实 Soil：38倾倒帧/缺失0，60非按住帧/可见0，加入6656且土量/库存守恒；太阳depth76→松开后0。完整roof检查仍4224支撑写入、5种批量与即时出土时序通过；最终隐藏静音访花/土袋/普通启动日志无ERROR/VUID/panic。早期描述符panic日志保留，不计作成功。
+- 额外 `cargo clippy --all-targets -- -D warnings` **未通过**：当前合并仍有13条 lint诊断（包括既有地形分支和部分主分支测试）；未扩展成无关清理任务，不声称严格lint为绿。没有生成文件变动或自动可见试用，也未宣称新的性能/浏览器GPU验收。
+- 用户原始配置的spread13和浮点格式逐字保留；只有主分支正常新增的6行访花配置进入保存文件，用户差异保持不提交。合并配置在native检查前后逐字节相同。日志：`/tmp/terrain-magic-main-after-pour-{binding-red,binding-green,visits,visits-minimal-red,visits-green,all-tests,vkn-tests,node-tests,latest-check,latest-all-tests,latest-vkn-tests,latest-clippy,latest-release,latest-stability,latest-world,latest-visits,latest-rooftop,latest-smoke,latest-tail}.log`。
+
 ## 重现 / 手动试用
 
 ```sh

@@ -1,6 +1,6 @@
 //! Exact interaction geometry: share only bit-identical rest points AND bindings.
 //! The visual mesh keeps its per-cell normals/confidence and original GPU topology.
-use super::{BranchPose, RasterTreeMesh, SkinBinding, Vec3};
+use super::{BranchPose, RasterTreeMesh, RestCollisionGeometry, SkinBinding, Vec3};
 use crate::tree_gen::skin::SkinTransform;
 use anyhow::{ensure, Context, Result};
 use std::{collections::HashMap, sync::Arc};
@@ -34,7 +34,10 @@ impl CpuDeformationPlan {
             mesh.bindings.len() == mesh.vertices.len(),
             "missing tree bindings"
         );
-        ensure!(mesh.indices.len() % 3 == 0, "incomplete tree triangles");
+        ensure!(
+            mesh.indices.len().is_multiple_of(3),
+            "incomplete tree triangles"
+        );
         let mut trees = Vec::new();
         let mut tree_ids = HashMap::new();
         let mut transforms = Vec::new();
@@ -138,7 +141,7 @@ impl CpuDeformationPlan {
         }
         Ok(surface)
     }
-    pub(super) fn rest_collision_geometry(&self) -> (Vec<Vec3>, Arc<[[u32; 3]]>) {
+    pub(super) fn rest_collision_geometry(&self) -> RestCollisionGeometry {
         (
             self.points.iter().map(|p| p.rest).collect(),
             self.triangles.clone(),
@@ -160,6 +163,7 @@ pub struct PosedTreeSurface {
     query_margin: Vec3,
 }
 impl PosedTreeSurface {
+    #[cfg(test)]
     pub(crate) fn query_margin(&self) -> Vec3 {
         if self.query_margin == Vec3::ZERO {
             return Vec3::ZERO;

@@ -85,13 +85,15 @@ impl PreparedTreeSurface {
             read_ms += stage.elapsed().as_secs_f64() * 1000.;
             let stage = Instant::now();
             cache_hits += usize::from(mesh.append_cached_tree_region(
-                source.id,
-                &source.tree,
-                source.position,
-                origin,
-                dim,
-                &bytes,
-                &source.cones,
+                crate::tracer::TreeSurfaceRegion {
+                    id: source.id,
+                    tree: &source.tree,
+                    tree_origin: source.position,
+                    origin,
+                    dim,
+                    bytes: &bytes,
+                    cones: &source.cones,
+                },
                 &app.tracer.raster_trees.rest_mesh,
             )?);
             append_ms += stage.elapsed().as_secs_f64() * 1000.;
