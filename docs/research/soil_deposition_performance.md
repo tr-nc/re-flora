@@ -91,6 +91,18 @@ A targeted readback split attributes most readback time to GPU transfer/wait, no
 
 22 differential tests, cargo check, Release build, matched release replay and ordinary hidden smoke passed. Benchmark-only `[PERF][SOIL_READ]` records the split; normal readback ownership/synchronization is unchanged.
 
+## Experiment4: adaptive sampled height, without a physical height cap
+
+The fast path retains the legal bottom but initially samples only through the actual source height plus two voxels. If ascending occupancy or an accepted column reaches unread space above, `needs_more_height` discards the speculative plan and expands Y before replay. Unchecked still reads the entire legal Y range. Unknown space is never silently treated as a real ceiling; horizontal expansion remains independent. This is a readback optimization, not a smaller physical pile or a changed quantity.
+
+A new regression compares full sampling against repeated Y-cropped replay, including buried source hits, a rock cap and existing soil state bytes. It verifies exact results and every merged byte after discarded speculative plans; all23 deposition/differential tests passed.
+
+524288-voxel large candidate: event mean14.787ms/median14.178ms/p9518.112ms; frame p9519.796ms; unchanged hash`299ee6dcf37284dd` and40960 added. Typical sample drops6500352→2708480 bytes, plan1.9–2.3ms, read4.6–5.7ms. Combined approximately1.82× against the earlier matched26.946ms baseline, pending final repeated comparisons.
+
+A larger1048576-voxel candidate also conserves40960 new voxels: hash`4e5e1e5177ebbd05`, event mean25.694ms/p9527.180ms, frame p9529.794ms. It still reads11911536 bytes per event after the first expansion; transfer/publication remain significant. Baseline for this scale and real held-input runs are still pending. Its reference-fixture setup is expensive and excluded from samples, motivating a checksummed fixture artifact for the next benchmark step.
+
+Artifacts: `target/soil-perf/height-{large,million}.json`. Cargo check, Release build, differential tests, both real Vulkan replay runs and normal hidden smoke passed. No shader change, no async visual publication, no cross-request byte cache.
+
 ## Implementation sources
 
 - `src/terrain_deposition.rs`: per-grain supported settling and speculative retry contract.

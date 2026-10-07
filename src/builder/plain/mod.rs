@@ -817,6 +817,19 @@ impl PlainBuilder {
         } else {
             self.soil_sampling_hint.reset();
         }
+        let mut sampled_height = if fast_path {
+            request.initial_sampling_height(legal)
+        } else {
+            legal.max().y - legal.min().y
+        };
+        sample = UAabb3::new(
+            sample.min(),
+            UVec3::new(
+                sample.max().x,
+                sample.min().y + sampled_height,
+                sample.max().z,
+            ),
+        );
         let mut expansions = 0;
         let profile = std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some();
         let mut read_ms = 0.;
@@ -839,15 +852,28 @@ impl PlainBuilder {
             };
             let result = plan(&mut data, sample.min(), dim, support_floor, request, legal);
             plan_ms += stage.elapsed().as_secs_f64() * 1000.;
-            if !result.needs_more_space {
+            if !result.needs_more_space && !result.needs_more_height {
                 break (data, dim, result);
             }
             // No GPU write/inventory debit has happened. Re-read the original atlas and
             // replay the same seeded request with more space, preserving exact ownership.
-            halo *= 2.;
-            let next = request
+            if result.needs_more_space {
+                halo *= 2.;
+            }
+            if result.needs_more_height {
+                sampled_height = (sampled_height * 2).min(legal.max().y - legal.min().y);
+            }
+            let horizontal = request
                 .sampling_bounds_with_halo(legal, halo)
                 .context("soil sampling expansion produced invalid bounds")?;
+            let next = UAabb3::new(
+                horizontal.min(),
+                UVec3::new(
+                    horizontal.max().x,
+                    horizontal.min().y + sampled_height,
+                    horizontal.max().z,
+                ),
+            );
             anyhow::ensure!(
                 next != sample,
                 "soil requested space outside fully sampled legal bounds"

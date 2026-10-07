@@ -46,7 +46,14 @@ impl DepositionRequest {
         self.radius + self.clump_radius as f32 + INITIAL_SETTLE_HALO as f32 + 1.
     }
 
-    /// Exclusive sampling bounds. Only X/Z depend on spread; Y retains the legal world range.
+    /// Minimum sampled height for the fast planner. Unknown space above remains expandable.
+    pub(crate) fn initial_sampling_height(self, legal: UAabb3) -> u32 {
+        (self.start.y.max(self.end.y).ceil() + 2.)
+            .clamp(legal.min().y as f32 + 1., legal.max().y as f32) as u32
+            - legal.min().y
+    }
+
+    /// Exclusive sampling bounds. Only X/Z depend on spread; original mode retains full legal Y.
     pub(crate) fn sampling_bounds(self, legal: UAabb3) -> Option<UAabb3> {
         self.sampling_bounds_with_halo(legal, self.horizontal_halo())
     }
@@ -113,6 +120,8 @@ pub(crate) struct DepositionResult {
     pub changed: Option<UAabb3>,
     /// Speculative plan reached unread legal space; discard it and retry before uploading.
     pub needs_more_space: bool,
+    /// Occupancy reaches the unread top; discard this plan and increase sampled height.
+    pub needs_more_height: bool,
     pub sampling_halo: f32,
 }
 
@@ -263,6 +272,8 @@ fn deposit_impl(
         return result;
     }
     let mut columns = ColumnCache::new(dim, dense_columns);
+    let unread_height = offset.y + dim.y < legal.max().y;
+    let mut needs_more_height = false;
     let mut rng = Rng(request.seed.max(1));
     let mut remaining = 0;
     let mut center = request.end;
@@ -298,12 +309,27 @@ fn deposit_impl(
         let floor_local = floor
             .and_then(|y| y.checked_sub(offset.y))
             .filter(|y| *y < dim.y);
-        let column_at = |columns: &mut ColumnCache, x, z| {
-            columns.get_or_find(x, z, || find_column(data, dim, x, z, anchor, floor_local))
+        let mut column_at = |columns: &mut ColumnCache, x, z| {
+            columns.get_or_find(x, z, || {
+                find_column(
+                    data,
+                    dim,
+                    x,
+                    z,
+                    anchor,
+                    floor_local,
+                    unread_height,
+                    &mut needs_more_height,
+                )
+            })
         };
         let Some(mut column) = column_at(&mut columns, x, z) else {
             continue;
         };
+        if unread_height && column.next >= dim.y {
+            needs_more_height = true;
+            continue;
+        }
         let source = (x, z);
         let source_height = (column.next + 1) as f32;
         // Every chosen hop strictly decreases the integer column height; this bound
@@ -384,6 +410,9 @@ fn deposit_impl(
             }
             (x, z, column) = best;
         }
+        if unread_height && column.next >= dim.y {
+            needs_more_height = true;
+        }
         if column.next >= column.ceiling
             || !soil_base_is_broad(data, dim, x, z, column.next, floor_local)
         {
@@ -405,6 +434,7 @@ fn deposit_impl(
         changed_min = changed_min.min(pos);
         changed_max = changed_max.max(pos);
     }
+    result.needs_more_height = needs_more_height;
     if result.added > 0 {
         result.changed = Some(UAabb3::new(changed_min, changed_max));
     }
@@ -434,6 +464,8 @@ fn find_column(
     z: u32,
     anchor: u32,
     floor: Option<u32>,
+    unread_height: bool,
+    needs_more_height: &mut bool,
 ) -> Option<Column> {
     let solid = |y| data[((z * dim.y + y) * dim.x + x) as usize] & VOXEL_TYPE_MASK != 0;
     let mut y = anchor;
@@ -462,6 +494,7 @@ fn find_column(
         }
     }
     if y >= dim.y {
+        *needs_more_height |= unread_height;
         return None;
     }
     let next = y;
@@ -894,6 +927,77 @@ mod tests {
                     batch_size
                 );
             }
+        }
+    }
+
+    #[test]
+    fn cropped_height_replay_matches_full_occupancy_including_caps_and_state_bytes() {
+        let dim = UVec3::new(96, 64, 96);
+        let legal = UAabb3::new(UVec3::ZERO, dim);
+        let idx = |x, y, z| ((z * dim.y + y) * dim.x + x) as usize;
+        for with_cap in [false, true] {
+            let mut original = vec![0; (dim.x * dim.y * dim.z) as usize];
+            for z in 0..dim.z {
+                for x in 0..dim.x {
+                    original[idx(x, 1, z)] = VOXEL_TYPE_DIRT as u8 | 0x30;
+                }
+            }
+            if with_cap {
+                for z in 42..55 {
+                    for x in 42..55 {
+                        original[idx(x, 12, z)] = crate::builder::VOXEL_TYPE_ROCK as u8;
+                    }
+                }
+            }
+            let r = DepositionRequest {
+                start: Vec3::new(48., 2., 48.),
+                end: Vec3::new(48., 2., 48.),
+                radius: 13.,
+                volume: 8192,
+                clump_radius: 0,
+                repose_slope: 1.,
+                seed: 71,
+            };
+            let mut reference = original.clone();
+            let full = deposit_in_bounds(&mut reference, UVec3::ZERO, dim, None, r, legal);
+            let mut height = r.initial_sampling_height(legal);
+            let mut retries = 0;
+            loop {
+                let sampled = UVec3::new(dim.x, height, dim.z);
+                let mut data = vec![0; (sampled.x * sampled.y * sampled.z) as usize];
+                for z in 0..dim.z {
+                    for y in 0..height {
+                        for x in 0..dim.x {
+                            data[((z * height + y) * dim.x + x) as usize] = original[idx(x, y, z)];
+                        }
+                    }
+                }
+                let result =
+                    deposit_in_bounds_fast(&mut data, UVec3::ZERO, sampled, None, r, legal);
+                if result.needs_more_height {
+                    height = (height * 2).min(dim.y);
+                    retries += 1;
+                    continue;
+                }
+                assert_eq!(result, full);
+                let mut merged = original.clone();
+                for z in 0..dim.z {
+                    for y in 0..height {
+                        for x in 0..dim.x {
+                            merged[idx(x, y, z)] = data[((z * height + y) * dim.x + x) as usize];
+                        }
+                    }
+                }
+                assert_eq!(
+                    merged, reference,
+                    "cropped replay changed seeded geometry or old state bytes"
+                );
+                break;
+            }
+            assert!(
+                retries > 0,
+                "fixture must exercise discarded top-truncated plans"
+            );
         }
     }
 
