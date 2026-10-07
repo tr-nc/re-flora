@@ -272,6 +272,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "tree_kick_strength",
+        kind: "float",
+        label: "Tree kick impulse (rad/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_frequency",
+        kind: "float",
+        label: "Tree kick shake speed (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_damping",
+        kind: "float",
+        label: "Tree kick damping (low = longer)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_reach",
+        kind: "float",
+        label: "Tree kick reach (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_cooldown",
+        kind: "float",
+        label: "Tree kick cooldown (seconds)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_growth_override_enabled",
         kind: "bool",
         label: "Override Flora Growth",
@@ -1557,6 +1587,11 @@ pub struct GuiAdjustables {
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
+    pub tree_kick_strength: crate::gui_adjustables::FloatParam,
+    pub tree_kick_frequency: crate::gui_adjustables::FloatParam,
+    pub tree_kick_damping: crate::gui_adjustables::FloatParam,
+    pub tree_kick_reach: crate::gui_adjustables::FloatParam,
+    pub tree_kick_cooldown: crate::gui_adjustables::FloatParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -1818,6 +1853,11 @@ impl GuiAdjustables {
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_cooldown_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2274,6 +2314,41 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_stiffness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_frequency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_reach" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_reach_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_cooldown" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_cooldown_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "flora_growth_override_enabled" => {
@@ -3712,6 +3787,11 @@ impl GuiAdjustables {
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
+            tree_kick_strength: tree_kick_strength_field.expect("Missing parameter: tree_kick_strength"),
+            tree_kick_frequency: tree_kick_frequency_field.expect("Missing parameter: tree_kick_frequency"),
+            tree_kick_damping: tree_kick_damping_field.expect("Missing parameter: tree_kick_damping"),
+            tree_kick_reach: tree_kick_reach_field.expect("Missing parameter: tree_kick_reach"),
+            tree_kick_cooldown: tree_kick_cooldown_field.expect("Missing parameter: tree_kick_cooldown"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -3941,6 +4021,11 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "apple_size_scale" => Some(&adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
+        "tree_kick_strength" => Some(&adjustables.tree_kick_strength),
+        "tree_kick_frequency" => Some(&adjustables.tree_kick_frequency),
+        "tree_kick_damping" => Some(&adjustables.tree_kick_damping),
+        "tree_kick_reach" => Some(&adjustables.tree_kick_reach),
+        "tree_kick_cooldown" => Some(&adjustables.tree_kick_cooldown),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
         "fruit_cycle" => Some(&adjustables.fruit_cycle),
@@ -4236,6 +4321,11 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
+        "tree_kick_strength" => Some(&mut adjustables.tree_kick_strength),
+        "tree_kick_frequency" => Some(&mut adjustables.tree_kick_frequency),
+        "tree_kick_damping" => Some(&mut adjustables.tree_kick_damping),
+        "tree_kick_reach" => Some(&mut adjustables.tree_kick_reach),
+        "tree_kick_cooldown" => Some(&mut adjustables.tree_kick_cooldown),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
         "fruit_cycle" => Some(&mut adjustables.fruit_cycle),

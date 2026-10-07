@@ -151,6 +151,7 @@ pub(crate) struct PickTicket(u64);
 pub(crate) enum PickPurpose {
     Hover,
     Edit,
+    Kick,
     Validation,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

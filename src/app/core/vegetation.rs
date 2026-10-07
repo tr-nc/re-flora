@@ -3918,7 +3918,8 @@ impl App {
     pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
         let started = Instant::now();
         let active = self.tracer.raster_trees.enabled
-            && self.debug_settings.adjustables.raster_tree_wind.value;
+            && (self.debug_settings.adjustables.raster_tree_wind.value
+                || self.trees.records.values().any(|r| r.pose.kick_active()));
         // Full CPU geometry is a hidden smoke oracle, never an input to live
         // picking, physics, GPU skin/refit, attachments, or their activation.
         let surface = if active && self.launch_owners.raster_tree_smoke.is_some() {
@@ -3996,11 +3997,60 @@ impl App {
         Ok(())
     }
 
+    // Explicit hidden fixture only: no production kick can seek/reset simulation.
+    pub(super) fn tree_kick_pose_smoke(&mut self, start: bool) -> Result<()> {
+        self.finish_tree_poses()?;
+        if start {
+            let id = self
+                .tracer
+                .raster_trees
+                .skin
+                .branches
+                .first()
+                .context("kick fixture has no tree")?
+                .0;
+            anyhow::ensure!(
+                self.kick_tree(id, Vec3::X, self.tree_kick_tuning())?,
+                "kick fixture was rejected"
+            );
+        } else {
+            let tuning = self.tree_kick_tuning();
+            for record in self.trees.records.values_mut() {
+                record.pose.advance_kick(30., tuning)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn tree_kick_tuning(&self) -> crate::tree_gen::kick::KickTuning {
+        let a = &self.debug_settings.adjustables;
+        crate::tree_gen::kick::KickTuning {
+            strength: a.tree_kick_strength.value,
+            frequency: a.tree_kick_frequency.value,
+            damping: a.tree_kick_damping.value,
+        }
+    }
+    pub(super) fn kick_tree(
+        &mut self,
+        id: u32,
+        direction: Vec3,
+        tuning: crate::tree_gen::kick::KickTuning,
+    ) -> Result<bool> {
+        match self.trees.records.get_mut(&id) {
+            Some(r) => r.pose.kick(direction, tuning),
+            None => Ok(false),
+        }
+    }
+
     pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
         // An out-of-date swapchain can skip the previous publication. Consume
         // that job before touching its resources, then submit this frame's step.
         self.finish_tree_poses()?;
         let stiffness = self.tree_wind_stiffness()?;
+        let kick = self.tree_kick_tuning();
+        for record in self.trees.records.values_mut() {
+            record.pose.advance_kick(dt, kick)?;
+        }
         self.tracer.tree_pose_solver.submit(
             self.trees
                 .records
@@ -4009,6 +4059,7 @@ impl App {
             &self.wind_prototype.field.frame(),
             dt,
             stiffness,
+            self.debug_settings.adjustables.raster_tree_wind.value,
             self.launch_owners.raster_tree_smoke.is_some(),
             self.perf_logging,
         )

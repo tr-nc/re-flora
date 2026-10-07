@@ -106,6 +106,7 @@ struct Joint {
 /// a new pose even when its branch count happens to match the old generation.
 #[derive(Clone, Debug)]
 pub struct TreePose {
+    kick: super::kick::RootKick,
     joints: Vec<Joint>,
     branches: Vec<BranchPose>,
     revision: u64,
@@ -155,6 +156,7 @@ impl TreePose {
             });
         }
         Ok(Self {
+            kick: Default::default(),
             branches: vec![
                 BranchPose {
                     rotation: Quat::IDENTITY,
@@ -173,6 +175,28 @@ impl TreePose {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub(crate) fn kick(
+        &mut self,
+        direction: Vec3,
+        tuning: super::kick::KickTuning,
+    ) -> Result<bool> {
+        self.kick.impulse(direction, tuning)
+    }
+    pub(crate) fn advance_kick(&mut self, dt: f32, tuning: super::kick::KickTuning) -> Result<()> {
+        self.kick.advance(dt, tuning)
+    }
+    pub(crate) fn kick_active(&self) -> bool {
+        self.kick.active()
+    }
+    pub(crate) fn root_motion(&self) -> BranchPose {
+        let rotation = rotation_from_scaled_axis(self.kick.angle()).normalize();
+        let pivot = self.joints.first().map_or(Vec3::ZERO, |j| j.start);
+        BranchPose {
+            rotation,
+            translation: pivot - rotation * pivot,
+        }
     }
 
     pub(crate) fn version(&self) -> PoseVersion {
@@ -278,6 +302,16 @@ impl TreePose {
         dt: f32,
         stiffness: TreeStiffness,
     ) -> Result<()> {
+        self.advance_with_root(wind, dt, stiffness, true)
+    }
+
+    pub(crate) fn advance_with_root(
+        &mut self,
+        wind: &WindFieldFrame,
+        dt: f32,
+        stiffness: TreeStiffness,
+        wind_enabled: bool,
+    ) -> Result<()> {
         Self::validate_step(wind, dt)?;
         if dt == 0. {
             return Ok(());
@@ -286,22 +320,22 @@ impl TreePose {
         // resolve changes in the sampled position and inherited parent rotation.
         let steps = (dt.min(0.25) * 120.).ceil().max(1.) as usize;
         let h = dt.min(0.25) / steps as f32;
+        let root = self.root_motion();
         for _ in 0..steps {
             for index in 0..self.joints.len() {
                 let joint = &mut self.joints[index];
-                let parent = joint
-                    .parent
-                    .map(|p| self.branches[p])
-                    .unwrap_or(BranchPose {
-                        rotation: Quat::IDENTITY,
-                        translation: Vec3::ZERO,
-                    });
+                let parent = joint.parent.map(|p| self.branches[p]).unwrap_or(root);
                 let sample = self.branches[index].transform_point((joint.start + joint.end) * 0.5);
                 let local_wind = parent.rotation.conjugate() * wind.sample_world(sample);
                 let axis = (joint.end - joint.start).normalize_or_zero();
-                let target = (axis.cross(local_wind)
-                    * (joint.compliance * stiffness.compliance_scale))
-                    .clamp_length_max(0.22);
+                let target = if wind_enabled {
+                    (axis.cross(local_wind) * (joint.compliance * stiffness.compliance_scale))
+                        .clamp_length_max(0.22)
+                } else {
+                    joint.angle = Vec3::ZERO;
+                    joint.velocity = Vec3::ZERO;
+                    Vec3::ZERO
+                };
                 advance_spring(
                     &mut joint.angle,
                     &mut joint.velocity,
@@ -380,6 +414,42 @@ mod tests {
             },
         ]
     }
+    #[test]
+    fn kick_has_anchored_root_without_wind_and_does_not_change_topology_generation() {
+        let origin = Vec3::new(1., 0.2, -2.);
+        let mut pose = TreePose::new(&topology(), origin).unwrap();
+        let tuning = super::super::kick::KickTuning {
+            strength: 1.6,
+            frequency: 3.,
+            damping: 0.22,
+        };
+        let version = pose.version();
+        pose.kick(Vec3::X, tuning).unwrap();
+        pose.advance_kick(0.03, tuning).unwrap();
+        assert_eq!(pose.version(), version); // No whole-forest GPU solver reallocation.
+        pose.advance_with_root(
+            &WindFieldFrame::uniform(Vec2::X * 10.),
+            0.03,
+            TreeStiffness::NEUTRAL,
+            false,
+        )
+        .unwrap();
+        let root = pose.root_motion();
+        assert!(root.transform_point(origin).distance(origin) < 1e-6);
+        assert!(
+            pose.branches()[0]
+                .transform_point(origin + Vec3::Y * 0.25)
+                .x
+                > origin.x + 0.005
+        );
+        assert!(pose
+            .branches()
+            .iter()
+            .all(|p| p.rotation.abs_diff_eq(root.rotation, 1e-6)
+                && p.translation.abs_diff_eq(root.translation, 1e-6)));
+        assert!(!TreePose::new(&topology(), origin).unwrap().kick_active());
+    }
+
     #[test]
     fn stiffness_midpoint_preserves_current_motion_and_endpoints_change_response() {
         let neutral = TreeStiffness::from_control(0.5).unwrap();

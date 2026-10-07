@@ -38,6 +38,7 @@ mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
 mod terrain_picking;
+mod tree_kick;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -475,6 +476,7 @@ pub struct App {
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
     pointer_picking: terrain_picking::PointerPicking,
+    tree_kick: tree_kick::TreeKickInteraction,
     mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
 
@@ -1583,6 +1585,7 @@ impl App {
             item_panel_tiller_icon: None,
             mower: mower::MowerRuntime::default(),
             pointer_picking: Default::default(),
+            tree_kick: Default::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -2259,6 +2262,15 @@ impl App {
                     return;
                 }
 
+                if event.state == ElementState::Pressed
+                    && !event.repeat
+                    && event.physical_key == KeyCode::KeyK
+                    && self.keyboard_tool_shortcuts_available()
+                {
+                    self.request_tree_kick();
+                    return;
+                }
+
                 // Keep both movement systems synchronized with physical key state so a held key
                 // remains active after G switches camera modes. Full input resets still happen
                 // when a panel editor captures the keyboard.
@@ -2615,6 +2627,7 @@ impl App {
                 let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
+                let tree_kick_prompt = self.update_tree_kick_prompt();
                 let terrain_edit_hover =
                     cpu_timings.time(FrameCpuScope::TerrainHover, || self.terrain_edit_hover());
                 let show_tree_preview = self.is_tree_planting_selected();
@@ -3076,6 +3089,7 @@ impl App {
                         );
 
                         draw_center_cross_mark(ctx);
+                        tree_kick::draw_prompt(ctx, tree_kick_prompt);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 if let Some(action) = terrain_snapshot_action {

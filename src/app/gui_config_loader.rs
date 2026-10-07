@@ -196,6 +196,15 @@ impl GuiConfigLoader {
             }
         }
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
+        for id in [
+            "tree_kick_strength",
+            "tree_kick_frequency",
+            "tree_kick_damping",
+            "tree_kick_reach",
+            "tree_kick_cooldown",
+        ] {
+            Self::add_missing_param(&mut config, "Debug", id);
+        }
         for section in &mut config.section {
             section.param.retain(|p| {
                 !matches!(
@@ -1856,6 +1865,48 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn tree_kick_controls_migrate_without_rewriting_old_saves_and_keep_tuning() {
+        use crate::app::gui_config_model::GuiParamValue;
+        let ids = [
+            "tree_kick_strength",
+            "tree_kick_frequency",
+            "tree_kick_damping",
+            "tree_kick_reach",
+            "tree_kick_cooldown",
+        ];
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for s in &mut config.section {
+            s.param.retain(|p| !ids.contains(&p.id.as_str()));
+        }
+        let file =
+            std::env::temp_dir().join(format!("re-flora-tree-kick-{}.toml", std::process::id()));
+        GuiConfigLoader::save_to_path(&config, &file).unwrap();
+        let before = std::fs::read(&file).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&file);
+        assert_eq!(before, std::fs::read(&file).unwrap());
+        for id in ids {
+            let p = loaded
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == id)
+                .unwrap();
+            if let GuiParamValue::Float { value, min, max } = &mut p.value {
+                *value = (min.unwrap() + max.unwrap()) * 0.5;
+            } else {
+                panic!("kick setting is not a float");
+            }
+        }
+        GuiConfigLoader::save_to_path(&loaded, &file).unwrap();
+        assert_eq!(
+            toml::to_string(&loaded).unwrap(),
+            toml::to_string(&GuiConfigLoader::load_from_path(&file)).unwrap()
+        );
+        std::fs::remove_file(file).unwrap();
     }
 
     #[test]

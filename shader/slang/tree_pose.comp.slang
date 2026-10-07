@@ -7,6 +7,11 @@ struct PoseState { float4 rotation; float4 translation; float4 angle; float4 vel
 [[vk::binding(1,0)]] RWStructuredBuffer<PoseState> tree_pose_state;
 [[vk::binding(2,0)]] StructuredBuffer<uint4> tree_pose_ranges;
 [[vk::binding(3,0)]] StructuredBuffer<uint4> tree_pose_step;
+// One transient root transform per tree, not a per-vertex CPU pose. Translation.w
+// controls ambient wind; independent kick motion remains visible when it is off.
+struct PoseRoot { float4 rotation; float4 translation; };
+// Binding 4 belongs to wind_field_info in the imported shared wind module.
+[[vk::binding(5,0)]] StructuredBuffer<PoseRoot> tree_pose_roots;
 
 float4 multiplyRotation(float4 a, float4 b) {
     return float4(a.w*b.xyz + b.w*a.xyz + cross(a.xyz,b.xyz), a.w*b.w-dot(a.xyz,b.xyz));
@@ -31,6 +36,7 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
     uint substeps = uint(max(ceil(dt*120.0), 1.0));
     float h = dt/float(substeps);
     uint3 range = tree_pose_ranges[group.x].xyz;
+    PoseRoot root = tree_pose_roots[group.x];
     for (uint substep = 0; substep < substeps; ++substep) {
       for (uint depth = 0; depth < range.z; ++depth) {
         for (uint local = lane; local < range.y; local += 64u) {
@@ -38,8 +44,8 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
             PoseJoint joint = tree_pose_joints[index];
             if (joint.parent.y != depth) continue;
             PoseState state = tree_pose_state[index];
-            float4 parentRotation = float4(0,0,0,1);
-            float3 parentTranslation = float3(0);
+            float4 parentRotation = root.rotation;
+            float3 parentTranslation = root.translation.xyz;
             if (joint.parent.x != 0xffffffffu) {
                 PoseState parent = tree_pose_state[range.x+joint.parent.x];
                 parentRotation = parent.rotation;
@@ -53,6 +59,11 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
             float3 axis = end-start;
             axis = dot(axis,axis) > 0.0 ? normalize(axis) : float3(0);
             float3 target = cross(axis,localWind)*(joint.end_compliance.w*asfloat(step.z));
+            if (root.translation.w == 0.0) {
+                target = float3(0);
+                state.angle = float4(0);
+                state.velocity = float4(0);
+            }
             float targetLength = length(target);
             if (targetLength > 0.22) target *= 0.22/targetLength;
             float omega = 6.283185307179586 * (joint.start_frequency.w*asfloat(step.w));

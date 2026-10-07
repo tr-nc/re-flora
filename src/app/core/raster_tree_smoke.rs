@@ -1,7 +1,7 @@
 //! Hidden-app acceptance of raster trees and their retained hybrid lighting.
 use super::App;
 use crate::lighting::{LightId, LocalLight, PointLight};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use glam::Vec3;
 
 pub(super) struct RasterTreeSmoke {
@@ -34,7 +34,7 @@ impl RasterTreeSmoke {
     fn step(&mut self, app: &mut App) -> Result<bool> {
         self.frame += 1;
         match self.frame {
-            1 | 30 => {
+            1 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
             }
             21 => {
@@ -55,6 +55,38 @@ impl RasterTreeSmoke {
             25 => {
                 app.tracer.validate_gpu_tree_lighting(true)?;
             }
+            30 => {
+                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                app.tree_kick_pose_smoke(true)?;
+            }
+            35 => {
+                ensure!(
+                    !app.debug_settings.adjustables.raster_tree_wind.value,
+                    "kick fixture needs wind off"
+                );
+                ensure!(
+                    app.tracer.raster_trees.gpu_wind_active,
+                    "kick did not activate GPU deformation without wind"
+                );
+                app.validate_tree_surface_pose()?;
+                app.tracer.validate_gpu_tree_surface()?;
+                let posed = app
+                    .tracer
+                    .raster_trees
+                    .posed_surface
+                    .as_ref()
+                    .context("missing kick reference")?;
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.max_displacement(posed) > 1e-5,
+                    "kick moved no visible wood"
+                );
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.thin_fingerprint,
+                    "kick changed authored geometry"
+                );
+                log::info!("[TREE_KICK][GPU] passed wind_off=true moved=true rest_collision=true rest_geometry=true");
+            }
+
             49 | 64 | 81 => {
                 app.drive_tree_pose_smoke()?;
             }
@@ -125,6 +157,7 @@ impl RasterTreeSmoke {
                     app.tracer.raster_trees.enabled,
                     "raster trees were disabled"
                 );
+                app.tree_kick_pose_smoke(false)?;
             }
             61 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.;

@@ -268,6 +268,20 @@ impl RasterTreeMesh {
         Ok(())
     }
 
+    /// Checked ownership of the exact picked triangle, not an AABB-nearest tree.
+    pub(crate) fn triangle_tree(&self, triangle: [u32; 3]) -> Option<u32> {
+        let owner = self.bindings.get(triangle[0] as usize)?.as_ref()?.0;
+        triangle
+            .into_iter()
+            .all(|i| {
+                self.bindings
+                    .get(i as usize)
+                    .and_then(|b| b.as_ref())
+                    .is_some_and(|b| b.0 == owner)
+            })
+            .then_some(owner)
+    }
+
     /// Compile resident per-vertex GPU data only when topology changes.
     pub fn gpu_skin(&self) -> Result<GpuTreeSkin> {
         ensure!(
@@ -761,6 +775,27 @@ mod tests {
             }
         }
         assert!(observed_changes > 100);
+    }
+
+    #[test]
+    fn picked_triangle_ownership_is_checked_not_guessed_from_proximity() {
+        let mut mesh = RasterTreeMesh::default();
+        let binding = SkinBinding {
+            branch: 0,
+            parent: None,
+            weight: 1.,
+        };
+        mesh.bindings = vec![
+            Some((17, binding)),
+            Some((17, binding)),
+            Some((17, binding)),
+            Some((18, binding)),
+            None,
+        ];
+        assert_eq!(mesh.triangle_tree([0, 1, 2]), Some(17));
+        assert_eq!(mesh.triangle_tree([0, 1, 3]), None);
+        assert_eq!(mesh.triangle_tree([0, 1, 4]), None);
+        assert_eq!(mesh.triangle_tree([0, 1, u32::MAX]), None);
     }
 
     #[test]

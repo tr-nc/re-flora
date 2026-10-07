@@ -39,6 +39,7 @@ fn hold_matches(
 
 impl App {
     pub(super) fn cancel_pointer_pick(&mut self) {
+        self.cancel_tree_kick();
         if let Some(pending) = self.pointer_picking.pending.take() {
             self.tracer.cancel_surface_pick(pending.ticket);
         }
@@ -107,6 +108,10 @@ impl App {
             self.cancel_pointer_pick();
         }
         for answer in self.tracer.poll_surface_picks()? {
+            if answer.purpose == PickPurpose::Kick {
+                self.complete_tree_kick(answer, now)?;
+                continue;
+            }
             if answer.purpose == PickPurpose::Hover {
                 if self
                     .pointer_picking
@@ -179,7 +184,7 @@ impl App {
         self.pointer_picking.active = None;
     }
 
-    fn resolve_pointer_pick(
+    pub(super) fn resolve_pointer_pick(
         &self,
         ray: TerrainRayQuery,
         mut hit: Option<SurfacePickHit>,
