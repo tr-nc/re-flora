@@ -30,6 +30,10 @@ Native holding uses the real hover ray, player-tool action, wall-clock flow, str
 
 The user's approximately 30 FPS observation was not an exact captured scene. Our larger fixture reproduces an even stronger slowdown; these numbers must not be advertised as a guarantee for their hill, another GPU, resolution or settings.
 
+### Subsequent cadence change
+
+The next interaction update removes the original 200 ms click/hold grace. Continuous batch credit now starts at press (20 Hz: releases at 0/50/100/... ms). Historical native hold measurements above include that former grace; their five-second volumes must not be treated as current cadence output. Fixed-work replay is independent of the flow scheduler, so its byte-equivalence/cost comparison is unchanged. Both performance A/B modes share the new clock.
+
 ## Checkpoint, configuration and rollback
 
 - Visual-approved checkpoint: **`fea03f56`**.

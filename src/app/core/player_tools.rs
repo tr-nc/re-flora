@@ -762,6 +762,19 @@ mod tests {
         let now = Instant::now();
         assert_eq!(runtime.soil_deposition_budget(now, 20., 50).0, 50);
         runtime.record_stroke_dab(ContinuousTerrainToolAction::SoilDeposit, now, Vec3::ZERO);
+        assert_eq!(
+            runtime
+                .soil_deposition_budget(now + Duration::from_millis(25), 20., 50)
+                .0,
+            0
+        );
+        assert_eq!(
+            runtime
+                .soil_deposition_budget(now + Duration::from_millis(50), 20., 50)
+                .0,
+            50,
+            "production tool budget must start repeating from press without a hold delay"
+        );
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         runtime.finish_pointer_release();
         assert_eq!(

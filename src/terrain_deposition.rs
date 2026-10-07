@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 
 // Initial readback reach, not a physical runout or pile-footprint limit.
 const INITIAL_SETTLE_HALO: u32 = 32;
-const CLICK_HOLD_DELAY: Duration = Duration::from_millis(200);
 // Every f32 rate >= 1 is represented exactly at this scale. Integer nanosecond credit
 // avoids frame-by-frame floating-point rounding losing a voxel at an integral boundary.
 const FLOW_RATE_SCALE: u128 = 1 << 23;
@@ -505,8 +504,8 @@ fn find_column(
 }
 
 /// Time-based material budget. Reset on release/miss/tool change, retaining only the RNG serial.
-/// A press releases one configured batch immediately; short taps do not repeat. After the
-/// hold delay, frequency budgets whole batches, each containing individually settled voxels.
+/// A press starts continuous emission immediately with one configured batch. Frequency
+/// budgets subsequent whole batches from that press, without a separate tap/hold delay.
 /// Fractional events survive sampling; frame cadence and footprint size do not change flow.
 /// Catch-up after a stall is capped at 250 ms; stopped time never produces a giant dose.
 #[derive(Debug, Default)]
@@ -527,7 +526,7 @@ impl DepositionFlow {
             || batch_size == 0
             || batch_size > MAX_DEPOSITION_BATCH
         {
-            self.last = Some(now + CLICK_HOLD_DELAY);
+            self.last = Some(now);
             self.fraction = 0;
             0
         } else if let Some(last) = self.last {
@@ -545,8 +544,8 @@ impl DepositionFlow {
                     .saturating_add(self.fraction)
             }
         } else {
-            // The first repeat budget starts after the tap/hold distinction, not at press.
-            self.last = Some(now + CLICK_HOLD_DELAY);
+            // Repeat credit starts at press; only the configured batch interval separates releases.
+            self.last = Some(now);
             FLOW_EVENT_UNITS
         };
         let max_batches = MAX_DEPOSITION_BATCH / batch_size.max(1);
@@ -911,8 +910,8 @@ mod tests {
                     "one click must emit the configured number of atomic voxels"
                 );
                 let mut added = batch_size;
-                // 200 ms tap grace followed by one second of continuous batches.
-                for i in 1..=24 {
+                // Continuous batch credit starts at press, with no tap/hold grace.
+                for i in 1..=20 {
                     let volume = flow
                         .take(start + Duration::from_millis(i * 50), rate, batch_size)
                         .0;
@@ -1174,14 +1173,51 @@ mod tests {
     }
 
     #[test]
-    fn short_taps_do_not_repeat_and_bad_rates_cannot_create_material() {
+    fn holding_repeats_from_press_without_a_click_hold_delay() {
+        let start = Instant::now();
+        for batch_size in [1, 10, 50, 512, 1024] {
+            for rate in [20., 120., 1.] {
+                let mut flow = DepositionFlow::default();
+                assert_eq!(flow.take(start, rate, batch_size).0, batch_size);
+                assert_eq!(
+                    flow.take(start, rate, batch_size).0,
+                    0,
+                    "the press must not emit twice at the same instant"
+                );
+                let mut sampled_at = start;
+                for repeat in 1..=2 {
+                    let due = start
+                        + Duration::from_nanos(
+                            (1_000_000_000_f64 * f64::from(repeat) / f64::from(rate)).ceil() as u64,
+                        );
+                    // Keep sampling low rates too: a one-second gap would exercise the
+                    // intentional stall catch-up cap, not ordinary continuous holding.
+                    while due.duration_since(sampled_at) > Duration::from_millis(100) {
+                        sampled_at += Duration::from_millis(100);
+                        assert_eq!(flow.take(sampled_at, rate, batch_size).0, 0);
+                    }
+                    assert_eq!(
+                        flow.take(due - Duration::from_nanos(1), rate, batch_size).0,
+                        0
+                    );
+                    assert_eq!(flow.take(due, rate, batch_size).0, batch_size, "continuous emission must start at the first configured interval, without tap/hold grace");
+                    sampled_at = due;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sub_period_holds_do_not_repeat_and_bad_rates_cannot_create_material() {
         let start = Instant::now();
         let mut flow = DepositionFlow::default();
         assert_eq!(flow.take(start, 20., 1).0, 1);
-        for ms in [50, 100, 150, 200] {
+        for ms in [1, 10, 25, 49] {
             assert_eq!(flow.take(start + Duration::from_millis(ms), 20., 1).0, 0);
         }
-        assert_eq!(flow.take(start + Duration::from_millis(250), 20., 1).0, 1);
+        assert_eq!(flow.take(start + Duration::from_millis(50), 20., 1).0, 1);
+        assert_eq!(flow.take(start + Duration::from_millis(100), 20., 1).0, 1);
+        assert_eq!(flow.take(start + Duration::from_millis(250), 20., 1).0, 3);
         assert_eq!(
             flow.take(start + Duration::from_secs(100), 20., 1).0,
             5,
@@ -1198,8 +1234,8 @@ mod tests {
         let start = Instant::now();
         let mut flow = DepositionFlow::default();
         assert_eq!(flow.take(start, 20., 10).0, 10);
-        assert_eq!(flow.take(start + Duration::from_millis(225), 20., 10).0, 0);
-        assert_eq!(flow.take(start + Duration::from_millis(250), 20., 50).0, 50);
+        assert_eq!(flow.take(start + Duration::from_millis(25), 20., 10).0, 0);
+        assert_eq!(flow.take(start + Duration::from_millis(50), 20., 50).0, 50);
         let now = start + Duration::from_secs(100);
         assert_eq!(
             flow.take(now, f32::MAX, 50).0,
@@ -1252,7 +1288,7 @@ mod tests {
                     .0;
             }
             assert_eq!(a, b);
-            assert_eq!(a, 82 * batch_size);
+            assert_eq!(a, 102 * batch_size);
             fast.reset();
             assert_eq!(
                 fast.take(start + Duration::from_secs(100), 101.25, batch_size)

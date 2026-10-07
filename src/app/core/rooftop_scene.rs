@@ -1008,7 +1008,15 @@ impl App {
         self.tracer
             .set_camera_pose_looking_at(opening.position, center);
         self.debug_settings.adjustables.soil_deposition_rate.value = 20.;
-        let mut pointer_count = count(&thick);
+        // The production hover ray moves as this larger, immediate stream grows.
+        // Count the full legal workspace, not the first-dose 80-voxel diagnostic crop.
+        let pointer_offset = SOIL_MIN;
+        let pointer_dim = SOIL_MAX - SOIL_MIN;
+        let mut pointer_count = count(
+            &self
+                .plain_builder
+                .read_chunk_atlas_region(pointer_offset, pointer_dim)?,
+        );
         for size in [1, 10, 50, 512, 1024] {
             self.debug_settings
                 .adjustables
@@ -1026,26 +1034,37 @@ impl App {
             );
             let press = Instant::now();
             self.execute_continuous_terrain_tool_action(action, press);
-            let after_pointer = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            let after_pointer = self
+                .plain_builder
+                .read_chunk_atlas_region(pointer_offset, pointer_dim)?;
             pointer_count += size as usize;
             anyhow::ensure!(
                 count(&after_pointer) == pointer_count,
                 "production Soil click did not emit the configured {size} atomic voxels"
             );
             self.contree_builder.flush_cpu_chunk_cache_jobs();
-            self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(100));
-            let during_tap = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(49));
+            let before_repeat = self
+                .plain_builder
+                .read_chunk_atlas_region(pointer_offset, pointer_dim)?;
             anyhow::ensure!(
-                count(&during_tap) == pointer_count,
-                "a short Soil tap repeated before the hold delay"
+                count(&before_repeat) == pointer_count,
+                "Soil repeated before its configured batch interval"
             );
-            self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(250));
-            let held = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-            pointer_count += size as usize;
-            anyhow::ensure!(
-                count(&held) == pointer_count,
-                "held Soil did not emit the configured {size} atomic voxels"
-            );
+            for (ms, batches) in [(50, 1), (100, 1), (250, 3)] {
+                self.execute_continuous_terrain_tool_action(
+                    action,
+                    press + Duration::from_millis(ms),
+                );
+                let held = self
+                    .plain_builder
+                    .read_chunk_atlas_region(pointer_offset, pointer_dim)?;
+                pointer_count += (size * batches) as usize;
+                anyhow::ensure!(
+                    count(&held) == pointer_count,
+                    "Soil did not emit {batches} configured {size}-voxel batches at {ms} ms from press"
+                );
+            }
             self.contree_builder.flush_cpu_chunk_cache_jobs();
             self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Released);
             self.refresh_terrain_edit_hold_from_mouse_buttons();
@@ -1073,7 +1092,7 @@ impl App {
         self.cursor_position_physical = cursor;
         self.tracer.apply_camera_pose(opening);
         self.contree_builder.flush_cpu_chunk_cache_jobs();
-        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true batch_sizes=1,10,50,512,1024 click_counts_exact=true hold_counts_exact=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
+        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true batch_sizes=1,10,50,512,1024 click_counts_exact=true hold_counts_exact=true continuous_from_press=true repeat_after_ms=50 before_period_no_repeat=true new_voxels_supported={} backpack_preserved=true",
             initial.added, total, height(&thin), height(&thick), checked_new);
         if std::env::var_os("RE_FLORA_SOIL_REPORT_CLOSEUP").is_some() {
             // A separate clean plot avoids showing old geometry-brush soil as the new
