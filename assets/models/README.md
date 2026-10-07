@@ -142,8 +142,11 @@ The explicit native adaptation is **two immutable complete snapshots**: the seal
 and the already-open midpoint of the pouring clip. Tab vertices use the same authored hinge and
 rotation, and normals use the same Three.js BufferGeometry computation. Gameplay switches states
 immediately; it does not approximate dynamic mouth animation with GLB TRS, import the web flow mesh,
-or claim native support for morph animation. Placement/scale, environment shading and visual
-falling grains belong to the game consumer. The default smooth sprout graphic is published from
+or claim native support for morph animation. The native consumer instantiates a tool-owned world
+model: color/depth and direct-sun shadows share one acquired-frame transform buffer. The complete
+published mesh casts into the ordinary scene shadow map; visible surfaces retain shared pixel
+sampling and live environment shading. It is not a screen/editor overlay, physics/save entity or
+DDGI transport occluder. Placement/scale and visual falling grains belong to the game consumer. The default smooth sprout graphic is published from
 the same continuous paths at original texture resolution; only shared model sampling pixelizes it.
 Native sampling is opaque Nearest/no mipmaps. Web color/import experiments remain page-only and
 never publish automatically.

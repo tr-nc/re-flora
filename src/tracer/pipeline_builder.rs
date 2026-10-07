@@ -602,6 +602,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let tool_model_shadow_vert_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/props/tool_model_shadow.vert",
+            "main",
+        )
+        .unwrap();
         let apple_pixel_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/models/model_mesh.frag",
@@ -731,6 +737,7 @@ impl PipelineBuilder {
             apple_pixel_tree_vert_sm,
             apple_pixel_dynamic_vert_sm,
             tool_model_vert_sm,
+            tool_model_shadow_vert_sm,
             apple_pixel_frag_sm,
             dynamic_fruit_vert_sm,
             dynamic_fruit_shadow_vert_sm,
@@ -1604,6 +1611,26 @@ impl PipelineBuilder {
                 providers: &environment_lighting_resources,
             })
             .expect("shared tool model environment descriptors");
+        let tool_model_shadow_ppl = Self::create_gfx_pipeline_uninitialized(
+            vulkan_ctx,
+            &shader_modules.tool_model_shadow_vert_sm,
+            &shader_modules.dynamic_fruit_shadow_frag_sm,
+            &render_passes.render_pass_depth,
+            None,
+            pool,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
+        );
+        tool_model_shadow_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[resources],
+            })
+            .expect("world model sun shadow static descriptors");
 
         let dynamic_fruit_shadow_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
@@ -1718,6 +1745,7 @@ impl PipelineBuilder {
             apple_pixel_tree_ppl,
             apple_pixel_dynamic_ppl,
             tool_model_ppl,
+            tool_model_shadow_ppl,
             dynamic_fruit_ppl,
             dynamic_fruit_shadow_ppl,
             cpu_stem_band_ppl,
@@ -2441,14 +2469,19 @@ impl PipelineTopology {
                 "graphics descriptor set update failed during extent publication",
             );
         }
-        retire_graphics(
+        for pipeline in [
             &self.graphics.leaves_shadow_lod_ppl,
-            DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &tracer_resources,
-            },
-            "graphics descriptor set update failed during extent publication",
-        );
+            &self.graphics.tool_model_shadow_ppl,
+        ] {
+            retire_graphics(
+                pipeline,
+                DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &tracer_resources,
+                },
+                "graphics shadow descriptor set update failed during extent publication",
+            );
+        }
         for pipeline in [
             &self.graphics.sprinkler_ppl,
             &self.graphics.environment_probe_visualization_depth_ppl,
@@ -3000,6 +3033,7 @@ pub struct ShaderModules {
     pub apple_pixel_tree_vert_sm: ShaderModule,
     pub apple_pixel_dynamic_vert_sm: ShaderModule,
     pub tool_model_vert_sm: ShaderModule,
+    pub tool_model_shadow_vert_sm: ShaderModule,
     pub apple_pixel_frag_sm: ShaderModule,
     pub dynamic_fruit_vert_sm: ShaderModule,
     pub dynamic_fruit_shadow_vert_sm: ShaderModule,
@@ -3107,6 +3141,7 @@ pipeline_collection! {
         apple_pixel_tree_ppl,
         apple_pixel_dynamic_ppl,
         tool_model_ppl,
+        tool_model_shadow_ppl,
         dynamic_fruit_ppl,
         dynamic_fruit_shadow_ppl,
         particle_ppl,
@@ -3123,6 +3158,8 @@ impl GraphicsPipelines {
         self.apple_pixel_dynamic_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.tool_model_ppl
+            .begin_transient_descriptor_frame(frame_slot);
+        self.tool_model_shadow_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.butterfly_tile_ppl
             .begin_transient_descriptor_frame(frame_slot);

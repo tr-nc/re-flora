@@ -35,14 +35,14 @@ pub(crate) fn asset() -> &'static Asset {
     &ASSET
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Preview {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Instance {
     pub position: Vec3,
     pub rotation: Quat,
     pub scale: f32,
     pub pouring: bool,
 }
-impl Preview {
+impl Instance {
     pub fn over_surface(target: Vec3, camera: Vec3, pouring: bool) -> Self {
         let state = &asset().states[usize::from(pouring)];
         let to_camera = camera - target;
@@ -68,6 +68,21 @@ impl Preview {
             + self.rotation
                 * Vec3::from(asset().states[usize::from(self.pouring)].mouth)
                 * self.scale
+    }
+}
+
+/// Direct-sun history follows the actually rendered instance. Camera/view-bank
+/// changes also matter because shared pixel models quantize world orientation.
+#[derive(Default)]
+pub(crate) struct ShadowState {
+    previous: Option<(Instance, Vec3, u32)>,
+}
+impl ShadowState {
+    pub fn observe(&mut self, instance: Option<Instance>, camera: Vec3, views: u32) -> bool {
+        let current = instance.map(|instance| (instance, camera, views));
+        let changed = self.previous != current;
+        self.previous = current;
+        changed
     }
 }
 
@@ -103,7 +118,21 @@ mod tests {
     fn soil_bag_render_adapter_uses_shared_sampling_and_vulkan_vertex_indices() {
         let shader = include_str!("../shader/slang/tool_model.vert.slang");
         assert!(shader.contains("cachedModelVertex("));
-        assert!(shader.contains("modelMeshViewFrame("));
+        let placement = include_str!("../shader/slang/world_model_instance.slang");
+        let shadow = include_str!("../shader/slang/tool_model_shadow.vert.slang");
+        assert!(placement.contains("modelMeshViewFrame("));
+        assert!(shader.contains("world_model_instances[instance]"));
+        assert!(shadow.contains("world_model_instances[instance]"));
+        assert!(shadow.contains("worldModelRenderedFrame(pose)"));
+        assert!(shadow.contains("shadow_camera_info.view_proj_mat"));
+        assert!(shadow.contains("import model_mesh_geometry;"));
+        assert!(!shadow.contains("import model_mesh;"));
+        assert!(!shadow.contains("import model_surface_cache;"));
+        assert!(!shadow.contains("cachedModelVertex("));
+        assert!(shader.contains("SV_VulkanInstanceID"));
+        assert!(shadow.contains("SV_VulkanInstanceID"));
+        assert!(!shadow.contains(":SV_VertexID"));
+        assert!(shader.contains("meshShade("));
         assert!(shader.contains("SV_VulkanVertexID"));
         assert!(!shader.contains(":SV_VertexID"));
         assert!(!shader.contains("SV_Depth"));
@@ -111,15 +140,48 @@ mod tests {
     }
 
     #[test]
-    fn soil_bag_preview_keeps_pour_mouth_on_target_without_animation_or_view_dependent_drift() {
+    fn world_bag_shadow_history_tracks_creation_pose_camera_views_and_removal() {
+        let camera = Vec3::new(0., 1., 2.);
+        let hover = Instance::over_surface(Vec3::ZERO, camera, false);
+        let pour = Instance::over_surface(Vec3::ZERO, camera, true);
+        let mut state = ShadowState::default();
+        assert!(!state.observe(None, camera, 128));
+        assert!(state.observe(Some(hover), camera, 128));
+        assert!(!state.observe(Some(hover), camera, 128));
+        assert!(state.observe(Some(pour), camera, 128));
+        assert!(state.observe(Some(pour), camera + Vec3::Y, 128));
+        assert!(state.observe(Some(pour), camera + Vec3::Y, 32));
+        let moved = Instance {
+            position: pour.position + Vec3::X,
+            ..pour
+        };
+        assert!(state.observe(Some(moved), camera + Vec3::Y, 32));
+        assert!(state.observe(None, camera, 32));
+        assert!(!state.observe(None, camera + Vec3::Z, 256));
+    }
+
+    #[test]
+    fn world_bag_participates_in_scene_passes_even_when_flora_and_particles_are_disabled() {
+        let renderer = include_str!("tracer/mod.rs");
+        assert_eq!(
+            renderer
+                .matches("|| self.model_mesh_frame.has_soil_bag()")
+                .count(),
+            2
+        );
+        assert!(renderer.contains("record_soil_bag_shadow_pass"));
+    }
+
+    #[test]
+    fn soil_bag_instance_keeps_pour_mouth_on_target_without_animation_or_view_dependent_drift() {
         let target = Vec3::new(1., 0.6, 2.);
         for camera in [
             Vec3::new(1., 1., 3.),
             Vec3::new(2., 1., 2.),
             Vec3::new(0., 2., 1.),
         ] {
-            let hover = Preview::over_surface(target, camera, false);
-            let pour = Preview::over_surface(target, camera, true);
+            let hover = Instance::over_surface(target, camera, false);
+            let pour = Instance::over_surface(target, camera, true);
             assert!((pour.mouth() - (target + Vec3::Y * 0.14)).length() < 1e-6);
             assert!((pour.rotation * Vec3::Y).y < -0.7);
             assert!((hover.rotation * Vec3::Y).y > 0.999);

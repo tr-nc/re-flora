@@ -4,7 +4,7 @@ use super::*;
 use super::{input::TerrainEditHover, player_tools::ContinuousTerrainToolAction};
 use crate::{
     particles::{ParticleRenderKind, ParticleSnapshot},
-    soil_bag::Preview,
+    soil_bag::Instance,
 };
 
 const MAX_GRAINS: usize = 128;
@@ -19,7 +19,7 @@ struct Grain {
 }
 #[derive(Default)]
 pub(super) struct State {
-    preview: Option<Preview>,
+    instance: Option<Instance>,
     pub allow_flow: bool,
     pub review: Option<super::soil_bag_review::Review>,
     grains: Vec<Grain>,
@@ -33,8 +33,8 @@ impl State {
             ..Self::default()
         })
     }
-    pub fn current_preview(&self) -> Option<Preview> {
-        self.preview
+    pub fn current_instance(&self) -> Option<Instance> {
+        self.instance
     }
     pub fn note_added(&mut self, added: u32) {
         self.allow_flow = true;
@@ -55,7 +55,7 @@ impl State {
             grain.age += dt;
             grain.age < 0.7 && !collides(old, grain.position)
         });
-        let Some(pose) = self.preview.filter(|p| p.pouring && self.allow_flow) else {
+        let Some(pose) = self.instance.filter(|p| p.pouring && self.allow_flow) else {
             self.credit = 0.;
             return;
         };
@@ -97,13 +97,13 @@ impl State {
     }
 }
 impl App {
-    pub(super) fn update_soil_bag_preview(&mut self, hover: Option<TerrainEditHover>) {
+    pub(super) fn update_soil_bag_instance(&mut self, hover: Option<TerrainEditHover>) {
         let pouring = self.player_tools.active_continuous_action()
             == Some(ContinuousTerrainToolAction::SoilDeposit);
-        let preview = hover
+        let instance = hover
             .filter(|_| self.player_tools.selected_tool() == PlayerTool::Soil)
             .map(|hit| {
-                Preview::over_surface(hit.center, self.tracer.camera_pose().position, pouring)
+                Instance::over_surface(hit.center, self.tracer.camera_pose().position, pouring)
             });
         // A fresh asynchronous hover may be temporarily absent after terrain
         // publication. Hide/suspend the cue without forgetting the last accepted
@@ -115,12 +115,12 @@ impl App {
         {
             self.soil_bag_preview.allow_flow = false;
         }
-        self.soil_bag_preview.preview = preview;
-        if let (Some(review), Some(pose)) = (&mut self.soil_bag_preview.review, preview) {
+        self.soil_bag_preview.instance = instance;
+        if let (Some(review), Some(pose)) = (&mut self.soil_bag_preview.review, instance) {
             review.hover_seen |= !pose.pouring;
             review.pour_seen |= pose.pouring;
         }
-        self.tracer.set_soil_bag_preview(preview);
+        self.tracer.set_soil_bag_instance(instance);
     }
     pub(super) fn append_soil_bag_grains(&mut self, dt: f32) {
         let mut state = std::mem::take(&mut self.soil_bag_preview);
@@ -151,9 +151,9 @@ mod tests {
     use super::*;
     #[test]
     fn soil_bag_grains_are_bounded_ballistic_fx_and_only_emit_after_successful_writes() {
-        let pose = Preview::over_surface(Vec3::ZERO, Vec3::new(0., 1., 2.), true);
+        let pose = Instance::over_surface(Vec3::ZERO, Vec3::new(0., 1., 2.), true);
         let mut state = State {
-            preview: Some(pose),
+            instance: Some(pose),
             ..State::default()
         };
         state.advance(0.05, |_, _| false);
@@ -189,7 +189,7 @@ mod tests {
         state.advance(0.1, |_, _| false);
         assert!(state.grains.is_empty());
         assert_eq!(state.credit, 0.);
-        state.preview = Some(Preview::over_surface(Vec3::ZERO, Vec3::Z, true));
+        state.instance = Some(Instance::over_surface(Vec3::ZERO, Vec3::Z, true));
         state.advance(0.05, |_, _| false);
         assert_eq!(state.grains.len(), 4);
     }
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn soil_bag_grain_contacts_expire_without_creating_any_material() {
         let mut state = State {
-            preview: Some(Preview::over_surface(Vec3::ZERO, Vec3::Z, true)),
+            instance: Some(Instance::over_surface(Vec3::ZERO, Vec3::Z, true)),
             allow_flow: true,
             ..State::default()
         };

@@ -1,6 +1,7 @@
 // Material/placement adapter only: geometry, view selection, pixel cells and
 // hardware depth are the same shared modules used by apples and flower heads.
 import model_mesh;
+import model_mesh_geometry;
 import model_bake_triangle;
 import model_mesh_view;
 import model_view_quantization;
@@ -8,15 +9,9 @@ import model_mesh_lighting;
 import model_mesh_types;
 import model_surface_cache;
 import model_pixel_types;
-struct ToolModelPose {
-    float4 position;
-    float4 axisX; float4 axisY; float4 axisZ;
-    uint4 metadata;
-    float4 mouth;
-};
-[[vk::binding(0,1)]] StructuredBuffer<ToolModelPose> tool_model_pose;
+import world_model_instance;
 [[vk::binding(18,1)]] StructuredBuffer<float4> tool_model_colors;
-float3 toolColor(ToolModelPose pose,uint material,float2 uv) {
+float3 toolColor(WorldModelInstance pose,uint material,float2 uv) {
     if(material<4u)return tool_model_colors[pose.metadata.y+material].xyz;
     // Opaque RGB, Nearest, no mipmap/interpolation. CanvasTexture's V flip is
     // adapted here once; sampling never treats the sticker as alpha geometry.
@@ -25,11 +20,9 @@ float3 toolColor(ToolModelPose pose,uint material,float2 uv) {
     return tool_model_colors[pose.metadata.y+4u+texel.y*size.x+texel.x].xyz;
 }
 [shader("vertex")]
-ModelMeshOutput main(uint vertex:SV_VulkanVertexID) {
-    ToolModelPose pose=tool_model_pose[0];
-    ModelPixelFrame physical;
-    physical.center=pose.position.xyz;physical.scale=pose.position.w;
-    physical.axisX=pose.axisX.xyz;physical.axisY=pose.axisY.xyz;physical.axisZ=pose.axisZ.xyz;
+ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstanceID) {
+    WorldModelInstance pose=world_model_instances[instance];
+    ModelPixelFrame physical=worldModelPhysicalFrame(pose);
     CachedModelVertex cached;
     if(cachedModelVertex(vertex,pose.metadata.x,4u,physical,pose.mouth.xyz,cached)) {
         if(!cached.visible)return emptyModelMeshVertex();
@@ -41,7 +34,7 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID) {
     if(vertex>=range.y*3u)return emptyModelMeshVertex();
     ButterflyMeshTriangle t=model_mesh_triangles[range.x+vertex/3u];
     uint corner=vertex%3u;
-    ModelPixelFrame rendered=modelMeshViewFrame(physical,pose.mouth.xyz);
+    ModelPixelFrame rendered=worldModelRenderedFrame(pose);
     float3 position=modelViewWorldPoint(rendered,meshPoint(t,corner));
     float3 normal=normalize(modelViewWorldVector(rendered,meshNormal(t,corner)));
     float2 uv=corner==0u?t.uv01.xy:corner==1u?t.uv01.zw:t.uv2.xy;

@@ -3553,6 +3553,7 @@ impl Tracer {
         self.pipeline_topology
             .graphics()
             .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        self.model_mesh_frame.publish_soil_bag(cmdbuf)?;
 
         // VSM filtering writes shadow_map_tex_for_vsm_ping in compute, then the
         // flora vertex shader samples it in the same command buffer. MoltenVK/Metal
@@ -3717,7 +3718,10 @@ impl Tracer {
                 let dynamic_fruit_shadow_changed =
                     self.dynamic_fruit_resources.take_shadow_changed()
                         | self.climbing_plant_resources.take_shadow_changed()
-                        | self.cpu_stem_band_resources.take_shadow_changed();
+                        | self.cpu_stem_band_resources.take_shadow_changed()
+                        | self
+                            .model_mesh_frame
+                            .take_soil_bag_shadow_changed(self.camera_position());
                 self.direct_sun_shadows
                     .plan_update(dynamic_fruit_shadow_changed)
             });
@@ -3787,6 +3791,13 @@ impl Tracer {
             }
             self.record_dynamic_fruit_shadow_pass(cmdbuf, &self.climbing_plant_resources);
             self.record_cpu_stem_shadow_pass(cmdbuf);
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "world_model_shadow.pass",
+                || self.record_soil_bag_shadow_pass(cmdbuf),
+            )?;
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4049,6 +4060,7 @@ impl Tracer {
             || self.static_scene.is_some()
             || self.stone_preview.has_direct()
             || self.mower_resources.visible
+            || self.model_mesh_frame.has_soil_bag()
             || self.environment_probe_visualization.enabled
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
@@ -4348,6 +4360,7 @@ impl Tracer {
             || self.static_scene.is_some()
             || self.stone_preview.has_direct()
             || self.mower_resources.visible
+            || self.model_mesh_frame.has_soil_bag()
             || self.dynamic_fruit_resources.instance_count > 0
             || self.climbing_plant_resources.instance_count > 0
             || self.cpu_stem_band_resources.count > 0
@@ -5064,6 +5077,7 @@ impl Tracer {
                 MeshPass {
                     display: &self.pipeline_topology.graphics().tool_model_ppl,
                 },
+                false,
             )
             .expect("shared tool model acquired-frame descriptors");
         let prepared_stone = self
@@ -6116,6 +6130,42 @@ impl Tracer {
             .record_end(cmdbuf);
     }
 
+    fn record_soil_bag_shadow_pass(&mut self, cmdbuf: &CommandBuffer) -> Result<()> {
+        let pipeline = &self.pipeline_topology.graphics().tool_model_shadow_ppl;
+        let Some(model) =
+            self.model_mesh_frame
+                .soil_bag(cmdbuf, MeshPass { display: pipeline }, true)?
+        else {
+            return Ok(());
+        };
+        let extent = self
+            .resources
+            .shadow
+            .shadow_map_depth_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        self.pipeline_topology
+            .depth_only_target()
+            .record_begin(cmdbuf, &[]);
+        pipeline.record_viewport_scissor(
+            cmdbuf,
+            Viewport::from_extent(extent.as_extent_2d().unwrap()),
+            vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: vk::Extent2D {
+                    width: extent.width,
+                    height: extent.height,
+                },
+            },
+        );
+        model.record(cmdbuf, 0);
+        self.pipeline_topology
+            .depth_only_target()
+            .record_end(cmdbuf);
+        Ok(())
+    }
+
     fn record_dynamic_fruit_shadow_pass(
         &self,
         cmdbuf: &CommandBuffer,
@@ -6840,8 +6890,45 @@ impl Tracer {
         self.sprinkler_resources.instance_count
     }
 
-    pub(crate) fn set_soil_bag_preview(&mut self, preview: Option<crate::soil_bag::Preview>) {
-        self.model_mesh_frame.set_soil_bag(preview);
+    pub(crate) fn set_soil_bag_instance(&mut self, instance: Option<crate::soil_bag::Instance>) {
+        self.model_mesh_frame.set_soil_bag(instance);
+    }
+
+    /// Opt-in soil-bag review only: read the previous completed frame's actual
+    /// raster sun depth, restoring its layout. Never used for live interaction.
+    pub(crate) fn soil_bag_shadow_depth_pixels(&self) -> Result<usize> {
+        let image = self.resources.shadow.shadow_map_depth_tex.get_image();
+        anyhow::ensure!(image.get_desc().format == vk::Format::D32_SFLOAT);
+        let bytes = image.get_size() as u64;
+        let readback = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            re_flora_vkn::BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            re_flora_vkn::MemoryLocation::GpuToCpu,
+            bytes,
+        );
+        let layout = image.get_layout(0);
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmd| {
+                image.record_copy_to_buffer(cmd, &readback, layout);
+                cmd.use_buffer(&readback, BufferUse::HostRead);
+            },
+        );
+        let data = readback.read_back()?;
+        anyhow::ensure!(data.len() == bytes as usize);
+        let mut covered = 0;
+        for pixel in data.chunks_exact(4) {
+            let depth = f32::from_le_bytes(pixel.try_into().unwrap());
+            anyhow::ensure!(
+                depth.is_finite() && (0.0..=1.0).contains(&depth),
+                "invalid world shadow depth"
+            );
+            covered += usize::from(depth < 1.0);
+        }
+        Ok(covered)
     }
 
     pub fn set_stone_preview(&mut self, request: Option<StonePreviewRequest>) -> Result<()> {

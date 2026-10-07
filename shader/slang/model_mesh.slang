@@ -2,6 +2,7 @@
 // Cached surfaces reconstruct per-cell depth without changing the scene grid.
 module model_mesh;
 import model_bake_triangle;
+import model_mesh_geometry;
 import model_mesh_lighting;
 import model_mesh_types;
 import model_mesh_view;
@@ -12,16 +13,8 @@ import color;
 import flora_shadow;
 import environment_lighting;
 import sunlight;
-[[vk::binding(16,1)]] public StructuredBuffer<ButterflyMeshTriangle> model_mesh_triangles;
-[[vk::binding(17,1)]] public StructuredBuffer<uint4> model_mesh_ranges;
 public ModelMeshOutput emptyModelMeshVertex() {
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);return output;
-}
-public float3 meshPoint(ButterflyMeshTriangle t,uint corner) {
-    return t.a.xyz+(corner==1u?t.e1.xyz:corner==2u?t.e2.xyz:float3(0));
-}
-public float3 meshNormal(ButterflyMeshTriangle t,uint corner) {
-    return corner==0u?t.normal0.xyz:corner==1u?t.normal1.xyz:t.normal2.xyz;
 }
 public float3 meshShade(float3 linear,float3 position,float3 normal) {
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui_input,sun_info,shadow_camera_info,position,normal);

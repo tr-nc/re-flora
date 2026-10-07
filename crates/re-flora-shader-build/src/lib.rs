@@ -391,6 +391,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/props/tool_model_shadow.vert",
+        source_path: "shader/slang/tool_model_shadow.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
         logical_path: "shader/props/dynamic_fruit.vert",
         source_path: "shader/slang/dynamic_fruit.vert.slang",
         module_path: "shader/slang",

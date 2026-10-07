@@ -2,6 +2,7 @@ import flower_model;
 import flora_types;
 import flower_palette;
 import model_mesh;
+import model_mesh_geometry;
 import model_surface_cache;
 import model_mesh_view;
 import model_cache_types;

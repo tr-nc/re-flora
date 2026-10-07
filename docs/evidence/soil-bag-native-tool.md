@@ -39,6 +39,27 @@ RGB 贴纸在 Linear-sRGB 解码后 Nearest 查找，不插值、不用 mipmap�
 
 隐藏静音普通启动、完整 rooftop 数量/时序检查和真实异步 held-input cycle 通过，日志无 ERROR/VUID/panic。合并后 cycle：`added=6656 peak_grains=9 contacts=16 conserved=true real_inventory_preserved=true`；不同于合并前的同步输入数量/粒子峰值，不能混作匹配性能或相同手感证据。日志在 `/tmp/terrain-magic-main-merge-{check,all-tests,node-tests,release,rooftop,bag-cycle,smoke,tail}.log`。本地 spread13/浮点格式保留、不提交；主分支对 GUI 声明的合法变更保留。
 
+## 世界模型实例与投影（合并后）
+
+土袋从 `Preview` 改为有世界位置/旋转/尺度的 `soil_bag::Instance`。工具拥有其生命周期，渲染器在 acquired-slot fence 完成后**只发布一次** `world_model_instances`，主颜色/深度和太阳投影读取同一份实例快照，不是编辑色覆盖或屏幕 overlay；即使关闭 flora/particles，袋子本身仍足以启动普通场景绘制。
+
+可见表面仍复用既有32²/shared-view缓存、材质和 `meshShade` 的实时太阳/场景阴影、DDGI环境受光。新增的 depth-only 世界 pass 用同一完整发布几何、同一袋口枢轴和相机量化世界变换投进现有太阳深度图，再走普通 depth-copy/terrain/VSM 管线；不是地面圆斑或光向 billboard。创建、姿态/位置、相机、view-bank变化和移除都参与阴影历史失效，避免旧投影残留。
+
+共享 `model_mesh_geometry.slang` 把不受光的三角形访问从 shading 模块分离；`world_model_instance.slang` 共享放置。中间检查先发现 shadow shader 意外要求 DDGI 资源，随后发现旧 cached descriptor helper 为纯几何 pass 提供了多余资源，均通过这两个模块边界解决；未给深度 pass 塞入光照字段或扩大设备特性。新 pipeline 已注册完整 graphics/extent/transient-frame 生命周期。太阳 depth texture 的 TRANSFER_SRC 仅允许 opt-in 检查真实数据；普通交互不下载它。
+
+此物体是 **Raster Consumer + direct-sun shadow caster**，没有添加土袋为 DDGI Occluder、局部灯二级光线遮挡或光线反射几何，也没有新增刚体、掉落/拾取、库存袋子或存档。固定 hover/pour 两态、成功写入门控颗粒、土量/支撑/库存/立即批次时钟均保持；网页素材未改，生成文件无变化。
+
+最终验证：
+
+- fmt/check/Release 构建通过；完整 Rust **1462 passed / 4 known baseline failed / 6 ignored**，碰撞另4项通过，Node **50/50**。2项新增回归覆盖世界实例阴影历史及独立场景绘制，既有袋口、共享采样/Vulkan入口、颗粒、沉积和工具回归通过。未修改4项既有石头/玻璃/保存默认值断言。
+- `RE_FLORA_SOIL_BAG_REVIEW=world` 的空 rooftop：实际太阳 depth **316 个非空像素 → 换 Edit 移除后0**，不是仅检查 draw 日志；`added=0 peak_grains=0`，地形/真实库存不变。depth readback 是显式、阻塞、恢复 layout 的诊断，不是性能数据。
+- 生产 cycle：hover/pour 两种实例都执行 `published_triangles` 太阳 pass；可见面仍为 `cached_surface_cells`。`added=6656 peak_grains=9 contacts=16 conserved=true real_inventory_preserved=true`。完整 rooftop 1/10/50/512/1024批量、0/49/50/100/250ms与4224有支撑写入检查保持通过。
+- 普通隐藏静音启动、上述检查及体素地板截图日志无 ERROR/VUID/panic。`target/soil-bag-world-voxel-floor.png` 真实呈现袋子在普通世界体素地面上的投影。
+- 旧固定模型 rooftop 地板是独立的简化 authored-sun consumer（`static_scene.frag.slang`），**本来不接收世界阴影**，此次没有擅自改它或切换保存的场景默认值。普通花园/已有体素屋顶模式可见投影；用 `RE_FLORA_ROOFTOP_VOXELS=1` 只对诊断启动临时启用后者。`world-before/after.png` 的相机不同，仅作局部查看，不是匹配 A/B 或性能证据。没有新增性能预算/其他 GPU验收或用户最终美术认可。
+- `config/gui.toml` 与开始前备份逐字节一致，spread13等本地改动不提交；没有新增 Debug 控件。未自动开启可见游戏。
+
+日志：`/tmp/terrain-magic-soil-bag-world-{check,tests,instance-tests,frame-tests,all-tests,node-tests,release,depth,cycle,hover,voxel-floor,rooftop,smoke,tail}.log`。中间描述符错误保留在早期工作树 run log 和 `world-unlit-descriptor-error.log` 中，不作最终成功证据。
+
 ## 重现 / 手动试用
 
 ```sh
@@ -51,6 +72,9 @@ RE_FLORA_SOIL_BAG_REVIEW=cycle \
   RUST_LOG='warn,re_flora::app::core::soil_bag_review=info,re_flora::tracer::model_mesh_frame=info,re_flora::run_log_binding=info' \
   cargo run --release -- --hidden --mute --rooftop-poc --auto-exit 5
 # hover 模式验证不点击时的零写入/零颗粒。
+# world 模式验证真实太阳 depth 的写入/移除（空 rooftop、零土量）。
+# 观察实际体素地板投影；不改变保存的默认模式：
+RE_FLORA_ROOFTOP_VOXELS=1 cargo run --release -- --rooftop-poc
 ```
 
 GPU 检查应串行；从同一 worktree 使用 `--latest-log` / `--tail-latest-log` 找到日志并检查 `[SOIL_BAG_REVIEW][CHECK]`。截图 fixture 的相机/时间只在 opt-in review 下设置，不改变普通游戏相机。

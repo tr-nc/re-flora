@@ -1616,7 +1616,8 @@ impl TracerResources {
             format: vk::Format::D32_SFLOAT,
             usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
                 | vk::ImageUsageFlags::SAMPLED
-                | vk::ImageUsageFlags::TRANSFER_DST,
+                | vk::ImageUsageFlags::TRANSFER_DST
+                | vk::ImageUsageFlags::TRANSFER_SRC,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::DEPTH,
             ..Default::default()

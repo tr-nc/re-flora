@@ -15,6 +15,8 @@ pub(super) struct Review {
     pub pour_seen: bool,
     pub peak_grains: usize,
     pub contacts: usize,
+    shadow_pixels: Option<usize>,
+    removed_shadow_pixels: Option<usize>,
     done: bool,
 }
 impl Review {
@@ -23,8 +25,8 @@ impl Review {
             return Ok(None);
         };
         ensure!(
-            matches!(mode.as_str(), "hover" | "pour" | "cycle"),
-            "RE_FLORA_SOIL_BAG_REVIEW must be hover, pour or cycle"
+            matches!(mode.as_str(), "hover" | "pour" | "cycle" | "world"),
+            "RE_FLORA_SOIL_BAG_REVIEW must be hover, pour, cycle or world"
         );
         Ok(Some(Self {
             mode,
@@ -36,6 +38,8 @@ impl Review {
             pour_seen: false,
             peak_grains: 0,
             contacts: 0,
+            shadow_pixels: None,
+            removed_shadow_pixels: None,
             done: false,
         }))
     }
@@ -100,7 +104,22 @@ impl App {
                     review.mode
                 );
             }
-            if review.mode != "hover" {
+            if review.mode == "world" {
+                if review.frame == 20 {
+                    let pixels = self.tracer.soil_bag_shadow_depth_pixels()?;
+                    ensure!(pixels > 0, "world bag did not write real sun depth");
+                    review.shadow_pixels = Some(pixels);
+                }
+                if review.frame == 50 {
+                    self.select_item_panel_slot(2);
+                }
+                if review.frame == 70 {
+                    let pixels = self.tracer.soil_bag_shadow_depth_pixels()?;
+                    ensure!(pixels == 0, "removed world bag left shadow geometry behind");
+                    review.removed_shadow_pixels = Some(pixels);
+                }
+            }
+            if matches!(review.mode.as_str(), "pour" | "cycle") {
                 if review.frame == 10 {
                     self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Pressed);
                     ensure!(
@@ -141,7 +160,7 @@ impl App {
                     "visual grains changed real stock"
                 );
                 ensure!(review.hover_seen, "review must render hover pose");
-                if review.mode != "hover" {
+                if matches!(review.mode.as_str(), "pour" | "cycle") {
                     ensure!(
                         review.pour_seen
                             && review.added > 0
@@ -150,7 +169,7 @@ impl App {
                         "review must exercise real pouring and grain contacts"
                     );
                     ensure!(
-                        self.soil_bag_preview.current_preview().is_none(),
+                        self.soil_bag_preview.current_instance().is_none(),
                         "bag must hide after switching away from Soil"
                     );
                 } else {
@@ -158,6 +177,15 @@ impl App {
                         review.added == 0 && review.peak_grains == 0,
                         "hover cannot emit material or particles"
                     );
+                }
+                if review.mode == "world" {
+                    ensure!(
+                        review.shadow_pixels.is_some_and(|pixels| pixels > 0)
+                            && review.removed_shadow_pixels == Some(0),
+                        "world shadow lifecycle review incomplete"
+                    );
+                    ensure!(self.soil_bag_preview.current_instance().is_none());
+                    log::info!("[SOIL_BAG_REVIEW][WORLD_CHECK] sun_depth_pixels={} after_removal=0 shared_frame_instance=true world_lighting=true terrain_unchanged=true", review.shadow_pixels.unwrap());
                 }
                 log::info!("[SOIL_BAG_REVIEW][CHECK] hover={} pour={} added={} peak_grains={} contacts={} conserved=true real_inventory_preserved=true no_animation=true",review.hover_seen,review.pour_seen,review.added,review.peak_grains,review.contacts);
                 review.done = true;

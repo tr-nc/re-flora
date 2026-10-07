@@ -185,6 +185,7 @@ struct Frame {
     particles: Option<Arc<Buffer>>,
     cache: [Option<Arc<CacheBuffers>>; MODEL_KINDS],
     tool_pose: Option<Arc<Buffer>>,
+    soil_bag: Option<crate::soil_bag::Instance>,
     stem_bands: Vec<(u64, Arc<Buffer>)>,
     stem_draws: usize,
 }
@@ -202,7 +203,9 @@ pub(super) struct ModelMeshFrame {
     cache_options: CacheOptions,
     geometry_generation: u64,
     logged_cache_modes: [Option<bool>; MODEL_KINDS],
-    soil_bag: Option<crate::soil_bag::Preview>,
+    soil_bag: Option<crate::soil_bag::Instance>,
+    soil_bag_shadow: crate::soil_bag::ShadowState,
+    reviewed_bag_shadows: [bool; 2],
 }
 impl ModelMeshFrame {
     pub fn new(context: &VulkanContext, allocator: Allocator) -> Self {
@@ -221,6 +224,8 @@ impl ModelMeshFrame {
             geometry_generation: 0,
             logged_cache_modes: [None; MODEL_KINDS],
             soil_bag: None,
+            soil_bag_shadow: Default::default(),
+            reviewed_bag_shadows: [false; 2],
         }
     }
     pub fn set_cache_options(&mut self, options: CacheOptions) {
@@ -317,6 +322,7 @@ impl ModelMeshFrame {
         // buffers if a live shape change creates a new geometry generation.
         self.frames[slot].geometry = None;
         self.frames[slot].cache = Default::default();
+        self.frames[slot].soil_bag = None;
         self.frames[slot].stem_draws = 0;
         compute
             .flower_stem_bands_ppl
@@ -466,7 +472,6 @@ impl ModelMeshFrame {
         mut resources: Vec<(&str, DescriptorResource<'a>)>,
         push: Option<PushConstantInfo>,
     ) -> Result<PreparedModelMeshes> {
-        resources.push(self.view_bank_binding());
         for (kind, (samples, entries)) in [
             ("model_cached_apple_surfaces", "model_cached_apple_entries"),
             (
@@ -486,6 +491,18 @@ impl ModelMeshFrame {
             resources.push((samples, DescriptorResource::Buffer(&cache.samples)));
             resources.push((entries, DescriptorResource::Buffer(&cache.entries)));
         }
+        self.prepare_geometry(cmd, pass, count, vertices, resources, push)
+    }
+    fn prepare_geometry<'a>(
+        &'a self,
+        cmd: &CommandBuffer,
+        pass: MeshPass<'_>,
+        count: u32,
+        vertices: u32,
+        mut resources: Vec<(&str, DescriptorResource<'a>)>,
+        push: Option<PushConstantInfo>,
+    ) -> Result<PreparedModelMeshes> {
+        resources.push(self.view_bank_binding());
         cmd.use_buffer(&self.active.as_ref().unwrap().indices, BufferUse::IndexRead);
         Ok(PreparedModelMeshes {
             pipeline: pass.display.clone(),
@@ -615,39 +632,37 @@ impl ModelMeshFrame {
             )?,
         })
     }
-    pub fn set_soil_bag(&mut self, preview: Option<crate::soil_bag::Preview>) {
-        self.soil_bag = preview;
+    pub fn set_soil_bag(&mut self, instance: Option<crate::soil_bag::Instance>) {
+        self.soil_bag = instance;
     }
-    pub fn soil_bag(
-        &mut self,
-        cmd: &CommandBuffer,
-        pass: MeshPass<'_>,
-    ) -> Result<Option<PreparedModelMeshes>> {
-        let Some(pose) = self.soil_bag else {
-            return Ok(None);
+    pub fn has_soil_bag(&self) -> bool {
+        self.soil_bag.is_some()
+    }
+    pub fn take_soil_bag_shadow_changed(&mut self, camera: Vec3) -> bool {
+        self.soil_bag_shadow
+            .observe(self.soil_bag, camera, self.view_count.unwrap())
+    }
+    /// Publish once after the acquired-slot fence, before *both* world passes.
+    /// Do not rewrite the instance after preparing its shadow descriptors.
+    pub fn publish_soil_bag(&mut self, cmd: &CommandBuffer) -> Result<()> {
+        let frame = &mut self.frames[self.slot];
+        frame.soil_bag = self.soil_bag;
+        let Some(pose) = frame.soil_bag else {
+            return Ok(());
         };
-        self.review_draw(
-            if pose.pouring { 64 } else { 32 },
-            if pose.pouring {
-                "soil_bag_pour"
-            } else {
-                "soil_bag_hover"
-            },
-            1,
-        );
         #[repr(C)]
         #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-        struct ToolPose {
+        struct WorldModelInstance {
             position: [f32; 4],
             axes: [[f32; 4]; 3],
             metadata: [u32; 4],
             mouth: [f32; 4],
         }
-        let g = self.active.as_ref().unwrap().clone();
+        let g = self.active.as_ref().unwrap();
         let state = usize::from(pose.pouring);
         let source = g.source.soil_bag_sources[state];
         let asset = crate::soil_bag::asset();
-        let data = ToolPose {
+        let data = WorldModelInstance {
             position: pose.position.extend(pose.scale).to_array(),
             axes: [Vec3::X, Vec3::Y, Vec3::Z].map(|v| (pose.rotation * v).extend(0.).to_array()),
             metadata: [
@@ -658,30 +673,70 @@ impl ModelMeshFrame {
             ],
             mouth: Vec3::from(asset.states[state].mouth).extend(0.).to_array(),
         };
-        let frame = &mut self.frames[self.slot];
         if frame.tool_pose.is_none() {
             frame.tool_pose = Some(Arc::new(Buffer::try_new_sized(
                 self.device.clone(),
                 self.allocator.clone(),
                 BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
                 MemoryLocation::CpuToGpu,
-                std::mem::size_of::<ToolPose>() as u64,
+                std::mem::size_of::<WorldModelInstance>() as u64,
             )?));
         }
-        let buffer = frame.tool_pose.as_ref().unwrap().clone();
-        // This slot's fence has completed. Never overwrite another in-flight pose.
+        let buffer = frame.tool_pose.as_ref().unwrap();
         buffer.fill_range_with_raw_u8(0, bytemuck::bytes_of(&data))?;
+        cmd.use_buffer(buffer, BufferUse::HostWrite);
+        Ok(())
+    }
+    pub fn soil_bag(
+        &mut self,
+        cmd: &CommandBuffer,
+        pass: MeshPass<'_>,
+        shadow: bool,
+    ) -> Result<Option<PreparedModelMeshes>> {
+        let Some(pose) = self.frames[self.slot].soil_bag else {
+            return Ok(None);
+        };
+        let state = usize::from(pose.pouring);
+        if !shadow {
+            self.review_draw(
+                if pose.pouring { 64 } else { 32 },
+                if pose.pouring {
+                    "soil_bag_pour"
+                } else {
+                    "soil_bag_hover"
+                },
+                1,
+            );
+        } else if !self.reviewed_bag_shadows[state]
+            && std::env::var_os("RE_FLORA_SOIL_BAG_REVIEW").is_some()
+        {
+            self.reviewed_bag_shadows[state] = true;
+            log::info!("[WORLD_MODEL_DRAW] object=soil_bag pose={} instances=1 pass=sun_shadow geometry=published_triangles shared_frame_instance=true", if pose.pouring {"pour"} else {"hover"});
+        }
+        let frame = &self.frames[self.slot];
+        let g = self.active.as_ref().unwrap();
+        let source = g.source.soil_bag_sources[state];
         let mut resources = g.bindings().to_vec();
-        resources.push(("tool_model_pose", DescriptorResource::Buffer(&buffer)));
-        resources.push(("tool_model_colors", DescriptorResource::Buffer(&g.palette)));
-        Ok(Some(self.prepare(
-            cmd,
-            pass,
-            1,
-            self.draw_vertices(3, g.source.ranges[source as usize][1] * 3),
-            resources,
-            None,
-        )?))
+        resources.push((
+            "world_model_instances",
+            DescriptorResource::Buffer(frame.tool_pose.as_ref().unwrap()),
+        ));
+        if !shadow {
+            resources.push(("tool_model_colors", DescriptorResource::Buffer(&g.palette)));
+        }
+        let native_vertices = g.source.ranges[source as usize][1] * 3;
+        Ok(Some(if shadow {
+            self.prepare_geometry(cmd, pass, 1, native_vertices, resources, None)?
+        } else {
+            self.prepare(
+                cmd,
+                pass,
+                1,
+                self.draw_vertices(3, native_vertices),
+                resources,
+                None,
+            )?
+        }))
     }
 
     pub fn fallen_apples(

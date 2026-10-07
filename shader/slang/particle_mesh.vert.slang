@@ -1,5 +1,6 @@
 import butterfly_mesh_types;
 import model_mesh;
+import model_mesh_geometry;
 import model_mesh_view;
 import model_surface_cache;
 import model_view_quantization;
