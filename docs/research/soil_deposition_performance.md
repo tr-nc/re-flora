@@ -73,6 +73,16 @@ Matched same-binary large run: original event mean26.946ms/median26.347ms/p9530.
 
 Reach guard test, full deposition regressions, generic saved-field round-trip, cargo check/Release build and normal hidden smoke passed. No shader change. The checkbox is source-declarative; generated GUI changes follow from cargo check. User spread13 remains local.
 
+## Experiment2: request-local dense column lookup
+
+Checked mode uses a lazy dense X/Z column table instead of hashing every neighbor query. Unchecked retains the original HashMap. Both tables are request-local, preserve blocked columns and ceiling intervals, and advance only after the same real writes. No cross-request occupancy cache or invalidation shortcut was introduced.
+
+All ordinary deposition test fixtures now execute both planners and assert identical `DepositionResult` and every atlas byte, including shape, support, cavities, ceilings, rejected input, arbitrary materials and adaptive replay.22 tests passed; the ignored artifact exporter remains outside ordinary tests. This is correctness evidence only.
+
+Large release candidate: event mean18.789ms/median18.335ms/p9522.043ms; frame p9524.257ms. Hash`299ee6dcf37284dd` and40960 added voxels remain identical. Typical post-first-event planning is3.0–3.3ms instead of reach-only4.8–5.5ms; readback7–8ms and visible publication remain. Compared with the matched original26.946ms mean, the combined candidate is approximately1.43×, pending final interleaved runs. Artifact: `target/soil-perf/dense-large.json`.
+
+Cargo check, Release build, differential regression tests, matched release replay and ordinary hidden smoke passed. No shader or material/rendering changes; original mode remains available via the checkbox.
+
 ## Implementation sources
 
 - `src/terrain_deposition.rs`: per-grain supported settling and speculative retry contract.

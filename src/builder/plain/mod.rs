@@ -825,14 +825,12 @@ impl PlainBuilder {
             read_ms += stage.elapsed().as_secs_f64() * 1000.;
             read_bytes += data.len();
             let stage = Instant::now();
-            let result = crate::terrain_deposition::deposit_in_bounds(
-                &mut data,
-                sample.min(),
-                dim,
-                support_floor,
-                request,
-                legal,
-            );
+            let plan = if fast_path {
+                crate::terrain_deposition::deposit_in_bounds_fast
+            } else {
+                crate::terrain_deposition::deposit_in_bounds
+            };
+            let result = plan(&mut data, sample.min(), dim, support_floor, request, legal);
             plan_ms += stage.elapsed().as_secs_f64() * 1000.;
             if !result.needs_more_space {
                 break (data, dim, result);

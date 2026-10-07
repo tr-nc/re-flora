@@ -106,7 +106,7 @@ impl DepositionSamplingHint {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) struct DepositionResult {
     pub added: u32,
     /// Inclusive changed bounds, suitable for Visible Terrain Publication.
@@ -120,6 +120,60 @@ pub(crate) struct DepositionResult {
 struct Column {
     next: u32,
     ceiling: u32,
+}
+
+#[derive(Clone, Copy)]
+enum ColumnSlot {
+    Unread,
+    Known(Option<Column>),
+}
+
+enum ColumnCache {
+    Sparse(HashMap<(u32, u32), Option<Column>>),
+    Dense { width: u32, slots: Vec<ColumnSlot> },
+}
+impl ColumnCache {
+    fn new(dim: UVec3, dense: bool) -> Self {
+        if dense {
+            Self::Dense {
+                width: dim.x,
+                slots: vec![ColumnSlot::Unread; dim.x as usize * dim.z as usize],
+            }
+        } else {
+            Self::Sparse(HashMap::new())
+        }
+    }
+    fn get_or_find(
+        &mut self,
+        x: u32,
+        z: u32,
+        find: impl FnOnce() -> Option<Column>,
+    ) -> Option<Column> {
+        match self {
+            Self::Sparse(columns) => *columns.entry((x, z)).or_insert_with(find),
+            Self::Dense { width, slots } => {
+                let slot = &mut slots[(z * *width + x) as usize];
+                match *slot {
+                    ColumnSlot::Known(column) => column,
+                    ColumnSlot::Unread => {
+                        let column = find();
+                        *slot = ColumnSlot::Known(column);
+                        column
+                    }
+                }
+            }
+        }
+    }
+    fn set(&mut self, x: u32, z: u32, column: Column) {
+        match self {
+            Self::Sparse(columns) => {
+                columns.insert((x, z), Some(column));
+            }
+            Self::Dense { width, slots } => {
+                slots[(z * *width + x) as usize] = ColumnSlot::Known(Some(column));
+            }
+        }
+    }
 }
 
 struct Rng(u32);
@@ -155,14 +209,19 @@ fn deposit(
     floor: Option<u32>,
     request: DepositionRequest,
 ) -> DepositionResult {
-    deposit_in_bounds(
-        data,
-        offset,
-        dim,
-        floor,
-        request,
-        UAabb3::new(offset, offset + dim),
-    )
+    let mut candidate = data.to_vec();
+    let legal = UAabb3::new(offset, offset + dim);
+    let reference = deposit_in_bounds(data, offset, dim, floor, request, legal);
+    let optimized = deposit_in_bounds_fast(&mut candidate, offset, dim, floor, request, legal);
+    assert_eq!(
+        reference, optimized,
+        "dense column lookup must preserve every planner result"
+    );
+    assert_eq!(
+        data, candidate,
+        "dense column lookup must preserve seeded atlas bytes"
+    );
+    reference
 }
 
 pub(crate) fn deposit_in_bounds(
@@ -173,6 +232,29 @@ pub(crate) fn deposit_in_bounds(
     request: DepositionRequest,
     legal: UAabb3,
 ) -> DepositionResult {
+    deposit_impl(data, offset, dim, floor, request, legal, false)
+}
+
+pub(crate) fn deposit_in_bounds_fast(
+    data: &mut [u8],
+    offset: UVec3,
+    dim: UVec3,
+    floor: Option<u32>,
+    request: DepositionRequest,
+    legal: UAabb3,
+) -> DepositionResult {
+    deposit_impl(data, offset, dim, floor, request, legal, true)
+}
+
+fn deposit_impl(
+    data: &mut [u8],
+    offset: UVec3,
+    dim: UVec3,
+    floor: Option<u32>,
+    request: DepositionRequest,
+    legal: UAabb3,
+    dense_columns: bool,
+) -> DepositionResult {
     let mut result = DepositionResult::default();
     if !request.valid()
         || dim.min_element() == 0
@@ -180,7 +262,7 @@ pub(crate) fn deposit_in_bounds(
     {
         return result;
     }
-    let mut columns: HashMap<(u32, u32), Option<Column>> = HashMap::new();
+    let mut columns = ColumnCache::new(dim, dense_columns);
     let mut rng = Rng(request.seed.max(1));
     let mut remaining = 0;
     let mut center = request.end;
@@ -216,10 +298,8 @@ pub(crate) fn deposit_in_bounds(
         let floor_local = floor
             .and_then(|y| y.checked_sub(offset.y))
             .filter(|y| *y < dim.y);
-        let column_at = |columns: &mut HashMap<_, _>, x, z| {
-            *columns
-                .entry((x, z))
-                .or_insert_with(|| find_column(data, dim, x, z, anchor, floor_local))
+        let column_at = |columns: &mut ColumnCache, x, z| {
+            columns.get_or_find(x, z, || find_column(data, dim, x, z, anchor, floor_local))
         };
         let Some(mut column) = column_at(&mut columns, x, z) else {
             continue;
@@ -302,12 +382,13 @@ pub(crate) fn deposit_in_bounds(
         // Column cache advances only after a real write; every accepted parcel has one owner.
         debug_assert_eq!(data[index(x, column.next, z)] & VOXEL_TYPE_MASK, 0);
         data[index(x, column.next, z)] = VOXEL_TYPE_DIRT as u8;
-        columns.insert(
-            (x, z),
-            Some(Column {
+        columns.set(
+            x,
+            z,
+            Column {
                 next: column.next + 1,
                 ..column
-            }),
+            },
         );
         result.added += 1;
         changed_min = changed_min.min(pos);
