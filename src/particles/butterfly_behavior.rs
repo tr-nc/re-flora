@@ -11,7 +11,6 @@ use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ButterflyForagingSettings {
-    pub enabled: bool,
     pub search_radius: f32,
     pub dwell_seconds: f32,
     pub preference_strength: f32,
@@ -20,7 +19,6 @@ pub struct ButterflyForagingSettings {
 impl Default for ButterflyForagingSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
             search_radius: 0.7,
             dwell_seconds: 4.,
             preference_strength: 1.,
@@ -39,7 +37,6 @@ impl ButterflyForagingSettings {
             }
         };
         Self {
-            enabled: self.enabled,
             search_radius: finite(self.search_radius, defaults.search_radius, 0.08, 1.5),
             dwell_seconds: finite(self.dwell_seconds, defaults.dwell_seconds, 0.5, 12.),
             preference_strength: finite(
@@ -384,10 +381,7 @@ mod tests {
         }
     }
     fn settings() -> ButterflyForagingSettings {
-        ButterflyForagingSettings {
-            enabled: true,
-            ..Default::default()
-        }
+        ButterflyForagingSettings::default()
     }
     #[test]
     fn selection_excludes_recent_flowers_and_failure_memory_is_bounded() {

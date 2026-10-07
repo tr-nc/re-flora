@@ -524,16 +524,10 @@ impl App {
             + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
         let animation_time = self.butterfly_presentation_time();
         self.tracer.set_flower_visits_enabled(
-            self.debug_settings.butterfly_flight.foraging.enabled
-                && self
-                    .debug_settings
-                    .butterfly_flight
-                    .variant
-                    .uses_darting_flight()
-                || self
-                    .butterfly_foraging_review
-                    .as_ref()
-                    .is_some_and(|r| r.needs_seed()),
+            self.debug_settings
+                .butterfly_flight
+                .variant
+                .uses_darting_flight(),
         );
         let flowers = self
             .tracer

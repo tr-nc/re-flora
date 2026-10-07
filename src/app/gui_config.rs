@@ -2058,12 +2058,14 @@ wind_drift = 1.0
         assert!(text.contains("Butterfly Update FPS"));
         assert!(!text.contains("Shared flight frequency"));
         assert!(text.contains("Flight height above ground"));
-        assert!(text.contains("Flower-visiting behavior (A/B)"));
+        assert!(!text.contains("Flower-visiting behavior (A/B)"));
+        assert!(text.contains("Butterfly flower search radius"));
+        assert!(text.contains("Butterfly flower dwell (seconds)"));
+        assert!(text.contains("Wingbeat-coupled flight (A/B experiment)"));
         assert!(text.contains("Butterfly flower-visiting wind limit"));
         assert!(!text.contains("Horizontal maneuver tempo"));
         assert!(!text.contains("Reset B flight controls"));
         settings.butterfly_flight.foraging = crate::particles::ButterflyForagingSettings {
-            enabled: false,
             search_radius: 1.1,
             dwell_seconds: 3.,
             preference_strength: 1.6,
@@ -2093,6 +2095,36 @@ wind_drift = 1.0
         assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
         assert!(settings.save_to_path(directory.path()).is_err());
         assert!(settings.save_error().unwrap().starts_with("Save failed:"));
+    }
+
+    #[test]
+    fn butterfly_foraging_legacy_switch_is_ignored_and_not_saved() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for enabled in [false, true] {
+            let mut document: toml::Value =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let foraging = document["butterfly_flight"]["foraging"]
+                .as_table_mut()
+                .unwrap();
+            foraging.insert("enabled".to_owned(), toml::Value::Boolean(enabled));
+            foraging.insert("dwell_seconds".to_owned(), toml::Value::Float(3.));
+            std::fs::write(&path, toml::to_string(&document).unwrap()).unwrap();
+            let mut settings = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(settings.butterfly_flight.foraging.dwell_seconds, 3.);
+            assert_eq!(settings.butterfly_flight.foraging.search_radius, 0.7);
+            settings.save_to_path(&path).unwrap();
+            let saved: toml::Value =
+                toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(saved["butterfly_flight"]["foraging"]
+                .get("enabled")
+                .is_none());
+            let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(
+                settings.butterfly_flight.foraging,
+                reloaded.butterfly_flight.foraging
+            );
+        }
     }
 
     #[test]

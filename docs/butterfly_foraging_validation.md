@@ -1,5 +1,7 @@
 # Butterfly flower visiting — implementation and validation
 
+Current approved behavior: flower visiting is always active for normal guided butterflies. The flower-visiting A/B checkbox and saved `foraging.enabled` field have been removed; legacy true/false values are ignored and omitted on Save. Search radius, dwell, preference and wind-limit controls remain saved and searchable. The separate existing wingbeat-coupling control is unchanged. Steps 1–3 below preserve the historical experiment and measurements; `ab`/`off` review modes are no longer available.
+
 ## Step 1: authoritative flower contacts
 
 - Flower contact points are ray-tested against the same transformed authored head triangles used by native/cached rendering, not roots or stem socket planes.
@@ -17,7 +19,7 @@ Validation in `new-bird`:
 - An initial zero-size Vulkan copy caused by argument order was caught by the native log inspection and corrected before commit; the successful validation above is the corrected run.
 - Generated tracked files: unchanged. Interim unused APIs will be consumed by the behavior step. These runs establish resource/contact correctness, not visual or performance acceptance.
 
-## Step 2: visiting loop and saved runtime A/B
+## Step 2: visiting loop and saved runtime A/B (historical)
 
 - Added `src/particles/butterfly_behavior.rs`: search → travel → approach → dwell/feed → takeoff, with recovery for deleted/stale hosts, sustained wind and stalled progress. Decisions are timed, not reselected every frame. Per-individual species weights are art direction; bounded recent-visit/failed-approach memory discourages immediate repeats.
 - Goal steering layers onto existing 120 Hz integration, inertia, wingbeat phase and hard world/terrain guards. The original controller is retained when unchecked. Approach progressively uses precision steering rather than random bursts; wind correction is air-speed limited, not a teleport or unlimited counterforce.
@@ -40,7 +42,7 @@ Correctness validation:
 - All successful native fixtures and the final 0.5 s Release smoke: shutdown `failures=0`, no ERROR/panic/VUID. Latest logs were inspected using this worktree's log helpers. Final post-clock-change 8 s visiting rerun also reaches complete-cycle/distinct-host PASS.
 - These establish behavioral/resource safety. Subjective visual approval, dense-world/stress performance acceptance and any ecological nectar/pollination effects remain separate; no visible game was automatically launched.
 
-## Step 3: Release measurements and hidden visual capture
+## Step 3: Release measurements and hidden visual capture (historical experiment)
 
 GPU: NVIDIA GeForce RTX 3060 Ti. Hidden normal native Vulkan surface/swapchain, 5120×2880 physical output; existing render settings retained, present mode auto-selected. GPU runs serialized with the shared lock. Four 10-second Release runs in **off → visits → visits → off** order; discard the first three seconds after seeding. Same fixture, six nearby authored heads, two butterflies, 1× self-flight and 1 s dwell. This is a small candidate measurement, not a dense-world or saved-default performance acceptance test.
 
@@ -56,4 +58,13 @@ GPU: NVIDIA GeForce RTX 3060 Ti. Hidden normal native Vulkan surface/swapchain, 
 - Five native screenshots captured and first/last inspected: `target/butterfly-foraging-native.000000.png` through `.000004.png`. They show the approved small butterfly mesh near moving flower heads, with position changes during the visiting loop; the actual attachment is visibly small at the wide fixture camera distance. The local crop is inspection-only, not a change in game size/palette/camera defaults. Screenshot sequence and normal completion marker passed without launching a visible window. Static captures do not constitute subjective animation approval.
 - The resize-lifecycle CLI fixture plus visiting scene completed its cycle without ERROR/panic/VUID and with shutdown `failures=0`. Do not interpret this as exhaustive device-loss or every possible swapchain recreation coverage.
 
-For a normal manual try-out, run `cargo run --release` from `new-bird` (no `--hidden`, no `--perf`). Debug Panel → Flower visiting → **Flower-visiting behavior (A/B)** toggles the candidate against original roaming live; Save persists the choice. Performance tuning and denser/ecological behavior should follow visual feedback, not block trying this candidate.
+For a normal manual try-out, run `cargo run --release` from `new-bird` (no `--hidden`, no `--perf`). Flower visiting is always active; Debug Panel → Flower visiting and Wind response retain saved tuning controls. Visual approval does not imply dense-world performance acceptance.
+
+## Step 4: promote the approved effect to always-on behavior
+
+- User approved the effect and requested removal of the flower-visiting A/B switch. Removed the checkbox, saved enable field, production conditional gates and obsolete `ab`/`off` fixture branches, rather than merely hiding a switch. The no-flower search/fallback, emergence handling and legacy flight-variant compatibility remain intact.
+- Existing saved tuning values and the independent wingbeat-coupling control are unchanged. Old `foraging.enabled = false` cannot disable visiting; either old flag value is accepted, ignored, and cleaned on normal Save, without a special save hook.
+- Tests cover absence of the checkbox while other controls remain visible, actual legacy-file load/save cleanup and parameter preservation, plus integrated always-active visiting in calm/moderate wind and parameter edits without resetting the visit phase.
+- `cargo fmt --check`, `cargo check`, `cargo build --release`: passed. `cargo test butterfly`: 50 passed. GUI-config tests excluding the three previously verified GUI baseline failures listed in Step 2: 91 passed; this is not an unfiltered whole-suite claim.
+- Hidden muted Release smoke (0.5 s) and production visiting fixture (8 s): passed; complete-cycle/distinct-host marker, shutdown `failures=0`, no ERROR/panic/VUID. Logs inspected with the worktree log helpers: `target/butterfly-foraging-always-on-{smoke,visits}-inspected.log`.
+- Research report updated to the approved always-on status; all 28 internal anchor links resolve. No shader, generated-file, palette, size, tempo or pre-existing saved tuning changes. No visible game launched.

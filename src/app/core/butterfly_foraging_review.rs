@@ -20,8 +20,8 @@ impl Review {
             .ok()
             .map(|mode| {
                 assert!(
-                    ["visits", "wind", "ab", "off", "lifetime"].contains(&mode.as_str()),
-                    "foraging review must be visits/wind/ab/off/lifetime"
+                    ["visits", "wind", "lifetime"].contains(&mode.as_str()),
+                    "foraging review must be visits/wind/lifetime"
                 );
                 Self {
                     mode,
@@ -33,9 +33,6 @@ impl Review {
                     passed: false,
                 }
             })
-    }
-    pub fn needs_seed(&self) -> bool {
-        self.start.is_none()
     }
     pub fn seed(
         &mut self,
@@ -102,9 +99,6 @@ impl Review {
             self.passed = true;
             log::info!("[BUTTERFLY_FORAGING][REVIEW_PASS] complete_cycle=true distinct_hosts=true");
         }
-        if self.mode == "off" {
-            assert_eq!(choices, 0, "original mode must never choose a flower");
-        }
     }
 }
 impl App {
@@ -117,8 +111,6 @@ impl App {
         let settings = &mut self.debug_settings;
         settings.adjustables.butterflies_enabled.value = true;
         settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Darting;
-        settings.butterfly_flight.foraging.enabled =
-            review.mode != "off" && !(review.mode == "ab" && (12.0..14.).contains(&elapsed));
         settings.butterfly_flight.foraging.dwell_seconds = 1.;
         settings.butterfly_flight.foraging.search_radius = 0.7;
         settings.butterfly_flight.foraging.wind_limit = 2.;

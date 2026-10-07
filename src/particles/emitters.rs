@@ -385,9 +385,7 @@ impl ButterflyEmitter {
         self.enabled = desc.enabled;
         self.spawn_rate_per_source = desc.spawn_rate_per_source.max(0.0);
         self.max_active_butterflies = desc.max_active_butterflies;
-        if self.foraging.enabled != desc.foraging.enabled
-            || self.flight_variant != desc.flight_variant
-        {
+        if self.flight_variant != desc.flight_variant {
             for b in &mut self.active_butterflies {
                 b.behavior.reset();
                 b.darting_flight.set_goal(None);
@@ -417,7 +415,7 @@ impl ButterflyEmitter {
 
     fn sync_active_motion(&mut self, system: &mut ParticleSystem) {
         for butterfly in &mut self.active_butterflies {
-            if !self.foraging.enabled || !self.flight_variant.uses_darting_flight() {
+            if !self.flight_variant.uses_darting_flight() {
                 system.set_body_pose(butterfly.handle, None);
             }
             let _ = system.set_size(butterfly.handle, self.size);
@@ -602,9 +600,7 @@ impl ButterflyEmitter {
 
     pub(crate) fn set_flowers(&mut self, flowers: &[super::flower_visits::FlowerTarget]) {
         self.flowers.clear();
-        if self.foraging.enabled {
-            self.flowers.extend_from_slice(flowers);
-        }
+        self.flowers.extend_from_slice(flowers);
     }
     pub(crate) fn foraging_phases(&self) -> [usize; 6] {
         let mut counts = [0; 6];
@@ -668,7 +664,7 @@ impl ButterflyEmitter {
                 butterfly.darting_flight.wingbeat_phase =
                     system.wingbeat_phase(butterfly.handle, self.flight_time - self.flight_elapsed);
                 let local_wind = wind.sample_world(position);
-                let intent = if self.foraging.enabled && !emerging {
+                let intent = if !emerging {
                     Some(butterfly.behavior.advance(
                         position,
                         velocity,
@@ -782,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn foraging_uses_integrated_flight_and_detaches_when_runtime_ab_is_unchecked() {
+    fn butterfly_foraging_is_always_active_and_flight_stays_integrated() {
         use crate::particles::flower_visits::{FlowerId, FlowerTarget};
         for strength in [0., 0.3] {
             let mut desc = butterfly_test_desc();
@@ -790,7 +786,6 @@ mod tests {
             desc.flight_tuning.speed = 0.25;
             desc.flight_tuning.vertical_strength = 4.;
             desc.flight_tuning.wingbeat_coupling = true;
-            desc.foraging.enabled = true;
             desc.foraging.dwell_seconds = 0.5;
             let mut emitter = ButterflyEmitter::new(17, &desc);
             let mut system = ParticleSystem::new(2);
@@ -843,15 +838,11 @@ mod tests {
             );
             assert_eq!(stats.stalls, 0);
             let before = system.position(handle).unwrap();
-            desc.foraging.enabled = false;
+            let phase = emitter.active_butterflies[0].behavior.phase;
+            desc.foraging.dwell_seconds = 0.75;
             emitter.apply_desc(&desc);
-            emitter.sync_active_motion(&mut system);
-            let mut snapshots = Vec::new();
-            system.write_snapshots_for_frame(
-                &mut snapshots,
-                crate::particles::ButterflyFrame::at(30., 8),
-            );
-            assert!(snapshots[0].butterfly_body_pose.is_none());
+            assert_eq!(emitter.active_butterflies[0].behavior.phase, phase);
+            assert_eq!(emitter.foraging_stats().landings, stats.landings);
             assert_eq!(before, system.position(handle).unwrap());
         }
     }

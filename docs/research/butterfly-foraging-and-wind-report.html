@@ -230,8 +230,8 @@
         <article class="phase"><h3><span class="priority">P1 · 风与改主意</span>同一个体，同一阵风，让打断有因果</h3><p>加入有限纠偏、无进展放弃、目标失效与短期访问记忆。应看到被吹偏的位移先发生，然后才出现修正 / 改选；去掉花时应安全离开。此阶段先用抽象取食成功率 / 有界停留，不上全局花蜜守恒系统。</p></article>
         <article class="phase"><h3><span class="priority later">P2 · 生活感与生态联系</span>在视觉结果确认之后，再加个性与微环境</h3><p>扩展不同花类偏好、叶面 / 石面休息、真实遮蔽、回访路线；如果花期与日照系统值得支持，再接入它们。之后可让开花、适度浇水与花簇布局影响访花机会，但遵循花园的温和后果，不做饥饿惩罚或玩家离线时的不可逆损失。</p></article>
       </div>
-      <h3 style="margin-top:27px">A/B 必须在游戏里切，不是只看这个网页</h3>
-      <p>建议新增可保存、可搜索的 Debug 复选框 <strong>“Flower-visiting behavior (A/B)”</strong>：未勾选保留当前飞行，勾选启用访花。它与现有 <em>Wingbeat-coupled flight</em> 独立。切换保留个体、位置、颜色、寿命和连续相位；关闭访花时先安全释放宿主，不瞬移回出生点。</p>
+      <h3 style="margin-top:27px">效果已获认可，访花固定启用</h3>
+      <p>访花闭环已实现并经用户认可，现移除访花行为的 A/B 复选框及保存开关，日常引导飞行固定使用访花行为。搜索半径、停留时长、个体偏好与风阈值仍可调整并保存；旧配置中的启用 / 关闭值不再影响行为。现有 <em>Wingbeat-coupled flight</em> 调参独立保留。上方源码审计与分期路线是原始调研基线，当前实现及历史对照验证见 <a href="../butterfly_foraging_validation.md">实现与验证记录</a>。</p>
       <p class="small">按仓库设置规则绑定保存字段，不加 App-only slider 或独立 save hook。按调整目的组织“访花 / 停驻”“风响应”，而非把同一关注点散到每种植物面板。状态 / 目标 / 失败原因记入日志，不堆在 Debug 面板。见 <a href="../agents/gui-settings.md">Debug 设置接入规则</a>。</p>
       <div class="table-wrap wide" role="region" aria-label="建议的验收场景，可横向滚动" tabindex="0">
         <table>
@@ -241,13 +241,13 @@
             <tr><td>局部阵风</td><td>先吹偏，再有限纠偏；强风无法前进时可放弃；风散后恢复。</td><td>完全抵消风，或无限逆风扑向同一个目标。</td></tr>
             <tr><td>花摇、花被删 / 世界重载</td><td>接触点跟随正确宿主；引用失效即释放；不穿地、不误绑新实例。</td><td>悬在花上、脚滑，或仍锁定已删除花的坐标。</td></tr>
             <tr><td>无花 / 多只蝴蝶</td><td>无花时自然探索；个体偏好与停留错开；接触点不严重重叠。</td><td>无花卡死，或所有个体同步往同一朵花飞。</td></tr>
-            <tr><td>切换与不同展示 FPS</td><td>A/B 无跳位；2 / 8 / 16 / 60 FPS 不改变行为 / 飞行结果；接触态展示一致。</td><td>视觉采样频率反过来改变决策或动力。</td></tr>
+            <tr><td>不同展示 FPS</td><td>2 / 8 / 16 / 60 FPS 不改变行为 / 飞行结果；接触态展示一致；调参不重置个体。</td><td>视觉采样频率反过来改变决策或动力。</td></tr>
           </tbody>
         </table>
       </div>
-      <p><strong>验证分两步：</strong>先用固定种子、固定镜头的 Release 实机 A/B 评审“有没有生活感”，再单独做密集花簇 / 个体上限的 Release 性能测量。记录花源更新、候选查询、GPU 读回与 CPU 轨迹成本；本报告没有性能数据，也不承诺“低频决策就一定便宜”。</p>
-      <p class="small">后续 Rust / shader 实现应执行 <code>cargo fmt --check</code>、<code>cargo check</code>、快且确定性的状态 / 身份 / 切换测试、<code>cargo build --release</code>，以及 <code>cargo run --release -- --hidden --mute --auto-exit 0.5</code> 并检查日志。隐藏启动只验证运行安全，不证明访花观感；视觉批准与性能验收分别记录。</p>
-      <div class="callout"><strong>推荐的下一步只有一个：</strong><p>先做带运行时 A/B 的“真实花头之间飞行与停驻”候选。确认“它是来花园访花的”成立，再做更聪明的学习、更真实的遮蔽和更多生态互动。</p></div>
+      <p><strong>验证分两步：</strong>实机访花观感已获用户认可；密集花簇 / 个体上限的 Release 性能验收仍单独进行。花源更新、候选查询、GPU 读回与 CPU 轨迹成本的有限场景测量见实现记录，不承诺“低频决策就一定便宜”，也不将视觉认可等同完整性能验收。</p>
+      <p class="small">后续 Rust / shader 实现应执行 <code>cargo fmt --check</code>、<code>cargo check</code>、快且确定性的状态 / 身份 / 配置兼容测试、<code>cargo build --release</code>，以及 <code>cargo run --release -- --hidden --mute --auto-exit 0.5</code> 并检查日志。隐藏启动只验证运行安全，不证明访花观感；视觉批准与性能验收分别记录。</p>
+      <div class="callout"><strong>当前结论：</strong><p>保留已认可的“真实花头之间飞行与停驻”，固定开启，不再保留访花 A/B 开关。后续按反馈再扩展学习、遮蔽与生态互动。</p></div>
     </section>
 
     <section id="sources" aria-labelledby="sources-heading">

@@ -4,9 +4,6 @@ use crate::particles::ButterflyFlightTuning;
 
 pub(crate) fn draw_butterfly_flight_controls(ui: &mut SavedControls<'_>) {
     ui.section("Flower visiting");
-    ui.toggle(|s| &mut s.butterfly_flight.foraging.enabled, true, false,
-        "Flower-visiting behavior (A/B)")
-        .on_hover_text("Unchecked: original roaming flight. Checked: choose flowers, approach, rest/feed, then depart for another flower. Uses actual moving flower surfaces. Saved, runtime switch; guided flight only.");
     ui.slider(
         |s| &mut s.butterfly_flight.foraging.search_radius,
         0.08..=1.5,
@@ -55,7 +52,7 @@ pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui:
     ui.section("Wind response");
     ui.slider(|s| &mut s.butterfly_flight.foraging.wind_limit,0.1..=6.,
         "Butterfly flower-visiting wind limit",0.05,false)
-        .on_hover_text("Sustained local wind above this game-unit threshold interrupts visits. Brief gusts are tolerated. Unchecked flower-visiting mode ignores it.");
+        .on_hover_text("Sustained local wind above this game-unit threshold interrupts visits. Brief gusts are tolerated.");
     let wind = ui.slider(|s| &mut s.butterfly_flight.tuning.wind_drift, ButterflyFlightTuning::WIND_DRIFT_RANGE, "Wind drift (x)", 0.05, false)
         .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
     let changed = [&height, &vertical, &sharpness, &speed, &wind]
