@@ -48,6 +48,7 @@ mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
+mod flower_visits;
 mod grass_band_cache;
 mod ordered_dither;
 pub(crate) mod scene_resolution;
@@ -1664,6 +1665,7 @@ pub struct Tracer {
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     model_mesh_frame: ModelMeshFrame,
+    flower_visits: flower_visits::FlowerVisits,
     stone_preview: stone_preview::Renderer,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
@@ -2030,6 +2032,7 @@ impl Tracer {
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             model_mesh_frame,
+            flower_visits: Default::default(),
             stone_preview,
             particle_instance_scratch: Vec::new(),
             translucent_particle_instance_scratch: Vec::new(),
@@ -4125,6 +4128,13 @@ impl Tracer {
                 .extent,
         )?;
 
+        self.record_flower_visits(
+            cmdbuf,
+            surface_resources,
+            time,
+            gpu_profiler_frame_slot,
+            render_flags.enable_flora,
+        )?;
         let prepared_particle_pixels =
             if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
                 Some(Self::with_gpu_scope(

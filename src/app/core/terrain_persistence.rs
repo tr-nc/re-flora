@@ -451,6 +451,7 @@ impl App {
                     }
                     self.summer_cicadas.clear("world_replacement")?;
                     self.ecology.clear();
+                    self.tracer.invalidate_flower_visits();
                     for emitter in &mut self.butterfly_emitters {
                         emitter.clear(&mut self.particle_system);
                     }

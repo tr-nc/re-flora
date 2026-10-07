@@ -388,6 +388,18 @@ impl ModelMeshFrame {
         self.particles
             .prepare_frame_models(snapshots, settings, camera)
     }
+    pub(super) fn flower_hosts(
+        &self,
+    ) -> std::collections::HashSet<crate::particles::flower_visits::FlowerId> {
+        self.particles.flower_hosts()
+    }
+    pub(super) fn flower_parts_buffer(&self) -> Arc<Buffer> {
+        self.active
+            .as_ref()
+            .expect("prepared flower geometry")
+            .parts
+            .clone()
+    }
     pub fn particle_count(&self) -> u32 {
         self.particles.count()
     }

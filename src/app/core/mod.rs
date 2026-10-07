@@ -3344,6 +3344,9 @@ impl App {
                     .complete_surface_pick_slot(frame_slot)
                     .expect("completed pick readback slot");
                 self.tracer
+                    .complete_flower_visits_slot(frame_slot)
+                    .expect("completed flower contact slot");
+                self.tracer
                     .publish_particle_state(frame_slot)
                     .expect("publish acquired-frame particle state");
                 self.collect_gpu_profiler_frame(frame_slot);

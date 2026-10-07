@@ -74,6 +74,7 @@ impl ButterflyMeshResources {
 #[derive(Default)]
 pub(super) struct ButterflyMeshRenderer {
     instances: Vec<Instance>,
+    hosts: Vec<Option<crate::particles::flower_visits::FlowerId>>,
     draw_order: Vec<u32>,
     previous_mode: Option<(u32, u32)>,
 }
@@ -88,6 +89,7 @@ impl ButterflyMeshRenderer {
         camera: Vec3,
     ) -> Result<()> {
         self.instances.clear();
+        self.hosts.clear();
         self.draw_order.clear();
         let mode = (settings.resolution.clamp(8, MAX_RESOLUTION), settings.fps);
         if self.previous_mode != Some(mode) {
@@ -128,6 +130,7 @@ impl ButterflyMeshRenderer {
             let bank = coupling.map_or(0., |p| p.bank * blend);
             let facing = crate::particles::butterfly_wingbeat::flight_orientation(s.velocity, bank);
             let rgb = ButterflyPalettePreset::from_index(s.palette_index).base_color_srgb();
+            self.hosts.push(None);
             self.instances.push(Instance {
                 position_size: (s.position_ws
                     + facing * root_motion * ((1. - blend) * s.size * (1.53125 / 3.4)))
@@ -153,6 +156,11 @@ impl ButterflyMeshRenderer {
         }
         self.draw_order.extend(0..self.count());
         Ok(())
+    }
+    pub(super) fn flower_hosts(
+        &self,
+    ) -> std::collections::HashSet<crate::particles::flower_visits::FlowerId> {
+        self.hosts.iter().flatten().copied().collect()
     }
     pub fn publish_mesh_frame(&self, publish: impl FnOnce(&[u8]) -> Result<()>) -> Result<()> {
         let ordered: Vec<_> = self
