@@ -533,7 +533,9 @@ impl SpatialSoundManager {
         self.add_clip_source(
             category,
             clip,
-            PlayOptions::once().with_direct_path(Self::spatial_one_shot_direct_path(category)),
+            PlayOptions::once()
+                .with_acoustic_start()
+                .with_direct_path(Self::spatial_one_shot_direct_path(category)),
             volume_db,
             Some(position),
             None,

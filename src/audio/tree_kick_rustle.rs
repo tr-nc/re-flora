@@ -136,7 +136,9 @@ impl KickRustlePlayer {
         self.variant = self.variant.wrapping_add(1);
         self.active.push_back(Active {
             source,
-            deadline: now + Duration::from_secs_f32(tuning.duration + 0.25),
+            deadline: now
+                + Duration::from_secs_f32(tuning.duration + 0.25)
+                + petalsonic::ACOUSTIC_START_MAX_DELAY,
         });
         log::info!("[TREE_KICK][RUSTLE] once=true wind_independent=true variant={variant} duration={} active={} max_voices={MAX_VOICES} position={position:?}", tuning.duration, self.active.len());
         Ok(())
