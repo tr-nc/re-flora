@@ -1,1 +1,12 @@
-snapshots = []
+[[snapshots]]
+name = "bad-audio-case"
+description = ""
+position = [
+    0.9601637,
+    0.4955372,
+    0.9404505,
+]
+yaw_deg = 140.38507
+pitch_deg = 11.159441
+fov_deg = 60.0
+fly_mode = false
