@@ -71,6 +71,8 @@ pub(super) struct FlowerPart {
     stem: [f32; 4],
     distribution: [f32; 4],
     socket: [f32; 4],
+    landing: [f32; 4],
+    landing_normal: [f32; 4],
 }
 impl FlowerPart {
     pub fn maximum_stem_length(&self) -> f32 {
@@ -163,22 +165,28 @@ pub(super) fn source(shape: Shape) -> Source {
             } else {
                 flower.heads.get(index - 1)
             };
-            flower_parts.push(part.map_or(FlowerPart::zeroed(), |part| FlowerPart {
-                range: [
-                    first + part.triangles.start,
-                    part.triangles.end - part.triangles.start,
-                    flower_source(model, index),
-                    flower.heads.len() as u32,
-                ],
-                center_radius: part.center.extend(part.radius).to_array(),
-                distribution: flower.distribution,
-                socket: flower.socket_normal.extend(0.).to_array(),
-                stem: [
-                    flower.column.tip().x,
-                    flower.column.tip().y,
-                    models::MAX_BEND_FRACTION,
-                    flower.column.count() as f32,
-                ],
+            flower_parts.push(part.map_or(FlowerPart::zeroed(), |part| {
+                FlowerPart {
+                    range: [
+                        first + part.triangles.start,
+                        part.triangles.end - part.triangles.start,
+                        flower_source(model, index),
+                        flower.heads.len() as u32,
+                    ],
+                    center_radius: part.center.extend(part.radius).to_array(),
+                    distribution: flower.distribution,
+                    socket: flower.socket_normal.extend(0.).to_array(),
+                    landing: crate::flora::landing::flower_landing(&flower, part)
+                        .map_or([0.; 4], |(point, _)| point.extend(1.).to_array()),
+                    landing_normal: crate::flora::landing::flower_landing(&flower, part)
+                        .map_or([0.; 4], |(_, normal)| normal.extend(0.).to_array()),
+                    stem: [
+                        flower.column.tip().x,
+                        flower.column.tip().y,
+                        models::MAX_BEND_FRACTION,
+                        flower.column.count() as f32,
+                    ],
+                }
             }));
         }
         for (index, t) in flower.triangles.iter().enumerate() {
@@ -245,7 +253,7 @@ mod tests {
     fn native_ranges_and_parts_fit_the_triangle_buffer() {
         let geometry = source(Shape::default());
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
-        assert_eq!(std::mem::size_of::<FlowerPart>(), 80);
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 112);
         for r in &geometry.ranges {
             assert!(r[1] > 0);
             assert!((r[0] + r[1]) as usize <= geometry.triangles.len());

@@ -54,20 +54,34 @@ impl TreeSurfaceFragment {
     }
 }
 
+/// Authored identity and exact atlas inputs for one tree's surface compilation.
+pub(crate) struct TreeSurfaceRegion<'a> {
+    pub id: u32,
+    pub tree: &'a Arc<Tree>,
+    pub tree_origin: Vec3,
+    pub origin: UVec3,
+    pub dim: UVec3,
+    pub bytes: &'a [u8],
+    pub cones: &'a [RoundCone],
+}
+
 impl RasterTreeMesh {
     /// Compare the actual radius-two material input, not a terrain revision/hash.
     /// Broad terrain publication can dirty trees whose observable inputs did not change.
     pub(crate) fn append_cached_tree_region(
         &mut self,
-        id: u32,
-        tree: &Arc<Tree>,
-        tree_origin: Vec3,
-        origin: UVec3,
-        dim: UVec3,
-        bytes: &[u8],
-        cones: &[RoundCone],
+        region: TreeSurfaceRegion<'_>,
         previous: &Self,
     ) -> Result<bool> {
+        let TreeSurfaceRegion {
+            id,
+            tree,
+            tree_origin,
+            origin,
+            dim,
+            bytes,
+            cones,
+        } = region;
         ensure!(
             bytes.len() == dim.as_u64vec3().element_product() as usize,
             "tree atlas region size mismatch"
@@ -198,13 +212,15 @@ mod tests {
         let mut mesh = RasterTreeMesh::default();
         let hit = mesh
             .append_cached_tree_region(
-                2,
-                tree,
-                Vec3::ZERO,
-                UVec3::ZERO,
-                UVec3::splat(8),
-                bytes,
-                tree.trunks(),
+                TreeSurfaceRegion {
+                    id: 2,
+                    tree,
+                    tree_origin: Vec3::ZERO,
+                    origin: UVec3::ZERO,
+                    dim: UVec3::splat(8),
+                    bytes,
+                    cones: tree.trunks(),
+                },
                 previous,
             )
             .unwrap();
@@ -253,13 +269,15 @@ mod tests {
         let mut mesh = RasterTreeMesh::default();
         mesh.fragment_cache_bytes = CACHE_BUDGET;
         mesh.append_cached_tree_region(
-            2,
-            &tree,
-            Vec3::ZERO,
-            UVec3::ZERO,
-            UVec3::splat(8),
-            &bytes,
-            tree.trunks(),
+            TreeSurfaceRegion {
+                id: 2,
+                tree: &tree,
+                tree_origin: Vec3::ZERO,
+                origin: UVec3::ZERO,
+                dim: UVec3::splat(8),
+                bytes: &bytes,
+                cones: tree.trunks(),
+            },
             &RasterTreeMesh::default(),
         )
         .unwrap();
@@ -280,13 +298,15 @@ mod tests {
                 .unwrap();
             merged
                 .append_cached_tree_region(
-                    id,
-                    &tree,
-                    position,
-                    UVec3::ZERO,
-                    UVec3::splat(8),
-                    &bytes,
-                    &cones,
+                    TreeSurfaceRegion {
+                        id,
+                        tree: &tree,
+                        tree_origin: position,
+                        origin: UVec3::ZERO,
+                        dim: UVec3::splat(8),
+                        bytes: &bytes,
+                        cones: &cones,
+                    },
                     &RasterTreeMesh::default(),
                 )
                 .unwrap();

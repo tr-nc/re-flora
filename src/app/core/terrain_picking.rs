@@ -127,11 +127,11 @@ impl App {
                 }
                 continue;
             }
-            if !self
+            if self
                 .pointer_picking
                 .pending
                 .as_ref()
-                .is_some_and(|p| p.ticket == answer.ticket)
+                .is_none_or(|p| p.ticket != answer.ticket)
             {
                 continue;
             }

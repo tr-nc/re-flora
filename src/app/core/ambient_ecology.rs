@@ -85,6 +85,7 @@ impl App {
                 &self.debug_settings.adjustables,
                 self.debug_settings.butterfly_flight.variant,
                 self.debug_settings.butterfly_flight.tuning,
+                self.debug_settings.butterfly_flight.foraging,
             );
             self.ensure_butterfly_emitter();
             for emitter in &mut self.butterfly_emitters {

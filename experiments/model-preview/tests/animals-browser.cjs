@@ -36,10 +36,12 @@ const path=require('node:path');
       });poses++;originalSamples+=samples.count;if(!samples.count)centerMisses.push(samples);
     }
     await page.goto(base+'/model-preview/?model=bee');await stable();
+    assert.equal(await page.locator('#model option[value="sparrow"], #model option[value="swallow"]').count(),0,'retired birds must not remain in the menu');
+    assert.equal(await page.locator('#model option[value="kingfisher"]').count(),1);
     for(const spec of animalCatalog){
       await page.locator('#model').selectOption(spec.id);await stable();assert.equal((await state()).model,spec.id);
       assert.equal((await state()).clips.length,2);assert.equal((await state()).pixelPartCount,0);
-      const source=await image('source'),rest=await image('pixel'),triangles=(await state()).triangles;
+      const source=await image('source'),rest=await image('pixel'),triangles=(await state()).triangles,resolution=(await state()).resolution;
       await input('phase',300);assert.equal(await image('pixel'),rest,'rest clip must not invent motion');
       await page.locator('#clip').selectOption('1');await stable();
       await input('phase',100);const flight=await image('pixel');await input('phase',230);assert.notEqual(await image('pixel'),flight,'absolute wing sampling changes silhouette');
@@ -57,10 +59,26 @@ const path=require('node:path');
       await page.locator('#conservative-coverage').uncheck();await stable();await verify();
       assert.ok((await state()).repair.groups.every(g=>g.preserved===0));
       await page.locator('#conservative-coverage').check();await stable();
+      if(spec.id==='kingfisher'){
+        for(const size of [32,64]){
+          await input('resolution',size);await page.locator('#clip').selectOption('1');await stable();
+          for(let frame=0;frame<16;frame++){await input('phase',frame*125);await verify();}
+        }
+        await page.locator('#reset-all').click();await stable();
+        await page.locator('#back').click();await stable();await verify();
+        await page.screenshot({path:path.join(output,'kingfisher-back.png'),fullPage:true});
+        await page.locator('#reset-all').click();await stable();
+      }
       const memory=(await state()).rendererMemory;
       for(let i=0;i<4;i++)for(const value of [.75,1.2]){await input('model-modelScale',value);await input('model-wingLength',value===.75?.65:1.15);}
       assert.deepEqual((await state()).rendererMemory,memory);
       await page.locator('#model-bodyColor').evaluate(picker=>{picker.value='#e946a9';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();assert.notEqual(await image('pixel'),rest);
+      if(spec.id==='kingfisher'){
+        for(const key of ['backColor','bellyColor','wingColor','accentColor','throatColor','cheekColor']){
+          await page.locator('#model-'+key).evaluate(picker=>{picker.value='#54d3ae';picker.dispatchEvent(new Event('input',{bubbles:true}));});await stable();await verify();
+        }
+        assert.deepEqual((await state()).rendererMemory,memory,'plumage color / bump maps reuse GPU resources during palette changes');
+      }
       await page.locator('#reset-all').click();await stable();assert.equal(await image('pixel'),rest);
       await page.locator('#clip').selectOption('1');await input('phase',150);
       const before=(await state()).pixelTime;await page.locator('#next-frame').click();await stable();assert.notEqual((await state()).pixelTime,before);
@@ -68,9 +86,9 @@ const path=require('node:path');
       await page.locator('#reset-all').click();await stable();
       const wait=page.waitForEvent('download');await page.locator('#download').click();const file=await wait;
       await file.saveAs(path.join(output,file.suggestedFilename()));const png=await fs.readFile(path.join(output,file.suggestedFilename()));
-      assert.equal(png.readUInt32BE(16),48);assert.equal(png.readUInt32BE(20),48);
+      assert.equal(png.readUInt32BE(16),resolution);assert.equal(png.readUInt32BE(20),resolution);
       const corner=await page.locator('#pixel').evaluate(canvas=>{const gl=canvas.getContext('webgl2'),pixel=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);return pixel[3];});assert.equal(corner,0);
-      rows.push({id:spec.id,label:spec.label,source,pixel:rest,triangles});
+      rows.push({id:spec.id,label:spec.label,source,pixel:rest,triangles,resolution});
       await page.screenshot({path:path.join(output,`${spec.id}-rest.png`),fullPage:true});
     }
     const bounds=await page.evaluate(async()=>{
@@ -91,12 +109,12 @@ const path=require('node:path');
     // intentionally survives asset switches, unlike per-model geometry/maps.
     await page.locator('#model').selectOption('custom-flower');await stable();
     await page.locator('#model').selectOption('bee');await stable();const memory=(await state()).rendererMemory;
-    for(let i=0;i<3;i++)for(const id of ['custom-flower','sparrow','swallow','bee']){await page.locator('#model').selectOption(id);await stable();}
+    for(let i=0;i<3;i++)for(const id of ['custom-flower','kingfisher','bee']){await page.locator('#model').selectOption(id);await stable();}
     assert.deepEqual((await state()).rendererMemory,memory,'switching animals and textured flowers releases GPU resources');
     await page.setViewportSize({width:390,height:844});await stable();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(output,'mobile.png'),fullPage:true});
     assert.deepEqual(errors,[]);assert.ok(requests.every(url=>url.startsWith(base)));assert.ok(originalSamples>1000);
     const sheet=await browser.newPage({viewport:{width:1050,height:1100}});
-    await sheet.setContent(`<style>body{background:#17231f;color:#e4e8d6;font:16px system-ui;padding:24px}section{display:grid;grid-template-columns:180px 1fr 1fr;align-items:center;border-top:1px solid #526449}img{width:330px;height:300px;object-fit:contain}.pixel{image-rendering:pixelated}</style><h1>Web-only animal studies</h1><p>Bee · round sparrow · fork-tailed swallow — shared 48² postprocessing</p>${rows.map(r=>`<section><div>${r.label}<p>${r.triangles} triangles</p></div><img src="${r.source}"><img class="pixel" src="${r.pixel}"></section>`).join('')}`);
+    await sheet.setContent(`<style>body{background:#17231f;color:#e4e8d6;font:16px system-ui;padding:24px}section{display:grid;grid-template-columns:180px 1fr 1fr;align-items:center;border-top:1px solid #526449}img{width:330px;height:300px;object-fit:contain}.pixel{image-rendering:pixelated}</style><h1>Web-only animal studies</h1><p>Bee · Ceyx erithaca — shared postprocessing, 48² / 96²</p>${rows.map(r=>`<section><div>${r.label}<p>${r.triangles} triangles</p></div><img src="${r.source}"><img class="pixel" src="${r.pixel}"></section>`).join('')}`);
     await sheet.screenshot({path:path.join(output,'contact-sheet.png'),fullPage:true});await sheet.close();
     await fs.writeFile(path.join(output,'summary.json'),JSON.stringify({models:rows.map(({source,pixel,...row})=>row),poses,originalSamples,centerMisses,bounds,errors},null,2)+'\n');
     console.log(`PASS: ${rows.length} animals, ${poses} poses, ${originalSamples} preserved source samples; animation, coverage A/B, controls, bounds, PNG, disposal and mobile. ${output}`);

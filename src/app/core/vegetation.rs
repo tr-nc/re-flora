@@ -2553,7 +2553,7 @@ impl App {
                 "A/B changed species or individual seed"
             );
             anyhow::ensure!(
-                !record.rest_tree.axis_segments().is_empty() == enabled,
+                record.rest_tree.axis_segments().is_empty() != enabled,
                 "A/B did not switch planted geometry"
             );
             anyhow::ensure!(record.fruit_specs.is_empty(), "conifer grew apples");

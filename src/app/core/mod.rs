@@ -4,6 +4,7 @@ use crate::util::Timer;
 
 mod authored_flora_bench;
 mod boot;
+mod butterfly_foraging_review;
 mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
@@ -428,7 +429,7 @@ pub struct App {
     gpu_profiler_slot_frames: Vec<Option<u64>>,
     gpu_profiler_latest_frame: Option<u64>,
     time_info: TimeInfo,
-    fps_history: fps_chart::FpsHistory,
+    telemetry_panel: fps_chart::TelemetryPanel,
     world_clock: WorldClock,
     render_flags: RenderFlags,
     cursor_position_physical: Option<Vec2>,
@@ -494,6 +495,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_review: Option<particles::ButterflyReview>,
+    butterfly_foraging_review: Option<butterfly_foraging_review::Review>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
     climbing_plants: climbing_plants::ClimbingPlants,
@@ -1454,6 +1456,7 @@ impl App {
             &debug_settings.adjustables,
             butterfly_flight_variant,
             butterfly_flight_tuning,
+            debug_settings.butterfly_flight.foraging,
         );
         let particle_snapshots = Vec::with_capacity(particle_system.capacity());
         let world_extent = world_chunk_dim.as_vec3();
@@ -1557,7 +1560,7 @@ impl App {
             ordered_dither_review: ordered_dither_review::OrderedDitherReview::from_environment(),
             egui_texture_lifecycle_test,
             time_info: TimeInfo::new(fps_chart::DISPLAY_INTERVAL_MS),
-            fps_history: fps_chart::FpsHistory::default(),
+            telemetry_panel: fps_chart::TelemetryPanel::default(),
             world_clock,
             render_flags,
 
@@ -1604,6 +1607,7 @@ impl App {
             particle_system,
             butterfly_emitters,
             butterfly_emitter_desc,
+            butterfly_foraging_review: butterfly_foraging_review::Review::from_env(),
             butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
                 .or_else(|| std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW"))
                 .map(|_| particles::ButterflyReview::default()),
@@ -2386,9 +2390,14 @@ impl App {
                 self.window_state.maintain_cursor_grab();
 
                 self.time_info.update(self.perf_logging);
-                self.fps_history.observe(
+                self.telemetry_panel.observe(
                     self.time_info.time_since_start_duration().as_secs_f64(),
                     self.time_info.display_fps(),
+                    self.tracer
+                        .get_screen_output_tex()
+                        .get_image()
+                        .get_allocator()
+                        .device_local_allocated_bytes(),
                 );
                 cpu_timings.time(FrameCpuScope::ContreePoll, || {
                     self.contree_builder.poll_cpu_chunk_cache_jobs(
@@ -2557,6 +2566,7 @@ impl App {
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
                 self.prepare_apple_pixel_review();
+                self.prepare_butterfly_foraging_review();
                 self.prepare_model_view_review()
                     .expect("model view quantization review fixture");
                 self.prepare_flower_model_bench()
@@ -3085,9 +3095,8 @@ impl App {
 
                         fps_chart::draw(
                             ctx,
-                            &self.fps_history,
+                            &mut self.telemetry_panel,
                             self.time_info.time_since_start_duration().as_secs_f64(),
-                            self.time_info.display_fps(),
                         );
 
                         draw_center_cross_mark(ctx);
@@ -3368,6 +3377,9 @@ impl App {
                 self.tracer
                     .complete_surface_pick_slot(frame_slot)
                     .expect("completed pick readback slot");
+                self.tracer
+                    .complete_flower_visits_slot(frame_slot)
+                    .expect("completed flower contact slot");
                 self.tracer
                     .publish_particle_state(frame_slot)
                     .expect("publish acquired-frame particle state");

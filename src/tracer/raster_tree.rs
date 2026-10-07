@@ -28,6 +28,10 @@ fn surface_material(byte: u8) -> u8 {
 }
 use cpu_surface::CpuDeformationPlan;
 pub use cpu_surface::PosedTreeSurface;
+pub(crate) use fragments::TreeSurfaceRegion;
+
+/// Compact rest-space positions and shared triangle topology for collision publication.
+pub(crate) type RestCollisionGeometry = (Vec<Vec3>, Arc<[[u32; 3]]>);
 
 const NEIGHBORS: [IVec3; 6] = [
     IVec3::NEG_Y,
@@ -337,7 +341,7 @@ impl RasterTreeMesh {
 
     /// Immutable, compact no-wind collision geometry. Publication uses this
     /// regardless of the current visual pose or wind toggle.
-    pub(crate) fn rest_collision_geometry(&self) -> Result<(Vec<Vec3>, Arc<[[u32; 3]]>)> {
+    pub(crate) fn rest_collision_geometry(&self) -> Result<RestCollisionGeometry> {
         let plan = match &self.cpu_plan {
             Some(plan) => plan.clone(),
             None => Arc::new(CpuDeformationPlan::compile(self)?),

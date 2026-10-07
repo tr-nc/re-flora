@@ -442,6 +442,7 @@ impl App {
         gui_adjustables: &crate::app::GuiAdjustables,
         flight_variant: ButterflyFlightVariant,
         flight_tuning: ButterflyFlightTuning,
+        foraging: crate::particles::ButterflyForagingSettings,
     ) -> ButterflyEmitterDesc {
         let (height_offset_min, height_offset_max) = {
             let min = gui_adjustables.butterfly_height_offset_min.value;
@@ -472,6 +473,7 @@ impl App {
             worm_noise_detail_weight: gui_adjustables.butterfly_worm_noise_detail_weight.value,
             flight_variant,
             flight_tuning,
+            foraging,
         }
     }
 
@@ -498,6 +500,7 @@ impl App {
                 &self.debug_settings.adjustables,
                 self.debug_settings.butterfly_flight.variant,
                 self.debug_settings.butterfly_flight.tuning,
+                self.debug_settings.butterfly_flight.foraging,
             );
             for emitter in &mut self.butterfly_emitters {
                 emitter.apply_desc(&self.butterfly_emitter_desc);
@@ -541,7 +544,25 @@ impl App {
         let world_max = self.world_chunk_dim.as_vec3()
             + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
         let animation_time = self.butterfly_presentation_time();
+        self.tracer.set_flower_visits_enabled(
+            self.debug_settings
+                .butterfly_flight
+                .variant
+                .uses_darting_flight(),
+        );
+        let flowers = self
+            .tracer
+            .flower_visit_targets(self.surface_builder.get_resources(), wind_time);
+        if let Some(review) = &mut self.butterfly_foraging_review {
+            review.seed(
+                &mut self.butterfly_emitters,
+                &mut self.particle_system,
+                flowers,
+                wind_time,
+            );
+        }
         for emitter in &mut self.butterfly_emitters {
+            emitter.set_flowers(flowers);
             emitter.synchronize_animation_clock(animation_time, dt);
             emitter.advance_guided_flight(
                 &mut self.particle_system,
@@ -558,6 +579,9 @@ impl App {
                         .map(|hit| hit.position.distance(origin))
                 },
             );
+        }
+        if let Some(review) = &mut self.butterfly_foraging_review {
+            review.observe(&self.butterfly_emitters, wind_time);
         }
         let sim_ms = sim_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -671,6 +695,7 @@ impl App {
                 animation_phase_offset: 0.0,
                 animation_sample_time: None,
                 butterfly_wingbeat: None,
+                butterfly_body_pose: None,
                 leaf_orientation: None,
                 leaf_shape_seed: None,
                 leaf_geometry: None,
@@ -824,6 +849,7 @@ impl App {
                     animation_phase_offset: 0.,
                     animation_sample_time: None,
                     butterfly_wingbeat: None,
+                    butterfly_body_pose: None,
                     leaf_orientation: Some(
                         glam::Quat::from_rotation_x(time * 0.7 + phase)
                             * glam::Quat::from_rotation_y(phase)
@@ -850,6 +876,7 @@ impl App {
                     animation_phase_offset: 0.,
                     animation_sample_time: Some(time),
                     butterfly_wingbeat: None,
+                    butterfly_body_pose: None,
                     leaf_orientation: None,
                     leaf_shape_seed: None,
                     leaf_geometry: None,

@@ -35,6 +35,7 @@ mod raster_tree;
 mod tree_scene;
 pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
+pub(crate) use raster_tree::TreeSurfaceRegion;
 pub use raster_tree::{PosedTreeSurface, RasterTreeMesh};
 mod tree_lookup;
 mod tree_publication;
@@ -48,6 +49,7 @@ mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
+mod flower_visits;
 mod grass_band_cache;
 mod ordered_dither;
 pub(crate) mod scene_resolution;
@@ -1667,6 +1669,7 @@ pub struct Tracer {
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     model_mesh_frame: ModelMeshFrame,
+    flower_visits: flower_visits::FlowerVisits,
     stone_preview: stone_preview::Renderer,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
@@ -2034,6 +2037,7 @@ impl Tracer {
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             model_mesh_frame,
+            flower_visits: Default::default(),
             stone_preview,
             particle_instance_scratch: Vec::new(),
             translucent_particle_instance_scratch: Vec::new(),
@@ -4129,6 +4133,24 @@ impl Tracer {
                 .extent,
         )?;
 
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "models.flowers.contacts",
+            || {
+                self.record_flower_visits(
+                    cmdbuf,
+                    surface_resources,
+                    time,
+                    gpu_profiler_frame_slot,
+                    render_flags.enable_flora,
+                )
+            },
+        )?;
+        self.model_mesh_frame
+            .bind_flower_hosts(self.flower_visits.indices());
+        let flower_contacts = self.flower_visits.output(gpu_profiler_frame_slot);
         let prepared_particle_pixels =
             if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
                 Some(Self::with_gpu_scope(
@@ -4144,6 +4166,7 @@ impl Tracer {
                             },
                             self.camera.get_view_mat(),
                             self.camera.get_proj_mat(),
+                            &flower_contacts,
                         )
                     },
                 )?)
@@ -4850,14 +4873,20 @@ impl Tracer {
                             || {
                                 self.model_mesh_frame.flowers(
                                     cmdbuf,
-                                    MeshPass {
+                                    model_mesh_frame::FlowerPass {
                                         display: &self
                                             .pipeline_topology
                                             .graphics()
                                             .flower_pixel_ppl,
+                                        stem: &self
+                                            .pipeline_topology
+                                            .graphics()
+                                            .flower_stem_experiment_ppl,
+                                        preparation: &self
+                                            .pipeline_topology
+                                            .compute()
+                                            .flower_stem_bands_ppl,
                                     },
-                                    &self.pipeline_topology.graphics().flower_stem_experiment_ppl,
-                                    &self.pipeline_topology.compute().flower_stem_bands_ppl,
                                     self.flower_stem_experiment,
                                     count,
                                     push,

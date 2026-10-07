@@ -56,6 +56,13 @@ pub(super) struct MeshPass<'a> {
     pub display: &'a GraphicsPipeline,
 }
 
+/// Paired flower-head and stem pipelines, including GPU stem preparation.
+pub(super) struct FlowerPass<'a> {
+    pub display: &'a GraphicsPipeline,
+    pub stem: &'a GraphicsPipeline,
+    pub preparation: &'a ComputePipeline,
+}
+
 struct Geometry {
     shape: models::Shape,
     source: Arc<Source>,
@@ -388,6 +395,24 @@ impl ModelMeshFrame {
         self.particles
             .prepare_frame_models(snapshots, settings, camera)
     }
+    pub(super) fn flower_hosts(
+        &self,
+    ) -> std::collections::HashSet<crate::particles::flower_visits::FlowerId> {
+        self.particles.flower_hosts()
+    }
+    pub(super) fn flower_parts_buffer(&self) -> Arc<Buffer> {
+        self.active
+            .as_ref()
+            .expect("prepared flower geometry")
+            .parts
+            .clone()
+    }
+    pub(super) fn bind_flower_hosts(
+        &mut self,
+        indices: &std::collections::HashMap<crate::particles::flower_visits::FlowerId, u32>,
+    ) {
+        self.particles.bind_flower_hosts(indices);
+    }
     pub fn particle_count(&self) -> u32 {
         self.particles.count()
     }
@@ -397,6 +422,7 @@ impl ModelMeshFrame {
         pass: MeshPass<'_>,
         _: Mat4,
         _: Mat4,
+        contacts: &Buffer,
     ) -> Result<PreparedModelMeshes> {
         if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some() {
             self.review_draw(1, "mesh_butterflies", self.particles.count());
@@ -421,6 +447,7 @@ impl ModelMeshFrame {
             "butterfly_mesh_instances",
             DescriptorResource::Buffer(&particle_buffer),
         ));
+        resources.push(("flower_visit_output", DescriptorResource::Buffer(contacts)));
         let vertices = g.source.ranges[..model_geometry::FLOWER_SOURCE_BASE as usize]
             .iter()
             .map(|r| r[1] * 3)
@@ -517,14 +544,18 @@ impl ModelMeshFrame {
     pub fn flowers(
         &mut self,
         cmd: &CommandBuffer,
-        pass: MeshPass<'_>,
-        stem_pipeline: &GraphicsPipeline,
-        preparation: &ComputePipeline,
+        pass: FlowerPass<'_>,
         settings: models::StemExperiment,
         count: u32,
         mut push: crate::generated::gpu_structs::PushConstantFlowerPixel,
         pose: &[(&str, DescriptorResource<'_>)],
     ) -> Result<PreparedFlowerModels> {
+        let FlowerPass {
+            display,
+            stem: stem_pipeline,
+            preparation,
+        } = pass;
+        let pass = MeshPass { display };
         self.review_draw(8, "flower_heads", count);
         let g = self.active.as_ref().unwrap();
         let mut resources = g.bindings().to_vec();

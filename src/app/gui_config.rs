@@ -58,6 +58,7 @@ impl DebugSettings {
     fn from_config(mut config: GuiConfigFile) -> Self {
         let adjustables = GuiAdjustables::from_config(&config);
         config.butterfly_flight.tuning = config.butterfly_flight.tuning.sanitized();
+        config.butterfly_flight.foraging = config.butterfly_flight.foraging.sanitized();
         let mut settings = Self {
             saved_document: toml::Value::Table(Default::default()),
             config,
@@ -1157,7 +1158,17 @@ mod search_tests {
 
     #[test]
     fn stone_search_checkbox_edit_save_and_reload_are_the_real_saved_fields() {
-        let mut settings = DebugSettings::load();
+        let mut config = GuiConfigLoader::load();
+        // Pin the click fixture rather than assuming the user's saved checkbox values.
+        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
+            if matches!(
+                param.id.as_str(),
+                "stone_preview_enabled" | "stone_direct_triangles"
+            ) {
+                param.value = GuiParamValue::Bool { value: false };
+            }
+        }
+        let mut settings = DebugSettings::from_config(config);
         assert!(!settings.adjustables.stone_preview_enabled.value);
         assert!(!settings.adjustables.stone_direct_triangles.value);
         settings.search.query = "stone direct triangle".to_owned();
@@ -1766,10 +1777,32 @@ mod tests {
     }
 
     #[test]
-    fn glass_unrefracted_raster_fallback_defaults_off() {
-        let settings = DebugSettings::from_config(GuiConfigLoader::load());
-
-        assert!(!settings.adjustables.glass_unrefracted_raster_fallback.value);
+    fn glass_unrefracted_raster_fallback_preserves_both_saved_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for value in [false, true] {
+            let mut config = GuiConfigLoader::load();
+            let param = config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .find(|p| p.id == "glass_unrefracted_raster_fallback")
+                .unwrap();
+            param.value = GuiParamValue::Bool { value };
+            let mut settings = DebugSettings::from_config(config);
+            assert_eq!(
+                settings.adjustables.glass_unrefracted_raster_fallback.value,
+                value
+            );
+            settings.adjustables.glass_unrefracted_raster_fallback.value = !value;
+            assert!(settings.is_dirty());
+            settings.save_to_path(&path).unwrap();
+            let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(
+                reloaded.adjustables.glass_unrefracted_raster_fallback.value,
+                !value
+            );
+        }
     }
 
     #[test]
@@ -2057,8 +2090,19 @@ wind_drift = 1.0
         assert!(text.contains("Butterfly Update FPS"));
         assert!(!text.contains("Shared flight frequency"));
         assert!(text.contains("Flight height above ground"));
+        assert!(!text.contains("Flower-visiting behavior (A/B)"));
+        assert!(text.contains("Butterfly flower search radius"));
+        assert!(text.contains("Butterfly flower dwell (seconds)"));
+        assert!(text.contains("Wingbeat-coupled flight (A/B experiment)"));
+        assert!(text.contains("Butterfly flower-visiting wind limit"));
         assert!(!text.contains("Horizontal maneuver tempo"));
         assert!(!text.contains("Reset B flight controls"));
+        settings.butterfly_flight.foraging = crate::particles::ButterflyForagingSettings {
+            search_radius: 1.1,
+            dwell_seconds: 3.,
+            preference_strength: 1.6,
+            wind_limit: 0.7,
+        };
         settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Original;
         settings.butterfly_flight.tuning = crate::particles::ButterflyFlightTuning {
             wingbeat_coupling: true,
@@ -2083,6 +2127,36 @@ wind_drift = 1.0
         assert_eq!(settings.butterfly_flight, reloaded.butterfly_flight);
         assert!(settings.save_to_path(directory.path()).is_err());
         assert!(settings.save_error().unwrap().starts_with("Save failed:"));
+    }
+
+    #[test]
+    fn butterfly_foraging_legacy_switch_is_ignored_and_not_saved() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for enabled in [false, true] {
+            let mut document: toml::Value =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let foraging = document["butterfly_flight"]["foraging"]
+                .as_table_mut()
+                .unwrap();
+            foraging.insert("enabled".to_owned(), toml::Value::Boolean(enabled));
+            foraging.insert("dwell_seconds".to_owned(), toml::Value::Float(3.));
+            std::fs::write(&path, toml::to_string(&document).unwrap()).unwrap();
+            let mut settings = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(settings.butterfly_flight.foraging.dwell_seconds, 3.);
+            assert_eq!(settings.butterfly_flight.foraging.search_radius, 0.7);
+            settings.save_to_path(&path).unwrap();
+            let saved: toml::Value =
+                toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(saved["butterfly_flight"]["foraging"]
+                .get("enabled")
+                .is_none());
+            let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(
+                settings.butterfly_flight.foraging,
+                reloaded.butterfly_flight.foraging
+            );
+        }
     }
 
     #[test]

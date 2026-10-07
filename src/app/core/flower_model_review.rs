@@ -23,7 +23,12 @@ impl FlowerModelReview {
     pub fn from_env() -> Result<Option<Self>> {
         let mode = match std::env::var("RE_FLORA_FLOWER_MODEL_REVIEW") {
             Ok(mode) => mode,
-            Err(_) if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some() => "a".to_owned(),
+            Err(_)
+                if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
+                    || std::env::var_os("RE_FLORA_BUTTERFLY_FORAGING_REVIEW").is_some() =>
+            {
+                "a".to_owned()
+            }
             Err(_) => return Ok(None),
         };
         ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far"].contains(&mode.as_str()),
