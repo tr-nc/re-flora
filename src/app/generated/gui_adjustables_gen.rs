@@ -314,6 +314,30 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "tree_kick_rustle_volume_db",
+        kind: "float",
+        label: "Tree kick leaf rustle volume (dB)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_duration",
+        kind: "float",
+        label: "Tree kick leaf rustle tail (seconds)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_brightness",
+        kind: "float",
+        label: "Tree kick leaf rustle brightness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_crackle",
+        kind: "float",
+        label: "Tree kick leaf contact detail (low = softer)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_growth_override_enabled",
         kind: "bool",
         label: "Override Flora Growth",
@@ -1606,6 +1630,10 @@ pub struct GuiAdjustables {
     pub tree_kick_cooldown: crate::gui_adjustables::FloatParam,
     pub tree_kick_fruit_fraction: crate::gui_adjustables::FloatParam,
     pub tree_kick_leaf_count: crate::gui_adjustables::IntParam,
+    pub tree_kick_rustle_volume_db: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_duration: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_brightness: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_crackle: crate::gui_adjustables::FloatParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -1874,6 +1902,10 @@ impl GuiAdjustables {
         let mut tree_kick_cooldown_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_fruit_fraction_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_leaf_count_field: Option<crate::gui_adjustables::IntParam> = None;
+        let mut tree_kick_rustle_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_duration_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2379,6 +2411,34 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             tree_kick_leaf_count_field = Some(crate::gui_adjustables::IntParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_duration" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_duration_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_brightness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_brightness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_crackle" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_crackle_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "flora_growth_override_enabled" => {
@@ -3824,6 +3884,10 @@ impl GuiAdjustables {
             tree_kick_cooldown: tree_kick_cooldown_field.expect("Missing parameter: tree_kick_cooldown"),
             tree_kick_fruit_fraction: tree_kick_fruit_fraction_field.expect("Missing parameter: tree_kick_fruit_fraction"),
             tree_kick_leaf_count: tree_kick_leaf_count_field.expect("Missing parameter: tree_kick_leaf_count"),
+            tree_kick_rustle_volume_db: tree_kick_rustle_volume_db_field.expect("Missing parameter: tree_kick_rustle_volume_db"),
+            tree_kick_rustle_duration: tree_kick_rustle_duration_field.expect("Missing parameter: tree_kick_rustle_duration"),
+            tree_kick_rustle_brightness: tree_kick_rustle_brightness_field.expect("Missing parameter: tree_kick_rustle_brightness"),
+            tree_kick_rustle_crackle: tree_kick_rustle_crackle_field.expect("Missing parameter: tree_kick_rustle_crackle"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -4059,6 +4123,10 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "tree_kick_reach" => Some(&adjustables.tree_kick_reach),
         "tree_kick_cooldown" => Some(&adjustables.tree_kick_cooldown),
         "tree_kick_fruit_fraction" => Some(&adjustables.tree_kick_fruit_fraction),
+        "tree_kick_rustle_volume_db" => Some(&adjustables.tree_kick_rustle_volume_db),
+        "tree_kick_rustle_duration" => Some(&adjustables.tree_kick_rustle_duration),
+        "tree_kick_rustle_brightness" => Some(&adjustables.tree_kick_rustle_brightness),
+        "tree_kick_rustle_crackle" => Some(&adjustables.tree_kick_rustle_crackle),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
         "fruit_cycle" => Some(&adjustables.fruit_cycle),
@@ -4361,6 +4429,10 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "tree_kick_reach" => Some(&mut adjustables.tree_kick_reach),
         "tree_kick_cooldown" => Some(&mut adjustables.tree_kick_cooldown),
         "tree_kick_fruit_fraction" => Some(&mut adjustables.tree_kick_fruit_fraction),
+        "tree_kick_rustle_volume_db" => Some(&mut adjustables.tree_kick_rustle_volume_db),
+        "tree_kick_rustle_duration" => Some(&mut adjustables.tree_kick_rustle_duration),
+        "tree_kick_rustle_brightness" => Some(&mut adjustables.tree_kick_rustle_brightness),
+        "tree_kick_rustle_crackle" => Some(&mut adjustables.tree_kick_rustle_crackle),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
         "fruit_cycle" => Some(&mut adjustables.fruit_cycle),

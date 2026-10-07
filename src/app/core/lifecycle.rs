@@ -216,6 +216,7 @@ impl ShutdownActions for App {
     }
 
     fn shutdown_audio(&mut self) -> Result<()> {
+        self.tree_audio_manager.clear_kick_rustles();
         let cicadas = self.summer_cicadas.clear("shutdown");
         self.spatial_sound_manager
             .stop()

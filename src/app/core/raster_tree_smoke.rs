@@ -37,6 +37,13 @@ impl RasterTreeSmoke {
             1 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
                 app.terrain_physics.set_fruit_cycle(1., &mut app.tracer)?;
+                // Explicit diagnostic stimulus, independent of saved disable/harvest choices.
+                app.debug_settings.adjustables.tree_kick_strength.value = 0.2;
+                app.debug_settings
+                    .adjustables
+                    .tree_kick_fruit_fraction
+                    .value = 0.25;
+                app.debug_settings.adjustables.tree_kick_leaf_count.value = 24;
             }
             21 => {
                 self.light = Some(
@@ -74,6 +81,10 @@ impl RasterTreeSmoke {
                 log::info!(
                     "[TREE_KICK][HELD_FRUIT] tree={tree} count={total} automatic_drop=false"
                 );
+                ensure!(
+                    app.tree_audio_manager.kick_rustle_voice_count() == 0,
+                    "rustle played without kick"
+                );
                 app.tree_kick_pose_smoke(true)?;
             }
             35 => {
@@ -95,8 +106,15 @@ impl RasterTreeSmoke {
                     .0;
                 let (total, held, dropped) = app.terrain_physics.tree_fruit_counts(tree);
                 ensure!(
-                    held > 0 && held < total,
-                    "kick did not request a partial fruit release"
+                    held > 0 && dropped > 0 && held + dropped == total,
+                    "kick did not complete a partial fruit release"
+                );
+                ensure!(
+                    app.tree_audio_manager.kick_rustle_voice_count() == 1,
+                    "kick did not play one finite rustle"
+                );
+                log::info!(
+                    "[TREE_KICK][RUSTLE_SMOKE] passed once=true wind_off=true canopy_spatial=true"
                 );
                 log::info!("[TREE_KICK][PARTIAL_FRUIT] tree={tree} total={total} held={held} dropped={dropped}");
                 app.validate_tree_surface_pose()?;

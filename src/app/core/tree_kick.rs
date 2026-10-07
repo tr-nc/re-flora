@@ -33,6 +33,16 @@ fn facing_hit(eye: Vec3, forward: Vec3, hit: Vec3) -> bool {
     toward.dot(forward.normalize_or_zero()) > 2_f32.to_radians().cos()
 }
 impl App {
+    pub(super) fn tree_kick_rustle_tuning(
+        a: &crate::app::gui_config::GuiAdjustables,
+    ) -> crate::audio::KickRustleTuning {
+        crate::audio::KickRustleTuning {
+            duration: a.tree_kick_rustle_duration.value,
+            brightness: a.tree_kick_rustle_brightness.value,
+            crackle: a.tree_kick_rustle_crackle.value,
+            shake_frequency: a.tree_kick_frequency.value,
+        }
+    }
     fn tree_kick_available(&self) -> bool {
         self.is_walk_camera_mode()
             && self.keyboard_tool_shortcuts_available()

@@ -20,6 +20,10 @@ Debug → **Tree Kick** groups all controls by the interaction concern. Use the 
 | Tree kick cooldown | 0.35 s | 0.15–1.5 |
 | Fruit release fraction | 0.25 | 0–1 |
 | Decorative leaves per burst | 24 | 0–128 |
+| Leaf rustle volume | −6 dB | −40…6 |
+| Leaf rustle tail | 1.1 s | 0.25…3 |
+| Leaf rustle brightness | 0.42 | 0–1 |
+| Leaf contact detail | 0.18 | 0–1 |
 
 Higher impulse is stronger; higher frequency is faster; lower damping rings longer. Frequency and
 damping apply live to the transient response. Zero impulse disables the action. 256 terrain voxels
@@ -51,6 +55,26 @@ explicit Debug growth scrub below that fruit's growth start rearms it. Saved wor
 held crop; loose bodies and harvested state remain transient, as before. Opt-in drop/visual fixtures
 now request explicit diagnostic kicks instead of relying on growth thresholds.
 
+## Leaf rustle sound
+
+Each accepted kick with a canopy acoustic sample also plays one finite spatial leaf rustle, even
+without wind. It reuses the existing leaf-body/friction/micro-grain synthesizer with a fast attack,
+energy decay and subtle back-and-forth shake modulation. Air noise is restrained, branch creaks
+are off, and no foot/trunk thump is added. The sound source sits at a wood-clear canopy sample on
+that tree, retaining normal spatial attenuation, transmission and environmental acoustics.
+
+Four immutable 48 kHz variants are prepared before K, not synthesized in the realtime callback.
+Live sound/frequency tuning rebuilds that small bank on the main thread; Release default preparation
+measured **9.562 ms** in the hidden fixture, not an app performance acceptance. At most eight finite
+sources overlap; wall-time retirement and shutdown cleanup prevent accumulation. The ordinary
+wind ambience/volume does not gate this event. Sound failure is reported without rolling back a
+successful shake/leaf/fruit event.
+
+Volume, duration, brightness and small-contact detail use normal saved declarations. These are
+sound-design choices, not a measured tree-kick IR. Findings and primary sources are in
+[`docs/research/tree_kick_leaf_sound.md`](research/tree_kick_leaf_sound.md). Listening remains manual;
+a muted run only verifies playback admission/lifetime and runtime health.
+
 ## Ownership and rendering
 
 The prompt uses the existing nonblocking GPU hover. A press captures a fresh ray/settings and asks
@@ -64,7 +88,8 @@ Each canonical `TreePose` owns one tiny damped root oscillator. It is stepped an
 once per tree, then supplies a **32-byte root transform** to the existing GPU hierarchy job. The GPU
 composes that anchored root transform with the original branch wind hierarchy, and all skinning,
 normal/BVH updates and attachment/canopy consumers use the ordinary shared pose publication. It
-never adds per-vertex CPU deformation, a new per-kick GPU wait, a tree publication or collider refit.
+never adds per-vertex CPU deformation, a new per-kick query GPU wait, a wood-topology publication
+or collider refit. Fruit attachment/render updates still use their existing publication path.
 An impulse does not advance the skeleton's topology/version or reset the whole GPU solver allocation.
 Oscillator energy bounds accumulated tilt to 0.2 rad, even under repeated kicks. Replacement creates
 a fresh transient response. Wind off resets ambient branch deflection but does not suppress a kick.

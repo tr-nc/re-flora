@@ -207,6 +207,10 @@ impl GuiConfigLoader {
             "tree_kick_cooldown",
             "tree_kick_fruit_fraction",
             "tree_kick_leaf_count",
+            "tree_kick_rustle_volume_db",
+            "tree_kick_rustle_duration",
+            "tree_kick_rustle_brightness",
+            "tree_kick_rustle_crackle",
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
@@ -1883,6 +1887,10 @@ mod tests {
             "tree_kick_cooldown",
             "tree_kick_fruit_fraction",
             "tree_kick_leaf_count",
+            "tree_kick_rustle_volume_db",
+            "tree_kick_rustle_duration",
+            "tree_kick_rustle_brightness",
+            "tree_kick_rustle_crackle",
         ];
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();

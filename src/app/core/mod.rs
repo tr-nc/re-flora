@@ -1438,6 +1438,8 @@ impl App {
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
         tree_audio_manager
+            .prepare_kick_rustle(Self::tree_kick_rustle_tuning(&debug_settings.adjustables))?;
+        tree_audio_manager
             .set_canopy_telemetry_enabled(audio.canopy_telemetry || canopy_audio_diagnostic);
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
@@ -3231,6 +3233,15 @@ impl App {
                     .set_rustle_params(Self::tree_rustle_params(&self.debug_settings.adjustables))
                 {
                     log::error!("Failed to rebuild resident tree rustle clip: {err:#}");
+                }
+
+                if let Err(error) =
+                    self.tree_audio_manager
+                        .prepare_kick_rustle(Self::tree_kick_rustle_tuning(
+                            &self.debug_settings.adjustables,
+                        ))
+                {
+                    log::warn!("Failed to prepare kick leaf rustle: {error:#}");
                 }
 
                 if TreeBench::run_next(self) {

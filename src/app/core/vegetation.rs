@@ -4047,6 +4047,17 @@ impl App {
                 &mut self.particle_system,
                 self.debug_settings.adjustables.tree_kick_leaf_count.value as usize,
             );
+            if let Err(error) = self.tree_audio_manager.play_kick_rustle(
+                id,
+                self.time_info.time_since_start(),
+                self.tracer.camera_position(),
+                self.debug_settings
+                    .adjustables
+                    .tree_kick_rustle_volume_db
+                    .value,
+            ) {
+                log::warn!("[TREE_KICK] leaf-rustle playback failed: {error:#}");
+            }
             log::info!("[TREE_KICK][RELEASE] tree={id} requested_fruit={fruit} leaves={leaves} one_shot=true");
         }
         Ok(accepted)

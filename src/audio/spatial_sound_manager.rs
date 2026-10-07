@@ -521,6 +521,28 @@ impl SpatialSoundManager {
         )
     }
 
+    /// Finite procedural content uses the same world-space acoustic route as file clips.
+    /// The caller retains/retire its UUID; no playback loop or non-spatial bypass.
+    pub(crate) fn add_spatial_resident_one_shot(
+        &self,
+        category: AudioCategory,
+        clip: ResidentClip,
+        volume_db: f32,
+        position: Vec3,
+    ) -> Result<Uuid> {
+        self.add_clip_source(
+            category,
+            clip,
+            PlayOptions::once().with_direct_path(Self::spatial_one_shot_direct_path(category)),
+            volume_db,
+            Some(position),
+            None,
+            false,
+            SourceExtent::Point,
+            OcclusionProfile::PointExact,
+        )
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "Mirrors the clip-source adapter with explicit placement, phase and occlusion inputs"

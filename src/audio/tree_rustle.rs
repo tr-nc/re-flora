@@ -146,6 +146,48 @@ impl TreeRustleFactory {
         Self::new(seed, control)
     }
 
+    /// Finite excited texture, reused from the existing leaf-contact synthesis. The
+    /// short energy envelope is applied after warmup; no ambient wind/callback state changes.
+    pub(super) fn render_excited_pcm(
+        &self,
+        sample_rate: u32,
+        duration: f32,
+        frequency: f32,
+    ) -> Vec<f32> {
+        self.control.set_wind_response(1.);
+        let mut voice = TreeRustleVoice::new(sample_rate, self.seed, self.control.clone());
+        voice.wind = 1.;
+        voice.leaf_activity = 1.;
+        let mut warmup = vec![0.; (sample_rate as f32 * 0.15) as usize];
+        for block in warmup.chunks_mut(1024) {
+            voice.render_mono(block);
+        }
+        let mut samples = vec![0.; (sample_rate as f32 * duration).round() as usize];
+        for block in samples.chunks_mut(1024) {
+            voice.render_mono(block);
+        }
+        for (index, sample) in samples.iter_mut().enumerate() {
+            *sample *= super::tree_kick_rustle::excitation_envelope(
+                index as f32 / sample_rate as f32,
+                duration,
+                frequency,
+            );
+        }
+        // Fixed peak headroom, independent of the wind-loop makeup gain. Loudness is
+        // the saved one-shot volume, not an unbounded multiple of wind or kick energy.
+        let peak = samples
+            .iter()
+            .fold(0_f32, |peak, sample| peak.max(sample.abs()));
+        let gain = 0.35 / peak.max(1e-6);
+        for sample in &mut samples {
+            *sample *= gain;
+        }
+        if let Some(last) = samples.last_mut() {
+            *last = 0.;
+        }
+        samples
+    }
+
     /// Render a loopable immutable rustle clip outside PetalSonic's realtime path.
     pub fn render_resident_clip(
         &self,
@@ -744,6 +786,31 @@ mod tests {
         assert_eq!(clip.sample_rate(), 8_000);
         assert_eq!(clip.channels(), 1);
         assert_eq!(clip.total_frames(), 8_000);
+    }
+
+    #[test]
+    fn excited_leaf_pcm_is_finite_repeatable_variant_safe_and_has_no_click_edges() {
+        let factory = |seed| {
+            TreeRustleFactory::new(
+                seed,
+                Arc::new(TreeRustleControl::with_params(TreeRustleParams {
+                    branch: 0.,
+                    air: 0.08,
+                    ..TreeRustleParams::dense()
+                })),
+            )
+        };
+        let first = factory(1).render_excited_pcm(48_000, 0.25, 2.55);
+        let repeat = factory(1).render_excited_pcm(48_000, 0.25, 2.55);
+        let other = factory(2).render_excited_pcm(48_000, 0.25, 2.55);
+        assert_eq!(first.len(), 12_000);
+        assert_eq!(first, repeat);
+        assert_ne!(first, other);
+        assert_eq!(first[0], 0.);
+        assert_eq!(*first.last().unwrap(), 0.);
+        assert!(first.iter().all(|v| v.is_finite() && v.abs() <= 0.350001));
+        let energy = |samples: &[f32]| samples.iter().map(|v| v * v).sum::<f32>();
+        assert!(energy(&first[0..3000]) > energy(&first[9000..12000]) * 10.);
     }
 
     #[test]
