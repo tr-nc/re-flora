@@ -83,6 +83,14 @@ Large release candidate: event mean18.789ms/median18.335ms/p9522.043ms; frame p9
 
 Cargo check, Release build, differential regression tests, matched release replay and ordinary hidden smoke passed. No shader or material/rendering changes; original mode remains available via the checkbox.
 
+## Experiment3: lazy radial eligibility
+
+Checked mode rejects non-downhill/blocked neighbor candidates before evaluating the unchanged Euclidean`hypot` metric. It does not replace the metric with an approximation. Differential fixtures and final large replay bytes still match. Planning drops to roughly2.4–2.9ms after the first event; full event mean18.503ms/median18.010ms/p9521.792ms. The incremental end-to-end improvement over experiment2 is small, not an order of magnitude. Artifact: `target/soil-perf/lazy-large.json`.
+
+A targeted readback split attributes most readback time to GPU transfer/wait, not the host Vec copy: a6500352-byte sample commonly spends6.3–7.6ms in transfer/wait and0.78–0.95ms copying mapped bytes. The host buffer implementation already performs a normal slice copy; replacing a byte loop is not an available win. Existing one-time command comments also record a MoltenVK fence/recycling crash history, so a global wait-idle substitution is not a safe shortcut.
+
+22 differential tests, cargo check, Release build, matched release replay and ordinary hidden smoke passed. Benchmark-only `[PERF][SOIL_READ]` records the split; normal readback ownership/synchronization is unchanged.
+
 ## Implementation sources
 
 - `src/terrain_deposition.rs`: per-grain supported settling and speculative retry contract.

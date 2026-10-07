@@ -329,11 +329,11 @@ fn deposit_impl(
                 let (dx, dz) = NEIGHBORS[(n + turn) % 8];
                 let nx = x as i32 + dx;
                 let nz = z as i32 + dz;
-                let distance = (nx as f32 - source.0 as f32).hypot(nz as f32 - source.1 as f32);
                 if nx < 0 || nz < 0 || nx >= dim.x as i32 || nz >= dim.z as i32 {
                     let wx = offset.x as i64 + nx as i64;
                     let wz = offset.z as i64 + nz as i64;
                     let minimum_height = floor_local.unwrap_or(0) as f32;
+                    let distance = (nx as f32 - source.0 as f32).hypot(nz as f32 - source.1 as f32);
                     if wx >= legal.min().x as i64
                         && wx < legal.max().x as i64
                         && wz >= legal.min().z as i64
@@ -357,6 +357,17 @@ fn deposit_impl(
                     1.
                 };
                 let grade = column.next.saturating_sub(next.next) as f32 / step;
+                // Keep the exact hypot metric, but only pay for eligible downhill hops.
+                // Original mode retains the original evaluation path for runtime comparison.
+                if dense_columns
+                    && !(next.next <= column.next
+                        && grade > best_grade
+                        && next.next < next.ceiling
+                        && column.next <= next.ceiling)
+                {
+                    continue;
+                }
+                let distance = (nx as f32 - source.0 as f32).hypot(nz as f32 - source.1 as f32);
                 if (!supported_base || source_height - next.next as f32 > request.repose_slope * distance)
                     && next.next <= column.next
                     && grade > best_grade

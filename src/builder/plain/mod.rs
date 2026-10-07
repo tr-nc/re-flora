@@ -722,6 +722,7 @@ impl PlainBuilder {
             .chunk_atlas_readback_buffer
             .as_mut()
             .expect("chunk atlas readback buffer should be allocated");
+        let transfer_start = Instant::now();
         chunk_atlas.copy_image_to_buffer(
             buffer,
             &queue,
@@ -737,7 +738,13 @@ impl PlainBuilder {
                 extent: Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
             },
         );
-        buffer.read_back_range(0, byte_count)
+        let transfer_ms = transfer_start.elapsed().as_secs_f64() * 1000.;
+        let copy_start = Instant::now();
+        let data = buffer.read_back_range(0, byte_count)?;
+        if std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some() {
+            log::info!("[PERF][SOIL_READ] transfer_wait_ms={transfer_ms:.3} host_copy_ms={:.3} bytes={byte_count}", copy_start.elapsed().as_secs_f64() * 1000.);
+        }
+        Ok(data)
     }
 
     pub fn write_chunk_atlas_region(
