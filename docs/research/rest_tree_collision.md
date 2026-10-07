@@ -1,5 +1,9 @@
 # Static no-wind tree collision with precise visual picking
 
+**Stage history:** The physical-collision behavior and measurements below remain valid. The later
+[GPU picking change](gpu_tree_picking.md) replaces the per-frame CPU visual copy described here;
+normal picking is now asynchronous and GPU-backed, with CPU deformation reserved for validation.
+
 ## Accepted behavior
 
 The user explicitly accepted approximating tree physical collision by its **no-wind rest geometry**:

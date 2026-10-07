@@ -142,15 +142,30 @@ failure clears it and restores authoritative voxel collision. Upper branches can
 from their rest collision; this is an explicitly accepted interaction approximation, not quantized
 motion or a skipped invalidation on a mutated shape.
 
-The immutable CPU visual-query plan shares only identical world rest positions and complete skin
-bindings. It preserves visual vertex indexing, per-cell normal/confidence data and ordered triangle
-IDs. Posed double buffers still support precise picking, barycentric rest-space editing and GPU
-validation. They compute a componentwise maximum displacement while skinning. Visual ray queries
-traverse the unchanged rest BVH with read-only outward-rounded bounds expanded by that displacement,
-then intersect the exact posed triangles; padding never alters physical collision bounds. Thus a
-branch outside the physical rest AABB is still selectable, without maintaining a second per-frame
-CPU hierarchy. See [`research/rest_tree_collision.md`](research/rest_tree_collision.md) for validation
-and Release measurements.
+Normal frames do not construct a CPU posed forest. `gpu_wind_active` independently controls GPU
+skinning, BVH refit, scene queries and attached-fruit transforms. The compact CPU deformation plan
+remains an explicit validation oracle (and supplies immutable rest collision topology), not the
+activation condition or a live picking dependency.
+
+`SurfacePicker` batches a captured pointer edit and latest-wins hover into the normal render
+submission, querying the already-skinned/refitted GPU scene. Each 48-byte answer retains the exact
+selected primitive and its barycentric **rest** wood coordinate, not an inverse single-bone pose.
+Per-frame-slot inputs and readbacks are reused only after their readers complete. Immutable complete
+descriptor generations inherit the current reflected scene bindings and remain owned by the flight
+until its frame fence completes. Status polling never submits a per-query job or waits for its GPU.
+Explicit blocking scene queries remain diagnostic-only.
+
+`PointerPicking` owns the frozen click ray, action and control selection until completion. An
+initial click can complete after release; later held-tool dabs require the original hold. Tool,
+variety, radius, pointer-ownership and camera-mode changes cancel incompatible intent. Terrain
+revision, tree publication generation and render/wind mode are checked before recording and again
+before editing; rejected publications do not advance the resident generation. Continuous pose
+changes do not invalidate a correctly paired rendered-pose answer. Canonical wood editing consumes
+that answer's rest coordinate, without a second CPU tree query. Hover intentionally displays the
+newest completed answer; asynchronous interaction latency needs manual review. Fixed model supports
+retain their cheap CPU occlusion test. Footsteps, water, grounding and camera landing remain static
+CPU terrain/physics queries. See [`research/gpu_tree_picking.md`](research/gpu_tree_picking.md) for
+validation, limitations and Release measurements.
 
 Terrain changes can affect tree shading without removing any wood. Neither dependency tracking
 nor publication equality may use a removed-wood count as a shortcut. Shared sampling radius,
