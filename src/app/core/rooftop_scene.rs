@@ -982,6 +982,12 @@ impl App {
             .adjustables
             .soil_deposition_spread_radius
             .value;
+        let batch_size = self
+            .debug_settings
+            .adjustables
+            .soil_deposition_batch_size
+            .value;
+        let rate = self.debug_settings.adjustables.soil_deposition_rate.value;
         let inventory: Vec<_> = self
             .voxel_backpack
             .snapshot()
@@ -1001,32 +1007,49 @@ impl App {
         ));
         self.tracer
             .set_camera_pose_looking_at(opening.position, center);
-        self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Pressed);
-        let Some(PlayerToolPointerAction::Continuous(action)) =
-            self.player_tools.begin_pointer_action(MouseButton::Left)
-        else {
-            anyhow::bail!("Soil LMB did not resolve to an action");
-        };
-        anyhow::ensure!(
-            action == player_tools::ContinuousTerrainToolAction::SoilDeposit,
-            "Soil invoked the geometry brush"
-        );
-        let press = Instant::now();
-        self.execute_continuous_terrain_tool_action(action, press);
-        let after_pointer = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-        anyhow::ensure!(
-            count(&after_pointer) == count(&thick) + 1,
-            "production Soil pointer path did not add exactly one voxel"
-        );
-        self.contree_builder.flush_cpu_chunk_cache_jobs();
-        self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(100));
-        let during_tap = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-        anyhow::ensure!(
-            count(&during_tap) == count(&after_pointer),
-            "a short Soil tap repeated before the hold delay"
-        );
-        self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Released);
-        self.refresh_terrain_edit_hold_from_mouse_buttons();
+        self.debug_settings.adjustables.soil_deposition_rate.value = 20.;
+        let mut pointer_count = count(&thick);
+        for size in [1, 10, 50] {
+            self.debug_settings
+                .adjustables
+                .soil_deposition_batch_size
+                .value = size;
+            self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Pressed);
+            let Some(PlayerToolPointerAction::Continuous(action)) =
+                self.player_tools.begin_pointer_action(MouseButton::Left)
+            else {
+                anyhow::bail!("Soil LMB did not resolve to an action");
+            };
+            anyhow::ensure!(
+                action == player_tools::ContinuousTerrainToolAction::SoilDeposit,
+                "Soil invoked the geometry brush"
+            );
+            let press = Instant::now();
+            self.execute_continuous_terrain_tool_action(action, press);
+            let after_pointer = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            pointer_count += size as usize;
+            anyhow::ensure!(
+                count(&after_pointer) == pointer_count,
+                "production Soil click did not emit the configured {size} atomic voxels"
+            );
+            self.contree_builder.flush_cpu_chunk_cache_jobs();
+            self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(100));
+            let during_tap = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            anyhow::ensure!(
+                count(&during_tap) == pointer_count,
+                "a short Soil tap repeated before the hold delay"
+            );
+            self.execute_continuous_terrain_tool_action(action, press + Duration::from_millis(250));
+            let held = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            pointer_count += size as usize;
+            anyhow::ensure!(
+                count(&held) == pointer_count,
+                "held Soil did not emit the configured {size} atomic voxels"
+            );
+            self.contree_builder.flush_cpu_chunk_cache_jobs();
+            self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Released);
+            self.refresh_terrain_edit_hold_from_mouse_buttons();
+        }
         anyhow::ensure!(
             inventory
                 == self
@@ -1040,12 +1063,17 @@ impl App {
         self.player_tools.select_item_panel_slot(slot);
         self.debug_settings
             .adjustables
+            .soil_deposition_batch_size
+            .value = batch_size;
+        self.debug_settings.adjustables.soil_deposition_rate.value = rate;
+        self.debug_settings
+            .adjustables
             .soil_deposition_spread_radius
             .value = spread;
         self.cursor_position_physical = cursor;
         self.tracer.apply_camera_pose(opening);
         self.contree_builder.flush_cpu_chunk_cache_jobs();
-        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true single_voxel_click=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
+        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true batch_sizes=1,10,50 click_counts_exact=true hold_counts_exact=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
             initial.added, total, height(&thin), height(&thick), checked_new);
         if std::env::var_os("RE_FLORA_SOIL_REPORT_CLOSEUP").is_some() {
             // A separate clean plot avoids showing old geometry-brush soil as the new

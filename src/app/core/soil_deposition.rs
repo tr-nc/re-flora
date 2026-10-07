@@ -45,7 +45,14 @@ impl App {
             }
         };
         let rate = self.debug_settings.adjustables.soil_deposition_rate.value;
-        let (volume, seed) = self.player_tools.soil_deposition_budget(now, rate);
+        let batch_size = self
+            .debug_settings
+            .adjustables
+            .soil_deposition_batch_size
+            .value;
+        let (volume, seed) = self
+            .player_tools
+            .soil_deposition_budget(now, rate, batch_size);
         let edit = self.player_tools.stroke_edit_with_radius(
             action,
             center,
@@ -57,7 +64,7 @@ impl App {
                 self.player_tools.record_stroke_dab(action, now, center);
             }
             Ok(_) => {
-                // Keep fractional flow when a small dose has not reached one voxel yet.
+                // Keep fractional event credit until the next whole batch is due.
                 self.player_tools.record_stroke_dab(action, now, center);
                 self.stop_terrain_edit_loop_sound();
                 if volume > 0 {

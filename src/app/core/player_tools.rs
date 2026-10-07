@@ -653,8 +653,13 @@ impl PlayerToolRuntime {
         }
     }
 
-    pub(super) fn soil_deposition_budget(&mut self, now: Instant, rate: f32) -> (u32, u32) {
-        self.soil_flow.take(now, rate)
+    pub(super) fn soil_deposition_budget(
+        &mut self,
+        now: Instant,
+        rate: f32,
+        batch_size: u32,
+    ) -> (u32, u32) {
+        self.soil_flow.take(now, rate, batch_size)
     }
 
     pub(super) fn flora_paint_dab(
@@ -755,7 +760,7 @@ mod tests {
         );
         assert!(!runtime.has_secondary_pointer_action());
         let now = Instant::now();
-        assert_eq!(runtime.soil_deposition_budget(now, 1000.).0, 1);
+        assert_eq!(runtime.soil_deposition_budget(now, 20., 50).0, 50);
         runtime.record_stroke_dab(ContinuousTerrainToolAction::SoilDeposit, now, Vec3::ZERO);
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         runtime.finish_pointer_release();
@@ -765,9 +770,9 @@ mod tests {
         );
         assert_eq!(
             runtime
-                .soil_deposition_budget(now + Duration::from_secs(10), 1000.)
+                .soil_deposition_budget(now + Duration::from_secs(10), 20., 50)
                 .0,
-            1
+            50
         );
         runtime.select_item_panel_slot(super::SHOVEL_SLOT_INDEX);
         runtime.set_pointer_button_state(MouseButton::Right, ElementState::Pressed);

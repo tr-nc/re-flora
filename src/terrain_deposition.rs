@@ -15,7 +15,7 @@ const CLICK_HOLD_DELAY: Duration = Duration::from_millis(200);
 // Every f32 rate >= 1 is represented exactly at this scale. Integer nanosecond credit
 // avoids frame-by-frame floating-point rounding losing a voxel at an integral boundary.
 const FLOW_RATE_SCALE: u128 = 1 << 23;
-const FLOW_VOXEL_UNITS: u128 = FLOW_RATE_SCALE * 1_000_000_000;
+const FLOW_EVENT_UNITS: u128 = FLOW_RATE_SCALE * 1_000_000_000;
 pub(crate) const MAX_DEPOSITION_BATCH: u32 = 32_768;
 
 #[derive(Clone, Copy, Debug)]
@@ -350,9 +350,9 @@ fn find_column(
 }
 
 /// Time-based material budget. Reset on release/miss/tool change, retaining only the RNG serial.
-/// A press releases one voxel immediately; short taps do not repeat. After the hold delay,
-/// continuous flow adds elapsed-time volume without borrowing the shovel's coarse cadence. Fractional
-/// voxels survive sampling, so ordinary frame cadence and footprint size do not change flow.
+/// A press releases one configured batch immediately; short taps do not repeat. After the
+/// hold delay, frequency budgets whole batches, each containing individually settled voxels.
+/// Fractional events survive sampling; frame cadence and footprint size do not change flow.
 /// Catch-up after a stall is capped at 250 ms; stopped time never produces a giant dose.
 #[derive(Debug, Default)]
 pub(crate) struct DepositionFlow {
@@ -366,8 +366,12 @@ impl DepositionFlow {
         self.fraction = 0;
     }
 
-    pub(crate) fn take(&mut self, now: Instant, rate: f32) -> (u32, u32) {
-        let credit = if !rate.is_finite() || rate <= 0. {
+    pub(crate) fn take(&mut self, now: Instant, rate: f32, batch_size: u32) -> (u32, u32) {
+        let credit = if !rate.is_finite()
+            || rate <= 0.
+            || batch_size == 0
+            || batch_size > MAX_DEPOSITION_BATCH
+        {
             self.last = Some(now + CLICK_HOLD_DELAY);
             self.fraction = 0;
             0
@@ -388,10 +392,11 @@ impl DepositionFlow {
         } else {
             // The first repeat budget starts after the tap/hold distinction, not at press.
             self.last = Some(now + CLICK_HOLD_DELAY);
-            FLOW_VOXEL_UNITS
+            FLOW_EVENT_UNITS
         };
-        let whole = (credit / FLOW_VOXEL_UNITS).min(u128::from(MAX_DEPOSITION_BATCH)) as u32;
-        self.fraction = credit % FLOW_VOXEL_UNITS;
+        let max_batches = MAX_DEPOSITION_BATCH / batch_size.max(1);
+        let whole = (credit / FLOW_EVENT_UNITS).min(u128::from(max_batches)) as u32 * batch_size;
+        self.fraction = credit % FLOW_EVENT_UNITS;
         self.serial = self.serial.wrapping_add(1);
         (whole, self.serial.wrapping_mul(0x9e3779b9))
     }
@@ -740,23 +745,33 @@ mod tests {
     }
 
     #[test]
-    fn every_click_releases_one_grain_and_holding_uses_the_configured_rate() {
+    fn clicks_and_holds_release_configurable_batches_of_individual_grains() {
         let start = Instant::now();
-        for rate in [1., 20., 6000.] {
-            let mut flow = DepositionFlow::default();
-            assert_eq!(
-                flow.take(start, rate).0,
-                1,
-                "one click must not emit a whole rate-derived clump"
-            );
-            let mut added = 1;
-            // Includes 200 ms tap grace followed by one second of continuous emission.
-            for i in 1..=24 {
-                added += flow.take(start + Duration::from_millis(i * 50), rate).0;
+        for batch_size in [1, 10, 50, 512] {
+            for rate in [1., 20., 120.] {
+                let mut flow = DepositionFlow::default();
+                assert_eq!(
+                    flow.take(start, rate, batch_size).0,
+                    batch_size,
+                    "one click must emit the configured number of atomic voxels"
+                );
+                let mut added = batch_size;
+                // 200 ms tap grace followed by one second of continuous batches.
+                for i in 1..=24 {
+                    let volume = flow
+                        .take(start + Duration::from_millis(i * 50), rate, batch_size)
+                        .0;
+                    assert_eq!(volume % batch_size, 0);
+                    added += volume;
+                }
+                assert_eq!(added, batch_size * (1 + rate as u32));
+                flow.reset();
+                assert_eq!(
+                    flow.take(start + Duration::from_secs(10), rate, batch_size)
+                        .0,
+                    batch_size
+                );
             }
-            assert_eq!(added, 1 + rate as u32);
-            flow.reset();
-            assert_eq!(flow.take(start + Duration::from_secs(10), rate).0, 1);
         }
     }
 
@@ -899,19 +914,42 @@ mod tests {
     fn short_taps_do_not_repeat_and_bad_rates_cannot_create_material() {
         let start = Instant::now();
         let mut flow = DepositionFlow::default();
-        assert_eq!(flow.take(start, 20.).0, 1);
+        assert_eq!(flow.take(start, 20., 1).0, 1);
         for ms in [50, 100, 150, 200] {
-            assert_eq!(flow.take(start + Duration::from_millis(ms), 20.).0, 0);
+            assert_eq!(flow.take(start + Duration::from_millis(ms), 20., 1).0, 0);
         }
-        assert_eq!(flow.take(start + Duration::from_millis(250), 20.).0, 1);
+        assert_eq!(flow.take(start + Duration::from_millis(250), 20., 1).0, 1);
         assert_eq!(
-            flow.take(start + Duration::from_secs(100), 20.).0,
+            flow.take(start + Duration::from_secs(100), 20., 1).0,
             5,
             "stall catch-up must be capped at 250 ms"
         );
         for rate in [0., -1., f32::NAN, f32::INFINITY] {
             flow.reset();
-            assert_eq!(flow.take(start, rate).0, 0);
+            assert_eq!(flow.take(start, rate, 1).0, 0);
+        }
+    }
+
+    #[test]
+    fn batch_changes_apply_to_the_next_release_and_large_budgets_stay_bounded() {
+        let start = Instant::now();
+        let mut flow = DepositionFlow::default();
+        assert_eq!(flow.take(start, 20., 10).0, 10);
+        assert_eq!(flow.take(start + Duration::from_millis(225), 20., 10).0, 0);
+        assert_eq!(flow.take(start + Duration::from_millis(250), 20., 50).0, 50);
+        let now = start + Duration::from_secs(100);
+        assert_eq!(
+            flow.take(now, f32::MAX, 50).0,
+            (MAX_DEPOSITION_BATCH / 50) * 50
+        );
+        assert_eq!(
+            flow.take(now, 20., 50).0,
+            0,
+            "capped excess must not become a backlog"
+        );
+        for size in [0, u32::MAX] {
+            flow.reset();
+            assert_eq!(flow.take(now, 20., size).0, 0);
         }
     }
 
@@ -935,19 +973,29 @@ mod tests {
     #[test]
     fn time_budget_preserves_fractions_and_is_sampling_rate_independent() {
         let start = Instant::now();
-        let mut fast = DepositionFlow::default();
-        let mut slow = DepositionFlow::default();
-        let mut a = fast.take(start, 101.25).0;
-        let mut b = slow.take(start, 101.25).0;
-        for i in 1..=100 {
-            a += fast.take(start + Duration::from_millis(i * 10), 101.25).0;
+        for batch_size in [1, 10, 50] {
+            let mut fast = DepositionFlow::default();
+            let mut slow = DepositionFlow::default();
+            let mut a = fast.take(start, 101.25, batch_size).0;
+            let mut b = slow.take(start, 101.25, batch_size).0;
+            for i in 1..=100 {
+                a += fast
+                    .take(start + Duration::from_millis(i * 10), 101.25, batch_size)
+                    .0;
+            }
+            for i in 1..=10 {
+                b += slow
+                    .take(start + Duration::from_millis(i * 100), 101.25, batch_size)
+                    .0;
+            }
+            assert_eq!(a, b);
+            assert_eq!(a, 82 * batch_size);
+            fast.reset();
+            assert_eq!(
+                fast.take(start + Duration::from_secs(100), 101.25, batch_size)
+                    .0,
+                batch_size
+            );
         }
-        for i in 1..=10 {
-            b += slow.take(start + Duration::from_millis(i * 100), 101.25).0;
-        }
-        assert_eq!(a, b);
-        assert_eq!(a, 82);
-        fast.reset();
-        assert_eq!(fast.take(start + Duration::from_secs(100), 101.25).0, 1);
     }
 }

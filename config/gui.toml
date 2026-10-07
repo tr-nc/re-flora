@@ -2606,15 +2606,26 @@ value = true
 name = "Soil Deposition"
 
 [[section.param]]
+id = "soil_deposition_batch_size"
+kind = "uint"
+label = "Soil batch size (individual voxels)"
+type = "Uint"
+
+[section.param.data]
+value = 10
+min = 1
+max = 512
+
+[[section.param]]
 id = "soil_deposition_rate"
 kind = "float"
-label = "Soil volume per second (voxels)"
+label = "Soil release frequency (batches / second)"
 type = "Float"
 
 [section.param.data]
 value = 20
 min = 1
-max = 64000
+max = 120
 
 [[section.param]]
 id = "soil_deposition_spread_radius"
