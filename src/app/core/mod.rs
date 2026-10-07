@@ -4,6 +4,7 @@ use crate::util::Timer;
 
 mod authored_flora_bench;
 mod boot;
+mod butterfly_foraging_review;
 mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
@@ -492,6 +493,7 @@ pub struct App {
     butterfly_emitters: Vec<ButterflyEmitter>,
     butterfly_emitter_desc: ButterflyEmitterDesc,
     butterfly_review: Option<particles::ButterflyReview>,
+    butterfly_foraging_review: Option<butterfly_foraging_review::Review>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
     climbing_plants: climbing_plants::ClimbingPlants,
@@ -1450,6 +1452,7 @@ impl App {
             &debug_settings.adjustables,
             butterfly_flight_variant,
             butterfly_flight_tuning,
+            debug_settings.butterfly_flight.foraging,
         );
         let particle_snapshots = Vec::with_capacity(particle_system.capacity());
         let world_extent = world_chunk_dim.as_vec3();
@@ -1599,6 +1602,7 @@ impl App {
             particle_system,
             butterfly_emitters,
             butterfly_emitter_desc,
+            butterfly_foraging_review: butterfly_foraging_review::Review::from_env(),
             butterfly_review: std::env::var_os("RE_FLORA_BUTTERFLY_REVIEW")
                 .or_else(|| std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW"))
                 .map(|_| particles::ButterflyReview::default()),
@@ -2543,6 +2547,7 @@ impl App {
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
                 self.prepare_apple_pixel_review();
+                self.prepare_butterfly_foraging_review();
                 self.prepare_model_view_review()
                     .expect("model view quantization review fixture");
                 self.prepare_flower_model_bench()

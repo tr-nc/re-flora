@@ -1,6 +1,15 @@
 //! Simulation-visible flower facts published from the renderer's actual GPU pose.
 //! Stable identities do not encode mutable draw slots.
-use glam::Vec3;
+use glam::{Quat, Vec3};
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ButterflyBodyPose {
+    pub orientation: Quat,
+    pub phase: Option<f32>,
+    pub host: Option<FlowerId>,
+    pub yaw: f32,
+    pub clearance: f32,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct FlowerId {

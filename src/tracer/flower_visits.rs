@@ -77,6 +77,7 @@ pub(super) struct FlowerVisits {
     current: HashMap<FlowerId, u32>,
     latest: Vec<FlowerTarget>,
     latest_time: f32,
+    observation_time: f32,
     reported: bool,
 }
 impl FlowerVisits {
@@ -150,6 +151,12 @@ impl Tracer {
         surface: &SurfaceResources,
         time: f32,
     ) -> &[FlowerTarget] {
+        // Freshness/velocity use the simulation observation clock, not the
+        // shader animation time (which capture/lighting fixtures can freeze).
+        self.flower_visits.observation_time = time;
+        if !self.flower_visits.enabled {
+            return &[];
+        }
         let live: HashSet<_> = surface
             .instances
             .chunk_flora_instances
@@ -327,7 +334,7 @@ impl Tracer {
         cmd.use_buffer(&bank.readback, BufferUse::HostRead);
         bank.pending = Some(Pending {
             requests,
-            time,
+            time: sampler.observation_time,
             epoch: sampler.epoch,
         });
         Ok(())

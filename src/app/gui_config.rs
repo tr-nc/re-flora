@@ -58,6 +58,7 @@ impl DebugSettings {
     fn from_config(mut config: GuiConfigFile) -> Self {
         let adjustables = GuiAdjustables::from_config(&config);
         config.butterfly_flight.tuning = config.butterfly_flight.tuning.sanitized();
+        config.butterfly_flight.foraging = config.butterfly_flight.foraging.sanitized();
         let mut settings = Self {
             saved_document: toml::Value::Table(Default::default()),
             config,
@@ -2057,8 +2058,17 @@ wind_drift = 1.0
         assert!(text.contains("Butterfly Update FPS"));
         assert!(!text.contains("Shared flight frequency"));
         assert!(text.contains("Flight height above ground"));
+        assert!(text.contains("Flower-visiting behavior (A/B)"));
+        assert!(text.contains("Butterfly flower-visiting wind limit"));
         assert!(!text.contains("Horizontal maneuver tempo"));
         assert!(!text.contains("Reset B flight controls"));
+        settings.butterfly_flight.foraging = crate::particles::ButterflyForagingSettings {
+            enabled: false,
+            search_radius: 1.1,
+            dwell_seconds: 3.,
+            preference_strength: 1.6,
+            wind_limit: 0.7,
+        };
         settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Original;
         settings.butterfly_flight.tuning = crate::particles::ButterflyFlightTuning {
             wingbeat_coupling: true,

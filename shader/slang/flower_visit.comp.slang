@@ -18,7 +18,9 @@ void main(uint index:SV_DispatchThreadID) {
         head.center_radius.w*plant.frame.scale);
     result.normal_growth=float4(flowerNormal(plant.frame,head.landing_normal.xyz),
         plant.frame.scale/max(flower_pc.world_scale,1e-7));
-    result.tangent_valid=float4(plant.frame.axisX,
+    float3 tangent=plant.frame.axisX-result.normal_growth.xyz*dot(plant.frame.axisX,result.normal_growth.xyz);
+    if(length(tangent)<1e-5)tangent=plant.frame.axisZ-result.normal_growth.xyz*dot(plant.frame.axisZ,result.normal_growth.xyz);
+    result.tangent_valid=float4(normalize(tangent),
         head.landing.w>0.5 && result.normal_growth.w>=0.6 && plant.frame.scale>1e-7?1.0:0.0);
     flower_visit_output[slot]=result;
 }

@@ -57,12 +57,35 @@ fn animation() -> &'static Animation {
 }
 
 /// One authored cycle per second, independently of source or display FPS.
-#[cfg(test)]
 pub(crate) fn wing_pose(phase: f32) -> [f32; 3] {
     let a = animation();
     let key = phase.rem_euclid(1.) * a.source_fps as f32;
     let i = (key.floor() as usize).min(a.source_fps - 1);
     std::array::from_fn(|c| a.keys[i][c] + (a.keys[i + 1][c] - a.keys[i][c]) * key.fract())
+}
+
+/// Raised-wing rest pose and exact clearance of its lowest authored vertex.
+/// Shared by CPU contact capture and the GPU attachment adapter.
+pub(super) fn perching_pose() -> (f32, f32) {
+    static POSE: OnceLock<(f32, f32)> = OnceLock::new();
+    *POSE.get_or_init(|| {
+        let phase = (0..32)
+            .map(|i| i as f32 / 32.)
+            .max_by(|a, b| wing_pose(*a)[0].total_cmp(&wing_pose(*b)[0]))
+            .unwrap();
+        let model = crate::model_assets::butterfly();
+        let transforms = model.transforms(phase, 0);
+        let root = transforms[model.node("Flight pose")].w_axis.truncate();
+        let minimum = model
+            .triangles
+            .iter()
+            .flat_map(|t| {
+                t.positions
+                    .map(|p| transforms[t.node].transform_point3(p).y - root.y)
+            })
+            .fold(f32::INFINITY, f32::min);
+        (phase, (-minimum).max(0.))
+    })
 }
 
 /// Positive wing rotation raises the right wing in the exported Y-up geometry.

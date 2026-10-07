@@ -62,6 +62,7 @@ pub struct ButterflyFlightTuning {
 pub struct ButterflyFlightSettings {
     pub variant: ButterflyFlightVariant,
     pub tuning: ButterflyFlightTuning,
+    pub foraging: super::ButterflyForagingSettings,
 }
 
 impl Default for ButterflyFlightTuning {
@@ -221,11 +222,19 @@ fn sample_event_wait(rng: &mut SmallRng) -> f32 {
         + (BUTTERFLY_FLIGHT_EVENT_WAIT_MAX - BUTTERFLY_FLIGHT_EVENT_WAIT_MIN) * unit * unit
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct FlightGoal {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub precision: f32,
+}
+
 #[derive(Debug)]
 pub(super) struct DartingFlightState {
     pub(super) wingbeat: WingbeatCoupling,
     pub(super) wingbeat_phase: f32,
     habitat_center: Vec3,
+    goal: Option<FlightGoal>,
     ground_height: Option<f32>,
     cruise_direction: Vec3,
     cruise_speed: f32,
@@ -250,6 +259,7 @@ impl DartingFlightState {
             wingbeat: WingbeatCoupling::default(),
             wingbeat_phase: 0.,
             habitat_center,
+            goal: None,
             ground_height: None,
             cruise_direction,
             cruise_speed: rng.random_range(
@@ -337,6 +347,9 @@ impl DartingFlightState {
         recovery
     }
 
+    pub(super) fn set_goal(&mut self, goal: Option<FlightGoal>) {
+        self.goal = goal;
+    }
     pub(super) fn resume(&mut self, velocity: Vec3) {
         self.acceleration = Vec3::ZERO;
         self.wind_velocity = Vec3::ZERO;
@@ -424,7 +437,14 @@ impl DartingFlightState {
             self.cruise_direction * self.cruise_speed
         };
         cruise_velocity = (cruise_velocity * tuning.speed).clamp_length_max(max_speed);
-        let cruise_acceleration = (cruise_velocity - air_velocity) * 2.4;
+        if let Some(goal) = self.goal {
+            let gain = if goal.precision > 0.5 { 5. } else { 1.6 };
+            cruise_velocity = ((goal.position - position) * gain + goal.velocity
+                - self.wind_velocity)
+                .clamp_length_max(max_speed);
+        }
+        let cruise_acceleration =
+            (cruise_velocity - air_velocity) * if self.goal.is_some() { 8. } else { 2.4 };
         let mut maneuver_acceleration = if !emerging && self.event_time_remaining > 0.0 {
             self.event_acceleration
         } else {
@@ -435,8 +455,17 @@ impl DartingFlightState {
         }
         maneuver_acceleration *= tuning.speed;
         maneuver_acceleration.y *= tuning.vertical_strength;
-        let mut recovery = self.habitat_recovery_acceleration(position, velocity, emerging);
+        let intent_noise = self.goal.map_or(1., |goal| (1. - goal.precision) * 0.015);
+        maneuver_acceleration *= intent_noise;
+        let mut recovery = if self.goal.is_some() {
+            Vec3::ZERO
+        } else {
+            self.habitat_recovery_acceleration(position, velocity, emerging)
+        };
         for axis in 0..3 {
+            if self.goal.is_some() {
+                continue;
+            }
             let near_low = ((0.10 - position[axis]) / 0.10).clamp(0.0, 1.0);
             let near_high = ((position[axis] - world_max[axis] + 0.10) / 0.10).clamp(0.0, 1.0);
             recovery[axis] += (near_low - near_high) * 2.5;
@@ -444,7 +473,7 @@ impl DartingFlightState {
         if !emerging
             && velocity.length_squared() > 1e-6
             && terrain_distance(position, velocity.normalize())
-                .is_some_and(|distance| distance < 0.07)
+                .is_some_and(|distance| distance < if self.goal.is_some() { 0.003 } else { 0.07 })
         {
             // Brake and climb before contact. Terrain remains the existing CPU authority.
             recovery += Vec3::Y * 1.5 - velocity * 8.0;
@@ -470,8 +499,9 @@ impl DartingFlightState {
             (self.acceleration
                 + self
                     .wingbeat
-                    .acceleration(velocity, tuning.speed, tuning.vertical_strength, dt))
-            .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed)
+                    .acceleration(velocity, tuning.speed, tuning.vertical_strength, dt)
+                    * intent_noise)
+                .clamp_length_max(BUTTERFLY_FLIGHT_MAX_ACCELERATION * tuning.speed)
         } else {
             // Preserve the original limiter/settling semantics exactly when off.
             self.acceleration

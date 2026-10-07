@@ -400,6 +400,12 @@ impl ModelMeshFrame {
             .parts
             .clone()
     }
+    pub(super) fn bind_flower_hosts(
+        &mut self,
+        indices: &std::collections::HashMap<crate::particles::flower_visits::FlowerId, u32>,
+    ) {
+        self.particles.bind_flower_hosts(indices);
+    }
     pub fn particle_count(&self) -> u32 {
         self.particles.count()
     }
@@ -409,6 +415,7 @@ impl ModelMeshFrame {
         pass: MeshPass<'_>,
         _: Mat4,
         _: Mat4,
+        contacts: &Buffer,
     ) -> Result<PreparedModelMeshes> {
         if std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some() {
             self.review_draw(1, "mesh_butterflies", self.particles.count());
@@ -433,6 +440,7 @@ impl ModelMeshFrame {
             "butterfly_mesh_instances",
             DescriptorResource::Buffer(&particle_buffer),
         ));
+        resources.push(("flower_visit_output", DescriptorResource::Buffer(contacts)));
         let vertices = g.source.ranges[..model_geometry::FLOWER_SOURCE_BASE as usize]
             .iter()
             .map(|r| r[1] * 3)

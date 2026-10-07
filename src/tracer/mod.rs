@@ -4128,13 +4128,24 @@ impl Tracer {
                 .extent,
         )?;
 
-        self.record_flower_visits(
-            cmdbuf,
-            surface_resources,
-            time,
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
             gpu_profiler_frame_slot,
-            render_flags.enable_flora,
+            cmdbuf,
+            "models.flowers.contacts",
+            || {
+                self.record_flower_visits(
+                    cmdbuf,
+                    surface_resources,
+                    time,
+                    gpu_profiler_frame_slot,
+                    render_flags.enable_flora,
+                )
+            },
         )?;
+        self.model_mesh_frame
+            .bind_flower_hosts(self.flower_visits.indices());
+        let flower_contacts = self.flower_visits.output(gpu_profiler_frame_slot);
         let prepared_particle_pixels =
             if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
                 Some(Self::with_gpu_scope(
@@ -4150,6 +4161,7 @@ impl Tracer {
                             },
                             self.camera.get_view_mat(),
                             self.camera.get_proj_mat(),
+                            &flower_contacts,
                         )
                     },
                 )?)

@@ -253,7 +253,7 @@ mod tests {
     fn native_ranges_and_parts_fit_the_triangle_buffer() {
         let geometry = source(Shape::default());
         assert_eq!(std::mem::size_of::<Triangle>(), 128);
-        assert_eq!(std::mem::size_of::<FlowerPart>(), 80);
+        assert_eq!(std::mem::size_of::<FlowerPart>(), 112);
         for r in &geometry.ranges {
             assert!(r[1] > 0);
             assert!((r[0] + r[1]) as usize <= geometry.triangles.len());

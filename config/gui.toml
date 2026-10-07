@@ -41,6 +41,13 @@ turn_sharpness = 1.0
 speed = 0.25
 wind_drift = 1.0
 
+[butterfly_flight.foraging]
+enabled = true
+search_radius = 0.7
+dwell_seconds = 4.0
+preference_strength = 1.0
+wind_limit = 2.0
+
 [tree]
 render_leaves = true
 

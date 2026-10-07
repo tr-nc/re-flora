@@ -29,6 +29,7 @@ struct Instance {
     lighting: [f32; 4],
     tile: [u32; 4],
     view_orientation: [f32; 4],
+    flower_attachment: [u32; 4],
 }
 #[derive(ResourceContainer)]
 pub struct ButterflyMeshResources {
@@ -125,15 +126,24 @@ impl ButterflyMeshRenderer {
                     original_phase + ((p.phase - original_phase + 0.5).rem_euclid(1.) - 0.5) * blend
                 }
             });
+            let body = s.butterfly_body_pose;
+            let phase = body.and_then(|p| p.phase).unwrap_or(phase);
             let transforms = source.transforms(phase, 0);
             let root_motion = transforms[source.node("Flight pose")].w_axis.truncate();
             let bank = coupling.map_or(0., |p| p.bank * blend);
-            let facing = crate::particles::butterfly_wingbeat::flight_orientation(s.velocity, bank);
+            let facing = body.map_or_else(
+                || crate::particles::butterfly_wingbeat::flight_orientation(s.velocity, bank),
+                |p| p.orientation,
+            );
             let rgb = ButterflyPalettePreset::from_index(s.palette_index).base_color_srgb();
-            self.hosts.push(None);
+            self.hosts.push(body.and_then(|p| p.host));
             self.instances.push(Instance {
                 position_size: (s.position_ws
-                    + facing * root_motion * ((1. - blend) * s.size * (1.53125 / 3.4)))
+                    + facing
+                        * root_motion
+                        * (if body.is_some() { 0. } else { 1. - blend }
+                            * s.size
+                            * (1.53125 / 3.4)))
                     .extend(s.size)
                     .to_array(),
                 color: [
@@ -152,6 +162,8 @@ impl ButterflyMeshRenderer {
                 lighting: [settings.transmission.clamp(0., 1.), 0., 0., 0.],
                 tile: [0; 4],
                 view_orientation: facing.to_array(),
+                flower_attachment: body
+                    .map_or([0; 4], |p| [0, 0, p.yaw.to_bits(), p.clearance.to_bits()]),
             });
         }
         self.draw_order.extend(0..self.count());
@@ -161,6 +173,21 @@ impl ButterflyMeshRenderer {
         &self,
     ) -> std::collections::HashSet<crate::particles::flower_visits::FlowerId> {
         self.hosts.iter().flatten().copied().collect()
+    }
+    pub(super) fn bind_flower_hosts(
+        &mut self,
+        indices: &std::collections::HashMap<crate::particles::flower_visits::FlowerId, u32>,
+    ) {
+        for (instance, host) in self.instances.iter_mut().zip(&self.hosts) {
+            if let Some(id) = host {
+                if let Some(slot) = indices.get(id) {
+                    instance.flower_attachment[0] = *slot;
+                    instance.flower_attachment[1] = 1;
+                } else {
+                    instance.position_size[3] = 0.;
+                }
+            }
+        }
     }
     pub fn publish_mesh_frame(&self, publish: impl FnOnce(&[u8]) -> Result<()>) -> Result<()> {
         let ordered: Vec<_> = self
@@ -185,6 +212,7 @@ mod tests {
             animation_phase_offset: 0.,
             animation_sample_time: Some(0.137),
             butterfly_wingbeat: None,
+            butterfly_body_pose: None,
             leaf_orientation: Some(Quat::IDENTITY),
             leaf_shape_seed: Some(17),
             leaf_geometry: Some(Quat::IDENTITY),
@@ -198,6 +226,43 @@ mod tests {
         }
     }
     #[test]
+    fn attached_pose_uses_fixed_wings_and_stable_host_mapping() {
+        use crate::particles::flower_visits::{ButterflyBodyPose, FlowerId};
+        let id = FlowerId {
+            epoch: 3,
+            plant: 7,
+            head: 2,
+        };
+        let mut s = snapshot(ParticleRenderKind::Butterfly);
+        s.butterfly_body_pose = Some(ButterflyBodyPose {
+            orientation: Quat::IDENTITY,
+            phase: Some(0.5),
+            host: Some(id),
+            yaw: 0.2,
+            clearance: 0.1,
+        });
+        let mut r = ButterflyMeshRenderer::default();
+        r.prepare_frame_models(&[s], settings(), Vec3::ZERO)
+            .unwrap();
+        assert_eq!(
+            r.instances[0].position_size,
+            s.position_ws.extend(s.size).to_array()
+        );
+        let phase = r.instances[0].metadata[0];
+        r.bind_flower_hosts(&[(id, 5)].into());
+        assert_eq!(&r.instances[0].flower_attachment[..2], &[5, 1]);
+        s.animation_sample_time = Some(9.7);
+        r.prepare_frame_models(&[s], settings(), Vec3::ZERO)
+            .unwrap();
+        assert_eq!(r.instances[0].metadata[0], phase);
+        r.bind_flower_hosts(&Default::default());
+        assert_eq!(
+            r.instances[0].position_size[3], 0.,
+            "missing/replaced host must not hover"
+        );
+    }
+
+    #[test]
     fn leaves_never_enter_the_model_stream() {
         let mut r = ButterflyMeshRenderer::default();
         r.prepare_frame_models(
@@ -210,7 +275,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r.count(), 1);
-        assert_eq!(std::mem::size_of::<Instance>(), 96);
+        assert_eq!(std::mem::size_of::<Instance>(), 112);
         assert_eq!(r.instances[0].metadata[3], 0);
         r.prepare_frame_models(&[], settings(), Vec3::ZERO).unwrap();
         assert_eq!(r.count(), 0);

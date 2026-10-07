@@ -1,4 +1,5 @@
 import butterfly_mesh_types;
+import flower_attachment;
 import model_mesh;
 import model_mesh_view;
 import model_surface_cache;
@@ -22,6 +23,7 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint index:SV_VulkanInstanceI
     physical.axisX=rotateMeshPose(instance.view_orientation,float3(1,0,0));
     physical.axisY=rotateMeshPose(instance.view_orientation,float3(0,1,0));
     physical.axisZ=rotateMeshPose(instance.view_orientation,float3(0,0,1));
+    if(!attachFlower(instance.flower_attachment,physical.scale,physical))return emptyModelMeshVertex();
     float3 normal,position;float4 clip;
     CachedModelVertex cached;
     if(cachedModelVertex(vertex,instance.metadata.x,2u,physical,float3(0),cached)) {
