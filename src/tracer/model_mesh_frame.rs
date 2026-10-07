@@ -6,7 +6,7 @@ use super::{
     model_geometry::{self, Source},
     model_pixel_views,
     model_surface_cache::{
-        Buffers as CacheBuffers, Options as CacheOptions, SurfaceCache, MAX_RESOLUTION,
+        Buffers as CacheBuffers, Options as CacheOptions, SurfaceCache, MAX_RESOLUTION, MODEL_KINDS,
     },
     pipeline_builder::{ComputePipelines, GraphicsPipelines},
     resources::TracerResources,
@@ -183,7 +183,8 @@ impl PreparedFlowerModels {
 struct Frame {
     geometry: Option<Arc<Geometry>>,
     particles: Option<Arc<Buffer>>,
-    cache: [Option<Arc<CacheBuffers>>; 3],
+    cache: [Option<Arc<CacheBuffers>>; MODEL_KINDS],
+    tool_pose: Option<Arc<Buffer>>,
     stem_bands: Vec<(u64, Arc<Buffer>)>,
     stem_draws: usize,
 }
@@ -197,10 +198,11 @@ pub(super) struct ModelMeshFrame {
     view_azimuths: Option<Arc<Buffer>>,
     view_count: Option<u32>,
     review_draws: u8,
-    cache: [SurfaceCache; 3],
+    cache: [SurfaceCache; MODEL_KINDS],
     cache_options: CacheOptions,
     geometry_generation: u64,
-    logged_cache_modes: [Option<bool>; 3],
+    logged_cache_modes: [Option<bool>; MODEL_KINDS],
+    soil_bag: Option<crate::soil_bag::Preview>,
 }
 impl ModelMeshFrame {
     pub fn new(context: &VulkanContext, allocator: Allocator) -> Self {
@@ -217,7 +219,8 @@ impl ModelMeshFrame {
             cache: std::array::from_fn(|_| SurfaceCache::default()),
             cache_options: CacheOptions::default(),
             geometry_generation: 0,
-            logged_cache_modes: [None; 3],
+            logged_cache_modes: [None; MODEL_KINDS],
+            soil_bag: None,
         }
     }
     pub fn set_cache_options(&mut self, options: CacheOptions) {
@@ -225,7 +228,7 @@ impl ModelMeshFrame {
     }
     fn prepare_surfaces(&mut self) -> Result<()> {
         let geometry = self.active.as_ref().unwrap();
-        for kind in 0..3 {
+        for kind in 0..MODEL_KINDS {
             let cache = if self.cache_options.enabled[kind] {
                 self.cache[kind].prepare(
                     &self.device,
@@ -246,7 +249,7 @@ impl ModelMeshFrame {
             if self.logged_cache_modes[kind] != Some(cached) {
                 log::info!(
                     "[MODEL_SURFACE_MODE] object={} mode={} views={} resolution={}",
-                    ["apples", "butterflies", "flower_heads"][kind],
+                    ["apples", "butterflies", "flower_heads", "soil_bag"][kind],
                     if cached { "cached" } else { "native" },
                     self.cache_options.views,
                     self.cache_options.resolutions[kind]
@@ -255,7 +258,8 @@ impl ModelMeshFrame {
                 self.review_draws &= !(match kind {
                     0 => 4 | 16,
                     1 => 1,
-                    _ => 8,
+                    2 => 8,
+                    _ => 32 | 64,
                 });
             }
             self.frames[self.slot].cache[kind] = Some(cache);
@@ -279,10 +283,14 @@ impl ModelMeshFrame {
     fn review_draw(&mut self, bit: u8, object: &str, count: u32) {
         if count > 0
             && self.review_draws & bit == 0
-            && std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
+            && (std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
+                || ((bit == 32 || bit == 64)
+                    && std::env::var_os("RE_FLORA_SOIL_BAG_REVIEW").is_some()))
         {
             self.review_draws |= bit;
-            let kind = if bit == 1 {
+            let kind = if bit == 32 || bit == 64 {
+                3
+            } else if bit == 1 {
                 1
             } else if bit == 8 {
                 2
@@ -318,7 +326,7 @@ impl ModelMeshFrame {
             .begin_transient_descriptor_frame(slot);
     }
     pub fn startup_cache_progress(&self) -> f32 {
-        if (0..3).all(|kind| self.cache[kind].ready(self.cache_options.for_kind(kind))) {
+        if (0..MODEL_KINDS).all(|kind| self.cache[kind].ready(self.cache_options.for_kind(kind))) {
             1.0
         } else {
             0.0
@@ -469,6 +477,7 @@ impl ModelMeshFrame {
                 "model_cached_flower_surfaces",
                 "model_cached_flower_entries",
             ),
+            ("model_cached_tool_surfaces", "model_cached_tool_entries"),
         ]
         .into_iter()
         .enumerate()
@@ -606,6 +615,75 @@ impl ModelMeshFrame {
             )?,
         })
     }
+    pub fn set_soil_bag(&mut self, preview: Option<crate::soil_bag::Preview>) {
+        self.soil_bag = preview;
+    }
+    pub fn soil_bag(
+        &mut self,
+        cmd: &CommandBuffer,
+        pass: MeshPass<'_>,
+    ) -> Result<Option<PreparedModelMeshes>> {
+        let Some(pose) = self.soil_bag else {
+            return Ok(None);
+        };
+        self.review_draw(
+            if pose.pouring { 64 } else { 32 },
+            if pose.pouring {
+                "soil_bag_pour"
+            } else {
+                "soil_bag_hover"
+            },
+            1,
+        );
+        #[repr(C)]
+        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        struct ToolPose {
+            position: [f32; 4],
+            axes: [[f32; 4]; 3],
+            metadata: [u32; 4],
+            mouth: [f32; 4],
+        }
+        let g = self.active.as_ref().unwrap().clone();
+        let state = usize::from(pose.pouring);
+        let source = g.source.soil_bag_sources[state];
+        let asset = crate::soil_bag::asset();
+        let data = ToolPose {
+            position: pose.position.extend(pose.scale).to_array(),
+            axes: [Vec3::X, Vec3::Y, Vec3::Z].map(|v| (pose.rotation * v).extend(0.).to_array()),
+            metadata: [
+                source,
+                g.source.soil_bag_palette,
+                asset.texture_size[0],
+                asset.texture_size[1],
+            ],
+            mouth: Vec3::from(asset.states[state].mouth).extend(0.).to_array(),
+        };
+        let frame = &mut self.frames[self.slot];
+        if frame.tool_pose.is_none() {
+            frame.tool_pose = Some(Arc::new(Buffer::try_new_sized(
+                self.device.clone(),
+                self.allocator.clone(),
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::CpuToGpu,
+                std::mem::size_of::<ToolPose>() as u64,
+            )?));
+        }
+        let buffer = frame.tool_pose.as_ref().unwrap().clone();
+        // This slot's fence has completed. Never overwrite another in-flight pose.
+        buffer.fill_range_with_raw_u8(0, bytemuck::bytes_of(&data))?;
+        let mut resources = g.bindings().to_vec();
+        resources.push(("tool_model_pose", DescriptorResource::Buffer(&buffer)));
+        resources.push(("tool_model_colors", DescriptorResource::Buffer(&g.palette)));
+        Ok(Some(self.prepare(
+            cmd,
+            pass,
+            1,
+            self.draw_vertices(3, g.source.ranges[source as usize][1] * 3),
+            resources,
+            None,
+        )?))
+    }
+
     pub fn fallen_apples(
         &mut self,
         cmd: &CommandBuffer,

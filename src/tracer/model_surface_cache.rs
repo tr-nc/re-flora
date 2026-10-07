@@ -16,29 +16,30 @@ use std::sync::{
 
 pub const MIN_RESOLUTION: u32 = 8;
 pub const MAX_RESOLUTION: u32 = 32;
-/// Order is apples, butterflies, flower heads; one saved owner per object.
+pub const MODEL_KINDS: usize = 4;
+/// Order is apples, butterflies, flower heads, tool bags; per-kind cache ownership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Options {
     pub views: u32,
-    pub resolutions: [u32; 3],
-    pub enabled: [bool; 3],
+    pub resolutions: [u32; MODEL_KINDS],
+    pub enabled: [bool; MODEL_KINDS],
 }
 impl Default for Options {
     fn default() -> Self {
         Self {
             views: 32,
-            resolutions: [32, 22, 16],
-            enabled: [true; 3],
+            resolutions: [32, 22, 16, 32],
+            enabled: [true; MODEL_KINDS],
         }
     }
 }
 impl Options {
     pub fn for_kind(self, kind: usize) -> Self {
-        let mut enabled = [false; 3];
+        let mut enabled = [false; MODEL_KINDS];
         enabled[kind] = self.enabled[kind];
         Self {
             views: self.views,
-            resolutions: [self.resolutions[kind]; 3],
+            resolutions: [self.resolutions[kind]; MODEL_KINDS],
             enabled,
         }
         .normalized()
@@ -110,7 +111,7 @@ impl Buffers {
                 entries: vec![Entry::default(); sources],
             },
             Options {
-                enabled: [false; 3],
+                enabled: [false; MODEL_KINDS],
                 ..Options::default()
             },
         )?))
@@ -487,8 +488,8 @@ mod tests {
         let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
         let options = Options {
             views: 8,
-            resolutions: [8; 3],
-            enabled: [true, false, false],
+            resolutions: [8; MODEL_KINDS],
+            enabled: [true, false, false, false],
         };
         let data = bake(&source, options, &AtomicBool::new(false)).unwrap();
         assert_eq!(data.samples.len(), 8 * 8 * 8);
@@ -522,8 +523,8 @@ mod tests {
             &source,
             Options {
                 views: 8,
-                resolutions: [8; 3],
-                enabled: [true; 3],
+                resolutions: [8; MODEL_KINDS],
+                enabled: [true; MODEL_KINDS],
             },
             &AtomicBool::new(false),
         )
@@ -535,6 +536,11 @@ mod tests {
             .filter(|p| p.range[1] > 0)
         {
             let entry = data.entries[part.range[2] as usize];
+            assert_eq!(entry.layout[3], 1);
+            assert!(entry.layout[0] as usize + 8 * 8 * 8 <= data.samples.len());
+        }
+        for id in source.soil_bag_sources {
+            let entry = data.entries[id as usize];
             assert_eq!(entry.layout[3], 1);
             assert!(entry.layout[0] as usize + 8 * 8 * 8 <= data.samples.len());
         }
@@ -563,14 +569,14 @@ mod tests {
         assert_eq!(
             Options {
                 views: 0,
-                resolutions: [0, 64, u32::MAX],
-                enabled: [false, true, false]
+                resolutions: [0, 64, u32::MAX, 16],
+                enabled: [false, true, false, true]
             }
             .normalized(),
             Options {
                 views: 8,
-                resolutions: [8, 32, 32],
-                enabled: [false, true, false]
+                resolutions: [8, 32, 32, 16],
+                enabled: [false, true, false, true]
             }
         );
     }

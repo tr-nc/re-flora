@@ -29,7 +29,7 @@ export const soilBagDefinition={
   preview:{resolution:64,background:'#2b3831'},
   presetLabel:'包装预设 · 可以继续改色与换贴纸',presets:soilBagPresets,
   controls:[
-    {type:'note',label:'先验收网页外观和动作，不改变游戏里的Soil工具。撕开片段只生成一个角部袋口；倾倒片段从已开口的袋子开始。'},
+    {type:'note',label:'默认袋子已接入游戏 Soil 工具：悬停 / 按住使用两个静态姿态；这里的改色与动作预览不自动改游戏。撕开只生成一个角部袋口；倾倒从已开口的袋子开始。'},
     {key:'bagColor',label:'袋子颜色',type:'color'},
     {key:'fullness',label:'袋子充盈 / 鼓起程度',min:.35,max:1.25,step:.01},
     {key:'stickerDesign',label:'更换正面贴纸',type:'select',options:[['sprout','双叶芽 · 大图案'],['layers','三层土 · 大图案'],['flower','五瓣花 · 大图案'],['custom','自定义贴纸（先导入图片）']]},

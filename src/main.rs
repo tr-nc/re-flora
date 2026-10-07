@@ -25,6 +25,7 @@ mod procedual_placer;
 mod resource;
 mod run_log;
 mod scene_query;
+mod soil_bag;
 mod stone_models;
 mod terrain_deposition;
 mod terrain_material;

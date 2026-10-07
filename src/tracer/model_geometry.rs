@@ -83,6 +83,8 @@ pub(super) struct Source {
     pub ranges: Vec<[u32; 4]>,
     pub palette: Vec<[f32; 4]>,
     pub flower_parts: Vec<FlowerPart>,
+    pub soil_bag_sources: [u32; 2],
+    pub soil_bag_palette: u32,
     flower_root_radius: f32,
     flower_spawn_height: f32,
 }
@@ -228,11 +230,56 @@ pub(super) fn source(shape: Shape) -> Source {
             [linear(rgb[0]), linear(rgb[1]), linear(rgb[2]), 0.]
         }));
     }
+    let bag = crate::soil_bag::asset();
+    let soil_bag_sources = std::array::from_fn(|state| {
+        let id = ranges.len() as u32;
+        let first = triangles.len() as u32;
+        for part in &bag.states[state].parts {
+            let material = match part.material.as_str() {
+                "bag" => 0,
+                "seam" => 1,
+                "lining" => 2,
+                "soil" => 3,
+                "sticker" => 4,
+                _ => panic!("unsupported published soil-bag material"),
+            };
+            for ids in part.indices.chunks_exact(3) {
+                let ids = [ids[0] as usize, ids[1] as usize, ids[2] as usize];
+                triangles.push(triangle(
+                    ids.map(|i| Vec3::from_slice(&part.positions[i * 3..])),
+                    ids.map(|i| Vec3::from_slice(&part.normals[i * 3..])),
+                    ids.map(|i| Vec2::from_slice(&part.uvs[i * 2..])),
+                    material,
+                ));
+            }
+        }
+        ranges.push([first, triangles.len() as u32 - first, 4, state as u32]);
+        id
+    });
+    let soil_bag_palette = palette.len() as u32;
+    palette.extend(bag.colors.map(|c| [c[0], c[1], c[2], 0.]));
+    let label = image::load_from_memory(include_bytes!("../../assets/models/soil-bag-sticker.png"))
+        .expect("published opaque soil-bag sticker")
+        .to_rgb8();
+    assert_eq!([label.width(), label.height()], bag.texture_size);
+    palette.extend(label.pixels().map(|p| {
+        let color = p.0.map(|v| {
+            let v = f32::from(v) / 255.;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        });
+        [color[0], color[1], color[2], 0.]
+    }));
     Source {
         triangles,
         ranges,
         palette,
         flower_parts,
+        soil_bag_sources,
+        soil_bag_palette,
         flower_root_radius,
         flower_spawn_height,
     }

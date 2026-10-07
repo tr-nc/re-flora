@@ -38,6 +38,8 @@ mod ordered_dither_review;
 mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
+mod soil_bag_preview;
+mod soil_bag_review;
 mod soil_deposition;
 mod soil_performance_bench;
 pub(crate) use lighting_mode_acceptance::{
@@ -466,6 +468,7 @@ pub struct App {
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
     soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
+    soil_bag_preview: soil_bag_preview::State,
     card_display_visible: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
     item_panel_smooth_icon: Option<TextureHandle>,
@@ -1565,6 +1568,7 @@ impl App {
             frame_timing_panel_visible: render.perf_logging,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
+            soil_bag_preview: soil_bag_preview::State::from_env()?,
             card_display_visible: false,
             item_panel_shovel_icon: None,
             item_panel_smooth_icon: None,
@@ -2441,6 +2445,8 @@ impl App {
                 let frame_delta_time = denoiser_timeline.frame_delta_seconds;
                 let visual_time_since_start = denoiser_timeline.visual_time_seconds;
 
+                self.advance_soil_bag_review()
+                    .expect("native Soil bag review");
                 if self.terrain_persistence.allows_world_updates()
                     && self.player_tools.continuous_hold_active()
                 {
@@ -2629,6 +2635,7 @@ impl App {
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let terrain_edit_hover = self.terrain_edit_hover();
+                self.update_soil_bag_preview(terrain_edit_hover);
                 let show_tree_preview = self.is_place_tool_selected()
                     && self.current_placeable_kind() == placeables::PlaceableKind::Tree;
                 if show_tree_preview {

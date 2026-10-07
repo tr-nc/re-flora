@@ -45,11 +45,13 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
                 gui.apple_pixel_resolution.value,
                 gui.butterfly_pixel_resolution.value,
                 gui.model_flower_pixel_resolution.value,
+                32, // Soil tool bag: shared sampling, fixed initial art-review resolution.
             ],
             enabled: [
                 gui.apple_cache_enabled.value,
                 gui.butterfly_cache_enabled.value,
                 gui.model_flower_cache_enabled.value,
+                true,
             ],
         }
         .normalized(),

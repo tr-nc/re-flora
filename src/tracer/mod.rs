@@ -5050,6 +5050,15 @@ impl Tracer {
                 .cpu_stem_band_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
+        let prepared_tool_model = self
+            .model_mesh_frame
+            .soil_bag(
+                cmdbuf,
+                MeshPass {
+                    display: &self.pipeline_topology.graphics().tool_model_ppl,
+                },
+            )
+            .expect("shared tool model acquired-frame descriptors");
         let prepared_stone = self
             .stone_preview
             .prepare_direct(
@@ -5475,6 +5484,13 @@ impl Tracer {
             }
         }
 
+        if let Some(model) = prepared_tool_model.as_ref() {
+            self.pipeline_topology
+                .graphics()
+                .tool_model_ppl
+                .record_viewport_scissor(cmdbuf, viewport, scissor);
+            model.record(cmdbuf, 0);
+        }
         if let Some(stone) = prepared_stone.as_ref() {
             self.pipeline_topology
                 .graphics()
@@ -6819,6 +6835,10 @@ impl Tracer {
 
     pub(crate) fn sprinkler_instance_count(&self) -> u32 {
         self.sprinkler_resources.instance_count
+    }
+
+    pub(crate) fn set_soil_bag_preview(&mut self, preview: Option<crate::soil_bag::Preview>) {
+        self.model_mesh_frame.set_soil_bag(preview);
     }
 
     pub fn set_stone_preview(&mut self, request: Option<StonePreviewRequest>) -> Result<()> {

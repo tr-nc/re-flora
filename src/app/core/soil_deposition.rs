@@ -28,6 +28,7 @@ impl App {
         if !self.terrain_edit_pointer_available()
             || self.player_tools.selected_tool() != PlayerTool::Soil
         {
+            self.soil_bag_preview.allow_flow = false;
             self.player_tools.interrupt_stroke(action);
             self.stop_terrain_edit_loop_sound();
             return;
@@ -39,6 +40,7 @@ impl App {
         let center = match self.terrain_edit_hover() {
             Some(hit) if hit.is_editable => hit.center,
             _ => {
+                self.soil_bag_preview.allow_flow = false;
                 self.player_tools.defer_stroke(action, now);
                 self.stop_terrain_edit_loop_sound();
                 return;
@@ -70,6 +72,7 @@ impl App {
         }
         match deposition {
             Ok(result) if result.added > 0 => {
+                self.soil_bag_preview.note_added(result.added);
                 self.start_terrain_edit_loop_sound(center);
                 self.player_tools.record_stroke_dab(action, now, center);
             }
@@ -78,10 +81,12 @@ impl App {
                 self.player_tools.record_stroke_dab(action, now, center);
                 self.stop_terrain_edit_loop_sound();
                 if volume > 0 {
+                    self.soil_bag_preview.allow_flow = false;
                     self.player_tools.interrupt_stroke(action);
                 }
             }
             Err(error) => {
+                self.soil_bag_preview.allow_flow = false;
                 self.player_tools.interrupt_stroke(action);
                 self.stop_terrain_edit_loop_sound();
                 log::error!("Failed to deposit soil: {error:#}");

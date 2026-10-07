@@ -12,6 +12,8 @@ struct CachedModelEntry { uint4 layout; float4 bounds; };
 [[vk::binding(23,1)]] StructuredBuffer<CachedModelEntry> model_cached_butterfly_entries;
 [[vk::binding(24,1)]] StructuredBuffer<CachedModelSample> model_cached_flower_surfaces;
 [[vk::binding(25,1)]] StructuredBuffer<CachedModelEntry> model_cached_flower_entries;
+[[vk::binding(26,1)]] StructuredBuffer<CachedModelSample> model_cached_tool_surfaces;
+[[vk::binding(27,1)]] StructuredBuffer<CachedModelEntry> model_cached_tool_entries;
 public struct CachedModelVertex {
     public bool visible; public float4 clip; public float3 position; public float3 normal; public float3 localPosition; public float2 uv; public uint material;
 };
@@ -32,7 +34,8 @@ public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame 
     CachedModelEntry entry;
     if(kind==1u) entry=model_cached_apple_entries[source];
     else if(kind==2u) entry=model_cached_butterfly_entries[source];
-    else entry=model_cached_flower_entries[source];
+    else if(kind==3u) entry=model_cached_flower_entries[source];
+    else entry=model_cached_tool_entries[source];
     if(entry.layout.w==0u)return false;
     uint n=entry.layout.y;
     if(vertex>=n*n*6u||physical.scale<=1e-7)return true;
@@ -44,7 +47,8 @@ public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame 
     CachedModelSample sample;
     if(kind==1u) sample=model_cached_apple_surfaces[address];
     else if(kind==2u) sample=model_cached_butterfly_surfaces[address];
-    else sample=model_cached_flower_surfaces[address];
+    else if(kind==3u) sample=model_cached_flower_surfaces[address];
+    else sample=model_cached_tool_surfaces[address];
     if(sample.position.w==0.0)return true;
     float3 direction=bank.direction(view,entry.layout.z);
     float3 reference=abs(direction.y)>0.99?float3(1,0,0):float3(0,1,0);

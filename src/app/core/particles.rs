@@ -572,6 +572,7 @@ impl App {
         self.append_water_debug_snapshots();
         self.append_butterfly_mesh_preview(frame);
         self.append_model_view_review_particles();
+        self.append_soil_bag_grains(dt);
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
