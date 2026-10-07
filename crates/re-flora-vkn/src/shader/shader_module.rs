@@ -1167,6 +1167,23 @@ mod tests {
     }
 
     #[test]
+    fn butterfly_flower_attachment_and_soil_cache_have_unique_reflected_bindings() {
+        // This logical path is the production native/cached mesh adapter, not
+        // the retired billboard source with a similar filename.
+        let artifact = find_precompiled_shader("shader/particles/butterfly_tile.vert").unwrap();
+        let module = ReflectShaderModule::load_u8_data(artifact.reflection_spirv).unwrap();
+        let bindings = module.enumerate_descriptor_bindings(None).unwrap();
+        for name in ["flower_visit_output", "model_cached_tool_surfaces", "model_cached_tool_entries"] {
+            assert_eq!(bindings.iter().filter(|b| b.name == name).count(), 1, "missing semantic resource {name}");
+        }
+        let mut occupied = std::collections::HashMap::new();
+        for binding in &bindings {
+            let previous = occupied.insert((binding.set, binding.binding), &binding.name);
+            assert!(previous.is_none(), "descriptor set {} binding {} aliases {:?} and {}", binding.set, binding.binding, previous, binding.name);
+        }
+    }
+
+    #[test]
     fn particle_vertex_shader_reflects_one_compact_mesh_input_before_instances() {
         let shader_path = "shader/particles/particle_billboard.vert";
         let artifact = find_precompiled_shader(shader_path)

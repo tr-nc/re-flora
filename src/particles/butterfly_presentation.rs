@@ -32,6 +32,7 @@ pub(super) struct ButterflyPose {
     pub position: Vec3,
     pub velocity: Vec3,
     pub wingbeat: Option<ButterflyWingbeatPose>,
+    pub body: Option<super::flower_visits::ButterflyBodyPose>,
 }
 impl ButterflyPose {
     pub fn time_seconds(self) -> f32 {
@@ -52,6 +53,7 @@ impl ButterflyPresentation {
         self.sample_with_wingbeat(frame, position, velocity, None)
     }
 
+    #[cfg(test)]
     pub fn sample_with_wingbeat(
         &mut self,
         frame: ButterflyFrame,
@@ -59,12 +61,23 @@ impl ButterflyPresentation {
         velocity: Vec3,
         wingbeat: Option<ButterflyWingbeatPose>,
     ) -> ButterflyPose {
+        self.sample_with_body(frame, position, velocity, wingbeat, None)
+    }
+    pub fn sample_with_body(
+        &mut self,
+        frame: ButterflyFrame,
+        position: Vec3,
+        velocity: Vec3,
+        wingbeat: Option<ButterflyWingbeatPose>,
+        body: Option<super::flower_visits::ButterflyBodyPose>,
+    ) -> ButterflyPose {
         if self.0.is_none_or(|pose| pose.frame != frame) {
             self.0 = Some(ButterflyPose {
                 frame,
                 position,
                 velocity,
                 wingbeat,
+                body,
             });
         }
         self.0.unwrap()

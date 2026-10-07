@@ -14,7 +14,7 @@ node scripts/serve-model-preview.mjs
 - 原有：`?model=leaf`、`butterfly`、`apple`。
 - 参数化花型：`wild-geranium`、`forget-me-not`、`oxeye-daisy`、`cosmos`、`coneflower`、`tulip`、`white-geranium`、`gillenia`。
 - 新候选：`four-petal`（四瓣蓝白）、`five-star`（五瓣尖星）、`custom-flower`（自定义花朵）。顶部下拉框也可选择。
-- 仅网页动物：`bee`（蜜蜂）、`sparrow`（圆身麻雀风格）、`swallow`（长尾燕子风格）。
+- 仅网页动物：`bee`（蜜蜂）、`kingfisher`（三趾翠鸟）。原麻雀 / 燕子模型和入口已删除。
 - 营养土袋网页候选：`soil-bag`（包装预设、换色、贴纸导入、撕开与倾倒动作）。
 - `?model=star-strawberry` 旧书签仍规范化为 `gillenia`。
 - `&variant=compare` / `model` / `pixel` 切换布局。
@@ -68,19 +68,20 @@ node scripts/serve-model-preview.mjs
 - 袋子、贴纸和土流复用同一个 `pipeline.js` 与通用后处理 A/B。袋体一组、独立土流一组，不为袋子复制渲染器、相机或时钟。默认 64²、固定取景包含两个动作，不逐帧自动撑满画布。
 - 调整与导入仅在页面内存，切换模型／恢复默认后清除；不恢复花朵贴纸编辑器，也不自动保存工程或发布资产。
 
-**默认袋子已接入游戏 Soil 工具，网页改色/图片仍不自动改游戏资产。** 两端使用 `assets/models/soil-bag-source.mjs` 和连续矢量配方；原生显式发布 hover/pour 两个完整静态快照与 opaque RGB 贴纸，按住立即切换倾倒姿态，没有撕开/倾倒动画或 GLB morph 支持。简单落土方粒只作视觉效果，不改堆土、库存、肥力或出土节奏。网页历史验证见 [营养土袋网页验证](../../docs/evidence/web-preview-soil-bag.md)，实际游戏截图/检查见 [Soil 土袋试用](../../docs/evidence/soil-bag-native-tool.md)。
+**默认袋子已接入游戏 Soil 工具，网页改色/图片仍不自动改游戏资产。** 两端使用 `assets/models/soil-bag-source.mjs` 和连续矢量配方；原生显式发布 hover/pour 两个完整静态快照与 opaque RGB 贴纸，游戏仅实际撒土时显示固定倾倒姿态，悬停与松开都隐藏袋子，没有撕开/倾倒动画或 GLB morph 支持。简单落土方粒只作视觉效果，不改堆土、库存、肥力或出土节奏。网页历史验证见 [营养土袋网页验证](../../docs/evidence/web-preview-soil-bag.md)，实际游戏截图/检查见 [Soil 土袋试用](../../docs/evidence/soil-bag-native-tool.md)。
 
 ## 仅网页动物
 
-新增一只蜜蜂和两种小鸟；**小狗已取消**。均为本仓库原创程序化低模，无下载模型／贴图，无游戏注册或行为逻辑。
+现有一只蜜蜂和一只三趾翠鸟；原麻雀、燕子已移除，**小狗仍已取消**。均为本仓库原创程序化低模，无下载模型／贴图，无游戏注册或行为逻辑。
 
-- 蜜蜂：七段交替条纹腹部、六足、双触角、两对翅。翅膀故意使用不透明浅色几何，不假装支持 alpha 透明覆盖。
-- 麻雀风格：短喙、圆胸、棕色翼斑、短扇尾；燕子风格：较细深蓝身体、浅胸赤褐喉、尖翼、分叉长尾，不只是同一个鸟换色。
-- 两种时间轴片段：静止姿态／拍翼展示。共用暂停、播放、相位、逐帧；同一时刻绝对采样，不累计旋转、不在模型里再开时钟。拍翼不是物理飞行，足仍保持示意姿态。
-- 调整模型大小、翅长、拍翼幅度与 palette；固定取景包含最大参数下的拍翼包围，不随姿态缩放。身体／左翅／右翅三个修复组。
-- 默认 48²，可切 8–256²。极低分辨率的燕子可能完全错过中心采样，需保守覆盖保留轮廓；细足／眼高光／尾叉会变粗、丢失或合并，没有模型专用例外。
+- 蜜蜂保持原样：七段交替条纹腹部、六足、双触角、两对不透明浅色翅。
+- 三趾翠鸟（`Ceyx erithaca`）：按用户给出的侧面照片修正扁圆小头、向后展开的饱满身体、宽根橙红长喙、铜红顶冠与粉紫侧冠、柠檬黄胸腹、白喉 / 颈侧斑、蓝耳斑、炭灰翼底与不规则蓝覆羽斑、短尾和收拢弯趾。每足两趾向前、一趾向后。仍是原创低模，不是写实扫描；羽毛细密感和蓬松边缘仍需要人工审美验收。
+- 头部 / 身体以独立侧面轮廓定义连续曲面；收拢翅膀与细分长羽映射到身体侧面的曲率。五张原创、不透明的程序羽色 / 喙色权重图以 Linear-sRGB 混合七个 palette 槽，三张细纹 bump 图只影响材质光照（原始与像素画布共享同一材质）；改色复用像素存储与 GPU 贴图，不重建几何。不是参考照片投影或 alpha 羽片。
+- 两种时间轴片段：静止姿态／拍翼展示。共用暂停、播放、相位、逐帧；同一时刻绝对采样，不累计旋转、不另开时钟。拍翼仅旋转翼根，不展开真正的飞羽扇面，足仍保持停栖示意姿态；不是物理飞行。
+- 调整模型大小、翅长、拍翼幅度与各部位配色；固定取景包含最大参数下的拍翼包围，不随姿态缩放。身体／左翅／右翅三个修复组。
+- 蜜蜂默认 48²，三趾翠鸟默认 96²，可切 8–128²；32² / 64² 仍覆盖在回归检查中。新鸟完整拍翼包围比旧模型大，固定 span 为 6，不缩小最大参数来规避取景检查。共用现有后处理开关，不增加鸟专用补点。低分辨率下羽斑、眼高光和足趾仍会变粗、丢失或合并。
 
-报告：[动物网页验证](../../docs/evidence/web-preview-animals.md)。
+报告：[照片对照修正与当前验证](../../docs/evidence/kingfisher-reference-correction.md)；[首版三趾翠鸟记录（用户指出还原不足）](../../docs/evidence/web-preview-kingfisher.md)；[旧动物交付记录](../../docs/evidence/web-preview-animals.md)。
 
 ## 模块与接口
 
@@ -92,7 +93,9 @@ node scripts/serve-model-preview.mjs
 | `assets/models/parametric-flower.mjs` | 无 DOM / Three.js 的确定性几何、UV、参数边界 |
 | `assets/models/palette-mask.mjs` | 两端共用的权重模板、验证、线性 palette 混色 |
 | `models/flowers.js` | Three.js 花头适配；颜色更新不重建几何 |
-| `models/animal-geometry.mjs` / `animals.js` | 纯函数动物几何／姿态与 Three.js 适配；仅网页 |
+| `models/animal-geometry.mjs` / `animals.js` | 动物目录、纯函数姿态与 Three.js 适配；仅网页 |
+| `models/kingfisher-geometry.mjs` | 翠鸟的轮廓曲面、UV、闭合折翼 / 短尾和弯趾；无 DOM / Three.js |
+| `models/kingfisher-plumage.mjs` | 原创羽色权重 / 细纹、线性 palette 解析与存储复用；不改几何 |
 | `assets/models/soil-bag-source.mjs` / `models/soil-bag-geometry.mjs` / `soil-bag.js` | 共享袋型/绝对动作来源、兼容重导出与网页 Three.js 适配；原生发布静态快照 |
 | `assets/models/soil-bag-sticker-art.mjs` / `models/soil-bag-sticker-art.mjs` / `soil-bag-stickers.js` | 共享连续矢量大图案、兼容重导出与网页原始尺寸 opaque 贴纸/最近邻导入；默认图发布原生 RGB |
 | `pipeline.js` | 唯一 source/pixel/ID/高分辨率采色与资源生命周期 |
@@ -130,4 +133,4 @@ env -u DISPLAY -u WAYLAND_DISPLAY AGENT_BROWSER_HEADED=true \
 
 支持 `CHROME_EXECUTABLE` / `PREVIEW_ARTIFACT_DIR`。脚本自行创建／关闭服务与 headless Chrome；不启动游戏，不保存 GUI 设置。
 
-完整 Node 套件：50 个语法／纯函数／资产回归测试（包含共享土袋快照发布）。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认花型没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。动物额外验证 75 个姿态、19,614 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，产物在 `target/animal-preview-review/`。营养土袋本轮验证 42 个网页状态（窗口渲染／私有虚拟显示），覆盖原始尺寸连续矢量贴纸／窄边缘抗锯齿／无预制马赛克、真实 Nearest／无 mipmap 材质与不混色的图片缩放、32/64/128² 同色大图案、固定扁平袋型与已移除的滑杆、真实 HEX 改色、贴纸导入与失败恢复、末帧／重播／奇数 FPS 逐帧、重力流向、共享 A/B／分辨率／视向、三轮旧模型切换与资源计数、390px 移动布局。新原始贴纸、对照截图和 QA JSON 在 `target/soil-bag-vector-source-window-review/`；此前版本的 45 状态通过、108 组固定袋型几何对照以及窗口刷新／headless 上下文失败记录保留在验收报告，没有宣称已修复整个浏览器环境。不提交二进制截图。游戏的性能和美术接受需另行验证。
+完整 Node 套件：56 个语法／纯函数／资产回归测试（含翠鸟与共享土袋快照发布）。新花型浏览器验证；11 种花、242 个头瓦片姿态（两种投影、三个视向、8/32/64/128px）、原始 RGBA 保留、GPU 深度、8 个遮挡夹具；确认花型没有贴纸编辑／导入／保存控件，palette/预设贴图不重建网格、重置／资源释放、390px 移动布局。结果与图片在 `target/flower-studio-review/`。当前动物验证 89 个姿态、32,429 个原始颜色样本不被覆盖、动作与固定边界／资源释放／透明 PNG／移动布局，默认产物在 `target/animal-preview-review/`（本次修正在 `target/kingfisher-correction/browser/`）；此前75姿态/19,614样本是旧动物的历史记录。营养土袋本轮验证 42 个网页状态（窗口渲染／私有虚拟显示），覆盖原始尺寸连续矢量贴纸／窄边缘抗锯齿／无预制马赛克、真实 Nearest／无 mipmap 材质与不混色的图片缩放、32/64/128² 同色大图案、固定扁平袋型与已移除的滑杆、真实 HEX 改色、贴纸导入与失败恢复、末帧／重播／奇数 FPS 逐帧、重力流向、共享 A/B／分辨率／视向、三轮旧模型切换与资源计数、390px 移动布局。新原始贴纸、对照截图和 QA JSON 在 `target/soil-bag-vector-source-window-review/`；此前版本的 45 状态通过、108 组固定袋型几何对照以及窗口刷新／headless 上下文失败记录保留在验收报告，没有宣称已修复整个浏览器环境。不提交二进制截图。游戏的性能和美术接受需另行验证。

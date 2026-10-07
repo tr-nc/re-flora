@@ -1,5 +1,4 @@
-//! Compact themed FPS history. Samples the existing unscaled display FPS, not
-//! simulation speed or GPU timings; bounded session telemetry is never saved.
+//! Shared, bounded session telemetry for the FPS and VRAM tabs. Never saved.
 use super::ui_style::{FLOWER_ACCENT, GOLD_ACCENT, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR};
 use std::collections::VecDeque;
 
@@ -13,17 +12,17 @@ const CONTENT_WIDTH: f32 = 248.0;
 #[derive(Clone, Copy, Debug)]
 struct Sample {
     time: f64,
-    fps: f32,
+    value: f32,
 }
 
 #[derive(Default)]
-pub(super) struct FpsHistory {
+pub(super) struct MetricHistory {
     samples: VecDeque<Sample>,
 }
 
-impl FpsHistory {
-    pub(super) fn observe(&mut self, time: f64, fps: f32) {
-        if !time.is_finite() || time < 0.0 || !fps.is_finite() || fps <= 0.0 {
+impl MetricHistory {
+    pub(super) fn observe(&mut self, time: f64, value: f32) {
+        if !time.is_finite() || time < 0.0 || !value.is_finite() || value < 0.0 {
             return;
         }
         if self.samples.back().is_some_and(|last| time < last.time) {
@@ -43,7 +42,7 @@ impl FpsHistory {
         {
             return;
         }
-        self.samples.push_back(Sample { time, fps });
+        self.samples.push_back(Sample { time, value });
         while self.samples.len() > MAX_SAMPLES {
             self.samples.pop_front();
         }
@@ -61,8 +60,8 @@ impl FpsHistory {
             return (0.0, 1.0);
         };
         let (minimum, maximum) = samples.fold(
-            (f64::from(first.fps), f64::from(first.fps)),
-            |(min, max), p| (min.min(f64::from(p.fps)), max.max(f64::from(p.fps))),
+            (f64::from(first.value), f64::from(first.value)),
+            |(min, max), p| (min.min(f64::from(p.value)), max.max(f64::from(p.value))),
         );
         let padding = ((maximum - minimum) * 0.1).max(1.0).max(maximum * 1e-6);
         ((minimum - padding).max(0.0), maximum + padding)
@@ -82,11 +81,11 @@ impl FpsHistory {
         for next in samples {
             if time <= next.time {
                 let fraction = (time - previous.time) / (next.time - previous.time);
-                let fps = f64::from(previous.fps)
-                    + fraction * (f64::from(next.fps) - f64::from(previous.fps));
+                let value = f64::from(previous.value)
+                    + fraction * (f64::from(next.value) - f64::from(previous.value));
                 return Some(Sample {
                     time,
-                    fps: fps as f32,
+                    value: value as f32,
                 });
             }
             previous = *next;
@@ -98,7 +97,8 @@ impl FpsHistory {
         self.visible_samples(now)
             .map(|p| {
                 let x = (1.0 - (now - p.time) / HISTORY_SECONDS).clamp(0.0, 1.0) as f32;
-                let y = ((f64::from(p.fps) - range.0) / (range.1 - range.0)).clamp(0.0, 1.0) as f32;
+                let y =
+                    ((f64::from(p.value) - range.0) / (range.1 - range.0)).clamp(0.0, 1.0) as f32;
                 egui::pos2(
                     plot.left() + x * plot.width(),
                     plot.bottom() - y * plot.height(),
@@ -106,6 +106,63 @@ impl FpsHistory {
             })
             .collect()
     }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Metric {
+    #[default]
+    Fps,
+    Vram,
+}
+
+impl Metric {
+    fn unit(self) -> &'static str {
+        match self {
+            Self::Fps => "FPS",
+            Self::Vram => "MiB",
+        }
+    }
+
+    fn format(self, value: f32) -> String {
+        match self {
+            Self::Fps if value <= 0.0 => "—".to_owned(),
+            Self::Fps => format!("{value:.1}"),
+            Self::Vram => format!("{value:.0} MiB"),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct TelemetryPanel {
+    fps: MetricHistory,
+    vram: MetricHistory,
+    current_fps: f32,
+    current_vram: f32,
+    selected: Metric,
+}
+
+impl TelemetryPanel {
+    pub(super) fn observe(&mut self, time: f64, fps: f32, vram_bytes: u64) {
+        self.current_fps = fps;
+        self.current_vram = (vram_bytes as f64 / (1024.0 * 1024.0)) as f32;
+        if fps.is_finite() && fps > 0.0 {
+            self.fps.observe(time, fps);
+        }
+        // Sample both metrics even when their tab is not selected.
+        self.vram.observe(time, self.current_vram);
+    }
+}
+
+pub(super) fn draw(ctx: &egui::Context, panel: &mut TelemetryPanel, now: f64) {
+    draw_chart(
+        ctx,
+        &panel.fps,
+        &panel.vram,
+        now,
+        panel.current_fps,
+        panel.current_vram,
+        &mut panel.selected,
+    );
 }
 
 fn panel_offset(viewport: egui::Rect, toolbar: Option<egui::Rect>, size: egui::Vec2) -> egui::Vec2 {
@@ -119,7 +176,15 @@ fn panel_offset(viewport: egui::Rect, toolbar: Option<egui::Rect>, size: egui::V
     egui::vec2(-16.0, -lift)
 }
 
-pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32) {
+fn draw_chart(
+    ctx: &egui::Context,
+    fps_history: &MetricHistory,
+    vram_history: &MetricHistory,
+    now: f64,
+    fps: f32,
+    vram: f32,
+    selected: &mut Metric,
+) {
     let viewport = ctx.content_rect();
     if viewport.width() < 160.0 || viewport.height() < 192.0 {
         return;
@@ -154,27 +219,34 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                 ui.set_width(width);
                 ui.set_min_height(132.0);
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("FPS")
-                            .monospace()
-                            .size(12.0)
-                            .color(GOLD_ACCENT),
-                    );
+                    for (metric, label) in [(Metric::Fps, "FPS"), (Metric::Vram, "VRAM")] {
+                        let response = ui.selectable_value(
+                            selected, metric,
+                            egui::RichText::new(label).monospace().size(12.0).color(GOLD_ACCENT),
+                        );
+                        if metric == Metric::Vram {
+                            response.on_hover_text(
+                                "This game's live device-local resource allocations, not whole-GPU usage. \
+                                 Excludes allocator pool slack, swapchain images and driver overhead. \
+                                 On integrated GPUs this may be shared system RAM.",
+                            );
+                        }
+                    }
+                    let current = match selected {
+                        Metric::Fps => fps,
+                        Metric::Vram => vram,
+                    };
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let value = if fps.is_finite() && fps > 0.0 {
-                            format!("{fps:.1}")
-                        } else {
-                            "—".to_owned()
-                        };
                         ui.label(
-                            egui::RichText::new(value)
-                                .monospace()
-                                .size(16.0)
-                                .strong()
-                                .color(SAGE_ACCENT),
+                            egui::RichText::new(selected.format(current))
+                                .monospace().size(16.0).strong().color(SAGE_ACCENT),
                         );
                     });
                 });
+                let history = match selected {
+                    Metric::Fps => fps_history,
+                    Metric::Vram => vram_history,
+                };
                 ui.add_space(4.0);
                 let (bounds, response) =
                     ui.allocate_exact_size(egui::vec2(width, 64.0), egui::Sense::hover());
@@ -237,7 +309,7 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                     let fraction = f64::from((pointer.x - plot.left()) / plot.width());
                     let time = now - HISTORY_SECONDS + fraction * HISTORY_SECONDS;
                     if let Some(sample) = history.sample_at(now, time) {
-                        let y = ((f64::from(sample.fps) - range.0) / (range.1 - range.0)) as f32;
+                        let y = ((f64::from(sample.value) - range.0) / (range.1 - range.0)) as f32;
                         let point = egui::pos2(pointer.x, plot.bottom() - y * plot.height());
                         painter.line_segment(
                             [
@@ -248,8 +320,9 @@ pub(super) fn draw(ctx: &egui::Context, history: &FpsHistory, now: f64, fps: f32
                         );
                         painter.circle_filled(point, 3.0, GOLD_ACCENT);
                         response.on_hover_text(format!(
-                            "{:.1} FPS · {:.1}s ago",
-                            sample.fps,
+                            "{:.1} {} · {:.1}s ago",
+                            sample.value,
+                            selected.unit(),
                             now - time
                         ));
                     }
@@ -279,6 +352,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn both_tabs_sample_in_background_and_vram_accepts_zero() {
+        let mut panel = TelemetryPanel::default();
+        panel.observe(0.0, 60.0, 0);
+        panel.observe(0.1, 90.0, 1024 * 1024);
+        assert_eq!(panel.current_vram, 1.0);
+        assert_eq!(panel.vram.samples.len(), 1);
+        panel.observe(0.5, 120.0, 512 * 1024 * 1024);
+        assert_eq!(panel.fps.samples.len(), 2);
+        assert_eq!(panel.vram.samples.len(), 2);
+        assert_eq!(panel.vram.samples[0].value, 0.0);
+        assert_eq!(panel.vram.samples[1].value, 512.0);
+        panel.selected = Metric::Vram;
+        panel.observe(1.0, 100.0, 256 * 1024 * 1024);
+        assert_eq!(panel.fps.samples.len(), 3);
+        assert_eq!(panel.vram.samples.len(), 3);
+        assert_eq!(panel.vram.sample_at(1.0, 0.75).unwrap().value, 384.0);
+    }
+
+    #[test]
+    fn clicking_vram_tab_switches_the_shared_chart() {
+        let ctx = egui::Context::default();
+        let mut panel = TelemetryPanel::default();
+        panel.observe(0.0, 60.0, 512 * 1024 * 1024);
+        let mut target = None;
+        let mut vram_readout_seen = false;
+        for frame in 0..10 {
+            let mut events = Vec::new();
+            if let Some(pos) = target {
+                events.push(egui::Event::PointerMoved(pos));
+                if frame == 3 || frame == 4 {
+                    events.push(egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: frame == 3,
+                        modifiers: egui::Modifiers::default(),
+                    });
+                }
+            }
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 720.0),
+                    )),
+                    time: Some(frame as f64 * 0.1),
+                    events,
+                    ..Default::default()
+                },
+                |ui| draw(ui.ctx(), &mut panel, 0.0),
+            );
+            for clipped in output.shapes {
+                if let egui::Shape::Text(text) = clipped.shape {
+                    if text.galley.text() == "VRAM" {
+                        target = Some(text.pos + text.galley.size() * 0.5);
+                    }
+                    vram_readout_seen |= text.galley.text() == "512 MiB";
+                }
+            }
+        }
+        assert!(panel.selected == Metric::Vram);
+        assert!(vram_readout_seen);
+    }
+
+    #[test]
     fn numeric_readout_refreshes_faster_than_history_sampling() {
         let interval = DISPLAY_INTERVAL_MS as f64 / 1000.0;
         assert!(interval > 0.0 && interval < SAMPLE_SECONDS);
@@ -286,7 +423,7 @@ mod tests {
 
     #[test]
     fn history_is_bounded_time_based_and_samples_unchanged_fps() {
-        let mut history = FpsHistory::default();
+        let mut history = MetricHistory::default();
         for frame in 0..36_000 {
             history.observe(frame as f64 / 60.0, 60.0);
         }
@@ -296,14 +433,14 @@ mod tests {
             history.samples.back().unwrap().time - history.samples.front().unwrap().time
                 <= HISTORY_SECONDS
         );
-        assert!(history.samples.iter().all(|p| p.fps == 60.0));
+        assert!(history.samples.iter().all(|p| p.value == 60.0));
     }
 
     #[test]
     fn invalid_samples_are_ignored_and_long_gaps_are_not_backfilled() {
-        let mut history = FpsHistory::default();
+        let mut history = MetricHistory::default();
         for (time, fps) in [
-            (0.0, 0.0),
+            (0.0, -1.0),
             (f64::NAN, 60.0),
             (0.0, f32::NAN),
             (0.0, f32::INFINITY),
@@ -324,7 +461,7 @@ mod tests {
 
     #[test]
     fn plot_uses_elapsed_seconds_and_includes_values_above_60() {
-        let mut history = FpsHistory::default();
+        let mut history = MetricHistory::default();
         history.observe(0.0, 30.0);
         history.observe(10.0, 144.0);
         history.observe(30.0, 60.0);
@@ -339,7 +476,7 @@ mod tests {
 
     #[test]
     fn range_tracks_only_visible_extrema_with_padding_and_handles_flat_history() {
-        let mut history = FpsHistory::default();
+        let mut history = MetricHistory::default();
         assert_eq!(history.range(0.0), (0.0, 1.0));
         history.observe(0.0, 5.0);
         history.observe(10.0, 100.0);
@@ -349,7 +486,7 @@ mod tests {
         assert_eq!(history.range(51.0), (0.0, 1.0));
         // Samples beyond the displayed time must not influence the axis.
         assert_eq!(history.range(15.0), (0.0, 109.5));
-        let mut extreme = FpsHistory::default();
+        let mut extreme = MetricHistory::default();
         extreme.observe(0.0, f32::MAX);
         let range = extreme.range(0.0);
         assert!(range.0.is_finite() && range.1.is_finite() && range.1 > range.0);
@@ -357,26 +494,26 @@ mod tests {
 
     #[test]
     fn hover_interpolates_fps_at_x_and_does_not_extrapolate() {
-        let mut history = FpsHistory::default();
+        let mut history = MetricHistory::default();
         history.observe(0.0, 20.0);
         history.observe(10.0, 100.0);
         history.observe(20.0, 120.0);
-        assert_eq!(history.sample_at(20.0, 0.0).unwrap().fps, 20.0);
-        assert_eq!(history.sample_at(20.0, 5.0).unwrap().fps, 60.0);
-        assert_eq!(history.sample_at(20.0, 15.0).unwrap().fps, 110.0);
-        assert_eq!(history.sample_at(20.0, 20.0).unwrap().fps, 120.0);
+        assert_eq!(history.sample_at(20.0, 0.0).unwrap().value, 20.0);
+        assert_eq!(history.sample_at(20.0, 5.0).unwrap().value, 60.0);
+        assert_eq!(history.sample_at(20.0, 15.0).unwrap().value, 110.0);
+        assert_eq!(history.sample_at(20.0, 20.0).unwrap().value, 120.0);
         assert!(history.sample_at(20.0, -1.0).is_none());
         assert!(history.sample_at(20.0, 21.0).is_none());
         assert!(history.sample_at(35.0, 5.0).is_none());
-        assert_eq!(history.sample_at(35.0, 15.0).unwrap().fps, 110.0);
-        assert!(FpsHistory::default().sample_at(0.0, 0.0).is_none());
+        assert_eq!(history.sample_at(35.0, 15.0).unwrap().value, 110.0);
+        assert!(MetricHistory::default().sample_at(0.0, 0.0).is_none());
     }
 
     #[test]
     fn chart_hover_shows_fps_tooltip_through_the_actual_area() {
         let ctx = egui::Context::default();
         ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
-        let mut history = FpsHistory::default();
+        let mut history = MetricHistory::default();
         history.observe(0.0, 60.0);
         history.observe(15.0, 90.0);
         history.observe(30.0, 120.0);
@@ -393,7 +530,17 @@ mod tests {
                     events: pointer.map(egui::Event::PointerMoved).into_iter().collect(),
                     ..Default::default()
                 },
-                |ui| draw(ui.ctx(), &history, 30.0, 120.0),
+                |ui| {
+                    draw_chart(
+                        ui.ctx(),
+                        &history,
+                        &history,
+                        30.0,
+                        120.0,
+                        512.0,
+                        &mut Metric::Fps,
+                    )
+                },
             );
             for clipped in output.shapes {
                 match clipped.shape {
@@ -425,7 +572,7 @@ mod tests {
             let ctx = egui::Context::default();
             ctx.global_style_mut(super::super::ui_style::apply_gui_style);
             let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
-            let mut history = FpsHistory::default();
+            let mut history = MetricHistory::default();
             history.observe(1.0, 60.0);
             history.observe(2.0, 45.0);
             let mut previous = None;
@@ -436,7 +583,17 @@ mod tests {
                         time: Some(frame as f64 / 60.0),
                         ..Default::default()
                     },
-                    |ui| draw(ui.ctx(), &history, 2.0, 45.0),
+                    |ui| {
+                        draw_chart(
+                            ui.ctx(),
+                            &history,
+                            &history,
+                            2.0,
+                            45.0,
+                            512.0,
+                            &mut Metric::Fps,
+                        )
+                    },
                 );
                 let rect = ctx
                     .memory(|memory| memory.area_rect("fps_counter"))

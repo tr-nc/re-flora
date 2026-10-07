@@ -578,6 +578,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let flower_visit_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/flower_visit.comp",
+            "main",
+        )
+        .unwrap();
         let flower_stem_bands_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flower_stem_bands.comp",
@@ -727,6 +733,7 @@ impl PipelineBuilder {
             flower_pixel_vert_sm,
             flower_pixel_frag_sm,
             flower_stem_experiment_vert_sm,
+            flower_visit_sm,
             flower_stem_bands_sm,
             grass_band_vert_sm,
             grass_band_cached_vert_sm,
@@ -909,6 +916,21 @@ impl PipelineBuilder {
                 ],
             })
             .expect("band preparation static descriptors");
+        let flower_visit_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.flower_visit_sm, pool);
+        flower_visit_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    plain_builder_resources,
+                    ddgi_volume,
+                    ddgi_voxel_visibility,
+                ],
+            })
+            .expect("flower visit static descriptors");
         let flower_stem_bands_ppl =
             ComputePipeline::new_uninitialized(device, &shader_modules.flower_stem_bands_sm, pool);
         flower_stem_bands_ppl
@@ -1105,6 +1127,7 @@ impl PipelineBuilder {
             tree_refit_ppl,
             flora_lighting_cache_ppl,
             flora_lighting_band_cache_ppl,
+            flower_visit_ppl,
             flower_stem_bands_ppl,
             tree_leaf_lighting_cache_ppl,
             tracer_ppl,
@@ -3030,6 +3053,7 @@ pub struct ShaderModules {
     pub cpu_stem_band_shadow_vert_sm: ShaderModule,
     pub flower_stem_experiment_vert_sm: ShaderModule,
     pub flower_stem_bands_sm: ShaderModule,
+    pub flower_visit_sm: ShaderModule,
     pub apple_pixel_tree_vert_sm: ShaderModule,
     pub apple_pixel_dynamic_vert_sm: ShaderModule,
     pub tool_model_vert_sm: ShaderModule,
@@ -3083,6 +3107,7 @@ pipeline_collection! {
         tree_refit_ppl,
         flora_lighting_cache_ppl,
         flora_lighting_band_cache_ppl,
+        flower_visit_ppl,
         flower_stem_bands_ppl,
         tree_leaf_lighting_cache_ppl,
         tracer_ppl,

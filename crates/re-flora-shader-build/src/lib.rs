@@ -367,6 +367,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/flower_visit.comp",
+        source_path: "shader/slang/flower_visit.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/flower_stem_bands.comp",
         source_path: "shader/slang/flower_stem_bands.comp.slang",
         module_path: "shader/slang",

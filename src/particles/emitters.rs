@@ -262,6 +262,7 @@ pub struct ButterflyEmitterDesc {
     pub worm_noise_detail_weight: f32,
     pub flight_variant: ButterflyFlightVariant,
     pub flight_tuning: ButterflyFlightTuning,
+    pub foraging: super::ButterflyForagingSettings,
 }
 
 impl Default for ButterflyEmitterDesc {
@@ -282,6 +283,7 @@ impl Default for ButterflyEmitterDesc {
             worm_noise_detail_weight: 0.5,
             flight_variant: ButterflyFlightVariant::default(),
             flight_tuning: ButterflyFlightTuning::default(),
+            foraging: Default::default(),
         }
     }
 }
@@ -321,6 +323,7 @@ struct ActiveButterfly {
     worm_phase: f32,
     emergence_target_y: Option<f32>,
     darting_flight: DartingFlightState,
+    behavior: super::butterfly_behavior::ButterflyBehavior,
 }
 
 pub struct ButterflyEmitter {
@@ -336,6 +339,8 @@ pub struct ButterflyEmitter {
     pub max_active_butterflies: usize,
     flight_variant: ButterflyFlightVariant,
     flight_tuning: ButterflyFlightTuning,
+    foraging: super::ButterflyForagingSettings,
+    flowers: Vec<super::flower_visits::FlowerTarget>,
     pub worm_noise: FastNoiseLite,
     pub worm_noise_detail: FastNoiseLite,
     pub worm_noise_detail_weight: f32,
@@ -360,6 +365,8 @@ impl ButterflyEmitter {
             max_active_butterflies: desc.max_active_butterflies,
             flight_variant: desc.flight_variant,
             flight_tuning: desc.flight_tuning.sanitized(),
+            foraging: desc.foraging.sanitized(),
+            flowers: Vec::new(),
             worm_noise: butterfly_worm_noise_state(seed as i32, desc.worm_noise_frequency),
             worm_noise_detail: butterfly_worm_noise_detail_state(
                 (seed as i32).wrapping_add(5000),
@@ -378,6 +385,13 @@ impl ButterflyEmitter {
         self.enabled = desc.enabled;
         self.spawn_rate_per_source = desc.spawn_rate_per_source.max(0.0);
         self.max_active_butterflies = desc.max_active_butterflies;
+        if self.flight_variant != desc.flight_variant {
+            for b in &mut self.active_butterflies {
+                b.behavior.reset();
+                b.darting_flight.set_goal(None);
+            }
+        }
+        self.foraging = desc.foraging.sanitized();
         self.flight_variant = desc.flight_variant;
         self.flight_tuning = desc.flight_tuning.sanitized();
         self.height_offset = desc.height_offset_min.min(desc.height_offset_max)
@@ -401,6 +415,9 @@ impl ButterflyEmitter {
 
     fn sync_active_motion(&mut self, system: &mut ParticleSystem) {
         for butterfly in &mut self.active_butterflies {
+            if !self.flight_variant.uses_darting_flight() {
+                system.set_body_pose(butterfly.handle, None);
+            }
             let _ = system.set_size(butterfly.handle, self.size);
             if system.set_butterfly_guided_flight(
                 butterfly.handle,
@@ -523,6 +540,7 @@ impl ButterflyEmitter {
                     worm_phase: phase,
                     emergence_target_y,
                     darting_flight,
+                    behavior: super::butterfly_behavior::ButterflyBehavior::new(seed, initial_dir),
                 });
                 Some(handle)
             }
@@ -580,6 +598,32 @@ impl ButterflyEmitter {
         }
     }
 
+    pub(crate) fn set_flowers(&mut self, flowers: &[super::flower_visits::FlowerTarget]) {
+        self.flowers.clear();
+        self.flowers.extend_from_slice(flowers);
+    }
+    pub(crate) fn foraging_phases(&self) -> [usize; 6] {
+        let mut counts = [0; 6];
+        for b in &self.active_butterflies {
+            counts[b.behavior.phase as usize] += 1;
+        }
+        counts
+    }
+    pub(crate) fn foraging_stats(&self) -> super::butterfly_behavior::ForagingStats {
+        let mut total = super::butterfly_behavior::ForagingStats::default();
+        for b in &self.active_butterflies {
+            let s = b.behavior.stats;
+            total.choices += s.choices;
+            total.landings += s.landings;
+            total.departures += s.departures;
+            total.different_flowers += s.different_flowers;
+            total.lost_targets += s.lost_targets;
+            total.wind_interruptions += s.wind_interruptions;
+            total.stalls += s.stalls;
+        }
+        total
+    }
+
     /// The same animation clock used by the original renderer. Fixed substeps
     /// sample this clock; the display FPS never advances or quantizes physics.
     pub fn synchronize_animation_clock(&mut self, end_time: f32, dt: f32) {
@@ -619,6 +663,41 @@ impl ButterflyEmitter {
                 }
                 butterfly.darting_flight.wingbeat_phase =
                     system.wingbeat_phase(butterfly.handle, self.flight_time - self.flight_elapsed);
+                let local_wind = wind.sample_world(position);
+                let intent = if !emerging {
+                    Some(butterfly.behavior.advance(
+                        position,
+                        velocity,
+                        step as f32,
+                        (self.flight_time - self.flight_elapsed) as f32,
+                        local_wind,
+                        &self.flowers,
+                        self.foraging,
+                    ))
+                } else {
+                    None
+                };
+                butterfly
+                    .darting_flight
+                    .set_goal(intent.and_then(|i| i.goal));
+                if let Some((contact, body)) = intent.and_then(|i| i.attached) {
+                    let attachment_velocity = (contact - position) / step as f32;
+                    system.advance_guided_flight(
+                        butterfly.handle,
+                        attachment_velocity,
+                        step as f32,
+                    );
+                    system.set_body_pose(butterfly.handle, Some(body));
+                    system.set_wingbeat_pose(butterfly.handle, None);
+                    butterfly.darting_flight.resume(attachment_velocity);
+                    continue;
+                }
+                system.set_body_pose(
+                    butterfly.handle,
+                    intent
+                        .filter(|i| i.goal.is_some())
+                        .map(|_| butterfly.behavior.body_pose()),
+                );
                 let next_velocity = butterfly.darting_flight.advance(
                     position,
                     velocity,
@@ -626,7 +705,7 @@ impl ButterflyEmitter {
                     world_max,
                     emerging,
                     self.flight_tuning,
-                    wind.sample_world(position),
+                    local_wind,
                     &mut terrain_distance,
                 );
                 system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
@@ -695,6 +774,76 @@ mod tests {
             lifetime_min: 100.0,
             lifetime_max: 100.0,
             ..ButterflyEmitterDesc::default()
+        }
+    }
+
+    #[test]
+    fn butterfly_foraging_is_always_active_and_flight_stays_integrated() {
+        use crate::particles::flower_visits::{FlowerId, FlowerTarget};
+        for strength in [0., 0.3] {
+            let mut desc = butterfly_test_desc();
+            desc.flight_variant = ButterflyFlightVariant::Darting;
+            desc.flight_tuning.speed = 0.25;
+            desc.flight_tuning.vertical_strength = 4.;
+            desc.flight_tuning.wingbeat_coupling = true;
+            desc.foraging.dwell_seconds = 0.5;
+            let mut emitter = ButterflyEmitter::new(17, &desc);
+            let mut system = ParticleSystem::new(2);
+            let handle = emitter
+                .spawn_at(
+                    &mut system,
+                    ButterflySpawnSource::tree_leaf(Vec3::ONE + Vec3::Y * 0.02),
+                )
+                .unwrap();
+            let wind = WindFieldFrame::uniform(glam::Vec2::X * strength);
+            let mut flowers = [0, 1].map(|i| FlowerTarget {
+                id: FlowerId {
+                    epoch: 1,
+                    plant: i + 1,
+                    head: 0,
+                },
+                species: i as u32,
+                position: Vec3::ONE + Vec3::X * i as f32 * 0.1,
+                normal: Vec3::Y,
+                tangent: Vec3::Z,
+                radius: 0.01,
+                velocity: Vec3::ZERO,
+                observed_at: 0.,
+            });
+            for tick in 1..=3600 {
+                let time = tick as f32 / 120.;
+                for f in &mut flowers {
+                    f.observed_at = time;
+                }
+                emitter.set_flowers(&flowers);
+                emitter.synchronize_animation_clock(time, 1. / 120.);
+                let before = system.position(handle).unwrap();
+                emitter.advance_guided_flight(
+                    &mut system,
+                    1. / 120.,
+                    Vec3::splat(2.),
+                    &wind,
+                    |origin, direction| (direction.y < 0.).then(|| -origin.y / direction.y),
+                );
+                let after = system.position(handle).unwrap();
+                assert!(
+                    after.is_finite() && before.distance(after) < 0.004,
+                    "flight must integrate, not teleport"
+                );
+            }
+            let stats = emitter.foraging_stats();
+            assert!(
+                stats.different_flowers > 0,
+                "wind={strength} stats={stats:?}"
+            );
+            assert_eq!(stats.stalls, 0);
+            let before = system.position(handle).unwrap();
+            let phase = emitter.active_butterflies[0].behavior.phase;
+            desc.foraging.dwell_seconds = 0.75;
+            emitter.apply_desc(&desc);
+            assert_eq!(emitter.active_butterflies[0].behavior.phase, phase);
+            assert_eq!(emitter.foraging_stats().landings, stats.landings);
+            assert_eq!(before, system.position(handle).unwrap());
         }
     }
 

@@ -3,6 +3,24 @@ use super::saved_controls::SavedControls;
 use crate::particles::ButterflyFlightTuning;
 
 pub(crate) fn draw_butterfly_flight_controls(ui: &mut SavedControls<'_>) {
+    ui.section("Flower visiting");
+    ui.slider(
+        |s| &mut s.butterfly_flight.foraging.search_radius,
+        0.08..=1.5,
+        "Butterfly flower search radius",
+        0.02,
+        false,
+    );
+    ui.slider(
+        |s| &mut s.butterfly_flight.foraging.dwell_seconds,
+        0.5..=12.,
+        "Butterfly flower dwell (seconds)",
+        0.1,
+        false,
+    );
+    ui.slider(|s| &mut s.butterfly_flight.foraging.preference_strength,0.0..=2.,
+        "Butterfly individual flower preference",0.05,false)
+        .on_hover_text("Art-directed per-individual preferences; recent visits and failed approaches temporarily lower eligibility. Not a claim about specific species.");
     ui.section("Flight");
     let coupling = ui.toggle(
         |s| &mut s.butterfly_flight.tuning.wingbeat_coupling,
@@ -31,6 +49,10 @@ pub(crate) fn draw_butterfly_flight_tuning(ui: &mut SavedControls<'_>) -> [egui:
         .on_hover_text("Higher = acceleration changes faster; lower = softer turns. Position is always integrated.");
     let speed = ui.slider(|s| &mut s.butterfly_flight.tuning.speed, ButterflyFlightTuning::SPEED_RANGE, "Self-flight speed (x)", 0.05, false)
         .on_hover_text("Scales autonomous cruise, maneuver force and air-relative speed limits only. Wind drift has its own control.");
+    ui.section("Wind response");
+    ui.slider(|s| &mut s.butterfly_flight.foraging.wind_limit,0.1..=6.,
+        "Butterfly flower-visiting wind limit",0.05,false)
+        .on_hover_text("Sustained local wind above this game-unit threshold interrupts visits. Brief gusts are tolerated.");
     let wind = ui.slider(|s| &mut s.butterfly_flight.tuning.wind_drift, ButterflyFlightTuning::WIND_DRIFT_RANGE, "Wind drift (x)", 0.05, false)
         .on_hover_text("Response to the same local wind field as plants and the Wind item. Independent of self-flight speed; 0 lets existing drift settle to zero.");
     let changed = [&height, &vertical, &sharpness, &speed, &wind]

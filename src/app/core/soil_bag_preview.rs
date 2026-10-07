@@ -134,6 +134,7 @@ impl State {
             animation_phase_offset: 0.,
             animation_sample_time: None,
             butterfly_wingbeat: None,
+            butterfly_body_pose: None,
             leaf_orientation: None,
             leaf_shape_seed: None,
             leaf_geometry: None,

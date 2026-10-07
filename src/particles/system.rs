@@ -11,7 +11,7 @@ pub const INITIAL_PARTICLE_CAPACITY: usize = 16_384;
 /// Standard world-space particle quad size, matching one terrain voxel.
 pub const STANDARD_PARTICLE_SIZE: f32 = 1.0 / 256.0;
 /// Preserve the approved live wing mesh's guided-flight world size.
-const BUTTERFLY_GUIDED_RENDER_SIZE: f32 = 0.008203125;
+pub(super) const BUTTERFLY_GUIDED_RENDER_SIZE: f32 = 0.008203125;
 pub const PARTICLE_UPDATE_BUCKET_COUNT: usize = 2;
 
 #[derive(Clone, Copy, Debug)]
@@ -191,6 +191,7 @@ pub struct ParticleSnapshot {
     pub animation_sample_time: Option<f32>,
     /// Simulation-owned wing phase and attitude, held on the same publication tick.
     pub butterfly_wingbeat: Option<super::ButterflyWingbeatPose>,
+    pub(crate) butterfly_body_pose: Option<super::flower_visits::ButterflyBodyPose>,
     /// Held simulation orientation for falling-leaf optics. Geometry stays screen-facing.
     /// None for other kinds/motion modes, which retain their existing optical inputs.
     pub leaf_orientation: Option<Quat>,
@@ -260,6 +261,7 @@ pub struct ParticleSystem {
     leaf_display: Vec<LeafDisplayPose>,
     butterfly_display: Vec<ButterflyPresentation>,
     butterfly_wingbeats: Vec<Option<super::ButterflyWingbeatPose>>,
+    butterfly_body_poses: Vec<Option<super::flower_visits::ButterflyBodyPose>>,
 }
 
 impl ParticleSystem {
@@ -321,6 +323,7 @@ impl ParticleSystem {
             leaf_shape_seeds: vec![0; max_particles],
             butterfly_display: vec![ButterflyPresentation::default(); max_particles],
             butterfly_wingbeats: vec![None; max_particles],
+            butterfly_body_poses: vec![None; max_particles],
             leaf_display: vec![
                 LeafDisplayPose {
                     position: Vec3::ZERO,
@@ -410,6 +413,7 @@ impl ParticleSystem {
         self.velocities[slot] = spawn.velocity;
         self.butterfly_display[slot] = ButterflyPresentation::default();
         self.butterfly_wingbeats[slot] = None;
+        self.butterfly_body_poses[slot] = None;
         self.leaf_display[slot] = LeafDisplayPose {
             position: spawn.position,
             velocity: spawn.velocity,
@@ -727,16 +731,18 @@ impl ParticleSystem {
         self.write_snapshots_with_flight_pose(out, |_, position| position);
         for (&slot, snapshot) in self.alive_indices.iter().zip(out) {
             if snapshot.kind == ParticleRenderKind::Butterfly {
-                let pose = self.butterfly_display[slot].sample_with_wingbeat(
+                let pose = self.butterfly_display[slot].sample_with_body(
                     frame,
                     snapshot.position_ws,
                     snapshot.velocity,
                     snapshot.butterfly_wingbeat,
+                    snapshot.butterfly_body_pose,
                 );
                 snapshot.position_ws = pose.position;
                 snapshot.velocity = pose.velocity;
                 snapshot.animation_sample_time = Some(pose.time_seconds());
                 snapshot.butterfly_wingbeat = pose.wingbeat;
+                snapshot.butterfly_body_pose = pose.body;
             }
         }
     }
@@ -793,6 +799,7 @@ impl ParticleSystem {
                 animation_sample_time: None,
                 animation_phase_offset: self.butterfly_phase_offset(*slot),
                 butterfly_wingbeat: self.butterfly_wingbeats[*slot],
+                butterfly_body_pose: self.butterfly_body_poses[*slot],
                 leaf_orientation: self
                     .is_falling_leaf(*slot)
                     .then_some(self.leaf_display[*slot].orientation),
@@ -824,6 +831,22 @@ impl ParticleSystem {
     ) {
         if let Some(slot) = self.validate_handle(handle) {
             self.butterfly_wingbeats[slot] = pose;
+        }
+    }
+
+    pub(super) fn set_body_pose(
+        &mut self,
+        handle: ParticleHandle,
+        pose: Option<super::flower_visits::ButterflyBodyPose>,
+    ) {
+        if let Some(slot) = self.validate_handle(handle) {
+            // An invalidated attachment must never survive a held display tick.
+            if self.butterfly_body_poses[slot].and_then(|p| p.host) != pose.and_then(|p| p.host)
+                || self.butterfly_body_poses[slot].is_some() != pose.is_some()
+            {
+                self.butterfly_display[slot] = Default::default();
+            }
+            self.butterfly_body_poses[slot] = pose;
         }
     }
 

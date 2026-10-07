@@ -48,6 +48,7 @@ mod apple_pixel;
 mod apple_preview;
 mod dynamic_fruit_resources;
 mod flower_models;
+mod flower_visits;
 mod grass_band_cache;
 mod ordered_dither;
 pub(crate) mod scene_resolution;
@@ -1664,6 +1665,7 @@ pub struct Tracer {
     last_wind_volume_step: Option<u32>,
     initialized_wind_volume_bucket_count: u32,
     model_mesh_frame: ModelMeshFrame,
+    flower_visits: flower_visits::FlowerVisits,
     stone_preview: stone_preview::Renderer,
     particle_instance_scratch: Vec<ParticleInstanceGpu>,
     translucent_particle_instance_scratch: Vec<ParticleInstanceGpu>,
@@ -2030,6 +2032,7 @@ impl Tracer {
             last_wind_volume_step: None,
             initialized_wind_volume_bucket_count: 0,
             model_mesh_frame,
+            flower_visits: Default::default(),
             stone_preview,
             particle_instance_scratch: Vec::new(),
             translucent_particle_instance_scratch: Vec::new(),
@@ -4137,6 +4140,24 @@ impl Tracer {
                 .extent,
         )?;
 
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "models.flowers.contacts",
+            || {
+                self.record_flower_visits(
+                    cmdbuf,
+                    surface_resources,
+                    time,
+                    gpu_profiler_frame_slot,
+                    render_flags.enable_flora,
+                )
+            },
+        )?;
+        self.model_mesh_frame
+            .bind_flower_hosts(self.flower_visits.indices());
+        let flower_contacts = self.flower_visits.output(gpu_profiler_frame_slot);
         let prepared_particle_pixels =
             if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
                 Some(Self::with_gpu_scope(
@@ -4152,6 +4173,7 @@ impl Tracer {
                             },
                             self.camera.get_view_mat(),
                             self.camera.get_proj_mat(),
+                            &flower_contacts,
                         )
                     },
                 )?)
