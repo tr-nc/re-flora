@@ -2,8 +2,11 @@
 
 ## Status and finding
 
-Diagnosis only; no audio repair or saved gain/timbre adjustment has been shipped.
-The user's camera snapshot is preserved in `config/camera_snapshots.toml`.
+Historical diagnosis at `2664a145`, preserved with its original measurements.
+Both diagnosed causes are now repaired; see [the closed-loop repair report](tree_kick_audio_repair.md).
+The user's camera snapshot is preserved in `config/camera_snapshots.toml`, and saved gain/timbre
+choices are unchanged. The old red diagnostic below intentionally models the unpatched DSP,
+not current game behavior.
 
 The real kick/audio path at this viewpoint produces a **cold-start transmission
 burst**, not an early-ending clip:

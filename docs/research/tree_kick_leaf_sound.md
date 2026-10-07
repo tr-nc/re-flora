@@ -26,7 +26,9 @@ Calling the whole sound a measured "impulse response" would overstate what we ha
 
 No primary source located here supplies an actual kick-to-leaf waveform, an authoritative kick
 spectrum, or a duration for this authored tree. Those parts below are explicitly **sound-design
-choices requiring listening**, not empirical constants. No external recording/code was copied.
+choices requiring listening**, not empirical constants. No external recordings or synthesis code
+were copied into this leaf synthesizer. The separate spatial backend patch vendors licensed
+PetalSonic source, with provenance in `crates/petalsonic/VENDORED.md`.
 
 ## Integrated candidate
 
@@ -44,9 +46,14 @@ choices requiring listening**, not empirical constants. No external recording/co
 - Four deterministic variants are prepared into immutable mono 48 kHz clips at startup or when
   duration/timbre/frequency changes. K only chooses a resident clip; no realtime DSP, file I/O or
   new GPU job/wait. Peak is bounded to 0.35 before the saved volume and normal mixer routing.
-- Source placement is the nearest real wood-clear sample in the exact tree's current canopy
-  descriptor, not a centroid inside wood. Normal Leaves bus, world distance/panning, transmission
-  and environmental acoustics remain enabled. Wind thresholds/ambient volume do not gate it.
+- Source placement now captures the exact tree's stable weighted canopy domain. One finite Voice
+  uses a tree-local weighted-center anchor and the original samples/IDs/power; individual paths
+  are solved and rendered through up to four bounded lobes. `PointExact` is the transmission policy,
+  orthogonal to the `WeightedSamples` extent: no ambient gain floor is added. Initial transmission
+  must be ready before PCM advances. Normal Leaves bus, distance/HRTF and environmental acoustics
+  remain enabled. Wind thresholds/ambient volume do not gate it. The former listener-nearest
+  single-point policy and its cold-start burst are repaired; see
+  [the saved-viewpoint repair](tree_kick_audio_repair.md).
 - At most eight event Voices overlap. Expired sources retire on wall time (also after shorter
   live tuning), oldest excess sources retire immediately, and shutdown clears them before audio
   stops. Clip replacement does not mutate already-playing immutable clips. The maximum four-clip

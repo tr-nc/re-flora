@@ -75,8 +75,18 @@ even without wind. It reuses the existing leaf-body/friction/micro-grain synthes
 energy decay and subtle back-and-forth shake modulation. The former 1.14 warm-body weight is now
 saved/tunable at 0.28 by default; the air bed is reduced and brightness/contact detail use a
 clearer mapping. Ambient tree synthesis is unchanged. Branch creaks remain off; no foot/trunk
-thump is added. The sound source sits at a wood-clear canopy sample on
-that tree, retaining normal spatial attenuation, transmission and environmental acoustics.
+thump is added. One finite Voice uses the exact tree's stable, power-normalized canopy
+samples, anchored at their tree-local weighted center (not a listener-selected nearest point).
+Occlusion acts on each sampled part; the backend groups them into at most four directional lobes.
+Exact material transmission is retained without ambient attenuation floors. Distance/HRTF and
+environmental acoustics remain enabled; ambient tree emission is unchanged.
+
+An opted-in acoustic start preserves the PCM cursor until its initial usable transmission response
+is available, then initializes point/lobe/environment gains to that response. It never starts at
+unity and ramps into occlusion, or consumes the attack while waiting. This is a nonblocking wait
+bounded to 100 ms; missing/deferred results expire safely. Subsequent changes still smooth normally.
+The finite source's retirement deadline includes that maximum wait. Backend provenance and the
+saved-viewpoint closed-loop evidence are in [the repair report](research/tree_kick_audio_repair.md).
 
 Four immutable 48 kHz variants are prepared before K, not synthesized in the realtime callback.
 Live sound/frequency tuning rebuilds that small bank on the main thread; Release default preparation
@@ -120,8 +130,8 @@ does not advance the skeleton generation or reset the whole GPU solver allocatio
 The same packet clock crosses a representative canopy path (median terminal endpoint distance),
 and emits its leaf/fruit/sound consequence once. Longer trees and lower wave speed increase both
 rendered propagation and this onset. This is a saved art-directed travelling-bend model, not a
-measured wood elastodynamics/velocity model; the single canopy burst/source is an aggregate, not
-per-leaf audio contact simulation. Tree replacement/removal discards pending tree-owned waves;
+measured wood elastodynamics/velocity model; the canopy burst and finite distributed Voice are
+aggregate models, not per-leaf audio contact simulation. Tree replacement/removal discards pending tree-owned waves;
 a suspended frame cannot revive an already-passed canopy event. Wind off resets ambient branch
 deflection but does not suppress kick transmission.
 

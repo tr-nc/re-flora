@@ -1,7 +1,10 @@
 //! Finite leaf-contact excitation, separate from ambient wind and acoustic transport.
 //! Clips are prepared off the realtime callback and before the next K event.
 use super::mixer::AudioCategory;
-use super::{SpatialSoundManager, TreeRustleControl, TreeRustleFactory, TreeRustleParams};
+use super::{
+    CanopyAcousticDescriptor, CanopyDistributedEmitterAdapter, SpatialSoundManager,
+    TreeRustleControl, TreeRustleFactory, TreeRustleParams,
+};
 use anyhow::{ensure, Result};
 use glam::Vec3;
 use petalsonic::ResidentClip;
@@ -77,6 +80,39 @@ fn render_variant(tuning: KickRustleTuning, variant: usize) -> Result<ResidentCl
     let samples = factory.render_excited_pcm(SAMPLE_RATE, tuning.duration, tuning.shake_frequency);
     Ok(ResidentClip::from_mono_pcm(samples, SAMPLE_RATE)?)
 }
+/// A canonical canopy domain, independent of listener/camera/nearest-point selection.
+struct CanopyKickEmission {
+    origin_world: Vec3,
+    extent: petalsonic::SourceExtent,
+    sample_count: usize,
+}
+impl CanopyKickEmission {
+    fn from_descriptor(descriptor: &CanopyAcousticDescriptor) -> Result<Self> {
+        ensure!(
+            !descriptor.samples().is_empty(),
+            "kick canopy has no acoustic samples"
+        );
+        // Compute in tree-local coordinates: moving the tree cannot change weights/anchor.
+        let mut center = glam::DVec3::ZERO;
+        let mut power = 0_f64;
+        for sample in descriptor.samples() {
+            let weight = sample.weight() as f64;
+            center += sample.position_tree_voxels().as_dvec3() * weight;
+            power += weight;
+        }
+        ensure!(power.is_finite() && power > 0., "invalid kick canopy power");
+        let anchor = (center / power).as_vec3();
+        let origin_world = descriptor.tree_origin_world() + anchor / 256.;
+        ensure!(origin_world.is_finite(), "invalid kick canopy origin");
+        let extent = CanopyDistributedEmitterAdapter::source_extent_at_anchor(descriptor, anchor)?;
+        Ok(Self {
+            origin_world,
+            extent,
+            sample_count: descriptor.samples().len(),
+        })
+    }
+}
+
 struct Active {
     source: Uuid,
     deadline: Instant,
@@ -112,9 +148,11 @@ impl KickRustlePlayer {
         log::info!("[TREE_KICK][RUSTLE_PREPARE] variants={VARIANTS} duration={} elapsed_us={} realtime_dsp=false", tuning.duration, started.elapsed().as_micros());
         Ok(())
     }
-    pub fn play(&mut self, position: Vec3, volume_db: f32) -> Result<()> {
+    pub fn play(&mut self, descriptor: &CanopyAcousticDescriptor, volume_db: f32) -> Result<()> {
+        let emission = CanopyKickEmission::from_descriptor(descriptor)?;
+        let position = emission.origin_world;
         ensure!(
-            position.is_finite() && volume_db.is_finite() && (-40. ..=6.).contains(&volume_db),
+            volume_db.is_finite() && (-40. ..=6.).contains(&volume_db),
             "invalid kick rustle placement/gain"
         );
         let tuning = self
@@ -132,6 +170,10 @@ impl KickRustlePlayer {
             self.clips[variant].clone(),
             volume_db,
             position,
+            emission.extent,
+            // Exact energy aggregation across samples, no ambient gain floor.
+            // This policy is orthogonal to the WeightedSamples source domain.
+            petalsonic::OcclusionProfile::PointExact,
         )?;
         self.variant = self.variant.wrapping_add(1);
         self.active.push_back(Active {
@@ -140,7 +182,7 @@ impl KickRustlePlayer {
                 + Duration::from_secs_f32(tuning.duration + 0.25)
                 + petalsonic::ACOUSTIC_START_MAX_DELAY,
         });
-        log::info!("[TREE_KICK][RUSTLE] once=true wind_independent=true variant={variant} duration={} active={} max_voices={MAX_VOICES} position={position:?}", tuning.duration, self.active.len());
+        log::info!("[TREE_KICK][RUSTLE] once=true wind_independent=true variant={variant} duration={} active={} max_voices={MAX_VOICES} position={position:?} canopy_samples={} generation={} power_normalized=true distributed=true", tuning.duration, self.active.len(), emission.sample_count, descriptor.generation());
         Ok(())
     }
     pub fn retire(&mut self, now: Instant) {
@@ -155,6 +197,15 @@ impl KickRustlePlayer {
             }
         });
     }
+    #[cfg(test)]
+    pub(super) fn latest_spatial_domain(
+        &self,
+    ) -> Option<(Vec3, petalsonic::SourceExtent, petalsonic::OcclusionProfile)> {
+        self.active
+            .back()
+            .and_then(|a| self.spatial.registered_spatial_domain(a.source))
+    }
+
     pub fn voice_count(&self) -> usize {
         self.active.len()
     }
@@ -173,6 +224,62 @@ impl Drop for KickRustlePlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn canopy(origin: Vec3) -> CanopyAcousticDescriptor {
+        let leaves = [
+            Vec3::new(-24., 50., 0.),
+            Vec3::new(24., 90., 12.),
+            Vec3::new(0., 75., -24.),
+        ]
+        .into_iter()
+        .map(|position| crate::tree_gen::LeafPlacement {
+            position,
+            anchor: Vec3::ZERO,
+        })
+        .collect::<Vec<_>>();
+        CanopyAcousticDescriptor::build(7, origin, 123, &leaves, &[])
+    }
+    #[test]
+    fn kick_canopy_domain_is_stable_power_normalized_and_keeps_exact_sample_world_positions() {
+        let descriptor = canopy(Vec3::new(1., 0.4, 1.));
+        let a = CanopyKickEmission::from_descriptor(&descriptor).unwrap();
+        let b = CanopyKickEmission::from_descriptor(&descriptor).unwrap();
+        assert_eq!(a.origin_world, b.origin_world);
+        assert_eq!(a.extent, b.extent);
+        let samples = a.extent.weighted().unwrap().samples();
+        assert_eq!(samples.len(), descriptor.samples().len());
+        assert!(
+            (samples
+                .iter()
+                .map(petalsonic::ExtentSample::power_weight)
+                .sum::<f32>()
+                - 1.)
+                .abs()
+                < 1e-6
+        );
+        for (mapped, original) in samples.iter().zip(descriptor.samples()) {
+            assert_eq!(
+                mapped.id(),
+                petalsonic::ExtentSampleId(original.id().value())
+            );
+            let p = mapped.local_position();
+            let world = a.origin_world + Vec3::new(p.x, p.y, p.z);
+            assert!(world.distance(descriptor.sample_world_position(original)) < 1e-6);
+            assert!((mapped.power_weight() - original.weight()).abs() < 1e-6);
+        }
+        // Canonical origin follows the canopy, never the trunk or listener-nearest sample.
+        assert!(a.origin_world.y > descriptor.tree_origin_world().y + 0.15);
+        let moved = CanopyKickEmission::from_descriptor(&canopy(
+            descriptor.tree_origin_world() + Vec3::new(32., 0., -7.),
+        ))
+        .unwrap();
+        assert_eq!(a.extent, moved.extent);
+        assert!((moved.origin_world - a.origin_world - Vec3::new(32., 0., -7.)).length() < 2e-6);
+    }
+    #[test]
+    fn sampleless_canopy_never_falls_back_to_a_trunk_sound() {
+        let descriptor = CanopyAcousticDescriptor::build(1, Vec3::ZERO, 0, &[], &[]);
+        assert!(CanopyKickEmission::from_descriptor(&descriptor).is_err());
+    }
     #[test]
     fn kick_excitation_is_finite_fast_attack_decaying_and_exactly_silent_at_boundaries() {
         let envelope = |t| excitation_envelope(t, 1.1, 2.55);

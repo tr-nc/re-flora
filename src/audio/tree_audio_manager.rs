@@ -224,7 +224,6 @@ impl TreeAudioManager {
         &mut self,
         tree: u32,
         time: f32,
-        listener: glam::Vec3,
         volume_db: f32,
     ) -> Result<bool> {
         let snapshot = self.lifecycle.snapshot(time)?;
@@ -237,20 +236,10 @@ impl TreeAudioManager {
             return Ok(false);
         };
         let descriptor = generation.descriptor();
-        // A real, wood-clear canopy sample rather than the trunk/centroid, which
-        // can self-occlude. Placement stays on the exact kick's canonical tree.
-        let Some(position) = descriptor
-            .samples()
-            .iter()
-            .map(|sample| descriptor.sample_world_position(sample))
-            .min_by(|a, b| {
-                a.distance_squared(listener)
-                    .total_cmp(&b.distance_squared(listener))
-            })
-        else {
+        if descriptor.samples().is_empty() {
             return Ok(false);
-        };
-        self.kick_rustle.play(position, volume_db)?;
+        }
+        self.kick_rustle.play(descriptor, volume_db)?;
         Ok(true)
     }
 
@@ -376,18 +365,27 @@ mod tests {
         };
         audio.prepare_kick_rustle(tuning).unwrap();
         audio.upsert_tree(1, descriptor(1, 1.), 0.).unwrap();
-        assert!(!audio.play_kick_rustle(99, 0., Vec3::ZERO, -6.).unwrap());
+        assert!(!audio.play_kick_rustle(99, 0., -6.).unwrap());
         assert_eq!(audio.kick_rustle_voice_count(), 0);
         // No wind update/threshold is required to play this finite event.
         for _ in 0..12 {
-            assert!(audio.play_kick_rustle(1, 0., Vec3::ZERO, -6.).unwrap());
+            assert!(audio.play_kick_rustle(1, 0., -6.).unwrap());
         }
+        let (_, extent, profile) = audio.kick_rustle.latest_spatial_domain().unwrap();
+        assert!(
+            extent.weighted().is_some(),
+            "the real finite canopy cue must not collapse to one listener-selected point"
+        );
+        assert!(
+            matches!(profile, petalsonic::OcclusionProfile::PointExact),
+            "finite cue must keep exact transmission, not ambient attenuation floors"
+        );
         assert_eq!(audio.kick_rustle_voice_count(), 8);
         audio
             .kick_rustle
             .retire(std::time::Instant::now() + std::time::Duration::from_secs(1));
         assert_eq!(audio.kick_rustle_voice_count(), 0);
-        audio.play_kick_rustle(1, 0., Vec3::ZERO, -6.).unwrap();
+        audio.play_kick_rustle(1, 0., -6.).unwrap();
         audio.clear_kick_rustles();
         assert_eq!(audio.kick_rustle_voice_count(), 0);
     }

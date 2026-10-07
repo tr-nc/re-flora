@@ -4089,7 +4089,6 @@ impl App {
         if let Err(error) = self.tree_audio_manager.play_kick_rustle(
             id,
             self.time_info.time_since_start(),
-            self.tracer.camera_position(),
             self.debug_settings
                 .adjustables
                 .tree_kick_rustle_volume_db

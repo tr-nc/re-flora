@@ -69,4 +69,120 @@ runs. The original diagnosis remains historical evidence:
 
 ## Stage 2: coherent distributed canopy emission
 
-Pending at the first-stage commit; subsequent evidence will replace this section.
+Completed after first-stage commit `07865aa7`.
+
+The finite Voice captures the current canonical tree's entire existing acoustic domain,
+not the nearest sample to the listener. The listener is no longer an input to
+`TreeAudioManager::play_kick_rustle`. The origin is the stable tree-local weighted
+sample center; the unchanged sample IDs/positions/normalized power are rebased about it.
+This puts the finite event's attenuation anchor in the canopy, not at the trunk/root.
+Distance attenuation is the existing center-based extended-source model, not a new
+per-leaf propagation simulation. In-flight immutable events do not reselect their domain.
+
+`WeightedSamples` uses exact transmission (`OcclusionProfile::PointExact`), grouped into
+at most four directional lobes. Extent and occlusion policy are orthogonal: **no ambient
+attenuation floor is borrowed** to brighten a blocked cue. Unobstructed samples contribute
+only their normalized power; obstructed samples keep the material response. Still one
+finite Voice per event, maximum eight events; no sixteen-full-volume-Voice multiplication.
+Ambient callers keep their original zero/tree-root sample anchor and policy unchanged.
+
+The root-cause start regression also covers the muted render shortcut: pending PCM stays
+unconsumed and has the same bounded cancellation rather than bypassing DSP indefinitely.
+Default muted/immediate playback remains unchanged.
+
+### Original snapshot, after both fixes
+
+- Same canonical tree `0`, variant `0`, saved duration `2`, same complete PCM source
+  energy **1.651539294752477e-6** in the muted runtime.
+- Stable canopy origin **(1.0274838, 0.7554647, 1.0493407)**; **16** samples,
+  **7 wood hits / 9 visible**. Visible normalized source power **0.5511977**.
+- Exact aggregate amplitude **[0.7443588, 0.7427971, 0.7424949]**, identical raw/filtered
+  gains (no attenuation floor). The formerly selected wood-obstructed point is still
+  present with its original **[0.08, 0.035, 0.015]** response and **0.08107397** power.
+- First-render telemetry already contains a usable scene response. Source starts
+  only after preparation; the log's creation-to-first-render observation is about 32 ms.
+- Direct energy **4.817138401757878e-8**; natural energy summary follows the complete
+  clip, before bounded source retirement. No gain/timbre adjustment or bypass control.
+
+Farther walking placement and a walking viewpoint on the other side both check-hit the
+same tree, preserve the same origin/domain/PCM energy and start with valid responses.
+Accepted far listener **(0.79085577, 0.49835917, 0.7892942)**, direct energy
+**2.736184807050929e-8**; opposite-side listener **(1.0398363, 0.4866406, 1.0595495)**,
+direct energy **6.306550221288221e-8**. These are legitimate geometry/distance changes,
+not a listener-driven source switch. All three accepted captures exit successfully,
+shutdown `failures=0`. Temporary camera entries were restored byte-for-byte.
+
+Excluded far attempt: the walking controller moved the camera and the unchanged view ray
+missed the scene. That run produced no kick/audio evidence; the retry explicitly looked
+at the previously captured trunk hit from its actual post-grounding listener position.
+No failed run is included in the accepted audio comparison.
+
+### Actual PCM + native spatial-DSP replay
+
+The explicit ignored backend test `captured_canopy_pcm_keeps_its_temporal_tail_and_output_headroom`
+replays the four game-synthesis PCM variants with the captured solved lobes, listener basis,
+canopy origin, native HRTF/direction-field renderer and saved unmuted gain/headroom.
+
+| Variant | Stereo peak before hard clamp | Clipped samples | First 100 ms energy | After 250 ms energy | Time to 95% energy |
+|---|---:|---:|---:|---:|---:|
+| 0 | 0.307245 | 0 | 35.33% | 27.37% | 595.937 ms |
+| 1 | 0.267983 | 0 | 36.33% | 27.71% | 612.667 ms |
+| 2 | 0.331527 | 0 | 33.16% | 32.14% | 624.667 ms |
+| 3 | 0.337908 | 0 | 35.89% | 27.80% | 604.937 ms |
+
+Contrast the diagnosed **97.13% first-100-ms / 80-ms direct-energy t95** burst.
+The current numbers are binaural DSP metrics, not perceptual duration. No stereo cue
+clips in this isolated captured-viewpoint replay; concurrent mix/device-rate resampling,
+downstream hardware and manual listening remain outside this test. The independent
+published backend hard-clamp/overloaded-mix risk is not claimed fixed.
+
+The replay requires current 48-kHz mono `variant-0..3.f32` files (raw little-endian)
+in `RE_FLORA_KICK_PCM_DIR`; these were exported using the real game leaf synthesizer,
+current saved tuning and production seeds in the ignored diagnostic workspace.
+It is not an ordinary device/I/O unit test:
+
+```bash
+RE_FLORA_KICK_PCM_DIR="$PWD/target/kick_audio_distance_probe" \\
+  cargo test --release --manifest-path crates/petalsonic/Cargo.toml \\
+  captured_canopy_pcm -- --ignored --nocapture
+```
+
+### Final validation and cleanup
+
+- Call-site regression `kick_rustle_has_exact_tree_placement_no_wind_dependency_and_bounded_voice_lifetime`
+  went red on the original point domain, then passed on actual distributed registration.
+- Game pure kick/source tests **5**, canopy tests **18**, explicit audio-runtime test **1**,
+  pose tests **13**, packet tests **5** passed.
+- Backend **190 passed / 9 ignored**, ownership **6**, doctests **2** passed; ignored
+  captured-PCM replay explicitly passed for all four variants.
+- Existing isolated Release 8-Voice/16-sample direction-field gate passed:
+  p50 **1042 us**, p95 **1134 us**, p99 **1175 us**, realtime CPU **4.0985%**.
+  This is a backend synthetic renderer gate, not sustained app/walking FPS acceptance.
+- Formatting (both manifests), `cargo check`, clean Release build and inspected short
+  hidden muted launch passed. Two existing game diagnostic dead-code warnings remain.
+- Full hidden raster/vegetation-response smoke passed delayed upper-axis bending,
+  wind-off and overlapping wind-on impulses, **9/17** seeded roulette, **24** decorative
+  leaves, **576-byte** fenced handoff/no query wait, exact picking, rest collision,
+  leaf history, lighting, age/replacement/Conifer and exact publication rollback.
+- Inspected logs:
+  `target/re-flora-logs/re-flora-20261008-034327.768-2422062.log` and
+  `target/re-flora-logs/re-flora-20261008-034333.849-2422110.log`; no errors,
+  shutdown `failures=0`.
+- All temporary `[DEBUG-badaudio]` and camera-adjustment probes removed from game source.
+  No generated files changed; no visible game auto-launched.
+- Saved Settings SHA-256 unchanged:
+  `c4c20e33963c225c500d674ab58225a852fe9947d1808578317e767fe0a77c85`.
+  Camera snapshot file unchanged:
+  `d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a`.
+- Final ordinary Release SHA-256:
+  `0796f5b9c04975ce4e9283701de9e02df92539b6623be2e9415c3fb1285d897d`.
+
+Artifacts: `/tmp/kick-canopy-{snapshot,back,far-facing,pcm-replay,render-budget}.out`,
+`/tmp/kick-audio-final-*.out`. Local ignored archive:
+`target/kick_audio_distance_probe/evidence/repair/` and the instrumented
+`re-flora-fixed-canopy-diag` binary. The archived diagnostic does not include the later
+muted-shortcut guard; the ordinary validated Release does.
+
+Both requested implementation causes are closed with regressions and real-app evidence.
+No human-hearing, OS-keyboard, full-repository-suite or sustained-game-performance
+acceptance claim is made, and no further user reply is required to finish this repair.

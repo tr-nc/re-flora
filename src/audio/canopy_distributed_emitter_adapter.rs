@@ -367,11 +367,21 @@ impl CanopyDistributedEmitterAdapter {
     }
 
     fn source_extent(descriptor: &CanopyAcousticDescriptor) -> Result<SourceExtent> {
+        Self::source_extent_at_anchor(descriptor, glam::Vec3::ZERO)
+    }
+
+    /// Same immutable sample IDs/power, rebased about a stable tree-local emission origin.
+    /// Ambient callers keep the original zero/tree-root anchor unchanged.
+    pub(crate) fn source_extent_at_anchor(
+        descriptor: &CanopyAcousticDescriptor,
+        anchor_tree_voxels: glam::Vec3,
+    ) -> Result<SourceExtent> {
         let samples = descriptor
             .samples()
             .iter()
             .map(|sample| {
-                let local = sample.position_tree_voxels() / VOXELS_PER_WORLD_UNIT;
+                let local =
+                    (sample.position_tree_voxels() - anchor_tree_voxels) / VOXELS_PER_WORLD_UNIT;
                 ExtentSample::new(
                     ExtentSampleId(sample.id().value()),
                     petalsonic::Vec3::new(local.x, local.y, local.z),

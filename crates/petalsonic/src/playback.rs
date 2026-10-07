@@ -472,15 +472,34 @@ impl PlaybackInstance {
         self.voice_rate = playback_rate;
     }
 
-    pub(crate) fn advance_silently(&mut self, output_frames: usize) {
+    /// Returns true only for acoustic-start timeout (including the muted shortcut).
+    pub(crate) fn advance_silently(&mut self, output_frames: usize) -> bool {
         if output_frames == 0 || !matches!(self.info.play_state, PlayState::Playing) {
-            return;
+            return false;
+        }
+        // Muted spatial Voices bypass DSP, not the pending-start cursor contract.
+        if let Some(waited) = self.acoustic_start_wait_frames {
+            if self.fading_out() {
+                self.cancel_acoustic_start();
+            } else {
+                let next = waited.saturating_add(output_frames);
+                let limit = (crate::domain::ACOUSTIC_START_MAX_DELAY.as_secs_f64()
+                    * self.sample_rate as f64)
+                    .ceil() as usize;
+                if next >= limit {
+                    self.cancel_acoustic_start();
+                    return true;
+                } else {
+                    self.acoustic_start_wait_frames = Some(next);
+                }
+            }
+            return false;
         }
         let total_frames = self.audio_data.total_frames();
         if total_frames == 0 {
             self.reached_end_this_iteration = true;
             self.info.play_state = PlayState::Stopped;
-            return;
+            return false;
         }
 
         if self.fade_out_remaining_frames > 0 {
@@ -514,6 +533,7 @@ impl PlaybackInstance {
                 }
             }
         }
+        false
     }
 
     fn next_source_frame(&mut self) -> Option<usize> {

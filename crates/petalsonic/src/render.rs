@@ -708,7 +708,16 @@ impl RenderQuantum {
             instance.set_mix_parameters(bus);
             let is_spatial = instance.render_state.is_spatial();
             if bus.muted || crate::gain::db_to_linear(bus.gain_db) == 0.0 {
-                instance.advance_silently(output_frames);
+                if instance.advance_silently(output_frames) {
+                    if let Some(play_command_id) = instance.telemetry_command_id() {
+                        self.mixer_scratch.voice_telemetry.push(
+                            VoiceTelemetryEvent::AcousticStartTimedOut {
+                                play_command_id,
+                                emitter: instance.emitter,
+                            },
+                        );
+                    }
+                }
                 if is_spatial {
                     self.mixer_scratch.muted_spatial_voice_ids.push(*voice_id);
                 }
