@@ -2,7 +2,7 @@
 
 ## 交互与范围
 
-- `B / Soil` 的实际地形悬停显示封口土袋；按住 LMB 立即切到已开口、袋口向下的固定姿态，不播放撕开或倾倒动画。松开恢复悬停姿态；没有地形目标、鼠标被 UI 占用或切换工具时隐藏袋子。
+- `B / Soil` 的实际地形悬停显示封口土袋；按住 LMB 立即切到已开口、袋口向下的固定姿态，不播放撕开或倾倒动画。松开恢复悬停姿态；确认没有地形目标、鼠标被 UI 占用或切换工具时隐藏袋子。等待新 GPU 回答不是确认 miss：展示锚点可短暂续用，但绝不用于编辑。
 - 土量仍由既有立即出第一批、随后按保存频率的 Soil 调度器决定。个体沉积、形状、材料字节、肥力、有限背包、Infinite Materials 与同步 Visible Terrain Publication 未改。
 - 只有成功的权威写入允许视觉落土流；空背包／拒绝放置不会制造颗粒假装成功。松开立即停止发射，已经飞出的颗粒继续落地后消失。
 - 颗粒是共享 terrain-particle 渲染路径上的简单不透明方粒，90 粒/秒、最多128个、最多0.7秒寿命；重力轨迹使用逐帧扫掠地形/场景射线检测，接触即消失。无土块模拟、粒间碰撞、额外体素写入、落地结算或购买逻辑；视觉粒子数不是实际体素数量。
@@ -60,6 +60,19 @@ RGB 贴纸在 Linear-sRGB 解码后 Nearest 查找，不插值、不用 mipmap�
 
 日志：`/tmp/terrain-magic-soil-bag-world-{check,tests,instance-tests,frame-tests,all-tests,node-tests,release,depth,cycle,hover,voxel-floor,rooftop,smoke,tail}.log`。中间描述符错误保留在早期工作树 run log 和 `world-unlit-descriptor-error.log` 中，不作最终成功证据。
 
+## 缩小与按住闪烁修复（2026-10-08）
+
+按用户要求先检查/合入主分支：fetch origin main 后，本地 `main=b2b7d55a` 与远端 `adde77ac` 都已在 feature 祖先中；`git merge main` 返回 `Already up to date`，没有制造空合并提交。确认 Release 可构建后才开始诊断/修复，用户 GUI 备份保留。
+
+- **稳定 RED：** `RE_FLORA_SOIL_BAG_REVIEW=stability` 驱动原有空 rooftop、固定相机和实际 Soil 按住链路，统计提交给世界渲染器的袋子实例。两次都为 `holding_frames=38 missing_frames=26 added=6656 no_flicker=false`，退出101；不是只断言 app 不崩溃。最小触发是相同目标上的持续写土，不需要移动相机/其他工具/新增动画。定向探针确认这26帧与每次 terrain revision 更新后的 `scene_current=false expired=false` 相符，临时 `[DEBUG-soilbag-hover]` 已删除。
+- **根因/边界：** 旧 `Option<hover>` 混淆了异步 Pending 和确认 miss；Visible Terrain Publication 正常使旧回答失效，展示层却销毁袋子。现在 GPU 回答、可用工具表面和袋子生命周期通过明确 Hit/Miss/Pending/Unavailable 状态连接。Pending 只保留最近确认的世界展示锚点（最多250ms），**不产生编辑命中、不缓存占据、不放宽场景版本检查**。新鲜的 captured Soil edit ray 也续期展示锚点，使袋子随堆高更新；体素规划/库存仍仅用当前解析命中。确认 miss、指针/UI不可用、换工具和超时立即清理；松开在 Pending 中也立即恢复封口姿态/停止颗粒。这个类型边界和原生逐帧守卫防止重犯，不是把所有 None 都当成可写目标或盲目延迟隐藏。
+- **尺寸：** 世界 scale `0.10 → 0.05`，hover中心高度 `0.15 → 0.075`，pour袋口高度 `0.14 → 0.07`。两态使用同一个尺寸、真实嘴部枢轴和共享投影几何；未改 canonical recipe/贴纸/网页尺寸、32²采样、保存参数或撒土频率/数量。
+- **GREEN：** 两次相同按住检查都 `holding_frames=38 missing_frames=0 no_flicker=true`，实际加入6656/7168，真实库存/权威体素守恒；这是正常时钟采样差异，不是匹配吞吐基准。颗粒峰值16/19，接触58/62，不用于结算土量。体素屋顶截图 `target/soil-bag-half-sized-world.png` 已查看：缩小后的袋子仍有真实世界投影。最后把守卫收紧为全部38帧必须处于倾倒态、不得跳过错误姿态帧；在 `RE_FLORA_ROOFTOP_VOXELS=1` 再跑也是38/0，加入6656、颗粒峰值15、接触58（`green-3-voxel.log`）。
+- 世界 sun-depth 检查 **86非空像素 → 移除后0**，hover零土/零颗粒；完整 rooftop 5批量/即时出土时序、4224支撑写入/旧材质/背包检查通过。隐藏静音普通启动与最终检查日志无 ERROR/VUID/panic；红色复现日志中的预期 panic 保留，不算最终成功。
+- fmt/check/Release通过，未新增 Rust warning（保留主分支2项既有 dead-code warning）。完整 Rust **1466 passed / 4 known baseline failed / 6 ignored**，碰撞另4项通过；没有为失败改默认值。12项袋子/粒子测试与3项 picking测试通过，含缩小、等待期间无编辑命中、miss/UI/timeout清理、真实 Soil 锚点续期和释放门控。没有 shader/生成文件改动、新 Debug 控件或保存钩子；`config/gui.toml` 与开始备份逐字节一致。
+
+重现的单命令见下方 `stability` 模式；主要日志：`/tmp/terrain-magic-soil-bag-stability-{red-1,red-2,probe-red,size-red,check,tests,picking-tests,all-tests,release,green-1,green-2,world,rooftop,size-visual,smoke,tail}.log`。没有自动开启可见游戏，也没有声称新的性能预算、其他GPU或用户最终尺寸/手感验收。
+
 ## 重现 / 手动试用
 
 ```sh
@@ -72,6 +85,10 @@ RE_FLORA_SOIL_BAG_REVIEW=cycle \
   RUST_LOG='warn,re_flora::app::core::soil_bag_review=info,re_flora::tracer::model_mesh_frame=info,re_flora::run_log_binding=info' \
   cargo run --release -- --hidden --mute --rooftop-poc --auto-exit 5
 # hover 模式验证不点击时的零写入/零颗粒。
+# stability 模式在真实写土期间断言袋子逐帧不消失：
+RE_FLORA_SOIL_BAG_REVIEW=stability \
+  RUST_LOG='warn,re_flora::app::core::soil_bag_review=info,re_flora::run_log_binding=info' \
+  cargo run --release -- --hidden --mute --rooftop-poc --auto-exit 5
 # world 模式验证真实太阳 depth 的写入/移除（空 rooftop、零土量）。
 # 观察实际体素地板投影；不改变保存的默认模式：
 RE_FLORA_ROOFTOP_VOXELS=1 cargo run --release -- --rooftop-poc

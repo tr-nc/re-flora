@@ -45,6 +45,24 @@ pub(super) struct TerrainEditHover {
     pub(super) is_editable: bool,
 }
 
+/// Fresh targets are usable by edits. Pending work is presentation-only and
+/// never supplies a hit to deposition or other authoritative tool actions.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum TerrainEditHoverObservation {
+    Hit(TerrainEditHover),
+    Miss,
+    Pending,
+    Unavailable,
+}
+impl TerrainEditHoverObservation {
+    pub fn hit(self) -> Option<TerrainEditHover> {
+        match self {
+            Self::Hit(hit) => Some(hit),
+            _ => None,
+        }
+    }
+}
+
 pub(super) fn panel_blocks_world(config_open: bool, card_open: bool, orbit_edit: bool) -> bool {
     card_open || (config_open && !orbit_edit)
 }
@@ -1334,19 +1352,26 @@ impl App {
         }
     }
 
-    pub(super) fn terrain_edit_hover(&mut self) -> Option<TerrainEditHover> {
+    pub(super) fn terrain_edit_hover_observation(&mut self) -> TerrainEditHoverObservation {
+        use super::terrain_picking::HoverObservation;
         if !self.terrain_edit_pointer_available() || !self.is_terrain_edit_radius_tool_selected() {
-            return None;
+            return TerrainEditHoverObservation::Unavailable;
         }
-
-        super::terrain_picking::captured_pick_or_hover(self.pointer_picking.active, || {
-            self.request_pointer_hover()
-        })
-        .and_then(|pick| self.filter_pointer_pick(pick, super::SHOVEL_RAY_QUERY_DISTANCE))
-        .map(|center| TerrainEditHover {
-            center,
-            is_editable: self.terrain_edit_preview_position_is_editable(center),
-        })
+        match super::terrain_picking::captured_pick_or_hover(self.pointer_picking.active, || {
+            self.observe_pointer_hover()
+        }) {
+            HoverObservation::Pending => TerrainEditHoverObservation::Pending,
+            HoverObservation::Unavailable => TerrainEditHoverObservation::Unavailable,
+            HoverObservation::Resolved(pick) => {
+                match self.filter_pointer_pick(pick, super::SHOVEL_RAY_QUERY_DISTANCE) {
+                    Some(center) => TerrainEditHoverObservation::Hit(TerrainEditHover {
+                        center,
+                        is_editable: self.terrain_edit_preview_position_is_editable(center),
+                    }),
+                    None => TerrainEditHoverObservation::Miss,
+                }
+            }
+        }
     }
 
     fn terrain_edit_preview_position_is_editable(&self, center: Vec3) -> bool {

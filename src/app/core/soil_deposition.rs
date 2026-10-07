@@ -28,7 +28,8 @@ impl App {
         if !self.terrain_edit_pointer_available()
             || self.player_tools.selected_tool() != PlayerTool::Soil
         {
-            self.soil_bag_preview.allow_flow = false;
+            self.soil_bag_preview
+                .observe_target(input::TerrainEditHoverObservation::Unavailable, now);
             self.player_tools.interrupt_stroke(action);
             self.stop_terrain_edit_loop_sound();
             return;
@@ -37,7 +38,12 @@ impl App {
             return;
         }
         // A missing/rejected surface must break the path and budget; never catch up across air.
-        let center = match self.terrain_edit_hover() {
+        let observation = self.terrain_edit_hover_observation();
+        // This is the captured, current resolved edit ray. Renew only the bag's
+        // presentation anchor before publication invalidates hover; never use
+        // that anchor in the deposition path or budget below.
+        self.soil_bag_preview.observe_target(observation, now);
+        let center = match observation.hit() {
             Some(hit) if hit.is_editable => hit.center,
             _ => {
                 self.soil_bag_preview.allow_flow = false;

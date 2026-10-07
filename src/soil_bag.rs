@@ -48,13 +48,13 @@ impl Instance {
         let to_camera = camera - target;
         let yaw = to_camera.x.atan2(to_camera.z);
         let rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_z(state.angle);
-        let scale = 0.10;
+        let scale = 0.05;
         // Keep the actual mouth above the cursor while pouring. The common view
         // quantizer pivots on this mouth, so the rendered lip and emitter agree.
         let position = if pouring {
-            target + Vec3::Y * 0.14 - rotation * Vec3::from(state.mouth) * scale
+            target + Vec3::Y * (scale * 1.4) - rotation * Vec3::from(state.mouth) * scale
         } else {
-            target + Vec3::Y * 0.15
+            target + Vec3::Y * (scale * 1.5)
         };
         Self {
             position,
@@ -173,6 +173,21 @@ mod tests {
     }
 
     #[test]
+    fn soil_bag_world_instance_uses_half_sized_body_and_proportional_surface_clearance() {
+        let target = Vec3::new(0.4, 0.8, 1.2);
+        let camera = Vec3::new(0.4, 1.2, 2.2);
+        let hover = Instance::over_surface(target, camera, false);
+        let pour = Instance::over_surface(target, camera, true);
+        assert_eq!(
+            hover.scale, 0.05,
+            "bag must be half its former 0.10 world scale"
+        );
+        assert_eq!(pour.scale, hover.scale);
+        assert!((hover.position.y - target.y - 0.075).abs() < 1e-6);
+        assert!((pour.mouth() - target - Vec3::Y * 0.07).length() < 1e-6);
+    }
+
+    #[test]
     fn soil_bag_instance_keeps_pour_mouth_on_target_without_animation_or_view_dependent_drift() {
         let target = Vec3::new(1., 0.6, 2.);
         for camera in [
@@ -182,7 +197,7 @@ mod tests {
         ] {
             let hover = Instance::over_surface(target, camera, false);
             let pour = Instance::over_surface(target, camera, true);
-            assert!((pour.mouth() - (target + Vec3::Y * 0.14)).length() < 1e-6);
+            assert!((pour.mouth() - (target + Vec3::Y * (pour.scale * 1.4))).length() < 1e-6);
             assert!((pour.rotation * Vec3::Y).y < -0.7);
             assert!((hover.rotation * Vec3::Y).y > 0.999);
         }

@@ -2630,9 +2630,11 @@ impl App {
                 let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
-                let terrain_edit_hover =
-                    cpu_timings.time(FrameCpuScope::TerrainHover, || self.terrain_edit_hover());
-                self.update_soil_bag_instance(terrain_edit_hover);
+                let hover_observation = cpu_timings.time(FrameCpuScope::TerrainHover, || {
+                    self.terrain_edit_hover_observation()
+                });
+                let terrain_edit_hover = hover_observation.hit();
+                self.update_soil_bag_instance(hover_observation);
                 let show_tree_preview = self.is_tree_planting_selected();
                 if show_tree_preview {
                     if let Some(hover) = terrain_edit_hover {

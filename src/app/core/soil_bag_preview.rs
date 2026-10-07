@@ -1,7 +1,11 @@
 //! Soil tool presentation only. The bag and bounded ballistic grains never edit
 //! terrain, fertilize it, own inventory, or participate in the deposition clock.
 use super::*;
-use super::{input::TerrainEditHover, player_tools::ContinuousTerrainToolAction};
+use super::{
+    input::{TerrainEditHover, TerrainEditHoverObservation},
+    player_tools::ContinuousTerrainToolAction,
+    terrain_picking::MAX_PICK_AGE,
+};
 use crate::{
     particles::{ParticleRenderKind, ParticleSnapshot},
     soil_bag::Instance,
@@ -20,6 +24,8 @@ struct Grain {
 #[derive(Default)]
 pub(super) struct State {
     instance: Option<Instance>,
+    // A presentation lease, never a source of terrain occupancy or edit hits.
+    target: Option<(TerrainEditHover, Instant)>,
     pub allow_flow: bool,
     pub review: Option<super::soil_bag_review::Review>,
     grains: Vec<Grain>,
@@ -35,6 +41,41 @@ impl State {
     }
     pub fn current_instance(&self) -> Option<Instance> {
         self.instance
+    }
+    pub fn observe_target(&mut self, observation: TerrainEditHoverObservation, now: Instant) {
+        match observation {
+            TerrainEditHoverObservation::Hit(hit) => self.target = Some((hit, now)),
+            TerrainEditHoverObservation::Pending => {
+                if self.target.is_some_and(|(_, confirmed)| {
+                    now.saturating_duration_since(confirmed) <= MAX_PICK_AGE
+                }) {
+                    return;
+                }
+                self.target = None;
+            }
+            TerrainEditHoverObservation::Miss | TerrainEditHoverObservation::Unavailable => {
+                self.target = None
+            }
+        }
+        if self.target.is_none() {
+            self.instance = None;
+            self.allow_flow = false;
+        }
+    }
+    fn update_instance(
+        &mut self,
+        observation: TerrainEditHoverObservation,
+        camera: Vec3,
+        pouring: bool,
+        now: Instant,
+    ) {
+        self.observe_target(observation, now);
+        self.instance = self
+            .target
+            .map(|(hit, _)| Instance::over_surface(hit.center, camera, pouring));
+        if !pouring || self.target.is_none_or(|(hit, _)| !hit.is_editable) {
+            self.allow_flow = false;
+        }
     }
     pub fn note_added(&mut self, added: u32) {
         self.allow_flow = true;
@@ -97,25 +138,26 @@ impl State {
     }
 }
 impl App {
-    pub(super) fn update_soil_bag_instance(&mut self, hover: Option<TerrainEditHover>) {
+    pub(super) fn update_soil_bag_instance(&mut self, observation: TerrainEditHoverObservation) {
         let pouring = self.player_tools.active_continuous_action()
             == Some(ContinuousTerrainToolAction::SoilDeposit);
-        let instance = hover
-            .filter(|_| self.player_tools.selected_tool() == PlayerTool::Soil)
-            .map(|hit| {
-                Instance::over_surface(hit.center, self.tracer.camera_pose().position, pouring)
-            });
-        // A fresh asynchronous hover may be temporarily absent after terrain
-        // publication. Hide/suspend the cue without forgetting the last accepted
-        // dose; a resolved miss/rejection still stops flow in try_soil_deposition.
-        if !pouring
-            || self.player_tools.selected_tool() != PlayerTool::Soil
-            || !self.terrain_edit_pointer_available()
-            || hover.is_some_and(|hit| !hit.is_editable)
+        let observation = if self.player_tools.selected_tool() == PlayerTool::Soil
+            && self.terrain_edit_pointer_available()
         {
-            self.soil_bag_preview.allow_flow = false;
+            observation
+        } else {
+            TerrainEditHoverObservation::Unavailable
+        };
+        self.soil_bag_preview.update_instance(
+            observation,
+            self.tracer.camera_pose().position,
+            pouring,
+            Instant::now(),
+        );
+        let instance = self.soil_bag_preview.current_instance();
+        if let Some(review) = &mut self.soil_bag_preview.review {
+            review.observe_instance(instance);
         }
-        self.soil_bag_preview.instance = instance;
         if let (Some(review), Some(pose)) = (&mut self.soil_bag_preview.review, instance) {
             review.hover_seen |= !pose.pouring;
             review.pour_seen |= pose.pouring;
@@ -149,6 +191,107 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn soil_bag_pending_gpu_work_keeps_only_the_world_instance_not_an_edit_hit() {
+        let now = Instant::now();
+        let camera = Vec3::new(0., 1., 2.);
+        let hit = TerrainEditHover {
+            center: Vec3::ZERO,
+            is_editable: true,
+        };
+        let mut state = State::default();
+        state.update_instance(TerrainEditHoverObservation::Hit(hit), camera, true, now);
+        state.note_added(512);
+        let before = state.current_instance().unwrap();
+        let pending = TerrainEditHoverObservation::Pending;
+        assert!(
+            pending.hit().is_none(),
+            "awaiting hover must never produce an authoritative edit target"
+        );
+        state.update_instance(pending, camera, true, now + Duration::from_millis(50));
+        assert_eq!(
+            state.current_instance(),
+            Some(before),
+            "terrain publication must not delete/recreate the held world bag"
+        );
+        assert!(state.allow_flow);
+        state.advance(0.05, |_, _| false);
+        assert_eq!(state.grains.len(), 4);
+    }
+    #[test]
+    fn soil_bag_confirmed_misses_permission_loss_and_timeouts_end_the_presentation_lease() {
+        let now = Instant::now();
+        let hit = TerrainEditHoverObservation::Hit(TerrainEditHover {
+            center: Vec3::ZERO,
+            is_editable: true,
+        });
+        for stop in [
+            TerrainEditHoverObservation::Miss,
+            TerrainEditHoverObservation::Unavailable,
+        ] {
+            let mut state = State::default();
+            state.update_instance(hit, Vec3::Z, true, now);
+            state.note_added(512);
+            state.update_instance(stop, Vec3::Z, true, now + Duration::from_millis(1));
+            assert!(state.current_instance().is_none());
+            assert!(!state.allow_flow);
+        }
+        let mut state = State::default();
+        state.update_instance(hit, Vec3::Z, true, now);
+        state.note_added(512);
+        state.update_instance(
+            TerrainEditHoverObservation::Pending,
+            Vec3::Z,
+            true,
+            now + MAX_PICK_AGE,
+        );
+        assert!(state.current_instance().is_some());
+        state.update_instance(
+            TerrainEditHoverObservation::Pending,
+            Vec3::Z,
+            true,
+            now + MAX_PICK_AGE + Duration::from_nanos(1),
+        );
+        assert!(state.current_instance().is_none());
+        assert!(!state.allow_flow);
+    }
+    #[test]
+    fn soil_bag_resolved_soil_ray_renews_the_anchor_while_hover_waits_and_release_stops_grains() {
+        let now = Instant::now();
+        let mut state = State::default();
+        let first = TerrainEditHover {
+            center: Vec3::ZERO,
+            is_editable: true,
+        };
+        state.update_instance(TerrainEditHoverObservation::Hit(first), Vec3::Z, true, now);
+        let higher = TerrainEditHover {
+            center: Vec3::Y * 0.1,
+            ..first
+        };
+        state.observe_target(TerrainEditHoverObservation::Hit(higher), now + MAX_PICK_AGE);
+        state.note_added(512);
+        state.update_instance(
+            TerrainEditHoverObservation::Pending,
+            Vec3::Z,
+            true,
+            now + MAX_PICK_AGE + Duration::from_millis(20),
+        );
+        let pouring = state.current_instance().unwrap();
+        assert!(
+            (pouring.mouth() - higher.center - Vec3::Y * (pouring.scale * 1.4)).length() < 1e-6
+        );
+        state.update_instance(
+            TerrainEditHoverObservation::Pending,
+            Vec3::Z,
+            false,
+            now + MAX_PICK_AGE + Duration::from_millis(21),
+        );
+        assert!(!state.current_instance().unwrap().pouring);
+        assert!(!state.allow_flow);
+        state.advance(0.05, |_, _| false);
+        assert!(state.grains.is_empty());
+    }
+
     #[test]
     fn soil_bag_grains_are_bounded_ballistic_fx_and_only_emit_after_successful_writes() {
         let pose = Instance::over_surface(Vec3::ZERO, Vec3::new(0., 1., 2.), true);

@@ -3,7 +3,7 @@ use super::{player_tools::ContinuousTerrainToolAction, App, PlayerTool, PlayerTo
 use crate::tracer::{PickAnswer, PickPurpose, PickTicket, SurfacePickHit, TerrainRayQuery};
 use std::time::{Duration, Instant};
 
-const MAX_PICK_AGE: Duration = Duration::from_millis(250);
+pub(super) const MAX_PICK_AGE: Duration = Duration::from_millis(250);
 struct Pending {
     ticket: PickTicket,
     action: PlayerToolPointerAction,
@@ -18,6 +18,23 @@ struct Pending {
 pub(super) struct Resolved {
     pub ray: TerrainRayQuery,
     pub hit: Option<SurfacePickHit>,
+}
+/// Pending GPU work is not a confirmed miss. Gameplay still accepts only a
+/// current resolved answer; presentation may retain its existing world entity.
+#[derive(Clone, Copy)]
+pub(super) enum HoverObservation {
+    Pending,
+    Unavailable,
+    Resolved(Resolved),
+}
+#[cfg(test)]
+impl HoverObservation {
+    pub fn resolved(self) -> Option<Resolved> {
+        match self {
+            Self::Resolved(pick) => Some(pick),
+            _ => None,
+        }
+    }
 }
 #[derive(Default)]
 pub(super) struct PointerPicking {
@@ -41,9 +58,9 @@ fn hold_matches(
 /// completed hover ray while applying its captured pointer intent.
 pub(super) fn captured_pick_or_hover(
     active: Option<Resolved>,
-    hover: impl FnOnce() -> Option<Resolved>,
-) -> Option<Resolved> {
-    active.or_else(hover)
+    hover: impl FnOnce() -> HoverObservation,
+) -> HoverObservation {
+    active.map(HoverObservation::Resolved).unwrap_or_else(hover)
 }
 fn continuous_pick_interval(
     action: ContinuousTerrainToolAction,
@@ -220,8 +237,10 @@ impl App {
         }
         Resolved { ray, hit }
     }
-    pub(super) fn request_pointer_hover(&mut self) -> Option<Resolved> {
-        let (origin, direction) = self.terrain_edit_ray()?;
+    pub(super) fn observe_pointer_hover(&mut self) -> HoverObservation {
+        let Some((origin, direction)) = self.terrain_edit_ray() else {
+            return HoverObservation::Unavailable;
+        };
         let ray = TerrainRayQuery { origin, direction };
         // Queued motion is latest-wins. Accept the newest *completed* answer,
         // not only the latest requested ticket (which could starve a busy GPU).
@@ -230,15 +249,17 @@ impl App {
             self.visible_terrain_revision,
             PickPurpose::Hover,
         );
-        let (answer, completed) = self.pointer_picking.hover.as_ref()?;
+        let Some((answer, completed)) = self.pointer_picking.hover.as_ref() else {
+            return HoverObservation::Pending;
+        };
         if completed.elapsed() > MAX_PICK_AGE
             || !self
                 .tracer
                 .pick_answer_is_current(answer, self.visible_terrain_revision)
         {
-            return None;
+            return HoverObservation::Pending;
         }
-        Some(self.resolve_pointer_pick(answer.ray, answer.hit))
+        HoverObservation::Resolved(self.resolve_pointer_pick(answer.ray, answer.hit))
     }
 }
 
@@ -273,10 +294,13 @@ mod tests {
         let resolved = captured_pick_or_hover(Some(captured), || {
             panic!("captured miss must not read hover")
         })
+        .resolved()
         .unwrap();
         assert_eq!(resolved.ray.origin, captured.ray.origin);
         assert!(resolved.hit.is_none());
-        let resolved = captured_pick_or_hover(None, || Some(captured)).unwrap();
+        let resolved = captured_pick_or_hover(None, || HoverObservation::Resolved(captured))
+            .resolved()
+            .unwrap();
         assert_eq!(resolved.ray.origin, captured.ray.origin);
     }
 

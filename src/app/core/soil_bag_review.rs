@@ -17,6 +17,8 @@ pub(super) struct Review {
     pub contacts: usize,
     shadow_pixels: Option<usize>,
     removed_shadow_pixels: Option<usize>,
+    holding_frames: usize,
+    missing_holding_frames: usize,
     done: bool,
 }
 impl Review {
@@ -25,8 +27,11 @@ impl Review {
             return Ok(None);
         };
         ensure!(
-            matches!(mode.as_str(), "hover" | "pour" | "cycle" | "world"),
-            "RE_FLORA_SOIL_BAG_REVIEW must be hover, pour, cycle or world"
+            matches!(
+                mode.as_str(),
+                "hover" | "pour" | "cycle" | "world" | "stability"
+            ),
+            "RE_FLORA_SOIL_BAG_REVIEW must be hover, pour, cycle, world or stability"
         );
         Ok(Some(Self {
             mode,
@@ -40,8 +45,16 @@ impl Review {
             contacts: 0,
             shadow_pixels: None,
             removed_shadow_pixels: None,
+            holding_frames: 0,
+            missing_holding_frames: 0,
             done: false,
         }))
+    }
+    pub fn observe_instance(&mut self, instance: Option<crate::soil_bag::Instance>) {
+        if self.mode == "stability" && (13..=50).contains(&self.frame) {
+            self.holding_frames += 1;
+            self.missing_holding_frames += usize::from(instance.is_none_or(|pose| !pose.pouring));
+        }
     }
 }
 impl App {
@@ -119,7 +132,7 @@ impl App {
                     review.removed_shadow_pixels = Some(pixels);
                 }
             }
-            if matches!(review.mode.as_str(), "pour" | "cycle") {
+            if matches!(review.mode.as_str(), "pour" | "cycle" | "stability") {
                 if review.frame == 10 {
                     self.set_tool_mouse_button_state(MouseButton::Left, ElementState::Pressed);
                     ensure!(
@@ -160,7 +173,7 @@ impl App {
                     "visual grains changed real stock"
                 );
                 ensure!(review.hover_seen, "review must render hover pose");
-                if matches!(review.mode.as_str(), "pour" | "cycle") {
+                if matches!(review.mode.as_str(), "pour" | "cycle" | "stability") {
                     ensure!(
                         review.pour_seen
                             && review.added > 0
@@ -176,6 +189,15 @@ impl App {
                     ensure!(
                         review.added == 0 && review.peak_grains == 0,
                         "hover cannot emit material or particles"
+                    );
+                }
+                if review.mode == "stability" {
+                    log::info!("[SOIL_BAG_REVIEW][STABILITY] holding_frames={} missing_frames={} added={} no_flicker={}", review.holding_frames, review.missing_holding_frames, review.added, review.missing_holding_frames == 0);
+                    ensure!(
+                        review.holding_frames == 38 && review.missing_holding_frames == 0,
+                        "holding Soil bag flickered: {} of {} frames missing",
+                        review.missing_holding_frames,
+                        review.holding_frames
                     );
                 }
                 if review.mode == "world" {
