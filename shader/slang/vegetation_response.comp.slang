@@ -19,8 +19,12 @@ void main(uint3 tid : SV_DispatchThreadID)
     if (tid.x >= pc.count) return;
     VegetationResponseInput input = response_inputs.data[tid.x];
     VegetationResponseState state = (VegetationResponseState)0;
-    if (input.identity.x != 0xffffffffu)
-        state = response_previous.data[input.identity.x];
+    uint previousIndex = input.identity.x;
+    if (tid.x >= pc.leaf_first)
+        previousIndex = (pc.leaf_flags & 2u) != 0u ? 0xffffffffu :
+            ((pc.leaf_flags & 1u) != 0u ? input.identity.x : tid.x);
+    if (previousIndex != 0xffffffffu)
+        state = response_previous.data[previousIndex];
 
     float time = pc.start_time;
     float tick = max(pc.tick_seconds, 1.0 / 240.0);
@@ -51,7 +55,7 @@ void main(uint3 tid : SV_DispatchThreadID)
             float4 frequency = pc.grass_frequency;
             frequency.xy *= input.root.w > 0.0 ? clamp(input.root.w, 0.1, 1.0) : 1.0;
             advanceGrassSway(state.torsion, state.flutter_phase, state.flutter_cells,
-                force, dt, input.identity.z, pc.grass_amplitude, frequency, pc.grass_curve);
+                force, dt, input.identity.z, pc.grass_amplitude, frequency, float4(pc.grass_curve, 0.0, 0.0));
         }
         time = end;
         if (time >= boundary - 0.000001)

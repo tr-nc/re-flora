@@ -1,5 +1,4 @@
 import tree_scene;
-import leaf_lifecycle;
 import flora_types;
 import flora_lighting_cache;
 import flora_vertex;
@@ -63,9 +62,8 @@ VertexOutput main(VertexInput input)
         INSTANCE_GROWTH_PROGRESS_MATURE, 1.0, 1.0,
         INSTANCE_SPAWN_INACTIVE, input.instance_index);
 
-    float growth = treeLeafGrowth(input.instance_index);
     VertexOutput output;
-    if (prepared.should_trim || growth <= 0.0)
+    if (prepared.should_trim)
     {
         output.position = float4(2.0, 2.0, 2.0, 1.0);
         output.color = float3(0.0);
@@ -73,7 +71,6 @@ VertexOutput main(VertexInput input)
     }
 
     float3 vertexPosition = floraBillboardVertexPosition(prepared.voxel_position,vertexOffset);
-    if (growth < 1.0) vertexPosition = lerp(prepared.voxel_position, vertexPosition, growth);
     output.position = projectFloraPosition(vertexPosition);
     float3 baseColor = sampleFloraBaseColor(
         prepared.is_grass, instanceType, seed, leafVoxelLocalPosition,

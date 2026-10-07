@@ -358,13 +358,6 @@ impl PipelineBuilder {
         )
         .unwrap();
 
-        let leaf_handoff_sm = ShaderModule::from_precompiled(
-            vulkan_ctx.device(),
-            "shader/foliage/leaf_handoff.comp",
-            "main",
-        )
-        .unwrap();
-
         let flora_frag_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/flora.frag",
@@ -696,7 +689,6 @@ impl PipelineBuilder {
             terrain_query_sm,
             wind_volume_sm,
             vegetation_response_sm,
-            leaf_handoff_sm,
             flora_frag_sm,
             flora_lighting_cache_sm,
             tree_leaf_lighting_cache_sm,
@@ -936,21 +928,6 @@ impl PipelineBuilder {
                 ],
             })
             .expect("tree-leaf lighting cache static descriptors must resolve");
-        let leaf_handoff_ppl =
-            ComputePipeline::new_uninitialized(device, &shader_modules.leaf_handoff_sm, pool);
-        leaf_handoff_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &[
-                    resources,
-                    contree_builder_resources,
-                    scene_accel_resources,
-                    plain_builder_resources,
-                    ddgi_volume,
-                    ddgi_voxel_visibility,
-                ],
-            })
-            .expect("leaf handoff static descriptors must resolve");
         let tracer_ppl = ComputePipeline::new(
             device,
             &shader_modules.tracer_sm,
@@ -1135,7 +1112,6 @@ impl PipelineBuilder {
             terrain_query_ppl,
             wind_volume_ppl,
             vegetation_response_ppl,
-            leaf_handoff_ppl,
             post_processing_ppl,
             stone_contree_preview_ppl,
         }
@@ -2061,7 +2037,94 @@ impl DdgiConsumerPipeline<'_> {
     }
 }
 
+pub(super) struct PreparedTreeResourceDescriptors {
+    pipelines: Vec<PreparedTreePipelineDescriptors>,
+}
+
+enum PreparedTreePipelineDescriptors {
+    Compute(ComputePipeline, PreparedDescriptorGeneration),
+    Graphics(GraphicsPipeline, PreparedDescriptorGeneration),
+}
+
+fn tree_resource_writes<'a>(
+    names: impl Iterator<Item = &'a str>,
+    resources: &'a super::tree_surface_resources::TreeSurfaceResources,
+) -> Result<Vec<DescriptorWrite<'a>>> {
+    let mut writes = Vec::new();
+    for name in names {
+        match resources.resolve_resource(name) {
+            ResourceLookup::Unique(resource) => writes.push(DescriptorWrite { name, resource }),
+            ResourceLookup::Missing => {}
+            ResourceLookup::Ambiguous { .. } => anyhow::bail!("ambiguous tree resource {name}"),
+        }
+    }
+    Ok(writes)
+}
+
 impl PipelineTopology {
+    /// Inspect every pipeline's reflection. Registering a new pipeline field also
+    /// registers it here; there is no hand-maintained list of tree consumers.
+    pub(super) fn prepare_tree_resource_descriptors(
+        &self,
+        resources: &super::tree_surface_resources::TreeSurfaceResources,
+    ) -> Result<PreparedTreeResourceDescriptors> {
+        let mut pipelines = Vec::new();
+        for pipeline in self.compute.all() {
+            let writes = tree_resource_writes(pipeline.descriptor_resource_names(), resources)?;
+            if !writes.is_empty() {
+                let prepared = pipeline.prepare_descriptors(DescriptorUpdate::Named(&writes))?;
+                pipeline.validate_prepared_descriptors(&prepared)?;
+                pipelines.push(PreparedTreePipelineDescriptors::Compute(
+                    pipeline.clone(),
+                    prepared,
+                ));
+            }
+        }
+        for pipeline in self.graphics.all() {
+            let writes = tree_resource_writes(pipeline.descriptor_resource_names(), resources)?;
+            if !writes.is_empty() {
+                let prepared = pipeline.prepare_descriptors(DescriptorUpdate::Named(&writes))?;
+                pipeline.validate_prepared_descriptors(&prepared)?;
+                pipelines.push(PreparedTreePipelineDescriptors::Graphics(
+                    pipeline.clone(),
+                    prepared,
+                ));
+            }
+        }
+        Ok(PreparedTreeResourceDescriptors { pipelines })
+    }
+
+    pub(super) fn publish_tree_resource_descriptors(
+        &self,
+        prepared: PreparedTreeResourceDescriptors,
+        generation: u64,
+    ) {
+        log::info!(
+            "[TREE][DESCRIPTORS] pipelines={} generation={generation}",
+            prepared.pipelines.len()
+        );
+        for pipeline in prepared.pipelines {
+            let retired = match pipeline {
+                PreparedTreePipelineDescriptors::Compute(pipeline, descriptors) => pipeline
+                    .publish_prepared_descriptors(
+                        "tree.surface.descriptors",
+                        generation,
+                        descriptors,
+                    ),
+                PreparedTreePipelineDescriptors::Graphics(pipeline, descriptors) => pipeline
+                    .publish_prepared_descriptors(
+                        "tree.surface.descriptors",
+                        generation,
+                        descriptors,
+                    ),
+            };
+            // Tree preparation quiesced all previous GPU readers. Drop old descriptor
+            // generations now instead of retaining every intermediate forest during
+            // a same-frame batch of deletions; command-buffer leases remain authoritative.
+            drop(retired);
+        }
+    }
+
     pub fn compute(&self) -> &ComputePipelines {
         &self.compute
     }
@@ -2266,14 +2329,6 @@ impl PipelineTopology {
             );
         }
 
-        retire_compute(
-            &self.compute.leaf_handoff_ppl,
-            DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &all_resources,
-            },
-            "model tile extent descriptor update failed",
-        );
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -2878,7 +2933,6 @@ pub struct ShaderModules {
     pub terrain_query_sm: ShaderModule,
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
-    pub leaf_handoff_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
     pub tree_leaf_lighting_cache_sm: ShaderModule,
@@ -2927,49 +2981,65 @@ pub struct ShaderModules {
     pub glass_frag_sm: ShaderModule,
 }
 
-pub struct ComputePipelines {
-    pub stone_contree_preview_ppl: ComputePipeline,
-    pub ddgi_global_sky_filter_ppl: ComputePipeline,
-    pub ddgi_octahedral_gutter_ppl: ComputePipeline,
-    pub ddgi_probe_relocate_ppl: ComputePipeline,
-    pub ddgi_probe_trace_ppl: ComputePipeline,
-    pub local_light_visibility_diagnostic_ppl: ComputePipeline,
-    pub ddgi_response_sample_ppl: ComputePipeline,
-    pub ddgi_irradiance_filter_ppl: ComputePipeline,
-    pub ddgi_visibility_filter_ppl: ComputePipeline,
-    pub ddgi_irradiance_gutter_ppl: ComputePipeline,
-    pub ddgi_visibility_gutter_ppl: ComputePipeline,
-    pub ddgi_atlas_reduce_ppl: ComputePipeline,
-    pub ddgi_voxel_visibility_pack_ppl: ComputePipeline,
-    pub ddgi_voxel_visibility_blocks_ppl: ComputePipeline,
-    pub raster_tree_lighting_ppl: ComputePipeline,
-    pub tree_skin_ppl: ComputePipeline,
-    pub tree_refit_ppl: ComputePipeline,
-    pub flora_lighting_cache_ppl: ComputePipeline,
-    pub flora_lighting_band_cache_ppl: ComputePipeline,
-    pub flower_stem_bands_ppl: ComputePipeline,
-    pub tree_leaf_lighting_cache_ppl: ComputePipeline,
-    pub tracer_ppl: ComputePipeline,
-    pub tracer_shadow_ppl: ComputePipeline,
-    pub shadow_depth_copy_ppl: ComputePipeline,
-    pub leaf_shadow_temporal_ppl: ComputePipeline,
-    pub leaf_shadow_mask_ppl: ComputePipeline,
-    pub vsm_creation_ppl: ComputePipeline,
-    pub vsm_blur_h_ppl: ComputePipeline,
-    pub vsm_blur_v_ppl: ComputePipeline,
-    pub god_ray_ppl: ComputePipeline,
-    pub god_ray_temporal_ppl: ComputePipeline,
-    pub lens_flare_ppl: ComputePipeline,
-    pub lens_flare_temporal_ppl: ComputePipeline,
-    pub lens_flare_sun_visible_ppl: ComputePipeline,
-    pub composition_ppl: ComputePipeline,
-    pub glass_resolve_ppl: Option<ComputePipeline>,
-    pub player_collider_ppl: ComputePipeline,
-    pub terrain_query_ppl: ComputePipeline,
-    pub wind_volume_ppl: ComputePipeline,
-    pub vegetation_response_ppl: ComputePipeline,
-    pub leaf_handoff_ppl: ComputePipeline,
-    pub post_processing_ppl: ComputePipeline,
+macro_rules! pipeline_collection {
+    ($name:ident, $kind:ty; required: [$($field:ident),+]; optional: [$($optional:ident),*]) => {
+        pub struct $name {
+            $(pub $field: $kind,)+
+            $(pub $optional: Option<$kind>,)*
+        }
+        impl $name {
+            fn all(&self) -> impl Iterator<Item = &$kind> {
+                [$(&self.$field,)+].into_iter()$(.chain(self.$optional.iter()))*
+            }
+        }
+    };
+}
+
+pipeline_collection! {
+    ComputePipelines, ComputePipeline;
+    required: [
+        stone_contree_preview_ppl,
+        ddgi_global_sky_filter_ppl,
+        ddgi_octahedral_gutter_ppl,
+        ddgi_probe_relocate_ppl,
+        ddgi_probe_trace_ppl,
+        local_light_visibility_diagnostic_ppl,
+        ddgi_response_sample_ppl,
+        ddgi_irradiance_filter_ppl,
+        ddgi_visibility_filter_ppl,
+        ddgi_irradiance_gutter_ppl,
+        ddgi_visibility_gutter_ppl,
+        ddgi_atlas_reduce_ppl,
+        ddgi_voxel_visibility_pack_ppl,
+        ddgi_voxel_visibility_blocks_ppl,
+        raster_tree_lighting_ppl,
+        tree_skin_ppl,
+        tree_refit_ppl,
+        flora_lighting_cache_ppl,
+        flora_lighting_band_cache_ppl,
+        flower_stem_bands_ppl,
+        tree_leaf_lighting_cache_ppl,
+        tracer_ppl,
+        tracer_shadow_ppl,
+        shadow_depth_copy_ppl,
+        leaf_shadow_temporal_ppl,
+        leaf_shadow_mask_ppl,
+        vsm_creation_ppl,
+        vsm_blur_h_ppl,
+        vsm_blur_v_ppl,
+        god_ray_ppl,
+        god_ray_temporal_ppl,
+        lens_flare_ppl,
+        lens_flare_temporal_ppl,
+        lens_flare_sun_visible_ppl,
+        composition_ppl,
+        player_collider_ppl,
+        terrain_query_ppl,
+        wind_volume_ppl,
+        vegetation_response_ppl,
+        post_processing_ppl
+    ];
+    optional: [glass_resolve_ppl]
 }
 
 pub struct RenderPasses {
@@ -2978,35 +3048,39 @@ pub struct RenderPasses {
     pub render_pass_leaf_shadow_opacity: RenderPass,
 }
 
-pub struct GraphicsPipelines {
-    pub butterfly_tile_ppl: GraphicsPipeline,
-    pub terrain_depth_prefill_ppl: GraphicsPipeline,
-    pub leaves_ppl: GraphicsPipeline,
-    pub leaves_lod_ppl: GraphicsPipeline,
-    pub leaves_shadow_lod_ppl: GraphicsPipeline,
-    pub sprinkler_ppl: GraphicsPipeline,
-    pub static_scene_ppl: GraphicsPipeline,
-    pub static_scene_glass_ppl: GraphicsPipeline,
-    pub mower_ppl: GraphicsPipeline,
-    pub geometry_preview_ppl: GraphicsPipeline,
-    pub stone_preview_ppl: GraphicsPipeline,
-    pub environment_probe_visualization_depth_ppl: GraphicsPipeline,
-    pub environment_probe_visualization_overlay_ppl: GraphicsPipeline,
-    pub raster_tree_ppl: GraphicsPipeline,
-    pub raster_tree_shadow_ppl: GraphicsPipeline,
-    pub flower_pixel_ppl: GraphicsPipeline,
-    pub flower_stem_experiment_ppl: GraphicsPipeline,
-    pub grass_band_ppl: GraphicsPipeline,
-    pub grass_band_cached_ppl: GraphicsPipeline,
-    pub cpu_stem_band_ppl: GraphicsPipeline,
-    pub cpu_stem_band_shadow_ppl: GraphicsPipeline,
-    pub apple_pixel_tree_ppl: GraphicsPipeline,
-    pub apple_pixel_dynamic_ppl: GraphicsPipeline,
-    pub dynamic_fruit_ppl: GraphicsPipeline,
-    pub dynamic_fruit_shadow_ppl: GraphicsPipeline,
-    pub particle_ppl: GraphicsPipeline,
-    pub water_droplet_ppl: GraphicsPipeline,
-    pub glass_ppl: GraphicsPipeline,
+pipeline_collection! {
+    GraphicsPipelines, GraphicsPipeline;
+    required: [
+        butterfly_tile_ppl,
+        terrain_depth_prefill_ppl,
+        leaves_ppl,
+        leaves_lod_ppl,
+        leaves_shadow_lod_ppl,
+        sprinkler_ppl,
+        static_scene_ppl,
+        static_scene_glass_ppl,
+        mower_ppl,
+        geometry_preview_ppl,
+        stone_preview_ppl,
+        environment_probe_visualization_depth_ppl,
+        environment_probe_visualization_overlay_ppl,
+        raster_tree_ppl,
+        raster_tree_shadow_ppl,
+        flower_pixel_ppl,
+        flower_stem_experiment_ppl,
+        grass_band_ppl,
+        grass_band_cached_ppl,
+        cpu_stem_band_ppl,
+        cpu_stem_band_shadow_ppl,
+        apple_pixel_tree_ppl,
+        apple_pixel_dynamic_ppl,
+        dynamic_fruit_ppl,
+        dynamic_fruit_shadow_ppl,
+        particle_ppl,
+        water_droplet_ppl,
+        glass_ppl
+    ];
+    optional: []
 }
 
 impl GraphicsPipelines {
@@ -3041,6 +3115,19 @@ mod topology_tests {
         allocate_generation_after_preflight, validate_ddgi_consumer_registry,
         validate_prepared_ddgi_consumer_keys, PipelineKey,
     };
+
+    #[test]
+    fn pipeline_collection_visits_required_and_optional_pipelines() {
+        pipeline_collection! { TestPipelines, u32; required: [first, second]; optional: [extra] }
+        let mut collection = TestPipelines {
+            first: 1,
+            second: 2,
+            extra: Some(3),
+        };
+        assert_eq!(collection.all().copied().collect::<Vec<_>>(), [1, 2, 3]);
+        collection.extra = None;
+        assert_eq!(collection.all().copied().collect::<Vec<_>>(), [1, 2]);
+    }
 
     #[test]
     fn ddgi_consumer_registry_is_complete_and_unique() {

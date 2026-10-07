@@ -49,8 +49,8 @@ After launch:
 
 1. Use **WASD** or the arrow keys and the mouse to look around the garden.
 2. Press **G** to switch between the orbit editing camera and free-look movement.
-3. Press **2** to select Grow, use **Tab** to choose a plant, then hold the left mouse button over
-   soil.
+3. Press **1** to select Grow. Choose **Type → Flora** and a variety, then hold the left mouse
+   button over soil. Choose **Type → Tree** to plant a tree with one click.
 4. Press **6** to select Water and hold the left mouse button over the planted area.
 5. Press **Esc** whenever you want to leave.
 

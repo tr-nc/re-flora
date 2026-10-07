@@ -62,7 +62,24 @@ pub struct AcquiredFrame {
     frame_extent_generation: FrameExtentGeneration,
 }
 
+/// Read-only completion probe for frame-owned readback. It cannot reset a fence
+/// or submit work. Consume readback before reusing its slot, or at the acquired-
+/// slot seam (which has already waited for that slot's previous submission).
+pub struct FrameReadbackProbe {
+    fence: Fence,
+}
+impl FrameReadbackProbe {
+    pub fn is_complete(&self) -> ash::prelude::VkResult<bool> {
+        self.fence.is_signaled()
+    }
+}
+
 impl AcquiredFrame {
+    pub fn readback_probe(&self) -> FrameReadbackProbe {
+        FrameReadbackProbe {
+            fence: self.fence.clone(),
+        }
+    }
     pub fn frame_slot(&self) -> usize {
         self.frame_slot
     }

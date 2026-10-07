@@ -8,6 +8,7 @@ import tree_scene_types;
 [[vk::binding(52,0)]] StructuredBuffer<float4> tree_scene_vertices;
 [[vk::binding(53,0)]] StructuredBuffer<uint> tree_scene_cell_vertices;
 public bool treeSceneActive() { return tree_scene_info[0].x != 0u; }
+public uint3 treeScenePrimitive(uint i) { return tree_scene_primitives[i].xyz; }
 public float3 treeScenePosition(uint i) { return tree_scene_vertices[i*2u].xyz; }
 public float3 treeSceneNormal(uint i) { return tree_scene_vertices[i*2u+1u].xyz; }
 public uint treeCellVertexBase(uint slot) { return tree_scene_cell_vertices[slot]; }
@@ -34,7 +35,10 @@ bool intersectsTreeNode(TreeSceneNode node, float3 origin, float3 direction, flo
     }
     return lo <= hi;
 }
-public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
+public MarchingResult traceTreeSceneMapped(float3 origin, float3 direction, MarchingResult hit,
+                                         out uint primitiveId, out float2 barycentric) {
+    primitiveId = 0xffffffffu;
+    barycentric = float2(0);
     if (!treeSceneActive()) return hit;
     uint count = tree_scene_info[0].y;
     uint index = 0u;
@@ -60,11 +64,18 @@ public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingRe
                 hit.normal = normalize(treeSceneNormal(ids.x)*(1.0-u-v)+treeSceneNormal(ids.y)*u+treeSceneNormal(ids.z)*v);
                 hit.voxel_type = 5u; hit.voxel_address = 0u;
                 hit.surface_data = 0u;
+                primitiveId = node.primitive;
+                barycentric = float2(u, v);
             }
         }
         index = node.escape;
     }
     return hit;
+}
+
+public MarchingResult traceTreeScene(float3 origin, float3 direction, MarchingResult hit) {
+    uint primitive; float2 barycentric;
+    return traceTreeSceneMapped(origin, direction, hit, primitive, barycentric);
 }
 
 [[vk::binding(54,0)]] StructuredBuffer<uint4> tree_attachment_keys;

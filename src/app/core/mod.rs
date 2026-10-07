@@ -37,6 +37,7 @@ mod ordered_dither_review;
 mod rooftop_scene;
 mod scene_supersampling;
 mod snapshot_controls;
+mod terrain_picking;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -47,6 +48,7 @@ mod moisture;
 mod particles;
 mod physics;
 mod placeables;
+mod plant_catalog;
 mod planting;
 mod player_tools;
 mod raster_tree_smoke;
@@ -148,22 +150,20 @@ use re_flora_vkn::{
 use re_flora_vkn::{Swapchain, VulkanContext};
 use std::time::{Duration, Instant};
 use ui_style::{
-    apply_gui_style, draw_center_card, draw_flora_paint_panel, draw_item_panel, draw_voxel_palette,
-    FloraPaintPanelEntry, ItemPanelSlot, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME,
-    CUSTOM_GUI_FONT_PATH, GOLD_ACCENT, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
+    apply_gui_style, draw_center_card, draw_item_panel, draw_plant_panel, draw_voxel_palette,
+    ItemPanelSlot, PlantPanelEntry, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
+    GOLD_ACCENT, GROW_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
     ITEM_PANEL_STAFF_ICON_PATH, ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
-    ITEM_PANEL_TREE_ICON_FALLBACK_PATH, ITEM_PANEL_TREE_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
     SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
     SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_SLOT_INDEX, STAFF_TOOL_ACCENT,
-    TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, TREE_PLACEABLE_SLOT_INDEX, TREE_SLOT_INDEX,
-    TREE_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX,
+    TILLER_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -424,6 +424,8 @@ pub struct App {
     frame_manager: SwapchainFrameManager,
     gpu_profiler: Option<GpuProfiler>,
     gpu_profiler_latest_results: Option<GpuProfilerFrameResults>,
+    gpu_profiler_slot_frames: Vec<Option<u64>>,
+    gpu_profiler_latest_frame: Option<u64>,
     time_info: TimeInfo,
     fps_history: fps_chart::FpsHistory,
     world_clock: WorldClock,
@@ -467,12 +469,12 @@ pub struct App {
     item_panel_smooth_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
-    item_panel_tree_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
     item_panel_sprinkler_icon: Option<TextureHandle>,
     item_panel_soil_inspector_icon: Option<TextureHandle>,
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
+    pointer_picking: terrain_picking::PointerPicking,
     mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
 
@@ -832,6 +834,11 @@ impl App {
                 }
                 self.launch_owners
                     .observe_connectivity_gpu_completion(frame_slot, &results);
+                self.gpu_profiler_latest_frame = self
+                    .gpu_profiler_slot_frames
+                    .get(frame_slot)
+                    .copied()
+                    .flatten();
                 self.gpu_profiler_latest_results = Some(results);
             }
             Ok(None) => {}
@@ -841,7 +848,12 @@ impl App {
         }
     }
 
-    fn log_gpu_profiler_frame(&self, frame_count: u64) {
+    fn log_gpu_profiler_frame(&self) {
+        // Queries belong to the previous submission in this acquired frame slot,
+        // not the CPU frame that happens to collect their completed timestamps.
+        let Some(frame_count) = self.gpu_profiler_latest_frame else {
+            return;
+        };
         let Some(results) = self.gpu_profiler_latest_results.as_ref() else {
             return;
         };
@@ -1388,10 +1400,8 @@ impl App {
                     .value,
             ),
         )?;
-        let mut tree_placement_preview_desc = debug_settings
-            .tree
-            .desc
-            .at_age(debug_settings.adjustables.tree_age.value);
+        let mut tree_placement_preview_desc =
+            crate::tree_gen::TreeSpecies::GardenTree.mature_desc(&debug_settings.tree.desc);
         tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         let mut render_flags = render.flags.clone();
         if render_flags.enable_flora {
@@ -1516,6 +1526,8 @@ impl App {
             frame_manager,
             gpu_profiler,
             gpu_profiler_latest_results: None,
+            gpu_profiler_slot_frames: Vec::new(),
+            gpu_profiler_latest_frame: None,
 
             tracer,
             local_lights: LocalLightRegistry::default(),
@@ -1565,12 +1577,12 @@ impl App {
             item_panel_smooth_icon: None,
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
-            item_panel_tree_icon: None,
             item_panel_water_icon: None,
             item_panel_sprinkler_icon: None,
             item_panel_soil_inspector_icon: None,
             item_panel_tiller_icon: None,
             mower: mower::MowerRuntime::default(),
+            pointer_picking: Default::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -1676,27 +1688,37 @@ impl App {
     }
 
     fn rebuild_tree_placement_preview(&mut self) -> Result<()> {
-        let mesh = build_tree_preview_mesh(&self.tree_placement_preview_desc);
+        // Keep the placement description mature. Apply age once to the preview, just as
+        // TreePlacementService does at publication; never plant an already-aged description.
+        let mesh = build_tree_preview_mesh(
+            &self
+                .tree_placement_preview_desc
+                .at_age(self.debug_settings.adjustables.tree_age.value),
+        );
         self.tracer.upload_tree_geometry_preview(&mesh)
+    }
+
+    fn placement_tree_description(&self) -> TreeDesc {
+        let mut desc = self
+            .player_tools
+            .planting
+            .tree_species
+            .mature_desc(&self.debug_settings.tree.desc);
+        if desc.species == crate::tree_gen::TreeSpecies::Conifer {
+            desc.axis_model = self.debug_settings.tree.conifer_axis_model;
+        }
+        desc
     }
 
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
         let seed = self.tree_placement_preview_desc.branching.seed;
-        self.tree_placement_preview_desc = self
-            .debug_settings
-            .tree
-            .desc
-            .at_age(self.debug_settings.adjustables.tree_age.value);
+        self.tree_placement_preview_desc = self.placement_tree_description();
         self.tree_placement_preview_desc.branching.seed = seed;
         self.rebuild_tree_placement_preview()
     }
 
     pub(super) fn advance_tree_placement_preview(&mut self) -> Result<()> {
-        self.tree_placement_preview_desc = self
-            .debug_settings
-            .tree
-            .desc
-            .at_age(self.debug_settings.adjustables.tree_age.value);
+        self.tree_placement_preview_desc = self.placement_tree_description();
         self.tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         self.rebuild_tree_placement_preview()
     }
@@ -1836,33 +1858,6 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_hoe_icon = Some(hoe_texture);
-
-        let tree_path = if std::path::Path::new(ITEM_PANEL_TREE_ICON_PATH).exists() {
-            ITEM_PANEL_TREE_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_TREE_ICON_PATH,
-                ITEM_PANEL_TREE_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_TREE_ICON_FALLBACK_PATH
-        };
-
-        let tree_bytes = std::fs::read(tree_path)
-            .with_context(|| format!("Failed to read item panel icon from {tree_path}"))?;
-        let tree_rgba = image::load_from_memory(&tree_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {tree_path}"))?
-            .to_rgba8();
-        let tree_size = [tree_rgba.width() as usize, tree_rgba.height() as usize];
-        let tree_pixels = tree_rgba.into_raw();
-        let tree_image = ColorImage::from_rgba_unmultiplied(tree_size, &tree_pixels);
-
-        let tree_texture = self.egui_renderer.context().load_texture(
-            "item_panel_tree_plant",
-            tree_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_tree_icon = Some(tree_texture);
 
         let water_path = if std::path::Path::new(ITEM_PANEL_WATER_ICON_PATH).exists() {
             ITEM_PANEL_WATER_ICON_PATH
@@ -2096,6 +2091,7 @@ impl App {
             &event,
             WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. }
         ) {
+            self.cancel_pointer_pick();
             self.mower.cancel_drag();
         }
         if matches!(
@@ -2139,11 +2135,11 @@ impl App {
         // Ignore keyboard-repeat presses so holding Tab changes the brush only once.
         if let WindowEvent::KeyboardInput { event, .. } = &event {
             if self.keyboard_tool_shortcuts_available()
-                && self.is_staff_selected()
+                && self.is_grow_selected()
                 && event.physical_key == KeyCode::Tab
             {
                 if event.state == ElementState::Pressed && !event.repeat {
-                    self.cycle_flora_paint_selection();
+                    self.cycle_plant_variety();
                 }
                 return;
             }
@@ -2293,7 +2289,6 @@ impl App {
                     }
 
                     let target_placeable_slot = match event.physical_key {
-                        PhysicalKey::Code(KeyCode::KeyZ) => Some(TREE_PLACEABLE_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
                         _ => None,
                     };
@@ -2327,16 +2322,8 @@ impl App {
                     match state {
                         ElementState::Pressed => {
                             let now = Instant::now();
-                            match self.player_tools.begin_pointer_action(button) {
-                                Some(PlayerToolPointerAction::Continuous(action)) => {
-                                    self.execute_continuous_terrain_tool_action(action, now);
-                                }
-                                Some(PlayerToolPointerAction::PlaceablePlacement) => {
-                                    self.stop_terrain_edit_loop_sound();
-                                    self.try_placeable_placement();
-                                }
-
-                                None => {}
+                            if let Some(action) = self.player_tools.begin_pointer_action(button) {
+                                self.queue_pointer_pick(action, now, false);
                             }
                         }
                         ElementState::Released => {
@@ -2405,16 +2392,18 @@ impl App {
                         log::error!("[LOCAL_LIGHT][VOXEL_PROVIDER] advance failed: {err:#}");
                     }
                 }
-                if let Err(err) = self
-                    .spatial_sound_manager
-                    .publish_acoustic_scene(self.contree_builder.acoustic_scene_snapshot())
-                {
-                    log::warn!("Failed to publish acoustic terrain snapshot: {err}");
-                }
-                if self.loading_state.is_none() {
-                    self.terrain_physics
-                        .process_terrain_collider_updates(&self.contree_builder);
-                }
+                cpu_timings.time(FrameCpuScope::SceneServices, || {
+                    if let Err(err) = self
+                        .spatial_sound_manager
+                        .publish_acoustic_scene(self.contree_builder.acoustic_scene_snapshot())
+                    {
+                        log::warn!("Failed to publish acoustic terrain snapshot: {err}");
+                    }
+                    if self.loading_state.is_none() {
+                        self.terrain_physics
+                            .process_terrain_collider_updates(&self.contree_builder);
+                    }
+                });
                 if self.loading_state.is_some() {
                     let water_terrain = self.advance_loading_water_terrain(frame_timing_enabled);
                     cpu_timings.add_ms(FrameCpuScope::TerrainSource, water_terrain.source_ms);
@@ -2433,6 +2422,8 @@ impl App {
                 let frame_delta_time = denoiser_timeline.frame_delta_seconds;
                 let visual_time_since_start = denoiser_timeline.visual_time_seconds;
 
+                self.poll_pointer_picks()
+                    .expect("collect asynchronous pointer picks");
                 if self.terrain_persistence.allows_world_updates()
                     && self.player_tools.continuous_hold_active()
                 {
@@ -2468,11 +2459,14 @@ impl App {
                     frame_delta_time
                 };
                 if self.terrain_persistence.allows_world_updates() {
-                    if let Err(err) = self.terrain_physics.advance_dynamic_bodies(
-                        frame_delta_time,
-                        &mut self.tracer,
-                        self.debug_settings.adjustables.apple_size_scale.value,
-                    ) {
+                    if let Err(err) = cpu_timings.time(FrameCpuScope::FruitPhysics, || {
+                        self.terrain_physics.advance_dynamic_bodies(
+                            frame_delta_time,
+                            &mut self.tracer,
+                            self.debug_settings.adjustables.apple_size_scale.value,
+                            frame_perf_enabled.then_some(self.time_info.total_frame_count()),
+                        )
+                    }) {
                         log::error!("Failed to advance dynamic bodies: {err:#}");
                     }
                 }
@@ -2500,7 +2494,10 @@ impl App {
                     .field
                     .set_extent(Vec2::new(extent.x as f32, extent.z as f32));
                 self.wind_prototype.advance(visual_time_since_start);
-                self.advance_tree_poses(frame_delta_time)
+                cpu_timings
+                    .time(FrameCpuScope::TreePoseSubmit, || {
+                        self.advance_tree_poses(frame_delta_time)
+                    })
                     .expect("tree pose update must publish finite transforms");
                 let wind = match canopy_audio_frame.wind_policy() {
                     launch_owners::CanopyAudioWindPolicy::Configured => {
@@ -2513,27 +2510,32 @@ impl App {
                         )
                     }
                 };
-                if let Err(err) = self.tree_audio_manager.update(
-                    time_since_start,
-                    &wind,
-                    self.debug_settings
-                        .adjustables
-                        .wind_audio_attack_decay
-                        .value,
-                    self.debug_settings
-                        .adjustables
-                        .wind_audio_release_decay
-                        .value,
-                ) {
+                if let Err(err) = cpu_timings.time(FrameCpuScope::CanopyAudio, || {
+                    self.tree_audio_manager.update(
+                        time_since_start,
+                        &wind,
+                        self.debug_settings
+                            .adjustables
+                            .wind_audio_attack_decay
+                            .value,
+                        self.debug_settings
+                            .adjustables
+                            .wind_audio_release_decay
+                            .value,
+                    )
+                }) {
                     log::warn!("Failed to update tree audio sources: {}", err);
                 }
-                self.update_environmental_acoustics_quality();
+                cpu_timings.time(FrameCpuScope::AcousticQuality, || {
+                    self.update_environmental_acoustics_quality()
+                });
 
                 if self.is_free_look_camera_mode() && !self.window_state.is_cursor_visible() {
                     let mouse_delta = self.camera_control.take_smoothed_free_look_mouse_delta();
                     self.tracer.handle_mouse(mouse_delta);
                 }
 
+                let conifer_axis_before_gui = self.debug_settings.tree.conifer_axis_model;
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
                 let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
@@ -2560,7 +2562,6 @@ impl App {
                 let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
-                let item_panel_tree_icon = self.item_panel_tree_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
                 let item_panel_sprinkler_icon = self.item_panel_sprinkler_icon.clone();
                 let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
@@ -2591,26 +2592,21 @@ impl App {
                         }
                     })
                     .collect();
-                let flora_paint_selection_count = species::PLAYER_FLORA_PAINT_SELECTIONS.len();
-                let current_flora_paint_selection_index = if flora_paint_selection_count == 0 {
-                    0
-                } else {
-                    self.player_tools.flora_paint_selection_index % flora_paint_selection_count
-                };
-                let flora_paint_panel_entries: Vec<FloraPaintPanelEntry> =
-                    species::PLAYER_FLORA_PAINT_SELECTIONS
-                        .iter()
-                        .copied()
-                        .enumerate()
-                        .map(|(index, selection)| FloraPaintPanelEntry {
-                            index,
-                            label: species::flora_paint_selection_label(selection),
-                            selected: index == current_flora_paint_selection_index,
-                        })
-                        .collect();
+                let plant_type = self.player_tools.planting.plant_type;
+                let selected_variety = self.player_tools.planting.variety();
+                let plant_panel_entries: Vec<PlantPanelEntry> = plant_type
+                    .varieties()
+                    .into_iter()
+                    .map(|variety| PlantPanelEntry {
+                        variety,
+                        label: variety.label(),
+                        selected: variety == selected_variety,
+                    })
+                    .collect();
                 let mut camera_snapshot_to_apply = None;
                 let mut clicked_item_panel_slot = None;
-                let mut clicked_flora_paint_selection_index = None;
+                let mut clicked_plant_variety = None;
+                let mut clicked_plant_type = None;
                 let mut clicked_rooftop_material = None;
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
@@ -2619,9 +2615,9 @@ impl App {
                 let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
-                let terrain_edit_hover = self.terrain_edit_hover();
-                let show_tree_preview = self.is_place_tool_selected()
-                    && self.current_placeable_kind() == placeables::PlaceableKind::Tree;
+                let terrain_edit_hover =
+                    cpu_timings.time(FrameCpuScope::TerrainHover, || self.terrain_edit_hover());
+                let show_tree_preview = self.is_tree_planting_selected();
                 if show_tree_preview {
                     if let Some(hover) = terrain_edit_hover {
                         let tint = if hover.is_editable {
@@ -2886,21 +2882,21 @@ impl App {
 
                         let item_panel_slots = vec![
                             ItemPanelSlot {
-                                index: HAND_SLOT_INDEX,
-                                label: "Hand",
-                                key_hint: "1",
-                                category: Some("FREE"),
-                                icon: None,
-                                accent: SAGE_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: STAFF_SLOT_INDEX,
+                                index: GROW_SLOT_INDEX,
                                 label: "Grow",
-                                key_hint: "2",
+                                key_hint: "1",
                                 category: Some("TOOLS"),
                                 icon: item_panel_staff_icon.as_ref(),
                                 accent: STAFF_TOOL_ACCENT,
+                                enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: HAND_SLOT_INDEX,
+                                label: "Hand",
+                                key_hint: "2",
+                                category: Some("FREE"),
+                                icon: None,
+                                accent: SAGE_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
@@ -2958,15 +2954,6 @@ impl App {
                                 enabled: true,
                             },
                             ItemPanelSlot {
-                                index: TREE_SLOT_INDEX,
-                                label: "Tree",
-                                key_hint: "Z",
-                                category: Some("ITEMS"),
-                                icon: item_panel_tree_icon.as_ref(),
-                                accent: TREE_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
                                 index: SPRINKLER_SLOT_INDEX,
                                 label: "Spray",
                                 key_hint: "X",
@@ -3002,19 +2989,20 @@ impl App {
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
 
-                        if self.player_tools.selected_tool() == PlayerTool::Staff {
-                            let flora_paint_panel_response = draw_flora_paint_panel(
+                        if self.player_tools.selected_tool() == PlayerTool::Grow {
+                            let flora_paint_panel_response = draw_plant_panel(
                                 ctx,
-                                &flora_paint_panel_entries,
+                                &plant_panel_entries,
+                                plant_type,
                                 self.window_state.is_cursor_visible(),
                             );
-                            clicked_flora_paint_selection_index =
-                                flora_paint_panel_response.clicked_selection_index;
+                            clicked_plant_variety = flora_paint_panel_response.clicked_variety;
+                            clicked_plant_type = flora_paint_panel_response.clicked_type;
                         }
 
                         // Grow owns the right-side plant selector. The status-only
                         // backpack must not cover its longer, scrollable catalog.
-                        let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Staff {
+                        let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Grow {
                             Default::default()
                         } else {
                             draw_voxel_palette(ctx, &voxel_palette_entries, rooftop_material.is_some() && self.window_state.is_cursor_visible())
@@ -3140,8 +3128,11 @@ impl App {
                 {
                     scene.material = material;
                 }
-                if let Some(selection_idx) = clicked_flora_paint_selection_index {
-                    self.select_flora_paint_selection_index(selection_idx);
+                if let Some(variety) = clicked_plant_variety {
+                    self.select_plant_variety(variety);
+                }
+                if let Some(plant_type) = clicked_plant_type {
+                    self.select_plant_type(plant_type);
                 }
                 if self.gui_wants_keyboard_input() {
                     self.reset_camera_movement_input();
@@ -3194,7 +3185,15 @@ impl App {
                         log::error!("Failed to refresh attached fruits after cycle scrub: {err:#}");
                     }
                 }
-                if tree_desc_changed || tree_age_changed {
+                let conifer_axis_changed =
+                    self.debug_settings.tree.conifer_axis_model != conifer_axis_before_gui;
+                if conifer_axis_changed {
+                    if let Err(err) = self.update_conifer_model_from_gui() {
+                        self.debug_settings.tree.conifer_axis_model = conifer_axis_before_gui;
+                        log::error!("Failed to switch conifer architecture: {err:#}");
+                    }
+                }
+                if tree_desc_changed || tree_age_changed || conifer_axis_changed {
                     if let Err(err) = self.sync_tree_placement_preview_from_gui() {
                         log::error!("Failed to rebuild tree geometry preview: {err}");
                     }
@@ -3292,8 +3291,9 @@ impl App {
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
                 }
-                self.sync_leaf_lifecycle_mode();
-                if let Err(error) = self.update_ambient_ecology(f64::from(time_since_start)) {
+                if let Err(error) = cpu_timings.time(FrameCpuScope::Ecology, || {
+                    self.update_ambient_ecology(f64::from(time_since_start))
+                }) {
                     log::warn!("[ECOLOGY] update failed: {error:#}");
                 }
                 if self.render_flags.enable_particles {
@@ -3315,7 +3315,10 @@ impl App {
                     return;
                 }
                 if let Err(error) = self.sync_static_raster_trees() {
-                    log::error!("[TREE][RASTER_STATIC] preparation failed; raster surface unavailable: {error:#}");
+                    // Ordinary terrain edits already committed their authoritative atlas. Do not
+                    // render/collide against a stale deformed mesh: fall back to those voxels
+                    // until a changed input or explicit invalidation permits one new attempt.
+                    log::error!("[TREE][RASTER_STATIC] preparation failed; using authoritative voxel fallback: {error:#}");
                     self.tracer.raster_trees.enabled = false;
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
@@ -3338,11 +3341,11 @@ impl App {
                     .expect("publish tree surface pose");
                 let frame_slot = frame.frame_slot();
                 self.tracer
-                    .publish_leaf_and_particle_state(
-                        &mut self.surface_builder.resources,
-                        frame_slot,
-                    )
-                    .expect("publish acquired-frame leaf and particle state");
+                    .complete_surface_pick_slot(frame_slot)
+                    .expect("completed pick readback slot");
+                self.tracer
+                    .publish_particle_state(frame_slot)
+                    .expect("publish acquired-frame particle state");
                 self.collect_gpu_profiler_frame(frame_slot);
                 self.launch_owners.record_connectivity_gpu_submission(
                     frame_slot,
@@ -3362,6 +3365,12 @@ impl App {
                 let render_record_start = frame_perf_enabled.then(Instant::now);
                 cmdbuf.begin(false);
                 if let Some(profiler) = self.gpu_profiler.as_mut() {
+                    self.gpu_profiler_slot_frames.resize(
+                        self.gpu_profiler_slot_frames.len().max(frame_slot + 1),
+                        None,
+                    );
+                    self.gpu_profiler_slot_frames[frame_slot] =
+                        Some(self.time_info.total_frame_count());
                     profiler.begin_frame(frame_slot, cmdbuf);
                 }
                 let frame_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
@@ -3470,9 +3479,7 @@ impl App {
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,
                     },
                 );
-                frame_inputs.wind.field = self
-                    .leaf_validation_wind()
-                    .unwrap_or_else(|| self.wind_prototype.field.frame());
+                frame_inputs.wind.field = self.wind_prototype.field.frame();
                 let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture
@@ -3788,6 +3795,9 @@ impl App {
                     }
                 }
 
+                self.tracer
+                    .record_frame_surface_picks(&frame, self.visible_terrain_revision)
+                    .expect("record asynchronous surface picks");
                 cmdbuf.end();
                 if let Some(start) = render_record_start {
                     cpu_timings.add_ms(
@@ -3958,7 +3968,9 @@ impl App {
                     cpu_timings.snapshot(frame_count, total_ms, egui_ms, gpu_ms);
                 self.frame_timing_snapshot = frame_timing_snapshot;
                 if frame_perf_enabled
-                    && (response_bench_time.is_some() || frame_count.is_multiple_of(30))
+                    && (response_bench_time.is_some()
+                        || self.launch_owners.tree_bench.is_some()
+                        || frame_count.is_multiple_of(30))
                 {
                     log::info!(
                         "[PERF] frame {} total {:.2}ms egui {:.2}ms gpu+present {:.2}ms",
@@ -3967,9 +3979,9 @@ impl App {
                         egui_ms,
                         gpu_ms
                     );
-                    self.log_gpu_profiler_frame(frame_count);
+                    self.log_gpu_profiler_frame();
                     log::info!(
-                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us emissive_voxel.scan={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us",
+                        "[PERF][CPU_FRAME_SCOPE] frame {} frame.cpu_total={:.0}us frame.egui={:.0}us render.path={:.0}us emissive_voxel.scan={:.0}us render.acquire={:.0}us render.record={:.0}us render.shadow_prepass_record={:.0}us render.trace_record={:.0}us render.submit_present={:.0}us frame.tracked_cpu={:.0}us frame.untracked_cpu={:.0}us app.scene_services={:.0}us app.fruit_physics={:.0}us app.tree_pose_submit={:.0}us app.canopy_audio={:.0}us app.acoustic_quality={:.0}us app.terrain_hover={:.0}us app.ecology={:.0}us",
                         frame_count,
                         total_ms * 1000.0,
                         egui_ms * 1000.0,
@@ -3982,6 +3994,13 @@ impl App {
                         frame_timing_snapshot.render_submit_present_ms * 1000.0,
                         frame_timing_snapshot.tracked_cpu_ms * 1000.0,
                         frame_timing_snapshot.untracked_cpu_ms * 1000.0,
+                        frame_timing_snapshot.scene_services_ms * 1000.0,
+                        frame_timing_snapshot.fruit_physics_ms * 1000.0,
+                        frame_timing_snapshot.tree_pose_submit_ms * 1000.0,
+                        frame_timing_snapshot.canopy_audio_ms * 1000.0,
+                        frame_timing_snapshot.acoustic_quality_ms * 1000.0,
+                        frame_timing_snapshot.terrain_hover_ms * 1000.0,
+                        frame_timing_snapshot.ecology_ms * 1000.0,
                     );
                 }
                 if frame_perf_enabled {

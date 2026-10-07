@@ -70,8 +70,9 @@ The current build has prototype controls rather than a finished tutorial. This s
 the most relevant garden interactions:
 
 1. Move through the world and find an area of exposed soil.
-2. Press **2** for Grow. Press **Tab** to cycle between available flora, then hold the left mouse
-   button over soil to plant.
+2. Press **1** for Grow. In the right panel choose **Type → Flora**, then a variety, and hold the
+   left mouse button over soil to plant. Choose **Type → Tree** and click once to plant a tree.
+   **Tab** cycles varieties within the selected Type.
 3. Press **6** for Water and hold the left mouse button over the planted area. Watch the soil and
    growth response.
 4. Press **7** for the soil inspector and hover over terrain to inspect moisture.
@@ -105,15 +106,14 @@ or player onboarding described by the canonical game direction.
 
 | Input | Tool | Primary interaction |
 | --- | --- | --- |
-| **1** | Hand | Clear the active tool |
-| **2** | Grow | Left mouse plants; right mouse removes flora; **Tab** changes flora |
+| **1** | Grow | Choose Type / variety; hold left mouse for Flora, click for Tree; right mouse removes flora in Flora mode; **Tab** changes variety |
+| **2** | Hand | Clear the active tool |
 | **3** | Dig | Left mouse removes terrain; right mouse adds terrain |
 | **4** | Smooth | Left mouse smooths terrain |
 | **5** | Trim | Left mouse trims flora |
 | **6** | Water | Left mouse waters soil |
 | **7** | Inspector | Hover to inspect local soil |
 | **8** | Till | Left mouse tills soil |
-| **Z** | Tree | Left mouse places a tree |
 | **X** | Sprinkler | Left mouse places a sprinkler |
 
 ## Problems and Feedback

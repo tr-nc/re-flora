@@ -35,7 +35,14 @@ mod raster_tree;
 mod tree_scene;
 pub(crate) mod tree_surface_cache;
 use raster_tree::RasterTreeGeometry;
-pub use raster_tree::{PosedTreeSurface, RasterTreeMesh, TREE_CELL_CAPACITY};
+pub use raster_tree::{PosedTreeSurface, RasterTreeMesh};
+mod tree_lookup;
+mod tree_publication;
+pub(crate) use tree_publication::PreparedRasterTreePublication;
+mod surface_pick;
+mod tree_surface_resources;
+mod tree_upload;
+pub(crate) use surface_pick::{PickAnswer, PickPurpose, PickTicket, SurfacePickHit};
 pub use tree_scene::TreeAttachment;
 mod apple_pixel;
 mod apple_preview;
@@ -63,7 +70,6 @@ pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
 use flora_lighting_cache::FloraLightingCache;
-mod leaf_handoff;
 mod vegetation_response;
 use vegetation_response::VegetationResponse;
 
@@ -1648,6 +1654,7 @@ pub struct Tracer {
     frame_retirement_sink: FrameRetirementSink,
     descriptor_generation: u64,
     tree_instance_generation: u64,
+    surface_picker: surface_pick::SurfacePicker,
 
     #[allow(dead_code)]
     pool: DescriptorPool,
@@ -1702,17 +1709,17 @@ impl Tracer {
         frame_slot: usize,
     ) {
         let updated_buffers = [
-            &*self.resources.tree_scene_info,
-            &*self.resources.tree_refit_order,
-            &*self.resources.tree_scene_primitives,
-            &*self.resources.tree_skin_rest,
-            &*self.resources.tree_skin_bindings,
-            &*self.resources.tree_skin_poses,
-            &*self.resources.tree_scene_cell_vertices,
-            &*self.resources.tree_scene_rest_cells,
-            &*self.resources.tree_attachment_keys,
-            &*self.resources.tree_attachment_poses,
-            &*self.resources.raster_tree_cells,
+            &*self.resources.tree.tree_scene_info,
+            &*self.resources.tree.tree_refit_order,
+            &*self.resources.tree.tree_scene_primitives,
+            &*self.resources.tree.tree_skin_rest,
+            &*self.resources.tree.tree_skin_bindings,
+            &*self.resources.tree.tree_skin_poses,
+            &*self.resources.tree.tree_scene_cell_vertices,
+            &*self.resources.tree.tree_scene_rest_cells,
+            &*self.resources.tree.tree_attachment_keys,
+            &*self.resources.tree.tree_attachment_poses,
+            &*self.resources.tree.raster_tree_cells,
             &*self.raster_trees.indices,
             &*self.resources.uniforms.gui_input,
             &*self.resources.uniforms.sun_info,
@@ -1754,12 +1761,8 @@ impl Tracer {
             return;
         }
         for buffer in [
-            &self.resources.tree_scene_info,
-            &self.resources.tree_skin_rest,
-            &self.resources.tree_skin_bindings,
-            &self.resources.tree_skin_poses,
-            &self.resources.tree_refit_order,
-            &self.resources.tree_scene_primitives,
+            &self.resources.tree.tree_scene_info,
+            &self.resources.tree.tree_skin_poses,
         ] {
             cmdbuf.use_buffer(buffer, BufferUse::HostWrite);
         }
@@ -1768,7 +1771,7 @@ impl Tracer {
             Extent3D::new(self.raster_trees.skin.bindings.len() as u32, 1, 1),
             None,
         );
-        if self.raster_trees.posed_surface.is_some() {
+        if self.raster_trees.gpu_wind_active {
             for range in &self.raster_trees.refit.levels {
                 self.pipeline_topology.compute().tree_refit_ppl.record(
                     cmdbuf,
@@ -2020,6 +2023,7 @@ impl Tracer {
             frame_retirement_sink,
             descriptor_generation: 1,
             tree_instance_generation: 1,
+            surface_picker: Default::default(),
             pool,
             world_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
             raster_lighting_state,
@@ -4075,7 +4079,16 @@ impl Tracer {
                     self.pipeline_topology
                         .compute()
                         .raster_tree_lighting_ppl
-                        .record(cmdbuf, Extent3D::new(TREE_CELL_CAPACITY as u32, 1, 1), None)
+                        .record(
+                            cmdbuf,
+                            Extent3D::new(
+                                (self.resources.tree.raster_tree_cells.get_size_bytes() / 16)
+                                    as u32,
+                                1,
+                                1,
+                            ),
+                            None,
+                        )
                 },
             );
         }
@@ -4920,12 +4933,6 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
-                if batch.kind() == TreeFoliageKind::Leaves {
-                    resources.push((
-                        "tree_leaf_state",
-                        DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
-                    ));
-                }
                 let descriptors = if batch.kind() == TreeFoliageKind::Apples {
                     let pixels = Self::with_gpu_scope(
                         gpu_profiler.as_deref_mut(),
@@ -5909,10 +5916,6 @@ impl Tracer {
                                     &instance.resources.shadow_response_sources,
                                 ),
                             ),
-                            (
-                                "tree_leaf_state",
-                                DescriptorResource::Buffer(instance.resources.leaf_state.buffer()),
-                            ),
                             self.vegetation_response.descriptors()[0],
                             self.vegetation_response.descriptors()[1],
                         ],
@@ -6681,7 +6684,7 @@ impl Tracer {
             &gui,
             roots,
         )?;
-        if self.raster_trees.posed_surface.is_some() {
+        if self.raster_trees.gpu_wind_active {
             for (&root, (offset, velocity)) in roots.iter().zip(&mut handoffs) {
                 if let Some(index) = self
                     .raster_trees
@@ -6707,7 +6710,7 @@ impl Tracer {
     }
 
     pub(crate) fn attached_fruit_rotation(&self, root: UVec3) -> (glam::Quat, Vec3) {
-        if self.raster_trees.posed_surface.is_some() {
+        if self.raster_trees.gpu_wind_active {
             if let Some(index) = self
                 .raster_trees
                 .attachments
@@ -6851,97 +6854,6 @@ impl Tracer {
         self.geometry_preview_resources.tree.clear();
     }
 
-    /// Publish a complete tree surface only when its observable facts changed.
-    /// Retaining an identical publication also retains GPU resources, query/refit
-    /// structures, and attachment pose history. Callers still validate terrain revision.
-    pub fn publish_static_raster_trees(
-        &mut self,
-        mesh: &RasterTreeMesh,
-        cells: &[[u32; 4]],
-        attachments: Vec<TreeAttachment>,
-    ) -> Result<bool> {
-        if self.raster_trees.publication_valid
-            && self.raster_trees.rest_mesh.same_surface(mesh)
-            && self.raster_trees.attachments == attachments
-        {
-            return Ok(false);
-        }
-        self.raster_trees.publication_valid = false;
-        // App has waited for all submitted frames before readback/replacement.
-        self.resources.raster_tree_cells.fill(cells)?;
-        let mut rest_cells = vec![[0u32; 4]; TREE_CELL_CAPACITY];
-        anyhow::ensure!(
-            mesh.solid_cells.len() < TREE_CELL_CAPACITY / 2,
-            "tree solid cell capacity exceeded"
-        );
-        for &p in &mesh.solid_cells {
-            let hash = raster_tree::tree_cell_hash(p) as usize;
-            let slot = (0..64)
-                .map(|j| (hash + j) & (TREE_CELL_CAPACITY - 1))
-                .find(|&j| rest_cells[j][3] == 0)
-                .ok_or_else(|| anyhow::anyhow!("tree solid lookup probe budget exhausted"))?;
-            rest_cells[slot] = [p[0], p[1], p[2], 1];
-        }
-        self.resources.tree_scene_rest_cells.fill(&rest_cells)?;
-        self.resources
-            .tree_scene_cell_vertices
-            .fill(&mesh.cell_vertex_indices)?;
-        self.raster_trees.upload(
-            self.vulkan_ctx.device().clone(),
-            self.allocator.clone(),
-            mesh,
-        )?;
-        let [fallback, transition, reliable] = mesh.confidence_counts();
-        log::info!(
-            "[TREE][NORMAL_CONFIDENCE] fallback={fallback} transition={transition} reliable={reliable} single_voxel_cross_sections={} rest_fingerprint={:016x}",
-            mesh.single_voxel_cross_sections(), mesh.rest_fingerprint()
-        );
-        if !self.raster_trees.skin.bindings.is_empty() {
-            self.resources
-                .tree_skin_rest
-                .fill(&self.raster_trees.skin.rest)?;
-            self.resources
-                .tree_skin_bindings
-                .fill(&self.raster_trees.skin.bindings)?;
-        }
-        if !self.raster_trees.refit.records.is_empty() {
-            self.resources
-                .tree_refit_order
-                .fill(&self.raster_trees.refit.records)?;
-        }
-        if !self.raster_trees.scene.primitives.is_empty() {
-            self.resources
-                .tree_scene_primitives
-                .fill(&self.raster_trees.scene.primitives)?;
-        }
-        self.bind_tree_attachments(attachments)?;
-        self.invalidate_local_direct_sun_shadow_histories();
-        self.raster_trees.publication_valid = true;
-        Ok(true)
-    }
-
-    fn bind_tree_attachments(&mut self, attachments: Vec<TreeAttachment>) -> Result<()> {
-        use tree_scene::MAX_TREE_ATTACHMENTS;
-        anyhow::ensure!(
-            attachments.len() < MAX_TREE_ATTACHMENTS / 2,
-            "tree attachment capacity exceeded"
-        );
-        let mut table = vec![[0u32; 4]; MAX_TREE_ATTACHMENTS];
-        for (i, attachment) in attachments.iter().enumerate() {
-            let p = attachment.anchor.to_array();
-            let hash = raster_tree::tree_cell_hash(p) as usize;
-            let slot = (0..64)
-                .map(|j| (hash + j) & (MAX_TREE_ATTACHMENTS - 1))
-                .find(|&j| table[j][3] == 0)
-                .ok_or_else(|| anyhow::anyhow!("tree attachment hash probe budget exhausted"))?;
-            table[slot] = [p[0], p[1], p[2], i as u32 + 1];
-        }
-        self.resources.tree_attachment_keys.fill(&table)?;
-        self.raster_trees.attachments = attachments;
-        self.raster_trees.attachment_poses.clear();
-        self.raster_trees.previous_attachment_poses.clear();
-        Ok(())
-    }
     pub fn publish_tree_attachments(&mut self, poses: &[[f32; 4]], dt: f32) -> Result<()> {
         self.raster_trees.previous_attachment_poses =
             std::mem::take(&mut self.raster_trees.attachment_poses);
@@ -6954,14 +6866,14 @@ impl Tracer {
             .collect();
         self.raster_trees.attachment_dt = dt;
         if !poses.is_empty() {
-            self.resources.tree_attachment_poses.fill(poses)?;
+            self.resources.tree.tree_attachment_poses.fill(poses)?;
         }
         Ok(())
     }
 
     /// Smoke-only readback of the preceding completed frame's tree lighting.
     pub fn validate_gpu_tree_lighting(&self, hybrid: bool) -> Result<()> {
-        let bytes = (TREE_CELL_CAPACITY * 16) as u64;
+        let bytes = self.resources.tree.raster_tree_light_cache.get_size_bytes();
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
@@ -6975,6 +6887,7 @@ impl Tracer {
             &self.vulkan_ctx.get_general_queue(),
             |cmdbuf| {
                 self.resources
+                    .tree
                     .raster_tree_light_cache
                     .record_copy_to_buffer(cmdbuf, &readback, bytes, 0, 0);
                 cmdbuf.use_buffer(&readback, BufferUse::HostRead);
@@ -7002,7 +6915,7 @@ impl Tracer {
         if bytes == 0 {
             return Ok(());
         }
-        let node_bytes = if self.raster_trees.posed_surface.is_some() {
+        let node_bytes = if self.raster_trees.gpu_wind_active {
             self.raster_trees.scene.nodes.len() as u64 * 32
         } else {
             0
@@ -7021,10 +6934,12 @@ impl Tracer {
             |cmdbuf| {
                 self.record_tree_skin(cmdbuf);
                 self.resources
+                    .tree
                     .tree_scene_vertices
                     .record_copy_to_buffer(cmdbuf, &readback, bytes, 0, 0);
                 if node_bytes > 0 {
                     self.resources
+                        .tree
                         .tree_scene_nodes
                         .record_copy_to_buffer(cmdbuf, &readback, node_bytes, 0, bytes);
                 }
@@ -7078,7 +6993,7 @@ impl Tracer {
                 pose.translation.extend(0.).to_array(),
             ]);
         }
-        self.resources.tree_skin_poses.fill(&palette)?;
+        self.resources.tree.tree_skin_poses.fill(&palette)?;
         self.raster_trees.skin.poses = palette
             .chunks_exact(2)
             .map(|p| crate::tree_gen::pose::BranchPose {
@@ -7090,7 +7005,12 @@ impl Tracer {
     }
 
     /// Called after acquiring the sole in-flight frame; previous readers have completed.
-    pub fn publish_tree_surface(&mut self, surface: Option<PosedTreeSurface>) -> Result<()> {
+    pub fn publish_tree_surface(
+        &mut self,
+        active: bool,
+        reference: Option<PosedTreeSurface>,
+    ) -> Result<()> {
+        let surface = reference;
         if let Some(ref posed) = surface {
             anyhow::ensure!(posed.is_finite(), "nonfinite CPU tree surface");
             anyhow::ensure!(
@@ -7098,13 +7018,17 @@ impl Tracer {
                 "tree surface topology mismatch"
             );
         }
-        let active = surface.is_some();
+        anyhow::ensure!(
+            active || surface.is_none(),
+            "disabled GPU wind has a posed CPU reference"
+        );
+        self.raster_trees.gpu_wind_active = active;
         if !active {
             self.raster_trees.attachment_poses.clear();
             self.raster_trees.previous_attachment_poses.clear();
         }
         self.raster_trees.posed_surface = surface;
-        self.resources.tree_scene_info.fill(&[[
+        self.resources.tree.tree_scene_info.fill(&[[
             u32::from(active),
             self.raster_trees.scene.nodes.len() as u32,
             0, // reserved
@@ -7191,23 +7115,7 @@ impl Tracer {
         )
     }
 
-    pub(crate) fn publish_leaf_and_particle_state(
-        &mut self,
-        surface: &mut SurfaceResources,
-        frame_slot: usize,
-    ) -> Result<()> {
-        for tree in surface
-            .instances
-            .leaves_instances
-            .values_mut()
-            .chain(surface.instances.apple_instances.values_mut())
-        {
-            tree.resources.leaf_state.publish(
-                frame_slot,
-                self.vulkan_ctx.device().clone(),
-                self.allocator.clone(),
-            )?;
-        }
+    pub(crate) fn publish_particle_state(&mut self, frame_slot: usize) -> Result<()> {
         self.particle_resources.publish_frame(
             frame_slot,
             self.vulkan_ctx.device().clone(),
@@ -7353,7 +7261,7 @@ impl Tracer {
             tree_instance.resources.shadow_instances_len = 0;
         }
 
-        tree_instance.resources.response_instances = instances_data;
+        tree_instance.resources.response_instances = instances_data.into();
         Ok(tree_instance)
     }
 

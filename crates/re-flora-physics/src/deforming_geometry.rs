@@ -123,6 +123,20 @@ impl DeformingShape {
             _ => false,
         }
     }
+    /// Existing triangle indices were validated at installation, and never change here.
+    pub(crate) fn update_triangle_positions(&mut self, new: &[Vec3]) -> Result<(), String> {
+        let Parts::Triangles { positions, indices } = &mut self.parts else {
+            return Err("deforming collider is not a triangle surface".into());
+        };
+        if positions.len() != new.len() || !new.iter().all(|p| p.is_finite()) {
+            return Err("invalid topology-stable triangle positions".into());
+        }
+        positions.copy_from_slice(new);
+        let count = indices.len();
+        for i in 0..count { self.bvh.insert_or_update_partially(self.part_aabb(i), i as u32, 0.); }
+        self.bvh.refit_without_opt();
+        Ok(())
+    }
     pub(crate) fn update(&mut self, input: &DeformingGeometry<'_>) {
         match (&mut self.parts, input) {
             (
@@ -140,11 +154,24 @@ impl DeformingShape {
         }
         self.bvh.refit_without_opt();
     }
-    pub(crate) fn ray_candidates(&self, origin: Vec3, direction: Vec3) -> Vec<u32> {
+    pub(crate) fn ray_candidates_with_margin(&self, origin: Vec3, direction: Vec3, margin: Vec3) -> Vec<u32> {
         let ray = Ray::new(to_rapier_vec(origin), to_rapier_vec(direction));
         let mut candidates = Vec::new();
         self.bvh.traverse(|node| {
-            if node.cast_ray(&ray, f32::MAX) == f32::MAX {
+            let intersects = if margin == Vec3::ZERO {
+                node.cast_ray(&ray, f32::MAX) != f32::MAX
+            } else {
+                // Query-only bounds. Round outward so floating-point displacement
+                // subtraction/addition cannot prune a vertex on the padded face.
+                let aabb = node.aabb();
+                let lo = aabb.mins - to_rapier_vec(margin);
+                let hi = aabb.maxs + to_rapier_vec(margin);
+                Aabb::new(
+                    Vector::new(lo.x.next_down(), lo.y.next_down(), lo.z.next_down()),
+                    Vector::new(hi.x.next_up(), hi.y.next_up(), hi.z.next_up()),
+                ).cast_ray(&Pose::IDENTITY, &ray, f32::MAX, true).is_some()
+            };
+            if !intersects {
                 return TraversalAction::Prune;
             }
             if let Some(part) = node.leaf_data() {

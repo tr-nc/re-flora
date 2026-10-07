@@ -7,7 +7,7 @@ impl App {
         if std::env::var("RE_FLORA_GARDEN_SNAPSHOT_SMOKE").as_deref() != Ok("seed") {
             return Ok(());
         }
-        let previous_selection = self.player_tools.flora_paint_selection_index;
+        let previous_selection = self.player_tools.planting.flora_index;
         for index in 0..crate::flora::species::PLAYER_FLORA_PAINT_SELECTIONS.len() as u32 {
             // Vines have a separate, session-only Grow placement path and are
             // not members of the persistent FloraSnapshot species store.
@@ -23,7 +23,7 @@ impl App {
                 (70 + (index / 8) * 70) as f32 / 256.0,
             );
             let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
-            self.player_tools.flora_paint_selection_index = index as usize;
+            self.player_tools.planting.flora_index = index as usize;
             self.apply_surface_flora_regeneration(
                 TerrainBrushEdit {
                     start: center,
@@ -34,7 +34,7 @@ impl App {
                 true,
             )?;
         }
-        self.player_tools.flora_paint_selection_index = previous_selection;
+        self.player_tools.planting.flora_index = previous_selection;
         self.debug_settings.adjustables.tree_age.value = 0.43;
         self.update_all_tree_ages_from_gui()?;
         self.add_snapshot_smoke_tree()?;

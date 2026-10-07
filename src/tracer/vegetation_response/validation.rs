@@ -58,7 +58,7 @@ impl<'a> Harness<'a> {
             anchor: "wind_field_info",
             providers: &[&wind],
         })?;
-        let buffers = FrameBuffers::new(device.clone(), allocator.clone(), count);
+        let buffers = FrameBuffers::new(device.clone(), allocator.clone(), count)?;
         let readback = Buffer::new_sized(
             device.clone(),
             allocator,
@@ -85,8 +85,19 @@ impl<'a> Harness<'a> {
         end: f32,
         tick: f32,
     ) -> Result<Vec<[f32; STATE_FLOATS]>> {
+        self.step_layout(inputs, start, end, tick, u32::MAX, 0)
+    }
+    fn step_layout(
+        &mut self,
+        inputs: &[ResponseInput],
+        start: f32,
+        end: f32,
+        tick: f32,
+        leaf_first: u32,
+        leaf_flags: u32,
+    ) -> Result<Vec<[f32; STATE_FLOATS]>> {
         self.buffers
-            .inputs
+            .staging
             .fill_range_with_raw_u8(0, bytemuck::cast_slice(inputs))?;
         let previous = self.buffers.output_index;
         let output = previous ^ 1;
@@ -96,7 +107,9 @@ impl<'a> Harness<'a> {
             flutter_frequency_curve: [0.05, 1., 0., 0.],
             grass_amplitude: [0., 1.5, 0.05, 2.],
             grass_frequency: [1., 1., 0.05, 2.],
-            grass_curve: [0.; 4],
+            grass_curve: [0.; 2],
+            leaf_first,
+            leaf_flags,
             start_time: start,
             end_time: end,
             tick_seconds: tick,
@@ -109,6 +122,13 @@ impl<'a> Harness<'a> {
             self.context.command_pool(),
             &self.context.get_general_queue(),
             |cmd| -> Result<()> {
+                self.buffers.staging.record_copy_to_buffer(
+                    cmd,
+                    &self.buffers.inputs,
+                    std::mem::size_of_val(inputs) as u64,
+                    0,
+                    0,
+                );
                 self.pipeline.record_with_descriptors(
                     cmd,
                     &[
@@ -156,11 +176,101 @@ impl<'a> Harness<'a> {
     }
 }
 
+fn validate_cached_leaves(context: &VulkanContext, allocator: Allocator) -> Result<()> {
+    let mut cached = Harness::new(context, allocator.clone(), 8)?;
+    let mut reference = Harness::new(context, allocator, 8)?;
+    let wind = crate::wind_field::WindFieldFrame::uniform(glam::Vec2::new(1.2, 0.4));
+    for harness in [&mut cached, &mut reference] {
+        harness.wind.wind_field_info.fill_uniform(&wind)?;
+        harness.controls = [1., 1., 1., 1.];
+    }
+    let leaf = |seed| ResponseInput {
+        root: [1., 1., 1., 0.],
+        identity: [
+            NO_PREVIOUS,
+            species::TREE_LEAF_RENDER_SPECIES_INDEX,
+            seed,
+            1,
+        ],
+    };
+    let equal = |a: Vec<[f32; STATE_FLOATS]>, b: Vec<[f32; STATE_FLOATS]>| -> Result<()> {
+        anyhow::ensure!(
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b)
+                    .all(|(x, y)| x.iter().zip(y).all(|(u, v)| u.to_bits() == v.to_bits())),
+            "cached leaf GPU state differs from scalar per-frame remapping"
+        );
+        Ok(())
+    };
+    let mut inputs = vec![leaf(17), leaf(29), leaf(43)];
+    for frame in 0..32 {
+        let mut scalar = inputs.clone();
+        for (i, input) in scalar.iter_mut().enumerate() {
+            input.identity[0] = if frame == 0 { NO_PREVIOUS } else { i as u32 };
+        }
+        let start = frame as f32 / 60.;
+        let end = (frame + 1) as f32 / 60.;
+        equal(
+            cached.step_layout(
+                &inputs,
+                start,
+                end,
+                0.025,
+                0,
+                if frame == 0 { 2 } else { 0 },
+            )?,
+            reference.step(&scalar, start, end, 0.025)?,
+        )?;
+    }
+    // Prefix movement, deletion/reorder, retained leaves and newly planted leaf.
+    inputs = vec![
+        ResponseInput {
+            root: [1., 1., 1., 0.],
+            identity: [NO_PREVIOUS, 0, 0, 0],
+        },
+        leaf(43),
+        leaf(71),
+        leaf(17),
+    ];
+    inputs[1].identity[0] = 2;
+    inputs[3].identity[0] = 0;
+    for frame in 32..64 {
+        let mut scalar = inputs.clone();
+        if frame != 32 {
+            for (i, input) in scalar.iter_mut().enumerate() {
+                input.identity[0] = i as u32;
+            }
+        }
+        let start = frame as f32 / 60.;
+        let end = (frame + 1) as f32 / 60.;
+        let mut persistent = inputs.clone();
+        persistent[0].identity[0] = scalar[0].identity[0];
+        equal(
+            cached.step_layout(&persistent, start, end, 0.025, 1, u32::from(frame == 32))?,
+            reference.step(&scalar, start, end, 0.025)?,
+        )?;
+    }
+    let mut reset = inputs.clone();
+    for input in &mut reset {
+        input.identity[0] = NO_PREVIOUS;
+    }
+    let mut persistent = inputs;
+    persistent[0].identity[0] = NO_PREVIOUS;
+    equal(
+        cached.step_layout(&persistent, 0., 0.1, 0.025, 1, 2)?,
+        reference.step(&reset, 0., 0.1, 0.025)?,
+    )?;
+    log::info!("[VEGETATION_RESPONSE][GPU_LEAF_LAYOUT] passed bit_exact=true unchanged=true prefix_move=true remove_reorder=true new_leaf=true reset=true");
+    Ok(())
+}
+
 pub(in crate::tracer) fn validate_gpu(
     context: &VulkanContext,
     allocator: Allocator,
     resources: &crate::tracer::TracerResources,
 ) -> Result<()> {
+    validate_cached_leaves(context, allocator.clone())?;
     let live_bytes = resources.wind.wind_field_info.read_back()?;
     let live_field: crate::wind_field::WindFieldFrame = bytemuck::pod_read_unaligned(&live_bytes);
     let mut harness = Harness::new(context, allocator, 2113)?;

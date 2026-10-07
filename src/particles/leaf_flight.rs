@@ -45,14 +45,6 @@ impl LeafFlight {
         }
     }
 
-    pub fn released(orientation: Quat, angular_velocity: Vec3) -> Self {
-        Self {
-            orientation,
-            angular_velocity,
-            remainder: 0.0,
-        }
-    }
-
     #[expect(
         clippy::too_many_arguments,
         reason = "Rigid-flight kernel updates caller-owned kinematics from independent size, force and wind inputs"

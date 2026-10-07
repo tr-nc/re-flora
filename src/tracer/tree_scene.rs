@@ -3,11 +3,6 @@ use anyhow::{ensure, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 
-// One query primitive per exposed surface triangle.
-pub const MAX_TREE_PRIMITIVES: usize = 1 << 17;
-pub const MAX_TREE_VERTICES: usize = 1 << 17;
-pub const MAX_TREE_NODES: usize = MAX_TREE_PRIMITIVES * 2;
-
 #[repr(C)]
 #[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct TreeSceneNode {
@@ -37,12 +32,8 @@ impl TreeScene {
             "invalid tree triangle count"
         );
         ensure!(
-            positions.len() <= MAX_TREE_VERTICES && indices.len() / 3 <= MAX_TREE_PRIMITIVES,
-            "dynamic tree scene capacity exceeded: vertices={} / {}, primitives={} / {}",
-            positions.len(),
-            MAX_TREE_VERTICES,
-            indices.len() / 3,
-            MAX_TREE_PRIMITIVES
+            positions.len() < u32::MAX as usize && indices.len() / 3 < u32::MAX as usize / 2,
+            "tree scene topology exceeds u32 vertex/node addressing"
         );
         ensure!(
             indices.iter().all(|&i| (i as usize) < positions.len()),
@@ -222,6 +213,14 @@ fn primitive_bounds(t: [u32; 4], point: &impl Fn(u32) -> Result<Vec3>) -> Result
 mod tests {
     use super::*;
     #[test]
+    fn scene_accepts_geometry_above_the_former_fixed_vertex_capacity() {
+        let positions = vec![Vec3::ZERO; (1 << 17) + 1];
+        let scene = TreeScene::new(&[0, 1, 2], &positions)
+            .expect("scene topology must not impose a fixed GPU allocation size");
+        assert_eq!(scene.primitives.len(), 1);
+    }
+
+    #[test]
     fn gpu_refit_schedule_covers_nodes_once_and_publishes_children_first() {
         let points: Vec<_> = (0..51)
             .map(|i| Vec3::new(i as f32, (i % 5) as f32, 0.))
@@ -343,7 +342,6 @@ mod tests {
     }
 }
 
-pub const MAX_TREE_ATTACHMENTS: usize = 1 << 16;
 #[derive(PartialEq, Eq)]
 pub struct TreeAttachment {
     pub anchor: glam::UVec3,

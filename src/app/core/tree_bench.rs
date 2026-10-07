@@ -1,3 +1,6 @@
+mod scale_diagnostic;
+
+use self::scale_diagnostic::TreeScaleDiagnostic;
 use super::App;
 use std::time::Instant;
 
@@ -6,6 +9,7 @@ pub(super) struct TreeBench {
     samples: u32,
     next_sample: u32,
     results: Vec<f32>,
+    scale_diagnostic: Option<TreeScaleDiagnostic>,
 }
 
 impl TreeBench {
@@ -14,6 +18,8 @@ impl TreeBench {
             samples: samples.max(1),
             next_sample: 0,
             results: Vec::new(),
+            scale_diagnostic: std::env::var_os("RE_FLORA_TREE_SCALE_DIAGNOSTIC")
+                .map(|_| TreeScaleDiagnostic::new(samples)),
         }
     }
 
@@ -22,7 +28,10 @@ impl TreeBench {
             return false;
         };
 
-        let done = bench.run_sample(app);
+        let done = match &mut bench.scale_diagnostic {
+            Some(diagnostic) => diagnostic.step(app),
+            None => bench.run_sample(app),
+        };
         if !done {
             app.launch_owners.tree_bench = Some(bench);
         }

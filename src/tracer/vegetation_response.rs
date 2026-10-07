@@ -49,23 +49,37 @@ struct ResponseStep {
     flutter_frequency_curve: [f32; 4],
     grass_amplitude: [f32; 4],
     grass_frequency: [f32; 4],
-    grass_curve: [f32; 4],
+    grass_curve: [f32; 2],
+    leaf_first: u32,
+    leaf_flags: u32,
 }
 
 struct FrameBuffers {
     inputs: Buffer,
+    staging: Buffer,
+    leaf_revision: u64,
     info: Buffer,
     outputs: [Buffer; 2],
     output_index: usize,
     capacity: usize,
 }
 
+fn response_capacity(count: usize) -> Result<usize> {
+    anyhow::ensure!(
+        u32::try_from(count).is_ok(),
+        "response state count exceeds u32 addressing"
+    );
+    count
+        .max(1)
+        .checked_next_power_of_two()
+        .ok_or_else(|| anyhow::anyhow!("response capacity overflow"))
+}
 impl FrameBuffers {
-    fn new(device: Device, allocator: Allocator, count: usize) -> Self {
-        let capacity = count.max(1).next_power_of_two();
+    fn new(device: Device, allocator: Allocator, count: usize) -> Result<Self> {
+        let capacity = response_capacity(count)?;
         let storage = vk::BufferUsageFlags::STORAGE_BUFFER;
         let make = |bytes, flags, location| {
-            Buffer::new_sized(
+            Buffer::try_new_sized(
                 device.clone(),
                 allocator.clone(),
                 BufferUsage::from_flags(flags),
@@ -73,23 +87,38 @@ impl FrameBuffers {
                 bytes,
             )
         };
-        Self {
-            inputs: make(capacity as u64 * 32, storage, MemoryLocation::CpuToGpu),
+        Ok(Self {
+            inputs: make(
+                capacity as u64 * 32,
+                storage | vk::BufferUsageFlags::TRANSFER_DST,
+                MemoryLocation::GpuOnly,
+            )?,
+            staging: make(
+                capacity as u64 * 32,
+                vk::BufferUsageFlags::TRANSFER_SRC,
+                MemoryLocation::CpuToGpu,
+            )?,
+            leaf_revision: 0,
             info: make(
                 32,
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
                 MemoryLocation::CpuToGpu,
-            ),
-            outputs: std::array::from_fn(|_| {
+            )?,
+            outputs: [
                 make(
                     capacity as u64 * STATE_BYTES,
                     storage | vk::BufferUsageFlags::TRANSFER_SRC,
                     MemoryLocation::GpuOnly,
-                )
-            }),
+                )?,
+                make(
+                    capacity as u64 * STATE_BYTES,
+                    storage | vk::BufferUsageFlags::TRANSFER_SRC,
+                    MemoryLocation::GpuOnly,
+                )?,
+            ],
             output_index: 0,
             capacity,
-        }
+        })
     }
 }
 
@@ -107,7 +136,7 @@ pub(super) struct VegetationResponse {
     grid: ResponseInfo,
     grid_inputs: Vec<ResponseInput>,
     previous_plants: HashMap<u64, u32>,
-    leaves: leaves::LeafResponses,
+    leaves: leaves::LeafResponseLayout,
     flower_offsets: Vec<[u32; species::MAX_FLORA_SPECIES]>,
     frames: Vec<Option<FrameBuffers>>,
     previous_output: Option<Buffer>,
@@ -188,7 +217,7 @@ impl VegetationResponse {
             grid,
             grid_inputs,
             previous_plants: HashMap::new(),
-            leaves: leaves::LeafResponses::default(),
+            leaves: leaves::LeafResponseLayout::default(),
             flower_offsets: Vec::new(),
             frames: Vec::new(),
             previous_output: None,
@@ -239,7 +268,7 @@ impl VegetationResponse {
                 self.frames.resize_with(frame_slot + 1, || None);
             }
             if self.frames[frame_slot].is_none() {
-                self.frames[frame_slot] = Some(FrameBuffers::new(device, allocator, 1));
+                self.frames[frame_slot] = Some(FrameBuffers::new(device, allocator, 1)?);
                 log::info!("[VEGETATION_RESPONSE][MEMORY] mode=legacy frame_slot={frame_slot} capacity=1 buffer_bytes=224 solver_dispatches=0 residual_descriptor_buffers=true");
             }
             let mut info = self.grid;
@@ -303,21 +332,34 @@ impl VegetationResponse {
                 input.root[3] = *profile;
             }
         }
-        if self.grid.grid[3] >= 2. {
+        let leaf_base = inputs.len();
+        let leaf_changed = if self.grid.grid[3] >= 2. {
             self.leaves
-                .append(&mut inputs, &surface.instances.leaves_instances, reset)?;
-        }
+                .update(leaf_base, &surface.instances.leaves_instances)?
+        } else {
+            false
+        };
+        let leaf_inputs = if self.grid.grid[3] >= 2. {
+            self.leaves.inputs()
+        } else {
+            &[]
+        };
+        let count = u32::try_from(
+            leaf_base
+                .checked_add(leaf_inputs.len())
+                .ok_or_else(|| anyhow::anyhow!("response size overflow"))?,
+        )?;
         if self.frames.len() <= frame_slot {
             self.frames.resize_with(frame_slot + 1, || None);
         }
         if self.frames[frame_slot]
             .as_ref()
-            .is_none_or(|frame| frame.capacity < inputs.len())
+            .is_none_or(|frame| frame.capacity < count as usize)
         {
-            self.frames[frame_slot] = Some(FrameBuffers::new(device, allocator, inputs.len()));
+            self.frames[frame_slot] = Some(FrameBuffers::new(device, allocator, count as usize)?);
             let capacity = self.frames[frame_slot].as_ref().unwrap().capacity;
             log::info!("[VEGETATION_RESPONSE][MEMORY] mode={} frame_slot={frame_slot} capacity={capacity} buffer_bytes={} active_states={} fields={}",
-                if self.comparison.is_empty() { "all" } else { &self.comparison }, capacity * 192 + 32, inputs.len(), self.grid.grid[3]);
+                if self.comparison.is_empty() { "all" } else { &self.comparison }, capacity * 288 + 32, count, self.grid.grid[3]);
         }
         let frame = self.frames[frame_slot].as_mut().unwrap();
         frame.output_index ^= 1;
@@ -330,12 +372,31 @@ impl VegetationResponse {
             previous.as_raw() != output.as_raw(),
             "response ping-pong aliases"
         );
+        let prefix = bytemuck::cast_slice(&inputs);
+        frame.staging.fill_range_with_raw_u8(0, prefix)?;
         frame
-            .inputs
-            .fill_range_with_raw_u8(0, bytemuck::cast_slice(&inputs))?;
+            .staging
+            .record_copy_to_buffer(cmdbuf, &frame.inputs, prefix.len() as u64, 0, 0);
+        if !leaf_inputs.is_empty() && frame.leaf_revision != self.leaves.revision() {
+            let data = bytemuck::cast_slice(leaf_inputs);
+            frame
+                .staging
+                .fill_range_with_raw_u8(prefix.len() as u64, data)?;
+            frame.staging.record_copy_to_buffer(
+                cmdbuf,
+                &frame.inputs,
+                data.len() as u64,
+                prefix.len() as u64,
+                prefix.len() as u64,
+            );
+            if leaves::trace_publications() {
+                log::info!("[VEGETATION_RESPONSE][LEAF_UPLOAD] revision={} slot={} leaves={} bytes={} properties={:?}",
+                    self.leaves.revision(), frame_slot, leaf_inputs.len(), data.len(), frame.inputs.memory_properties());
+            }
+        }
         let mut info = self.grid;
         info.shape[2] = u32::from(self.enabled || !self.comparison.is_empty());
-        info.shape[3] = inputs.len() as u32;
+        info.shape[3] = count;
         frame.info.fill_uniform(&info)?;
         let step = ResponseStep {
             flutter_curve: self.flutter_curve,
@@ -343,7 +404,7 @@ impl VegetationResponse {
             flutter_frequency_curve: self.flutter_frequency_curve,
             grass_amplitude: self.grass_amplitude,
             grass_frequency: self.grass_frequency,
-            grass_curve: self.grass_curve,
+            grass_curve: [self.grass_curve[0], self.grass_curve[1]],
             start_time: start,
             end_time: time,
             tick_seconds: if !self.comparison.is_empty() {
@@ -351,7 +412,9 @@ impl VegetationResponse {
             } else {
                 1. / (4. * self.pose_hz.clamp(2.5, 20.))
             },
-            count: inputs.len() as u32,
+            count,
+            leaf_first: leaf_base as u32,
+            leaf_flags: u32::from(leaf_changed) | (u32::from(reset) << 1),
             controls: if !self.comparison.is_empty() {
                 [1., 1., 1., 0.]
             } else {
@@ -366,7 +429,7 @@ impl VegetationResponse {
             step.flutter_frequency_curve,
             step.grass_amplitude,
             step.grass_frequency,
-            step.grass_curve,
+            [step.grass_curve[0], step.grass_curve[1], 0., 0.],
         ];
         if self.last_controls != Some(settings) {
             log::info!("[GRASS_RESPONSE][SETTINGS] amplitude={:?} frequency={:?} curve={:?} local_motion=current_frame", step.grass_amplitude, step.grass_frequency, step.grass_curve);
@@ -393,6 +456,8 @@ impl VegetationResponse {
             Extent3D::new(step.count, 1, 1),
             Some(bytemuck::bytes_of(&step)),
         )?;
+        frame.leaf_revision = self.leaves.revision();
+        self.leaves.published();
         self.previous_output = Some(output.clone());
         self.current_frame = Some(frame_slot);
         self.last_time = Some(time);
@@ -419,18 +484,6 @@ impl VegetationResponse {
 
     pub fn flower_offset(&self, chunk: usize, species: usize) -> u32 {
         self.flower_offsets[chunk][species]
-    }
-
-    pub(super) fn published_leaf(
-        &self,
-        tree: u32,
-        world: glam::UVec3,
-        anchor_local: u32,
-    ) -> Option<(u32, f32)> {
-        Some((
-            self.leaves.published_index(tree, world, anchor_local)?,
-            self.last_time?,
-        ))
     }
 
     pub fn leaf_offset(&self, tree_id: u32) -> u32 {
@@ -563,6 +616,13 @@ mod tests {
     }
 
     #[test]
+    fn response_allocation_rounding_is_checked_and_keeps_existing_sized_capacity() {
+        assert_eq!(response_capacity(0).unwrap(), 1);
+        assert_eq!(response_capacity(17).unwrap(), 32);
+        assert_eq!(response_capacity(129293 + 3267).unwrap(), 262144);
+        assert!(response_capacity(usize::MAX).is_err());
+    }
+    #[test]
     fn gpu_input_layouts_remain_aligned() {
         assert_eq!(std::mem::size_of::<ResponseInput>(), 32);
         assert_eq!(std::mem::size_of::<ResponseInfo>(), 32);
@@ -570,6 +630,8 @@ mod tests {
         assert_eq!(std::mem::offset_of!(ResponseStep, grass_amplitude), 80);
         assert_eq!(std::mem::offset_of!(ResponseStep, grass_frequency), 96);
         assert_eq!(std::mem::offset_of!(ResponseStep, grass_curve), 112);
+        assert_eq!(std::mem::offset_of!(ResponseStep, leaf_first), 120);
+        assert_eq!(std::mem::offset_of!(ResponseStep, leaf_flags), 124);
         assert_eq!(std::mem::offset_of!(ResponseStep, flutter_frequency), 48);
         assert_eq!(
             std::mem::offset_of!(ResponseStep, flutter_frequency_curve),

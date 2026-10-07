@@ -146,6 +146,14 @@ impl DebugSettings {
                 draw(&mut controls);
                 matches += controls.matches();
             }
+            let mut architecture = saved_controls::SavedControls::filtered(
+                ui,
+                &mut self.config.custom,
+                &filter,
+                "Flora / Tree Architecture",
+            );
+            draw_tree_architecture_controls(&mut architecture);
+            matches += architecture.matches();
             let mut tree_desc_changed = false;
             if let Some(changed) = filter.section(
                 ui,
@@ -192,6 +200,11 @@ impl DebugSettings {
                 );
             }
             if section_name == "Flora" {
+                ui.collapsing("Tree Architecture", |ui| {
+                    draw_tree_architecture_controls(&mut saved_controls::SavedControls::new(
+                        ui, custom,
+                    ));
+                });
                 ui.collapsing("Tree", |ui| {
                     tree_desc_changed |= edit_tree_desc(
                         ui,
@@ -208,6 +221,16 @@ impl DebugSettings {
 
         tree_desc_changed
     }
+}
+
+fn draw_tree_architecture_controls(controls: &mut saved_controls::SavedControls<'_>) {
+    controls.toggle(
+        |settings| &mut settings.tree.conifer_axis_model,
+        true,
+        false,
+        "Conifer: axis model (A/B)",
+    );
+    controls.hint("Unchecked: original recursive generator. Checked: continuous trunk and layered crown. Applies to planted Conifers and the next preview; Garden Trees are unchanged.");
 }
 
 fn parse_color(hex: &str) -> Color32 {
@@ -1495,6 +1518,62 @@ mod tests {
     }
 
     #[test]
+    fn conifer_ab_checkbox_edits_the_saved_field_without_changing_garden_authoring() {
+        let context = egui::Context::default();
+        let mut settings = DebugSettings::load();
+        settings.tree.conifer_axis_model = true;
+        let garden = settings.tree.desc.clone();
+        let mut draw = |events: Vec<egui::Event>| {
+            context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    draw_tree_architecture_controls(&mut saved_controls::SavedControls::new(
+                        ui,
+                        &mut settings.config.custom,
+                    ));
+                },
+            )
+        };
+        let frame = draw(vec![]);
+        let point = frame
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Conifer: axis model (A/B)" => {
+                    Some(text.pos + text.galley.size() * 0.5)
+                }
+                _ => None,
+            })
+            .unwrap();
+        draw(vec![
+            egui::Event::PointerMoved(point),
+            egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        draw(vec![egui::Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        assert!(!settings.tree.conifer_axis_model);
+        assert_eq!(settings.tree.desc, garden);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(!loaded.tree.conifer_axis_model);
+        assert_eq!(loaded.tree.desc, garden);
+    }
+
+    #[test]
     fn every_serialized_custom_leaf_survives_live_edit_save_reload() {
         use serde_json::Value;
         fn leaves(value: &Value, path: String, output: &mut Vec<String>) {
@@ -1532,6 +1611,8 @@ mod tests {
                 }
                 Value::String(v) if v == "Darting" => Value::from("Original"),
                 Value::String(v) if v == "Original" => Value::from("Darting"),
+                Value::String(v) if v == "garden_tree" => Value::from("conifer"),
+                Value::String(v) if v == "conifer" => Value::from("garden_tree"),
                 _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
             };
             let mut settings = DebugSettings::load();

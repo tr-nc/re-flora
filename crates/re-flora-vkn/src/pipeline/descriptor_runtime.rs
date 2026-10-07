@@ -324,6 +324,10 @@ impl ReflectedDescriptorRuntime {
         descriptor_set.record_resource_uses(cmdbuf);
     }
 
+    pub(super) fn resource_names(&self) -> impl Iterator<Item = &str> {
+        self.plan.resource_names()
+    }
+
     pub(super) fn tracked_texture_binding_count(&self) -> usize {
         self.state
             .lock()
@@ -332,6 +336,27 @@ impl ReflectedDescriptorRuntime {
             .values()
             .map(DescriptorSet::image_owner_count)
             .sum()
+    }
+
+    /// Record an immutable, off-side complete generation without publishing it.
+    /// Resource-use recording retains buffers/images; the dispatch owner must
+    /// separately retain the descriptor generation until GPU completion.
+    pub(super) fn bind_prepared(
+        &self,
+        cmdbuf: &CommandBuffer,
+        pending: &PreparedDescriptorGeneration,
+        bind_run: impl FnMut(u32, &[vk::DescriptorSet]),
+    ) -> Result<()> {
+        self.validate_prepared(pending)?;
+        self.plan.assert_generation_complete_except(pending, None);
+        let mut sets = Vec::new();
+        for &set_no in pending.keys() {
+            let set = pending.get(&set_no).expect("descriptor generation key");
+            set.record_resource_uses(cmdbuf);
+            sets.push((set_no, set.as_raw()));
+        }
+        for_each_contiguous_bind_run(sets, bind_run);
+        Ok(())
     }
 
     pub(super) fn bind_active(

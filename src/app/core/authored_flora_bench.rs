@@ -68,7 +68,7 @@ impl AuthoredFloraBench {
 
         self.next_sample += 1;
         let sample = self.next_sample;
-        app.player_tools.flora_paint_selection_index = 1;
+        app.player_tools.planting.flora_index = 1;
         let center_xz = authored_flora_bench_center(sample - 1);
         let center_y = app.query_terrain_height_cpu(center_xz);
         let center = Vec3::new(center_xz.x, center_y, center_xz.y);
@@ -169,7 +169,7 @@ impl ResponsePerf {
         self.frame += 1;
         if frame < 30 {
             let species = frame % (species::PLAYER_FLORA_PAINT_SELECTIONS.len() as u32 - 1) + 1;
-            app.player_tools.flora_paint_selection_index = species as usize;
+            app.player_tools.planting.flora_index = species as usize;
             let xz = authored_flora_bench_center(frame);
             let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
             let edit = TerrainBrushEdit {
@@ -178,7 +178,7 @@ impl ResponsePerf {
                 radius: super::TERRAIN_EDIT_DEFAULT_RADIUS,
             };
             app.apply_surface_flora_regeneration(edit, frame + 1, true)?;
-            app.player_tools.flora_paint_selection_index = 0;
+            app.player_tools.planting.flora_index = 0;
             app.apply_surface_flora_regeneration(edit, frame + 100, true)?;
         }
         if frame == 40 {
@@ -258,7 +258,7 @@ impl ResponseCheck {
         }
         match frame {
             0..=1 => {
-                app.player_tools.flora_paint_selection_index = frame as usize + 1;
+                app.player_tools.planting.flora_index = frame as usize + 1;
                 let xz = authored_flora_bench_center(frame * 8);
                 let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
                 let edit = TerrainBrushEdit {
@@ -283,7 +283,7 @@ impl ResponseCheck {
                 );
             }
             3 => {
-                app.player_tools.flora_paint_selection_index = 0;
+                app.player_tools.planting.flora_index = 0;
                 for edit in &self.edits {
                     app.apply_surface_flora_regeneration(*edit, 40, true)?;
                 }
@@ -367,7 +367,7 @@ impl ResponseCheck {
                 );
             }
             30 => {
-                app.player_tools.flora_paint_selection_index = 1;
+                app.player_tools.planting.flora_index = 1;
                 app.apply_surface_flora_regeneration(self.edits[0], 1, true)?;
                 log::info!("[VEGETATION_RESPONSE][SCENE] action=replant-same-brush");
             }

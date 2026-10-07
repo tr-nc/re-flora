@@ -13,6 +13,13 @@ pub(super) enum FrameCpuScope {
     WaterEditSoak,
     WaterHandoff,
     Particles,
+    SceneServices,
+    FruitPhysics,
+    TreePoseSubmit,
+    CanopyAudio,
+    AcousticQuality,
+    TerrainHover,
+    Ecology,
     RenderAcquire,
     RenderRecord,
     RenderShadowPrepassRecord,
@@ -31,6 +38,13 @@ pub(super) struct FrameCpuTimings {
     water_edit_soak_ms: f32,
     water_handoff_ms: f32,
     particles_ms: f32,
+    scene_services_ms: f32,
+    fruit_physics_ms: f32,
+    tree_pose_submit_ms: f32,
+    canopy_audio_ms: f32,
+    acoustic_quality_ms: f32,
+    terrain_hover_ms: f32,
+    ecology_ms: f32,
     render_acquire_ms: f32,
     render_record_ms: f32,
     render_shadow_prepass_record_ms: f32,
@@ -83,6 +97,13 @@ impl FrameCpuTimings {
             FrameCpuScope::WaterEditSoak => self.water_edit_soak_ms += elapsed_ms,
             FrameCpuScope::WaterHandoff => self.water_handoff_ms += elapsed_ms,
             FrameCpuScope::Particles => self.particles_ms += elapsed_ms,
+            FrameCpuScope::SceneServices => self.scene_services_ms += elapsed_ms,
+            FrameCpuScope::FruitPhysics => self.fruit_physics_ms += elapsed_ms,
+            FrameCpuScope::TreePoseSubmit => self.tree_pose_submit_ms += elapsed_ms,
+            FrameCpuScope::CanopyAudio => self.canopy_audio_ms += elapsed_ms,
+            FrameCpuScope::AcousticQuality => self.acoustic_quality_ms += elapsed_ms,
+            FrameCpuScope::TerrainHover => self.terrain_hover_ms += elapsed_ms,
+            FrameCpuScope::Ecology => self.ecology_ms += elapsed_ms,
             FrameCpuScope::RenderAcquire => self.render_acquire_ms += elapsed_ms,
             FrameCpuScope::RenderRecord => self.render_record_ms += elapsed_ms,
             FrameCpuScope::RenderShadowPrepassRecord => {
@@ -106,6 +127,13 @@ impl FrameCpuTimings {
             + self.water_edit_soak_ms
             + self.water_handoff_ms
             + self.particles_ms
+            + self.scene_services_ms
+            + self.fruit_physics_ms
+            + self.tree_pose_submit_ms
+            + self.canopy_audio_ms
+            + self.acoustic_quality_ms
+            + self.terrain_hover_ms
+            + self.ecology_ms
     }
 
     pub(super) fn snapshot(
@@ -131,6 +159,13 @@ impl FrameCpuTimings {
             water_edit_soak_ms: self.water_edit_soak_ms,
             water_handoff_ms: self.water_handoff_ms,
             particles_ms: self.particles_ms,
+            scene_services_ms: self.scene_services_ms,
+            fruit_physics_ms: self.fruit_physics_ms,
+            tree_pose_submit_ms: self.tree_pose_submit_ms,
+            canopy_audio_ms: self.canopy_audio_ms,
+            acoustic_quality_ms: self.acoustic_quality_ms,
+            terrain_hover_ms: self.terrain_hover_ms,
+            ecology_ms: self.ecology_ms,
             render_acquire_ms: self.render_acquire_ms,
             render_record_ms: self.render_record_ms,
             render_shadow_prepass_record_ms: self.render_shadow_prepass_record_ms,
@@ -156,6 +191,13 @@ pub(super) struct FrameTimingSnapshot {
     pub(super) water_edit_soak_ms: f32,
     pub(super) water_handoff_ms: f32,
     pub(super) particles_ms: f32,
+    pub(super) scene_services_ms: f32,
+    pub(super) fruit_physics_ms: f32,
+    pub(super) tree_pose_submit_ms: f32,
+    pub(super) canopy_audio_ms: f32,
+    pub(super) acoustic_quality_ms: f32,
+    pub(super) terrain_hover_ms: f32,
+    pub(super) ecology_ms: f32,
     pub(super) render_acquire_ms: f32,
     pub(super) render_record_ms: f32,
     pub(super) render_shadow_prepass_record_ms: f32,
@@ -315,6 +357,27 @@ mod tests {
         assert_eq!(timings.queue_work_ms(), 0.0);
     }
 
+    #[test]
+    fn app_work_is_tracked_once_without_counting_nested_render_work() {
+        let mut timings = FrameCpuTimings::new(true);
+        for scope in [
+            FrameCpuScope::SceneServices,
+            FrameCpuScope::FruitPhysics,
+            FrameCpuScope::TreePoseSubmit,
+            FrameCpuScope::CanopyAudio,
+            FrameCpuScope::AcousticQuality,
+            FrameCpuScope::TerrainHover,
+            FrameCpuScope::Ecology,
+        ] {
+            timings.add_ms(scope, 1.);
+        }
+        timings.add_ms(FrameCpuScope::RenderRecord, 2.);
+        timings.add_ms(FrameCpuScope::RenderShadowPrepassRecord, 0.5);
+        let snapshot = timings.snapshot(1, 20., 1., 10.);
+        assert_eq!(snapshot.tracked_cpu_ms, 7.);
+        assert_eq!(snapshot.untracked_cpu_ms, 2.);
+        assert_eq!(snapshot.fruit_physics_ms, 1.);
+    }
     #[test]
     fn cpu_timings_accumulate_scopes_and_snapshot_totals() {
         let mut timings = FrameCpuTimings::new(true);

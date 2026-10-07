@@ -712,7 +712,6 @@ const SHADER_FILES: &[&str] = &[
     "shader/tracer/terrain_query.comp",
     "shader/tracer/wind_volume.comp",
     "shader/foliage/vegetation_response.comp",
-    "shader/foliage/leaf_handoff.comp",
     "shader/foliage/flower_pixel.vert",
     "shader/foliage/grass_band.vert",
     "shader/foliage/flora_lighting_cache.comp",

@@ -65,6 +65,7 @@ pub(crate) struct TreeSurfaceCache {
     canonical_revision: u64,
     dirty: bool,
     dependencies: TreeSurfaceDependencies,
+    failed_input: Option<(u32, u64)>,
 }
 
 impl TreeSurfaceCache {
@@ -78,6 +79,20 @@ impl TreeSurfaceCache {
             && self.canonical_revision == canonical_revision
     }
 
+    pub fn failed_for(&self, terrain: u32, canonical: u64) -> bool {
+        self.failed_input == Some((terrain, canonical))
+    }
+
+    pub fn failed(&mut self, terrain: u32, canonical: u64) {
+        self.dirty = true;
+        self.failed_input = Some((terrain, canonical));
+    }
+
+    pub fn invalidate(&mut self) {
+        self.dirty = true;
+        self.failed_input = None;
+    }
+
     pub fn compiled(
         &mut self,
         terrain_revision: u32,
@@ -87,6 +102,7 @@ impl TreeSurfaceCache {
         self.terrain_revision = Some(terrain_revision);
         self.canonical_revision = canonical_revision;
         self.dirty = false;
+        self.failed_input = None;
         self.dependencies = dependencies;
     }
 
@@ -184,6 +200,24 @@ mod tests {
             tree_surface_read_bound(bound(0, 512), UVec3::splat(512)),
             bound(0, 512)
         );
+    }
+
+    #[test]
+    fn failed_input_is_not_compiled_or_retried_until_a_relevant_change() {
+        let mut cache = TreeSurfaceCache::default();
+        cache.compiled(1, 7, deps(vec![bound(10, 20)]));
+        cache.failed(2, 8);
+        assert!(cache.failed_for(2, 8));
+        assert!(!cache.is_current(2, 8));
+        assert_eq!(cache.terrain_revision(), Some(1));
+        assert!(!cache.failed_for(3, 8));
+        assert!(!cache.failed_for(2, 9));
+        cache.invalidate(); // Explicit resource/input invalidation may also retry.
+        assert!(!cache.failed_for(2, 8));
+        assert!(!cache.is_current(2, 8));
+        cache.compiled(2, 8, deps(vec![bound(10, 20)]));
+        assert!(cache.is_current(2, 8));
+        assert!(!cache.failed_for(2, 8));
     }
 
     #[test]
