@@ -2612,9 +2612,9 @@ label = "Soil batch size (individual voxels)"
 type = "Uint"
 
 [section.param.data]
-value = 10
+value = 512
 min = 1
-max = 512
+max = 1024
 
 [[section.param]]
 id = "soil_deposition_rate"

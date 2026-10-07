@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn clicks_and_holds_release_configurable_batches_of_individual_grains() {
         let start = Instant::now();
-        for batch_size in [1, 10, 50, 512] {
+        for batch_size in [1, 10, 50, 512, 1024] {
             for rate in [1., 20., 120.] {
                 let mut flow = DepositionFlow::default();
                 assert_eq!(
@@ -973,7 +973,7 @@ mod tests {
     #[test]
     fn time_budget_preserves_fractions_and_is_sampling_rate_independent() {
         let start = Instant::now();
-        for batch_size in [1, 10, 50] {
+        for batch_size in [1, 10, 50, 512, 1024] {
             let mut fast = DepositionFlow::default();
             let mut slow = DepositionFlow::default();
             let mut a = fast.take(start, 101.25, batch_size).0;

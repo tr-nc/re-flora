@@ -1009,7 +1009,7 @@ impl App {
             .set_camera_pose_looking_at(opening.position, center);
         self.debug_settings.adjustables.soil_deposition_rate.value = 20.;
         let mut pointer_count = count(&thick);
-        for size in [1, 10, 50] {
+        for size in [1, 10, 50, 512, 1024] {
             self.debug_settings
                 .adjustables
                 .soil_deposition_batch_size
@@ -1073,7 +1073,7 @@ impl App {
         self.cursor_position_physical = cursor;
         self.tracer.apply_camera_pose(opening);
         self.contree_builder.flush_cpu_chunk_cache_jobs();
-        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true batch_sizes=1,10,50 click_counts_exact=true hold_counts_exact=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
+        log::info!("[SOIL_DEPOSITION][CHECK] first={} total={} thin_y={} thick_y={} exact_volume=true old_material_preserved=true floor_preserved=true height_uncapped=true publication=true production_lmb=true batch_sizes=1,10,50,512,1024 click_counts_exact=true hold_counts_exact=true tap_no_repeat=true new_voxels_supported={} backpack_preserved=true",
             initial.added, total, height(&thin), height(&thick), checked_new);
         if std::env::var_os("RE_FLORA_SOIL_REPORT_CLOSEUP").is_some() {
             // A separate clean plot avoids showing old geometry-brush soil as the new

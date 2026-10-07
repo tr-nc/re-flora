@@ -1599,6 +1599,24 @@ mod tests {
     }
 
     #[test]
+    fn soil_batch_slider_defaults_to_512_and_saves_its_1024_limit() {
+        let mut settings = DebugSettings::load();
+        let batch = &settings.adjustables.soil_deposition_batch_size;
+        assert_eq!(batch.value, 512);
+        assert_eq!(batch.range, 1..=1024);
+        settings.adjustables.soil_deposition_batch_size.value = 1024;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(loaded.adjustables.soil_deposition_batch_size.value, 1024);
+        assert_eq!(
+            loaded.adjustables.soil_deposition_batch_size.range,
+            1..=1024
+        );
+    }
+
+    #[test]
     fn every_declared_generic_setting_saves_its_live_value() {
         let mut settings = DebugSettings::load();
         // Iterate the declaration, not a manually maintained list of controls.
