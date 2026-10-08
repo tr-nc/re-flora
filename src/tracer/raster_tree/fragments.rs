@@ -44,6 +44,7 @@ impl TreeSurfaceFragment {
             .saturating_add(self.mesh.cell_vertex_indices.capacity() * 4)
             .saturating_add(self.mesh.cells.len() * 256)
             .saturating_add(self.mesh.solid_cells.len() * 64)
+            .saturating_add(self.mesh.trunk_collision.cells().len() * 64)
             .saturating_add(
                 self.mesh
                     .binding_cache
@@ -130,6 +131,7 @@ impl RasterTreeMesh {
             .extend(fragment.mesh.cells.iter().map(|(&p, &facts)| (p, facts)));
         self.solid_cells
             .extend(fragment.mesh.solid_cells.iter().copied());
+        self.trunk_collision.append(&fragment.mesh.trunk_collision);
         self.dependencies.include_region(origin, dim, cones);
         for (cell_index, &cell) in fragment.mesh.cells.keys().enumerate() {
             if self

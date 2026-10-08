@@ -318,12 +318,14 @@ impl TerrainPhysics {
         let cells = mesh
             .solid_cells
             .iter()
-            .filter(|_| !triangles.is_empty())
             .map(|&p| UVec3::from(p).as_ivec3())
-            .collect();
+            .collect::<Vec<_>>();
+        // Exclude ALL tree wood from terrain collision, not just the trunk subset.
+        // Side-only/cut-trunk publications still own exclusions and must be clearable.
+        let has_publication = topology.is_some() || !cells.is_empty();
         Ok(PreparedTreeCollisionSurface {
             positions,
-            revision: topology.as_ref().map(|_| revision),
+            revision: has_publication.then_some(revision),
             topology,
             geometry,
             cells,
@@ -371,7 +373,7 @@ impl TerrainPhysics {
             "tree collision differs from immutable rest geometry"
         );
         log::info!(
-            "[TREE][REST_COLLISION] verified=true wind_independent=true points={} triangles={}",
+            "[TREE][REST_COLLISION] verified=true wind_independent=true trunk_only=true points={} triangles={}",
             self.tree_surface_positions.len(),
             triangles.len()
         );
@@ -1427,6 +1429,164 @@ mod tests {
         (mesh, poses)
     }
 
+    /// Two actual wood voxels: one on the root axis, one well inside a lateral limb.
+    /// Use structural roles/ancestry as the oracle, not species names or skin weights.
+    fn trunk_and_limb_fixture(
+        species: crate::tree_gen::TreeSpecies,
+        axis_model: bool,
+        cut_trunk: bool,
+    ) -> (crate::tracer::RasterTreeMesh, UVec3, UVec3) {
+        use crate::branch_skeleton::BranchSegmentRole;
+        use crate::geom::RoundConeClearanceIndex;
+        let mut authored = crate::tree_gen::TreeDesc {
+            enable_subdivision: false,
+            ..Default::default()
+        };
+        authored.branching.iterations = 3;
+        let mut desc = species.mature_desc(&authored);
+        desc.axis_model = axis_model;
+        let tree = Arc::new(crate::tree_gen::Tree::new(desc));
+        let origin = Vec3::new(1., 0.25, 1.);
+        let cones = tree.world_trunks(origin);
+        let mut main = Vec::new();
+        for branch in tree.branches() {
+            main.push(
+                branch.role == BranchSegmentRole::MainAxis
+                    && branch.parent.is_none_or(|parent| main[parent]),
+            );
+        }
+        let root_cones: Vec<_> = cones
+            .iter()
+            .zip(tree.trunk_branch_indices())
+            .filter(|(_, branch)| main[**branch])
+            .map(|(cone, _)| cone.clone())
+            .collect();
+        let root = RoundConeClearanceIndex::new(&root_cones);
+        let select = |on_trunk: bool| {
+            for (cone, &branch) in cones.iter().zip(tree.trunk_branch_indices()) {
+                if main[branch] != on_trunk {
+                    continue;
+                }
+                for t in [0.5, 0.8, 0.2] {
+                    let base = cone.center_a().lerp(cone.center_b(), t).as_ivec3();
+                    for z in -2..=2 {
+                        for y in -2..=2 {
+                            for x in -2..=2 {
+                                let cell = base + IVec3::new(x, y, z);
+                                let center = cell.as_vec3() + Vec3::splat(0.5);
+                                if cell.cmpge(IVec3::ZERO).all()
+                                    && cone.signed_distance(center) < 0.
+                                    && (on_trunk || root.has_minimum_clearance(center, 2.))
+                                {
+                                    return cell.as_uvec3();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            panic!("missing fixture wood: species={species:?} axis_model={axis_model} trunk={on_trunk}");
+        };
+        let trunk = select(true);
+        let limb = select(false);
+        let min = trunk.min(limb);
+        let dim = trunk.max(limb) - min + UVec3::ONE;
+        let mut bytes = vec![0; dim.element_product() as usize];
+        for cell in [trunk, limb] {
+            if cell == trunk && cut_trunk {
+                continue;
+            }
+            let p = cell - min;
+            bytes[(p.x + dim.x * (p.y + dim.y * p.z)) as usize] = 5;
+        }
+        let mut mesh = crate::tracer::RasterTreeMesh::default();
+        mesh.append_region(min, dim, &bytes, &cones).unwrap();
+        mesh.finish().unwrap();
+        mesh.bind_tree(7, origin, &tree, None).unwrap();
+        mesh.compile_cpu_deformation().unwrap();
+        assert_eq!(
+            mesh.indices.len() / 3,
+            if cut_trunk { 12 } else { 24 },
+            "resident wood must remain visible/pickable"
+        );
+        (mesh, trunk, limb)
+    }
+
+    #[test]
+    fn every_tree_architecture_has_trunk_only_rest_collision_not_lateral_wood() {
+        use crate::tree_gen::TreeSpecies;
+        // New registered species automatically inherit this actual publication test.
+        for (species, axis_model) in TreeSpecies::ALL
+            .into_iter()
+            .flat_map(|species| [false, true].map(|axis_model| (species, axis_model)))
+        {
+            let (mesh, trunk, limb) = trunk_and_limb_fixture(species, axis_model, false);
+            let prepared = TerrainPhysics::prepare_tree_collision_surface(1, &mesh).unwrap();
+            assert_eq!(prepared.topology.as_ref().unwrap().len(), 12,
+                "{species:?} axis_model={axis_model}: lateral visual wood leaked into physical collision");
+            assert!(prepared
+                .positions
+                .iter()
+                .all(|p| p.cmpge(trunk.as_vec3()).all()
+                    && p.cmple((trunk + UVec3::ONE).as_vec3()).all()));
+            let mut physics = TerrainPhysics::new(0.);
+            physics.commit_tree_collision_surface(prepared);
+            let ray = |cell: UVec3| cell.as_vec3() + Vec3::splat(0.5) - Vec3::X * 2.;
+            assert!(physics
+                .collision_world
+                .cast_character_surface_ray(ray(trunk), Vec3::X, 3.)
+                .is_some());
+            assert!(physics
+                .collision_world
+                .cast_character_surface_ray(ray(limb), Vec3::X, 3.)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn lateral_wood_stays_excluded_even_when_the_entire_trunk_was_cut() {
+        for cut_trunk in [false, true] {
+            let (mesh, _, limb) =
+                trunk_and_limb_fixture(crate::tree_gen::TreeSpecies::GardenTree, false, cut_trunk);
+            let mut physics = TerrainPhysics::new(0.);
+            let brick = StaticVoxelBrickId((limb / STATIC_VOXEL_BRICK_DIM).as_ivec3());
+            let occupancy = BrickOccupancy::from_filled_voxels([limb % STATIC_VOXEL_BRICK_DIM]);
+            physics
+                .collision_world
+                .upsert_static_voxel_brick(brick, 1, occupancy.clone());
+            let origin = limb.as_vec3() + Vec3::splat(0.5) - Vec3::X * 2.;
+            assert!(physics
+                .collision_world
+                .cast_character_surface_ray(origin, Vec3::X, 3.)
+                .is_some());
+            physics.commit_tree_collision_surface(
+                TerrainPhysics::prepare_tree_collision_surface(1, &mesh).unwrap(),
+            );
+            assert_eq!(physics.tree_surface_revision, Some(1));
+            if cut_trunk {
+                assert!(physics.tree_surface_topology.is_none());
+            }
+            assert!(physics
+                .collision_world
+                .cast_character_surface_ray(origin, Vec3::X, 3.)
+                .is_none());
+            // A later terrain brick import must apply the same exclusion, too.
+            physics
+                .collision_world
+                .upsert_static_voxel_brick(brick, 2, occupancy);
+            assert!(physics
+                .collision_world
+                .cast_character_surface_ray(origin, Vec3::X, 3.)
+                .is_none());
+            physics.clear_tree_collision_surface().unwrap();
+            assert!(physics
+                .collision_world
+                .cast_character_surface_ray(origin, Vec3::X, 3.)
+                .is_some());
+            physics.clear_tree_collision_surface().unwrap();
+        }
+    }
+
     #[test]
     fn tree_collision_publication_uses_rest_geometry_not_current_wind() {
         let (mesh, rest_poses) = tree_collision_fixture(Vec3::ZERO);
@@ -1441,13 +1601,17 @@ mod tests {
         let wind = mesh.posed_surface(|_| Some(wind_poses.as_slice())).unwrap();
         assert!(mesh.max_displacement(&wind) > 0.01);
         let prepared = TerrainPhysics::prepare_tree_collision_surface(1, &mesh).unwrap();
-        assert_eq!(
-            prepared.positions,
-            rest.collision_positions()
-                .iter()
-                .map(|p| *p * VOXELS_PER_WORLD_UNIT)
-                .collect::<Vec<_>>()
-        );
+        // Collision compacts only exposed trunk corners; the full diagnostic
+        // visual plan may retain additional unused/binding-distinct corners.
+        let rest_points: std::collections::BTreeSet<_> = rest
+            .positions()
+            .map(|p| (p * VOXELS_PER_WORLD_UNIT).to_array().map(f32::to_bits))
+            .collect();
+        assert!(!prepared.positions.is_empty());
+        assert!(prepared
+            .positions
+            .iter()
+            .all(|p| rest_points.contains(&p.to_array().map(f32::to_bits))));
     }
 
     #[test]
