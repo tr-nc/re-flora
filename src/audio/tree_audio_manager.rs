@@ -31,6 +31,7 @@ pub struct TreeAudioManager {
     rustle_clip: ResidentClip,
     lifecycle: CanopyAudioLifecycle,
     emitter_adapter: CanopyDistributedEmitterAdapter,
+    kick_rustle: super::tree_kick_rustle::KickRustlePlayer,
 }
 
 pub(crate) struct TreeAudioPublicationCheckpoint {
@@ -84,6 +85,9 @@ impl TreeAudioManager {
             rustle_params,
             rustle_clip,
             lifecycle: CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS),
+            kick_rustle: super::tree_kick_rustle::KickRustlePlayer::new(
+                spatial_sound_manager.clone(),
+            ),
             emitter_adapter: CanopyDistributedEmitterAdapter::new(spatial_sound_manager),
         })
     }
@@ -125,6 +129,7 @@ impl TreeAudioManager {
     #[allow(dead_code)]
     pub fn remove_all(&mut self) {
         self.emitter_adapter.remove_all();
+        self.kick_rustle.clear();
         self.lifecycle = CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS);
     }
 
@@ -204,6 +209,40 @@ impl TreeAudioManager {
         Ok(())
     }
 
+    pub(crate) fn kick_rustle_voice_count(&self) -> usize {
+        self.kick_rustle.voice_count()
+    }
+    pub(crate) fn clear_kick_rustles(&mut self) {
+        self.kick_rustle.clear();
+    }
+
+    pub(crate) fn prepare_kick_rustle(&mut self, tuning: super::KickRustleTuning) -> Result<()> {
+        self.kick_rustle.prepare(tuning)
+    }
+
+    pub(crate) fn play_kick_rustle(
+        &mut self,
+        tree: u32,
+        time: f32,
+        volume_db: f32,
+    ) -> Result<bool> {
+        let snapshot = self.lifecycle.snapshot(time)?;
+        let Some(generation) = snapshot
+            .generations()
+            .iter()
+            .filter(|g| g.key().tree_id() == tree)
+            .max_by_key(|g| g.key().generation())
+        else {
+            return Ok(false);
+        };
+        let descriptor = generation.descriptor();
+        if descriptor.samples().is_empty() {
+            return Ok(false);
+        }
+        self.kick_rustle.play(descriptor, volume_db)?;
+        Ok(true)
+    }
+
     pub fn update(
         &mut self,
         time_seconds: f32,
@@ -211,6 +250,7 @@ impl TreeAudioManager {
         wind_audio_attack_decay: f32,
         wind_audio_release_decay: f32,
     ) -> Result<()> {
+        self.kick_rustle.retire(std::time::Instant::now());
         let snapshot = self.lifecycle.snapshot(time_seconds)?;
         self.emitter_adapter.synchronize(
             &snapshot,
@@ -310,6 +350,44 @@ mod tests {
     #[test]
     fn base_volume_keeps_procedural_rustle_makeup_without_leaf_count_gain() {
         assert_eq!(TreeAudioManager::base_volume_db(-15.0), 21.0);
+    }
+
+    #[test]
+    #[ignore = "explicit audio-runtime integration check; ordinary tests must not open audio devices"]
+    fn kick_rustle_has_exact_tree_placement_no_wind_dependency_and_bounded_voice_lifetime() {
+        let mut audio = manager();
+        let tuning = super::super::KickRustleTuning {
+            duration: 0.25,
+            brightness: 0.42,
+            crackle: 0.18,
+            body: 0.28,
+            shake_frequency: 2.55,
+        };
+        audio.prepare_kick_rustle(tuning).unwrap();
+        audio.upsert_tree(1, descriptor(1, 1.), 0.).unwrap();
+        assert!(!audio.play_kick_rustle(99, 0., -6.).unwrap());
+        assert_eq!(audio.kick_rustle_voice_count(), 0);
+        // No wind update/threshold is required to play this finite event.
+        for _ in 0..12 {
+            assert!(audio.play_kick_rustle(1, 0., -6.).unwrap());
+        }
+        let (_, extent, profile) = audio.kick_rustle.latest_spatial_domain().unwrap();
+        assert!(
+            extent.weighted().is_some(),
+            "the real finite canopy cue must not collapse to one listener-selected point"
+        );
+        assert!(
+            matches!(profile, petalsonic::OcclusionProfile::PointExact),
+            "finite cue must keep exact transmission, not ambient attenuation floors"
+        );
+        assert_eq!(audio.kick_rustle_voice_count(), 8);
+        audio
+            .kick_rustle
+            .retire(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        assert_eq!(audio.kick_rustle_voice_count(), 0);
+        audio.play_kick_rustle(1, 0., -6.).unwrap();
+        audio.clear_kick_rustles();
+        assert_eq!(audio.kick_rustle_voice_count(), 0);
     }
 
     #[test]

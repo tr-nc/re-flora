@@ -1,6 +1,6 @@
 //! Exact interaction geometry: share only bit-identical rest points AND bindings.
 //! The visual mesh keeps its per-cell normals/confidence and original GPU topology.
-use super::{BranchPose, RasterTreeMesh, RestCollisionGeometry, SkinBinding, Vec3};
+use super::{BranchPose, RasterTreeMesh, SkinBinding, Vec3};
 use crate::tree_gen::skin::SkinTransform;
 use anyhow::{ensure, Context, Result};
 use std::{collections::HashMap, sync::Arc};
@@ -26,6 +26,7 @@ pub(super) struct CpuDeformationPlan {
     transforms: Vec<TransformSpec>,
     points: Vec<Point>,
     visual_to_point: Vec<u32>,
+    #[cfg(test)]
     triangles: Arc<[[u32; 3]]>,
 }
 impl CpuDeformationPlan {
@@ -76,6 +77,13 @@ impl CpuDeformationPlan {
             visual_to_point
                 .push(u32::try_from(point).context("CPU tree point addressing overflow")?);
         }
+        ensure!(
+            mesh.indices
+                .iter()
+                .all(|&i| (i as usize) < visual_to_point.len()),
+            "CPU tree triangle out of range"
+        );
+        #[cfg(test)]
         let triangles = mesh
             .indices
             .chunks_exact(3)
@@ -99,6 +107,7 @@ impl CpuDeformationPlan {
             transforms,
             points,
             visual_to_point,
+            #[cfg(test)]
             triangles,
         })
     }
@@ -141,13 +150,6 @@ impl CpuDeformationPlan {
         }
         Ok(surface)
     }
-    pub(super) fn rest_collision_geometry(&self) -> RestCollisionGeometry {
-        (
-            self.points.iter().map(|p| p.rest).collect(),
-            self.triangles.clone(),
-        )
-    }
-
     pub(super) fn counts(&self) -> (usize, usize) {
         (self.points.len(), self.transforms.len())
     }
@@ -155,7 +157,7 @@ impl CpuDeformationPlan {
 
 /// Visual vertex indexing is preserved for GPU validation, rays, and rest-space editing.
 /// Visual queries preserve the same ordered triangles over a smaller exact point array.
-/// Physical collisions use the plan's immutable rest geometry instead.
+/// This complete visual oracle must not determine the physical trunk-only surface.
 pub struct PosedTreeSurface {
     plan: Arc<CpuDeformationPlan>,
     positions: Vec<Vec3>,

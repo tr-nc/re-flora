@@ -376,9 +376,6 @@ fn tree_fruit_specs(
         let grow_start_phase = 0.52 + unit_hash(seed, leaf_index, 0xD1B5_4A35, leaf_pos) * 0.12;
         let full_growth_phase =
             grow_start_phase + 0.10 + unit_hash(seed, leaf_index, 0x94D0_49BB, leaf_pos) * 0.06;
-        let drop_phase = (0.82 + unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos) * 0.16)
-            .max(full_growth_phase + 0.06)
-            .min(0.99);
         let horizontal_velocity = Vec2::new(
             unit_hash(seed, leaf_index, 0xDB4F_0B91, leaf_pos) * 2.0 - 1.0,
             unit_hash(seed, leaf_index, 0xBBE0_56B5, leaf_pos) * 2.0 - 1.0,
@@ -401,7 +398,8 @@ fn tree_fruit_specs(
             position_voxels,
             grow_start_phase,
             full_growth_phase,
-            drop_phase,
+            connection_strength: (0.1 + 0.8 * unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos))
+                .clamp(0.1, 0.9),
             linear_velocity_voxels: Vec3::new(
                 horizontal_velocity.x,
                 -unit_hash(seed, leaf_index, 0x4CF5_AD43, leaf_pos) * 2.0,
@@ -1900,7 +1898,8 @@ impl AppTreePublicationHost<'_> {
             anyhow::ensure!(
                 fruit.grow_start_phase.is_finite()
                     && fruit.full_growth_phase.is_finite()
-                    && fruit.drop_phase.is_finite()
+                    && fruit.connection_strength.is_finite()
+                    && (0. ..=1.).contains(&fruit.connection_strength)
                     && fruit.linear_velocity_voxels.is_finite()
                     && fruit.angular_velocity.is_finite(),
                 "tree {} fruit {} contains non-finite publication data",
@@ -1908,8 +1907,7 @@ impl AppTreePublicationHost<'_> {
                 fruit.id,
             );
             anyhow::ensure!(
-                fruit.grow_start_phase < fruit.full_growth_phase
-                    && fruit.full_growth_phase < fruit.drop_phase,
+                fruit.grow_start_phase < fruit.full_growth_phase && fruit.full_growth_phase <= 1.0,
                 "tree {} fruit {} lifecycle phases are not ordered",
                 publication.tree_id,
                 fruit.id,
@@ -3918,7 +3916,8 @@ impl App {
     pub(super) fn publish_tree_surface_pose(&mut self) -> Result<()> {
         let started = Instant::now();
         let active = self.tracer.raster_trees.enabled
-            && self.debug_settings.adjustables.raster_tree_wind.value;
+            && (self.debug_settings.adjustables.raster_tree_wind.value
+                || self.trees.records.values().any(|r| r.pose.kick_active()));
         // Full CPU geometry is a hidden smoke oracle, never an input to live
         // picking, physics, GPU skin/refit, attachments, or their activation.
         let surface = if active && self.launch_owners.raster_tree_smoke.is_some() {
@@ -3996,11 +3995,125 @@ impl App {
         Ok(())
     }
 
+    // Explicit hidden fixture only: no production kick can seek/reset simulation.
+    pub(super) fn tree_kick_pose_smoke(&mut self, start: bool) -> Result<()> {
+        self.finish_tree_poses()?;
+        if start {
+            let id = self
+                .tracer
+                .raster_trees
+                .skin
+                .branches
+                .first()
+                .context("kick fixture has no tree")?
+                .0;
+            anyhow::ensure!(
+                self.kick_tree(id, Vec3::X, self.tree_kick_tuning())?,
+                "kick fixture was rejected"
+            );
+        } else {
+            for record in self.trees.records.values_mut() {
+                record.pose.advance_kick(30.)?;
+            }
+        }
+        Ok(())
+    }
+
+    // Explicit fixture advances the same packet clock; the next normal pose
+    // update, not this fixture, consumes canopy arrival and triggers consequences.
+    pub(super) fn tree_kick_canopy_smoke(&mut self) -> Result<()> {
+        self.finish_tree_poses()?;
+        let tuning = self.tree_kick_tuning();
+        for record in self.trees.records.values_mut() {
+            record
+                .pose
+                .advance_kick(record.pose.canopy_kick_delay(tuning) + 0.03)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn can_accept_tree_kick(&self, id: u32) -> bool {
+        self.trees
+            .records
+            .get(&id)
+            .is_some_and(|record| record.pose.can_accept_kick())
+    }
+    pub(super) fn validate_waiting_kick_axes(&self, id: u32) -> Result<usize> {
+        self.trees
+            .records
+            .get(&id)
+            .context("missing kick fixture tree")?
+            .pose
+            .validate_waiting_kick_axes()
+    }
+
+    pub(super) fn tree_kick_tuning(&self) -> crate::tree_gen::kick::KickTuning {
+        let a = &self.debug_settings.adjustables;
+        crate::tree_gen::kick::KickTuning {
+            strength: a.tree_kick_strength.value,
+            frequency: a.tree_kick_frequency.value,
+            damping: a.tree_kick_damping.value,
+            propagation_speed: a.tree_kick_propagation_speed.value,
+        }
+    }
+    pub(super) fn kick_tree(
+        &mut self,
+        id: u32,
+        direction: Vec3,
+        tuning: crate::tree_gen::kick::KickTuning,
+    ) -> Result<bool> {
+        let accepted = match self.trees.records.get_mut(&id) {
+            Some(r) => r.pose.kick(direction, tuning)?,
+            None => false,
+        };
+        if accepted {
+            let delay = self.trees.records[&id].pose.canopy_kick_delay(tuning);
+            log::info!("[TREE_KICK][WAVE] tree={id} canopy_delay={delay:.3} speed={} effects_at_arrival=true", tuning.propagation_speed);
+        }
+        Ok(accepted)
+    }
+
+    fn apply_canopy_kick_arrival(&mut self, id: u32) {
+        let fruit = self.terrain_physics.request_tree_fruit_kick(
+            id,
+            self.debug_settings
+                .adjustables
+                .tree_kick_fruit_chance_scale
+                .value,
+        );
+        let leaves = self.trees.leaf_emitters.burst(
+            id,
+            &mut self.particle_system,
+            self.debug_settings.adjustables.tree_kick_leaf_count.value as usize,
+        );
+        if let Err(error) = self.tree_audio_manager.play_kick_rustle(
+            id,
+            self.time_info.time_since_start(),
+            self.debug_settings
+                .adjustables
+                .tree_kick_rustle_volume_db
+                .value,
+        ) {
+            log::warn!("[TREE_KICK] leaf-rustle playback failed: {error:#}");
+        }
+        log::info!("[TREE_KICK][RELEASE] tree={id} requested_fruit={fruit} leaves={leaves} one_shot=true propagated=true");
+    }
+
     pub(super) fn advance_tree_poses(&mut self, dt: f32) -> Result<()> {
         // An out-of-date swapchain can skip the previous publication. Consume
         // that job before touching its resources, then submit this frame's step.
         self.finish_tree_poses()?;
         let stiffness = self.tree_wind_stiffness()?;
+        let mut arrivals = Vec::new();
+        for (&id, record) in &mut self.trees.records {
+            record.pose.advance_kick(dt)?;
+            for _ in 0..record.pose.take_canopy_kick_arrivals() {
+                arrivals.push(id);
+            }
+        }
+        for id in arrivals {
+            self.apply_canopy_kick_arrival(id);
+        }
         self.tracer.tree_pose_solver.submit(
             self.trees
                 .records
@@ -4009,6 +4122,7 @@ impl App {
             &self.wind_prototype.field.frame(),
             dt,
             stiffness,
+            self.debug_settings.adjustables.raster_tree_wind.value,
             self.launch_owners.raster_tree_smoke.is_some(),
             self.perf_logging,
         )
@@ -5458,15 +5572,21 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.len() > 8);
         assert!(first.iter().all(|fruit| {
-            fruit.grow_start_phase < fruit.full_growth_phase
-                && fruit.full_growth_phase < fruit.drop_phase
-                && fruit.drop_phase <= 0.99
+            fruit.grow_start_phase < fruit.full_growth_phase && fruit.full_growth_phase <= 0.99
         }));
         let distinct_drop_millis = first
             .iter()
-            .map(|fruit| (fruit.drop_phase * 1_000.0).round() as u32)
+            .map(|fruit| (fruit.full_growth_phase * 1_000.0).round() as u32)
             .collect::<HashSet<_>>();
         assert!(distinct_drop_millis.len() > 4);
+        assert!(first
+            .iter()
+            .all(|fruit| (0.1..=0.9).contains(&fruit.connection_strength)));
+        let strengths: HashSet<_> = first
+            .iter()
+            .map(|fruit| fruit.connection_strength.to_bits())
+            .collect();
+        assert!(strengths.len() > 4);
     }
 
     #[test]
@@ -5491,7 +5611,7 @@ mod tests {
             sapling.id == mature.id
                 && sapling.grow_start_phase == mature.grow_start_phase
                 && sapling.full_growth_phase == mature.full_growth_phase
-                && sapling.drop_phase == mature.drop_phase
+                && sapling.connection_strength == mature.connection_strength
         }));
         assert!(sapling
             .iter()

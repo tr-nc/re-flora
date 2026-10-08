@@ -19,6 +19,7 @@ struct Resources {
     tree_pose_state: Resource<Buffer>,
     tree_pose_ranges: Resource<Buffer>,
     tree_pose_step: Resource<Buffer>,
+    tree_pose_kicks: Resource<Buffer>,
     wind_field_info: Resource<Buffer>,
 }
 
@@ -84,6 +85,7 @@ impl Resident {
             )),
             tree_pose_ranges: host(std::mem::size_of_val(ranges.as_slice())),
             tree_pose_step: host(16),
+            tree_pose_kicks: host(trees.len() * std::mem::size_of::<super::kick::GpuKickTree>()),
             wind_field_info: Resource::new(buffer(
                 std::mem::size_of::<WindFieldFrame>(),
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -173,6 +175,7 @@ impl GpuTreePoseSolver {
         wind: &WindFieldFrame,
         dt: f32,
         stiffness: TreeStiffness,
+        wind_enabled: bool,
         validate: bool,
         profile: bool,
     ) -> Result<()> {
@@ -209,6 +212,11 @@ impl GpuTreePoseSolver {
         let resident = self.resident.as_ref().unwrap();
         let resources = &resident.resources;
         resources.wind_field_info.fill_uniform(wind)?;
+        let kicks: Vec<_> = trees
+            .iter()
+            .map(|(_, pose)| pose.gpu_kick(wind_enabled))
+            .collect();
+        resources.tree_pose_kicks.fill(&kicks)?;
         resources.tree_pose_step.fill(&[[
             u32::try_from(trees.len())?,
             dt.to_bits(),
@@ -219,7 +227,7 @@ impl GpuTreePoseSolver {
             let mut states = Vec::new();
             for &(_, pose) in &trees {
                 let mut reference = pose.clone();
-                reference.advance_with_stiffness(wind, dt, stiffness)?;
+                reference.advance_with_root(wind, dt, stiffness, wind_enabled)?;
                 states.extend(reference.gpu_state());
             }
             Some(states)
@@ -232,7 +240,11 @@ impl GpuTreePoseSolver {
             profiler.begin_frame(0, &command);
             profiler.begin_scope(0, &command, "tree_pose.job", PipelineStage::ALL_COMMANDS)
         });
-        for buffer in [&resources.wind_field_info, &resources.tree_pose_step] {
+        for buffer in [
+            &resources.wind_field_info,
+            &resources.tree_pose_step,
+            &resources.tree_pose_kicks,
+        ] {
             command.use_buffer(buffer, BufferUse::HostWrite);
         }
         if reset {

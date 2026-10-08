@@ -19,6 +19,7 @@ use crate::{
     },
 };
 
+mod collision;
 mod cpu_surface;
 mod fragments;
 
@@ -67,6 +68,7 @@ pub struct RasterTreeMesh {
     pub indices: Vec<u32>,
     cells: BTreeMap<[u32; 3], (Vec3, f32, [bool; 6])>,
     pub solid_cells: std::collections::BTreeSet<[u32; 3]>,
+    trunk_collision: collision::RestTrunkCollision,
     bindings: Vec<Option<(u32, SkinBinding)>>,
     binding_cache: BTreeMap<u32, TreeBindingCache>,
     cpu_plan: Option<Arc<CpuDeformationPlan>>,
@@ -90,6 +92,7 @@ impl RasterTreeMesh {
             == bytemuck::cast_slice::<_, u8>(&other.vertices)
             && self.indices == other.indices
             && self.solid_cells == other.solid_cells
+            && self.trunk_collision == other.trunk_collision
             && self.bindings == other.bindings
             && self.cell_vertex_indices == other.cell_vertex_indices
     }
@@ -219,6 +222,8 @@ impl RasterTreeMesh {
             "finish tree mesh before binding"
         );
         self.cpu_plan = None;
+        self.trunk_collision
+            .include_tree(&self.solid_cells, tree, origin);
         let previous = previous
             .and_then(|mesh| mesh.binding_cache.get(&tree_id))
             .filter(|cache| Arc::ptr_eq(&cache.tree, tree) && cache.origin == origin);
@@ -270,6 +275,20 @@ impl RasterTreeMesh {
             },
         );
         Ok(())
+    }
+
+    /// Checked ownership of the exact picked triangle, not an AABB-nearest tree.
+    pub(crate) fn triangle_tree(&self, triangle: [u32; 3]) -> Option<u32> {
+        let owner = self.bindings.get(triangle[0] as usize)?.as_ref()?.0;
+        triangle
+            .into_iter()
+            .all(|i| {
+                self.bindings
+                    .get(i as usize)
+                    .and_then(|b| b.as_ref())
+                    .is_some_and(|b| b.0 == owner)
+            })
+            .then_some(owner)
     }
 
     /// Compile resident per-vertex GPU data only when topology changes.
@@ -325,14 +344,17 @@ impl RasterTreeMesh {
         Ok(())
     }
 
-    /// Immutable, compact no-wind collision geometry. Publication uses this
-    /// regardless of the current visual pose or wind toggle.
+    /// Immutable trunk-only collision; full visual wood/picking remains independent.
     pub(crate) fn rest_collision_geometry(&self) -> Result<RestCollisionGeometry> {
-        let plan = match &self.cpu_plan {
-            Some(plan) => plan.clone(),
-            None => Arc::new(CpuDeformationPlan::compile(self)?),
-        };
-        Ok(plan.rest_collision_geometry())
+        ensure!(
+            self.indices.len().is_multiple_of(3),
+            "incomplete tree triangles"
+        );
+        ensure!(
+            self.trunk_collision.cells().is_subset(&self.solid_cells),
+            "physical trunk contains nonresident wood"
+        );
+        self.trunk_collision.geometry()
     }
 
     pub fn posed_surface<'a>(
@@ -768,6 +790,27 @@ mod tests {
     }
 
     #[test]
+    fn picked_triangle_ownership_is_checked_not_guessed_from_proximity() {
+        let mut mesh = RasterTreeMesh::default();
+        let binding = SkinBinding {
+            branch: 0,
+            parent: None,
+            weight: 1.,
+        };
+        mesh.bindings = vec![
+            Some((17, binding)),
+            Some((17, binding)),
+            Some((17, binding)),
+            Some((18, binding)),
+            None,
+        ];
+        assert_eq!(mesh.triangle_tree([0, 1, 2]), Some(17));
+        assert_eq!(mesh.triangle_tree([0, 1, 3]), None);
+        assert_eq!(mesh.triangle_tree([0, 1, 4]), None);
+        assert_eq!(mesh.triangle_tree([0, 1, u32::MAX]), None);
+    }
+
+    #[test]
     fn publication_equality_covers_geometry_normals_occupancy_and_skin() {
         let tree = small_tree();
         let mut mesh = binding_fixture(&tree, &[(3, 3, 3), (4, 3, 3)]);
@@ -776,7 +819,7 @@ mod tests {
         let mut memo_only = mesh.clone();
         memo_only.binding_cache.clear();
         assert!(mesh.same_surface(&memo_only));
-        for change in 0..7 {
+        for change in 0..8 {
             let mut other = mesh.clone();
             match change {
                 0 => other.vertices[0].normal = [1., 0., 0.],
@@ -788,6 +831,7 @@ mod tests {
                 }
                 5 => other.bindings[0].as_mut().unwrap().1.branch += 1,
                 6 => other.cell_vertex_indices[0] = 0,
+                7 => other.trunk_collision = Default::default(),
                 _ => unreachable!(),
             }
             assert!(!mesh.same_surface(&other), "change {change} must publish");

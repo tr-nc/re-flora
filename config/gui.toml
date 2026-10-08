@@ -49,8 +49,11 @@ wind_limit = 2.0
 
 [tree]
 render_leaves = true
+conifer_axis_model = true
 
 [tree.desc]
+species = "garden_tree"
+axis_model = false
 size = 20.0
 trunk_thickness = 0.4
 thickness_reduction = 0.61
@@ -557,6 +560,149 @@ min = 0
 max = 1
 
 [[section.param]]
+id = "tree_kick_strength"
+kind = "float"
+label = "Tree kick impulse (rad/s)"
+type = "Float"
+
+[section.param.data]
+value = 0.2
+min = 0
+max = 4
+
+[[section.param]]
+id = "tree_kick_frequency"
+kind = "float"
+label = "Tree kick shake speed (Hz)"
+type = "Float"
+
+[section.param.data]
+value = 2.55
+min = 1
+max = 7
+
+[[section.param]]
+id = "tree_kick_damping"
+kind = "float"
+label = "Tree kick damping (low = longer)"
+type = "Float"
+
+[section.param.data]
+value = 0.3
+min = 0.1
+max = 0.9
+
+[[section.param]]
+id = "tree_kick_reach"
+kind = "float"
+label = "Tree kick reach (voxels)"
+type = "Float"
+
+[section.param.data]
+value = 100
+min = 16
+max = 100
+
+[[section.param]]
+id = "tree_kick_cooldown"
+kind = "float"
+label = "Tree kick cooldown (seconds)"
+type = "Float"
+
+[section.param.data]
+value = 0.15
+min = 0.15
+max = 1.5
+
+[[section.param]]
+id = "tree_kick_propagation_speed"
+kind = "float"
+label = "Tree kick wave speed (voxels/s, low = slower)"
+type = "Float"
+
+[section.param.data]
+value = 550
+min = 100
+max = 2000
+
+[[section.param]]
+id = "tree_kick_fruit_chance_scale"
+kind = "float"
+label = "Tree kick fruit release chance scale"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_kick_leaf_count"
+kind = "int"
+label = "Tree kick decorative leaves per burst"
+type = "Int"
+
+[section.param.data]
+value = 16
+min = 0
+max = 128
+
+[[section.param]]
+id = "tree_kick_rustle_volume_db"
+kind = "float"
+label = "Tree kick leaf rustle volume (dB)"
+type = "Float"
+
+[section.param.data]
+value = -3
+min = -40
+max = 6
+
+[[section.param]]
+id = "tree_kick_rustle_duration"
+kind = "float"
+label = "Tree kick leaf rustle tail (seconds)"
+type = "Float"
+
+[section.param.data]
+value = 2
+min = 0.25
+max = 3
+
+[[section.param]]
+id = "tree_kick_rustle_body"
+kind = "float"
+label = "Leaf rustle body (low = crisper)"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0
+max = 1.5
+
+[[section.param]]
+id = "tree_kick_rustle_brightness"
+kind = "float"
+label = "Tree kick leaf rustle brightness"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 1
+
+[[section.param]]
+id = "tree_kick_rustle_crackle"
+kind = "float"
+label = "Tree kick leaf contact detail (low = softer)"
+type = "Float"
+
+[section.param.data]
+value = 0.2
+min = 0
+max = 1
+
+[[section.param]]
 id = "flora_growth_override_enabled"
 kind = "bool"
 label = "Override Flora Growth"
@@ -590,7 +736,7 @@ max = 1
 [[section.param]]
 id = "fruit_cycle"
 kind = "float"
-label = "Fruit Cycle"
+label = "Fruit Growth (held until kick)"
 type = "Float"
 
 [section.param.data]

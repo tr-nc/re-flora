@@ -124,6 +124,13 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
+        title: "Tree Kick",
+        description: "Walk near tree wood, aim and press K. Bending travels along the actual trunk/branch paths; canopy arrival triggers decorative leaves, apple roulette and finite leaf rustle. No wood damage or collider motion. Lower wave speed slows both motion and effects; lower sound body reduces muffled low/mid texture. Sound works without wind. These controls are saved with Debug Panel Save.",
+        initially_open: false,
+        params: &["tree_kick_strength", "tree_kick_frequency", "tree_kick_damping", "tree_kick_reach", "tree_kick_cooldown", "tree_kick_propagation_speed", "tree_kick_fruit_chance_scale", "tree_kick_leaf_count", "tree_kick_rustle_volume_db", "tree_kick_rustle_duration", "tree_kick_rustle_body", "tree_kick_rustle_brightness", "tree_kick_rustle_crackle"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Visibility & Detail",
         description: "Draw distance, level of detail and which grass species are visible.",
         initially_open: false,

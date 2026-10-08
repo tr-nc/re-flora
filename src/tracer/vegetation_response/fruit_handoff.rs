@@ -94,7 +94,7 @@ fn sample_held_field(info: ResponseInfo, states: &[[f32; STATE_FLOATS]], root: U
     })
 }
 
-fn fruit_offset(q: Vec2, length: f32, max_angle: f32) -> Vec3 {
+pub(in crate::tracer) fn fruit_offset(q: Vec2, length: f32, max_angle: f32) -> Vec3 {
     let magnitude = q.length();
     let angle = magnitude / (1. + magnitude) * max_angle.max(0.);
     let direction = if magnitude > 0.000001 {

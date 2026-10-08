@@ -1,0 +1,13 @@
+# Version-controlled release baseline for the bounded full-quantum gate.
+# Recorded on x86_64-unknown-linux-gnu after three warmed release runs on 2026-08-10.
+# Observed p50=52us, p95=55us, p99=58..83us, max=84..574us; the max outlier
+# reflects host scheduling and is reported but intentionally not used as a release threshold.
+voices=32
+world_sample_rate=48000
+device_sample_rate=44100
+block_size=64
+p50_us=52
+p95_us=55
+p99_us=85
+max_us=574
+max_p99_regression_percent=25

@@ -272,6 +272,84 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "tree_kick_strength",
+        kind: "float",
+        label: "Tree kick impulse (rad/s)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_frequency",
+        kind: "float",
+        label: "Tree kick shake speed (Hz)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_damping",
+        kind: "float",
+        label: "Tree kick damping (low = longer)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_reach",
+        kind: "float",
+        label: "Tree kick reach (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_cooldown",
+        kind: "float",
+        label: "Tree kick cooldown (seconds)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_propagation_speed",
+        kind: "float",
+        label: "Tree kick wave speed (voxels/s, low = slower)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_fruit_chance_scale",
+        kind: "float",
+        label: "Tree kick fruit release chance scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_leaf_count",
+        kind: "int",
+        label: "Tree kick decorative leaves per burst",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_volume_db",
+        kind: "float",
+        label: "Tree kick leaf rustle volume (dB)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_duration",
+        kind: "float",
+        label: "Tree kick leaf rustle tail (seconds)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_body",
+        kind: "float",
+        label: "Leaf rustle body (low = crisper)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_brightness",
+        kind: "float",
+        label: "Tree kick leaf rustle brightness",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "tree_kick_rustle_crackle",
+        kind: "float",
+        label: "Tree kick leaf contact detail (low = softer)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_growth_override_enabled",
         kind: "bool",
         label: "Override Flora Growth",
@@ -292,7 +370,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "fruit_cycle",
         kind: "float",
-        label: "Fruit Cycle",
+        label: "Fruit Growth (held until kick)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1599,6 +1677,19 @@ pub struct GuiAdjustables {
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
     pub tree_stiffness: crate::gui_adjustables::FloatParam,
+    pub tree_kick_strength: crate::gui_adjustables::FloatParam,
+    pub tree_kick_frequency: crate::gui_adjustables::FloatParam,
+    pub tree_kick_damping: crate::gui_adjustables::FloatParam,
+    pub tree_kick_reach: crate::gui_adjustables::FloatParam,
+    pub tree_kick_cooldown: crate::gui_adjustables::FloatParam,
+    pub tree_kick_propagation_speed: crate::gui_adjustables::FloatParam,
+    pub tree_kick_fruit_chance_scale: crate::gui_adjustables::FloatParam,
+    pub tree_kick_leaf_count: crate::gui_adjustables::IntParam,
+    pub tree_kick_rustle_volume_db: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_duration: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_body: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_brightness: crate::gui_adjustables::FloatParam,
+    pub tree_kick_rustle_crackle: crate::gui_adjustables::FloatParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -1867,6 +1958,19 @@ impl GuiAdjustables {
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_stiffness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_cooldown_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_propagation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_fruit_chance_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_leaf_count_field: Option<crate::gui_adjustables::IntParam> = None;
+        let mut tree_kick_rustle_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_duration_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_body_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_kick_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2330,6 +2434,97 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_stiffness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_strength" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_frequency" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_damping" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_damping_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_reach" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_reach_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_cooldown" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_cooldown_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_propagation_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_propagation_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_fruit_chance_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_fruit_chance_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_leaf_count" => {
+                        if let (GuiParamKind::Int, GuiParamValue::Int { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            tree_kick_leaf_count_field = Some(crate::gui_adjustables::IntParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_volume_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_volume_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_duration" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_duration_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_body" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_body_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_brightness" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_brightness_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_kick_rustle_crackle" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_kick_rustle_crackle_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "flora_growth_override_enabled" => {
@@ -3813,6 +4008,19 @@ impl GuiAdjustables {
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
             tree_stiffness: tree_stiffness_field.expect("Missing parameter: tree_stiffness"),
+            tree_kick_strength: tree_kick_strength_field.expect("Missing parameter: tree_kick_strength"),
+            tree_kick_frequency: tree_kick_frequency_field.expect("Missing parameter: tree_kick_frequency"),
+            tree_kick_damping: tree_kick_damping_field.expect("Missing parameter: tree_kick_damping"),
+            tree_kick_reach: tree_kick_reach_field.expect("Missing parameter: tree_kick_reach"),
+            tree_kick_cooldown: tree_kick_cooldown_field.expect("Missing parameter: tree_kick_cooldown"),
+            tree_kick_propagation_speed: tree_kick_propagation_speed_field.expect("Missing parameter: tree_kick_propagation_speed"),
+            tree_kick_fruit_chance_scale: tree_kick_fruit_chance_scale_field.expect("Missing parameter: tree_kick_fruit_chance_scale"),
+            tree_kick_leaf_count: tree_kick_leaf_count_field.expect("Missing parameter: tree_kick_leaf_count"),
+            tree_kick_rustle_volume_db: tree_kick_rustle_volume_db_field.expect("Missing parameter: tree_kick_rustle_volume_db"),
+            tree_kick_rustle_duration: tree_kick_rustle_duration_field.expect("Missing parameter: tree_kick_rustle_duration"),
+            tree_kick_rustle_body: tree_kick_rustle_body_field.expect("Missing parameter: tree_kick_rustle_body"),
+            tree_kick_rustle_brightness: tree_kick_rustle_brightness_field.expect("Missing parameter: tree_kick_rustle_brightness"),
+            tree_kick_rustle_crackle: tree_kick_rustle_crackle_field.expect("Missing parameter: tree_kick_rustle_crackle"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -4049,6 +4257,18 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "apple_size_scale" => Some(&adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
+        "tree_kick_strength" => Some(&adjustables.tree_kick_strength),
+        "tree_kick_frequency" => Some(&adjustables.tree_kick_frequency),
+        "tree_kick_damping" => Some(&adjustables.tree_kick_damping),
+        "tree_kick_reach" => Some(&adjustables.tree_kick_reach),
+        "tree_kick_cooldown" => Some(&adjustables.tree_kick_cooldown),
+        "tree_kick_propagation_speed" => Some(&adjustables.tree_kick_propagation_speed),
+        "tree_kick_fruit_chance_scale" => Some(&adjustables.tree_kick_fruit_chance_scale),
+        "tree_kick_rustle_volume_db" => Some(&adjustables.tree_kick_rustle_volume_db),
+        "tree_kick_rustle_duration" => Some(&adjustables.tree_kick_rustle_duration),
+        "tree_kick_rustle_body" => Some(&adjustables.tree_kick_rustle_body),
+        "tree_kick_rustle_brightness" => Some(&adjustables.tree_kick_rustle_brightness),
+        "tree_kick_rustle_crackle" => Some(&adjustables.tree_kick_rustle_crackle),
         "flora_growth_override" => Some(&adjustables.flora_growth_override),
         "tree_age" => Some(&adjustables.tree_age),
         "fruit_cycle" => Some(&adjustables.fruit_cycle),
@@ -4221,6 +4441,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::IntParam> {
     match id {
+        "tree_kick_leaf_count" => Some(&adjustables.tree_kick_leaf_count),
         "starlight_iterations" => Some(&adjustables.starlight_iterations),
         "starlight_volsteps" => Some(&adjustables.starlight_volsteps),
         _ => None,
@@ -4351,6 +4572,18 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
+        "tree_kick_strength" => Some(&mut adjustables.tree_kick_strength),
+        "tree_kick_frequency" => Some(&mut adjustables.tree_kick_frequency),
+        "tree_kick_damping" => Some(&mut adjustables.tree_kick_damping),
+        "tree_kick_reach" => Some(&mut adjustables.tree_kick_reach),
+        "tree_kick_cooldown" => Some(&mut adjustables.tree_kick_cooldown),
+        "tree_kick_propagation_speed" => Some(&mut adjustables.tree_kick_propagation_speed),
+        "tree_kick_fruit_chance_scale" => Some(&mut adjustables.tree_kick_fruit_chance_scale),
+        "tree_kick_rustle_volume_db" => Some(&mut adjustables.tree_kick_rustle_volume_db),
+        "tree_kick_rustle_duration" => Some(&mut adjustables.tree_kick_rustle_duration),
+        "tree_kick_rustle_body" => Some(&mut adjustables.tree_kick_rustle_body),
+        "tree_kick_rustle_brightness" => Some(&mut adjustables.tree_kick_rustle_brightness),
+        "tree_kick_rustle_crackle" => Some(&mut adjustables.tree_kick_rustle_crackle),
         "flora_growth_override" => Some(&mut adjustables.flora_growth_override),
         "tree_age" => Some(&mut adjustables.tree_age),
         "fruit_cycle" => Some(&mut adjustables.fruit_cycle),
@@ -4523,6 +4756,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
 #[allow(dead_code)]
 pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::IntParam> {
     match id {
+        "tree_kick_leaf_count" => Some(&mut adjustables.tree_kick_leaf_count),
         "starlight_iterations" => Some(&mut adjustables.starlight_iterations),
         "starlight_volsteps" => Some(&mut adjustables.starlight_volsteps),
         _ => None,

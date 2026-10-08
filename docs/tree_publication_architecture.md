@@ -133,19 +133,28 @@ when full, geometry still assembles correctly without retaining that optional fr
 and failed candidate histories are not accumulated. Readbacks and whole-forest BVH/resource
 publication still occur; this is compilation reuse, not a second canonical tree owner.
 
-Physical tree collision now uses the immutable **no-wind rest surface**, independently of visual
-wind enablement and current poses. `PreparedTreeSurface` prepares that compact geometry off-side
-and commits it with the complete forest publication. Only geometry publication (planting, removal,
+Physical tree collision uses immutable **no-wind root-axis wood only**, independently of species,
+visual wind enablement and current poses. `Tree` derives this policy from structural main-axis
+roles and the complete parent chain: a lateral branch's own continuation is not a root axis.
+`RestTrunkCollision` intersects those exact authored/subdivided world cones with resident wood,
+then builds a closed compact voxel surface independently of visual faces and skin bindings.
+Cuts stay removed; adjacent lateral wood cannot leave a missing trunk face. Every tree kind and
+both skeleton architectures go through this same implementation, with no species opt-in.
+`PreparedTreeSurface` prepares that geometry off-side and commits it with the complete forest publication. Only geometry publication (planting, removal,
 replacement, age rebuild, edited wood, restoration) can replace the collider; steady wind frames
 never publish positions, refit its BVH or invalidate Rapier contact workspaces. A committed-terrain
-failure clears it and restores authoritative voxel collision. Upper branches can visibly move away
-from their rest collision; this is an explicitly accepted interaction approximation, not quantized
-motion or a skipped invalidation on a mutated shape.
+failure clears it and restores authoritative voxel collision. All tree wood, including lateral
+wood, is excluded from the underlying terrain collider during a successful publication. Even a
+fully cut trunk with only side wood must retain and later clear these exclusions correctly.
+Branches are intentionally non-colliding; the trunk remains at rest while rendered wood moves.
+This is the accepted physical approximation, not reduced visual geometry or imprecise picking.
+The trunk occupancy participates in publication equality and bounded fragment-cache accounting.
+See [the policy repair](research/tree_trunk_collision_policy.md).
 
 Normal frames do not construct a CPU posed forest. `gpu_wind_active` independently controls GPU
 skinning, BVH refit, scene queries and attached-fruit transforms. The compact CPU deformation plan
-remains an explicit validation oracle (and supplies immutable rest collision topology), not the
-activation condition or a live picking dependency.
+remains an explicit validation oracle, not the physical collision source, activation condition
+or a live picking dependency.
 
 `SurfacePicker` batches a captured pointer edit and latest-wins hover into the normal render
 submission, querying the already-skinned/refitted GPU scene. Each 48-byte answer retains the exact

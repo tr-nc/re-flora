@@ -521,6 +521,47 @@ impl SpatialSoundManager {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn registered_spatial_domain(
+        &self,
+        uuid: Uuid,
+    ) -> Option<(Vec3, SourceExtent, OcclusionProfile)> {
+        self.uuid_to_source
+            .lock()
+            .unwrap()
+            .get(&uuid)
+            .and_then(|s| {
+                s.position
+                    .map(|p| (p, s.extent.clone(), s.occlusion_profile))
+            })
+    }
+
+    /// One finite Voice over an immutable source domain (point or weighted samples).
+    /// The caller owns retirement; initial transmission is ready before PCM begins.
+    pub(crate) fn add_spatial_resident_one_shot(
+        &self,
+        category: AudioCategory,
+        clip: ResidentClip,
+        volume_db: f32,
+        position: Vec3,
+        extent: SourceExtent,
+        occlusion_profile: OcclusionProfile,
+    ) -> Result<Uuid> {
+        self.add_clip_source(
+            category,
+            clip,
+            PlayOptions::once()
+                .with_acoustic_start()
+                .with_direct_path(Self::spatial_one_shot_direct_path(category)),
+            volume_db,
+            Some(position),
+            None,
+            false,
+            extent,
+            occlusion_profile,
+        )
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "Mirrors the clip-source adapter with explicit placement, phase and occlusion inputs"

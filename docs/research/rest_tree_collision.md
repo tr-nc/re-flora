@@ -1,8 +1,11 @@
 # Static no-wind tree collision with precise visual picking
 
-**Stage history:** The physical-collision behavior and measurements below remain valid. The later
+**Stage history:** These are historical full-rest-surface measurements. The later
 [GPU picking change](gpu_tree_picking.md) replaces the per-frame CPU visual copy described here;
-normal picking is now asynchronous and GPU-backed, with CPU deformation reserved for validation.
+normal picking is asynchronous and GPU-backed, with CPU deformation reserved for validation.
+The subsequent [shared trunk-only policy](tree_trunk_collision_policy.md) narrows physical wood
+to root axes for every species without changing visual/picking geometry. The old measurements
+remain evidence for removing per-frame refits, not measurements of the newer collider workload.
 
 ## Accepted behavior
 

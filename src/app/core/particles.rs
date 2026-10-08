@@ -207,6 +207,27 @@ impl TreeLeafEmitterRuntime {
         }
     }
 
+    pub(super) fn burst(&mut self, tree: u32, system: &mut ParticleSystem, count: usize) -> usize {
+        let Some(indices) = self.indices_by_tree.get(&tree) else {
+            return 0;
+        };
+        if indices.is_empty() {
+            return 0;
+        }
+        let mut spawned = 0;
+        for index in 0..count.min(128) {
+            if self.emitters[indices[index % indices.len()]]
+                .emitter
+                .burst(system, 1)
+                == 0
+            {
+                break;
+            }
+            spawned += 1;
+        }
+        spawned
+    }
+
     pub(super) fn advance(
         &mut self,
         particle_system: &mut ParticleSystem,
@@ -1376,6 +1397,33 @@ mod tests {
         assert_eq!(runtime.len(), 2);
         runtime.remove(2);
         assert_eq!(runtime.len(), 0);
+    }
+
+    #[test]
+    fn kick_leaf_burst_is_one_shot_tree_owned_wind_independent_and_bounded() {
+        let mut runtime = TreeLeafEmitterRuntime::new(LeafEmitterDesc::default());
+        runtime.upsert(1, &[cluster(1.), cluster(2.)]);
+        runtime.upsert(2, &[cluster(3.)]);
+        let mut system = ParticleSystem::new(5);
+        assert_eq!(runtime.burst(99, &mut system, 4), 0);
+        assert_eq!(runtime.burst(1, &mut system, 3), 3);
+        let mut snapshots = Vec::new();
+        system.write_snapshots(&mut snapshots);
+        assert_eq!(snapshots.len(), 3);
+        assert!(snapshots
+            .iter()
+            .all(|p| p.position_ws.x == 1. || p.position_ws.x == 2.));
+        assert_eq!(runtime.burst(2, &mut system, 4), 2);
+        runtime.advance(
+            &mut system,
+            2.,
+            &crate::wind_field::WindFieldFrame::uniform(glam::Vec2::ZERO),
+            true,
+        );
+        system.write_snapshots(&mut snapshots);
+        assert_eq!(snapshots.len(), 5);
+        runtime.remove(1);
+        assert_eq!(runtime.burst(1, &mut system, 4), 0);
     }
 
     #[test]

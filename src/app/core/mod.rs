@@ -44,6 +44,7 @@ mod soil_bag_review;
 mod soil_deposition;
 mod soil_performance_bench;
 mod terrain_picking;
+mod tree_kick;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -483,6 +484,7 @@ pub struct App {
     item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
     pointer_picking: terrain_picking::PointerPicking,
+    tree_kick: tree_kick::TreeKickInteraction,
     mower: mower::MowerRuntime,
     voxel_backpack: VoxelBackpack,
 
@@ -1445,6 +1447,8 @@ impl App {
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
         tree_audio_manager
+            .prepare_kick_rustle(Self::tree_kick_rustle_tuning(&debug_settings.adjustables))?;
+        tree_audio_manager
             .set_canopy_telemetry_enabled(audio.canopy_telemetry || canopy_audio_diagnostic);
         let spatial_frame = SpatialFrame::new(spatial_sound_manager.clone());
         let summer_cicadas = crate::audio::SummerCicadas::new(spatial_sound_manager.clone())?;
@@ -1595,6 +1599,7 @@ impl App {
             item_panel_tiller_icon: None,
             mower: mower::MowerRuntime::default(),
             pointer_picking: Default::default(),
+            tree_kick: Default::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -2272,6 +2277,15 @@ impl App {
                     return;
                 }
 
+                if event.state == ElementState::Pressed
+                    && !event.repeat
+                    && event.physical_key == KeyCode::KeyK
+                    && self.keyboard_tool_shortcuts_available()
+                {
+                    self.request_tree_kick();
+                    return;
+                }
+
                 // Keep both movement systems synchronized with physical key state so a held key
                 // remains active after G switches camera modes. Full input resets still happen
                 // when a panel editor captures the keyboard.
@@ -2640,6 +2654,7 @@ impl App {
                 let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
+                let tree_kick_prompt = self.update_tree_kick_prompt();
                 let hover_observation = cpu_timings.time(FrameCpuScope::TerrainHover, || {
                     self.terrain_edit_hover_observation()
                 });
@@ -3120,6 +3135,7 @@ impl App {
                         );
 
                         draw_center_cross_mark(ctx);
+                        tree_kick::draw_prompt(ctx, tree_kick_prompt);
                     });
                 let egui_ms = egui_start.elapsed().as_secs_f32() * 1000.0;
                 if let Some(action) = terrain_snapshot_action {
@@ -3259,6 +3275,15 @@ impl App {
                     .set_rustle_params(Self::tree_rustle_params(&self.debug_settings.adjustables))
                 {
                     log::error!("Failed to rebuild resident tree rustle clip: {err:#}");
+                }
+
+                if let Err(error) =
+                    self.tree_audio_manager
+                        .prepare_kick_rustle(Self::tree_kick_rustle_tuning(
+                            &self.debug_settings.adjustables,
+                        ))
+                {
+                    log::warn!("Failed to prepare kick leaf rustle: {error:#}");
                 }
 
                 self.advance_soil_performance_bench()

@@ -145,13 +145,17 @@ impl App {
                 log::info!("[MODEL_SURFACE_REVIEW] stage={stage} enabled={flags:?} resolutions={resolutions:?} saved=false");
             }
         }
-        // Retain attached fruit for fixed counts; sweep uses the existing production
-        // fruit-cycle handoff to submit the dynamic apple vertex path too.
+        // Retain attached fruit for fixed counts; explicitly request a diagnostic kick
+        // for the sweep's dynamic apple path. Growth itself never releases fruit.
         gui.fruit_cycle.value = if (sweep || surface_sweep) && frame >= 90 {
             1.
         } else {
             0.7
         };
+        if (sweep || surface_sweep) && frame == 90 {
+            self.terrain_physics.set_fruit_cycle(1., &mut self.tracer)?;
+            self.terrain_physics.request_diagnostic_fruit_kicks();
+        }
         self.camera_control.apply_snapshot_mode(true);
         self.camera_control.set_orbit_focus(target);
         ensure!(

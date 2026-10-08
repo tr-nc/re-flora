@@ -2,11 +2,30 @@ import wind_field;
 import tree_skin;
 
 struct PoseJoint { float4 start_frequency; float4 end_compliance; uint4 parent; };
-struct PoseState { float4 rotation; float4 translation; float4 angle; float4 velocity; };
+struct PoseState { float4 rotation; float4 translation; float4 angle; float4 velocity; float4 wind_rotation; float4 wind_translation; };
 [[vk::binding(0,0)]] StructuredBuffer<PoseJoint> tree_pose_joints;
 [[vk::binding(1,0)]] RWStructuredBuffer<PoseState> tree_pose_state;
 [[vk::binding(2,0)]] StructuredBuffer<uint4> tree_pose_ranges;
 [[vk::binding(3,0)]] StructuredBuffer<uint4> tree_pose_step;
+// Finite-speed bend packets, not a rigid root transform or per-vertex CPU pose.
+struct KickPulse { float4 velocity_age; float4 parameters; };
+struct PoseKick { uint4 metadata; KickPulse pulses[8]; };
+// Binding 4 belongs to wind_field_info in the imported shared wind module.
+[[vk::binding(5,0)]] StructuredBuffer<PoseKick> tree_pose_kicks;
+float3 kickAngle(PoseKick kick, float distance) {
+    float3 angle = float3(0);
+    for (uint i = 0; i < kick.metadata.x; ++i) {
+        KickPulse pulse = kick.pulses[i];
+        float time = pulse.velocity_age.w - distance / pulse.parameters.z;
+        if (time <= 0.0) continue;
+        float omega = 6.283185307179586 * pulse.parameters.x;
+        float decay = omega * pulse.parameters.y;
+        float oscillation = omega * sqrt(1.0 - pulse.parameters.y * pulse.parameters.y);
+        angle += pulse.velocity_age.xyz * (exp(-decay*time) * sin(oscillation*time) / oscillation);
+    }
+    float amplitude = length(angle);
+    return amplitude > 0.2 ? angle * (0.2 / amplitude) : angle;
+}
 
 float4 multiplyRotation(float4 a, float4 b) {
     return float4(a.w*b.xyz + b.w*a.xyz + cross(a.xyz,b.xyz), a.w*b.w-dot(a.xyz,b.xyz));
@@ -31,6 +50,7 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
     uint substeps = uint(max(ceil(dt*120.0), 1.0));
     float h = dt/float(substeps);
     uint3 range = tree_pose_ranges[group.x].xyz;
+    PoseKick kick = tree_pose_kicks[group.x];
     for (uint substep = 0; substep < substeps; ++substep) {
       for (uint depth = 0; depth < range.z; ++depth) {
         for (uint local = lane; local < range.y; local += 64u) {
@@ -40,19 +60,28 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
             PoseState state = tree_pose_state[index];
             float4 parentRotation = float4(0,0,0,1);
             float3 parentTranslation = float3(0);
+            float4 finalParentRotation = parentRotation;
+            float3 finalParentTranslation = parentTranslation;
             if (joint.parent.x != 0xffffffffu) {
                 PoseState parent = tree_pose_state[range.x+joint.parent.x];
-                parentRotation = parent.rotation;
-                parentTranslation = parent.translation.xyz;
+                parentRotation = parent.wind_rotation;
+                parentTranslation = parent.wind_translation.xyz;
+                finalParentRotation = parent.rotation;
+                finalParentTranslation = parent.translation.xyz;
             }
             float3 start = joint.start_frequency.xyz;
             float3 end = joint.end_compliance.xyz;
-            float3 sample = treeRotate(state.rotation, (start+end)*0.5) + state.translation.xyz;
+            float3 sample = treeRotate(state.wind_rotation, (start+end)*0.5) + state.wind_translation.xyz;
             float2 windXZ = authoredWindEnabled() ? sampleAuthoredWind(sample.xz*256.0) : float2(0);
             float3 localWind = treeRotate(float4(-parentRotation.xyz, parentRotation.w), float3(windXZ.x,0,windXZ.y));
             float3 axis = end-start;
             axis = dot(axis,axis) > 0.0 ? normalize(axis) : float3(0);
             float3 target = cross(axis,localWind)*(joint.end_compliance.w*asfloat(step.z));
+            if (kick.metadata.y == 0u) {
+                target = float3(0);
+                state.angle = float4(0);
+                state.velocity = float4(0);
+            }
             float targetLength = length(target);
             if (targetLength > 0.22) target *= 0.22/targetLength;
             float omega = 6.283185307179586 * (joint.start_frequency.w*asfloat(step.w));
@@ -64,9 +93,17 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
             float envelope = exp(-decay*h);
             float3 angle = target + envelope*(displacement*c+(state.velocity.xyz+decay*displacement)*s);
             float3 velocity = envelope*(state.velocity.xyz*c-(decay*state.velocity.xyz+omega*omega*displacement)*s);
-            state.rotation = normalize(multiplyRotation(parentRotation, scaledAxisRotation(angle)));
-            float3 pivot = treeRotate(parentRotation,start)+parentTranslation;
-            state.translation = float4(pivot-treeRotate(state.rotation,start),0);
+            state.wind_rotation = normalize(multiplyRotation(parentRotation, scaledAxisRotation(angle)));
+            float3 windPivot = treeRotate(parentRotation,start)+parentTranslation;
+            state.wind_translation = float4(windPivot-treeRotate(state.wind_rotation,start),0);
+            if (kick.metadata.x == 0u) {
+                state.rotation = state.wind_rotation;
+                state.translation = state.wind_translation;
+            } else {
+                state.rotation = normalize(multiplyRotation(scaledAxisRotation(kickAngle(kick, asfloat(joint.parent.z))), state.wind_rotation));
+                float3 pivot = treeRotate(finalParentRotation,start)+finalParentTranslation;
+                state.translation = float4(pivot-treeRotate(state.rotation,start),0);
+            }
             state.angle = float4(angle,0);
             state.velocity = float4(velocity,0);
             tree_pose_state[index] = state;

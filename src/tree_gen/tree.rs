@@ -1,4 +1,6 @@
-use crate::branch_skeleton::{generate_branch_skeleton_with_rng, BranchSegment, BranchingDesc};
+use crate::branch_skeleton::{
+    generate_branch_skeleton_with_rng, BranchSegment, BranchSegmentRole, BranchingDesc,
+};
 use crate::geom::RoundCone;
 use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
@@ -154,6 +156,7 @@ struct BuiltObjects {
     trunk_branches: Vec<usize>,
     leaf_branches: Vec<usize>,
     trunks: Vec<RoundCone>,
+    physical_trunks: Vec<RoundCone>,
     leaf_positions: Vec<Vec3>,
     leaf_placements: Vec<LeafPlacement>,
 }
@@ -177,7 +180,18 @@ impl Tree {
     /// Keep translation arithmetic identical; a local-space sign test is not equivalent
     /// at f32 voxel boundaries. `origin` is in world units, cones are in voxel units.
     pub fn world_trunks(&self, origin: Vec3) -> Vec<RoundCone> {
-        self.trunks()
+        Self::world_cones(self.trunks(), origin)
+    }
+
+    /// Shared physical-tree policy: visible root-axis wood in the authored rest pose.
+    /// A side axis's continuation is still a side axis, regardless of species/level.
+    /// No wind/kick pose or caller-selected species policy can enter this interface.
+    pub(crate) fn world_physical_trunks(&self, origin: Vec3) -> Vec<RoundCone> {
+        Self::world_cones(&self.built_objects.physical_trunks, origin)
+    }
+
+    fn world_cones(cones: &[RoundCone], origin: Vec3) -> Vec<RoundCone> {
+        cones
             .iter()
             .cloned()
             .map(|mut cone| {
@@ -293,7 +307,17 @@ impl Tree {
             generate_leaf_sprays(desc, &leaf_anchors, &mut leaf_rng);
 
         let mut trunks = Vec::new();
+        let mut physical_trunks = Vec::new();
         let mut trunk_branches = Vec::new();
+        // Roles describe local continuation. Root-axis membership also requires
+        // every ancestor to be a continuation: never promote a lateral subtree.
+        let mut root_axes = Vec::with_capacity(segments.len());
+        for segment in &segments {
+            root_axes.push(
+                segment.role == BranchSegmentRole::MainAxis
+                    && segment.parent.is_none_or(|parent| root_axes[parent]),
+            );
+        }
         for (branch_index, segment) in segments.iter().enumerate().filter(|(i, _)| visible(*i)) {
             let first_cone = trunks.len();
             let (thickness_start, thickness_end) = if axis_segments.is_empty() {
@@ -316,6 +340,10 @@ impl Tree {
             // subdivision now respects the toggle
             let subdivided_cones =
                 subdivide_trunk_segment(&cone, desc, segment.level, &mut subdivision_rng);
+            // Reuse exact authored/subdivided cones, not a straight approximation.
+            if root_axes[branch_index] {
+                physical_trunks.extend(subdivided_cones.iter().cloned());
+            }
             // Authored radii are geometry, not a lighting-normal workaround.
             trunks.extend(subdivided_cones);
             trunk_branches.extend(std::iter::repeat_n(branch_index, trunks.len() - first_cone));
@@ -327,6 +355,7 @@ impl Tree {
             trunk_branches,
             leaf_branches,
             trunks,
+            physical_trunks,
             leaf_positions,
             leaf_placements,
         }
@@ -498,6 +527,86 @@ fn subdivide_trunk_segment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn physical_trunks_use_root_axis_ancestry_for_every_registered_species_and_age() {
+        let mut saw_lateral_continuation = false;
+        for species in super::super::TreeSpecies::ALL {
+            for axis_model in [false, true] {
+                let mut authored = TreeDesc::default();
+                authored.branching.iterations = 3;
+                let mut desc = species.mature_desc(&authored);
+                desc.axis_model = axis_model;
+                for age in [0., 0.25, 1.] {
+                    let tree = Tree::new(desc.at_age(age));
+                    let root = |mut branch: usize| loop {
+                        if tree.branches()[branch].role != BranchSegmentRole::MainAxis {
+                            break false;
+                        }
+                        match tree.branches()[branch].parent {
+                            Some(parent) => branch = parent,
+                            None => break true,
+                        }
+                    };
+                    let expected: Vec<_> = tree
+                        .trunks()
+                        .iter()
+                        .zip(tree.trunk_branch_indices())
+                        .filter(|(_, branch)| root(**branch))
+                        .map(|(cone, _)| cone)
+                        .collect();
+                    let bits = |cone: &RoundCone| {
+                        [
+                            cone.center_a()
+                                .extend(cone.radius_a())
+                                .to_array()
+                                .map(f32::to_bits),
+                            cone.center_b()
+                                .extend(cone.radius_b())
+                                .to_array()
+                                .map(f32::to_bits),
+                        ]
+                    };
+                    assert_eq!(
+                        tree.built_objects
+                            .physical_trunks
+                            .iter()
+                            .map(bits)
+                            .collect::<Vec<_>>(),
+                        expected.iter().map(|cone| bits(cone)).collect::<Vec<_>>()
+                    );
+                    if age == 1. {
+                        assert!(!expected.is_empty());
+                        assert!(expected.len() < tree.trunks().len());
+                        saw_lateral_continuation |=
+                            tree.branches().iter().enumerate().any(|(i, branch)| {
+                                branch.role == BranchSegmentRole::MainAxis && !root(i)
+                            });
+                    }
+                    let shifted = Vec3::new(32., 0.25, -7.);
+                    let expected_world: Vec<_> = expected
+                        .into_iter()
+                        .cloned()
+                        .map(|mut cone| {
+                            cone.transform(shifted * 256.);
+                            bits(&cone)
+                        })
+                        .collect();
+                    assert_eq!(
+                        tree.world_physical_trunks(shifted)
+                            .iter()
+                            .map(bits)
+                            .collect::<Vec<_>>(),
+                        expected_world
+                    );
+                }
+            }
+        }
+        assert!(
+            saw_lateral_continuation,
+            "exercise local continuation on a side axis too"
+        );
+    }
 
     #[test]
     fn axis_age_preserves_identity_and_reveals_connected_branches() {

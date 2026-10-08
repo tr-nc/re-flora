@@ -1,5 +1,6 @@
 mod axis;
 pub(crate) mod gpu_pose;
+pub(crate) mod kick;
 pub mod pose;
 pub mod skin;
 mod species;

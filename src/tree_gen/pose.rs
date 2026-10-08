@@ -55,6 +55,8 @@ pub(crate) struct GpuPoseState {
     pub translation: [f32; 4],
     pub angle: [f32; 4],
     pub velocity: [f32; 4],
+    pub wind_rotation: [f32; 4],
+    pub wind_translation: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,12 +102,16 @@ struct Joint {
     frequency: f32,
     angle: Vec3,
     velocity: Vec3,
+    wave_distance: f32,
+    wind_pose: BranchPose,
 }
 
 /// This value belongs to one canonical tree generation. Replacing the tree creates
 /// a new pose even when its branch count happens to match the old generation.
 #[derive(Clone, Debug)]
 pub struct TreePose {
+    kick: super::kick::KickWave,
+    canopy_distance: f32,
     joints: Vec<Joint>,
     branches: Vec<BranchPose>,
     revision: u64,
@@ -129,7 +135,7 @@ impl TreePose {
 
     pub fn new(topology: &[BranchSegment], origin_world: Vec3) -> Result<Self> {
         ensure!(origin_world.is_finite(), "nonfinite tree origin");
-        let mut joints = Vec::with_capacity(topology.len());
+        let mut joints: Vec<Joint> = Vec::with_capacity(topology.len());
         for (index, branch) in topology.iter().enumerate() {
             ensure!(
                 branch.start.is_finite() && branch.end.is_finite(),
@@ -142,6 +148,15 @@ impl TreePose {
                     "tree child must attach to parent endpoint"
                 );
             }
+            let wave_distance = branch.parent.map_or(0., |parent| {
+                joints[parent].wave_distance
+                    + (topology[parent].end - topology[parent].start).length()
+            });
+            ensure!(
+                wave_distance.is_finite()
+                    && (wave_distance + (branch.end - branch.start).length()).is_finite(),
+                "nonfinite tree kick path"
+            );
             joints.push(Joint {
                 parent: branch.parent,
                 start: origin_world + branch.start / 256.,
@@ -152,9 +167,31 @@ impl TreePose {
                 frequency: 0.65 + 0.14 * branch.level.min(8) as f32,
                 angle: Vec3::ZERO,
                 velocity: Vec3::ZERO,
+                wave_distance,
+                wind_pose: BranchPose {
+                    rotation: Quat::IDENTITY,
+                    translation: Vec3::ZERO,
+                },
             });
         }
+        let mut terminal = vec![true; joints.len()];
+        for joint in &joints {
+            if let Some(parent) = joint.parent {
+                terminal[parent] = false;
+            }
+        }
+        let mut canopy: Vec<_> = joints
+            .iter()
+            .zip(terminal)
+            .zip(topology)
+            .filter(|((_, tip), _)| *tip)
+            .map(|((joint, _), branch)| joint.wave_distance + (branch.end - branch.start).length())
+            .collect();
+        canopy.sort_by(f32::total_cmp);
+        let canopy_distance = canopy.get(canopy.len() / 2).copied().unwrap_or(0.);
         Ok(Self {
+            kick: Default::default(),
+            canopy_distance,
             branches: vec![
                 BranchPose {
                     rotation: Quat::IDENTITY,
@@ -175,6 +212,52 @@ impl TreePose {
         self.revision
     }
 
+    pub(crate) fn kick(
+        &mut self,
+        direction: Vec3,
+        tuning: super::kick::KickTuning,
+    ) -> Result<bool> {
+        let max_distance = self
+            .joints
+            .iter()
+            .map(|j| j.wave_distance)
+            .fold(0_f32, f32::max);
+        self.kick
+            .impulse(direction, tuning, max_distance, self.canopy_distance)
+    }
+    pub(crate) fn advance_kick(&mut self, dt: f32) -> Result<()> {
+        self.kick.advance(dt)
+    }
+    pub(crate) fn can_accept_kick(&self) -> bool {
+        self.kick.can_impulse()
+    }
+    pub(crate) fn validate_waiting_kick_axes(&self) -> Result<usize> {
+        let mut waiting = 0;
+        for (joint, pose) in self.joints.iter().zip(&self.branches) {
+            if joint.wave_distance > 0. && self.kick.angle(joint.wave_distance) == Vec3::ZERO {
+                ensure!(
+                    pose.rotation.abs_diff_eq(joint.wind_pose.rotation, 1e-6),
+                    "leaf axis bent before its kick wave arrived"
+                );
+                waiting += 1;
+            }
+        }
+        ensure!(waiting > 0, "kick fixture has no unreached upper axes");
+        Ok(waiting)
+    }
+    pub(crate) fn kick_active(&self) -> bool {
+        self.kick.active()
+    }
+    pub(crate) fn canopy_kick_delay(&self, tuning: super::kick::KickTuning) -> f32 {
+        self.canopy_distance / tuning.propagation_speed
+    }
+    pub(crate) fn take_canopy_kick_arrivals(&mut self) -> usize {
+        self.kick.take_canopy_arrivals()
+    }
+    pub(crate) fn gpu_kick(&self, wind_enabled: bool) -> super::kick::GpuKickTree {
+        self.kick.gpu(wind_enabled)
+    }
+
     pub(crate) fn version(&self) -> PoseVersion {
         PoseVersion {
             generation: self.generation,
@@ -189,7 +272,12 @@ impl TreePose {
             joints.push(GpuPoseJoint {
                 start_frequency: joint.start.extend(joint.frequency).to_array(),
                 end_compliance: joint.end.extend(joint.compliance).to_array(),
-                parent: [joint.parent.map_or(u32::MAX, |p| p as u32), depth, 0, 0],
+                parent: [
+                    joint.parent.map_or(u32::MAX, |p| p as u32),
+                    depth,
+                    joint.wave_distance.to_bits(),
+                    0,
+                ],
             });
         }
         joints
@@ -204,6 +292,8 @@ impl TreePose {
                 translation: pose.translation.extend(0.).to_array(),
                 angle: joint.angle.extend(0.).to_array(),
                 velocity: joint.velocity.extend(0.).to_array(),
+                wind_rotation: joint.wind_pose.rotation.to_array(),
+                wind_translation: joint.wind_pose.translation.extend(0.).to_array(),
             })
             .collect()
     }
@@ -229,17 +319,24 @@ impl TreePose {
                     .chain(&s.translation)
                     .chain(&s.angle)
                     .chain(&s.velocity)
+                    .chain(&s.wind_rotation)
+                    .chain(&s.wind_translation)
                     .all(|v| v.is_finite()),
                 "nonfinite GPU pose publication"
             );
             ensure!(
-                (Quat::from_array(s.rotation).length_squared() - 1.).abs() < 1e-4,
+                (Quat::from_array(s.rotation).length_squared() - 1.).abs() < 1e-4
+                    && (Quat::from_array(s.wind_rotation).length_squared() - 1.).abs() < 1e-4,
                 "invalid GPU pose rotation"
             );
         }
         for ((joint, pose), s) in self.joints.iter_mut().zip(&mut self.branches).zip(state) {
             joint.angle = Vec3::from_slice(&s.angle);
             joint.velocity = Vec3::from_slice(&s.velocity);
+            joint.wind_pose = BranchPose {
+                rotation: Quat::from_array(s.wind_rotation),
+                translation: Vec3::from_slice(&s.wind_translation),
+            };
             *pose = BranchPose {
                 rotation: Quat::from_array(s.rotation),
                 translation: Vec3::from_slice(&s.translation),
@@ -278,6 +375,16 @@ impl TreePose {
         dt: f32,
         stiffness: TreeStiffness,
     ) -> Result<()> {
+        self.advance_with_root(wind, dt, stiffness, true)
+    }
+
+    pub(crate) fn advance_with_root(
+        &mut self,
+        wind: &WindFieldFrame,
+        dt: f32,
+        stiffness: TreeStiffness,
+        wind_enabled: bool,
+    ) -> Result<()> {
         Self::validate_step(wind, dt)?;
         if dt == 0. {
             return Ok(());
@@ -286,22 +393,33 @@ impl TreePose {
         // resolve changes in the sampled position and inherited parent rotation.
         let steps = (dt.min(0.25) * 120.).ceil().max(1.) as usize;
         let h = dt.min(0.25) / steps as f32;
+        let identity = BranchPose {
+            rotation: Quat::IDENTITY,
+            translation: Vec3::ZERO,
+        };
         for _ in 0..steps {
             for index in 0..self.joints.len() {
+                let parent_index = self.joints[index].parent;
+                let parent_wind = parent_index
+                    .map(|p| self.joints[p].wind_pose)
+                    .unwrap_or(identity);
+                let parent = parent_index.map(|p| self.branches[p]).unwrap_or(identity);
                 let joint = &mut self.joints[index];
-                let parent = joint
-                    .parent
-                    .map(|p| self.branches[p])
-                    .unwrap_or(BranchPose {
-                        rotation: Quat::IDENTITY,
-                        translation: Vec3::ZERO,
-                    });
-                let sample = self.branches[index].transform_point((joint.start + joint.end) * 0.5);
-                let local_wind = parent.rotation.conjugate() * wind.sample_world(sample);
+                // Wind keeps its original hierarchy authority. A delayed kick must not
+                // become an instantaneous inherited rotation or change ambient sampling.
+                let sample = joint
+                    .wind_pose
+                    .transform_point((joint.start + joint.end) * 0.5);
+                let local_wind = parent_wind.rotation.conjugate() * wind.sample_world(sample);
                 let axis = (joint.end - joint.start).normalize_or_zero();
-                let target = (axis.cross(local_wind)
-                    * (joint.compliance * stiffness.compliance_scale))
-                    .clamp_length_max(0.22);
+                let target = if wind_enabled {
+                    (axis.cross(local_wind) * (joint.compliance * stiffness.compliance_scale))
+                        .clamp_length_max(0.22)
+                } else {
+                    joint.angle = Vec3::ZERO;
+                    joint.velocity = Vec3::ZERO;
+                    Vec3::ZERO
+                };
                 advance_spring(
                     &mut joint.angle,
                     &mut joint.velocity,
@@ -309,14 +427,29 @@ impl TreePose {
                     joint.frequency * stiffness.frequency_scale,
                     h,
                 );
-                let rotation =
-                    (parent.rotation * rotation_from_scaled_axis(joint.angle)).normalize();
-                // Child pivot is the parent's deformed endpoint, never its rest endpoint.
-                let pivot = parent.transform_point(joint.start);
-                self.branches[index] = BranchPose {
-                    rotation,
-                    translation: pivot - rotation * joint.start,
+                let wind_rotation =
+                    (parent_wind.rotation * rotation_from_scaled_axis(joint.angle)).normalize();
+                let wind_pivot = parent_wind.transform_point(joint.start);
+                joint.wind_pose = BranchPose {
+                    rotation: wind_rotation,
+                    translation: wind_pivot - wind_rotation * joint.start,
                 };
+                if !self.kick.active() {
+                    self.branches[index] = joint.wind_pose;
+                } else {
+                    // Absolute travelling bend orientation prevents a root tilt from
+                    // instantly rotating every leaf axis. Pivots still follow connected
+                    // parent endpoints: small rigid carry is distinct from local vibration.
+                    let rotation =
+                        (rotation_from_scaled_axis(self.kick.angle(joint.wave_distance))
+                            * wind_rotation)
+                            .normalize();
+                    let pivot = parent.transform_point(joint.start);
+                    self.branches[index] = BranchPose {
+                        rotation,
+                        translation: pivot - rotation * joint.start,
+                    };
+                }
             }
         }
         self.revision += 1;
@@ -380,6 +513,173 @@ mod tests {
             },
         ]
     }
+    #[test]
+    fn kick_has_anchored_root_without_wind_and_does_not_change_topology_generation() {
+        let origin = Vec3::new(1., 0.2, -2.);
+        let mut pose = TreePose::new(&topology(), origin).unwrap();
+        let tuning = super::super::kick::KickTuning {
+            strength: 1.6,
+            frequency: 3.,
+            damping: 0.22,
+            propagation_speed: 600.,
+        };
+        let version = pose.version();
+        pose.kick(Vec3::X, tuning).unwrap();
+        pose.advance_kick(0.03).unwrap();
+        assert_eq!(pose.version(), version); // No whole-forest GPU solver reallocation.
+        pose.advance_with_root(
+            &WindFieldFrame::uniform(Vec2::X * 10.),
+            0.03,
+            TreeStiffness::NEUTRAL,
+            false,
+        )
+        .unwrap();
+        let root = pose.branches()[0];
+        assert!(root.transform_point(origin).distance(origin) < 1e-6);
+        assert!(
+            pose.branches()[0]
+                .transform_point(origin + Vec3::Y * 0.25)
+                .x
+                > origin.x + 0.005
+        );
+        assert!(pose.branches()[1]
+            .rotation
+            .abs_diff_eq(Quat::IDENTITY, 1e-6));
+        assert!(!TreePose::new(&topology(), origin).unwrap().kick_active());
+    }
+
+    #[test]
+    fn kick_bending_reaches_the_base_before_leaf_axes_instead_of_rigid_tree_tilt() {
+        let mut pose = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        let tuning = super::super::kick::KickTuning {
+            strength: 1.6,
+            frequency: 3.,
+            damping: 0.22,
+            propagation_speed: 600.,
+        };
+        pose.kick(Vec3::X, tuning).unwrap();
+        pose.advance_kick(0.03).unwrap();
+        pose.advance_with_root(
+            &WindFieldFrame::uniform(Vec2::ZERO),
+            0.03,
+            TreeStiffness::NEUTRAL,
+            false,
+        )
+        .unwrap();
+        assert!(!pose.branches[0].rotation.abs_diff_eq(Quat::IDENTITY, 1e-6));
+        assert!(
+            pose.branches[1].rotation.abs_diff_eq(Quat::IDENTITY, 1e-6),
+            "leaf-axis bending must wait for travel along its parent branch"
+        );
+        assert!(
+            pose.branches[0]
+                .transform_point(Vec3::Y * 0.25)
+                .distance(pose.branches[1].transform_point(Vec3::Y * 0.25))
+                < 1e-6
+        );
+        assert_eq!(pose.take_canopy_kick_arrivals(), 0);
+        pose.advance_kick(0.16).unwrap();
+        pose.advance_with_root(
+            &WindFieldFrame::uniform(Vec2::ZERO),
+            0.16,
+            TreeStiffness::NEUTRAL,
+            false,
+        )
+        .unwrap();
+        assert!(!pose.branches[1].rotation.abs_diff_eq(Quat::IDENTITY, 1e-6));
+        assert_eq!(pose.take_canopy_kick_arrivals(), 1);
+        assert_eq!(pose.take_canopy_kick_arrivals(), 0);
+        assert!(
+            pose.branches[0]
+                .transform_point(Vec3::Y * 0.25)
+                .distance(pose.branches[1].transform_point(Vec3::Y * 0.25))
+                < 1e-6
+        );
+        assert_eq!(std::mem::size_of::<GpuPoseState>(), 96);
+    }
+
+    #[test]
+    fn branch_path_length_and_saved_wave_speed_change_motion_and_canopy_arrival_together() {
+        let tuning = super::super::kick::KickTuning {
+            strength: 1.6,
+            frequency: 3.,
+            damping: 0.22,
+            propagation_speed: 600.,
+        };
+        let mut small = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        let translated = TreePose::new(&topology(), Vec3::new(32., 0., -7.)).unwrap();
+        assert_eq!(
+            small.canopy_kick_delay(tuning),
+            translated.canopy_kick_delay(tuning)
+        );
+        let big_topology: Vec<_> = topology()
+            .into_iter()
+            .map(|mut segment| {
+                segment.start *= 2.;
+                segment.end *= 2.;
+                segment
+            })
+            .collect();
+        let mut big = TreePose::new(&big_topology, Vec3::ZERO).unwrap();
+        assert!(
+            (big.canopy_kick_delay(tuning) - small.canopy_kick_delay(tuning) * 2.).abs() < 1e-6
+        );
+        assert!(
+            (big.canopy_kick_delay(super::super::kick::KickTuning {
+                propagation_speed: 1200.,
+                ..tuning
+            }) - small.canopy_kick_delay(tuning))
+            .abs()
+                < 1e-6
+        );
+        for pose in [&mut small, &mut big] {
+            pose.kick(Vec3::X, tuning).unwrap();
+            pose.advance_kick(0.15).unwrap();
+            pose.advance_with_root(
+                &WindFieldFrame::uniform(Vec2::ZERO),
+                0.15,
+                TreeStiffness::NEUTRAL,
+                false,
+            )
+            .unwrap();
+        }
+        assert!(!small.branches[1].rotation.abs_diff_eq(Quat::IDENTITY, 1e-6));
+        assert!(big.branches[1].rotation.abs_diff_eq(Quat::IDENTITY, 1e-6));
+        big.advance_kick(0.10).unwrap();
+        small.advance_kick(0.10).unwrap();
+        assert_eq!(small.take_canopy_kick_arrivals(), 1);
+        assert_eq!(big.take_canopy_kick_arrivals(), 0);
+    }
+
+    #[test]
+    fn travelling_kick_keeps_the_original_ambient_wind_state_and_delays_leaf_axis_overlay() {
+        let wind = WindFieldFrame::uniform(Vec2::new(8., 3.));
+        let mut baseline = TreePose::new(&topology(), Vec3::ZERO).unwrap();
+        baseline.advance(&wind, 0.2).unwrap();
+        let mut kicked = baseline.clone();
+        let tuning = super::super::kick::KickTuning {
+            strength: 4.,
+            frequency: 2.55,
+            damping: 0.3,
+            propagation_speed: 600.,
+        };
+        kicked.kick(Vec3::X, tuning).unwrap();
+        kicked.kick(Vec3::X, tuning).unwrap();
+        kicked.advance_kick(0.03).unwrap();
+        for pose in [&mut baseline, &mut kicked] {
+            pose.advance_with_root(&wind, 0.03, TreeStiffness::NEUTRAL, true)
+                .unwrap();
+        }
+        for (a, b) in baseline.joints.iter().zip(&kicked.joints) {
+            assert_eq!(a.angle, b.angle);
+            assert_eq!(a.velocity, b.velocity);
+            assert_eq!(a.wind_pose.rotation, b.wind_pose.rotation);
+            assert_eq!(a.wind_pose.translation, b.wind_pose.translation);
+        }
+        assert_eq!(baseline.branches[1].rotation, kicked.branches[1].rotation);
+        assert_ne!(baseline.branches[0].rotation, kicked.branches[0].rotation);
+    }
+
     #[test]
     fn stiffness_midpoint_preserves_current_motion_and_endpoints_change_response() {
         let neutral = TreeStiffness::from_control(0.5).unwrap();

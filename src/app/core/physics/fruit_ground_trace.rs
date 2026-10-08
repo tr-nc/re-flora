@@ -45,6 +45,7 @@ impl FruitGroundTrace {
             if let Some(armed_frame) = self.armed_frame {
                 if !self.dropped && self.frame >= armed_frame + 30 {
                     physics.set_fruit_cycle(1.0, tracer)?;
+                    physics.request_diagnostic_fruit_kicks();
                     self.dropped = true;
                     log::info!(
                         "[FRUIT_GROUND_TRACE] drop frame={} pending_terrain=0",
@@ -52,6 +53,7 @@ impl FruitGroundTrace {
                     );
                 }
             } else {
+                physics.set_fruit_cycle(0.0, tracer)?;
                 physics.set_fruit_cycle(0.8, tracer)?;
                 self.armed_frame = Some(self.frame);
                 log::info!(

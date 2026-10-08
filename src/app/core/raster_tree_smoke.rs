@@ -1,7 +1,7 @@
 //! Hidden-app acceptance of raster trees and their retained hybrid lighting.
 use super::App;
 use crate::lighting::{LightId, LocalLight, PointLight};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use glam::Vec3;
 
 pub(super) struct RasterTreeSmoke {
@@ -34,8 +34,22 @@ impl RasterTreeSmoke {
     fn step(&mut self, app: &mut App) -> Result<bool> {
         self.frame += 1;
         match self.frame {
-            1 | 30 => {
+            1 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                app.terrain_physics.set_fruit_cycle(1., &mut app.tracer)?;
+                // Explicit diagnostic stimulus, independent of saved disable/harvest choices.
+                app.debug_settings.adjustables.tree_kick_strength.value = 0.2;
+                app.debug_settings
+                    .adjustables
+                    .tree_kick_propagation_speed
+                    .value = 100.;
+                app.debug_settings
+                    .adjustables
+                    .tree_kick_fruit_chance_scale
+                    .value = 1.;
+                app.terrain_physics
+                    .seed_fruit_kicks_for_diagnostic(0x6b69_636b);
+                app.debug_settings.adjustables.tree_kick_leaf_count.value = 24;
             }
             21 => {
                 self.light = Some(
@@ -55,6 +69,79 @@ impl RasterTreeSmoke {
             25 => {
                 app.tracer.validate_gpu_tree_lighting(true)?;
             }
+            30 => {
+                app.debug_settings.adjustables.tree_stiffness.value = 0.5;
+                let tree = app
+                    .tracer
+                    .raster_trees
+                    .skin
+                    .branches
+                    .first()
+                    .context("kick tree")?
+                    .0;
+                let (total, held, dropped) = app.terrain_physics.tree_fruit_counts(tree);
+                ensure!(
+                    total > 0 && held == total && dropped == 0,
+                    "fruit fell without a kick"
+                );
+                log::info!(
+                    "[TREE_KICK][HELD_FRUIT] tree={tree} count={total} automatic_drop=false"
+                );
+                ensure!(
+                    app.tree_audio_manager.kick_rustle_voice_count() == 0,
+                    "rustle played without kick"
+                );
+                app.tree_kick_pose_smoke(true)?;
+            }
+            35 => {
+                ensure!(
+                    !app.debug_settings.adjustables.raster_tree_wind.value,
+                    "kick fixture needs wind off"
+                );
+                ensure!(
+                    app.tracer.raster_trees.gpu_wind_active,
+                    "kick did not activate GPU deformation without wind"
+                );
+                let tree = app
+                    .tracer
+                    .raster_trees
+                    .skin
+                    .branches
+                    .first()
+                    .context("kick tree")?
+                    .0;
+                let (total, held, dropped) = app.terrain_physics.tree_fruit_counts(tree);
+                ensure!(
+                    held == total && dropped == 0,
+                    "fruit released before canopy wave arrival"
+                );
+                ensure!(
+                    app.tree_audio_manager.kick_rustle_voice_count() == 0,
+                    "sound played before canopy wave arrival"
+                );
+                // Inspect the last published hierarchy/skin pair. Consuming the next
+                // pending hierarchy here would advance only the CPU oracle, not its palette.
+                let waiting = app.validate_waiting_kick_axes(tree)?;
+                log::info!("[TREE_KICK][WAVE_FRONT] passed waiting_axes={waiting} upper_rotation_delayed=true sound=false fruit=false");
+                app.validate_tree_surface_pose()?;
+                app.tracer.validate_gpu_tree_surface()?;
+                let posed = app
+                    .tracer
+                    .raster_trees
+                    .posed_surface
+                    .as_ref()
+                    .context("missing kick reference")?;
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.max_displacement(posed) > 1e-5,
+                    "kick moved no visible wood"
+                );
+                ensure!(
+                    app.tracer.raster_trees.rest_mesh.rest_fingerprint() == self.thin_fingerprint,
+                    "kick changed authored geometry"
+                );
+                log::info!("[TREE_KICK][GPU] passed wind_off=true moved=true rest_collision=true rest_geometry=true");
+            }
+
             49 | 64 | 81 => {
                 app.drive_tree_pose_smoke()?;
             }
@@ -125,6 +212,56 @@ impl RasterTreeSmoke {
                     app.tracer.raster_trees.enabled,
                     "raster trees were disabled"
                 );
+                let tree = app
+                    .tracer
+                    .raster_trees
+                    .skin
+                    .branches
+                    .first()
+                    .context("kick tree")?
+                    .0;
+                let (total, held, dropped) = app.terrain_physics.tree_fruit_counts(tree);
+                ensure!(
+                    held > 0 && dropped > 0 && held + dropped == total,
+                    "seeded kick did not complete roulette handoff after canopy arrival"
+                );
+                ensure!(
+                    app.tree_audio_manager.kick_rustle_voice_count() == 1,
+                    "canopy arrival did not play one finite rustle"
+                );
+                log::info!("[TREE_KICK][RUSTLE_SMOKE] passed once=true wind_off=true canopy_spatial=true propagated=true");
+                log::info!("[TREE_KICK][PARTIAL_FRUIT] tree={tree} total={total} held={held} dropped={dropped}");
+            }
+            36 => {
+                app.tree_kick_canopy_smoke()?;
+            }
+            45 => {
+                app.tree_kick_pose_smoke(false)?;
+            }
+            51 => {
+                // Explicit overlapping high-energy inputs exercise the local GPU
+                // angle bound while ambient wind is enabled. Age rebuild retires them.
+                let tree = app
+                    .tracer
+                    .raster_trees
+                    .skin
+                    .branches
+                    .first()
+                    .context("kick tree")?
+                    .0;
+                let mut tuning = app.tree_kick_tuning();
+                tuning.strength = 4.;
+                for _ in 0..2 {
+                    ensure!(
+                        app.kick_tree(tree, Vec3::X, tuning)?,
+                        "wind-overlay impulse rejected"
+                    );
+                }
+            }
+            54 => {
+                app.validate_tree_surface_pose()?;
+                app.tracer.validate_gpu_tree_surface()?;
+                log::info!("[TREE_KICK][GPU_WIND_OVERLAY] passed ambient_wind=true overlapping_impulses=true shared_hierarchy=true local_angle_bound=true");
             }
             61 => {
                 app.debug_settings.adjustables.tree_stiffness.value = 0.;
