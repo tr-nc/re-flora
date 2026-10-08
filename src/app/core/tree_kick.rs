@@ -89,7 +89,11 @@ impl App {
             return false;
         }
         // Keep the shared hover updated even during cooldown.
-        let hover = self.request_pointer_hover();
+        let hover = match self.observe_pointer_hover() {
+            super::terrain_picking::HoverObservation::Resolved(pick) => Some(pick),
+            super::terrain_picking::HoverObservation::Pending
+            | super::terrain_picking::HoverObservation::Unavailable => None,
+        };
         self.tree_kick_ready(now)
             && hover.and_then(|h| h.hit).is_some_and(|hit| {
                 self.picked_tree_id(hit)
