@@ -143,6 +143,14 @@ pub(crate) struct PoseTimings {
     pub readback_bytes: u64,
 }
 
+pub(crate) struct PoseStep {
+    pub dt: f32,
+    pub stiffness: TreeStiffness,
+    pub wind_enabled: bool,
+    pub validate: bool,
+    pub profile: bool,
+}
+
 pub(crate) struct GpuTreePoseSolver {
     ctx: VulkanContext,
     allocator: Allocator,
@@ -173,12 +181,15 @@ impl GpuTreePoseSolver {
         &mut self,
         trees: impl Iterator<Item = (u32, &'a TreePose)>,
         wind: &WindFieldFrame,
-        dt: f32,
-        stiffness: TreeStiffness,
-        wind_enabled: bool,
-        validate: bool,
-        profile: bool,
+        step: PoseStep,
     ) -> Result<()> {
+        let PoseStep {
+            dt,
+            stiffness,
+            wind_enabled,
+            validate,
+            profile,
+        } = step;
         ensure!(
             self.pending.is_none(),
             "tree pose job must be consumed before resubmission"

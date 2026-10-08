@@ -42,7 +42,7 @@ impl SoilPerformanceBench {
         };
         let frames = setting("RE_FLORA_SOIL_PERF_FRAMES", 240)?;
         anyhow::ensure!(
-            frames >= 30 && frames <= 10_000,
+            (30..=10_000).contains(&frames),
             "soil benchmark frames must be 30..10000"
         );
         let hold_seconds: Option<u32> = std::env::var("RE_FLORA_SOIL_PERF_HOLD_SECONDS")

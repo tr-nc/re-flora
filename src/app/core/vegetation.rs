@@ -4120,11 +4120,13 @@ impl App {
                 .iter()
                 .map(|(&id, record)| (id, &record.pose)),
             &self.wind_prototype.field.frame(),
-            dt,
-            stiffness,
-            self.debug_settings.adjustables.raster_tree_wind.value,
-            self.launch_owners.raster_tree_smoke.is_some(),
-            self.perf_logging,
+            crate::tree_gen::gpu_pose::PoseStep {
+                dt,
+                stiffness,
+                wind_enabled: self.debug_settings.adjustables.raster_tree_wind.value,
+                validate: self.launch_owners.raster_tree_smoke.is_some(),
+                profile: self.perf_logging,
+            },
         )
     }
 

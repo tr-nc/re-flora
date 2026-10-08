@@ -974,8 +974,9 @@ impl App {
                 .zip(&thick)
                 .enumerate()
                 .all(|(i, (old, new))| {
-                    (*old & VOXEL_TYPE_MASK == 0 || old == new)
-                        && ((i as u32 / dim.x) % dim.y != 0 || old == new)
+                    old == new
+                        || (*old & VOXEL_TYPE_MASK == 0
+                            && !(i as u32 / dim.x).is_multiple_of(dim.y))
                 }),
             "deposition overwrote old material or crossed the model floor"
         );

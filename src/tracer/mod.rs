@@ -6909,7 +6909,7 @@ impl Tracer {
     pub(crate) fn soil_bag_shadow_depth_pixels(&self) -> Result<usize> {
         let image = self.resources.shadow.shadow_map_depth_tex.get_image();
         anyhow::ensure!(image.get_desc().format == vk::Format::D32_SFLOAT);
-        let bytes = image.get_size() as u64;
+        let bytes = image.get_size();
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),

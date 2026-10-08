@@ -313,8 +313,7 @@ fn deposit_impl(
                 find_column(
                     data,
                     dim,
-                    x,
-                    z,
+                    (x, z),
                     anchor,
                     floor_local,
                     unread_height,
@@ -459,8 +458,7 @@ fn soil_base_is_broad(data: &[u8], dim: UVec3, x: u32, z: u32, y: u32, floor: Op
 fn find_column(
     data: &[u8],
     dim: UVec3,
-    x: u32,
-    z: u32,
+    (x, z): (u32, u32),
     anchor: u32,
     floor: Option<u32>,
     unread_height: bool,

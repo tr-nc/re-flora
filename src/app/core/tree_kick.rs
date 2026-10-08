@@ -141,11 +141,11 @@ impl App {
         answer: PickAnswer,
         now: Instant,
     ) -> anyhow::Result<()> {
-        if !self
+        if self
             .tree_kick
             .pending
             .as_ref()
-            .is_some_and(|p| p.ticket == answer.ticket)
+            .is_none_or(|p| p.ticket != answer.ticket)
         {
             return Ok(());
         }
