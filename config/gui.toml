@@ -2593,7 +2593,7 @@ label = "Soil spread radius (voxels; 0 = precise)"
 type = "Float"
 
 [section.param.data]
-value = 0
+value = 13
 min = 0
 max = 128
 
@@ -2615,9 +2615,9 @@ label = "Soil pile slope (rise / run)"
 type = "Float"
 
 [section.param.data]
-value = 1.0
+value = 1
 min = 0.25
-max = 2.0
+max = 2
 
 [[section.param]]
 id = "soil_deposition_fast_path"
