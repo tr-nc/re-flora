@@ -1,5 +1,10 @@
 # Re: Flora / PetalSonic native path-traced audio research
 
+> **Historical 0.6.0 baseline and design research.** Current Re: Flora uses PetalSonic 0.9.2,
+> with asynchronous geometry propagation, early reflections and FDN late reverberation implemented.
+> The “single tap / no late reverb” descriptions below are not current behavior.
+> See [the current implementation check](research/reddit-update-implementation-check.md#2-声音反射与混响均已实现).
+
 > Date: 2026-08-22
 >
 > Scope: early reflections, late reverberation, and geometry-driven audio without making Steam Audio or a graphics renderer the owner of the audio lifetime.
