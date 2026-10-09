@@ -124,3 +124,52 @@ GPU 层级求解／表面 skinning 避免靠 CPU 每帧重建整树几何；交�
 
 **边界：** 当前显式玻璃测试／小屋场景启用；普通场景的 Sand 不自动变成玻璃。文档仍标记覆盖率性能门槛未通过、实验非 ship-ready；
 不能写成所有正常地形都可直接放置的正式玻璃玩法，也不支持宣称完整玻璃焦散。用户展示时应标 prototype／experimental。
+
+## 后续补充核对：相机、行为、阴影与性能
+
+### 相机与拖拽
+
+[`camera_control.rs`](../../src/app/core/camera_control.rs) 的 `begin_zoom_to_walk`／`begin_zoom_to_edit` 和
+[`zoom.rs`](../../src/app/core/camera_control/zoom.rs) 确认滚轮触发步行／外部轨道编辑镜头衔接。
+当前 lift 轨迹使用带切线的曲线，综合平移和旋转的弧长调整进度；不是旧研究文档中描述的简单位置／pitch 分别 lerp。
+[`brush_stroke.rs`](../../src/app/brush_stroke.rs) 与地形 placement 的 stroke capsule 支持连续拖拽编辑。
+用户描述的洒土、石板道路、土墙保留为玩法演示素材；未从已有 capsule 接口推断完整颗粒沉积模拟。
+“第三人称”暂解释为外部编辑视角，不推断有跟随可见角色模型。
+
+### 蝴蝶与踹树
+
+[`butterfly_flight.rs`](../../src/particles/butterfly_flight.rs) 已确认独立自主运动／风漂移、平滑响应、速度和加速度上限，以及强风反向／衰减测试。
+当前 particles／ambient ecology 检索没有找到花目标选择与风后重新选择目的地的链路。
+用户明确补充“被花吸引、吹偏后改变目的地”“踹树能震落果实与叶片”；保留这两个行为，待用户给当前演示或对应版本再补代码入口。
+这是证据版本尚未对应，不是断言功能不存在。
+
+### 叶影
+
+用户进一步确认：重做后的草地叶影不仅动态闪烁观感更好，还 **更细致、更有层次感**。
+保留该视觉目标，不擅自简化为“减少闪烁”。旧 `foliage_shadow_stability_research.md` 是历史研究，不能证明当前效果已验收；本轮未录制视觉对照。
+
+### PetalSonic 的公开入口与 Rust 范围
+
+- [GitHub](https://github.com/tr-nc/petalsonic)
+- [crates.io](https://crates.io/crates/petalsonic)
+- [0.9.2 API](https://docs.rs/petalsonic/0.9.2/petalsonic/)
+- [公开项目 README](https://github.com/tr-nc/petalsonic/blob/main/README.md)
+
+已成功读取公开 main README：它声明 native HRTF、geometry acoustics、FDN late reverb、Rust audio／DSP 依赖与跨平台 CPAL。
+安装的 0.9.2 manifest 和求解／DSP 源码确认没有 Steam Audio 库依赖；因此可以描述 **空间音频算法 100% Rust，不再使用 Steam Audio C++**。
+设备 API／驱动仍是平台原生接口，不能扩展成整个音频栈不存在任何系统 FFI。
+公开 README 的 quick-start 仍写 0.8，版本实现以本项目锁定的 0.9.2 为准，不照抄该例的版本号。
+音质和整体性能“大幅提高”来自用户体验，本轮没有独立听感或性能 A/B。
+
+### 数值与平台证据边界
+
+| 用户新提供的信息 | 本轮核对结论 |
+| --- | --- |
+| RTX 3060 Ti、4K 屏幕、200+ FPS | 作为用户当前观察保留；低内部分辨率输出到 4K 不等于原生 4K shading；需补内部尺寸、场景与设置 |
+| 每帧地形编辑、编辑时 100 FPS | 用户观察保留；源码确认持续编辑／渐进照明机制，但本轮没有验证每帧全部后台工作完成或测量 FPS |
+| 显存约 2 GB | 用户观察保留；需补工具、统计范围和场景，未建立所有场景的显存上限 |
+| macOS 约 30% 损耗 | [`packaging.md`](../packaging.md) 确认 MoltenVK 路径，但源码不能证明损耗百分比；需相同 workload 与明确硬件／后端基线才能归因 |
+| Linux／Windows／macOS 支持 | 包装／源构建支持已确认；具体下载内容取决于 release tag |
+
+旧 [`global-low-resolution-performance.md`](../evidence/global-low-resolution-performance.md) 使用 2560×1440 窗口，
+记录 GPU 时间与呈现等待，且明确不能把 GPU scope 倒数冒充游戏 FPS；不用于替代这次 4K／200+ FPS 的用户实测。
