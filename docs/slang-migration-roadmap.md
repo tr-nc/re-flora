@@ -8,7 +8,7 @@ The active validation policy is in [`slang-validation-plan.md`](slang-validation
 
 ## Source layout
 
-- `shader/slang/*.slang` contains all 76 production entry points and their imported modules.
+- `shader/slang/*.slang` contains the production entry points and their imported modules; `NATIVE_SHADERS` is the authoritative inventory.
 - `crates/re-flora-shader-build/src/lib.rs` owns the `NATIVE_SHADERS` manifest and the shared in-process Slang compiler integration.
 - `crates/re-flora-vkn/build.rs` compiles reflection and optimized SPIR-V artifacts for Vulkan pipeline creation.
 - The root `build.rs` compiles the manifest entries needed to generate Rust CPU/GPU ABI structs.
@@ -21,7 +21,7 @@ There are no checked-in GLSL entry points or include files. Shared shader behavi
 A normal build always:
 
 1. loads the pinned-compatible Slang compiler API;
-2. validates the 76-entry native manifest;
+2. validates the native manifest;
 3. compiles reflection and performance-optimized SPIR-V for each entry;
 4. tracks compiler-reported module dependencies in the artifact cache;
 5. generates Rust ABI structs from native Slang reflection.
@@ -45,8 +45,8 @@ The manifest checker rejects non-Slang files under `shader/`, textual includes, 
 
 ## Completed cleanup
 
-- [x] Port all 76 production entry points to native Slang.
-- [x] Consolidate shared shader behavior into 133 native Slang entry/module files.
+- [x] Port all production entry points to native Slang.
+- [x] Consolidate shared shader behavior into native Slang entry/module files.
 - [x] Make Slang compilation unconditional.
 - [x] Share compiler and manifest code between both build scripts.
 - [x] Generate Rust GPU structs from native Slang SPIR-V.

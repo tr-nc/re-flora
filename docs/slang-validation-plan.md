@@ -21,7 +21,7 @@ Run:
 python3 scripts/check_shader_manifest.py
 ```
 
-This must report 76 manifest entries and 133 Slang files. Any non-`.slang` file under `shader/` is an error.
+The reported counts must match the current manifest and source tree; they are not fixed migration-era totals. Any non-`.slang` file under `shader/` is an error.
 
 ## Compile and ABI gate
 
@@ -33,7 +33,7 @@ cargo check
 `cargo check` is the native-Slang compile gate. It must:
 
 - load the Slang 2025 compiler API;
-- compile all 76 entry points at reflection and performance optimization levels;
+- compile every manifest entry point at reflection and performance optimization levels;
 - emit Vulkan SPIR-V 1.6;
 - resolve all imported Slang modules;
 - validate stage/logical-path consistency and source existence;
