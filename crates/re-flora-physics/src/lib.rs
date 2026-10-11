@@ -11,6 +11,7 @@ use rapier3d::prelude::{
 use std::collections::{HashMap, HashSet};
 
 mod character_step;
+mod character_support;
 mod deforming_geometry;
 pub use deforming_geometry::DeformingGeometry;
 
@@ -25,8 +26,9 @@ pub const STATIC_VOXEL_BRICK_DIM: u32 = 32;
 pub const DEFAULT_FIXED_STEP_SECONDS: f32 = 1.0 / 120.0;
 pub const DEFAULT_MAX_SUBSTEPS: u32 = 8;
 pub const CAPSULE_CHARACTER_COLLISION_OFFSET: f32 = 0.1;
-pub const CAPSULE_CHARACTER_MAX_STEP_HEIGHT: f32 = 16.05;
 pub const CAPSULE_CHARACTER_MIN_STEP_WIDTH: f32 = 0.5;
+// Preserve the existing upward/jump negotiation; this is not the walking step limit.
+const CAPSULE_CHARACTER_JUMP_STEP_HEIGHT: f32 = 16.05;
 pub const CAPSULE_CHARACTER_GROUND_CONTACT_DISTANCE: f32 = 1.25;
 pub const CAPSULE_CHARACTER_GROUND_SNAP_DISTANCE: f32 = 16.25;
 pub const CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE: f32 = std::f32::consts::FRAC_PI_3;
@@ -612,12 +614,18 @@ impl CollisionWorld {
         validate_capsule_character_move(movement)?;
         self.sync_capsule_character_broad_phase();
 
+        // Capsule height includes both round caps. Walking may climb at most
+        // half of that full body height, independent of the actor's scale.
+        let max_step_height = movement.half_height + movement.radius;
         let controller = KinematicCharacterController {
             up: Vector::Y,
             offset: CharacterLength::Absolute(CAPSULE_CHARACTER_COLLISION_OFFSET),
             slide: true,
-            autostep: Some(CharacterAutostep {
-                max_height: CharacterLength::Absolute(CAPSULE_CHARACTER_MAX_STEP_HEIGHT),
+            // Grounded walking uses the swept step below, including its actual
+            // support-height check. Keep the existing upward/jump negotiation:
+            // capsule cap contacts must not turn ordinary walking into climbing.
+            autostep: (movement.desired_translation.y > 0.0).then_some(CharacterAutostep {
+                max_height: CharacterLength::Absolute(CAPSULE_CHARACTER_JUMP_STEP_HEIGHT),
                 min_width: CharacterLength::Absolute(CAPSULE_CHARACTER_MIN_STEP_WIDTH),
                 include_dynamic_bodies: false,
             }),
@@ -651,7 +659,7 @@ impl CollisionWorld {
         }
 
         let mut collisions = Vec::new();
-        let effective = controller.move_shape(
+        let mut effective = controller.move_shape(
             movement.dt,
             &query_pipeline,
             shape.as_ref(),
@@ -670,7 +678,7 @@ impl CollisionWorld {
         let mut translation = effective.translation;
         let mut stepped = false;
         let mut is_sliding_down_slope = effective.is_sliding_down_slope;
-        let landed_during_move = collisions
+        let mut landed_during_move = collisions
             .iter()
             .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
         if (grounded_at_start || effective.grounded || landed_during_move)
@@ -687,6 +695,7 @@ impl CollisionWorld {
                     shape.as_ref(),
                     &pose,
                     requested_horizontal,
+                    max_step_height,
                 ) {
                     translation = step;
                     stepped = true;
@@ -694,6 +703,58 @@ impl CollisionWorld {
                     // These contacts belong to the discarded slide, not to the accepted step.
                     collisions.clear();
                 }
+            }
+        }
+        // Reject the other uphill path as well: a rounded capsule can climb a ridge
+        // through KCC slope projection even when the explicit step was refused.
+        if !stepped && movement.desired_translation.y <= 0.0 && translation.y > 1.0e-5 {
+            let final_pose = Pose::from_translation(translation) * pose;
+            let supported = capsule_ground_hit(
+                &query_pipeline,
+                shape.as_ref(),
+                &final_pose,
+                CAPSULE_CHARACTER_GROUND_CONTACT_DISTANCE,
+            )
+            .is_some_and(|hit| {
+                character_support::has_foothold(
+                    &query_pipeline,
+                    shape.as_ref(),
+                    character_support::ground_contact(&final_pose, &hit),
+                    hit.normal1,
+                    Vector::new(desired_translation.x, 0.0, desired_translation.z),
+                )
+            });
+            if !supported {
+                // Re-solve from the original pose with uphill contacts treated as walls.
+                // Never just cancel Y on an already resolved path: that could put the
+                // capsule inside the obstacle. No upward normal nudge on this path either,
+                // otherwise holding forward would still creep up over many frames.
+                let blocking_controller = KinematicCharacterController {
+                    max_slope_climb_angle: 0.0,
+                    normal_nudge_factor: 0.0,
+                    ..controller
+                };
+                collisions.clear();
+                effective = blocking_controller.move_shape(
+                    movement.dt,
+                    &query_pipeline,
+                    shape.as_ref(),
+                    &pose,
+                    desired_translation,
+                    |collision| {
+                        collisions.push(CapsuleCharacterCollision {
+                            normal: from_rapier_vec(collision.hit.normal1),
+                            translation_applied: from_rapier_vec(collision.translation_applied),
+                            translation_remaining: from_rapier_vec(collision.translation_remaining),
+                            time_of_impact: collision.hit.time_of_impact,
+                        });
+                    },
+                );
+                translation = effective.translation;
+                is_sliding_down_slope = effective.is_sliding_down_slope;
+                landed_during_move = collisions
+                    .iter()
+                    .any(|collision| collision.normal.y >= CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT);
             }
         }
         let mut grounded = effective.grounded || stepped || landed_during_move;

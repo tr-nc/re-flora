@@ -159,35 +159,35 @@ fn capsule_autosteps_one_voxel() {
 }
 
 #[test]
-fn capsule_autosteps_sixteen_voxels() {
+fn player_autosteps_exactly_half_body_height() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 16)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 12 && voxel.y <= 12)),
     );
 
-    let start = Vec3::new(4.0, standing_center_y(1.0), 12.0);
+    let start = Vec3::new(4.0, player_standing_center_y(1.0), 12.0);
     let result = world
-        .move_capsule_character(capsule_move(start, Vec3::new(8.0, -0.1, 0.0)))
+        .move_capsule_character(player_capsule_move(start, Vec3::new(14.0, -0.1, 0.0)))
         .unwrap();
     let final_center = start + result.translation;
 
     assert!(result.grounded, "result={result:?}");
-    assert!(result.translation.x > 7.9, "result={result:?}");
+    assert!(result.translation.x > 13.9, "result={result:?}");
     assert!(
-        (final_center.y - standing_center_y(17.0)).abs() < 1.0e-3,
+        (final_center.y - player_standing_center_y(13.0)).abs() < 1.0e-3,
         "final_center={final_center:?} result={result:?}"
     );
 }
 
 #[test]
-fn capsule_does_not_autostep_seventeen_voxels() {
+fn small_capsule_does_not_autostep_more_than_half_its_height() {
     let mut world = CollisionWorld::new();
     world.upsert_static_voxel_brick(
         StaticVoxelBrickId(IVec3::ZERO),
         1,
-        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 17)),
+        occupancy_where(|voxel| voxel.y == 0 || (voxel.x >= 8 && voxel.y <= 2)),
     );
 
     let start = Vec3::new(4.0, standing_center_y(1.0), 12.0);
@@ -532,8 +532,8 @@ fn smooth_walk_preserves_accepted_jump_fall_and_cliff_behavior() {
 }
 
 #[test]
-fn smooth_walk_preserves_player_scale_large_step_traversability() {
-    for height in [16, 17] {
+fn smooth_walk_preserves_player_scale_steps_up_to_half_body_height() {
+    for height in [1, 6, 12] {
         let mut world = CollisionWorld::new();
         world.upsert_static_voxel_brick(
             StaticVoxelBrickId(IVec3::ZERO),
@@ -553,12 +553,113 @@ fn smooth_walk_preserves_player_scale_large_step_traversability() {
             );
         }
         println!("step height={height}: end={center:?}");
-        // Continuous player-scale movement already traversed both heights before smoothing.
-        // The small-capsule single-move limit above is not a player-scale reachability limit.
+        // Continuous movement must retain traversability up to the new limit,
+        // without drifting around the obstacle or penetrating its corners.
         assert!(
             center.x > 23.8,
             "previously traversable step blocked: {center:?}"
         );
+    }
+}
+
+#[test]
+fn player_cannot_walk_up_more_than_half_body_height() {
+    let half_body_height = PLAYER_HALF_HEIGHT + PLAYER_RADIUS;
+    let mut climbed = Vec::new();
+    for height in [13, 16, 17, 24, 31] {
+        assert!(height as f32 > half_body_height);
+        let mut world = CollisionWorld::new();
+        world.upsert_static_voxel_brick(
+            StaticVoxelBrickId(IVec3::ZERO),
+            1,
+            occupancy_where(|v| v.y == 0 || (v.x >= 12 && v.y <= height)),
+        );
+        let start = Vec3::new(4.0, player_standing_center_y(1.0), 16.0);
+        let mut center = start;
+        for _ in 0..20 {
+            let movement = world
+                .move_capsule_character(player_capsule_move(center, Vec3::new(1.0, -0.1, 0.0)))
+                .unwrap();
+            center += movement.translation;
+            assert_player_clear_of_box(
+                center,
+                Vec3::new(12.0, 1.0, 0.0),
+                Vec3::new(32.0, height as f32 + 1.0, 32.0),
+            );
+        }
+        println!("half-body limit={half_body_height} wall={height} start={start:?} end={center:?}");
+        if center.x > 12.0 - PLAYER_RADIUS + 0.25 || center.y > start.y + 0.25 {
+            climbed.push((height, center));
+        }
+    }
+    assert!(
+        climbed.is_empty(),
+        "walking climbed walls taller than half the player's body: {climbed:?}"
+    );
+}
+
+#[test]
+fn half_height_step_limit_tracks_body_scale_and_translated_voxel_contacts() {
+    for scale in [0.5, 1.0, 2.0] {
+        let radius = PLAYER_RADIUS * scale;
+        let half_height = PLAYER_HALF_HEIGHT * scale;
+        let limit = radius + half_height;
+        for origin in [IVec3::ZERO, IVec3::new(2, 4, -3), IVec3::new(-2, -4, 3)] {
+            for height in [limit as u32, limit as u32 + 1] {
+                let mut world = CollisionWorld::new();
+                world.upsert_static_voxel_brick(
+                    StaticVoxelBrickId(origin),
+                    1,
+                    occupancy_where(|v| v.y == 0 || (v.x >= 16 && v.y <= height)),
+                );
+                // Keep the wide scaled capsule away from the far platform edge.
+                world.upsert_static_voxel_brick(
+                    StaticVoxelBrickId(origin + IVec3::X),
+                    1,
+                    occupancy_where(|v| v.y <= height),
+                );
+                let offset = origin.as_vec3() * STATIC_VOXEL_BRICK_DIM as f32;
+                let start =
+                    offset + Vec3::new(4.0, 1.0 + limit + CAPSULE_CHARACTER_COLLISION_OFFSET, 16.0);
+                let mut center = start;
+                // Continue beyond the rounded cap, including a conservative contact frame
+                // at the exact limit; the policy is traversability, not instant teleporting.
+                for _ in 0..24 {
+                    let movement = world
+                        .move_capsule_character(CapsuleCharacterMove {
+                            center,
+                            radius,
+                            half_height,
+                            desired_translation: Vec3::new(1.0, -0.1, 0.0),
+                            dt: DT,
+                        })
+                        .unwrap();
+                    center += movement.translation;
+                }
+                if height as f32 <= limit {
+                    assert!(
+                        center.x > offset.x + 23.8,
+                        "scale={scale} origin={origin:?} end={center:?}"
+                    );
+                    let top = offset.y + 1.0 + height as f32;
+                    let bottom = center.y - limit;
+                    assert!(
+                        bottom >= top - 1.0e-3
+                            && bottom <= top + CAPSULE_CHARACTER_COLLISION_OFFSET + 1.0e-3,
+                        "scale={scale} origin={origin:?} body did not land clear of the step: {center:?}"
+                    );
+                } else {
+                    assert!(
+                        center.x < offset.x + 16.0 - radius + 0.25,
+                        "scale={scale} origin={origin:?} end={center:?}"
+                    );
+                    assert!(
+                        (center.y - start.y).abs() < 0.01,
+                        "scale={scale} origin={origin:?} end={center:?}"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -690,7 +791,9 @@ fn dynamic_bodies_do_not_block_the_terrain_only_capsule_query() {
 
     assert_eq!(result.translation, movement);
     assert!(result.collisions.is_empty());
-    assert!(world.cast_character_surface_ray(Vec3::new(4., 10., 0.), Vec3::NEG_Y, 20.).is_none());
+    assert!(world
+        .cast_character_surface_ray(Vec3::new(4., 10., 0.), Vec3::NEG_Y, 20.)
+        .is_none());
 }
 
 #[test]

@@ -601,6 +601,94 @@ mod tests {
     }
 
     #[test]
+    fn walking_requires_a_jump_above_half_body_height() {
+        use glam::{IVec3, UVec3};
+        use re_flora_physics::{
+            BrickOccupancy, CapsuleCharacterMove, CollisionWorld, StaticVoxelBrickId,
+            CAPSULE_CHARACTER_COLLISION_OFFSET,
+        };
+        // Actual player dimensions: four-voxel caps, eight-voxel cylinder half-height.
+        const RADIUS: f32 = 4.0;
+        const HALF_HEIGHT: f32 = 8.0;
+        for hz in [30, 60, 120] {
+            // Within the existing jump's reach; taller walls remain obstacles.
+            for height in [13, 20] {
+                let mut world = CollisionWorld::new();
+                world.upsert_static_voxel_brick(
+                    StaticVoxelBrickId(IVec3::ZERO),
+                    1,
+                    BrickOccupancy::from_filled_voxels((0..32).flat_map(|x| {
+                        (0..32).flat_map(move |z| {
+                            (0..=if x >= 12 { height } else { 0 }).map(move |y| UVec3::new(x, y, z))
+                        })
+                    })),
+                );
+                let desc = CameraDesc::default();
+                let feet = Vec3::new(4.0, 1.0 + CAPSULE_CHARACTER_COLLISION_OFFSET, 16.0) / 256.0;
+                let initial = feet + Vec3::Y * desc.camera_height;
+                let mut camera = Camera::new(initial, 90.0, 0.0, desc);
+                camera.rigidbody.is_grounded = true;
+                camera.movement_state.axes.forward = true;
+                let dt = 1.0 / hz as f32;
+                let advance = |camera: &mut Camera, world: &mut CollisionWorld, frame: usize| {
+                    let time = frame as f64 * dt as f64;
+                    let request = camera.prepare_walk_movement(dt, time);
+                    let feet = request.camera_position - Vec3::Y * request.camera_height;
+                    let result = world
+                        .move_capsule_character(CapsuleCharacterMove {
+                            center: feet * 256.0 + Vec3::Y * (RADIUS + HALF_HEIGHT),
+                            radius: RADIUS,
+                            half_height: HALF_HEIGHT,
+                            desired_translation: request.desired_translation * 256.0,
+                            dt,
+                        })
+                        .unwrap();
+                    camera.apply_walk_movement(
+                        dt,
+                        time,
+                        request,
+                        PlayerWalkMovementResult {
+                            translation: result.translation / 256.0,
+                            grounded: result.grounded,
+                        },
+                    );
+                };
+                for frame in 0..hz * 2 {
+                    advance(&mut camera, &mut world, frame);
+                }
+                let blocked = camera.walk_collision_position.unwrap();
+                assert!(
+                    blocked.x * 256.0 < 8.25,
+                    "hz={hz} height={height} walking={blocked:?}"
+                );
+                assert!(
+                    (blocked.y - initial.y).abs() * 256.0 < 0.1,
+                    "walking climbed: {blocked:?}"
+                );
+                camera.movement_state.jump_requested = true;
+                for frame in hz * 2..hz * 4 {
+                    camera.movement_state.axes.forward = camera.position.x * 256.0 < 23.0;
+                    advance(&mut camera, &mut world, frame);
+                    camera.movement_state.jump_requested = false;
+                }
+                let landed = camera.walk_collision_position.unwrap();
+                assert!(
+                    landed.x * 256.0 > 17.0,
+                    "hz={hz} height={height} jump={landed:?}"
+                );
+                assert!(
+                    camera.rigidbody.is_grounded,
+                    "hz={hz} height={height} jump did not land"
+                );
+                assert!(
+                    (landed.y - initial.y - height as f32 / 256.0).abs() * 256.0 < 0.1,
+                    "hz={hz} height={height} jump={landed:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn collision_response_preserves_horizontal_control_velocity() {
         let control_velocity = Vec3::new(0.2, -1.0, -0.1);
         let resolved = walk_velocity_after_collision(control_velocity, 0.0);
