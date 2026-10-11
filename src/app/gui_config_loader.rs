@@ -80,6 +80,14 @@ impl GuiConfigLoader {
         for section in &mut config.section {
             section.param.retain(|param| {
                 param.id != "grass_natural_bend_min_voxels"
+                    && !matches!(
+                        param.id.as_str(),
+                        "stone_direct_triangles"
+                            | "stone_preview_enabled"
+                            | "stone_preview_focus"
+                            | "stone_preview_lift"
+                            | "stone_kind"
+                    )
                     && !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str())
             });
         }
@@ -87,12 +95,9 @@ impl GuiConfigLoader {
             .section
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         for id in [
-            "stone_preview_enabled",
-            "stone_direct_triangles",
-            "stone_preview_focus",
-            "stone_preview_lift",
+            "stone_place_slab",
+            "stone_placement_scale",
             "stone_yaw",
-            "stone_kind",
             "stone_seed",
             "stone_width",
             "stone_depth",
@@ -103,6 +108,22 @@ impl GuiConfigLoader {
             "stone_rock_facets",
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
+        }
+        for param in config
+            .section
+            .iter_mut()
+            .flat_map(|section| &mut section.param)
+        {
+            if let Some(condition) = &mut param.enabled_if {
+                if condition.param == "stone_kind" {
+                    condition.param = "stone_place_slab".into();
+                    condition.equals = match &condition.equals {
+                        GuiParamConditionValue::Integer(0) => GuiParamConditionValue::Bool(true),
+                        GuiParamConditionValue::Integer(1) => GuiParamConditionValue::Bool(false),
+                        value => value.clone(),
+                    };
+                }
+            }
         }
         Self::add_missing_param(&mut config, "Debug", "camera_orbit_max_elevation");
         Self::retire_tree_display_experiments(&mut config);
@@ -1388,6 +1409,84 @@ mod tests {
                     p.id.as_str(),
                     "stem_band_mode" | "grass_stem_rendering" | "flower_stem_stepped_width"
                 )));
+        }
+    }
+
+    #[test]
+    fn retired_stone_preview_controls_are_ignored_without_changing_placement() {
+        for enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let debug = config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap();
+            let preview = debug
+                .param
+                .iter()
+                .find(|p| p.id == "stone_place_slab")
+                .unwrap()
+                .clone();
+            for id in [
+                "stone_direct_triangles",
+                "stone_preview_enabled",
+                "stone_preview_focus",
+                "stone_preview_lift",
+                "stone_kind",
+            ] {
+                let mut legacy = preview.clone();
+                legacy.id = id.into();
+                legacy.value = super::GuiParamValue::Bool { value: enabled };
+                debug.param.push(legacy);
+            }
+            for param in &mut debug.param {
+                if matches!(
+                    param.id.as_str(),
+                    "stone_slab_thickness"
+                        | "stone_slab_edge_cut"
+                        | "stone_rock_height"
+                        | "stone_rock_facets"
+                ) {
+                    let condition = param.enabled_if.as_mut().unwrap();
+                    condition.param = "stone_kind".into();
+                    condition.equals = super::GuiParamConditionValue::Integer(i64::from(
+                        !param.id.starts_with("stone_slab"),
+                    ));
+                }
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            let params = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .collect::<Vec<_>>();
+            assert!(!params.iter().any(|p| matches!(
+                p.id.as_str(),
+                "stone_direct_triangles"
+                    | "stone_preview_enabled"
+                    | "stone_preview_focus"
+                    | "stone_preview_lift"
+                    | "stone_kind"
+            )));
+            assert_eq!(
+                params
+                    .iter()
+                    .find(|p| p.id == preview.id)
+                    .unwrap()
+                    .value
+                    .get_bool(),
+                preview.value.get_bool()
+            );
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("stone_direct_triangles"));
         }
     }
 

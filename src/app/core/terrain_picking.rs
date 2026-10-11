@@ -213,6 +213,10 @@ impl App {
             PlayerToolPointerAction::PlaceablePlacement | PlayerToolPointerAction::PlantTree => {
                 self.try_discrete_placement()
             }
+            PlayerToolPointerAction::StonePlacement => {
+                self.stop_terrain_edit_loop_sound();
+                self.try_stone_placement();
+            }
         }
         self.pointer_picking.active = None;
     }

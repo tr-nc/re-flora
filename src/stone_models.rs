@@ -3,7 +3,8 @@
 //! Right-handed +Y up, garden world units (256 terrain voxels/unit), outward CCW.
 use anyhow::{ensure, Result};
 use glam::{DVec3, Vec3};
-pub mod voxel;
+#[cfg(test)]
+mod voxel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StoneKind {
@@ -119,6 +120,7 @@ impl StoneMesh {
             .sum()
     }
     /// Convex half-space containment, independent of the voxel adapter's winding.
+    #[cfg(test)]
     pub fn contains(&self, point: Vec3, tolerance: f32) -> bool {
         point.is_finite()
             && self
@@ -128,6 +130,7 @@ impl StoneMesh {
     }
     /// Portable OBJ: shared positions, separate flat normals, ordinary triangle
     /// faces. RGB vertex extensions are optional; importers may ignore color.
+    #[cfg(test)]
     pub fn obj(&self) -> String {
         use std::fmt::Write;
         let mut text = format!(
@@ -156,6 +159,7 @@ impl StoneMesh {
         text
     }
     /// Stable source fingerprint for native A/B evidence (not a cryptographic hash).
+    #[cfg(test)]
     pub fn fingerprint(&self) -> u64 {
         let mut h = 0xcbf29ce484222325u64;
         let mut add = |v: u32| {

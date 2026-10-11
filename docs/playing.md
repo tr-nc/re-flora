@@ -102,6 +102,10 @@ or player onboarding described by the canonical game direction.
 | **R** | Toggle the prototype configuration panel |
 | **Esc** | Quit |
 
+Ordinary walking can step up at most half the collision body's height: **12 terrain voxels**
+for the current 24-voxel player. A narrow ridge is not a usable foothold; normal wide stairs and
+slopes remain walkable. Higher ledges require a jump within the existing jump's reach.
+
 ### Garden Tools
 
 | Input | Tool | Primary interaction |
@@ -115,6 +119,19 @@ or player onboarding described by the canonical game direction.
 | **7** | Inspector | Hover to inspect local soil |
 | **8** | Till | Left mouse tills soil |
 | **X** | Sprinkler | Left mouse places a sprinkler |
+| **B** | Soil | Hold left mouse to pour soil; retains the main branch's soil controls |
+| **N** | Stone | Left mouse places one terrain rock or slab |
+
+### Stone Placement
+
+Press **N**, aim at terrain and click to place a stone. **R → Stone → Geometry** selects a rock
+or slab and adjusts the next placement's dimensions, variation, seed and shared scale (default 0.2).
+Yaw rotates the next stone around the contacted terrain normal. Each successful placement advances
+the seed; existing stones do not change when parameters change.
+
+Stones become ordinary terrain: **Dig** can edit them, and **Terrain & Plants → Save/Load**
+persists them. The Debug Save button saves tool settings, not terrain. There is no permanent preview
+object. Stone is unavailable in the unsaved Rooftop PoC. **B remains Soil**, not Stone.
 
 ## Problems and Feedback
 

@@ -22,5 +22,24 @@
 - `cargo fmt --check`、`cargo check`、`cargo build --release` 通过；生成文件和 GUI 配置无改动。
 - 物理 crate **62 passed**；相机 **10 passed**；App 物理 **37 passed**。
 - hidden/muted 0.5s Release 启动通过；日志首帧就绪、正常退出，无 WARN/ERROR/VUID/panic。
-- 另一次携带既有 walk-entry review 环境变量的4秒启动正常退出，但未出现预期 review 标记，**不计为原生恢复回归通过**。
+- 首次 walk-entry 启动未显式开启内部诊断日志，未出现 review 标记，未据此判通过。第二步加入 `RUST_LOG=info` 复验，同一生产恢复检查在 frame=1/31 均 `whole_capsule=true`，未修改原生检查代码。
 - 上述结果不是性能接受证据，也不是与所有主分支玩法的完整手动验收。
+
+## 第二步：Stone 放置与旧预览退役
+
+来源为 `030efa03` 至 `731e1ca0` 的 Stone 功能改动，按 main 的新接口适配：
+
+- 保留主分支 `B = Soil`，新 `N = Stone`，独立工具槽13；撒土与 Stone 点击/保持状态互不混用。
+- Stone 经 main 的异步 Edit pick 队列接收已捕获答案。miss 不回退成新射线，树干命中会遮挡放置，法线拟合围绕该答案的实际地形位置。新增回归覆盖捕获答案、miss、树干遮挡与距离限制。
+- 普通 Rock 材质、接触平面姿态、统一0.2缩放、成功后 seed 递增，真实 atlas 发布/存档/Dig 保留。移除旧常驻预览及专用渲染管线；几何参考与 OBJ 导出保留为测试工具，不让退役 preview helper 留在运行时。
+- 冲突中保留 main 的异步输入、树木种植、访花资源、土袋世界/阴影管线和统一排序。Stone 的几何/放置区域仍参与 main 顶层字母排序；保存字段继续由声明生成。
+- 配置只替换退役的 Stone preview 字段、增加 Stone 放置字段；其它用户值不改。`cargo check` 正常再生 `src/app/generated/gui_adjustables_gen.rs`，未手改生成文件。
+
+验证（`target/integration/step2-*`）：
+
+- fmt/check、`cargo clippy -- -D warnings`、Release build 通过；21项 Stone相关测试（另1项显式导出 ignored）、16项工具状态、102项 GUI 测试通过。
+- GUI 字母排序检查先因旧两组标题期望失败，更新为新的单一 Stone 根组后通过；未删除排序/绘制断言。
+- `scripts/validate-stone-placement.sh` 通过：无启动预览、两次 seed 递增、真实材质、跨进程 Terrain 重载及 Dig；运行前后 GUI 字节不变。
+- main 的 Soil world 检查通过：实际加入6656体素，库存守恒；60非按住帧均隐藏，sun depth 76→0。
+- main 的 raster-tree smoke 通过：波前、GPU踢树、有限 rustle、风叠加、静态树干碰撞，以及生长/移除/替换；无 ERROR/VUID/panic。保留9.325/24.566ms fruit hitch与重复移除tree的 WARN，不将这些运行当性能验收。
+- 严格 `cargo clippy --all-targets -- -D warnings` 另发现7项既有测试 lint（在6个与 main 逐字相同的文件）；新增 GUI needless-borrow 已修正。未进行无关 lint 清理，不能称 all-targets 严格检查通过。

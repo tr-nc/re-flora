@@ -112,42 +112,24 @@ min = 5
 max = 87.7
 
 [[section.param]]
-id = "stone_preview_enabled"
+id = "stone_place_slab"
 kind = "bool"
-label = "Stone preview: enabled"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "stone_direct_triangles"
-kind = "bool"
-label = "Stone: direct triangle rendering (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
-id = "stone_preview_focus"
-kind = "bool"
-label = "Stone preview: focus camera on enable"
+label = "Stone placement: place paving slab next"
 type = "Bool"
 
 [section.param.data]
 value = false
 
 [[section.param]]
-id = "stone_preview_lift"
+id = "stone_placement_scale"
 kind = "float"
-label = "Stone preview: lift above garden (world units)"
+label = "Stone placement: scale for next rock or slab"
 type = "Float"
 
 [section.param.data]
-value = 0
-min = 0
-max = 0.6
+value = 0.2
+min = 0.05
+max = 2.0
 
 [[section.param]]
 id = "stone_yaw"
@@ -159,19 +141,6 @@ type = "Float"
 value = 225
 min = 0
 max = 360
-
-[[section.param]]
-id = "stone_kind"
-kind = "choice"
-label = "Stone type"
-type = "Choice"
-
-[section.param.data]
-value = 1
-options = [
-    "Paving slab",
-    "Landscape rock",
-]
 
 [[section.param]]
 id = "stone_seed"
@@ -213,8 +182,8 @@ label = "Paving slab thickness (world units)"
 type = "Float"
 
 [section.param.enabled_if]
-param = "stone_kind"
-equals = 0
+param = "stone_place_slab"
+equals = true
 
 [section.param.data]
 value = 0.035
@@ -228,8 +197,8 @@ label = "Landscape rock height (world units)"
 type = "Float"
 
 [section.param.enabled_if]
-param = "stone_kind"
-equals = 1
+param = "stone_place_slab"
+equals = false
 
 [section.param.data]
 value = 0.086
@@ -254,8 +223,8 @@ label = "Paving slab corner cut"
 type = "Float"
 
 [section.param.enabled_if]
-param = "stone_kind"
-equals = 0
+param = "stone_place_slab"
+equals = true
 
 [section.param.data]
 value = 0.18
@@ -269,8 +238,8 @@ label = "Landscape rock cutting planes"
 type = "Uint"
 
 [section.param.enabled_if]
-param = "stone_kind"
-equals = 1
+param = "stone_place_slab"
+equals = false
 
 [section.param.data]
 value = 16

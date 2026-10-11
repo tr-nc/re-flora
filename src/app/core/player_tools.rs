@@ -25,6 +25,7 @@ pub(super) enum PlayerTool {
     SoilInspector,
     Tiller,
     Wind,
+    Stone,
     Placeable,
 }
 
@@ -32,6 +33,7 @@ impl PlayerTool {
     fn from_item_panel_slot(slot_idx: usize) -> Option<Self> {
         match slot_idx {
             HAND_SLOT_INDEX => Some(Self::Hand),
+            super::ui_style::STONE_SLOT_INDEX => Some(Self::Stone),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
             GROW_SLOT_INDEX => Some(Self::Grow),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
@@ -49,6 +51,7 @@ impl PlayerTool {
     fn item_panel_slot(self) -> usize {
         match self {
             Self::Hand => HAND_SLOT_INDEX,
+            Self::Stone => super::ui_style::STONE_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
             Self::Grow => GROW_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
@@ -64,7 +67,7 @@ impl PlayerTool {
     }
 
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
-        !matches!(self, Self::Hand | Self::Wind | Self::Mower)
+        !matches!(self, Self::Hand | Self::Wind | Self::Mower | Self::Stone)
     }
 }
 
@@ -244,6 +247,7 @@ pub(super) enum PlayerToolPointerAction {
     Continuous(ContinuousTerrainToolAction),
     PlaceablePlacement,
     PlantTree,
+    StonePlacement,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -574,6 +578,7 @@ impl PlayerToolRuntime {
             {
                 Some(PlayerToolPointerAction::PlantTree)
             }
+            (PlayerTool::Stone, MouseButton::Left) => Some(PlayerToolPointerAction::StonePlacement),
             (PlayerTool::Placeable, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::PlaceablePlacement)
             }
@@ -716,6 +721,23 @@ mod tests {
     }
 
     #[test]
+    fn stone_placement_is_a_left_click_action_not_a_continuous_brush() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(crate::app::core::ui_style::STONE_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Stone);
+        assert!(!runtime.selected_tool().uses_terrain_edit_radius());
+        assert_eq!(runtime.begin_pointer_action(MouseButton::Right), None);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Left),
+            Some(PlayerToolPointerAction::StonePlacement)
+        );
+        assert_eq!(runtime.active_continuous_action(), None);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
+        assert!(!runtime.finish_pointer_release());
+    }
+
+    #[test]
     fn item_panel_slots_are_translated_at_the_runtime_boundary() {
         let tool_cases = [
             (super::HAND_SLOT_INDEX, PlayerTool::Hand),
@@ -731,6 +753,10 @@ mod tests {
             (super::SOIL_INSPECTOR_SLOT_INDEX, PlayerTool::SoilInspector),
             (super::TILLER_SLOT_INDEX, PlayerTool::Tiller),
             (super::WIND_SLOT_INDEX, PlayerTool::Wind),
+            (
+                crate::app::core::ui_style::STONE_SLOT_INDEX,
+                PlayerTool::Stone,
+            ),
         ];
         for (slot, expected) in tool_cases {
             let mut runtime = PlayerToolRuntime::default();

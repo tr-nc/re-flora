@@ -1324,20 +1324,9 @@ mod search_tests {
 
     #[test]
     fn stone_search_checkbox_edit_save_and_reload_are_the_real_saved_fields() {
-        let mut config = GuiConfigLoader::load();
-        // Pin the click fixture rather than assuming the user's saved checkbox values.
-        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
-            if matches!(
-                param.id.as_str(),
-                "stone_preview_enabled" | "stone_direct_triangles"
-            ) {
-                param.value = GuiParamValue::Bool { value: false };
-            }
-        }
-        let mut settings = DebugSettings::from_config(config);
-        assert!(!settings.adjustables.stone_preview_enabled.value);
-        assert!(!settings.adjustables.stone_direct_triangles.value);
-        settings.search.query = "stone direct triangle".to_owned();
+        let mut settings = DebugSettings::load();
+        settings.adjustables.stone_place_slab.value = false;
+        settings.search.query = "stone placement paving slab".to_owned();
         let context = egui::Context::default();
         let mut draw = |events| {
             let output = context.run_ui(
@@ -1353,8 +1342,10 @@ mod search_tests {
             output
                 .shapes
                 .iter()
-                .find_map(|shape| text_rect(&shape.shape, "Stone: direct triangle rendering (A/B)"))
-                .expect("search renders the declared A/B checkbox")
+                .find_map(|shape| {
+                    text_rect(&shape.shape, "Stone placement: place paving slab next")
+                })
+                .expect("search renders the declared placement checkbox")
                 .center()
         };
         draw(vec![]);
@@ -1370,9 +1361,7 @@ mod search_tests {
                 },
             ]);
         }
-        assert!(settings.adjustables.stone_direct_triangles.value);
-        settings.adjustables.stone_preview_enabled.value = true;
-        settings.adjustables.stone_kind.value = 0;
+        assert!(settings.adjustables.stone_place_slab.value);
         settings.adjustables.stone_seed.value = 65535;
         settings.adjustables.stone_slab_thickness.value = 0.03125;
         settings.adjustables.stone_yaw.value = 55.;
@@ -1382,9 +1371,7 @@ mod search_tests {
         settings.save_to_path(&path).unwrap();
         assert!(!settings.is_dirty());
         let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert!(loaded.adjustables.stone_preview_enabled.value);
-        assert!(loaded.adjustables.stone_direct_triangles.value);
-        assert_eq!(loaded.adjustables.stone_kind.value, 0);
+        assert!(loaded.adjustables.stone_place_slab.value);
         assert_eq!(loaded.adjustables.stone_seed.value, 65535);
         assert_eq!(loaded.adjustables.stone_slab_thickness.value, 0.03125);
         assert_eq!(loaded.adjustables.stone_yaw.value, 55.);
@@ -1395,7 +1382,7 @@ mod search_tests {
         );
         for query in [
             "paving slab",
-            "landscape rock",
+            "next rock",
             "stone geometry",
             "stone rendering",
         ] {

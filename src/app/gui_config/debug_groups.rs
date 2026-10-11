@@ -21,17 +21,24 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Stone Geometry",
-        description: "Deterministic closed triangle models, not voxel source data. Slabs have broad flat tops and bottoms with corner cuts and narrow chamfers; rocks use bounded asymmetric cutting planes. Slab thickness is limited to 30% of the short edge. All dimensions use garden world units (256 terrain voxels per unit). These are visual candidates, not approved art.",
+        title: "Stone",
+        description: "",
         initially_open: false,
-        params: &["stone_kind", "stone_seed", "stone_width", "stone_depth", "stone_slab_thickness", "stone_rock_height", "stone_variation", "stone_slab_edge_cut", "stone_rock_facets"],
+        params: &[],
     },
     ControlGroup {
-        parent: None,
-        title: "Stone Rendering",
-        description: "Enable the inspection-only preview; the existing garden is unchanged when disabled. Unchecked A/B: the same triangle model goes through the production GPU voxelizer, surface extraction and Contree ray visibility (128 private preview cells per world unit). Checked: hardware-raster triangles. Both use the live garden material palette and global pixel post-processing; UI stays native. Preview is lifted above grass, has no gameplay collider and never writes terrain or saves world data. Focus is applied only on enable. Not visually or performance approved.",
+        parent: Some("Stone"),
+        title: "Geometry",
+        description: "Deterministic closed triangle models, not voxel source data. Slabs have broad flat tops and bottoms with corner cuts and narrow chamfers; rocks use bounded asymmetric cutting planes. Slab thickness is limited to 30% of the short edge. All dimensions use garden world units (256 terrain voxels per unit). These are visual candidates, not approved art.",
         initially_open: false,
-        params: &["stone_preview_enabled", "stone_direct_triangles", "stone_preview_focus", "stone_preview_lift", "stone_yaw"],
+        params: &["stone_place_slab", "stone_placement_scale", "stone_seed", "stone_width", "stone_depth", "stone_slab_thickness", "stone_rock_height", "stone_variation", "stone_slab_edge_cut", "stone_rock_facets"],
+    },
+    ControlGroup {
+        parent: Some("Stone"),
+        title: "Rendering",
+        description: "Yaw for the next placed rock or slab, around the contacted terrain normal. Placed stones use the garden material palette and scene pixel processing; they are saved and edited as terrain voxels.",
+        initially_open: false,
+        params: &["stone_yaw"],
     },
     ControlGroup {
         parent: None,
@@ -96,7 +103,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Model View Quantization",
-        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies and direct stones. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
+        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
         initially_open: false,
         params: &["model_pixel_view_count"],
     },
@@ -208,7 +215,9 @@ pub(super) fn groups(parent: Option<&str>) -> Vec<&'static ControlGroup> {
     let mut groups: Vec<_> = GROUPS
         .iter()
         .filter(|group| {
-            group.parent == parent && !group.params.iter().all(|id| retired_pixel_control(id))
+            group.parent == parent
+                && (group.params.is_empty()
+                    || !group.params.iter().all(|id| retired_pixel_control(id)))
         })
         .collect();
     groups.sort_by_key(|group| group.title.to_ascii_lowercase());
@@ -237,8 +246,11 @@ pub(super) fn render_group(
     adjustables: &mut GuiAdjustables,
     group: &ControlGroup,
 ) {
-    if group.parent == Some("Wind") {
+    if matches!(group.parent, Some("Wind" | "Stone")) {
         ui_text::section(ui, group.title);
+        if group.parent == Some("Stone") {
+            ui_text::hint(ui, group.description);
+        }
         for id in group.params {
             if let Some(param) = section.param.iter().find(|p| p.id == *id) {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
@@ -250,6 +262,10 @@ pub(super) fn render_group(
         .id_salt(("debug_controls", group.title))
         .default_open(group.initially_open)
         .show(ui, |ui| {
+            if group.params.is_empty() {
+                render(ui, section, config, adjustables, Some(group.title));
+                return;
+            }
             if group.title == "Flower Stem Geometry & Color" {
                 for (title, ids) in [
                     (
@@ -317,6 +333,28 @@ mod tests {
     use super::*;
     use crate::app::gui_config::{DebugSettings, GuiConfigLoader};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn stone_controls_share_one_parent_with_two_regions() {
+        let stone = GROUPS.iter().find(|group| group.title == "Stone").unwrap();
+        assert_eq!(stone.parent, None);
+        assert!(stone.params.is_empty());
+        let regions = GROUPS
+            .iter()
+            .filter(|group| group.parent == Some("Stone"))
+            .collect::<Vec<_>>();
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[0].title, "Geometry");
+        assert_eq!(regions[1].title, "Rendering");
+        for region in regions {
+            for id in region.params {
+                assert_eq!(
+                    search_path("Debug", id),
+                    Some(format!("Stone / {}", region.title))
+                );
+            }
+        }
+    }
 
     #[test]
     fn supersampling_has_one_searchable_adjustment_first_owner() {
@@ -456,7 +494,7 @@ mod tests {
                 search_path("Debug", id).as_deref(),
                 Some("Model View Quantization")
             );
-            assert_eq!(GROUPS.iter().filter(|g| g.params.contains(&id)).count(), 1);
+            assert_eq!(GROUPS.iter().filter(|g| g.params.contains(id)).count(), 1);
             assert!(!retired_pixel_control(id));
         }
         assert_eq!(group.parent, None);
@@ -525,8 +563,7 @@ mod tests {
                         "Camera View",
                         "Material Supply",
                         "Soil Deposition",
-                        "Stone Geometry",
-                        "Stone Rendering",
+                        "Stone",
                         "Terrain",
                         "World Timing",
                     ]
@@ -547,7 +584,7 @@ mod tests {
         for shape in &output.shapes {
             collect(&shape.shape, &mut titles);
         }
-        assert_eq!(titles.len(), 11);
+        assert_eq!(titles.len(), 10);
         let mut sorted = titles.clone();
         sorted.sort_by_key(|title| title.to_ascii_lowercase());
         assert_eq!(
@@ -588,10 +625,26 @@ mod tests {
         for shape in &output.shapes {
             collect_text(&shape.shape, &mut text);
         }
+        assert_eq!(text.lines().filter(|line| *line == "Stone").count(), 1);
+        assert!(!text.contains("Stone Geometry"));
+        assert!(!text.contains("Stone Rendering"));
+        for region in GROUPS.iter().filter(|group| group.parent == Some("Stone")) {
+            for id in region.params {
+                let label = &settings
+                    .config
+                    .section
+                    .iter()
+                    .flat_map(|section| &section.param)
+                    .find(|param| param.id == *id)
+                    .unwrap()
+                    .label;
+                assert_eq!(text.lines().filter(|line| *line == label).count(), 1);
+            }
+        }
         for group in GROUPS {
             assert_eq!(
                 text.contains(group.title),
-                !group.params.iter().all(|id| retired_pixel_control(id)),
+                group.params.is_empty() || !group.params.iter().all(|id| retired_pixel_control(id)),
                 "group {}",
                 group.title
             );

@@ -58,6 +58,46 @@ impl App {
     }
 
     pub(in crate::app::core) fn verify_garden_snapshot_smoke(&mut self) -> Result<()> {
+        if std::env::var("RE_FLORA_STONE_PLACEMENT_REVIEW").as_deref() == Ok("verify") {
+            anyhow::ensure!(
+                self.terrain_persistence.startup_load_requested(),
+                "stone verify requires --terrain-load"
+            );
+            let path = self.terrain_persistence.selected_path().to_owned();
+            self.verify_live_garden_file(Path::new(&path))?;
+            for (x, expected) in [
+                (0.6, crate::builder::VOXEL_TYPE_ROCK),
+                (1.3, crate::builder::VOXEL_TYPE_ROCK),
+            ] {
+                let hit = self
+                    .query_terrain_ray_cpu(Vec3::new(x, 2.5, 0.6), Vec3::NEG_Y)
+                    .context("restored stone requires a terrain ray hit")?;
+                anyhow::ensure!(
+                    hit.voxel_type == expected,
+                    "restored stone surface has wrong material"
+                );
+                let readback = self.apply_surface_terrain_removal(
+                    TerrainBrushEdit {
+                        start: hit.position,
+                        end: hit.position,
+                        radius: 0.025,
+                    },
+                    Some(expected),
+                    None,
+                    None,
+                )?;
+                anyhow::ensure!(
+                    readback.stats.count_removed(expected) > 0,
+                    "Dig must edit restored stone voxels"
+                );
+                log::info!(
+                    "[STONE_PLACEMENT_REVIEW] material={expected} dig_removed={}",
+                    readback.stats.count_removed(expected)
+                );
+            }
+            log::info!("[STONE_PLACEMENT_REVIEW] restart=verified terrain_bytes=exact rock_and_slab=true dig=verified snapshot_file=unchanged");
+            return Ok(());
+        }
         if let Some(output) = std::env::var_os("RE_FLORA_TERRAIN_BENCH") {
             return self.benchmark_garden_snapshots(Path::new(&output));
         }

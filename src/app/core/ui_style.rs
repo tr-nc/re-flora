@@ -51,6 +51,7 @@ pub(crate) const WIND_SLOT_INDEX: usize = 8;
 pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const MOWER_SLOT_INDEX: usize = 11;
 pub(crate) const SOIL_DEPOSITION_SLOT_INDEX: usize = 12;
+pub(crate) const STONE_SLOT_INDEX: usize = 13;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
@@ -160,9 +161,9 @@ impl ToolPanelTheme {
             egui::Vec2::new(28.0, 28.0),
             5.0,
             egui::Vec2::new(12.0, 10.0),
-            3.0,
+            0.0,
             egui::Vec2::new(16.0, 14.0),
-            [4, 4],
+            [0, 0],
         )
     }
 }
@@ -786,17 +787,7 @@ fn draw_tool_panel_contents(
         ToolPanelOrientation::Horizontal => ui.spacing_mut().item_spacing.x = theme.slot_gap,
     }
 
-    let mut previous_category = None;
     for slot in slots {
-        if slot.category != previous_category {
-            if previous_category.is_some() {
-                match orientation {
-                    ToolPanelOrientation::Horizontal => ui.add_space(5.0),
-                }
-            }
-            previous_category = slot.category;
-        }
-
         let clicked = draw_tool_panel_slot(
             ui,
             slot,
@@ -841,30 +832,19 @@ fn draw_tool_panel_slot(
     } else {
         response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint))
     };
-    let hovered = interaction_enabled && response.hovered();
     let clicked = interaction_enabled && response.clicked();
-    let painter = ui.painter_at(rect);
+    // Keep layout and hit targets fixed; only the selected switch rises.
+    let slot_rect = rect;
+    let rect = rect.translate(egui::vec2(0., if selected { -3. } else { 0. }));
+    let painter = ui.painter_at(slot_rect.expand(4.));
 
-    let category_fill = tool_panel_category_fill(slot.category);
-    let fill = if selected {
-        category_fill.linear_multiply(1.22)
-    } else if hovered {
-        category_fill.linear_multiply(1.12)
-    } else {
-        category_fill
-    };
+    let fill = tool_panel_category_fill(slot.category);
     let accent = if slot.enabled {
         slot.accent
     } else {
         SAGE_ACCENT.linear_multiply(0.45)
     };
-    let border = if selected {
-        egui::Stroke::new(2.0, GOLD_ACCENT)
-    } else if hovered {
-        egui::Stroke::new(1.5, FLOWER_ACCENT)
-    } else {
-        egui::Stroke::new(1.0, SAGE_ACCENT)
-    };
+    let border = egui::Stroke::new(1.0, SAGE_ACCENT);
 
     painter.rect_filled(rect, egui::CornerRadius::same(0), fill);
     painter.rect_stroke(
@@ -873,12 +853,6 @@ fn draw_tool_panel_slot(
         border,
         egui::StrokeKind::Inside,
     );
-
-    let accent_rect = egui::Rect::from_min_max(
-        rect.left_top(),
-        egui::pos2(rect.right(), rect.top() + if selected { 4.0 } else { 2.0 }),
-    );
-    painter.rect_filled(accent_rect, egui::CornerRadius::same(0), accent);
 
     let keycap_rect = egui::Rect::from_min_size(rect.min + egui::vec2(5.0, 7.0), theme.keycap_size);
     painter.rect_filled(keycap_rect, egui::CornerRadius::same(0), PANEL_DARK);
@@ -930,6 +904,20 @@ fn draw_tool_panel_slot(
             ],
             egui::Stroke::new(2., TEXT_COLOR),
         );
+    } else if slot.index == STONE_SLOT_INDEX {
+        let center = icon_rect.center();
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                center + egui::vec2(-13., 9.),
+                center + egui::vec2(-10., -6.),
+                center + egui::vec2(-2., -12.),
+                center + egui::vec2(9., -8.),
+                center + egui::vec2(14., 5.),
+                center + egui::vec2(7., 11.),
+            ],
+            accent,
+            egui::Stroke::new(1., TEXT_COLOR),
+        ));
     } else if slot.index == WIND_SLOT_INDEX {
         for (y, length) in [(-7., 20.), (0., 25.), (7., 16.)] {
             let start = egui::pos2(icon_rect.left() + 1., icon_rect.center().y + y);
@@ -974,15 +962,15 @@ fn draw_tool_panel_slot(
         egui::Align2::CENTER_BOTTOM,
         slot.label,
         egui::TextStyle::Small.resolve(ui.style()),
-        if selected { GOLD_ACCENT } else { TEXT_COLOR },
+        TEXT_COLOR,
     );
 
     if selected {
         let notch = egui::Rect::from_center_size(
-            egui::pos2(rect.center().x, rect.bottom() + 2.0),
-            egui::vec2(24.0, 3.0),
+            egui::pos2(slot_rect.center().x, slot_rect.bottom() + 3.0),
+            egui::vec2(24.0, 2.0),
         );
-        painter.rect_filled(notch, egui::CornerRadius::same(0), GOLD_ACCENT);
+        painter.rect_filled(notch, egui::CornerRadius::same(0), TEXT_COLOR);
     }
 
     clicked
@@ -1293,6 +1281,123 @@ fn widget_visuals(
 #[cfg(test)]
 mod hover_layout_tests {
     use super::*;
+
+    #[test]
+    fn item_panel_slots_have_uniform_gaps_and_centered_vertical_padding() {
+        let context = egui::Context::default();
+        let slots = ["FREE", "TOOLS", "TOOLS", "CARE", "ITEMS"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, category)| ToolPanelSlot {
+                index,
+                label: "Test",
+                key_hint: "1",
+                category: Some(category),
+                icon: None,
+                accent: SAGE_ACCENT,
+                enabled: true,
+            })
+            .collect::<Vec<_>>();
+        let mut output = None;
+        for _ in 0..3 {
+            output = Some(context.run_ui(egui::RawInput::default(), |_| {
+                draw_item_panel(&context, &slots, None, true);
+            }));
+        }
+        let rects = output
+            .unwrap()
+            .shapes
+            .into_iter()
+            .filter_map(|shape| {
+                if let egui::Shape::Rect(rect) = shape.shape {
+                    if rect.rect.size() == egui::vec2(60., 60.) && rect.fill != Color32::TRANSPARENT
+                    {
+                        return Some(rect.rect);
+                    }
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rects.len(), slots.len());
+        for pair in rects.windows(2) {
+            assert!(
+                (pair[1].left() - pair[0].right() - 5.).abs() < 0.01,
+                "unequal slot spacing: {pair:?}"
+            );
+            assert_eq!(pair[0].center().y, pair[1].center().y);
+        }
+        let panel = context
+            .memory(|memory| memory.area_rect("item_panel"))
+            .unwrap();
+        assert!((panel.center().y - rects[0].center().y).abs() < 0.01);
+    }
+
+    #[test]
+    fn selected_item_rises_without_changing_colors_or_border_width() {
+        let context = egui::Context::default();
+        let slot = ToolPanelSlot {
+            index: 0,
+            label: "Hand",
+            key_hint: "1",
+            category: Some("FREE"),
+            icon: None,
+            accent: SAGE_ACCENT,
+            enabled: true,
+        };
+        let mut time = 0.;
+        let mut draw = |selected| {
+            let mut output = None;
+            for _ in 0..3 {
+                time += 1.;
+                output = Some(context.run_ui(
+                    egui::RawInput {
+                        time: Some(time),
+                        ..Default::default()
+                    },
+                    |_| {
+                        draw_item_panel(&context, std::slice::from_ref(&slot), selected, true);
+                    },
+                ));
+            }
+            output
+                .unwrap()
+                .shapes
+                .into_iter()
+                .filter_map(|shape| {
+                    if let egui::Shape::Rect(rect) = shape.shape {
+                        Some(rect)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let idle = draw(None);
+        let selected = draw(Some(0));
+        let tile = |shapes: &[egui::epaint::RectShape]| {
+            shapes
+                .iter()
+                .find(|shape| {
+                    shape.rect.size() == egui::vec2(60., 60.) && shape.fill != Color32::TRANSPARENT
+                })
+                .unwrap()
+                .clone()
+        };
+        let a = tile(&idle);
+        let b = tile(&selected);
+        assert_eq!(a.fill, b.fill);
+        assert_eq!(b.rect, a.rect.translate(egui::vec2(0., -3.)));
+        assert!(selected
+            .iter()
+            .any(|shape| shape.rect.size() == egui::vec2(24., 2.) && shape.fill == TEXT_COLOR));
+        for shapes in [&idle, &selected] {
+            let border = shapes
+                .iter()
+                .find(|shape| shape.rect.size() == egui::vec2(60., 60.) && shape.stroke.width > 0.)
+                .unwrap();
+            assert_eq!(border.stroke, egui::Stroke::new(1., SAGE_ACCENT));
+        }
+    }
 
     #[test]
     fn grow_panel_can_select_every_model_flower_on_a_short_window() {

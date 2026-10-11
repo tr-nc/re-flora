@@ -61,7 +61,7 @@ mod player_tools;
 mod raster_tree_smoke;
 mod render_frame_input;
 mod screenshot;
-mod stone_preview;
+mod stone_placement;
 mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
@@ -514,7 +514,6 @@ pub struct App {
     model_view_review: Option<model_view_review::ModelViewReview>,
     flower_model_bench: Option<flower_model_bench::FlowerModelBench>,
     apple_pixel_review_frame: Option<u32>,
-    stone_preview: stone_preview::State,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
     particle_forces: ParticleForces,
@@ -1631,7 +1630,6 @@ impl App {
             model_view_review,
             flower_model_bench: flower_model_bench::FlowerModelBench::from_env()?,
             apple_pixel_review_frame: apple_pixel_review.then_some(0),
-            stone_preview: stone_preview::State::new()?,
             terrain_harvest_particle_handles,
             particle_forces,
 
@@ -2311,6 +2309,7 @@ impl App {
                         PhysicalKey::Code(KeyCode::KeyB) => {
                             Some(ui_style::SOIL_DEPOSITION_SLOT_INDEX)
                         }
+                        PhysicalKey::Code(KeyCode::KeyN) => Some(ui_style::STONE_SLOT_INDEX),
                         _ => None,
                     };
 
@@ -2761,16 +2760,6 @@ impl App {
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 let egui_start = Instant::now();
                 let mower_mode_available = self.mower_mode_available();
-                if self.loading_state.is_none() {
-                    let scale = self.egui_renderer.context().pixels_per_point();
-                    if let Some(events) = self.stone_preview.gui_save_events(scale) {
-                        for event in events {
-                            let _ = self
-                                .egui_renderer
-                                .on_window_event(&self.window_state.window(), &event);
-                        }
-                    }
-                }
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
@@ -2842,7 +2831,6 @@ impl App {
                                             |ui| {
                                                 let response = ui.add(egui::Button::new("Save").small());
                                                 save_button_rect = Some(response.rect);
-                                                self.stone_preview.remember_save_button(response.rect.center());
                                                 if let Some(error) = self.debug_settings.save_error() {
                                                     response.clone().on_hover_text(error);
                                                 }
@@ -3021,6 +3009,15 @@ impl App {
                                 icon: item_panel_sprinkler_icon.as_ref(),
                                 accent: WATER_TOOL_ACCENT,
                                 enabled: true,
+                            },
+                            ItemPanelSlot {
+                                index: ui_style::STONE_SLOT_INDEX,
+                                label: "Stone",
+                                key_hint: "N",
+                                category: Some("ITEMS"),
+                                icon: None,
+                                accent: SAGE_ACCENT,
+                                enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::MOWER_SLOT_INDEX,
@@ -3330,8 +3327,6 @@ impl App {
                     event_loop.exit();
                     return;
                 }
-                self.prepare_stone_preview()
-                    .expect("isolated native stone preview controls and finite rigid pose");
                 let time_of_day_changed_by_gui =
                     self.debug_settings.adjustables.time_of_day.value != time_of_day_before_gui;
                 let vsm_blur_radius_changed_by_gui =

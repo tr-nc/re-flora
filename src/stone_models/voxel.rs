@@ -1,16 +1,13 @@
-//! Adapter contract for the existing GPU model_voxelize + surface + Contree path.
-//! The preview atlas is private and bounded; it never touches the world's atlas.
+//! CPU-only geometry regressions retained from the retired private-preview adapter.
+//! Actual placement is verified through the garden voxelizer and terrain save/load.
 use super::StoneMesh;
 use crate::builder::ModelTriangleGpu;
-use anyhow::{ensure, Result};
-use glam::{DVec3, UVec3, Vec3};
+use glam::{DVec3, Vec3};
 
 pub const DIM: u32 = 64;
 pub const VOXELS_PER_UNIT: f32 = 128.;
 pub const SURFACE_THICKNESS: f32 = 0.75;
 pub const ATLAS_PIVOT_VOX: Vec3 = Vec3::new(32., 2., 32.);
-pub const CHUNK_ORIGIN: Vec3 = Vec3::new(-0.25, -2. / VOXELS_PER_UNIT, -0.25);
-pub const CHUNK_SIZE: f32 = DIM as f32 / VOXELS_PER_UNIT;
 
 pub fn triangles(mesh: &StoneMesh) -> Vec<ModelTriangleGpu> {
     // Existing kernel is explicitly 256 voxels/world unit. This adapter's
@@ -22,12 +19,6 @@ pub fn triangles(mesh: &StoneMesh) -> Vec<ModelTriangleGpu> {
             ModelTriangleGpu { a, b, c }
         })
         .collect()
-}
-pub fn index(p: UVec3) -> usize {
-    ((p.z * DIM + p.y) * DIM + p.x) as usize
-}
-pub fn local_center(p: UVec3) -> Vec3 {
-    (p.as_vec3() + Vec3::splat(0.5) - ATLAS_PIVOT_VOX) / VOXELS_PER_UNIT
 }
 
 /// Pure winding reference, independent of the convex generator's half-space test.
@@ -89,59 +80,6 @@ pub fn occupied(mesh: &StoneMesh, point: Vec3) -> bool {
             }))
 }
 
-/// Native fixture checks the real GPU atlas, including filled interior, padding,
-/// type/state format, and 4096 deterministic sample cells against winding+shell.
-pub fn validate_atlas(mesh: &StoneMesh, bytes: &[u8], voxel_type: u32) -> Result<(usize, usize)> {
-    ensure!(
-        bytes.len() == DIM.pow(3) as usize,
-        "stone atlas dimension mismatch"
-    );
-    ensure!(
-        bytes.iter().all(|&b| b == 0 || u32::from(b) == voxel_type),
-        "stone atlas retained invalid type/state"
-    );
-    let count = bytes.iter().filter(|&&b| b != 0).count();
-    ensure!(count > 0, "stone GPU voxelizer authored no solid");
-    let mut checked = 0;
-    for z in (0..DIM).step_by(4) {
-        for y in (0..DIM).step_by(4) {
-            for x in (0..DIM).step_by(4) {
-                let p = UVec3::new(x, y, z);
-                let center = local_center(p);
-                let expected = occupied(mesh, center);
-                let actual = bytes[index(p)] != 0;
-                ensure!(expected==actual,"stone GPU occupancy differs from winding/surface reference at {p:?}: expected={expected} actual={actual}");
-                checked += 1;
-            }
-        }
-    }
-    for axis in 0..3 {
-        for side in [0, DIM - 1] {
-            for a in 0..DIM {
-                for b in 0..DIM {
-                    let mut p = UVec3::ZERO;
-                    p[axis] = side;
-                    p[(axis + 1) % 3] = a;
-                    p[(axis + 2) % 3] = b;
-                    ensure!(
-                        bytes[index(p)] == 0,
-                        "stone clipped into preview atlas boundary"
-                    );
-                }
-            }
-        }
-    }
-    ensure!(
-        mesh.contains((mesh.min + mesh.max) * 0.5, 0.),
-        "stone has no solid at its bounded center"
-    );
-    let center = ((mesh.min + mesh.max) * 0.5 * VOXELS_PER_UNIT + ATLAS_PIVOT_VOX).as_uvec3();
-    ensure!(
-        bytes[index(center)] != 0,
-        "stone GPU voxelizer made a shell without filled interior"
-    );
-    Ok((count, checked))
-}
 #[cfg(test)]
 mod tests {
     use super::*;
