@@ -144,13 +144,15 @@ mod tests {
             };
             let mut stroke = PathStroke::new(config, Vec3::ONE, Vec3::X).unwrap();
             let mut c = CourseContinuity::default();
-            let mut saw_provisional_invalid = false;
             for point in (1..=60)
                 .map(|i| Vec3::ONE + Vec3::X * (i as f32 * 0.01))
                 .chain((1..=60).map(|i| Vec3::ONE + Vec3::X * 0.6 + Vec3::Z * (i as f32 * 0.01)))
             {
                 assert!(stroke.push(point));
-                saw_provisional_invalid |= stroke.pending_rows().iter().any(|r| !r.valid);
+                assert!(
+                    stroke.pending_rows().iter().all(|r| r.valid),
+                    "an open ordinary corner must not invent an invalid provisional tail"
+                );
                 assert!(stroke.prepare());
                 while let Some(row) = c.next(&mut stroke.rows) {
                     c.accept(row);
@@ -166,10 +168,6 @@ mod tests {
             }
             assert!(c.blocked().is_none());
             assert!(c.expected() >= 18);
-            assert!(
-                saw_provisional_invalid,
-                "fixture must exercise a transient invalid tail"
-            );
         }
     }
 

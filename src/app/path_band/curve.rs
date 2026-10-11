@@ -1,6 +1,6 @@
-//! Bounded-error streaming guide and tangent-continuous rounded centerline.
-//! Only the last control point moves; sections more than two radii behind the
-//! cursor are stable. Published terrain never needs to be erased/rebuilt.
+//! Bounded-error streaming guide and locally fitted, tangent-continuous curves.
+//! Radius is a planning preference, not a minimum legal turn. Consumers validate
+//! actual band/paver geometry; published exit sections remain immutable.
 use super::{xz, CourseSection, VOXEL_SIZE};
 use glam::{Vec2, Vec3};
 
@@ -8,9 +8,7 @@ use glam::{Vec2, Vec3};
 // Simplify their sub-voxel lateral noise before interpreting it as a corner;
 // this remains a bounded corridor, not a clearance or sharp-turn exemption.
 const INPUT_GUIDE_TOLERANCE: f32 = VOXEL_SIZE;
-const TERMINAL_ARC_TOLERANCE: f32 = VOXEL_SIZE * 0.125;
 const MAX_GUIDE_POINTS: usize = 4096;
-const MAX_CORNER_ANGLE: f32 = std::f32::consts::PI * 2. / 3.;
 
 #[derive(Clone)]
 pub(super) struct CurveGuide {
@@ -91,6 +89,76 @@ impl CurveGuide {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct Corner {
+    radius: f32,
+    trim: f32,
+    angle: f32,
+    partial: bool,
+    broken: bool,
+}
+impl Corner {
+    fn new(incoming: Vec2, outgoing: Vec2, radius: f32, open_end: bool) -> Self {
+        let direction = incoming.normalize_or_zero();
+        let next = outgoing.normalize_or_zero();
+        let angle = direction.perp_dot(next).atan2(direction.dot(next)).abs();
+        if angle < 1e-4 {
+            return Self::default();
+        }
+        // A reversal has no tangent fillet. Other turns are judged by their
+        // resulting cells, not an arbitrary maximum angle or minimum radius.
+        if angle >= std::f32::consts::PI - 1e-4 || radius <= 1e-8 {
+            return Self {
+                broken: true,
+                ..Self::default()
+            };
+        }
+        let trim = radius * (angle * 0.5).tan();
+        if open_end && outgoing.length() < trim {
+            // The cursor fixes a POSITION, not the eventual outgoing tangent.
+            // End exactly at it on an incomplete circle tangent to the incoming
+            // line. Its radius can stay generous even for a tiny turning tail.
+            let lateral = direction.perp_dot(outgoing).abs();
+            let along = direction.dot(outgoing);
+            let advance = (2. * radius * lateral - lateral * lateral).max(0.).sqrt();
+            Self {
+                radius,
+                trim: advance - along,
+                angle: advance.atan2(radius - lateral),
+                partial: true,
+                broken: false,
+            }
+        } else {
+            Self {
+                radius,
+                trim,
+                angle,
+                partial: false,
+                broken: false,
+            }
+        }
+    }
+
+    fn fit_trim(&mut self, trim: f32, incoming: Vec2, outgoing: Vec2, open_end: bool) {
+        let direction = incoming.normalize();
+        let next = outgoing.normalize();
+        let angle = direction.perp_dot(next).atan2(direction.dot(next)).abs();
+        let radius = if open_end && trim > outgoing.length() {
+            let along = direction.dot(outgoing);
+            let lateral = direction.perp_dot(outgoing).abs();
+            let advance = trim + along;
+            if advance <= 0. || lateral <= 1e-8 {
+                self.broken = true;
+                return;
+            }
+            (advance * advance + lateral * lateral) / (2. * lateral)
+        } else {
+            trim / (angle * 0.5).tan()
+        };
+        *self = Self::new(incoming, outgoing, radius.min(self.radius), open_end);
+    }
+}
+
 struct Span {
     start: f64,
     length: f64,
@@ -128,57 +196,43 @@ impl RoundedPath {
         if n == 1 {
             return path;
         }
-        let mut trims = vec![0.; n];
-        let mut broken = vec![false; n];
-        let mut angles = vec![0.; n];
+        let mut corners = vec![Corner::default(); n];
         for i in 1..n - 1 {
-            let incoming = xz(points[i] - points[i - 1]).normalize_or_zero();
-            let outgoing = xz(points[i + 1] - points[i]).normalize_or_zero();
-            let angle = incoming.dot(outgoing).clamp(-1., 1.).acos();
-            angles[i] = angle;
-            if angle > MAX_CORNER_ANGLE {
-                broken[i] = true;
-            } else if angle > 1e-4 {
-                trims[i] = radius * (angle * 0.5).tan();
-            }
+            let incoming = xz(points[i] - points[i - 1]);
+            let outgoing = xz(points[i + 1] - points[i]);
+            let angle = incoming
+                .perp_dot(outgoing)
+                .atan2(incoming.dot(outgoing))
+                .abs();
+            // Estimate the drawn curvature instead of sharpening an already
+            // gentle curve to the default radius. Keep the local smoothing
+            // support bounded; neither limit is a minimum legal turn radius.
+            let tangent = (angle * 0.5).tan();
+            let observed = (incoming.length() + outgoing.length()) / (4. * tangent);
+            let preferred = radius
+                .max(observed)
+                .min(2. * radius)
+                .min(2. * radius / tangent);
+            corners[i] = Corner::new(incoming, outgoing, preferred, i == n - 2);
         }
-        // Do not shrink below the safe radius or fold the inside lanes. A corner
-        // that cannot fit gets an explicit continuity break, not inverted cells.
-        let mut terminal_fraction = 1.;
-        for i in 0..n - 1 {
+        // Allocate the available chord between neighboring fillets. Shrinking
+        // only frees space on previously fitted chords; no continuity break is
+        // needed merely because the preferred radii do not fit.
+        for i in 0..n - 2 {
             let length = xz(points[i + 1] - points[i]).length();
-            if trims[i] + trims[i + 1] > length * 0.98 {
-                // Swung-door simplification can leave a tiny final chord in an
-                // otherwise gentle curve. End ON the safe-radius arc when that
-                // endpoint remains within the stricter terminal arc tolerance.
-                // Never shrink its radius, extend the drawn path, or forgive a
-                // genuinely impossible short sharp turn.
-                if i == n - 2 && !broken[i] && angles[i] > 1e-4 {
-                    let fraction = 1. + (length - trims[i]) / (radius * angles[i]);
-                    let incoming = xz(points[i] - points[i - 1]).normalize();
-                    let sign = incoming.perp_dot(xz(points[i + 1] - points[i])).signum();
-                    let start = xz(points[i]) - incoming * trims[i];
-                    let center = start + Vec2::new(-incoming.y, incoming.x) * (radius * sign);
-                    let radial = start - center;
-                    let (sin, cos) = (angles[i] * sign * fraction).sin_cos();
-                    let end = center
-                        + Vec2::new(
-                            radial.x * cos - radial.y * sin,
-                            radial.x * sin + radial.y * cos,
+            let total = corners[i].trim + corners[i + 1].trim;
+            if total > length {
+                let scale = length / total;
+                for j in [i, i + 1] {
+                    if corners[j].trim > 0. {
+                        let trim = corners[j].trim * scale;
+                        corners[j].fit_trim(
+                            trim,
+                            xz(points[j] - points[j - 1]),
+                            xz(points[j + 1] - points[j]),
+                            j == n - 2,
                         );
-                    if fraction > 0.
-                        && fraction <= 1.
-                        && end.distance(xz(points[i + 1])) <= TERMINAL_ARC_TOLERANCE
-                    {
-                        terminal_fraction = fraction;
-                        continue;
                     }
-                }
-                if i > 0 {
-                    broken[i] = true;
-                }
-                if i + 1 < n - 1 {
-                    broken[i + 1] = true;
                 }
             }
         }
@@ -187,22 +241,26 @@ impl RoundedPath {
         for i in 1..n - 1 {
             let incoming = points[i] - points[i - 1];
             let outgoing = points[i + 1] - points[i];
-            if broken[i] || trims[i] == 0. {
+            let corner = corners[i];
+            if corner.broken || corner.trim <= 0. {
                 path.line(from, points[i], continuity);
                 from = points[i];
-                if broken[i] {
+                if corner.broken {
                     continuity += 1;
                 }
                 continue;
             }
-            let start = points[i] - incoming * (trims[i] / xz(incoming).length());
-            let end = points[i] + outgoing * (trims[i] / xz(outgoing).length());
+            let start = points[i] - incoming * (corner.trim / xz(incoming).length());
+            let end = if corner.partial {
+                points[n - 1]
+            } else {
+                points[i] + outgoing * (corner.trim / xz(outgoing).length())
+            };
             path.line(from, start, continuity);
             let direction = xz(incoming).normalize();
             let sign = direction.perp_dot(xz(outgoing)).signum();
-            let center = xz(start) + Vec2::new(-direction.y, direction.x) * (radius * sign);
-            let fraction = if i == n - 2 { terminal_fraction } else { 1. };
-            let length = f64::from(radius * angles[i] * fraction);
+            let center = xz(start) + Vec2::new(-direction.y, direction.x) * (corner.radius * sign);
+            let length = f64::from(corner.radius * corner.angle);
             path.spans.push(Span {
                 start: path.length,
                 length,
@@ -210,17 +268,13 @@ impl RoundedPath {
                 kind: SpanKind::Arc {
                     center,
                     radial: xz(start) - center,
-                    angle: angles[i] * sign * fraction,
+                    angle: corner.angle * sign,
                     from_y: start.y,
-                    to_y: if fraction < 1. {
-                        points[n - 1].y
-                    } else {
-                        end.y
-                    },
+                    to_y: end.y,
                 },
             });
             path.length += length;
-            if fraction < 1. {
+            if corner.partial {
                 return path;
             }
             from = end;
@@ -324,16 +378,18 @@ mod tests {
     }
 
     #[test]
-    fn input_filter_preserves_a_real_short_sharp_turn() {
+    fn input_filter_preserves_a_real_short_turn_with_an_open_tangent() {
         let mut guide = CurveGuide::new(Vec3::ZERO);
         assert!(guide.push(Vec3::X * 0.3));
         assert!(guide.push(Vec3::new(0.3, 0., 0.012)));
         let curve = guide.rounded(0.06, Vec3::X);
-        assert!(curve.spans.iter().any(|s| s.continuity > 0));
+        assert_eq!(guide.points.len(), 3);
+        assert!(curve.spans.iter().all(|s| s.continuity == 0));
+        assert!(curve.section(curve.length).center.distance(guide.last()) < 1e-6);
     }
 
     #[test]
-    fn gentle_terminal_residual_ends_on_safe_arc_with_bounded_error() {
+    fn gentle_terminal_residual_ends_at_the_cursor() {
         for sign in [-1., 1.] {
             let start = Vec3::ONE;
             let mut guide = CurveGuide::new(start);
@@ -345,19 +401,40 @@ mod tests {
             }
             let curve = guide.rounded(0.06, Vec3::X);
             assert!(curve.spans.iter().all(|s| s.continuity == 0));
-            assert!(
-                xz(curve.section(curve.length).center - guide.last()).length()
-                    <= TERMINAL_ARC_TOLERANCE + 1e-6
-            );
+            assert!(xz(curve.section(curve.length).center - guide.last()).length() <= 1e-6);
         }
     }
     #[test]
-    fn short_sharp_terminal_turn_still_has_an_explicit_break() {
+    fn microscopic_partial_arc_stays_finite_and_reaches_its_end() {
+        for length in [1e-9, 0.003, 0.04] {
+            for sign in [-1., 1.] {
+                let end = Vec3::new(0.3, 0., sign * length);
+                let curve = RoundedPath::new(&[Vec3::ZERO, Vec3::X * 0.3, end], 0.12, Vec3::X);
+                let section = curve.section(curve.length);
+                assert!(section.center.is_finite() && section.across.is_finite());
+                assert!(section.center.distance(end) < 1e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn short_terminal_turn_uses_a_partial_arc_not_a_break() {
         let guide = RoundedPath::new(
             &[Vec3::ZERO, Vec3::X * 0.3, Vec3::new(0.3, 0., 0.003)],
             0.06,
             Vec3::X,
         );
-        assert!(guide.spans.iter().any(|s| s.continuity > 0));
+        assert!(guide.spans.iter().all(|s| s.continuity == 0));
+        assert!(
+            guide
+                .section(guide.length)
+                .center
+                .distance(Vec3::new(0.3, 0., 0.003))
+                < 1e-6
+        );
+        let SpanKind::Arc { angle, .. } = guide.spans.last().unwrap().kind else {
+            panic!("short tail must end on an arc");
+        };
+        assert!(angle > 0. && angle < std::f32::consts::FRAC_PI_2);
     }
 }

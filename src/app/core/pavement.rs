@@ -104,27 +104,10 @@ impl ActivePavement {
 
     fn propose_current(&mut self) {
         let mut stroke = self.stroke.clone();
-        let mut endpoint = self.intent.cursor();
-        let mut pushed = stroke.push(endpoint);
-        let mut invalid = stroke.pending_rows().into_iter().find(|r| !r.valid);
-        // If a raw ray-picked riser creates an impossible microscopic bend,
-        // propose the nearby incoming-tangent point. This is bounded INPUT
-        // assistance, never a smaller radius or a protection/support exemption.
-        let delta = endpoint - self.intent.anchor();
-        let forward = self.stroke.tail_tangent();
-        let along = delta.dot(forward);
-        let lateral = delta - forward * along;
-        if pushed
-            && invalid.is_some()
-            && self.intent.floor() > 0
-            && along > 0.
-            && glam::Vec2::new(lateral.x, lateral.z).length() <= 2. * VOXEL_SIZE
-        {
-            endpoint = self.intent.anchor() + forward * along + Vec3::Y * delta.y;
-            stroke = self.stroke.clone();
-            pushed = stroke.push(endpoint);
-            invalid = stroke.pending_rows().into_iter().find(|r| !r.valid);
-        }
+        stroke.replan_unpublished(self.continuity.accepted());
+        let endpoint = self.intent.cursor();
+        let pushed = stroke.push(endpoint);
+        let invalid = stroke.pending_rows().into_iter().find(|r| !r.valid);
         if !pushed || !self.intent.can_fix() {
             self.block_here(BlockReason::Sampling);
         } else if let Some(row) = invalid {
@@ -1091,7 +1074,7 @@ mod tests {
         let approved = a.stroke.pending_rows();
         for point in [
             Vec3::ONE + Vec3::new(0.112, 0., 0.0684),
-            Vec3::ONE + Vec3::new(0.112, 0., 0.3),
+            Vec3::ONE + Vec3::new(-0.2, 0., 0.05),
         ] {
             runtime.active.as_mut().unwrap().observe_ground(point);
             assert_eq!(

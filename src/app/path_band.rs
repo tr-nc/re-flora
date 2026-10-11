@@ -129,7 +129,6 @@ struct TileInput {
     since_prepare: f64,
     next_distance: f64,
     distance_base: f64,
-    anchored: bool,
     next_index: u32,
     previous_exit: Option<CourseSection>,
     dirty: bool,
@@ -180,7 +179,6 @@ impl PathStroke {
                 since_prepare: 0.,
                 next_distance: 0.,
                 distance_base: 0.,
-                anchored: false,
                 next_index: 0,
                 previous_exit: None,
                 dirty: true,
@@ -193,18 +191,6 @@ impl PathStroke {
             rows: VecDeque::new(),
         })
     }
-    /// Current approved guide's incoming direction; not a generated checkpoint.
-    pub(super) fn tail_tangent(&self) -> Vec3 {
-        match &self.input {
-            StrokeInput::Tiles(input) => {
-                let curve = input.guide.rounded(self.config.width, input.heading);
-                let end = curve.section(curve.length);
-                Vec3::new(-end.across.z, 0., end.across.x)
-            }
-            StrokeInput::Surface(input) => input.heading,
-        }
-    }
-
     pub(super) fn push(&mut self, point: Vec3) -> bool {
         if !point.is_finite() {
             return false;
@@ -261,6 +247,22 @@ impl PathStroke {
             }
         }
     }
+    /// A proposal may change any UNPUBLISHED course, including queued ones.
+    /// Seek from the world's actual checkpoint, never a generated queue tail.
+    pub(super) fn replan_unpublished(&mut self, accepted: Option<PathSample>) {
+        let StrokeInput::Tiles(input) = &mut self.input else {
+            return; // Surface sampling has no mutable curve tail.
+        };
+        self.rows.clear();
+        input.next_distance = accepted.map_or(0., |r| {
+            f64::from(r.distance) - input.distance_base + f64::from(self.config.pitch)
+        });
+        input.next_index = accepted.map_or(0, |r| r.index.wrapping_add(1));
+        input.previous_exit = accepted.map(|r| r.exit);
+        input.since_prepare = 0.;
+        input.dirty = true;
+    }
+
     /// Compile only stable sections, preserving exact published exit facts.
     /// The short unbaked tail can still round a newly drawn corner.
     pub(super) fn prepare(&mut self) -> bool {
@@ -293,12 +295,11 @@ impl PathStroke {
                 distance: (input.distance_base + input.next_distance) as f32,
                 index: input.next_index,
                 valid: entry.continuity == exit.continuity
-                    && anchored_turn_fits(input.anchored, entry, exit, self.config),
+                    && course_fits(entry, exit, self.config.width),
                 entry,
                 exit,
             });
             input.previous_exit = Some(exit);
-            input.anchored = false;
             input.next_index = input.next_index.wrapping_add(1);
             input.next_distance += f64::from(self.config.pitch);
         }
@@ -319,7 +320,6 @@ impl PathStroke {
         let mut distance = input.next_distance;
         let mut index = input.next_index;
         let mut previous = input.previous_exit;
-        let mut anchored = input.anchored;
         for _ in 0..MAX_QUEUED_ROWS {
             if distance > curve.length + 1e-7 {
                 break;
@@ -336,9 +336,8 @@ impl PathStroke {
                 entry,
                 exit,
                 valid: entry.continuity == exit.continuity
-                    && anchored_turn_fits(anchored, entry, exit, self.config),
+                    && course_fits(entry, exit, self.config.width),
             });
-            anchored = false;
             previous = Some(exit);
             distance += f64::from(self.config.pitch);
             index = index.wrapping_add(1);
@@ -386,7 +385,6 @@ impl PathStroke {
                 }),
                 next_index: accepted.map_or(0, |r| r.index.wrapping_add(1)),
                 previous_exit: accepted.map(|r| r.exit),
-                anchored: accepted.is_some(),
                 dirty: true,
                 finished: false,
             })
@@ -431,17 +429,20 @@ impl PathStroke {
         }
     }
 }
-// A rebased first course cannot rotate arbitrarily away from its frozen entry.
-// Keep the same minimum band radius instead of treating the anchor as a free start.
-fn anchored_turn_fits(
-    anchored: bool,
-    entry: CourseSection,
-    exit: CourseSection,
-    settings: PathSettings,
-) -> bool {
-    !anchored
-        || entry.across.dot(exit.across).clamp(-1., 1.).acos()
-            <= settings.pitch / settings.width + 1e-4
+// Validate the actual strip, including its immutable entry after publication.
+// Radius and angle are planning choices; strict convexity is a geometric fact.
+fn course_fits(entry: CourseSection, exit: CourseSection, width: f32) -> bool {
+    let half = width * 0.5;
+    inset_quad(
+        [
+            entry.point(-half),
+            entry.point(half),
+            exit.point(half),
+            exit.point(-half),
+        ],
+        0.,
+    )
+    .is_some()
 }
 impl SurfaceInput {
     fn emit(&mut self, next: Vec3, pitch: f32, rows: &mut VecDeque<PathSample>) {

@@ -195,20 +195,15 @@ impl App {
             } else if review.turning && step > 30 {
                 let diagonal = (step - 30).min(20) as f32 * 0.01;
                 let extra = step.saturating_sub(50) as f32 * 0.01;
-                if review.recovering {
-                    review.start
-                        + Vec3::new(TURN_LEAD - diagonal * 0.94, 0., diagonal * 0.342 + extra)
-                } else {
-                    // Keep the current target genuinely ~160 degrees behind
-                    // the last fixed end. Moving farther sideways can itself
-                    // become a valid gentler proposal in the new interaction.
-                    review.start
-                        + Vec3::new(
-                            TURN_LEAD - (diagonal + extra) * 0.94,
-                            0.,
-                            (diagonal + extra) * 0.342,
-                        )
-                }
+                // Keep both rejection fixtures genuinely ~160 degrees behind
+                // the last fixed end. Sideways motion previously made the recover
+                // fixture gentler; those targets are now correctly buildable.
+                review.start
+                    + Vec3::new(
+                        TURN_LEAD - (diagonal + extra) * 0.94,
+                        0.,
+                        (diagonal + extra) * 0.342,
+                    )
             } else {
                 let distance = if review.turning {
                     step.min(30) as f32 / 30. * TURN_LEAD

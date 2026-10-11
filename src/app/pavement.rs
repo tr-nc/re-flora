@@ -5,6 +5,10 @@ use super::path_band::{inset_quad, overlaps_quads, PathCell, PathSampling, PathS
 use super::path_band::{PathStroke, MAX_QUEUED_ROWS};
 use glam::{Vec2, Vec3};
 
+// The existing two-voxel minimum applies to the DEFORMED tile as well as
+// nominal lane widths. A mathematically positive sliver is not a usable stone.
+const MIN_PIECE_EXTENT: f32 = 2. * VOXEL_SIZE;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PavementKind {
     Slabs,
@@ -75,7 +79,7 @@ impl PavementRecipe {
                 (-self.width * 0.5 + lane as f32 * lane_width - stagger).max(-self.width * 0.5);
             let right = (-self.width * 0.5 + (lane + 1) as f32 * lane_width - stagger)
                 .min(self.width * 0.5);
-            if right - left < gap + 2. * VOXEL_SIZE {
+            if right - left < gap + MIN_PIECE_EXTENT {
                 continue;
             }
             let cell = [
@@ -89,6 +93,9 @@ impl PavementRecipe {
             let Some(footprint) = inset_quad(cell, gap * 0.5) else {
                 return Vec::new(); // explicit unusable course, never a folded mesh
             };
+            if !resolved_footprint(footprint) {
+                return Vec::new(); // reject the whole course, never lose an inner tile
+            }
             let center = footprint.iter().copied().sum::<Vec2>() * 0.25;
             let width = right - left - gap;
             let length = self.pitch - gap;
@@ -103,6 +110,18 @@ impl PavementRecipe {
         pieces
     }
 }
+fn resolved_footprint(points: [Vec2; 4]) -> bool {
+    (0..4).all(|i| {
+        let edge = points[(i + 1) % 4] - points[i];
+        let length = edge.length();
+        length >= MIN_PIECE_EXTENT - 1e-6
+            && [2, 3].into_iter().all(|offset| {
+                edge.perp_dot(points[(i + offset) % 4] - points[i]) / length
+                    >= MIN_PIECE_EXTENT - 1e-6
+            })
+    })
+}
+
 fn finite_clamp(value: f32, fallback: f32, min: f32, max: f32) -> f32 {
     if value.is_finite() {
         value.clamp(min, max)
@@ -410,6 +429,21 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn compression_is_checked_on_real_inset_tiles_not_the_planning_radius() {
+        let recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+        for (radius, count) in [(0.12, 3), (0.10, 3), (0.09, 3), (0.07, 0), (0.06, 0)] {
+            let angle: f32 = recipe.pitch / radius;
+            let mut row = PathSample::straight(Vec3::ZERO, Vec3::X, 0., 0, recipe.pitch);
+            row.entry.center = Vec3::ZERO;
+            row.exit.center = Vec3::new(radius * angle.sin(), 0., radius * (1. - angle.cos()));
+            row.exit.across = Vec3::new(angle.sin(), 0., -angle.cos());
+            let pieces = recipe.pieces(row);
+            assert_eq!(pieces.len(), count, "radius={radius}");
+            assert!(pieces.iter().all(|p| resolved_footprint(p.footprint)));
+        }
+    }
+
     #[test]
     fn impossible_corner_is_explicit_and_never_produces_a_folded_cell() {
         let recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);

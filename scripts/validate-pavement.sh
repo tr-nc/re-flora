@@ -10,7 +10,7 @@ binary="$PWD/target/release/re-flora"
 export RUST_LOG=info
 "$binary" --hidden --mute --auto-exit 0.5 > "$output/default.log" 2>&1
 ! grep -q '\[PAVEMENT\].*publish' "$output/default.log"
-RE_FLORA_PAVEMENT_REVIEW=seed "$binary" --hidden --mute --auto-exit 1 \
+RE_FLORA_PAVEMENT_REVIEW=seed "$binary" --flat-terrain --hidden --mute --auto-exit 1 \
     --terrain-save "$output/placed.rflterrain" \
     --screenshot player-default "$output/paths.png" --screenshot-delay 0.2 \
     > "$output/seed.log" 2>&1
@@ -29,8 +29,12 @@ grep -q 'restart=verified cells=' "$output/reload.log"
 grep -q 'view=bends camera_transient=true' "$output/reload.log"
 for kind in Slabs Brick; do
     for sign in 1 -1; do
-        grep -q "PAVEMENT_BEND_REVIEW.*kind=$kind sign=$sign courses=6.*complete=true" "$output/seed.log"
-        grep -q "PAVEMENT_BEND_REVIEW.*kind=$kind sign=$sign retrace=atlas_identical" "$output/seed.log"
+        for radius in 0.18 0.1; do
+            courses=6
+            [[ "$radius" != 0.1 ]] || courses=4
+            grep -q "PAVEMENT_BEND_REVIEW.*kind=$kind sign=$sign radius=$radius courses=$courses.*complete=true candidate_targets=all_accepted" "$output/seed.log"
+            grep -q "PAVEMENT_BEND_REVIEW.*kind=$kind sign=$sign radius=$radius retrace=atlas_identical" "$output/seed.log"
+        done
     done
 done
 for name in default seed reload; do
@@ -38,4 +42,4 @@ for name in default seed reload; do
     ! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/$name.log"
 done
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
-printf 'Pavement complete left/right bend courses, materials, exact bent retrace, dirt clearing, shared Dig sound lifecycle, restart and unchanged settings passed.\nArtifacts: %s\n' "$output"
+printf 'Pavement normal/compressed left/right bends accept all candidates, publish complete courses/materials, preserve exact retrace, dirt clearing, shared Dig sound lifecycle, restart and settings.\nArtifacts: %s\n' "$output"

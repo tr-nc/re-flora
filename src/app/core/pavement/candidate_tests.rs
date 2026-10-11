@@ -9,6 +9,133 @@ fn approve_geometry(a: &mut ActivePavement, p: Vec3) {
     a.fix_candidate();
 }
 
+// Exercise the real interaction seam, including the complete provisional tail,
+// at every mouse target. Native reviews add terrain support and GPU protection.
+fn approve_complete_geometry(a: &mut ActivePavement, target: Vec3) {
+    a.observe_ground(target);
+    assert!(
+        a.continuity.blocked().is_none(),
+        "legal target {target:?} rejected: {:?}",
+        a.continuity.blocked().map(|b| b.reason)
+    );
+    let Some(candidate) = a.candidate.as_ref() else {
+        return;
+    };
+    let mut staged = PavementCoverage::default();
+    for row in candidate.stroke.pending_rows() {
+        assert!(row.valid, "invalid row {} at {target:?}", row.index);
+        let pieces = a.recipe.pieces(row);
+        assert!(!pieces.is_empty(), "empty row {} at {target:?}", row.index);
+        for piece in pieces {
+            assert!(a.coverage.accepts(piece) && staged.accepts(piece));
+            staged.record(piece);
+        }
+    }
+    if a.intent.spaced(a.stroke.config.pitch) {
+        a.fix_candidate();
+    }
+    assert!(a.stroke.prepare());
+    while let Some(row) = a.continuity.next(&mut a.stroke.rows) {
+        for piece in a.recipe.pieces(row) {
+            assert!(a.coverage.accepts(piece));
+            a.coverage.record(piece);
+        }
+        a.continuity.accept(row);
+    }
+}
+
+#[test]
+fn three_lane_compressed_bends_accept_every_streaming_target() {
+    for sign in [-1., 1.] {
+        for steps in [18, 45, 180] {
+            let mut a = active();
+            a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+            a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
+            for i in 1..=steps {
+                let angle = std::f32::consts::FRAC_PI_2 * i as f32 / steps as f32;
+                let p =
+                    Vec3::ONE + Vec3::new(0.10 * angle.sin(), 0., sign * 0.10 * (1. - angle.cos()));
+                approve_complete_geometry(&mut a, p);
+            }
+            if a.candidate.is_some() {
+                a.fix_candidate(); // Release approves the last sub-spacing residual.
+            }
+            assert!(a.stroke.finish());
+            assert!(a.stroke.rows.iter().all(|r| r.valid));
+            assert_eq!(a.stroke.rows.len(), 4);
+            assert_eq!(
+                a.stroke
+                    .rows
+                    .iter()
+                    .map(|r| a.recipe.pieces(*r).len())
+                    .sum::<usize>(),
+                12
+            );
+        }
+    }
+}
+
+#[test]
+fn compressed_bend_after_publication_keeps_the_actual_prefix_and_exit() {
+    for sign in [-1., 1.] {
+        let mut a = active();
+        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+        a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
+        for i in 1..=50 {
+            approve_complete_geometry(&mut a, Vec3::ONE + Vec3::X * (i as f32 * 0.01));
+        }
+        let accepted = a
+            .continuity
+            .accepted()
+            .expect("must publish before turning");
+        let original = a.coverage.published_pieces().to_vec();
+        let corner = Vec3::ONE + Vec3::X * 0.5;
+        for i in 1..=90 {
+            let angle = std::f32::consts::FRAC_PI_2 * i as f32 / 90.;
+            approve_complete_geometry(
+                &mut a,
+                corner + Vec3::new(0.10 * angle.sin(), 0., sign * 0.10 * (1. - angle.cos())),
+            );
+            for (a, b) in original.iter().zip(a.coverage.published_pieces()) {
+                assert_eq!(a.footprint, b.footprint);
+                assert_eq!(a.seed, b.seed);
+            }
+        }
+        if a.candidate.is_some() {
+            a.fix_candidate();
+        }
+        assert!(a.stroke.finish());
+        let mut previous = a.continuity.accepted().unwrap().exit;
+        while let Some(row) = a.continuity.next(&mut a.stroke.rows) {
+            assert_eq!(row.entry, previous);
+            assert!(row.index > accepted.index);
+            let pieces = a.recipe.pieces(row);
+            assert!(!pieces.is_empty());
+            for piece in pieces {
+                assert!(a.coverage.accepts(piece));
+                a.coverage.record(piece);
+            }
+            previous = row.exit;
+            a.continuity.accept(row);
+        }
+        assert!(a.continuity.blocked().is_none());
+    }
+}
+
+#[test]
+fn short_turning_tail_accepts_targets_before_a_full_corner_can_fit() {
+    for sign in [-1., 1.] {
+        let mut a = active();
+        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+        a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
+        let corner = Vec3::ONE + Vec3::X * 0.3;
+        approve_complete_geometry(&mut a, corner);
+        for i in 1..=40 {
+            approve_complete_geometry(&mut a, corner + Vec3::Z * (sign * i as f32 * 0.005));
+        }
+    }
+}
+
 #[test]
 fn discarded_targets_cannot_change_a_later_legal_candidate_or_its_seeds() {
     let mut clean = active();
@@ -43,11 +170,11 @@ fn discarded_targets_cannot_change_a_later_legal_candidate_or_its_seeds() {
     }
 }
 #[test]
-fn short_picked_riser_can_use_only_a_forward_two_voxel_input_proposal() {
-    for (delta, assisted) in [
-        (Vec3::new(0.01, 0., 0.005), true),
-        (Vec3::new(0.01, 0., 0.009), false),
-        (Vec3::new(-0.001, 0., 0.005), false),
+fn short_picked_risers_fit_without_projecting_away_the_cursor() {
+    for delta in [
+        Vec3::new(0.01, 0., 0.005),
+        Vec3::new(0.01, 0., 0.009),
+        Vec3::new(-0.001, 0., 0.005),
     ] {
         let mut a = active();
         a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
@@ -55,22 +182,10 @@ fn short_picked_riser_can_use_only_a_forward_two_voxel_input_proposal() {
         let approved = Vec3::ONE + Vec3::X * 0.3;
         approve_geometry(&mut a, approved);
         let raw = approved + delta;
-        let mut unassisted = a.stroke.clone();
-        assert!(unassisted.push(raw));
-        assert!(
-            unassisted.pending_rows().iter().any(|r| !r.valid),
-            "fixture must trigger assistance"
-        );
-        a.observe_ground(raw);
+        approve_complete_geometry(&mut a, raw);
         let candidate = a.candidate.as_ref().unwrap();
-        assert_eq!(a.continuity.blocked().is_none(), assisted);
-        assert!((candidate.endpoint - raw).length() <= 2. * VOXEL_SIZE + 1e-6);
-        if assisted {
-            assert!((candidate.endpoint - (approved + Vec3::X * 0.01)).length() < 1e-6);
-            assert!(candidate.stroke.pending_rows().iter().all(|r| r.valid));
-        } else {
-            assert_eq!(candidate.endpoint, raw);
-        }
+        assert_eq!(candidate.endpoint, raw);
+        assert!(candidate.stroke.pending_rows().iter().all(|r| r.valid));
         assert_eq!(a.intent.anchor(), approved);
     }
 }

@@ -148,8 +148,10 @@ Press **V** and drag with the left mouse button over soil. **Tab** switches betw
 running-bond brick and a dirt path that clears vegetation without raising terrain.
 **R → Pavement** saves the surface, width, course length and seed for future gestures.
 
-The unbuilt end follows the cursor. Tight turns, existing paving and unsupported ground show a
-red preview: no disconnected section is placed beyond the obstruction. Move to a legal target
+The unbuilt end follows the cursor with locally fitted curves and deformable quadrilateral
+stones. Short turning tails can form an incomplete arc; they need not fit a whole corner first.
+Turns that actually fold the stones or leave unusably thin pieces, existing paving and unsupported
+ground show a red preview: no disconnected section is placed beyond the obstruction. Move to a legal target
 to continue the same gesture; rejected targets do not become permanent guide points. Release
 finishes the valid end. Right/middle click, a tool/camera switch or a blocking panel cancels the
 unbuilt tail; already published terrain remains.

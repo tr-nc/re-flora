@@ -36,11 +36,15 @@ impl App {
     /// Independent golden quarter-circles: validate every lane's real atlas
     /// material, not just CPU acceptance or a rendering-only outline.
     fn review_pavement_bends(&mut self, cells: &mut Vec<([u32; 3], u8)>) -> Result<()> {
-        for (kind, sign, origin) in [
-            (PavementKind::Slabs, 1., Vec2::new(0.28, 1.55)),
-            (PavementKind::Brick, 1., Vec2::new(0.70, 1.55)),
-            (PavementKind::Slabs, -1., Vec2::new(1.12, 1.73)),
-            (PavementKind::Brick, -1., Vec2::new(1.54, 1.73)),
+        for (kind, sign, radius, origin) in [
+            (PavementKind::Slabs, 1., 0.18, Vec2::new(0.28, 1.55)),
+            (PavementKind::Brick, 1., 0.18, Vec2::new(0.70, 1.55)),
+            (PavementKind::Slabs, -1., 0.18, Vec2::new(1.12, 1.73)),
+            (PavementKind::Brick, -1., 0.18, Vec2::new(1.54, 1.73)),
+            (PavementKind::Slabs, 1., 0.10, Vec2::new(0.28, 0.18)),
+            (PavementKind::Brick, 1., 0.10, Vec2::new(0.70, 0.18)),
+            (PavementKind::Slabs, -1., 0.10, Vec2::new(1.12, 0.28)),
+            (PavementKind::Brick, -1., 0.10, Vec2::new(1.54, 0.28)),
         ] {
             self.contree_builder.flush_cpu_chunk_cache_jobs();
             let ground = self.contree_builder.cpu_ray_query_snapshot();
@@ -48,40 +52,39 @@ impl App {
             let points: Vec<_> = (0..=180)
                 .map(|i| {
                     let t = std::f32::consts::FRAC_PI_2 * i as f32 / 180.;
-                    let p = origin + Vec2::new(0.18 * t.sin(), sign * 0.18 * (1. - t.cos()));
+                    let p = origin + Vec2::new(radius * t.sin(), sign * radius * (1. - t.cos()));
                     ground
                         .query_terrain_ray_cpu(Vec3::new(p.x, 2.5, p.y), Vec3::NEG_Y)
                         .map(|h| h.position)
                         .context("native bend requires ground")
                 })
                 .collect::<Result<_>>()?;
-            let mut expected = PathStroke::new(recipe.path_settings(), points[0], Vec3::X).unwrap();
-            for &p in &points[1..] {
-                ensure!(expected.push(p), "bend oracle overflow");
-            }
-            ensure!(expected.finish(), "bend oracle tail overflow");
-            let expected: Vec<_> = expected
-                .rows
-                .iter()
-                .flat_map(|r| recipe.pieces(*r))
-                .collect();
-            ensure!(
-                expected.len() == if kind == PavementKind::Slabs { 18 } else { 15 },
-                "bend oracle must have six complete courses"
-            );
+            let courses =
+                (std::f32::consts::FRAC_PI_2 * radius / recipe.pitch).floor() as usize + 1;
+            let count = if kind == PavementKind::Slabs {
+                courses * 3
+            } else {
+                courses * 2 + courses / 2
+            };
             self.begin_path_on_ground(recipe, points[0], Vec3::X, ground);
             let mut active = self.pavement.active.take().unwrap();
             for &p in &points[1..] {
-                ensure!(active.stroke.push(p), "native bend sampling");
+                active.observe_ground(p);
+                self.validate_pavement_candidate(&mut active, false)?;
+                ensure!(
+                    active.continuity.blocked().is_none(),
+                    "native bend {kind:?} sign={sign} radius={radius} rejected target {p:?}"
+                );
                 self.publish_pavement_rows(&mut active, ROWS_PER_FRAME)?;
             }
+            self.validate_pavement_candidate(&mut active, true)?;
             let active = self.finish_pavement_on_ground(active)?;
             ensure!(
-                active.pieces_placed == expected.len(),
-                "native bend {kind:?} sign={sign}: {} / {} pieces",
-                active.pieces_placed,
-                expected.len()
+                active.pieces_placed == count && active.surfaces_cleared == courses,
+                "native bend {kind:?} sign={sign} radius={radius}: {} / {count} pieces",
+                active.pieces_placed
             );
+            let expected = active.coverage.published_pieces();
             let material = if kind == PavementKind::Slabs {
                 VOXEL_TYPE_ROCK
             } else {
@@ -110,7 +113,7 @@ impl App {
                     cells.push(((offset + UVec3::Y * y as u32).to_array(), *value));
                 }
             }
-            log::info!("[PAVEMENT_BEND_REVIEW] kind={kind:?} sign={sign} courses=6 tiles={} complete=true atlas_material={material}",expected.len());
+            log::info!("[PAVEMENT_BEND_REVIEW] kind={kind:?} sign={sign} radius={radius} courses={courses} tiles={} complete=true candidate_targets=all_accepted atlas_material={material}",expected.len());
             // Same frozen guide must still reject old-world columns on retrace.
             let (foot_min, foot_max) = expected.iter().flat_map(|p| p.footprint).fold(
                 (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
@@ -143,7 +146,7 @@ impl App {
             );
             let after = self.plain_builder.read_chunk_atlas_region(min, dim)?;
             ensure!(before == after, "native bent retrace changed atlas");
-            log::info!("[PAVEMENT_BEND_REVIEW] kind={kind:?} sign={sign} retrace=atlas_identical");
+            log::info!("[PAVEMENT_BEND_REVIEW] kind={kind:?} sign={sign} radius={radius} retrace=atlas_identical");
         }
         Ok(())
     }
