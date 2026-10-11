@@ -5,6 +5,8 @@ mod builder;
 mod cli;
 mod climbing_plants;
 mod ddgi;
+#[cfg(target_os = "linux")]
+mod desktop_session;
 mod ecology;
 mod egui_renderer;
 mod environment_lighting;
@@ -246,6 +248,10 @@ pub fn main() {
         eprintln!("{err}");
         std::process::exit(1);
     }
+
+    // Recover expired desktop credentials before any native subsystem starts.
+    #[cfg(target_os = "linux")]
+    desktop_session::refresh_expired_xauthority();
 
     let run_log_path = init_env_logger(plan.platform.render.perf_logging);
 

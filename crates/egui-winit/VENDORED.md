@@ -32,10 +32,12 @@ copy/paste was not manually exercised (its smithay implementation is unchanged).
 
 The full debug test run exceeded 180 seconds in the existing
 `climbing_plants::tests::rotating_tips_climb_holes_ledges_recesses_and_slopes_without_penetration`
-test. Re-running with only that test excluded passed 1,577 tests. The console
-still emits the pre-existing `Authorization required, but no authorization
-protocol specified` message from another X11 connection; this patch addresses
-the egui clipboard startup connection only.
+test. Re-running with only that test excluded passed 1,577 tests. Initial validation
+also emitted `Authorization required, but no authorization protocol specified`
+from a separate X11 connection. That was later traced to expired inherited
+XAUTHORITY credentials used by NVIDIA's Vulkan ICD and addressed at the application
+startup boundary; see [the diagnosis and regression evidence](../../docs/debug_display_authorization.md).
+This clipboard patch remains independent of that session-credential recovery.
 
 Remove this patch when an upstream release contains the equivalent fix.
 
