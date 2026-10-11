@@ -42,8 +42,9 @@ gltf = { version = "1.4", default-features = false, features = ["utils", "names"
 toml = "1.1.2"
 tempfile = "3.23.0"
 static_assertions = "1.1"
-# Carry the narrowly patched, licensed 0.9.2 source in-tree; no machine-local override.
+# Carry narrowly patched, licensed sources in-tree; no machine-local overrides.
 [patch.crates-io]
+egui-winit = { path = "crates/egui-winit" }
 petalsonic = { path = "crates/petalsonic" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
