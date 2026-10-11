@@ -148,6 +148,14 @@ pub struct GrassLighting {
     pub irradiance: [u32; 0],
 }
 
+/// Auto-generated from `B_Heightmap` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Heightmap {
+    pub surface_height: f32,
+    pub base_shape: f32,
+}
+
 /// Auto-generated from `B_LevelDispatchIndirect` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -389,6 +397,15 @@ pub struct PushConstantAtlasReduce {
     pub has_source: u32,
     pub relative_floor: f32,
     pub padding: u32,
+}
+
+/// Auto-generated from `PushConstantChunkHeightmap` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantChunkHeightmap {
+    pub flat_terrain: u32,
+    pub flat_height: f32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `PushConstantChunkModifySample` (native Slang source of truth).

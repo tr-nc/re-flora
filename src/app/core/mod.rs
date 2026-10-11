@@ -1100,6 +1100,7 @@ impl App {
         } = platform;
         let WorldPlan {
             terrain,
+            terrain_generation,
             water: water_plan,
             lighting,
         } = world;
@@ -1523,6 +1524,7 @@ impl App {
                 splash: Default::default(),
                 chunk_indices,
                 terrain_snapshot_reader,
+                terrain_generation,
                 visible_terrain_publication: Some(visible_terrain_publication),
                 current: 0,
                 step_label: "Initializing...".to_owned(),

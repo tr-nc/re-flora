@@ -1,6 +1,15 @@
 import chunk_writer_types;
 import terrain_height;
 
+struct ChunkHeightmapPushConstants
+{
+    uint flat_terrain;
+    float flat_height;
+};
+
+[[vk::push_constant]]
+ConstantBuffer<ChunkHeightmapPushConstants> pc;
+
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_RegionInfo> region_info;
 
@@ -23,8 +32,18 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 worldVoxelPosition =
         (float3(atlasPosition) + 0.5) * VOXEL_SCALE;
 
-    float surfaceHeight = computeSurfaceHeight2D(worldVoxelPosition.xz);
-    float baseShape = computeBaseShape2D(worldVoxelPosition.xz);
+    float surfaceHeight;
+    float baseShape;
+    if (pc.flat_terrain != 0u)
+    {
+        surfaceHeight = pc.flat_height;
+        baseShape = pc.flat_height;
+    }
+    else
+    {
+        surfaceHeight = computeSurfaceHeight2D(worldVoxelPosition.xz);
+        baseShape = computeBaseShape2D(worldVoxelPosition.xz);
+    }
     uint index = x * region_info.dim.z + z;
     heightmap.data[index].surface_height = surfaceHeight;
     heightmap.data[index].base_shape = baseShape;

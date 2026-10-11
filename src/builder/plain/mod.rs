@@ -3,8 +3,8 @@
 mod resources;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
-    PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres, Toruses,
-    VoxelPropertySampleInfo as VoxelPropertySampleInfoGpu,
+    PushConstantChunkHeightmap, PushConstantChunkModifySample, RegionInfo, RoundCones, Spheres,
+    Toruses, VoxelPropertySampleInfo as VoxelPropertySampleInfoGpu,
     VoxelPropertySampleResult as VoxelPropertySampleResultGpu,
 };
 use crate::geom::{BvhNode, Cuboid, RoundCone, Sphere, Torus, UAabb3};
@@ -54,6 +54,15 @@ pub const VOXEL_TYPE_SAND: u32 = 3;
 pub const VOXEL_TYPE_STUCCO: u32 = 4;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
 pub const VOXEL_FIXED_SCENE_BIT: u8 = 0x80;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TerrainGeneration {
+    #[default]
+    Procedural,
+    Flat,
+}
+
+pub(crate) const FLAT_TERRAIN_HEIGHT: f32 = 0.5;
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
@@ -552,6 +561,7 @@ impl PlainBuilder {
             &buffer_setup_ppl,
             &chunk_init_ppl,
             plain_atlas_dim,
+            TerrainGeneration::Procedural,
         );
 
         return Self {
@@ -624,6 +634,7 @@ impl PlainBuilder {
         buffer_setup_ppl: &ComputePipeline,
         chunk_init_ppl: &ComputePipeline,
         dispatch_dim: UVec3,
+        terrain: TerrainGeneration,
     ) -> CommandBuffer {
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
@@ -637,7 +648,11 @@ impl PlainBuilder {
                 height: dispatch_dim.z,
                 depth: 1,
             },
-            None,
+            Some(bytemuck::bytes_of(&PushConstantChunkHeightmap {
+                flat_terrain: u32::from(terrain == TerrainGeneration::Flat),
+                flat_height: FLAT_TERRAIN_HEIGHT,
+                ..PushConstantChunkHeightmap::zeroed()
+            })),
         );
 
         buffer_setup_ppl.record(
@@ -1588,6 +1603,15 @@ impl PlainBuilder {
     }
 
     pub fn chunk_init(&mut self, atlas_offset: UVec3, atlas_dim: UVec3) -> Result<()> {
+        self.chunk_init_with_terrain(atlas_offset, atlas_dim, TerrainGeneration::Procedural)
+    }
+
+    pub fn chunk_init_with_terrain(
+        &mut self,
+        atlas_offset: UVec3,
+        atlas_dim: UVec3,
+        terrain: TerrainGeneration,
+    ) -> Result<()> {
         if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
             return Ok(());
         }
@@ -1602,6 +1626,7 @@ impl PlainBuilder {
             &self.buffer_setup_ppl,
             &self.chunk_init_ppl,
             atlas_dim,
+            terrain,
         );
 
         let _completed_gpu_job = self

@@ -16,6 +16,7 @@ pub(super) struct LoadingState {
     pub(super) splash: splash::Splash,
     pub(super) chunk_indices: Vec<UVec3>,
     pub(super) terrain_snapshot_reader: Option<TerrainSnapshotReader>,
+    pub(super) terrain_generation: crate::builder::TerrainGeneration,
     pub(super) visible_terrain_publication: Option<visible_terrain::VisibleTerrainPublication>,
     pub(super) current: usize,
     pub(super) step_label: String,
@@ -86,6 +87,14 @@ impl App {
 
         let total = loading.total();
         let current = loading.current + 1;
+        if loading.current == 0
+            && loading.terrain_generation == crate::builder::TerrainGeneration::Flat
+        {
+            log::info!(
+                "[TERRAIN_INIT] mode=flat height={} soil_layers=normal startup_only=true",
+                crate::builder::FLAT_TERRAIN_HEIGHT
+            );
+        }
 
         match loading.phase {
             LoadingPhase::Terrain => {
@@ -116,9 +125,11 @@ impl App {
                     // PlainBuilder's fresh atlas is already empty. Do not seed terrain beneath
                     // the model roof: this scene has no editable voxels until the first soil dab.
                     None if loading_directive == launch_owners::LoadingDirective::Rooftop => Ok(()),
-                    None => self
-                        .plain_builder
-                        .chunk_init(atlas_offset, VOXEL_DIM_PER_CHUNK),
+                    None => self.plain_builder.chunk_init_with_terrain(
+                        atlas_offset,
+                        VOXEL_DIM_PER_CHUNK,
+                        loading.terrain_generation,
+                    ),
                 };
                 if let Err(err) = result {
                     panic!("terrain snapshot/procedural atlas initialization failed for {chunk_id:?}: {err:#}");
@@ -507,6 +518,7 @@ mod tests {
             splash: Default::default(),
             chunk_indices: Vec::new(),
             terrain_snapshot_reader: None,
+            terrain_generation: Default::default(),
             visible_terrain_publication: None,
             current: 0,
             step_label: String::new(),

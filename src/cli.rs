@@ -2,6 +2,7 @@ use re_flora_vkn::PresentMode;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use crate::builder::TerrainGeneration;
 use crate::ddgi::{
     supported_ddgi_spacings_label, validate_ddgi_spacing, DdgiBatchOrder, DdgiCaptureTarget,
     DdgiDebugView, DdgiTerrainHardOrigin, DEFAULT_DDGI_SPACING_VOXELS,
@@ -317,6 +318,7 @@ pub struct PlatformPlan {
 #[derive(Clone, Debug)]
 pub struct WorldPlan {
     pub terrain: TerrainPersistencePlan,
+    pub terrain_generation: TerrainGeneration,
     pub water: WaterPlan,
     pub lighting: EnvironmentLightingPlan,
 }
@@ -844,6 +846,7 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
     let screenshot_options = screenshot
         .as_ref()
         .map(|screenshot| screenshot.options.clone());
+    let flat_terrain = args.iter().any(|arg| arg == "--flat-terrain");
     let terrain_load_path =
         parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
     let terrain_save_path =
@@ -1047,6 +1050,10 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
         }
     };
 
+    if flat_terrain && (terrain_load_path.is_some() || scenario != Scenario::Garden) {
+        return Err("--flat-terrain requires a generated garden; omit --terrain-load and fixed scenario flags. Try: re-flora --flat-terrain".to_owned());
+    }
+
     if house_scene && camera_snapshot.is_none() {
         camera_snapshot = Some("cozy-home-arrival".to_owned());
     }
@@ -1107,6 +1114,11 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
             terrain: TerrainPersistencePlan {
                 load_path: terrain_load_path,
                 save_path: terrain_save_path,
+            },
+            terrain_generation: if flat_terrain {
+                TerrainGeneration::Flat
+            } else {
+                TerrainGeneration::Procedural
             },
             water: WaterPlan {
                 profile: water_profile,
@@ -1537,6 +1549,7 @@ Options:
                              WITHOUT waiting for scene/lighting readiness. Positive count/interval.
                              Bounded to one readback writer; actual capture times are logged.
                              Example: --screenshot player-default target/frame --screenshot-delay 0 --screenshot-sequence 100 0.1 --auto-exit 15
+  --flat-terrain             Start a level soil terrain for debugging (no terrain load or fixed scenario)
   --terrain-load <path>      Load terrain and vegetation during startup
   --terrain-save <path>      Save terrain and vegetation once startup is ready
   --denoiser-bench <preset> <report.toml>
@@ -1641,6 +1654,7 @@ Options:
 
 Examples:
   re-flora --windowed
+  re-flora --flat-terrain
   re-flora --hidden --mute --auto-exit 20 --perf
   re-flora --audio-output-device KA3
   re-flora --hidden --mute --screenshot player-default screenshots/check.png --screenshot-delay 2 --auto-exit 4
@@ -2538,6 +2552,53 @@ mod tests {
             )
             .unwrap_err();
             assert!(incompatible.contains("Do not combine"));
+        }
+    }
+
+    #[test]
+    fn flat_terrain_is_opt_in_and_can_be_saved() {
+        assert_eq!(
+            parse(&["re-flora"]).world.terrain_generation,
+            TerrainGeneration::Procedural
+        );
+        let plan = parse(&[
+            "re-flora",
+            "--flat-terrain",
+            "--terrain-save",
+            "target/flat.rflterrain",
+        ]);
+        assert_eq!(plan.world.terrain_generation, TerrainGeneration::Flat);
+        assert_eq!(plan.scenario, Scenario::Garden);
+        assert_eq!(
+            plan.world.terrain.save_path.as_deref(),
+            Some("target/flat.rflterrain")
+        );
+        assert!(help_text().contains("--flat-terrain"));
+    }
+
+    #[test]
+    fn flat_terrain_rejects_loaded_terrain_and_fixed_scenarios() {
+        for extra in [
+            vec!["--terrain-load", "target/input.rflterrain"],
+            vec!["--water-experience"],
+            vec!["--water-edit-soak"],
+            vec!["--environment-lighting-test-scene"],
+            vec!["--hybrid-transparency-test-scene"],
+            vec!["--glass-voxel-test-scene"],
+            vec!["--cozy-home"],
+            vec!["--rooftop-poc"],
+            vec!["--canopy-audio-diagnostic"],
+            vec!["--foliage-shadow-bench", "target/foliage.toml"],
+            vec!["--terrain-connectivity-bench", "manual"],
+        ] {
+            let mut args = vec!["re-flora".to_owned(), "--flat-terrain".to_owned()];
+            args.extend(extra.into_iter().map(str::to_owned));
+            let error = try_parse_owned(args).unwrap_err();
+            assert!(
+                error.contains("--flat-terrain requires a generated garden"),
+                "{error}"
+            );
+            assert!(error.contains("Try: re-flora --flat-terrain"));
         }
     }
 

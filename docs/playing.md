@@ -64,6 +64,14 @@ came from the official Re: Flora release page.
 The Linux package targets the Fedora version used by the release workflow. Other distributions are
 not currently advertised as packaged targets.
 
+### Flat terrain for debugging
+
+Launch with `re-flora --flat-terrain` (from source: `cargo run --release -- --flat-terrain`)
+to start with level soil at world height 0.5. Normal soil/rock layers and terrain editing remain
+available. This startup option is not saved as a preference; omit it for normal terrain.
+It cannot be combined with `--terrain-load` or fixed scene/diagnostic flags. You can still save
+the generated terrain with `--terrain-save` or load another world later in the Debug panel.
+
 ## A First Visit
 
 The current build has prototype controls rather than a finished tutorial. This short sequence shows
