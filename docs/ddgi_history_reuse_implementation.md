@@ -4,7 +4,7 @@ Historical worktree: `/home/terence/code/re-flora-agent-ddgi-history-reuse`, sta
 `6fb81dfa`. This report records the completed measurement groundwork, **not a validated flicker fix**.
 Later candidates and their limits are recorded in `docs/ddgi_history_candidate.md`. The completed
 worker checkout was removed after integration; its ignored evidence is preserved in the archive
-listed in `docs/premerge_cleanup.md`.
+listed in the [historical cleanup record](https://github.com/tr-nc/re-flora/blob/adde77ac/docs/premerge_cleanup.md).
 
 ## Temporal capture foundation
 

@@ -26,7 +26,7 @@ The integration section below records personal follow-up verification, including
 Implementation evidence below was produced in the worker worktree. Before removing completed
 worktrees, their ignored evidence was archived under
 `/home/terence/code/re-flora/target/collected-worktree-evidence/` (see `manifest.json` and
-`docs/premerge_cleanup.md`). Historical paths below identify provenance, not live checkouts.
+the [historical cleanup record](https://github.com/tr-nc/re-flora/blob/adde77ac/docs/premerge_cleanup.md)). Historical paths below identify provenance, not live checkouts.
 Integration evidence lives in `/home/terence/code/re-flora-agent-butterfly-block-flight`. No further subagents were used for
 integration or those follow-up runs.
 
