@@ -159,6 +159,7 @@ impl App {
             .camera_control
             .sync_debug_panel_mode(self.config_panel_visible)
         {
+            self.cancel_pavement_stroke();
             self.player_tools.cancel_continuous_hold();
             self.stop_terrain_edit_loop_sound();
             self.tracer.reset_camera_velocity();
@@ -180,6 +181,7 @@ impl App {
         self.window_state.set_cursor_grab(!cursor_visible);
 
         if self.blocking_panel_open() {
+            self.cancel_pavement_stroke();
             self.player_tools.cancel_continuous_hold();
             self.stop_terrain_edit_loop_sound();
             self.reset_camera_movement_input();
@@ -189,6 +191,7 @@ impl App {
     pub(super) fn toggle_camera_control_mode(&mut self) {
         self.cancel_pointer_pick();
         let entered_orbit_edit = self.camera_control.cycle_mode();
+        self.cancel_pavement_stroke();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
         self.camera_control.reset_mode_transition_motion();
@@ -473,6 +476,12 @@ impl App {
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
         let scroll_lines = scroll_delta_lines(delta);
         if self.modifiers.shift_key() {
+            if self.terrain_edit_pointer_available()
+                && self.player_tools.selected_tool() == PlayerTool::Pavement
+            {
+                self.adjust_pavement_width(scroll_lines);
+                return;
+            }
             if self.terrain_edit_pointer_available() && self.is_terrain_edit_radius_tool_selected()
             {
                 self.adjust_terrain_edit_radius(scroll_lines);
@@ -631,6 +640,7 @@ impl App {
 
     fn prepare_camera_zoom_switch(&mut self) {
         self.cancel_pointer_pick();
+        self.cancel_pavement_stroke();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
         self.reset_camera_movement_input();
@@ -739,6 +749,7 @@ impl App {
         }
         self.cancel_pointer_pick();
         if update.active_tool_changed() {
+            self.cancel_pavement_stroke();
             self.wind_prototype.cancel();
             self.stop_terrain_edit_loop_sound();
         }
@@ -833,7 +844,10 @@ impl App {
     }
 
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
-        if self.player_tools.selected_tool() == PlayerTool::Soil || self.is_tree_planting_selected()
+        if matches!(
+            self.player_tools.selected_tool(),
+            PlayerTool::Soil | PlayerTool::Pavement
+        ) || self.is_tree_planting_selected()
         {
             TerrainEditPreviewShape::SurfaceCircle
         } else if self.is_place_tool_selected() {
@@ -1354,6 +1368,12 @@ impl App {
 
     pub(super) fn terrain_edit_hover_observation(&mut self) -> TerrainEditHoverObservation {
         use super::terrain_picking::HoverObservation;
+        if self.player_tools.selected_tool() == PlayerTool::Pavement {
+            return self.pavement_hover().map_or(
+                TerrainEditHoverObservation::Miss,
+                TerrainEditHoverObservation::Hit,
+            );
+        }
         if !self.terrain_edit_pointer_available() || !self.is_terrain_edit_radius_tool_selected() {
             return TerrainEditHoverObservation::Unavailable;
         }

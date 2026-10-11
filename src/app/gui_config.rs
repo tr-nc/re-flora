@@ -1323,6 +1323,38 @@ mod search_tests {
     }
 
     #[test]
+    fn pavement_preferences_search_save_and_reload_through_the_unified_document() {
+        let mut settings = DebugSettings::load();
+        settings.adjustables.pavement_kind.value = 1;
+        settings.adjustables.pavement_width.value = 0.23;
+        settings.adjustables.pavement_piece_length.value = 0.04;
+        settings.adjustables.pavement_seed.value = 65535;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = GuiAdjustables::from_config(&GuiConfigLoader::load_from_path(&path));
+        assert_eq!(loaded.pavement_kind.value, 1);
+        assert_eq!(loaded.pavement_width.value, 0.23);
+        assert_eq!(loaded.pavement_piece_length.value, 0.04);
+        assert_eq!(loaded.pavement_seed.value, 65535);
+        let search = SearchFilter::new("pavement");
+        for param in settings
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .filter(|p| p.id.starts_with("pavement_"))
+        {
+            assert!(search_matches_param(
+                &search,
+                "Debug",
+                param,
+                &param_search_path("Debug", &param.id, true)
+            ));
+        }
+    }
+
+    #[test]
     fn stone_search_checkbox_edit_save_and_reload_are_the_real_saved_fields() {
         let mut settings = DebugSettings::load();
         settings.adjustables.stone_place_slab.value = false;

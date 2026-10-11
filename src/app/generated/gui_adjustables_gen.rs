@@ -32,6 +32,30 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "pavement_kind",
+        kind: "choice",
+        label: "Pavement surface",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "pavement_width",
+        kind: "float",
+        label: "Pavement corridor width (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "pavement_piece_length",
+        kind: "float",
+        label: "Pavement course length (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "pavement_seed",
+        kind: "uint",
+        label: "Pavement pattern seed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "stone_place_slab",
         kind: "bool",
         label: "Stone placement: place paving slab next",
@@ -1619,6 +1643,10 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 #[allow(dead_code)]
 pub struct GuiAdjustables {
     pub camera_orbit_max_elevation: crate::gui_adjustables::FloatParam,
+    pub pavement_kind: crate::gui_adjustables::ChoiceParam,
+    pub pavement_width: crate::gui_adjustables::FloatParam,
+    pub pavement_piece_length: crate::gui_adjustables::FloatParam,
+    pub pavement_seed: crate::gui_adjustables::UintParam,
     pub stone_place_slab: crate::gui_adjustables::BoolParam,
     pub stone_placement_scale: crate::gui_adjustables::FloatParam,
     pub stone_yaw: crate::gui_adjustables::FloatParam,
@@ -1897,6 +1925,10 @@ impl GuiAdjustables {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
         let mut camera_orbit_max_elevation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut pavement_kind_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut pavement_width_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut pavement_piece_length_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut pavement_seed_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut stone_place_slab_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut stone_placement_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut stone_yaw_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2170,6 +2202,32 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             camera_orbit_max_elevation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "pavement_kind" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            pavement_kind_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "pavement_width" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            pavement_width_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "pavement_piece_length" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            pavement_piece_length_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "pavement_seed" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            pavement_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "stone_place_slab" => {
@@ -3929,6 +3987,10 @@ impl GuiAdjustables {
 
         GuiAdjustables {
             camera_orbit_max_elevation: camera_orbit_max_elevation_field.expect("Missing parameter: camera_orbit_max_elevation"),
+            pavement_kind: pavement_kind_field.expect("Missing parameter: pavement_kind"),
+            pavement_width: pavement_width_field.expect("Missing parameter: pavement_width"),
+            pavement_piece_length: pavement_piece_length_field.expect("Missing parameter: pavement_piece_length"),
+            pavement_seed: pavement_seed_field.expect("Missing parameter: pavement_seed"),
             stone_place_slab: stone_place_slab_field.expect("Missing parameter: stone_place_slab"),
             stone_placement_scale: stone_placement_scale_field.expect("Missing parameter: stone_placement_scale"),
             stone_yaw: stone_yaw_field.expect("Missing parameter: stone_yaw"),
@@ -4201,6 +4263,8 @@ impl GuiAdjustables {
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
         "camera_orbit_max_elevation" => Some(&adjustables.camera_orbit_max_elevation),
+        "pavement_width" => Some(&adjustables.pavement_width),
+        "pavement_piece_length" => Some(&adjustables.pavement_piece_length),
         "stone_placement_scale" => Some(&adjustables.stone_placement_scale),
         "stone_yaw" => Some(&adjustables.stone_yaw),
         "stone_width" => Some(&adjustables.stone_width),
@@ -4409,6 +4473,7 @@ pub fn get_int_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) 
 #[allow(dead_code)]
 pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::UintParam> {
     match id {
+        "pavement_seed" => Some(&adjustables.pavement_seed),
         "stone_seed" => Some(&adjustables.stone_seed),
         "stone_rock_facets" => Some(&adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
@@ -4437,6 +4502,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::ChoiceParam> {
     match id {
+        "pavement_kind" => Some(&adjustables.pavement_kind),
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
@@ -4513,6 +4579,8 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
         "camera_orbit_max_elevation" => Some(&mut adjustables.camera_orbit_max_elevation),
+        "pavement_width" => Some(&mut adjustables.pavement_width),
+        "pavement_piece_length" => Some(&mut adjustables.pavement_piece_length),
         "stone_placement_scale" => Some(&mut adjustables.stone_placement_scale),
         "stone_yaw" => Some(&mut adjustables.stone_yaw),
         "stone_width" => Some(&mut adjustables.stone_width),
@@ -4721,6 +4789,7 @@ pub fn get_int_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id
 #[allow(dead_code)]
 pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::UintParam> {
     match id {
+        "pavement_seed" => Some(&mut adjustables.pavement_seed),
         "stone_seed" => Some(&mut adjustables.stone_seed),
         "stone_rock_facets" => Some(&mut adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
@@ -4749,6 +4818,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
 #[allow(dead_code, unused_variables)]
 pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::ChoiceParam> {
     match id {
+        "pavement_kind" => Some(&mut adjustables.pavement_kind),
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),

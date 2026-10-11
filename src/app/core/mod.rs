@@ -53,6 +53,7 @@ mod loading;
 mod local_player_footsteps;
 mod moisture;
 mod particles;
+mod pavement;
 mod physics;
 mod placeables;
 mod plant_catalog;
@@ -98,7 +99,9 @@ use self::loading::{LoadingPhase, LoadingState};
 use self::moisture::TerrainMoistureRuntime;
 use self::physics::TerrainPhysics;
 use self::placeables::SprinklerRuntime;
-use self::player_tools::{PlayerTool, PlayerToolPointerAction, PlayerToolRuntime};
+use self::player_tools::{
+    PlayerTool, PlayerToolPointerAction, PlayerToolPointerInteraction, PlayerToolRuntime,
+};
 use self::render_frame_input::{freeze_render_frame_inputs, LiveRenderFrameFacts};
 use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness};
 use self::terrain_connectivity::TerrainConnectivityRuntime;
@@ -486,6 +489,7 @@ pub struct App {
     pointer_picking: terrain_picking::PointerPicking,
     tree_kick: tree_kick::TreeKickInteraction,
     mower: mower::MowerRuntime,
+    pavement: pavement::PavementRuntime,
     voxel_backpack: VoxelBackpack,
 
     terrain_moisture: TerrainMoistureRuntime,
@@ -1599,6 +1603,7 @@ impl App {
             mower: mower::MowerRuntime::default(),
             pointer_picking: Default::default(),
             tree_kick: Default::default(),
+            pavement: pavement::PavementRuntime::default(),
             player_tools: {
                 let mut tools = PlayerToolRuntime::default();
                 // Exercise the actual selected-item UI in hidden wind smoke captures.
@@ -2109,6 +2114,7 @@ impl App {
         ) {
             self.cancel_pointer_pick();
             self.mower.cancel_drag();
+            self.cancel_pavement_stroke();
         }
         if matches!(
             &event,
@@ -2189,6 +2195,9 @@ impl App {
                     self.gui_blocks_world_pointer(),
                 )
             {
+                if pointer_event {
+                    self.cancel_pavement_stroke();
+                }
                 if matches!(
                     &event,
                     WindowEvent::MouseInput {
@@ -2310,11 +2319,18 @@ impl App {
                             Some(ui_style::SOIL_DEPOSITION_SLOT_INDEX)
                         }
                         PhysicalKey::Code(KeyCode::KeyN) => Some(ui_style::STONE_SLOT_INDEX),
+                        PhysicalKey::Code(KeyCode::KeyV) => Some(ui_style::PAVEMENT_SLOT_INDEX),
                         _ => None,
                     };
 
                     if let Some(slot_idx) = target_slot {
                         self.select_item_panel_slot(slot_idx);
+                    }
+                    if event.physical_key == KeyCode::Tab
+                        && !event.repeat
+                        && self.player_tools.selected_tool() == PlayerTool::Pavement
+                    {
+                        self.cycle_pavement_kind();
                     }
 
                     let target_placeable_slot = match event.physical_key {
@@ -2332,8 +2348,17 @@ impl App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.handle_orbit_mouse_drag(Vec2::new(position.x as f32, position.y as f32));
+                self.sample_pavement_pointer();
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if state == ElementState::Released && button == MouseButton::Left {
+                    self.finish_pavement_stroke();
+                }
+                if state == ElementState::Pressed
+                    && matches!(button, MouseButton::Right | MouseButton::Middle)
+                {
+                    self.cancel_pavement_stroke();
+                }
                 if self.handle_mower_pointer(button, state) {
                     return;
                 }
@@ -2351,8 +2376,17 @@ impl App {
                     match state {
                         ElementState::Pressed => {
                             let now = Instant::now();
-                            if let Some(action) = self.player_tools.begin_pointer_action(button) {
-                                self.queue_pointer_pick(action, now, false);
+                            match self.player_tools.begin_pointer_interaction(button) {
+                                // Paving owns a high-frequency frozen-ground gesture, not
+                                // the one-shot asynchronous pick used by main's other tools.
+                                Some(PlayerToolPointerInteraction::PavementStroke) => {
+                                    self.stop_terrain_edit_loop_sound();
+                                    self.begin_pavement_stroke();
+                                }
+                                Some(PlayerToolPointerInteraction::Pick(action)) => {
+                                    self.queue_pointer_pick(action, now, false)
+                                }
+                                None => {}
                             }
                         }
                         ElementState::Released => {
@@ -2470,6 +2504,9 @@ impl App {
                         self.stop_terrain_edit_loop_sound();
                     }
                 }
+                self.advance_pavement_pointer_review(event_loop)
+                    .expect("pavement pointer native review");
+                self.advance_pavement_stroke();
                 let lighting_frame_plan =
                     LightingModeAcceptanceRuntime::frame_plan(&self.lighting_mode_acceptance);
                 let (resolved_timing, lighting_render_plan) =
@@ -2724,6 +2761,12 @@ impl App {
                     .then(|| terrain_edit_hover.map(|hover| hover.center))
                     .flatten();
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
+                let terrain_edit_preview_radius =
+                    if self.player_tools.selected_tool() == PlayerTool::Pavement {
+                        self.pavement_preview_width() * 0.5
+                    } else {
+                        self.terrain_tool_preview_radius()
+                    };
                 let terrain_edit_preview_color = self.terrain_edit_preview_color(
                     terrain_edit_hover
                         .map(|hover| hover.is_editable)
@@ -2760,6 +2803,11 @@ impl App {
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 let egui_start = Instant::now();
                 let mower_mode_available = self.mower_mode_available();
+                let pavement_label = self.pavement_tool_label();
+                let pavement_instructions = self.pavement_tool_instructions();
+                let pavement_preview = self.pavement.pending_preview();
+                let pavement_feedback = self.pavement.feedback(&pavement_preview);
+                let pavement_intent = self.pavement.intent_preview(&pavement_preview);
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
@@ -2775,6 +2823,12 @@ impl App {
                         }
 
                         self.wind_prototype.overlay(ctx, prototype_matrix, Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale, self.player_tools.selected_tool() == PlayerTool::Wind);
+                        if !hide_ui_for_environment_test_capture && !hide_ui_for_frame_stability_bench {
+                            pavement::draw_intent_preview(ctx, &pavement_intent, prototype_matrix,
+                                Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale);
+                            pavement::draw_pending_preview(ctx, &pavement_preview, prototype_matrix,
+                                Vec2::new(prototype_extent.width as f32, prototype_extent.height as f32) / prototype_scale);
+                        }
 
                         if hide_ui_for_environment_test_capture
                             || hide_ui_for_frame_stability_bench
@@ -3020,6 +3074,15 @@ impl App {
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
+                                index: ui_style::PAVEMENT_SLOT_INDEX,
+                                label: "Pave",
+                                key_hint: "V",
+                                category: Some("ITEMS"),
+                                icon: None,
+                                accent: SAGE_ACCENT,
+                                enabled: self.rooftop_scene.is_none(),
+                            },
+                            ItemPanelSlot {
                                 index: ui_style::MOWER_SLOT_INDEX,
                                 label: "Mower",
                                 key_hint: "L",
@@ -3057,9 +3120,22 @@ impl App {
                             clicked_plant_type = flora_paint_panel_response.clicked_type;
                         }
 
-                        // Grow owns the right-side plant selector. The status-only
-                        // backpack must not cover its longer, scrollable catalog.
-                        let voxel_palette_response = if self.player_tools.selected_tool() == PlayerTool::Grow {
+                        if self.player_tools.selected_tool() == PlayerTool::Pavement {
+                            egui::Area::new("pavement_tool_hint".into())
+                                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16., 16.))
+                                .interactable(false)
+                                .show(ctx, |ui| {
+                                    egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show(ui, |ui| {
+                                        crate::app::ui_text::section(ui, &pavement_label);
+                                        crate::app::ui_text::hint(ui, pavement_instructions);
+                                        if let Some(feedback) = pavement_feedback { crate::app::ui_text::warning(ui, feedback); }
+                                    });
+                                });
+                        }
+
+                        // Active authoring controls own this corner; the status-only
+                        // backpack must not cover the Grow catalog or Pavement hints.
+                        let voxel_palette_response = if matches!(self.player_tools.selected_tool(), PlayerTool::Grow | PlayerTool::Pavement) {
                             Default::default()
                         } else {
                             draw_voxel_palette(ctx, &voxel_palette_entries, infinite_materials && self.window_state.is_cursor_visible())
@@ -3540,7 +3616,7 @@ impl App {
                         sun_altitude,
                         sun_azimuth,
                         terrain_edit_preview_center,
-                        terrain_edit_preview_radius: self.terrain_tool_preview_radius(),
+                        terrain_edit_preview_radius,
                         terrain_edit_preview_shape,
                         terrain_edit_preview_color,
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,

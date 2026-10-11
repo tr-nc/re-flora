@@ -112,6 +112,49 @@ min = 5
 max = 87.7
 
 [[section.param]]
+id = "pavement_kind"
+kind = "choice"
+label = "Pavement surface"
+type = "Choice"
+
+[section.param.data]
+value = 0
+options = ["Stone slabs", "Brick", "Dirt"]
+
+[[section.param]]
+id = "pavement_width"
+kind = "float"
+label = "Pavement corridor width (world units)"
+type = "Float"
+
+[section.param.data]
+value = 0.12
+min = 0.05
+max = 0.3
+
+[[section.param]]
+id = "pavement_piece_length"
+kind = "float"
+label = "Pavement course length (world units)"
+type = "Float"
+
+[section.param.data]
+value = 0.05
+min = 0.025
+max = 0.1
+
+[[section.param]]
+id = "pavement_seed"
+kind = "uint"
+label = "Pavement pattern seed"
+type = "Uint"
+
+[section.param.data]
+value = 42
+min = 0
+max = 65535
+
+[[section.param]]
 id = "stone_place_slab"
 kind = "bool"
 label = "Stone placement: place paving slab next"

@@ -52,6 +52,7 @@ pub(crate) const SPRINKLER_SLOT_INDEX: usize = 10;
 pub(crate) const MOWER_SLOT_INDEX: usize = 11;
 pub(crate) const SOIL_DEPOSITION_SLOT_INDEX: usize = 12;
 pub(crate) const STONE_SLOT_INDEX: usize = 13;
+pub(crate) const PAVEMENT_SLOT_INDEX: usize = 14;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
@@ -904,6 +905,18 @@ fn draw_tool_panel_slot(
             ],
             egui::Stroke::new(2., TEXT_COLOR),
         );
+    } else if slot.index == PAVEMENT_SLOT_INDEX {
+        for row in 0..3 {
+            for lane in 0..2 {
+                let center = icon_rect.center()
+                    + egui::vec2(lane as f32 * 13. - 6.5, row as f32 * 10. - 10.);
+                painter.rect_filled(
+                    egui::Rect::from_center_size(center, egui::vec2(11., 8.)),
+                    egui::CornerRadius::same(1),
+                    accent,
+                );
+            }
+        }
     } else if slot.index == STONE_SLOT_INDEX {
         let center = icon_rect.center();
         painter.add(egui::Shape::convex_polygon(

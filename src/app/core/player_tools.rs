@@ -26,6 +26,7 @@ pub(super) enum PlayerTool {
     Tiller,
     Wind,
     Stone,
+    Pavement,
     Placeable,
 }
 
@@ -34,6 +35,7 @@ impl PlayerTool {
         match slot_idx {
             HAND_SLOT_INDEX => Some(Self::Hand),
             super::ui_style::STONE_SLOT_INDEX => Some(Self::Stone),
+            super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
             GROW_SLOT_INDEX => Some(Self::Grow),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
@@ -52,6 +54,7 @@ impl PlayerTool {
         match self {
             Self::Hand => HAND_SLOT_INDEX,
             Self::Stone => super::ui_style::STONE_SLOT_INDEX,
+            Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
             Self::Grow => GROW_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
@@ -67,7 +70,10 @@ impl PlayerTool {
     }
 
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
-        !matches!(self, Self::Hand | Self::Wind | Self::Mower | Self::Stone)
+        !matches!(
+            self,
+            Self::Hand | Self::Wind | Self::Mower | Self::Stone | Self::Pavement
+        )
     }
 }
 
@@ -248,6 +254,13 @@ pub(super) enum PlayerToolPointerAction {
     PlaceablePlacement,
     PlantTree,
     StonePlacement,
+}
+
+/// Select the gesture owner before entering an asynchronous single-pick queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PlayerToolPointerInteraction {
+    Pick(PlayerToolPointerAction),
+    PavementStroke,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -509,6 +522,19 @@ impl PlayerToolRuntime {
         }
     }
 
+    pub(super) fn begin_pointer_interaction(
+        &mut self,
+        button: MouseButton,
+    ) -> Option<PlayerToolPointerInteraction> {
+        if self.selected_tool == PlayerTool::Pavement && button == MouseButton::Left {
+            self.pointer = ToolPointerState::idle(self.pointer.buttons());
+            Some(PlayerToolPointerInteraction::PavementStroke)
+        } else {
+            self.begin_pointer_action(button)
+                .map(PlayerToolPointerInteraction::Pick)
+        }
+    }
+
     pub(super) fn begin_pointer_action(
         &mut self,
         button: MouseButton,
@@ -702,7 +728,7 @@ impl PlayerToolRuntime {
 mod tests {
     use super::{
         ContinuousTerrainToolAction, PlaceableKind, PlayerTool, PlayerToolPointerAction,
-        PlayerToolRuntime,
+        PlayerToolPointerInteraction, PlayerToolRuntime,
     };
     use glam::Vec3;
     use std::time::{Duration, Instant};
@@ -735,6 +761,61 @@ mod tests {
         assert_eq!(runtime.active_continuous_action(), None);
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         assert!(!runtime.finish_pointer_release());
+    }
+
+    #[test]
+    fn pavement_owns_a_left_drag_gesture_not_a_repeating_terrain_brush() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(crate::app::core::ui_style::PAVEMENT_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Pavement);
+        assert!(!runtime.selected_tool().uses_terrain_edit_radius());
+        assert!(!runtime.has_secondary_pointer_action());
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_interaction(MouseButton::Left),
+            Some(PlayerToolPointerInteraction::PavementStroke)
+        );
+        assert_eq!(runtime.active_continuous_action(), None);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
+        assert!(!runtime.finish_pointer_release());
+        runtime.select_item_panel_slot(crate::app::core::ui_style::PAVEMENT_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+    }
+
+    #[test]
+    fn pick_backed_tools_keep_their_original_action_and_hold_state() {
+        use super::super::ui_style;
+        for (slot, action) in [
+            (
+                ui_style::STONE_SLOT_INDEX,
+                PlayerToolPointerAction::StonePlacement,
+            ),
+            (
+                ui_style::SPRINKLER_SLOT_INDEX,
+                PlayerToolPointerAction::PlaceablePlacement,
+            ),
+            (
+                ui_style::SOIL_DEPOSITION_SLOT_INDEX,
+                PlayerToolPointerAction::Continuous(ContinuousTerrainToolAction::SoilDeposit),
+            ),
+            (
+                ui_style::SHOVEL_SLOT_INDEX,
+                PlayerToolPointerAction::Continuous(ContinuousTerrainToolAction::ShovelDig),
+            ),
+        ] {
+            let mut runtime = PlayerToolRuntime::default();
+            runtime.select_item_panel_slot(slot);
+            runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+            assert_eq!(
+                runtime.begin_pointer_interaction(MouseButton::Left),
+                Some(PlayerToolPointerInteraction::Pick(action))
+            );
+            let expected_hold = match action {
+                PlayerToolPointerAction::Continuous(continuous) => Some(continuous),
+                _ => None,
+            };
+            assert_eq!(runtime.active_continuous_action(), expected_hold);
+        }
     }
 
     #[test]

@@ -395,6 +395,8 @@ impl App {
             .unwrap_or_else(|err| panic!("[GARDEN_SMOKE] seed failed: {err:#}"));
         self.seed_stone_placement_review()
             .unwrap_or_else(|err| panic!("[STONE_PLACEMENT_REVIEW] seed failed: {err:#}"));
+        self.review_pavement()
+            .unwrap_or_else(|err| panic!("[PAVEMENT_REVIEW] failed: {err:#}"));
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));

@@ -8,6 +8,8 @@ mod flutter_response_editor;
 mod gui_config;
 mod gui_config_loader;
 mod gui_config_model;
+mod path_band;
+mod pavement;
 mod physical_visible_terrain;
 mod terrain_edit_bounds;
 mod tree_gui;

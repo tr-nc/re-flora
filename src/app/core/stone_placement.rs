@@ -53,7 +53,7 @@ fn captured_contact(pick: Option<super::terrain_picking::Resolved>) -> Option<(V
 
 /// Fit a contact plane from nearby surface-ray hits. Contree stores surface
 /// voxels only; treating its occupancy as a solid volume gives sideways normals.
-fn surface_normal(
+pub(super) fn surface_normal(
     position: Vec3,
     incoming: Vec3,
     ray: impl Fn(Vec3, Vec3) -> Option<Vec3>,

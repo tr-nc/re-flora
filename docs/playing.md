@@ -121,6 +121,7 @@ slopes remain walkable. Higher ledges require a jump within the existing jump's 
 | **X** | Sprinkler | Left mouse places a sprinkler |
 | **B** | Soil | Hold left mouse to pour soil; retains the main branch's soil controls |
 | **N** | Stone | Left mouse places one terrain rock or slab |
+| **V** | Pave | Left-drag on soil; **Tab** chooses slabs, brick or dirt; **Shift + wheel** adjusts width |
 
 ### Stone Placement
 
@@ -132,6 +133,22 @@ the seed; existing stones do not change when parameters change.
 Stones become ordinary terrain: **Dig** can edit them, and **Terrain & Plants → Save/Load**
 persists them. The Debug Save button saves tool settings, not terrain. There is no permanent preview
 object. Stone is unavailable in the unsaved Rooftop PoC. **B remains Soil**, not Stone.
+
+### Pavement
+
+Press **V** and drag with the left mouse button over soil. **Tab** switches between stone slabs,
+running-bond brick and a dirt path that clears vegetation without raising terrain.
+**R → Pavement** saves the surface, width, course length and seed for future gestures.
+
+The unbuilt end follows the cursor. Tight turns, existing paving and unsupported ground show a
+red preview: no disconnected section is placed beyond the obstruction. Move to a legal target
+to continue the same gesture; rejected targets do not become permanent guide points. Release
+finishes the valid end. Right/middle click, a tool/camera switch or a blocking panel cancels the
+unbuilt tail; already published terrain remains.
+
+Slabs and bricks are real terrain, editable with **Dig** and saved through **Terrain & Plants**.
+Only the resulting terrain is saved, not editable paths or undo history. Paving is unavailable
+in the Rooftop PoC. No low-wall or experimental collision mode is included here.
 
 ## Problems and Feedback
 

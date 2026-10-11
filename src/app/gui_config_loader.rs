@@ -95,6 +95,10 @@ impl GuiConfigLoader {
             .section
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         for id in [
+            "pavement_kind",
+            "pavement_width",
+            "pavement_piece_length",
+            "pavement_seed",
             "stone_place_slab",
             "stone_placement_scale",
             "stone_yaw",
@@ -1410,6 +1414,39 @@ mod tests {
                     "stem_band_mode" | "grass_stem_rendering" | "flower_stem_stepped_width"
                 )));
         }
+    }
+
+    #[test]
+    fn pavement_defaults_upgrade_old_configs_without_writing_or_losing_stone_preferences() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            section.param.retain(|p| !p.id.starts_with("pavement_"));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
+        assert_eq!(fields.pavement_kind.value, 0);
+        assert_eq!(fields.pavement_width.value, 0.12);
+        assert_eq!(fields.pavement_piece_length.value, 0.05);
+        assert_eq!(fields.pavement_seed.value, 42);
+        assert_eq!(
+            fields.stone_seed.value,
+            config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "stone_seed")
+                .unwrap()
+                .value
+                .get_uint()
+                .unwrap()
+                .0
+        );
+        assert_eq!(original, std::fs::read(&path).unwrap());
     }
 
     #[test]

@@ -306,6 +306,9 @@ impl App {
         if !self.terrain_persistence.begin_load() {
             return;
         }
+        self.cancel_pavement_stroke();
+        self.player_tools.cancel_continuous_hold();
+        self.stop_terrain_edit_loop_sound();
         let path = self.terrain_persistence.selected_path().to_owned();
         match self.run_terrain_load(Path::new(&path)) {
             Ok(()) => {
@@ -552,6 +555,7 @@ impl App {
             visible_terrain::VisibleTerrainPublication::snapshot_replacement(change)?;
         publication.run_to_completion(self)?;
         self.player_tools.cancel_continuous_hold();
+        self.cancel_pavement_stroke();
         Ok(())
     }
 }
