@@ -32,6 +32,8 @@ pub(super) struct PavementRecipe {
     pub seed: u32,
     pub smooth_curves: bool,
     pub smooth_scale: f32,
+    pub retract_stroke: bool,
+    pub retract_scale: f32,
 }
 impl PavementRecipe {
     pub(super) fn new(kind: PavementKind, width: f32, length: f32, seed: u32) -> Self {
@@ -47,7 +49,14 @@ impl PavementRecipe {
             seed,
             smooth_curves: false,
             smooth_scale: 2.,
+            retract_stroke: kind != PavementKind::Dirt,
+            retract_scale: 2.,
         }
+    }
+    pub(super) fn with_retraction(mut self, enabled: bool, scale: f32) -> Self {
+        self.retract_stroke = enabled && self.kind != PavementKind::Dirt;
+        self.retract_scale = finite_clamp(scale, 2., 0.5, 4.);
+        self
     }
     pub(super) fn with_smoothing(mut self, enabled: bool, scale: f32) -> Self {
         self.smooth_curves = enabled;
@@ -214,6 +223,9 @@ impl PavementCoverage {
     }
     pub(super) fn accepts(&self, candidate: PathCell) -> bool {
         !self.pieces.iter().any(|&piece| overlaps(piece, candidate))
+    }
+    pub(super) fn truncate(&mut self, length: usize) {
+        self.pieces.truncate(length);
     }
     pub(super) fn record(&mut self, piece: PathCell) {
         self.pieces.push(piece);

@@ -101,6 +101,8 @@ impl GuiConfigLoader {
             "pavement_seed",
             "pavement_smooth_curves",
             "pavement_smooth_scale",
+            "pavement_retract_stroke",
+            "pavement_retract_scale",
             "stone_place_slab",
             "stone_placement_scale",
             "stone_yaw",
@@ -1435,6 +1437,10 @@ mod tests {
         assert_eq!(fields.pavement_width.value, 0.12);
         assert_eq!(fields.pavement_piece_length.value, 0.05);
         assert_eq!(fields.pavement_seed.value, 42);
+        assert!(!fields.pavement_smooth_curves.value);
+        assert_eq!(fields.pavement_smooth_scale.value, 2.);
+        assert!(fields.pavement_retract_stroke.value);
+        assert_eq!(fields.pavement_retract_scale.value, 2.);
         assert_eq!(
             fields.stone_seed.value,
             config

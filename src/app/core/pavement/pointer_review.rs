@@ -181,19 +181,23 @@ impl App {
             };
             let mut point = if review.recovering && step > 75 {
                 if step <= 100 {
+                    // Resume beyond the original input head; approaching it from
+                    // behind would intentionally retract this editable stroke.
                     review.recovery_anchor.context("valid anchor")?
-                        + review.recovery_forward * (0.2 + (step - 76) as f32 * 0.004)
+                        + review.recovery_forward * (0.5 + (step - 76) as f32 * 0.004)
                 } else {
                     let angle = (step - 100) as f32 / 49. * std::f32::consts::FRAC_PI_2;
                     let left = Vec3::new(-review.recovery_forward.z, 0., review.recovery_forward.x);
                     review
                         .recovery_anchor
                         .context("recovery needs an accepted endpoint")?
-                        + review.recovery_forward * (0.3 + 0.18 * angle.sin())
+                        + review.recovery_forward * (0.6 + 0.18 * angle.sin())
                         + left * (0.18 * (1. - angle.cos()))
                 }
             } else if review.turning && step > 30 {
-                let diagonal = (step - 30).min(20) as f32 * 0.01;
+                // Start outside the approved backdrag capture corridor. A small
+                // initial reverse is now a stroke edit, not an invalid target.
+                let diagonal = 0.2;
                 let extra = step.saturating_sub(50) as f32 * 0.01;
                 // Keep both rejection fixtures genuinely ~160 degrees behind
                 // the last fixed end. Sideways motion previously made the recover
@@ -401,7 +405,8 @@ impl App {
                 if review.recovering {
                     ensure!(
                         review.join_verified,
-                        "first continued join was not verified"
+                        "first continued join was not verified: expected={} blocked={:?} cursor={:?} anchor={:?} fixed={} recovery_anchor={:?}",
+                        active.continuity.expected(), active.continuity.blocked().map(|b|b.reason), active.intent.cursor(), active.intent.anchor(), active.intent.floor(), review.recovery_anchor
                     );
                     let (lo, dim, crc) =
                         review.prefix_witness.context("accepted prefix witness")?;

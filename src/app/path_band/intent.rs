@@ -35,6 +35,15 @@ impl PathIntent {
         }
         points
     }
+    pub(in crate::app) fn checkpoint(&self) -> (usize, usize) {
+        (self.fixed.len(), self.published.len())
+    }
+    pub(in crate::app) fn restore_prefix(&mut self, lengths: (usize, usize), cursor: Vec3) {
+        self.fixed.truncate(lengths.0);
+        self.published.truncate(lengths.1);
+        self.cursor = cursor;
+        self.moved = true;
+    }
     pub(in crate::app) fn floor(&self) -> usize {
         self.fixed.len() - 1
     }

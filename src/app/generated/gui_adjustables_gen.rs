@@ -56,6 +56,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "pavement_retract_stroke",
+        kind: "bool",
+        label: "Pavement backdrag: retract current slabs or brick stroke",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "pavement_retract_scale",
+        kind: "float",
+        label: "Pavement backdrag capture range (quarter road widths)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "pavement_smooth_curves",
         kind: "bool",
         label: "Pavement inward corner smoothing (unchecked: original fitting)",
@@ -1659,6 +1671,8 @@ pub struct GuiAdjustables {
     pub pavement_width: crate::gui_adjustables::FloatParam,
     pub pavement_piece_length: crate::gui_adjustables::FloatParam,
     pub pavement_seed: crate::gui_adjustables::UintParam,
+    pub pavement_retract_stroke: crate::gui_adjustables::BoolParam,
+    pub pavement_retract_scale: crate::gui_adjustables::FloatParam,
     pub pavement_smooth_curves: crate::gui_adjustables::BoolParam,
     pub pavement_smooth_scale: crate::gui_adjustables::FloatParam,
     pub stone_place_slab: crate::gui_adjustables::BoolParam,
@@ -1943,6 +1957,8 @@ impl GuiAdjustables {
         let mut pavement_width_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut pavement_piece_length_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut pavement_seed_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut pavement_retract_stroke_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut pavement_retract_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut pavement_smooth_curves_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut pavement_smooth_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut stone_place_slab_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2244,6 +2260,18 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             pavement_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "pavement_retract_stroke" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            pavement_retract_stroke_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "pavement_retract_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            pavement_retract_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "pavement_smooth_curves" => {
@@ -4019,6 +4047,8 @@ impl GuiAdjustables {
             pavement_width: pavement_width_field.expect("Missing parameter: pavement_width"),
             pavement_piece_length: pavement_piece_length_field.expect("Missing parameter: pavement_piece_length"),
             pavement_seed: pavement_seed_field.expect("Missing parameter: pavement_seed"),
+            pavement_retract_stroke: pavement_retract_stroke_field.expect("Missing parameter: pavement_retract_stroke"),
+            pavement_retract_scale: pavement_retract_scale_field.expect("Missing parameter: pavement_retract_scale"),
             pavement_smooth_curves: pavement_smooth_curves_field.expect("Missing parameter: pavement_smooth_curves"),
             pavement_smooth_scale: pavement_smooth_scale_field.expect("Missing parameter: pavement_smooth_scale"),
             stone_place_slab: stone_place_slab_field.expect("Missing parameter: stone_place_slab"),
@@ -4295,6 +4325,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "camera_orbit_max_elevation" => Some(&adjustables.camera_orbit_max_elevation),
         "pavement_width" => Some(&adjustables.pavement_width),
         "pavement_piece_length" => Some(&adjustables.pavement_piece_length),
+        "pavement_retract_scale" => Some(&adjustables.pavement_retract_scale),
         "pavement_smooth_scale" => Some(&adjustables.pavement_smooth_scale),
         "stone_placement_scale" => Some(&adjustables.stone_placement_scale),
         "stone_yaw" => Some(&adjustables.stone_yaw),
@@ -4549,6 +4580,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "pavement_retract_stroke" => Some(&adjustables.pavement_retract_stroke),
         "pavement_smooth_curves" => Some(&adjustables.pavement_smooth_curves),
         "stone_place_slab" => Some(&adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
@@ -4613,6 +4645,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "camera_orbit_max_elevation" => Some(&mut adjustables.camera_orbit_max_elevation),
         "pavement_width" => Some(&mut adjustables.pavement_width),
         "pavement_piece_length" => Some(&mut adjustables.pavement_piece_length),
+        "pavement_retract_scale" => Some(&mut adjustables.pavement_retract_scale),
         "pavement_smooth_scale" => Some(&mut adjustables.pavement_smooth_scale),
         "stone_placement_scale" => Some(&mut adjustables.stone_placement_scale),
         "stone_yaw" => Some(&mut adjustables.stone_yaw),
@@ -4867,6 +4900,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "pavement_retract_stroke" => Some(&mut adjustables.pavement_retract_stroke),
         "pavement_smooth_curves" => Some(&mut adjustables.pavement_smooth_curves),
         "stone_place_slab" => Some(&mut adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),

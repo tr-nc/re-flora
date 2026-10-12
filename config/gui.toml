@@ -155,6 +155,30 @@ min = 0
 max = 65535
 
 [[section.param]]
+id = "pavement_retract_stroke"
+kind = "bool"
+label = "Pavement backdrag: retract current slabs or brick stroke"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "pavement_retract_scale"
+kind = "float"
+label = "Pavement backdrag capture range (quarter road widths)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "pavement_retract_stroke"
+equals = true
+
+[section.param.data]
+value = 2.0
+min = 0.5
+max = 4.0
+
+[[section.param]]
 id = "pavement_smooth_curves"
 kind = "bool"
 label = "Pavement inward corner smoothing (unchecked: original fitting)"
@@ -168,6 +192,10 @@ id = "pavement_smooth_scale"
 kind = "float"
 label = "Pavement smoothing range (road widths)"
 type = "Float"
+
+[section.param.enabled_if]
+param = "pavement_smooth_curves"
+equals = true
 
 [section.param.data]
 value = 2.0

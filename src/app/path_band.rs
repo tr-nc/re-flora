@@ -425,7 +425,14 @@ impl PathStroke {
                 } else {
                     0.
                 },
-                distance_base: accepted.map_or(0., |r| f64::from(r.end_distance)),
+                distance_base: accepted.map_or(0., |r| {
+                    if self.course_fit.is_some() {
+                        f64::from(r.end_distance)
+                    } else {
+                        // Preserve the original uniform wall course arithmetic.
+                        f64::from(r.distance) + f64::from(self.config.pitch) * 0.5
+                    }
+                }),
                 next_index: accepted.map_or(0, |r| r.index.wrapping_add(1)),
                 previous_exit: accepted.map(|r| r.exit),
                 dirty: true,

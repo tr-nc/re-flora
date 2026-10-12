@@ -13,14 +13,14 @@ fn point(action: &Value, transform: usize) -> Vec3 {
     };
     Vec3::ONE + p
 }
-fn begin(start: Vec3, recipe: PavementRecipe) -> ActivePavement {
+pub(super) fn begin(start: Vec3, recipe: PavementRecipe) -> ActivePavement {
     let mut a = super::tests::pending_pavement_runtime().active.unwrap();
     a.recipe = recipe;
     a.stroke = recipe.stroke(start, Vec3::X).unwrap();
     a.intent = PathIntent::new(start);
     a
 }
-fn validate(a: &mut ActivePavement, force: bool) {
+pub(super) fn validate(a: &mut ActivePavement, force: bool) {
     let Some(c) = a.candidate.as_ref() else {
         return;
     };
@@ -55,7 +55,7 @@ fn validate(a: &mut ActivePavement, force: bool) {
         a.fix_candidate();
     }
 }
-fn publish(a: &mut ActivePavement) {
+pub(super) fn publish(a: &mut ActivePavement) {
     assert!(a.stroke.prepare());
     let mut exit = a.continuity.accepted().map(|r| r.exit);
     while let Some(row) = a.continuity.next(&mut a.stroke.rows) {

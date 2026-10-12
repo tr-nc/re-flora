@@ -154,6 +154,12 @@ impl App {
         let Ok(mode) = std::env::var("RE_FLORA_PAVEMENT_REVIEW") else {
             return Ok(());
         };
+        if mode == "prototype" {
+            return self.review_pavement_prototype();
+        }
+        if mode == "prototype-verify" {
+            return self.verify_pavement_prototype();
+        }
         if mode == "pointer" || mode == "turn" || mode == "recover" {
             return self.begin_pavement_pointer_review();
         }

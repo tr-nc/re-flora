@@ -30,6 +30,10 @@ impl App {
         active: &mut ActivePavement,
         force: bool,
     ) -> Result<()> {
+        self.apply_pending_pavement_retraction(active)?;
+        if active.withdrawn() {
+            return Ok(());
+        }
         if active
             .candidate
             .as_ref()
@@ -82,7 +86,7 @@ impl App {
         }
         // Keep live previews between spatially spaced fixed endpoints. On release,
         // the last valid small residual is approved too.
-        if force || active.intent.spaced(active.stroke.config.pitch) {
+        if force || active.retracting() || active.intent.spaced(active.stroke.config.pitch) {
             active.fix_candidate();
         }
         Ok(())

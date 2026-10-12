@@ -1,5 +1,6 @@
 mod ecology;
 mod resources;
+mod reversible;
 mod snapshot;
 use super::PlainBuilderResources;
 use crate::{
@@ -19,6 +20,7 @@ use re_flora_vkn::{
     PipelineStage, QueueLane, ShaderModule, TextureLayout, TimestampQueryPool, VulkanContext,
 };
 pub use resources::*;
+pub use reversible::FloraRemovalReceipt;
 pub use snapshot::FloraSnapshot;
 use std::{
     cell::Cell,

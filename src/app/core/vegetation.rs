@@ -3559,6 +3559,34 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn apply_reversible_surface_flora_removal(
+        &mut self,
+        edit: TerrainBrushEdit,
+    ) -> Result<Vec<crate::builder::FloraRemovalReceipt>> {
+        let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+            edit,
+            self.world_chunk_dim,
+        ) else {
+            return Ok(Vec::new());
+        };
+        let mut receipts = Vec::new();
+        for chunk in world_ops::affected_chunk_indices_for_bound(
+            compiled.rebuild_bound,
+            super::VOXEL_DIM_PER_CHUNK,
+        ) {
+            self.surface_builder.build_surface(chunk, false)?;
+            receipts.push(self.surface_builder.remove_flora_reversibly(
+                chunk,
+                edit.start,
+                edit.end,
+                edit.radius,
+                self.world_clock.flora_tick(),
+                self.time_info.time_since_start_duration().as_millis() as u32,
+            )?);
+        }
+        Ok(receipts)
+    }
+
     pub(super) fn apply_surface_flora_removal(&mut self, edit: TerrainBrushEdit) -> Result<()> {
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)

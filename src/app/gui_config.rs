@@ -1331,6 +1331,8 @@ mod search_tests {
         settings.adjustables.pavement_seed.value = 65535;
         settings.adjustables.pavement_smooth_curves.value = true;
         settings.adjustables.pavement_smooth_scale.value = 2.75;
+        settings.adjustables.pavement_retract_stroke.value = false;
+        settings.adjustables.pavement_retract_scale.value = 3.5;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
@@ -1341,6 +1343,8 @@ mod search_tests {
         assert_eq!(loaded.pavement_seed.value, 65535);
         assert!(loaded.pavement_smooth_curves.value);
         assert_eq!(loaded.pavement_smooth_scale.value, 2.75);
+        assert!(!loaded.pavement_retract_stroke.value);
+        assert_eq!(loaded.pavement_retract_scale.value, 3.5);
         let search = SearchFilter::new("pavement");
         for param in settings
             .config

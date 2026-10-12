@@ -22,9 +22,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Pavement",
-        description: "V + left-drag lays slabs, running-bond brick or a vegetation-clearing dirt path. Tab changes surface; Shift + wheel changes next-stroke width. Each gesture freezes its recipe and ground reference. The unbuilt tail is a preview: red targets are rejected, and a legal current target can continue the same gesture without retracing. Existing paving, unsupported ground and world boundaries stay protected. Terrain Save/Load saves the resulting voxels and flora; GUI Save saves these preferences. Dig edits the result; authored paths and undo history are not persisted.",
+        description: "V + left-drag lays slabs, running-bond brick or a vegetation-clearing dirt path. Tab changes surface; Shift + wheel changes next-stroke width. Each gesture freezes its recipe and ground reference. Courses adapt to actual stone geometry, with independently subdivided outer stones. Backdrag reclaims only this held slabs/brick stroke, including already placed voxels and removed flora; release or cancel keeps its current result. Dirt retains surface brushing. Optional inward smoothing is unchecked by default; smoothing and backdrag ranges default to 2x. Preferences freeze at the next gesture. Red targets remain replaceable previews, not committed input. Existing paving, unsupported ground and world boundaries stay protected. Terrain Save/Load saves the resulting voxels and flora; GUI Save saves these preferences. Dig edits the result; authored paths and undo history are not persisted.",
         initially_open: false,
-        params: &["pavement_kind", "pavement_width", "pavement_piece_length", "pavement_smooth_curves", "pavement_smooth_scale", "pavement_seed"],
+        params: &["pavement_kind", "pavement_width", "pavement_piece_length", "pavement_retract_stroke", "pavement_retract_scale", "pavement_smooth_curves", "pavement_smooth_scale", "pavement_seed"],
     },
     ControlGroup {
         parent: None,

@@ -22,7 +22,10 @@ use continuity::{BlockReason, CourseContinuity};
 mod candidate;
 use candidate::{Candidate, CoursePreparation, StagedCoverage};
 mod pointer_review;
+mod prototype_review;
+mod retraction;
 mod review;
+use retraction::{Backdrag, CourseEdit, VoxelUndo};
 
 const ROWS_PER_FRAME: usize = 4;
 const MIN_GROUND_NORMAL_Y: f32 = 0.65;
@@ -56,6 +59,8 @@ struct ActivePavement {
     // Exact voxels authored by this gesture, not a second persistent world.
     // Adjacent courses may share a voxelized edge; older paving cannot be layered.
     owned_voxels: HashSet<UVec3>,
+    backdrag: Backdrag,
+    edits: Vec<CourseEdit>,
     started: Instant,
 }
 #[derive(Clone, Copy)]
@@ -173,6 +178,9 @@ impl PavementRuntime {
         let Some(a) = &self.active else {
             return Vec::new();
         };
+        if a.withdrawn() {
+            return Vec::new();
+        }
         // Only the CURRENT proposal inherits the approved guide; it is never
         // used as the compiler for the next pointer observation.
         let mut valid = a.continuity.blocked().is_none();
@@ -252,12 +260,11 @@ struct GroundedPiece {
     max: Vec3,
 }
 
-// Kept only during one synchronous course preflight/stamp. No other terrain
-// writer runs between them; authoritative protection is read once per cell.
+// A protected atlas region. Undo data is captured immediately before each stamp,
+// because adjacent stones in this same course may share voxelized boundaries.
 struct PathStampReadback {
     offset: UVec3,
     dim: UVec3,
-    bytes: Vec<u8>,
 }
 
 fn project_path_point(
@@ -649,6 +656,14 @@ fn grounded_cell(
 
 impl App {
     pub(super) fn cancel_pavement_stroke(&mut self) {
+        // Cursor events can precede the next redraw. Complete an already edited
+        // backdrag before cancelling, rather than retaining its obsolete stones.
+        if let Some(mut active) = self.pavement.active.take() {
+            if let Err(error) = self.apply_pending_pavement_retraction(&mut active) {
+                log::error!("[PAVEMENT] cancellation withdrawal failed: {error:#}");
+            }
+            self.pavement.active = Some(active);
+        }
         // The loop is shared with Dig; idle pavement must not mute another tool.
         if self.pavement.cancel() {
             self.stop_terrain_edit_loop_sound();
@@ -667,6 +682,10 @@ impl App {
             settings.pavement_smooth_curves.value,
             settings.pavement_smooth_scale.value,
         )
+        .with_retraction(
+            settings.pavement_retract_stroke.value,
+            settings.pavement_retract_scale.value,
+        )
     }
 
     pub(super) fn pavement_tool_label(&self) -> String {
@@ -679,7 +698,18 @@ impl App {
     }
 
     pub(super) fn pavement_tool_instructions(&self) -> &'static str {
-        "Left-drag on soil to lay a path\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
+        let recipe = self
+            .pavement
+            .active
+            .as_ref()
+            .map_or_else(|| self.pavement_recipe(), |active| active.recipe);
+        if recipe.kind == PavementKind::Dirt {
+            "Left-drag on soil to clear vegetation\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
+        } else if recipe.retract_stroke {
+            "Left-drag on soil; backdrag retracts this stroke\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
+        } else {
+            "Left-drag on soil to lay a path\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
+        }
     }
 
     pub(super) fn cycle_pavement_kind(&mut self) {
@@ -797,6 +827,8 @@ impl App {
                 pieces_placed: 0,
                 surfaces_cleared: 0,
                 owned_voxels: HashSet::new(),
+                backdrag: Backdrag::default(),
+                edits: Vec::new(),
                 started: Instant::now(),
             });
             self.start_terrain_edit_loop_sound(start);
@@ -827,7 +859,7 @@ impl App {
             self.stop_terrain_edit_loop_sound();
             return;
         };
-        active.observe_ground(point);
+        active.observe_editable_ground(point);
         // Sound starts only after real preflight, not predicted buildability.
         if self.pavement.invalid_tail() {
             self.stop_terrain_edit_loop_sound();
@@ -868,6 +900,13 @@ impl App {
     }
 
     fn finish_pavement_on_ground(&mut self, mut active: ActivePavement) -> Result<ActivePavement> {
+        if active.withdrawn() {
+            let result = self.apply_pending_pavement_retraction(&mut active);
+            self.stop_terrain_edit_loop_sound();
+            result?;
+            log::info!("[PAVEMENT] withdrawn pieces=0 empty_click_suppressed=true");
+            return Ok(active);
+        }
         let result = self
             .validate_pavement_candidate(&mut active, true)
             .and_then(|()| {
@@ -911,7 +950,7 @@ impl App {
         if atlas_blocks_piece(grounded, offset, dim, &bytes, &active.owned_voxels) {
             return Ok(None);
         }
-        Ok(Some(PathStampReadback { offset, dim, bytes }))
+        Ok(Some(PathStampReadback { offset, dim }))
     }
 
     fn stamp_prepared_path_cell(
@@ -922,12 +961,29 @@ impl App {
         material: u32,
         bound: &mut Option<UAabb3>,
     ) -> Result<()> {
-        let PathStampReadback { offset, dim, bytes } = readback;
+        let PathStampReadback { offset, dim } = readback;
+        // Preflight snapshots for a whole row may precede another stone's stamp.
+        // The undo owner must capture the immediate authoritative before-image.
+        let bytes = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
         let written =
             self.plain_builder
                 .voxelize_model(&grounded.triangles, grounded.base, material)?;
         *bound = Some(bound.map_or(written, |bound| bound.union_with(&written)));
         let after = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        if active.recipe.retract_stroke && active.recipe.kind != PavementKind::Dirt {
+            active
+                .edits
+                .last_mut()
+                .expect("course edit precedes stamps")
+                .voxels
+                .push(VoxelUndo::capture(
+                    offset,
+                    dim,
+                    &bytes,
+                    &after,
+                    &active.owned_voxels,
+                ));
+        }
         for z in 0..dim.z {
             for y in 0..dim.y {
                 for x in 0..dim.x {
@@ -944,6 +1000,10 @@ impl App {
         Ok(())
     }
     fn publish_pavement_rows(&mut self, active: &mut ActivePavement, limit: usize) -> Result<()> {
+        self.apply_pending_pavement_retraction(active)?;
+        if active.withdrawn() {
+            return Ok(());
+        }
         if active.continuity.blocked().is_some() {
             self.stop_terrain_edit_loop_sound();
             return Ok(());
@@ -977,6 +1037,12 @@ impl App {
                         break;
                     }
                 };
+                let receipt_index = if recipe.retract_stroke && recipe.kind != PavementKind::Dirt {
+                    active.edits.push(CourseEdit::default());
+                    Some(active.edits.len() - 1)
+                } else {
+                    None
+                };
                 for stamp in prepared {
                     self.stamp_prepared_path_cell(
                         active,
@@ -999,11 +1065,14 @@ impl App {
                         row.exit.center
                     },
                 );
-                cleared.push(TerrainBrushEdit {
-                    start: active.previous_surface.unwrap_or(row.center),
-                    end: row.center,
-                    radius: recipe.path_settings().width * 0.5,
-                });
+                cleared.push((
+                    TerrainBrushEdit {
+                        start: active.previous_surface.unwrap_or(row.center),
+                        end: row.center,
+                        radius: recipe.path_settings().width * 0.5,
+                    },
+                    receipt_index,
+                ));
                 active.previous_surface = Some(row.center);
             }
             Ok(())
@@ -1022,15 +1091,21 @@ impl App {
             self.observe_player_terrain_publication_for_connectivity(bound);
         }
         let surface_rows = cleared.len();
-        for edit in cleared {
-            self.apply_surface_flora_removal(edit)?;
+        for (edit, receipt_index) in cleared {
+            if let Some(index) = receipt_index {
+                active.edits[index].flora = self.apply_reversible_surface_flora_removal(edit)?;
+            } else {
+                self.apply_surface_flora_removal(edit)?;
+            }
         }
         active.pieces_placed += placed;
         active.surfaces_cleared += surface_rows;
         if placed > 0 || surface_rows > 0 {
             log::info!("[PAVEMENT] publish kind={} pieces={placed} surface_rows={surface_rows} path_space=true frozen_ground=true queued={}", recipe.name(), active.stroke.rows.len());
         }
-        write_result
+        write_result?;
+        active.remember_checkpoint();
+        Ok(())
     }
 }
 
@@ -1065,6 +1140,8 @@ mod tests {
                 pieces_placed: 0,
                 surfaces_cleared: 0,
                 owned_voxels: HashSet::new(),
+                backdrag: Backdrag::default(),
+                edits: Vec::new(),
                 started: Instant::now(),
             }),
             ..Default::default()
@@ -1313,6 +1390,8 @@ mod tests {
                     pieces_placed: 0,
                     surfaces_cleared: 0,
                     owned_voxels: HashSet::new(),
+                    backdrag: Backdrag::default(),
+                    edits: Vec::new(),
                     started: Instant::now(),
                 }),
                 ..Default::default()

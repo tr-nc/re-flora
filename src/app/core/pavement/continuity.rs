@@ -31,7 +31,7 @@ pub(super) struct BlockedCourse {
     pub reason: BlockReason,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct CourseContinuity {
     expected: u32,
     accepted: Option<PathSample>,
