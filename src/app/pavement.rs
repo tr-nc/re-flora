@@ -1,8 +1,8 @@
 //! Paving patterns over the shared path band; terrain/GPU work stays in the adapter.
 pub(super) use super::path_band::{contains_polygon, PathSample, VOXEL_SIZE};
-use super::path_band::{inset_quad, overlaps_quads, PathCell, PathSampling, PathSettings};
-#[cfg(test)]
-use super::path_band::{PathStroke, MAX_QUEUED_ROWS};
+use super::path_band::{
+    inset_quad, overlaps_quads, PathCell, PathSampling, PathSettings, PathStroke, MAX_QUEUED_ROWS,
+};
 use glam::{Vec2, Vec3};
 
 // The existing two-voxel minimum applies to the DEFORMED tile as well as
@@ -30,6 +30,8 @@ pub(super) struct PavementRecipe {
     pub width: f32,
     pub pitch: f32,
     pub seed: u32,
+    pub smooth_curves: bool,
+    pub smooth_scale: f32,
 }
 impl PavementRecipe {
     pub(super) fn new(kind: PavementKind, width: f32, length: f32, seed: u32) -> Self {
@@ -43,7 +45,26 @@ impl PavementRecipe {
                 finite_clamp(length, 0.05, 0.025, 0.1).min(width)
             },
             seed,
+            smooth_curves: false,
+            smooth_scale: 2.,
         }
+    }
+    pub(super) fn with_smoothing(mut self, enabled: bool, scale: f32) -> Self {
+        self.smooth_curves = enabled;
+        self.smooth_scale = finite_clamp(scale, 2., 0.5, 3.);
+        self
+    }
+    /// This is the construction entry point for paving, not for walls or dirt.
+    pub(super) fn stroke(self, start: Vec3, heading: Vec3) -> Option<PathStroke> {
+        let stroke = PathStroke::new(self.path_settings(), start, heading)?;
+        Some(if self.kind == PavementKind::Dirt {
+            stroke
+        } else {
+            stroke.adaptive_courses(
+                move |row| !self.pieces(row).is_empty(),
+                self.smooth_curves.then_some(self.smooth_scale),
+            )
+        })
     }
     pub(super) fn path_settings(self) -> PathSettings {
         PathSettings {
@@ -96,19 +117,61 @@ impl PavementRecipe {
             if !resolved_footprint(footprint) {
                 return Vec::new(); // reject the whole course, never lose an inner tile
             }
-            let center = footprint.iter().copied().sum::<Vec2>() * 0.25;
-            let width = right - left - gap;
-            let length = self.pitch - gap;
-            pieces.push(PathCell {
-                center: Vec3::new(center.x, row.center.y, center.y),
-                forward: row.forward,
-                size: Vec3::new(width, (width.min(length) * 0.2).min(0.008), length),
-                seed: hash(self.seed ^ row.index.wrapping_mul(0x9e3779b9) ^ lane),
-                footprint,
-            });
+            let footprints = lane_footprints(cell, footprint, gap, self.pitch);
+            let split = footprints.len() > 1;
+            for (part, footprint) in footprints.into_iter().enumerate() {
+                let center = footprint.iter().copied().sum::<Vec2>() * 0.25;
+                let width = right - left - gap;
+                let length = (footprint[3] - footprint[0])
+                    .length()
+                    .max((footprint[2] - footprint[1]).length());
+                pieces.push(PathCell {
+                    center: Vec3::new(center.x, row.center.y, center.y),
+                    forward: row.forward,
+                    size: Vec3::new(width, (width.min(length) * 0.2).min(0.008), length),
+                    seed: hash(
+                        self.seed
+                            ^ row.index.wrapping_mul(0x9e3779b9)
+                            ^ lane
+                            ^ if split {
+                                (part as u32).wrapping_mul(0x85ebca6b)
+                            } else {
+                                0
+                            },
+                    ),
+                    footprint,
+                });
+            }
         }
         pieces
     }
+}
+fn lane_footprints(raw: [Vec2; 4], footprint: [Vec2; 4], gap: f32, pitch: f32) -> Vec<[Vec2; 4]> {
+    let longest = (raw[3] - raw[0]).length().max((raw[2] - raw[1]).length());
+    for count in (2..=((longest / pitch).round() as usize).min(MAX_QUEUED_ROWS)).rev() {
+        let mut parts = Vec::with_capacity(count);
+        for i in 0..count {
+            let a = i as f32 / count as f32;
+            let b = (i + 1) as f32 / count as f32;
+            let cell = [
+                raw[0].lerp(raw[3], a),
+                raw[1].lerp(raw[2], a),
+                raw[1].lerp(raw[2], b),
+                raw[0].lerp(raw[3], b),
+            ];
+            let Some(part) = inset_quad(cell, gap * 0.5) else {
+                break;
+            };
+            if !resolved_footprint(part) {
+                break;
+            }
+            parts.push(part);
+        }
+        if parts.len() == count {
+            return parts;
+        }
+    }
+    vec![footprint] // Never delete a legal inner stone to regularize the outside.
 }
 fn resolved_footprint(points: [Vec2; 4]) -> bool {
     (0..4).all(|i| {
@@ -439,7 +502,14 @@ mod tests {
             row.exit.center = Vec3::new(radius * angle.sin(), 0., radius * (1. - angle.cos()));
             row.exit.across = Vec3::new(angle.sin(), 0., -angle.cos());
             let pieces = recipe.pieces(row);
-            assert_eq!(pieces.len(), count, "radius={radius}");
+            if count == 0 {
+                assert!(pieces.is_empty(), "radius={radius}");
+            } else {
+                assert!(
+                    pieces.len() >= count,
+                    "radius={radius}; all lanes must survive outer subdivision"
+                );
+            }
             assert!(pieces.iter().all(|p| resolved_footprint(p.footprint)));
         }
     }

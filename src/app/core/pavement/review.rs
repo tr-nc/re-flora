@@ -80,7 +80,7 @@ impl App {
             self.validate_pavement_candidate(&mut active, true)?;
             let active = self.finish_pavement_on_ground(active)?;
             ensure!(
-                active.pieces_placed == count && active.surfaces_cleared == courses,
+                active.pieces_placed >= count && active.surfaces_cleared == courses,
                 "native bend {kind:?} sign={sign} radius={radius}: {} / {count} pieces",
                 active.pieces_placed
             );

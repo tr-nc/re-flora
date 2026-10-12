@@ -1,7 +1,8 @@
 //! Shared distance-sampled path band. No material, renderer or world ownership.
 //! Consumers turn these shared course sections into paving or vertically layered walls.
 use glam::{Vec2, Vec3};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
+mod adaptive;
 mod curve;
 mod intent;
 #[cfg(test)]
@@ -47,6 +48,8 @@ pub(super) struct PathSample {
     pub center: Vec3,
     pub forward: Vec3,
     pub distance: f32,
+    /// Actual terminal station; merged courses do not have nominal pitch length.
+    pub end_distance: f32,
     pub index: u32,
     pub entry: CourseSection,
     pub exit: CourseSection,
@@ -64,6 +67,7 @@ impl PathSample {
             center,
             forward,
             distance,
+            end_distance: distance + pitch * 0.5,
             index,
             valid: true,
             entry: CourseSection::new(center - forward * pitch * 0.5, forward, 0),
@@ -116,6 +120,8 @@ pub(super) struct PathStroke {
     pub config: PathSettings,
     input: StrokeInput,
     pub rows: VecDeque<PathSample>,
+    course_fit: Option<Arc<dyn Fn(PathSample) -> bool + Send + Sync>>,
+    smoothing_scale: Option<f32>,
 }
 #[derive(Clone)]
 enum StrokeInput {
@@ -189,7 +195,33 @@ impl PathStroke {
             config,
             input,
             rows: VecDeque::new(),
+            course_fit: None,
+            smoothing_scale: None,
         })
+    }
+    /// Consumer owns material legality; the band owns partitioning and curve containment.
+    pub(super) fn adaptive_courses(
+        mut self,
+        fit: impl Fn(PathSample) -> bool + Send + Sync + 'static,
+        smoothing_scale: Option<f32>,
+    ) -> Self {
+        self.course_fit = Some(Arc::new(fit));
+        self.smoothing_scale = smoothing_scale;
+        self
+    }
+    fn curve(&self, input: &TileInput) -> curve::RoundedPath {
+        match self.smoothing_scale {
+            Some(scale) => input
+                .guide
+                .smoothed(self.config.width * scale, input.heading),
+            None => input.guide.rounded(self.config.width, input.heading),
+        }
+    }
+    fn mutable_support(&self) -> f64 {
+        f64::from(self.config.width)
+            * self
+                .smoothing_scale
+                .map_or(2., |scale| 4. * f64::from(scale))
     }
     pub(super) fn push(&mut self, point: Vec3) -> bool {
         if !point.is_finite() {
@@ -255,7 +287,11 @@ impl PathStroke {
         };
         self.rows.clear();
         input.next_distance = accepted.map_or(0., |r| {
-            f64::from(r.distance) - input.distance_base + f64::from(self.config.pitch)
+            if self.course_fit.is_some() {
+                f64::from(r.end_distance) - input.distance_base + f64::from(self.config.pitch) * 0.5
+            } else {
+                f64::from(r.distance) - input.distance_base + f64::from(self.config.pitch)
+            }
         });
         input.next_index = accepted.map_or(0, |r| r.index.wrapping_add(1));
         input.previous_exit = accepted.map(|r| r.exit);
@@ -266,6 +302,9 @@ impl PathStroke {
     /// Compile only stable sections, preserving exact published exit facts.
     /// The short unbaked tail can still round a newly drawn corner.
     pub(super) fn prepare(&mut self) -> bool {
+        if self.course_fit.is_some() {
+            return self.prepare_adaptive();
+        }
         let StrokeInput::Tiles(input) = &mut self.input else {
             return true;
         };
@@ -293,6 +332,7 @@ impl PathStroke {
                 center: middle.center,
                 forward,
                 distance: (input.distance_base + input.next_distance) as f32,
+                end_distance: (input.distance_base + input.next_distance + half) as f32,
                 index: input.next_index,
                 valid: entry.continuity == exit.continuity
                     && course_fits(entry, exit, self.config.width),
@@ -315,8 +355,12 @@ impl PathStroke {
         if input.finished {
             return Vec::new();
         }
-        let curve = input.guide.rounded(self.config.width, input.heading);
+        let curve = self.curve(input);
         let mut rows: Vec<_> = self.rows.iter().copied().collect();
+        if self.course_fit.is_some() {
+            rows.extend(self.adaptive_tail(input, &curve));
+            return rows;
+        }
         let mut distance = input.next_distance;
         let mut index = input.next_index;
         let mut previous = input.previous_exit;
@@ -332,6 +376,7 @@ impl PathStroke {
                 center: middle.center,
                 forward: Vec3::new(-middle.across.z, 0., middle.across.x),
                 distance: (input.distance_base + distance) as f32,
+                end_distance: (input.distance_base + distance + half) as f32,
                 index,
                 entry,
                 exit,
@@ -380,9 +425,7 @@ impl PathStroke {
                 } else {
                     0.
                 },
-                distance_base: accepted.map_or(0., |r| {
-                    f64::from(r.distance) + f64::from(self.config.pitch) * 0.5
-                }),
+                distance_base: accepted.map_or(0., |r| f64::from(r.end_distance)),
                 next_index: accepted.map_or(0, |r| r.index.wrapping_add(1)),
                 previous_exit: accepted.map(|r| r.exit),
                 dirty: true,

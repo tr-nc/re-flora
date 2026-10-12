@@ -99,6 +99,8 @@ impl GuiConfigLoader {
             "pavement_width",
             "pavement_piece_length",
             "pavement_seed",
+            "pavement_smooth_curves",
+            "pavement_smooth_scale",
             "stone_place_slab",
             "stone_placement_scale",
             "stone_yaw",

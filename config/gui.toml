@@ -155,6 +155,26 @@ min = 0
 max = 65535
 
 [[section.param]]
+id = "pavement_smooth_curves"
+kind = "bool"
+label = "Pavement inward corner smoothing (unchecked: original fitting)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "pavement_smooth_scale"
+kind = "float"
+label = "Pavement smoothing range (road widths)"
+type = "Float"
+
+[section.param.data]
+value = 2.0
+min = 0.5
+max = 3.0
+
+[[section.param]]
 id = "stone_place_slab"
 kind = "bool"
 label = "Stone placement: place paving slab next"

@@ -663,6 +663,10 @@ impl App {
             settings.pavement_piece_length.value,
             settings.pavement_seed.value,
         )
+        .with_smoothing(
+            settings.pavement_smooth_curves.value,
+            settings.pavement_smooth_scale.value,
+        )
     }
 
     pub(super) fn pavement_tool_label(&self) -> String {
@@ -780,7 +784,7 @@ impl App {
         heading: Vec3,
         ground: ContreeCpuRayQuerySnapshot,
     ) {
-        if let Some(stroke) = PathStroke::new(recipe.path_settings(), start, heading) {
+        if let Some(stroke) = recipe.stroke(start, heading) {
             self.pavement.active = Some(ActivePavement {
                 recipe,
                 stroke,
@@ -1032,6 +1036,8 @@ impl App {
 
 #[cfg(test)]
 mod candidate_tests;
+#[cfg(test)]
+mod prototype_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1042,7 +1048,7 @@ mod tests {
         PavementRuntime {
             active: Some(ActivePavement {
                 recipe,
-                stroke: PathStroke::new(recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap(),
+                stroke: recipe.stroke(Vec3::ONE, Vec3::X).unwrap(),
                 coverage: PavementCoverage::default(),
                 previous_surface: None,
                 continuity: CourseContinuity::default(),

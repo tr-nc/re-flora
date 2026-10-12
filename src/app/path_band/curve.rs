@@ -3,6 +3,8 @@
 //! actual band/paver geometry; published exit sections remain immutable.
 use super::{xz, CourseSection, VOXEL_SIZE};
 use glam::{Vec2, Vec3};
+mod containment;
+mod smoothing;
 
 // Oblique cursor rays move sideways when crossing voxel-height soil risers.
 // Simplify their sub-voxel lateral noise before interpreting it as a corner;
@@ -181,14 +183,19 @@ enum SpanKind {
 pub(super) struct RoundedPath {
     spans: Vec<Span>,
     pub length: f64,
+    minimum_radius: f32,
     origin: Vec3,
     heading: Vec3,
 }
 impl RoundedPath {
     fn new(points: &[Vec3], radius: f32, heading: Vec3) -> Self {
+        Self::fit(points, radius, heading, false)
+    }
+    fn fit(points: &[Vec3], radius: f32, heading: Vec3, smooth: bool) -> Self {
         let mut path = Self {
             spans: Vec::new(),
             length: 0.,
+            minimum_radius: f32::INFINITY,
             origin: points[0],
             heading,
         };
@@ -221,7 +228,9 @@ impl RoundedPath {
         for i in 0..n - 2 {
             let length = xz(points[i + 1] - points[i]).length();
             let total = corners[i].trim + corners[i + 1].trim;
-            if total > length {
+            if total > length && smooth {
+                smoothing::balance_radii(&mut corners, i, length, points);
+            } else if total > length {
                 let scale = length / total;
                 for j in [i, i + 1] {
                     if corners[j].trim > 0. {
@@ -236,6 +245,11 @@ impl RoundedPath {
                 }
             }
         }
+        path.minimum_radius = corners
+            .iter()
+            .filter(|c| c.radius > 0.)
+            .map(|c| c.radius)
+            .fold(f32::INFINITY, f32::min);
         let mut from = points[0];
         let mut continuity = 0;
         for i in 1..n - 1 {
