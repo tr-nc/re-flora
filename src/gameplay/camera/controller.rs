@@ -13,10 +13,14 @@ const GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED: f32 = 14.0;
 const MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION: f32 = 16.5 / 256.0;
 const MAX_GROUNDED_CAMERA_VERTICAL_LAG: f32 = 16.5 / 256.0;
 
-fn smoothed_grounded_camera_y(
+/// Smooth ground steps without making the correction's lifetime depend on a single
+/// support query. In the air, carry the existing offset with the capsule's real motion;
+/// resume convergence on landing. Filtering gravity/jump motion itself would delay takeoff.
+fn resolved_walk_camera_y(
     current_y: f32,
     target_y: f32,
     vertical_translation: f32,
+    grounded: bool,
     frame_delta_time: f32,
 ) -> f32 {
     if !current_y.is_finite()
@@ -27,6 +31,10 @@ fn smoothed_grounded_camera_y(
         || vertical_translation.abs() > MAX_SMOOTHED_GROUND_VERTICAL_TRANSLATION
     {
         return target_y;
+    }
+
+    if !grounded {
+        return current_y + vertical_translation;
     }
 
     let alpha = 1.0 - (-GROUNDED_CAMERA_HEIGHT_SMOOTHING_SPEED * frame_delta_time).exp();
@@ -424,16 +432,13 @@ impl Camera {
         let collision_position = *collision_position;
         self.position.x = collision_position.x;
         self.position.z = collision_position.z;
-        self.position.y = if grounded {
-            smoothed_grounded_camera_y(
-                self.position.y,
-                collision_position.y,
-                result.translation.y,
-                frame_delta_time,
-            )
-        } else {
-            collision_position.y
-        };
+        self.position.y = resolved_walk_camera_y(
+            self.position.y,
+            collision_position.y,
+            result.translation.y,
+            grounded,
+            frame_delta_time,
+        );
 
         let is_moving = self.movement_state.is_moving_horizontally();
         let is_running = self.movement_state.is_boosted;
@@ -521,7 +526,7 @@ mod tests {
     fn grounded_camera_smooths_a_sixteen_voxel_step_without_overshooting() {
         let current_y = 1.0;
         let target_y = current_y + 16.0 / 256.0;
-        let smoothed = smoothed_grounded_camera_y(current_y, target_y, 16.0 / 256.0, 1.0 / 60.0);
+        let smoothed = resolved_walk_camera_y(current_y, target_y, 16.0 / 256.0, true, 1.0 / 60.0);
 
         assert!(smoothed > current_y);
         assert!(smoothed < target_y);
@@ -537,7 +542,7 @@ mod tests {
         fn simulate(frame_delta_time: f32, frames: usize) -> f32 {
             let mut current_y = 0.0;
             for _ in 0..frames {
-                current_y = smoothed_grounded_camera_y(current_y, 0.01, 0.0, frame_delta_time);
+                current_y = resolved_walk_camera_y(current_y, 0.01, 0.0, true, frame_delta_time);
             }
             current_y
         }
@@ -549,13 +554,16 @@ mod tests {
 
     #[test]
     fn grounded_camera_does_not_smooth_large_vertical_discontinuities() {
-        assert_eq!(smoothed_grounded_camera_y(0.0, 1.0, 0.25, 1.0 / 60.0), 1.0);
+        assert_eq!(
+            resolved_walk_camera_y(0.0, 1.0, 0.25, true, 1.0 / 60.0),
+            1.0
+        );
     }
 
     #[test]
     fn grounded_camera_limits_accumulated_vertical_lag() {
         let target_y = 1.0;
-        let smoothed = smoothed_grounded_camera_y(0.0, target_y, 1.0 / 256.0, 1.0 / 60.0);
+        let smoothed = resolved_walk_camera_y(0.0, target_y, 1.0 / 256.0, true, 1.0 / 60.0);
 
         assert!((target_y - smoothed).abs() <= MAX_GROUNDED_CAMERA_VERTICAL_LAG);
     }
@@ -598,6 +606,246 @@ mod tests {
             assert_eq!(camera.walk_collision_position, Some(anchor));
         }
         assert!(camera.position.abs_diff_eq(anchor, 1.0e-6));
+    }
+
+    fn camera_after_smoothed_step(step_voxels: f32, dt: f32) -> Camera {
+        let mut camera = Camera::new(Vec3::Y, 0.0, 0.0, CameraDesc::default());
+        let request = camera.prepare_walk_movement(dt, 0.0);
+        camera.apply_walk_movement(
+            dt,
+            0.0,
+            request,
+            PlayerWalkMovementResult {
+                translation: Vec3::Y * (step_voxels / 256.0),
+                grounded: true,
+            },
+        );
+        camera
+    }
+
+    #[test]
+    fn ground_step_offset_decays_continuously_across_support_transitions() {
+        for hz in [30, 60, 120] {
+            for step in [-16.0, 16.0] {
+                let dt = 1.0 / hz as f32;
+                let mut camera = camera_after_smoothed_step(step, dt);
+                let anchor = camera.walk_collision_position.unwrap();
+                for frame in 1..=hz * 2 {
+                    let prior_offset = camera.position.y - anchor.y;
+                    let request = camera.prepare_walk_movement(dt, frame as f64 * dt as f64);
+                    let grounded = frame % 2 == 0;
+                    camera.apply_walk_movement(
+                        dt,
+                        frame as f64 * dt as f64,
+                        request,
+                        PlayerWalkMovementResult {
+                            translation: Vec3::ZERO,
+                            grounded,
+                        },
+                    );
+                    let next_offset = camera.position.y - anchor.y;
+                    assert_eq!(camera.walk_collision_position.unwrap(), anchor);
+                    assert_eq!(camera.rigidbody.is_grounded, grounded);
+                    assert!(next_offset.abs() <= prior_offset.abs() + 1.0e-6);
+                    // No complete catch-up merely because the support flag changed.
+                    assert!((next_offset - prior_offset).abs() <= prior_offset.abs() * 0.5 + 1.0e-6,
+                        "support transition snapped: hz={hz} step={step} frame={frame} {prior_offset} -> {next_offset}");
+                }
+                assert!(camera.position.abs_diff_eq(anchor, 1.0e-6));
+            }
+        }
+    }
+
+    #[test]
+    fn airborne_camera_follows_jump_and_gravity_without_creating_visual_lag() {
+        let mut camera = Camera::new(Vec3::Y, 0.0, 0.0, CameraDesc::default());
+        camera.rigidbody.is_grounded = true;
+        let dt = 1.0 / 60.0;
+        for frame in 0..60 {
+            camera.movement_state.jump_requested = frame == 0;
+            let request = camera.prepare_walk_movement(dt, frame as f64 * dt as f64);
+            let expected = request.camera_position + request.desired_translation;
+            camera.apply_walk_movement(
+                dt,
+                frame as f64 * dt as f64,
+                request,
+                PlayerWalkMovementResult {
+                    translation: request.desired_translation,
+                    grounded: false,
+                },
+            );
+            assert!(
+                camera.position.abs_diff_eq(expected, 1.0e-6),
+                "airborne motion was filtered: frame={frame}"
+            );
+            assert_eq!(camera.walk_collision_position, Some(expected));
+            assert!(!camera.rigidbody.is_grounded);
+        }
+        assert!(camera.vertical_velocity < 0.0);
+    }
+
+    #[test]
+    fn jumping_carries_step_offset_without_delaying_takeoff() {
+        for step in [-16.0, 16.0] {
+            let dt = 1.0 / 60.0;
+            let mut camera = camera_after_smoothed_step(step, dt);
+            let view = camera.position;
+            let prior_offset = view.y - camera.walk_collision_position.unwrap().y;
+            camera.movement_state.jump_requested = true;
+            let request = camera.prepare_walk_movement(dt, dt as f64);
+            assert!(request.desired_translation.y > 0.0);
+            camera.apply_walk_movement(
+                dt,
+                dt as f64,
+                request,
+                PlayerWalkMovementResult {
+                    translation: request.desired_translation,
+                    grounded: false,
+                },
+            );
+            let next_offset = camera.position.y - camera.walk_collision_position.unwrap().y;
+            assert!(
+                (next_offset - prior_offset).abs() < 1.0e-6,
+                "jump reset the height offset"
+            );
+            assert!(
+                (camera.position.y - view.y - request.desired_translation.y).abs() < 1.0e-6,
+                "takeoff was filtered by ground-step correction"
+            );
+            assert!(camera.position.y > view.y, "takeoff was delayed");
+            assert!(!camera.rigidbody.is_grounded);
+        }
+    }
+
+    #[test]
+    fn pose_reset_and_large_discontinuities_do_not_keep_an_old_step_offset() {
+        let dt = 1.0 / 60.0;
+        let mut camera = camera_after_smoothed_step(-16.0, dt);
+        let destination = Vec3::new(2.0, 3.0, 4.0);
+        assert!(camera.set_pose_looking_at(destination, destination - Vec3::Z));
+        let request = camera.prepare_walk_movement(dt, dt as f64);
+        camera.apply_walk_movement(
+            dt,
+            dt as f64,
+            request,
+            PlayerWalkMovementResult {
+                translation: Vec3::ZERO,
+                grounded: false,
+            },
+        );
+        assert_eq!(camera.position, destination);
+        assert_eq!(camera.walk_collision_position, Some(destination));
+        for grounded in [false, true] {
+            let mut camera = camera_after_smoothed_step(-16.0, dt);
+            let request = camera.prepare_walk_movement(dt, dt as f64);
+            let translation = Vec3::Y * -0.25;
+            camera.apply_walk_movement(
+                dt,
+                dt as f64,
+                request,
+                PlayerWalkMovementResult {
+                    translation,
+                    grounded,
+                },
+            );
+            assert_eq!(camera.position, request.camera_position + translation);
+        }
+    }
+
+    #[test]
+    fn walking_down_ledge_keeps_camera_continuous_when_support_is_lost() {
+        use glam::{IVec3, UVec3};
+        use re_flora_physics::{
+            BrickOccupancy, CapsuleCharacterMove, CollisionWorld, StaticVoxelBrickId,
+            CAPSULE_CHARACTER_COLLISION_OFFSET,
+        };
+        let mut support_losses_with_camera_lag = 0;
+        let mut abrupt_corrections = Vec::new();
+        for hz in [30, 60, 120] {
+            for height in [3, 6, 12, 16] {
+                for detail_height in [0.0, 3.0] {
+                    let mut world = CollisionWorld::new();
+                    world.upsert_static_voxel_brick(
+                        StaticVoxelBrickId(IVec3::ZERO),
+                        1,
+                        BrickOccupancy::from_filled_voxels((0..32).flat_map(|x| {
+                            (0..32).flat_map(move |z| {
+                                (0..=if x < 16 { height } else { 0 })
+                                    .map(move |y| UVec3::new(x, y, z))
+                            })
+                        })),
+                    );
+                    let desc = CameraDesc::default();
+                    let feet = Vec3::new(
+                        4.0,
+                        height as f32 + 1.0 + CAPSULE_CHARACTER_COLLISION_OFFSET,
+                        16.0,
+                    ) / 256.0;
+                    let mut camera =
+                        Camera::new(feet + Vec3::Y * desc.camera_height, 90.0, 0.0, desc);
+                    camera.rigidbody.is_grounded = true;
+                    camera.movement_state.axes.forward = true;
+                    let dt = 1.0 / hz as f32;
+                    for frame in 0..hz {
+                        let time = frame as f64 * dt as f64;
+                        let was_grounded = camera.rigidbody.is_grounded;
+                        let previous_view = camera.position;
+                        let request = camera.prepare_walk_movement(dt, time);
+                        let previous_lag = previous_view.y - request.camera_position.y;
+                        let feet = request.camera_position - Vec3::Y * request.camera_height;
+                        let result = world
+                            .move_capsule_character_with_ground_detail(
+                                CapsuleCharacterMove {
+                                    center: feet * 256.0 + Vec3::Y * 12.0,
+                                    radius: 4.0,
+                                    half_height: 8.0,
+                                    desired_translation: request.desired_translation * 256.0,
+                                    dt,
+                                },
+                                detail_height,
+                            )
+                            .unwrap();
+                        camera.apply_walk_movement(
+                            dt,
+                            time,
+                            request,
+                            PlayerWalkMovementResult {
+                                translation: result.translation / 256.0,
+                                grounded: result.grounded,
+                            },
+                        );
+                        // Losing support is not a teleport. With almost no physical descent,
+                        // do not discard the entire accumulated visual height offset at once.
+                        if was_grounded
+                            && !camera.rigidbody.is_grounded
+                            && previous_lag * 256.0 > 0.5
+                            && result.translation.y.abs() < 1.0
+                        {
+                            support_losses_with_camera_lag += 1;
+                            let view_delta = (camera.position.y - previous_view.y) * 256.0;
+                            let correction = (view_delta - result.translation.y).abs();
+                            if correction >= previous_lag.abs() * 256.0 * 0.9 {
+                                abrupt_corrections.push((
+                                    hz,
+                                    height,
+                                    detail_height,
+                                    frame,
+                                    previous_lag * 256.0,
+                                    result.translation.y,
+                                    view_delta,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            support_losses_with_camera_lag > 0,
+            "fixture did not exercise a descending support transition"
+        );
+        assert!(abrupt_corrections.is_empty(),
+            "camera snapped down on support loss (hz, step, detail, frame, prior lag, body dy, view dy): {abrupt_corrections:?}");
     }
 
     #[test]
