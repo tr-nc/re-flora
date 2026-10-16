@@ -46,6 +46,10 @@ Tracer 测试和隐藏 Release raster-tree smoke 验证。实际 Soil 持续倾�
 - Soil fixture 的行为断言通过：38 个持按帧、0 个缺失帧、4096 个新增体素，
   释放／工具切换隐藏正确、物料守恒。该运行**不是无 Vulkan 错误的通过**，见下文。
 
+后续状态：同日已在 Glass resolve / pipeline layout 所有者修复此独立问题；原始
+Soil fixture 现在无 Vulkan 错误通过，详见 [image descriptor 约束](pipeline-image-limits.md)。
+以下保留本次指针重构验收时的基线诊断记录。
+
 ### 影响范围
 
 Apple M4 Pro / macOS 的 `--rooftop-poc` 启动出现 Vulkan validation error。

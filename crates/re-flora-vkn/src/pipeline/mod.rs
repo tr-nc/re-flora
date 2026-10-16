@@ -6,6 +6,7 @@ pub use graphics_pipeline::*;
 mod compute_pipeline;
 pub use compute_pipeline::*;
 
+mod image_descriptor_limits;
 mod pipeline_layout;
 pub use pipeline_layout::*;
 

@@ -1,3 +1,4 @@
+use super::image_descriptor_limits::validate_image_descriptor_limits;
 use crate::{DescriptorSetLayout, DescriptorSetLayoutBuilder, Device, ShaderModule};
 use anyhow::Result;
 use ash::vk;
@@ -38,14 +39,26 @@ impl PipelineLayout {
     pub fn from_shader_module(device: &Device, shader_module: &ShaderModule) -> Self {
         let descriptor_set_layouts = shader_module.get_descriptor_set_layouts();
         let push_constant_ranges = shader_module.get_push_constant_ranges();
-        PipelineLayout::new(device, &descriptor_set_layouts, &push_constant_ranges)
+        PipelineLayout::new(device, &descriptor_set_layouts, &push_constant_ranges).unwrap_or_else(
+            |error| {
+                panic!(
+                    "Cannot create pipeline layout for {}: {error:#}",
+                    shader_module.get_module_name()
+                )
+            },
+        )
     }
 
     fn new(
         device: &Device,
         descriptor_set_layouts: &HashMap<u32, DescriptorSetLayout>,
         push_constant_ranges: &HashMap<u32, vk::PushConstantRange>,
-    ) -> Self {
+    ) -> Result<Self> {
+        let bindings: Vec<_> = descriptor_set_layouts
+            .values()
+            .flat_map(|set| set.get_bindings())
+            .collect();
+        validate_image_descriptor_limits(&bindings, device.limits())?;
         let mut pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
 
         // A stage can use set 1 without set 0 (e.g. tile-only fragments).
@@ -72,13 +85,13 @@ impl PipelineLayout {
                 .expect("Failed to create pipeline layout")
         };
 
-        return Self(Arc::new(PipelineLayoutInner {
+        return Ok(Self(Arc::new(PipelineLayoutInner {
             device: device.clone(),
             pipeline_layout,
             descriptor_set_layouts: descriptor_set_layouts.clone(),
             _padding_layout: empty_layout,
             push_constant_ranges: push_constant_ranges.clone(),
-        }));
+        })));
 
         /// Convert a HashMap<u32, DescriptorSetLayout> to a Vec<vk::DescriptorSetLayout>
         /// Where the key is the set number and the value is the descriptor set layout.
@@ -153,11 +166,11 @@ impl PipelineLayout {
             }
         }
 
-        Ok(PipelineLayout::new(
+        PipelineLayout::new(
             &self.0.device,
             &merged_descriptor_set_layouts,
             &merged_push_constant_ranges,
-        ))
+        )
     }
 }
 

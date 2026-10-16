@@ -60,6 +60,7 @@ pub struct GpuJobFencePoolStats {
 
 struct DeviceInner {
     device: ash::Device,
+    limits: vk::PhysicalDeviceLimits,
     gpu_job_fence_pool: Mutex<Vec<vk::Fence>>,
     gpu_job_fence_pool_counters: GpuJobFencePoolCounters,
 }
@@ -133,8 +134,15 @@ impl Device {
             queue_family_indices,
             &extension_requirements,
         );
+        let limits = unsafe {
+            instance
+                .as_raw()
+                .get_physical_device_properties(physical_device_raw)
+        }
+        .limits;
         Self(Arc::new(DeviceInner {
             device,
+            limits,
             gpu_job_fence_pool: Mutex::new(Vec::new()),
             gpu_job_fence_pool_counters: GpuJobFencePoolCounters::new(),
         }))
@@ -142,6 +150,10 @@ impl Device {
 
     pub fn as_raw(&self) -> &ash::Device {
         &self.0.device
+    }
+
+    pub(crate) fn limits(&self) -> &vk::PhysicalDeviceLimits {
+        &self.0.limits
     }
 
     pub fn wait_queue_idle(&self, queue: &Queue) {

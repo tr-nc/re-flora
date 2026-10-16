@@ -19,14 +19,13 @@ import voxel_material;
 [[vk::binding(4, 0)]] ConstantBuffer<U_GodRayInfo> god_ray_info;
 [[vk::binding(5, 0)]] ConstantBuffer<U_VoxelColors> voxel_colors;
 [[vk::binding(6, 0)]] Sampler2D unified_opaque_hdr_tex;
-[[vk::binding(7, 0)]] [[vk::image_format("r32f")]]
-readonly RWTexture2D<float> unified_opaque_depth_tex;
-[[vk::binding(8, 0)]] [[vk::image_format("r32ui")]]
-readonly RWTexture2D<uint> opaque_provenance_tex;
-[[vk::binding(9, 0)]] [[vk::image_format("r32f")]]
-readonly RWTexture2D<float> glass_front_depth_tex;
-[[vk::binding(10, 0)]] [[vk::image_format("r32ui")]]
-readonly RWTexture2D<uint> glass_front_data_tex;
+// Immutable screen facts use exact integer-coordinate texel loads, not storage
+// descriptors. `readonly RWTexture` still spends a storage-image slot in Vulkan;
+// these four inputs otherwise push this pass beyond Metal's eight-slot budget.
+[[vk::binding(7, 0)]] Texture2D<float> unified_opaque_depth_tex;
+[[vk::binding(8, 0)]] Texture2D<uint> opaque_provenance_tex;
+[[vk::binding(9, 0)]] Texture2D<float> glass_front_depth_tex;
+[[vk::binding(10, 0)]] Texture2D<uint> glass_front_data_tex;
 [[vk::binding(11, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
 [[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]]
