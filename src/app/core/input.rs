@@ -316,15 +316,11 @@ impl App {
                 let request = self
                     .tracer
                     .prepare_walk_camera_movement(frame_delta_time, sim_time_seconds);
-                let ground_detail_height =
-                    if self.debug_settings.adjustables.walk_ground_detail.value {
-                        self.debug_settings
-                            .adjustables
-                            .walk_ground_detail_height
-                            .value
-                    } else {
-                        0.0
-                    };
+                let ground_detail_height = self
+                    .debug_settings
+                    .adjustables
+                    .walk_ground_detail_height
+                    .value;
                 let result = self
                     .terrain_physics
                     .move_player_capsule_with_ground_detail(

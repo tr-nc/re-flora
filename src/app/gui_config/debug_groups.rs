@@ -15,9 +15,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Walking Traversal",
-        description: "Unchecked: original strict footholds. Checked: cross low, narrow ground detail above a nearby supported patch. Height is measured from real surrounding terrain, not accumulated from previous steps. Default 3 voxels; capped at the player's 4-voxel radius. Normal 12-voxel steps, body clearance, jumping and mower movement are unchanged. Changes apply immediately; saved with Save.",
+        description: "Cross low, narrow ground detail above a nearby supported patch. Height is measured from real surrounding terrain, not accumulated from previous steps. Default 3 voxels; capped at the player's 4-voxel radius. Normal 12-voxel steps, body clearance, jumping and mower movement are unchanged. Changes apply immediately; saved with Save.",
         initially_open: false,
-        params: &["walk_ground_detail", "walk_ground_detail_height"],
+        params: &["walk_ground_detail_height"],
     },
     ControlGroup {
         parent: None,

@@ -87,6 +87,7 @@ impl GuiConfigLoader {
                             | "stone_preview_focus"
                             | "stone_preview_lift"
                             | "stone_kind"
+                            | "walk_ground_detail"
                     )
                     && !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str())
             });
@@ -122,6 +123,11 @@ impl GuiConfigLoader {
             .iter_mut()
             .flat_map(|section| &mut section.param)
         {
+            // Ground-detail traversal is now the player's only path. Keep saved
+            // tuning, but remove the old switch dependency before validation.
+            if param.id == "walk_ground_detail_height" {
+                param.enabled_if = None;
+            }
             if let Some(condition) = &mut param.enabled_if {
                 if condition.param == "stone_kind" {
                     condition.param = "stone_place_slab".into();
@@ -133,11 +139,7 @@ impl GuiConfigLoader {
                 }
             }
         }
-        for id in [
-            "camera_orbit_max_elevation",
-            "walk_ground_detail",
-            "walk_ground_detail_height",
-        ] {
+        for id in ["camera_orbit_max_elevation", "walk_ground_detail_height"] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
         Self::retire_tree_display_experiments(&mut config);
@@ -1303,13 +1305,14 @@ impl GuiConfigLoader {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn walking_detail_controls_upgrade_old_saves_without_rewriting_and_round_trip() {
+    fn walking_detail_height_upgrades_old_saves_without_rewriting_and_round_trips() {
         use super::GuiParamValue;
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        let ids = ["walk_ground_detail", "walk_ground_detail_height"];
         for section in &mut config.section {
-            section.param.retain(|p| !ids.contains(&p.id.as_str()));
+            section
+                .param
+                .retain(|p| p.id != "walk_ground_detail_height");
         }
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("gui.toml");
@@ -1317,21 +1320,14 @@ mod tests {
         std::fs::write(&path, &old).unwrap();
         let mut loaded = GuiConfigLoader::load_from_path(&path);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
-        let params = &mut loaded
+        let slider = loaded
             .section
             .iter_mut()
-            .find(|s| s.name == "Debug")
-            .unwrap()
-            .param;
-        let toggle = params.iter_mut().find(|p| p.id == ids[0]).unwrap();
-        assert!(matches!(toggle.value, GuiParamValue::Bool { value: true }));
-        toggle.value = GuiParamValue::Bool { value: false };
-        let slider = params.iter_mut().find(|p| p.id == ids[1]).unwrap();
-        assert_eq!(slider.enabled_if.as_ref().unwrap().param, ids[0]);
-        if let GuiParamValue::Float {
-            value, min, max, ..
-        } = &mut slider.value
-        {
+            .flat_map(|s| &mut s.param)
+            .find(|p| p.id == "walk_ground_detail_height")
+            .unwrap();
+        assert!(slider.enabled_if.is_none());
+        if let GuiParamValue::Float { value, min, max } = &mut slider.value {
             assert_eq!((*value, *min, *max), (3.0, Some(0.0), Some(4.0)));
             *value = 1.5;
         } else {
@@ -1339,20 +1335,91 @@ mod tests {
         }
         GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
         let reloaded = GuiConfigLoader::load_from_path(&path);
-        let params = &reloaded
+        let slider = reloaded
             .section
             .iter()
-            .find(|s| s.name == "Debug")
-            .unwrap()
-            .param;
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "walk_ground_detail_height")
+            .unwrap();
+        assert!(slider.enabled_if.is_none());
         assert!(matches!(
-            params.iter().find(|p| p.id == ids[0]).unwrap().value,
-            GuiParamValue::Bool { value: false }
-        ));
-        assert!(matches!(
-            params.iter().find(|p| p.id == ids[1]).unwrap().value,
+            slider.value,
             GuiParamValue::Float { value: 1.5, .. }
         ));
+    }
+
+    #[test]
+    fn walking_detail_switch_is_retired_without_losing_saved_tuning() {
+        use crate::app::gui_config_model::{
+            GuiParamConditionValue, GuiParamEnabledIf, GuiParamKind, GuiParamValue,
+        };
+        for enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let params = &mut config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap()
+                .param;
+            let slider = params
+                .iter_mut()
+                .find(|p| p.id == "walk_ground_detail_height")
+                .unwrap();
+            slider.value = GuiParamValue::Float {
+                value: 1.5,
+                min: Some(0.0),
+                max: Some(4.0),
+            };
+            slider.enabled_if = Some(GuiParamEnabledIf {
+                param: "walk_ground_detail".into(),
+                equals: GuiParamConditionValue::Bool(true),
+            });
+            let mut toggle = slider.clone();
+            toggle.id = "walk_ground_detail".into();
+            toggle.label = "Player: traverse small ground obstacles (A/B)".into();
+            toggle.kind = GuiParamKind::Bool;
+            toggle.value = GuiParamValue::Bool { value: enabled };
+            toggle.enabled_if = None;
+            params.push(toggle);
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("gui.toml");
+            let old = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &old).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+            assert!(!loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == "walk_ground_detail"));
+            let slider = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "walk_ground_detail_height")
+                .unwrap();
+            assert!(slider.enabled_if.is_none());
+            assert!(matches!(
+                slider.value,
+                GuiParamValue::Float { value: 1.5, .. }
+            ));
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(!saved.contains("\"walk_ground_detail\""));
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            let slider = reloaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "walk_ground_detail_height")
+                .unwrap();
+            assert!(slider.enabled_if.is_none());
+            assert!(matches!(
+                slider.value,
+                GuiParamValue::Float { value: 1.5, .. }
+            ));
+        }
     }
 
     #[test]

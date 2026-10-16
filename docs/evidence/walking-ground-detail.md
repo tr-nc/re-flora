@@ -2,6 +2,8 @@
 
 日期：2026-10-17。起点：`665467fe`。实现前的行业调研见[玩家地形通行](../research/player-terrain-traversal.md)。
 
+> 当前状态：用户已确认采用新方案，A/B 开关已移除，保留高度滑杆。下文保留初次 A/B 交付记录，采纳后的清理与验证见文末。镜头离地跳变另见[后续修复](walking-camera-support-transition.md)。
+
 ## 影响范围
 
 已复现的代表场景：平地上1体素高、2体素厚的横向小凸起会阻挡4/8体素玩家胶囊。孤立小石粒同属本次覆盖的行为类别。用户未提供最初遇到的具体地形，因此不声称合成夹具就是其原场景。
@@ -69,3 +71,9 @@ end=Vec3(9.316719, 13.1, 16.00003)
 独立物理 crate 的全量 `cargo fmt --check` 仍报告**基线已有**的 `src/lib.rs`、`src/deforming_geometry.rs` 和 `tests/terrain_rewrite_regression.rs` 格式差异；已从 `HEAD` 导出这三份原文件复查，同样失败。此次新增/修改的独立测试和角色步进/支撑模块已格式化，未为清除基线格式差异扩展无关改动。证据：`target/walking-baseline-physics-fmt.log`。
 
 以上验证不是 Release 性能测量，也不是用户原始地形和主观手感的最终接受。候选可直接在同一运行中关闭对照；之后的具体现场反馈应继续用同一移动权威和回归路径处理，而不是叠加场景特例。
+
+## 用户确认后的开关退役（2026-10-17）
+
+用户认可新通行及镜头修复，要求去掉开关、固定使用新方案。已删除 `walk_ground_detail` 的配置声明、生成字段、Debug 控件及玩家运行时分支；保留 `walk_ground_detail_height` 的 ID、默认3、0–4范围及统一保存。滑杆不再依赖开关，旧配置无论保存开或关都清除旧开关及滑杆依赖，保留原高度值，加载不主动改写文件，下一次 Save 不再输出旧字段。
+
+验证：`cargo fmt --check`、`cargo check`、106项 GUI 配置/保存测试、16项相机测试、10项 surface-motion 测试通过；本次未重跑全量套件。`cargo build --release` 和隐藏静音0.5秒启动通过，日志 `target/re-flora-logs/re-flora-20261017-012656.561-69720.log` 无 WARN/ERROR/VUID/panic。原生截图 `target/walking-traversal-adopted.png` 已确认 Walking Traversal 只显示一个3.00高度滑杆，无开关；对应日志 `target/re-flora-logs/re-flora-20261017-012659.637-69783.log` 正常退出。运行前后 GUI/相机配置 SHA256 一致。生成文件由 `cargo check` 更新，未手改；未启动可见游戏，也未宣称通过新的性能验收。
