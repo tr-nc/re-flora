@@ -105,6 +105,17 @@ impl WallStairs {
     }
 
     fn walk(self, world: &mut CollisionWorld, hz: u32, scale: f32, frames: u32) -> Vec3 {
+        self.walk_with_detail(world, hz, scale, frames, 0.0)
+    }
+
+    fn walk_with_detail(
+        self,
+        world: &mut CollisionWorld,
+        hz: u32,
+        scale: f32,
+        frames: u32,
+        detail_height: f32,
+    ) -> Vec3 {
         let radius = RADIUS * scale;
         let half_height = HALF_HEIGHT * scale;
         let start = self.world_point(Vec3::new(
@@ -116,24 +127,50 @@ impl WallStairs {
         let dt = 1.0 / hz as f32;
         for frame in 0..frames {
             let movement = world
-                .move_capsule_character(CapsuleCharacterMove {
-                    center,
-                    radius,
-                    half_height,
-                    desired_translation: self.rotate(Vec3::new(0.0, -6.0 * dt, 60.0 * dt)),
-                    dt,
-                })
+                .move_capsule_character_with_ground_detail(
+                    CapsuleCharacterMove {
+                        center,
+                        radius,
+                        half_height,
+                        desired_translation: self.rotate(Vec3::new(0.0, -6.0 * dt, 60.0 * dt)),
+                        dt,
+                    },
+                    detail_height,
+                )
                 .unwrap();
             center += movement.translation;
             self.assert_clear(center, radius, half_height);
             if self.width == 1 {
                 assert!(
-                    center.y < start.y + 1.0,
+                    center.y < start.y + detail_height.min(radius) + 1.0,
                     "walked up a one-voxel wall ridge: hz={hz} scale={scale} frame={frame} start={start:?} center={center:?}"
                 );
             }
         }
         self.local_point(center)
+    }
+}
+
+#[test]
+fn ground_detail_allowance_cannot_ratchet_up_a_wall_ridge() {
+    for (hz, scale, turns, origin) in [
+        (30, 0.5, 1, IVec3::new(2, 4, -3)),
+        (60, 1.0, 2, IVec3::ZERO),
+        (120, 2.0, 3, IVec3::new(-2, -4, 3)),
+    ] {
+        for requested_height in [RADIUS * scale * 0.75, 1000.0] {
+            let scene = WallStairs {
+                width: 1,
+                quarter_turns: turns,
+                origin,
+            };
+            let mut world = CollisionWorld::new();
+            scene.publish(&mut world, 1);
+            // Sustained pushing, not just the first blocked frame. Also exercises
+            // the radius safety cap when a caller supplies an excessive allowance.
+            let end = scene.walk_with_detail(&mut world, hz, scale, hz * 4, requested_height);
+            assert!(end.z < 24.0, "narrow ridge became a staircase: {end:?}");
+        }
     }
 }
 

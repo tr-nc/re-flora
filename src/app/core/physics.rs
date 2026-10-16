@@ -430,12 +430,22 @@ impl TerrainPhysics {
         request: PlayerWalkMovementRequest,
         frame_delta_time: f32,
     ) -> anyhow::Result<PlayerWalkMovementResult> {
+        self.move_player_capsule_with_ground_detail(request, frame_delta_time, 0.0)
+    }
+
+    pub(super) fn move_player_capsule_with_ground_detail(
+        &mut self,
+        request: PlayerWalkMovementRequest,
+        frame_delta_time: f32,
+        max_ground_detail_height_voxels: f32,
+    ) -> anyhow::Result<PlayerWalkMovementResult> {
         let movement = surface_motion::PLAYER
-            .move_by(
+            .move_by_with_ground_detail(
                 &mut self.collision_world,
                 request.camera_position - Vec3::Y * request.camera_height,
                 request.desired_translation,
                 frame_delta_time,
+                max_ground_detail_height_voxels,
             )
             .context("moving the player capsule through terrain")?;
         Ok(PlayerWalkMovementResult {

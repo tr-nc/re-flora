@@ -2,8 +2,12 @@
 //!
 //! Search for a small, body-scaled patch beside the contact, not the entire capsule
 //! footprint at its current position. This admits the rounded-cap transition onto a
-//! real stair (including walking beside its edge), but not a one-voxel ridge. All
-//! probes use the published collision world; there is no second terrain cache.
+//! real stair (including walking beside its edge). A bounded ground-detail allowance
+//! permits a low bump above that patch, not an arbitrarily tall narrow ridge. Each
+//! probe must reach real support within the allowance BELOW THE CONTACT, not below
+//! the already elevated capsule. Rechecking this terrain-relative bound prevents
+//! repeated small moves from ratcheting up a wall. All probes use the published
+//! collision world; there is no second terrain cache or accumulated climb budget.
 use super::{
     CAPSULE_CHARACTER_COLLISION_OFFSET, CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT,
     CAPSULE_CHARACTER_MAX_SLOPE_CLIMB_ANGLE,
@@ -23,6 +27,7 @@ pub(super) fn has_foothold(
     contact: Vector,
     normal: Vector,
     horizontal: Vector,
+    max_ground_detail_height: f32,
 ) -> bool {
     let inward = Vector::new(-normal.x, 0.0, -normal.z);
     let inward = if inward.length_squared() > 1.0e-4 {
@@ -61,7 +66,14 @@ pub(super) fn has_foothold(
                 let side = direction.cross(Vector::Y);
                 let edge = contact
                     + side * (side_shift * (radius + 2.0 * CAPSULE_CHARACTER_COLLISION_OFFSET));
-                patch_is_supported(queries, edge, direction, radius, probe_rise)
+                patch_is_supported(
+                    queries,
+                    edge,
+                    direction,
+                    radius,
+                    probe_rise,
+                    max_ground_detail_height,
+                )
             })
         })
 }
@@ -72,6 +84,7 @@ fn patch_is_supported(
     inward: Vector,
     radius: f32,
     probe_rise: f32,
+    max_ground_detail_height: f32,
 ) -> bool {
     let side = inward.cross(Vector::Y);
     // Minimum foothold width AND depth are one capsule radius (four player voxels).
@@ -86,14 +99,16 @@ fn patch_is_supported(
                 + Vector::Y * probe_rise;
             let Some((_, hit)) = queries.cast_ray_and_get_normal(
                 &Ray::new(origin, -Vector::Y),
-                probe_rise + CAPSULE_CHARACTER_COLLISION_OFFSET,
+                probe_rise + max_ground_detail_height + CAPSULE_CHARACTER_COLLISION_OFFSET,
                 true,
             ) else {
                 return false;
             };
-            // Starting inside a wall/ceiling is not proof of a top surface. Only
-            // allow skin-sized height error: the floor a voxel below a thin ridge
-            // must not qualify as support for climbing that ridge.
+            // Starting inside a wall/ceiling is not proof of a top surface. Every
+            // sample must land in this contact-relative height band. The lower floor
+            // can support a small bump, but stops qualifying as soon as a thin ridge
+            // exceeds the allowance. A miss is never filled with character height.
+            // With zero allowance this is exactly the original strict support test.
             if hit.time_of_impact <= 1.0e-3
                 || hit.normal.y < CAPSULE_CHARACTER_GROUND_NORMAL_MIN_DOT
             {

@@ -611,7 +611,23 @@ impl CollisionWorld {
         &mut self,
         movement: CapsuleCharacterMove,
     ) -> Result<CapsuleCharacterMoveResult, CapsuleCharacterMoveError> {
+        self.move_capsule_character_with_ground_detail(movement, 0.0)
+    }
+
+    /// Resolves movement while allowing low ground detail above a body-scaled support patch.
+    ///
+    /// The allowance is measured from queried terrain, never from last frame's character
+    /// height. A narrow ridge therefore cannot renew the allowance each frame and climb a wall.
+    /// Zero retains strict footholds. The allowance is capped at one capsule radius; it does
+    /// not raise the half-body step limit, bypass body sweeps, or change jumping/ground snapping.
+    pub fn move_capsule_character_with_ground_detail(
+        &mut self,
+        movement: CapsuleCharacterMove,
+        max_ground_detail_height: f32,
+    ) -> Result<CapsuleCharacterMoveResult, CapsuleCharacterMoveError> {
         validate_capsule_character_move(movement)?;
+        validate_capsule_nonnegative("max_ground_detail_height", max_ground_detail_height)?;
+        let max_ground_detail_height = max_ground_detail_height.min(movement.radius);
         self.sync_capsule_character_broad_phase();
 
         // Capsule height includes both round caps. Walking may climb at most
@@ -696,6 +712,7 @@ impl CollisionWorld {
                     &pose,
                     requested_horizontal,
                     max_step_height,
+                    max_ground_detail_height,
                 ) {
                     translation = step;
                     stepped = true;
@@ -722,6 +739,7 @@ impl CollisionWorld {
                     character_support::ground_contact(&final_pose, &hit),
                     hit.normal1,
                     Vector::new(desired_translation.x, 0.0, desired_translation.z),
+                    max_ground_detail_height,
                 )
             });
             if !supported {

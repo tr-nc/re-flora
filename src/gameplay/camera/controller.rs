@@ -601,6 +601,86 @@ mod tests {
     }
 
     #[test]
+    fn walking_detail_crosses_a_curb_without_jumping_through_the_camera_loop() {
+        use glam::{IVec3, UVec3};
+        use re_flora_physics::{
+            BrickOccupancy, CapsuleCharacterMove, CollisionWorld, StaticVoxelBrickId,
+            CAPSULE_CHARACTER_COLLISION_OFFSET,
+        };
+        for hz in [30, 60, 120] {
+            for detail_height in [0.0, 3.0] {
+                let mut world = CollisionWorld::new();
+                world.upsert_static_voxel_brick(
+                    StaticVoxelBrickId(IVec3::ZERO),
+                    1,
+                    BrickOccupancy::from_filled_voxels((0..32).flat_map(|x| {
+                        (0..32).flat_map(move |z| {
+                            (0..=if (12..14).contains(&x) { 3 } else { 0 })
+                                .map(move |y| UVec3::new(x, y, z))
+                        })
+                    })),
+                );
+                let desc = CameraDesc::default();
+                let feet = Vec3::new(4.0, 1.0 + CAPSULE_CHARACTER_COLLISION_OFFSET, 16.0) / 256.0;
+                let initial = feet + Vec3::Y * desc.camera_height;
+                let mut camera = Camera::new(initial, 90.0, 0.0, desc);
+                camera.rigidbody.is_grounded = true;
+                let dt = 1.0 / hz as f32;
+                for frame in 0..hz * 2 {
+                    camera.movement_state.axes.forward = camera.position.x * 256.0 < 23.0;
+                    let time = frame as f64 * dt as f64;
+                    let request = camera.prepare_walk_movement(dt, time);
+                    let feet = request.camera_position - Vec3::Y * request.camera_height;
+                    let result = world
+                        .move_capsule_character_with_ground_detail(
+                            CapsuleCharacterMove {
+                                center: feet * 256.0 + Vec3::Y * 12.0,
+                                radius: 4.0,
+                                half_height: 8.0,
+                                desired_translation: request.desired_translation * 256.0,
+                                dt,
+                            },
+                            detail_height,
+                        )
+                        .unwrap();
+                    camera.apply_walk_movement(
+                        dt,
+                        time,
+                        request,
+                        PlayerWalkMovementResult {
+                            translation: result.translation / 256.0,
+                            grounded: result.grounded,
+                        },
+                    );
+                    // Walking off the cap can briefly use the existing gravity path;
+                    // it must not inject a jump or leave the player suspended.
+                    assert!(
+                        camera.vertical_velocity <= 0.0,
+                        "unexpected jump hz={hz} frame={frame}"
+                    );
+                }
+                let end = camera.walk_collision_position.unwrap();
+                assert!(
+                    camera.rigidbody.is_grounded,
+                    "did not land hz={hz}: {end:?}"
+                );
+                if detail_height == 0.0 {
+                    assert!(
+                        end.x * 256.0 < 12.0,
+                        "legacy curb no longer blocks: {end:?}"
+                    );
+                } else {
+                    assert!(end.x * 256.0 > 23.0, "candidate blocked hz={hz}: {end:?}");
+                }
+                assert!(
+                    (end.y - initial.y).abs() * 256.0 < 0.01,
+                    "did not settle: {end:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn walking_requires_a_jump_above_half_body_height() {
         use glam::{IVec3, UVec3};
         use re_flora_physics::{

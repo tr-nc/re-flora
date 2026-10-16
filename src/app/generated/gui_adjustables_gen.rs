@@ -32,6 +32,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "walk_ground_detail",
+        kind: "bool",
+        label: "Player: traverse small ground obstacles (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "walk_ground_detail_height",
+        kind: "float",
+        label: "Player: small ground obstacle height (voxels)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "pavement_kind",
         kind: "choice",
         label: "Pavement surface",
@@ -1667,6 +1679,8 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 #[allow(dead_code)]
 pub struct GuiAdjustables {
     pub camera_orbit_max_elevation: crate::gui_adjustables::FloatParam,
+    pub walk_ground_detail: crate::gui_adjustables::BoolParam,
+    pub walk_ground_detail_height: crate::gui_adjustables::FloatParam,
     pub pavement_kind: crate::gui_adjustables::ChoiceParam,
     pub pavement_width: crate::gui_adjustables::FloatParam,
     pub pavement_piece_length: crate::gui_adjustables::FloatParam,
@@ -1953,6 +1967,8 @@ impl GuiAdjustables {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
         let mut camera_orbit_max_elevation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut walk_ground_detail_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut walk_ground_detail_height_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut pavement_kind_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut pavement_width_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut pavement_piece_length_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2234,6 +2250,18 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             camera_orbit_max_elevation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "walk_ground_detail" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            walk_ground_detail_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "walk_ground_detail_height" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            walk_ground_detail_height_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "pavement_kind" => {
@@ -4043,6 +4071,8 @@ impl GuiAdjustables {
 
         GuiAdjustables {
             camera_orbit_max_elevation: camera_orbit_max_elevation_field.expect("Missing parameter: camera_orbit_max_elevation"),
+            walk_ground_detail: walk_ground_detail_field.expect("Missing parameter: walk_ground_detail"),
+            walk_ground_detail_height: walk_ground_detail_height_field.expect("Missing parameter: walk_ground_detail_height"),
             pavement_kind: pavement_kind_field.expect("Missing parameter: pavement_kind"),
             pavement_width: pavement_width_field.expect("Missing parameter: pavement_width"),
             pavement_piece_length: pavement_piece_length_field.expect("Missing parameter: pavement_piece_length"),
@@ -4323,6 +4353,7 @@ impl GuiAdjustables {
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
         "camera_orbit_max_elevation" => Some(&adjustables.camera_orbit_max_elevation),
+        "walk_ground_detail_height" => Some(&adjustables.walk_ground_detail_height),
         "pavement_width" => Some(&adjustables.pavement_width),
         "pavement_piece_length" => Some(&adjustables.pavement_piece_length),
         "pavement_retract_scale" => Some(&adjustables.pavement_retract_scale),
@@ -4580,6 +4611,7 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
+        "walk_ground_detail" => Some(&adjustables.walk_ground_detail),
         "pavement_retract_stroke" => Some(&adjustables.pavement_retract_stroke),
         "pavement_smooth_curves" => Some(&adjustables.pavement_smooth_curves),
         "stone_place_slab" => Some(&adjustables.stone_place_slab),
@@ -4643,6 +4675,7 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
         "camera_orbit_max_elevation" => Some(&mut adjustables.camera_orbit_max_elevation),
+        "walk_ground_detail_height" => Some(&mut adjustables.walk_ground_detail_height),
         "pavement_width" => Some(&mut adjustables.pavement_width),
         "pavement_piece_length" => Some(&mut adjustables.pavement_piece_length),
         "pavement_retract_scale" => Some(&mut adjustables.pavement_retract_scale),
@@ -4900,6 +4933,7 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
+        "walk_ground_detail" => Some(&mut adjustables.walk_ground_detail),
         "pavement_retract_stroke" => Some(&mut adjustables.pavement_retract_stroke),
         "pavement_smooth_curves" => Some(&mut adjustables.pavement_smooth_curves),
         "stone_place_slab" => Some(&mut adjustables.stone_place_slab),

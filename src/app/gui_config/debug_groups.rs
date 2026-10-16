@@ -14,6 +14,13 @@ pub(super) struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Walking Traversal",
+        description: "Unchecked: original strict footholds. Checked: cross low, narrow ground detail above a nearby supported patch. Height is measured from real surrounding terrain, not accumulated from previous steps. Default 3 voxels; capped at the player's 4-voxel radius. Normal 12-voxel steps, body clearance, jumping and mower movement are unchanged. Changes apply immediately; saved with Save.",
+        initially_open: false,
+        params: &["walk_ground_detail", "walk_ground_detail_height"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Camera View",
         description: "Limit the orbit/edit camera's downward viewing angle: 0 is horizontal, 90 is directly overhead. Live changes retain the focus and distance. Walking and free-flight look angles are unchanged. Saved with the unified Save button.",
         initially_open: false,

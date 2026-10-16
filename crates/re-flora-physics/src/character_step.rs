@@ -17,6 +17,7 @@ pub(super) fn try_step(
     pose: &Pose,
     horizontal: Vector,
     max_step_height: f32,
+    max_ground_detail_height: f32,
 ) -> Option<Vector> {
     let direction = horizontal.try_normalize()?;
     let options = |distance| ShapeCastOptions {
@@ -57,7 +58,14 @@ pub(super) fn try_step(
     if ground.normal1.y <= 0.0 || contact.y - starting_support > max_step_height + STEP_EPSILON {
         return None;
     }
-    if !character_support::has_foothold(queries, shape, contact, ground.normal1, horizontal) {
+    if !character_support::has_foothold(
+        queries,
+        shape,
+        contact,
+        ground.normal1,
+        horizontal,
+        max_ground_detail_height,
+    ) {
         return None;
     }
     Some(horizontal + Vector::Y * (rise - ground.time_of_impact))

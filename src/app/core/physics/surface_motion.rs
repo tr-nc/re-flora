@@ -36,13 +36,27 @@ impl SurfaceMover {
         translation: Vec3,
         dt: f32,
     ) -> Result<SurfaceMove, CapsuleCharacterMoveError> {
-        let movement = world.move_capsule_character(CapsuleCharacterMove {
-            center: self.center_voxels(feet),
-            radius: self.radius_voxels,
-            half_height: self.half_height_voxels,
-            desired_translation: translation * VOXELS_PER_UNIT,
-            dt,
-        })?;
+        self.move_by_with_ground_detail(world, feet, translation, dt, 0.0)
+    }
+
+    pub fn move_by_with_ground_detail(
+        self,
+        world: &mut CollisionWorld,
+        feet: Vec3,
+        translation: Vec3,
+        dt: f32,
+        max_ground_detail_height_voxels: f32,
+    ) -> Result<SurfaceMove, CapsuleCharacterMoveError> {
+        let movement = world.move_capsule_character_with_ground_detail(
+            CapsuleCharacterMove {
+                center: self.center_voxels(feet),
+                radius: self.radius_voxels,
+                half_height: self.half_height_voxels,
+                desired_translation: translation * VOXELS_PER_UNIT,
+                dt,
+            },
+            max_ground_detail_height_voxels,
+        )?;
         Ok(SurfaceMove {
             translation: movement.translation / VOXELS_PER_UNIT,
             grounded: movement.grounded,
@@ -194,6 +208,55 @@ mod tests {
         }
         feet
     }
+    #[test]
+    fn player_ground_detail_switch_uses_world_units_and_fixed_model_geometry() {
+        let mut world = model_world(&[floor(), (Vec3::new(0., 0., -40.), Vec3::new(2., 3., 40.))]);
+        for detail_height in [0.0, 3.0, 0.0] {
+            let mut feet = Vec3::new(-20., 0.1, 0.) / VOXELS_PER_UNIT;
+            for _ in 0..30 {
+                feet += PLAYER
+                    .move_by_with_ground_detail(
+                        &mut world,
+                        feet,
+                        Vec3::new(1.0, -0.1, 0.0) / VOXELS_PER_UNIT,
+                        1.0 / 60.0,
+                        detail_height,
+                    )
+                    .unwrap()
+                    .translation;
+            }
+            if detail_height == 0.0 {
+                assert!(feet.x < 0.0, "strict mode changed: {feet:?}");
+            } else {
+                assert!(
+                    feet.x * VOXELS_PER_UNIT > 9.9,
+                    "model curb blocked: {feet:?}"
+                );
+                // SurfaceMover is query-only: the caller supplies falling motion,
+                // just as Camera supplies gravity after walking off the rounded cap.
+                let mut grounded = false;
+                for _ in 0..8 {
+                    let fall = PLAYER
+                        .move_by(&mut world, feet, Vec3::NEG_Y / VOXELS_PER_UNIT, 1.0 / 60.0)
+                        .unwrap();
+                    feet += fall.translation;
+                    grounded = fall.grounded;
+                    if grounded {
+                        break;
+                    }
+                }
+                assert!(grounded, "did not settle after crossing: {feet:?}");
+                // Triangle sweeps need not land at the exact nominal skin distance.
+                // Require no floor penetration and no hovering above that skin.
+                assert!(
+                    (0.0..=0.11).contains(&(feet.y * VOXELS_PER_UNIT)),
+                    "wrong support height: feet_voxels={:?}",
+                    feet * VOXELS_PER_UNIT
+                );
+            }
+        }
+    }
+
     #[test]
     fn wheel_support_recovers_sloped_model_normal_and_stair_slope() {
         // y = x/4 + z/5: both pitch and roll must be present.

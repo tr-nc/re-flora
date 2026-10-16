@@ -316,9 +316,22 @@ impl App {
                 let request = self
                     .tracer
                     .prepare_walk_camera_movement(frame_delta_time, sim_time_seconds);
+                let ground_detail_height =
+                    if self.debug_settings.adjustables.walk_ground_detail.value {
+                        self.debug_settings
+                            .adjustables
+                            .walk_ground_detail_height
+                            .value
+                    } else {
+                        0.0
+                    };
                 let result = self
                     .terrain_physics
-                    .move_player_capsule(request, frame_delta_time)
+                    .move_player_capsule_with_ground_detail(
+                        request,
+                        frame_delta_time,
+                        ground_detail_height,
+                    )
                     .unwrap_or_else(|err| {
                         log::error!("Failed to move player capsule: {err:#}");
                         crate::gameplay::camera::PlayerWalkMovementResult::BLOCKED
