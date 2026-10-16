@@ -178,6 +178,29 @@ pub(crate) struct PickAnswer {
     stale: bool,
 }
 impl PickAnswer {
+    /// Opaque transport facts for gameplay-session tests; scene freshness itself
+    /// remains covered by this module's real SceneKey checks.
+    #[cfg(test)]
+    pub(crate) fn test_fixture(
+        ticket: u64,
+        purpose: PickPurpose,
+        ray: TerrainRayQuery,
+        hit: Option<SurfacePickHit>,
+    ) -> Self {
+        Self {
+            ticket: PickTicket(ticket),
+            purpose,
+            ray,
+            hit,
+            key: SceneKey {
+                terrain: 0,
+                trees: 0,
+                enabled: true,
+                wind: true,
+            },
+            stale: false,
+        }
+    }
     fn matches(&self, key: SceneKey) -> bool {
         !self.stale && self.key == key
     }
