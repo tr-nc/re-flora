@@ -1,8 +1,8 @@
 //! Current-gesture backdrag, with checkpoints and exact terrain/flora receipts.
 //! Completed paths have no receipts here and cannot be erased by this gesture.
+use super::edit_history::RetractionTarget;
 use super::*;
 use crate::builder::FloraRemovalReceipt;
-use std::collections::HashMap;
 
 #[derive(Default)]
 pub(super) struct Backdrag {
@@ -21,105 +21,6 @@ struct Checkpoint {
     pieces: usize,
     surfaces: usize,
     edits: usize,
-}
-#[derive(Default)]
-pub(super) struct CourseEdit {
-    pub voxels: Vec<VoxelUndo>,
-    pub flora: Vec<FloraRemovalReceipt>,
-}
-struct VoxelDiff {
-    index: usize,
-    before: u8,
-    after: u8,
-    owned_before: bool,
-}
-pub(super) struct VoxelUndo {
-    offset: UVec3,
-    dim: UVec3,
-    changes: Vec<VoxelDiff>,
-}
-impl VoxelUndo {
-    pub(super) fn capture(
-        offset: UVec3,
-        dim: UVec3,
-        before: &[u8],
-        after: &[u8],
-        owned: &HashSet<UVec3>,
-    ) -> Self {
-        Self {
-            offset,
-            dim,
-            changes: before
-                .iter()
-                .zip(after)
-                .enumerate()
-                .filter_map(|(index, (&before, &after))| {
-                    (before != after).then(|| VoxelDiff {
-                        index,
-                        before,
-                        after,
-                        owned_before: owned.contains(&(offset + local(index, dim))),
-                    })
-                })
-                .collect(),
-        }
-    }
-}
-fn local(index: usize, dim: UVec3) -> UVec3 {
-    let index = index as u32;
-    UVec3::new(
-        index % dim.x,
-        (index / dim.x) % dim.y,
-        index / (dim.x * dim.y),
-    )
-}
-struct AtlasRestore {
-    offset: UVec3,
-    dim: UVec3,
-    bytes: Vec<u8>,
-}
-struct Rollback {
-    regions: Vec<AtlasRestore>,
-    ownership: HashMap<UVec3, bool>,
-}
-fn prepare_rollback<'a>(
-    undo: impl DoubleEndedIterator<Item = &'a VoxelUndo>,
-    mut read: impl FnMut(UVec3, UVec3) -> Result<Vec<u8>>,
-) -> Result<Rollback> {
-    let mut shadow = HashMap::new();
-    let mut ownership = HashMap::new();
-    let mut regions = Vec::new();
-    for undo in undo.rev() {
-        if undo.changes.is_empty() {
-            continue;
-        }
-        let bytes = read(undo.offset, undo.dim)?;
-        for change in undo.changes.iter().rev() {
-            let cell = undo.offset + local(change.index, undo.dim);
-            let live = *shadow.get(&cell).unwrap_or(&bytes[change.index]);
-            ensure!(
-                live == change.after,
-                "pavement rollback conflict at {cell:?}; foreign terrain was not overwritten"
-            );
-            shadow.insert(cell, change.before);
-            ownership.insert(cell, change.owned_before);
-        }
-        regions.push(AtlasRestore {
-            offset: undo.offset,
-            dim: undo.dim,
-            bytes,
-        });
-    }
-    // Prepare ALL conflict checks before any write. Overlapping stamps restore
-    // one final before-image, not stale rectangular snapshots of other stones.
-    for region in &mut regions {
-        for (index, byte) in region.bytes.iter_mut().enumerate() {
-            if let Some(before) = shadow.get(&(region.offset + local(index, region.dim))) {
-                *byte = *before;
-            }
-        }
-    }
-    Ok(Rollback { regions, ownership })
 }
 impl ActivePavement {
     pub(super) fn remember_checkpoint(&mut self) {
@@ -146,7 +47,7 @@ impl ActivePavement {
             previous_surface: self.previous_surface,
             pieces: self.pieces_placed,
             surfaces: self.surfaces_cleared,
-            edits: self.edits.len(),
+            edits: self.edits.checkpoint(),
         };
         if last.is_some_and(|last| last.point == point) {
             *self.backdrag.checkpoints.last_mut().unwrap() = checkpoint;
@@ -249,50 +150,33 @@ impl App {
         let Some(keep) = active.backdrag.rollback_to else {
             return Ok(());
         };
-        let rollback = prepare_rollback(
-            active.edits[keep..].iter().flat_map(|e| e.voxels.iter()),
-            |offset, dim| self.plain_builder.read_chunk_atlas_region(offset, dim),
-        )?;
-        let mut bound: Option<UAabb3> = None;
-        let writes: Result<()> = (|| {
-            for region in rollback.regions {
-                self.plain_builder.write_chunk_atlas_region(
-                    region.offset,
-                    region.dim,
-                    &region.bytes,
-                )?;
-                let changed = UAabb3::new(region.offset, region.offset + region.dim);
-                bound = Some(bound.map_or(changed, |b| b.union_with(&changed)));
-            }
-            Ok(())
-        })();
-        if let Some(bound) = bound {
-            self.publish_visible_terrain(
-                VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
-                    bound,
-                )])?
-                .context("pavement withdrawal must publish terrain")?,
-            )?;
-            self.observe_player_terrain_publication_for_connectivity(bound);
-        }
-        writes?;
-        for edit in active.edits[keep..].iter().rev() {
-            for receipt in edit.flora.iter().rev() {
-                self.surface_builder.restore_removed_flora(receipt)?;
-            }
-        }
-        for (cell, owned) in rollback.ownership {
-            if owned {
-                active.owned_voxels.insert(cell);
-            } else {
-                active.owned_voxels.remove(&cell);
-            }
-        }
-        let removed = active.edits.len() - keep;
-        active.edits.truncate(keep);
+        let removed = active.edits.retract(keep, self)?;
         active.backdrag.rollback_to = None;
         log::info!("[PAVEMENT] retract courses={removed} retained_pieces={} terrain_before_images=true flora_restored=true current_gesture_only=true",active.pieces_placed);
         Ok(())
+    }
+}
+
+impl RetractionTarget<FloraRemovalReceipt> for App {
+    fn read_voxels(&mut self, offset: UVec3, dim: UVec3) -> Result<Vec<u8>> {
+        self.plain_builder.read_chunk_atlas_region(offset, dim)
+    }
+    fn write_voxels(&mut self, offset: UVec3, dim: UVec3, bytes: &[u8]) -> Result<()> {
+        self.plain_builder
+            .write_chunk_atlas_region(offset, dim, bytes)
+    }
+    fn publish_voxels(&mut self, bound: UAabb3) -> Result<()> {
+        self.publish_visible_terrain(
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                bound,
+            )])?
+            .context("pavement withdrawal must publish terrain")?,
+        )?;
+        self.observe_player_terrain_publication_for_connectivity(bound);
+        Ok(())
+    }
+    fn restore_flora(&mut self, receipt: &FloraRemovalReceipt) -> Result<()> {
+        self.surface_builder.restore_removed_flora(receipt)
     }
 }
 
@@ -302,7 +186,8 @@ mod tests {
     use super::*;
     fn advance(a: &mut ActivePavement) {
         if let Some(keep) = a.backdrag.rollback_to.take() {
-            a.edits.truncate(keep);
+            // This fixture publishes geometry only, so it has no world receipts.
+            assert_eq!(keep, a.edits.checkpoint());
         }
         if a.withdrawn() {
             return;
@@ -339,7 +224,7 @@ mod tests {
                         "finish" => {
                             let a = a.as_mut().unwrap();
                             if let Some(keep) = a.backdrag.rollback_to.take() {
-                                a.edits.truncate(keep);
+                                assert_eq!(keep, a.edits.checkpoint());
                             }
                             validate(a, true);
                             a.candidate = None;
@@ -400,22 +285,5 @@ mod tests {
             assert!(!a.withdrawn());
             assert_eq!(a.intent.origin(), Vec3::ONE);
         }
-    }
-    #[test]
-    fn pavement_rollback_shared_voxels_restore_the_retained_prefix_and_preserve_foreign_cells() {
-        let mut owned = HashSet::new();
-        let dim = UVec3::new(3, 1, 1);
-        let first = VoxelUndo::capture(UVec3::ZERO, dim, &[3, 3, 3], &[4, 4, 3], &owned);
-        owned.insert(UVec3::ZERO);
-        owned.insert(UVec3::X);
-        let second = VoxelUndo::capture(UVec3::ZERO, dim, &[4, 4, 3], &[4, 5, 5], &owned);
-        let one = prepare_rollback([&second].into_iter(), |_, _| Ok(vec![4, 5, 5])).unwrap();
-        assert_eq!(one.regions[0].bytes, [4, 4, 3]);
-        assert!(one.ownership[&UVec3::X]);
-        let all =
-            prepare_rollback([&first, &second].into_iter(), |_, _| Ok(vec![4, 5, 5])).unwrap();
-        assert!(all.regions.iter().all(|r| r.bytes == [3, 3, 3]));
-        assert!(all.ownership.values().all(|owned| !*owned));
-        assert!(prepare_rollback([&first, &second].into_iter(), |_, _| Ok(vec![4, 9, 5])).is_err());
     }
 }

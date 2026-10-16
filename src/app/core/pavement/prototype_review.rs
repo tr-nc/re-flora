@@ -162,7 +162,7 @@ impl App {
             );
             let a = self.finish_pavement_on_ground(a)?;
             ensure!(
-                a.pieces_placed == 0 && a.owned_voxels.is_empty(),
+                a.pieces_placed == 0 && a.edits.owned_voxels().is_empty(),
                 "withdrawn stroke retained owned stones"
             );
             ensure!(

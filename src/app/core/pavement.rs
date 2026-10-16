@@ -25,7 +25,9 @@ mod pointer_review;
 mod prototype_review;
 mod retraction;
 mod review;
-use retraction::{Backdrag, CourseEdit, VoxelUndo};
+use retraction::Backdrag;
+mod edit_history;
+use edit_history::EditHistory;
 
 const ROWS_PER_FRAME: usize = 4;
 const MIN_GROUND_NORMAL_Y: f32 = 0.65;
@@ -56,11 +58,9 @@ struct ActivePavement {
     ground: ContreeCpuRayQuerySnapshot,
     pieces_placed: usize,
     surfaces_cleared: usize,
-    // Exact voxels authored by this gesture, not a second persistent world.
-    // Adjacent courses may share a voxelized edge; older paving cannot be layered.
-    owned_voxels: HashSet<UVec3>,
     backdrag: Backdrag,
-    edits: Vec<CourseEdit>,
+    // Owns exact voxel/flora receipts and protection facts for this gesture only.
+    edits: EditHistory,
     started: Instant,
 }
 #[derive(Clone, Copy)]
@@ -826,9 +826,8 @@ impl App {
                 ground,
                 pieces_placed: 0,
                 surfaces_cleared: 0,
-                owned_voxels: HashSet::new(),
                 backdrag: Backdrag::default(),
-                edits: Vec::new(),
+                edits: EditHistory::new(recipe.retract_stroke && recipe.kind != PavementKind::Dirt),
                 started: Instant::now(),
             });
             self.start_terrain_edit_loop_sound(start);
@@ -947,7 +946,7 @@ impl App {
             .min(self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK);
         let dim = end - offset;
         let bytes = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-        if atlas_blocks_piece(grounded, offset, dim, &bytes, &active.owned_voxels) {
+        if atlas_blocks_piece(grounded, offset, dim, &bytes, active.edits.owned_voxels()) {
             return Ok(None);
         }
         Ok(Some(PathStampReadback { offset, dim }))
@@ -970,32 +969,9 @@ impl App {
                 .voxelize_model(&grounded.triangles, grounded.base, material)?;
         *bound = Some(bound.map_or(written, |bound| bound.union_with(&written)));
         let after = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-        if active.recipe.retract_stroke && active.recipe.kind != PavementKind::Dirt {
-            active
-                .edits
-                .last_mut()
-                .expect("course edit precedes stamps")
-                .voxels
-                .push(VoxelUndo::capture(
-                    offset,
-                    dim,
-                    &bytes,
-                    &after,
-                    &active.owned_voxels,
-                ));
-        }
-        for z in 0..dim.z {
-            for y in 0..dim.y {
-                for x in 0..dim.x {
-                    let i = ((z * dim.y + y) * dim.x + x) as usize;
-                    let old = bytes[i] & crate::builder::VOXEL_TYPE_MASK;
-                    let new = after[i] & crate::builder::VOXEL_TYPE_MASK;
-                    if u32::from(new) == material && old != new {
-                        active.owned_voxels.insert(offset + UVec3::new(x, y, z));
-                    }
-                }
-            }
-        }
+        active
+            .edits
+            .record_stamp(offset, dim, &bytes, &after, material)?;
 
         Ok(())
     }
@@ -1037,12 +1013,7 @@ impl App {
                         break;
                     }
                 };
-                let receipt_index = if recipe.retract_stroke && recipe.kind != PavementKind::Dirt {
-                    active.edits.push(CourseEdit::default());
-                    Some(active.edits.len() - 1)
-                } else {
-                    None
-                };
+                let receipt_index = active.edits.begin_course();
                 for stamp in prepared {
                     self.stamp_prepared_path_cell(
                         active,
@@ -1093,7 +1064,8 @@ impl App {
         let surface_rows = cleared.len();
         for (edit, receipt_index) in cleared {
             if let Some(index) = receipt_index {
-                active.edits[index].flora = self.apply_reversible_surface_flora_removal(edit)?;
+                let flora = self.apply_reversible_surface_flora_removal(edit)?;
+                active.edits.record_flora(index, flora);
             } else {
                 self.apply_surface_flora_removal(edit)?;
             }
@@ -1139,9 +1111,8 @@ mod tests {
                 ),
                 pieces_placed: 0,
                 surfaces_cleared: 0,
-                owned_voxels: HashSet::new(),
                 backdrag: Backdrag::default(),
-                edits: Vec::new(),
+                edits: EditHistory::new(recipe.retract_stroke),
                 started: Instant::now(),
             }),
             ..Default::default()
@@ -1389,9 +1360,8 @@ mod tests {
                     ),
                     pieces_placed: 0,
                     surfaces_cleared: 0,
-                    owned_voxels: HashSet::new(),
                     backdrag: Backdrag::default(),
-                    edits: Vec::new(),
+                    edits: EditHistory::new(kind != PavementKind::Dirt),
                     started: Instant::now(),
                 }),
                 ..Default::default()
