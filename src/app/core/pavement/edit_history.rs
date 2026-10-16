@@ -77,6 +77,20 @@ impl<F> EditHistory<F> {
     pub(super) fn owned_voxels(&self) -> &HashSet<UVec3> {
         &self.owned
     }
+    /// Allocated voxel receipt vectors only; excludes flora, ownership and allocator overhead.
+    pub(super) fn voxel_receipt_bytes(&self) -> usize {
+        self.courses
+            .iter()
+            .map(|course| {
+                course.voxels.capacity() * std::mem::size_of::<VoxelUndo>()
+                    + course
+                        .voxels
+                        .iter()
+                        .map(|undo| undo.changes.capacity() * std::mem::size_of::<VoxelDiff>())
+                        .sum::<usize>()
+            })
+            .sum()
+    }
     pub(super) fn checkpoint(&self) -> usize {
         self.courses.len()
     }

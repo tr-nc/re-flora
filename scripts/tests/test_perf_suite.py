@@ -177,6 +177,18 @@ class PerfSuiteTests(unittest.TestCase):
             samples = perf_suite.parse_samples(log_text, scenarios[name])
             self.assertEqual(samples["tree.visible_publication_total"], [12500.0])
 
+    def test_pavement_scenario_separates_idle_publication_and_release(self) -> None:
+        _, scenarios = perf_suite.load_config(Path("config/perf_scenarios.toml"))
+        log_text = """
+[INFO] [PERF][PAVEMENT_STEP] phase=advance kind=Slabs pieces=0 elapsed_us=5.125 courses=0
+[INFO] [PERF][PAVEMENT_STEP] phase=advance kind=Brick pieces=5 elapsed_us=12000.250 courses=1
+[INFO] [PERF][PAVEMENT_STEP] phase=release kind=Slabs pieces=4 elapsed_us=24000.500 courses=2
+"""
+        samples = perf_suite.parse_samples(log_text, scenarios["pavement-drag"])
+        self.assertEqual(samples["pavement.advance"], [5.125, 12000.250])
+        self.assertEqual(samples["pavement.publish_step"], [12000.250])
+        self.assertEqual(samples["pavement.release"], [24000.500])
+
     def test_parses_surface_workload_signature(self) -> None:
         self.assertEqual(
             perf_suite.parse_surface_workload(LOG_TEXT),
@@ -189,6 +201,25 @@ class PerfSuiteTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_pavement_workload_rejects_changed_material_results(self) -> None:
+        workload = perf_suite.parse_pavement_workload(
+            "[PAVEMENT_PERF_REVIEW] kind=Slabs steps=130 material_crc=123\n"
+            "[PAVEMENT_PERF_REVIEW] kind=Brick steps=130 material_crc=456\n"
+        )
+        self.assertEqual(workload, [
+            {"kind": "Slabs", "steps": 130, "material_crc": 123},
+            {"kind": "Brick", "steps": 130, "material_crc": 456},
+        ])
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / f"{i}.json" for i in range(2)]
+            for index, path in enumerate(paths):
+                path.write_text(json.dumps({
+                    "scenario": "pavement-drag", "metrics": {},
+                    "workload": workload if index == 0 else workload[:1],
+                }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "workload mismatch"):
+                perf_suite.validate_comparable([paths[0]], [paths[1]])
 
     def test_summary_uses_interpolated_p95(self) -> None:
         summary = perf_suite.summarize([100.0, 110.0])

@@ -756,8 +756,15 @@ impl PlainBuilder {
         let transfer_ms = transfer_start.elapsed().as_secs_f64() * 1000.;
         let copy_start = Instant::now();
         let data = buffer.read_back_range(0, byte_count)?;
-        if std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some() {
-            log::info!("[PERF][SOIL_READ] transfer_wait_ms={transfer_ms:.3} host_copy_ms={:.3} bytes={byte_count}", copy_start.elapsed().as_secs_f64() * 1000.);
+        let report = if std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some() {
+            Some("SOIL_READ")
+        } else if std::env::var_os("RE_FLORA_PAVEMENT_PERF_REPORT").is_some() {
+            Some("ATLAS_READ")
+        } else {
+            None
+        };
+        if let Some(report) = report {
+            log::info!("[PERF][{report}] transfer_wait_ms={transfer_ms:.3} host_copy_ms={:.3} bytes={byte_count}", copy_start.elapsed().as_secs_f64() * 1000.);
         }
         Ok(data)
     }

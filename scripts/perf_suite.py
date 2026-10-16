@@ -52,6 +52,13 @@ SURFACE_WORKLOAD_PATTERN = re.compile(
     r"active_voxels (\d+) active_bricks (\d+) solid_workgroups (\d+)"
 )
 GPU_NAME_PATTERN = re.compile(r"Selected physical device: (.+)")
+PAVEMENT_WORKLOAD_PATTERN = re.compile(
+    r"\[PAVEMENT_PERF_REVIEW\] kind=(Slabs|Brick) steps=(\d+) material_crc=(\d+)"
+)
+PAVEMENT_STEP_PATTERN = re.compile(
+    r"\[PERF\]\[PAVEMENT_STEP\] phase=(advance|release) kind=\w+ "
+    r"pieces=(\d+) elapsed_us=([0-9]+(?:\.[0-9]+)?)"
+)
 
 
 @dataclass(frozen=True)
@@ -184,6 +191,12 @@ def parse_samples(log_text: str, scenario: Scenario) -> dict[str, list[float]]:
                 for key, value in GPU_SCOPE_PATTERN.findall(frame_match.group(2)):
                     add("cpu_scope", key, float(value))
 
+        if pavement_match := PAVEMENT_STEP_PATTERN.search(line):
+            phase, pieces, elapsed_us = pavement_match.groups()
+            add("pavement_step", phase, float(elapsed_us))
+            if phase == "advance" and int(pieces) > 0:
+                add("pavement_step", "publish", float(elapsed_us))
+
         if job_match := GPU_JOB_PATTERN.search(line):
             add("gpu_job_scope", job_match.group(1), float(job_match.group(2)))
 
@@ -225,6 +238,13 @@ def parse_surface_workload(log_text: str) -> list[dict[str, Any]]:
             "solid_workgroups": int(match.group(4)),
         }
         for match in SURFACE_WORKLOAD_PATTERN.finditer(log_text)
+    ]
+
+
+def parse_pavement_workload(log_text: str) -> list[dict[str, Any]]:
+    return [
+        {"kind": kind, "steps": int(steps), "material_crc": int(crc)}
+        for kind, steps, crc in PAVEMENT_WORKLOAD_PATTERN.findall(log_text)
     ]
 
 
@@ -299,9 +319,9 @@ def make_report(
             "command": command,
         },
         "log": str(log_path),
-        "workload": parse_surface_workload(log_text)
-        if scenario.match_surface_workload
-        else [],
+        "workload": (
+            parse_surface_workload(log_text) if scenario.match_surface_workload else []
+        ) + parse_pavement_workload(log_text),
         "metrics": metric_reports,
     }
 

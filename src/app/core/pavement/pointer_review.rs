@@ -14,6 +14,7 @@ pub(super) struct PointerReview {
     start: Vec3,
     turning: bool,
     recovering: bool,
+    profiling: bool,
     recovery_anchor: Option<Vec3>,
     fixed_at_rejection: Option<usize>,
     recovery_forward: Vec3,
@@ -55,7 +56,7 @@ impl App {
         // original natural-soil coordinates.
         if matches!(
             std::env::var("RE_FLORA_PAVEMENT_REVIEW").as_deref(),
-            Ok("turn" | "recover")
+            Ok("turn" | "recover" | "perf")
         ) {
             at = Vec2::new(0.35, 1.2 + case as f32 * 0.45);
         }
@@ -71,9 +72,15 @@ impl App {
         // Orbit mode keeps the pointer unlocked even for a hidden window.
         self.camera_control = super::super::camera_control::CameraControlRuntime::default();
         self.camera_control.set_orbit_focus(start);
+        let (camera, target) = if std::env::var("RE_FLORA_PAVEMENT_REVIEW").as_deref() == Ok("perf")
+        {
+            let target = start + Vec3::X * 0.65;
+            (target + Vec3::new(0., 1.2, 1.4), target)
+        } else {
+            (start + Vec3::new(0., 0.6, 0.8), start)
+        };
         ensure!(
-            self.tracer
-                .set_camera_pose_looking_at(start + Vec3::new(0., 0.6, 0.8), start),
+            self.tracer.set_camera_pose_looking_at(camera, target),
             "pointer fixture camera"
         );
         self.sync_cursor_with_panels();
@@ -134,7 +141,7 @@ impl App {
         self.frame_timing_panel_visible = false;
         if matches!(
             std::env::var("RE_FLORA_PAVEMENT_REVIEW").as_deref(),
-            Ok("turn" | "recover")
+            Ok("turn" | "recover" | "perf")
         ) {
             self.seed_recovery_test_ground()?;
         }
@@ -148,6 +155,7 @@ impl App {
                 Ok("turn" | "recover")
             ),
             recovering: std::env::var("RE_FLORA_PAVEMENT_REVIEW").as_deref() == Ok("recover"),
+            profiling: std::env::var("RE_FLORA_PAVEMENT_REVIEW").as_deref() == Ok("perf"),
             recovery_anchor: None,
             fixed_at_rejection: None,
             recovery_forward: Vec3::X,
@@ -172,7 +180,9 @@ impl App {
         // Let the real overlay complete two frames before pressing in the world.
         if review.frame >= 2 {
             let step = review.frame - 2;
-            let last_step = if review.recovering {
+            let last_step = if review.profiling {
+                130
+            } else if review.recovering {
                 149
             } else if review.turning {
                 75
@@ -212,7 +222,7 @@ impl App {
                 let distance = if review.turning {
                     step.min(30) as f32 / 30. * TURN_LEAD
                 } else {
-                    step.min(40) as f32 * 0.01
+                    step.min(last_step) as f32 * 0.01
                 };
                 review.start + Vec3::X * distance
             };
@@ -494,6 +504,18 @@ impl App {
                     },
                 );
                 ensure!(self.pavement.active.is_none(), "release retained a gesture");
+                if review.profiling {
+                    let offset = ((review.start - Vec3::splat(0.1)) * 256.)
+                        .floor()
+                        .as_uvec3();
+                    let mut bytes = self
+                        .plain_builder
+                        .read_chunk_atlas_region(offset, UVec3::new(384, 52, 52))?;
+                    for byte in &mut bytes {
+                        *byte &= crate::builder::VOXEL_TYPE_MASK;
+                    }
+                    log::info!("[PAVEMENT_PERF_REVIEW] kind={name} steps=130 material_crc={} release=muted", crc32fast::hash(&bytes));
+                }
                 if review.recovering {
                     let (lo, dim, crc) = review.prefix_witness.context("release prefix witness")?;
                     ensure!(
@@ -526,6 +548,8 @@ impl App {
                         log::info!("[PAVEMENT_RECOVERY_REVIEW] complete=true cases=2 settings_restored=true");
                     } else if review.turning {
                         log::info!("[PAVEMENT_TURN_REVIEW] complete=true cases=2 single_path_per_drag=true");
+                    } else if review.profiling {
+                        log::info!("[PAVEMENT_PERF_REVIEW] complete=true cases=2 steps=130 settings_restored=true");
                     } else {
                         log::info!("[PAVEMENT_POINTER_REVIEW] complete=true cases=2 settings_restored=true");
                     }

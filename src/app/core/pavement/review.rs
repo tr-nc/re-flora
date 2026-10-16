@@ -160,7 +160,7 @@ impl App {
         if mode == "prototype-verify" {
             return self.verify_pavement_prototype();
         }
-        if mode == "pointer" || mode == "turn" || mode == "recover" {
+        if matches!(mode.as_str(), "pointer" | "turn" | "recover" | "perf") {
             return self.begin_pavement_pointer_review();
         }
         let path = std::path::Path::new("target/pavement/witness.json");
@@ -209,7 +209,7 @@ impl App {
         } else {
             ensure!(
                 mode == "seed",
-                "RE_FLORA_PAVEMENT_REVIEW expects seed, pointer, turn, recover, verify or view (--terrain-load)"
+                "RE_FLORA_PAVEMENT_REVIEW expects seed, pointer, turn, recover, perf, verify or view (--terrain-load)"
             );
             let mut cells = Vec::new();
             for (kind, points) in [

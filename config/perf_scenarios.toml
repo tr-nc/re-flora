@@ -1,5 +1,33 @@
 version = 1
 
+[scenario.pavement-drag]
+description = "Two 1.3-world-unit native pointer drags on fixed flat soil, Slabs then Brick"
+args = ["--hidden", "--mute", "--perf", "--auto-exit", "30"]
+env = { RE_FLORA_PAVEMENT_REVIEW = "perf", RE_FLORA_PAVEMENT_PERF_REPORT = "1" }
+warmup_frame = 0
+required_markers = ["[PAVEMENT_PERF_REVIEW] complete=true cases=2 steps=130 settings_restored=true", "[PAVEMENT_PERF_REVIEW] kind=Slabs steps=130 material_crc=", "[PAVEMENT_PERF_REVIEW] kind=Brick steps=130 material_crc=", "kind=Slabs drag=verified", "kind=Brick drag=verified", "Application exited successfully"]
+
+[[scenario.pavement-drag.metric]]
+name = "pavement.advance"
+source = "pavement_step"
+key = "advance"
+min_samples = 200
+budget_percent = 5.0
+
+[[scenario.pavement-drag.metric]]
+name = "pavement.publish_step"
+source = "pavement_step"
+key = "publish"
+min_samples = 40
+budget_percent = 5.0
+
+[[scenario.pavement-drag.metric]]
+name = "pavement.release"
+source = "pavement_step"
+key = "release"
+min_samples = 2
+budget_percent = 5.0
+
 [scenario.render-steady]
 description = "Settled fixed-camera rendering with Vulkan GPU frame scopes"
 args = ["--hidden", "--mute", "--perf", "--camera-snapshot", "player-default", "--auto-exit", "30"]

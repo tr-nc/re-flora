@@ -21,6 +21,7 @@ mod continuity;
 use continuity::{BlockReason, CourseContinuity};
 mod candidate;
 use candidate::{Candidate, CoursePreparation, StagedCoverage};
+mod perf;
 mod pointer_review;
 mod prototype_review;
 mod retraction;
@@ -871,6 +872,7 @@ impl App {
         let Some(mut active) = self.pavement.active.take() else {
             return;
         };
+        let performance = perf::Step::begin(&active, "advance");
         if let Err(error) = self
             .validate_pavement_candidate(&mut active, false)
             .and_then(|()| self.publish_pavement_rows(&mut active, ROWS_PER_FRAME))
@@ -884,6 +886,9 @@ impl App {
             self.stop_terrain_edit_loop_sound();
         } else {
             self.start_terrain_edit_loop_sound(active.intent.cursor());
+        }
+        if let Some(performance) = performance {
+            performance.finish(&active);
         }
         self.pavement.active = Some(active);
     }
@@ -899,11 +904,15 @@ impl App {
     }
 
     fn finish_pavement_on_ground(&mut self, mut active: ActivePavement) -> Result<ActivePavement> {
+        let performance = perf::Step::begin(&active, "release");
         if active.withdrawn() {
             let result = self.apply_pending_pavement_retraction(&mut active);
             self.stop_terrain_edit_loop_sound();
             result?;
             log::info!("[PAVEMENT] withdrawn pieces=0 empty_click_suppressed=true");
+            if let Some(performance) = performance {
+                performance.finish(&active);
+            }
             return Ok(active);
         }
         let result = self
@@ -923,6 +932,9 @@ impl App {
         self.stop_terrain_edit_loop_sound();
         result?;
         log::info!("[PAVEMENT] finished kind={} pieces={} surface_rows={} gesture_ms={:.2} persistence=terrain-and-flora", active.recipe.name(), active.pieces_placed, active.surfaces_cleared, active.started.elapsed().as_secs_f64() * 1000.);
+        if let Some(performance) = performance {
+            performance.finish(&active);
+        }
         Ok(active)
     }
 
