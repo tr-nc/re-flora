@@ -2,6 +2,7 @@
 // Deliberately scoped for demos, not a universal botanical model: one radial
 // whorl uses a shared petal profile with optional deterministic pose variation,
 // transverse cupping and tip recurvature, with a simple disk/dome/cone center.
+// Cupping follows the petal's local normal, including upright/hanging petals.
 // Tulips are open-cup approximations, not interleaved whorls or closed buds.
 // More petals still share one whorl; this does not model layered double flowers
 // or tightly wrapped rose centers. Separate petals cannot form a fused bell/
@@ -10,10 +11,10 @@
 // change color only, not these structural limits. Accept these limits for the
 // current demos rather than adding more topology families or species branches.
 const TAU=Math.PI*2;
-export const flowerShapeDefaults={flowerSize:1,petalCount:5,petalLength:1,petalWidth:.42,tipSharpness:.15,notch:0,opening:.12,centerRadius:.19,centerHeight:.12,centerShape:'dome',tilt:35,petalCup:0,tipCurl:0,poseVariation:0};
+export const flowerShapeDefaults={flowerSize:1,petalCount:5,petalLength:1,petalWidth:.42,tipSharpness:.15,notch:0,opening:.12,centerRadius:.19,centerHeight:.12,centerShape:'dome',tilt:35,petalCup:0,tipCurl:0,poseVariation:0,petalShoulder:.5,petalArch:0};
 export function normalizeFlowerShape(input={}){
   const p={...flowerShapeDefaults,...input};
-  for(const [key,lo,hi]of [['flowerSize',.65,1.3],['petalCount',3,24],['petalLength',.6,1.4],['petalWidth',.08,.65],['tipSharpness',0,1],['notch',0,.25],['opening',-1,1],['centerRadius',.04,.35],['centerHeight',0,.55],['tilt',-15,85],['petalCup',0,.4],['tipCurl',-.6,.6],['poseVariation',0,.2]]){
+  for(const [key,lo,hi]of [['flowerSize',.65,1.3],['petalCount',3,24],['petalLength',.6,1.4],['petalWidth',.08,.65],['tipSharpness',0,1],['notch',0,.25],['opening',-1,1],['centerRadius',.04,.35],['centerHeight',0,.55],['tilt',-15,85],['petalCup',0,.4],['tipCurl',-.6,.6],['poseVariation',0,.2],['petalShoulder',.25,.75],['petalArch',-.3,.3]]){
     const v=Number(p[key]);p[key]=Math.min(hi,Math.max(lo,Number.isFinite(v)?v:flowerShapeDefaults[key]));
   }
   p.petalCount=Math.round(p.petalCount);
@@ -37,11 +38,19 @@ export function parametricFlower(input={}){
   }
   // Integrate the radial tangent: positive pose creates a cup, zero is flat,
   // negative pose hangs back. Tip shape/width stay independent of this pose.
-  const path=t=>{
+  const path=(t,lift)=>{
     const theta=p.opening*1.8,theta0=theta*.30,delta=theta*.70;
-    return Math.abs(delta)<1e-6?[p.centerRadius*.65+p.petalLength*t,0]:[
-      p.centerRadius*.65+p.petalLength*(Math.sin(theta0+delta*t)-Math.sin(theta0))/delta,
-      p.petalLength*(Math.cos(theta0)-Math.cos(theta0+delta*t))/delta];
+    const angle=theta0+delta*t,tip=Math.max(0,(t-.5)*2);
+    const radius=p.centerRadius*.65+(Math.abs(delta)<1e-6?p.petalLength*t:
+      p.petalLength*(Math.sin(angle)-Math.sin(theta0))/delta);
+    const depth=(Math.abs(delta)<1e-6?0:p.petalLength*(Math.cos(theta0)-Math.cos(angle))/delta)
+      +p.petalArch*Math.sin(Math.PI*t)+p.tipCurl*tip*tip+lift*t;
+    const dr=p.petalLength*Math.cos(angle);
+    const dz=p.petalLength*Math.sin(angle)+p.petalArch*Math.PI*Math.cos(Math.PI*t)+4*p.tipCurl*tip+lift;
+    const length=Math.hypot(dr,dz);
+    // A vanishing tangent has no orientation; its nearby surface is still
+    // bounded. Keep the unbent normal instead of producing NaNs at a cusp.
+    return [radius,depth,length>1e-8?-dz/length:0,length>1e-8?dr/length:1];
   };
   const petals=mesh('Flower petals','petal'),segments=12,across=4;
   for(let petal=0;petal<p.petalCount;petal++){
@@ -53,20 +62,23 @@ export function parametricFlower(input={}){
       const t=i/segments,row=[];
       for(let j=0;j<=across;j++){
         const w=j/across*2-1,et=t-p.notch*Math.pow(t,8)*(1-Math.abs(w));
-        const [radius,z]=path(et);
+        const [radius,z,normalR,normalZ]=path(et,lift);
         // An unnotched tip is exactly closed. sin(PI)'s residual raised to
         // a fractional power made tiny sliver triangles that collapsed after
         // native f32 attachment translation; do not author those fake widths.
-        const taper=t===1&&p.notch===0?0:Math.max(0,Math.sin(Math.PI*t*(1-p.notch*.35)));
+        // Smoothly move the widest point without a hard shoulder crease.
+        // At the default .5 this is exactly the original sine profile.
+        const widthT=t/(t+(1-t)*p.petalShoulder/(1-p.petalShoulder));
+        const taper=t===1&&p.notch===0?0:Math.max(0,Math.sin(Math.PI*widthT*(1-p.notch*.35)));
         const width=p.petalWidth*Math.pow(taper,.45+p.tipSharpness*1.6);
         const lateral=w*width;
-        // All offsets vanish at the attachment. The broad transverse cup
-        // survives coarse sampling; recurvature acts only on the outer half.
-        const arch=Math.sin(Math.PI*t);
-        const tip=Math.max(0,(t-.5)*2);
-        const depth=z+.06*Math.abs(w)*arch+p.petalCup*w*w*arch
-          +p.tipCurl*tip*tip+lift*t+twist*w*arch;
-        row.push(petals.vertex([radius*Math.cos(angle)-lateral*Math.sin(angle),radius*Math.sin(angle)+lateral*Math.cos(angle),depth],[(w+1)/2,t]));
+        // Fold across the *local* petal surface, not the head's fixed Z axis. Upright cup
+        // walls curl inward; hanging rays curl outward. All offsets vanish
+        // at the root and closed tip, preserving the socket and UV seams.
+        const arch=t===0||t===1?0:Math.sin(Math.PI*t);
+        const cup=(.06*Math.abs(w)+p.petalCup*w*w+twist*w)*arch;
+        const r=radius+normalR*cup,depth=z+normalZ*cup;
+        row.push(petals.vertex([r*Math.cos(angle)-lateral*Math.sin(angle),r*Math.sin(angle)+lateral*Math.cos(angle),depth],[(w+1)/2,t]));
       }rows.push(row);
     }
     for(let i=0;i<segments;i++)for(let j=0;j<across;j++)petals.quad(rows[i][j],rows[i+1][j],rows[i+1][j+1],rows[i][j+1]);

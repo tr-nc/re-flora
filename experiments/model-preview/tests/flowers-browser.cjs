@@ -26,14 +26,16 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     await page.goto(base+'/model-preview/?model=wild-geranium');await stable();
     const registered=await page.evaluate(async()=>{const {modelDefinitions}=await import('/model-preview/models/index.js');return modelDefinitions.length;});
     assert.equal(await page.locator('#model option').count(),registered);
-    let poses=0,maxDepthError=0,depthSamples=0;
+    let poses=0,maxDepthError=0,depthSamples=0,ambiguousDepthSamples=0;
     async function verifyTiles(){
-      const report=await page.evaluate(()=>{
+      const report=await page.evaluate(async()=>{
+        const {rasterTriangleVariants,rasterDepthAt}=await import('/model-preview/tests/raster-depth-oracle.mjs');
         const s=readModelPreview(true),gl=document.querySelector('#pixel').getContext('webgl2');
         const subpixelScale=2**gl.getParameter(gl.SUBPIXEL_BITS);
-        let colored=0,depthError=0,worst=null,checked=0;
+        let colored=0,depthError=0,worst=null,checked=0,ambiguous=0;
         for(const tile of s.partTiles){
           const n=tile.size;
+          const raster=tile.projectedGroups.flatMap(group=>group.triangles.map(t=>rasterTriangleVariants(t,n,subpixelScale)));
           if(tile.rgba.length!==n*n*4||tile.depth.length!==n*n)throw Error('wrong head tile size');
           for(let i=0;i<n*n;i++){
             if(!tile.rgba[i*4+3])continue;
@@ -44,30 +46,20 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
               // Independent center-sample depth oracle. SwiftShader reports
               // four subpixel bits: interpolation uses snapped raster vertices,
               // not the unsnapped CPU projection (notable at 8px).
-              const x=i%n+.5,y=Math.floor(i/n)+.5;let nearest=Infinity,boundary=false;
-              for(const group of tile.projectedGroups)for(const triangle of group.triangles){
-                const [a,b,c]=triangle.map(p=>[Math.round(p[0]*subpixelScale)/subpixelScale,Math.round(p[1]*subpixelScale)/subpixelScale,p[2]]);
-                const area=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);
-                if(Math.abs(area)<1e-10)continue;
-                const u=((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/area;
-                const v=((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/area,w=1-u-v;
-                const minimum=Math.min(u,v,w);
-                if(minimum>=-1e-7){
-                  boundary ||= minimum<1e-7; // top-left edge ownership is not an interior sample
-                  nearest=Math.min(nearest,(a[2]*u+b[2]*v+c[2]*w)*.5+.5);
-                }
-              }
-              if(!boundary&&Number.isFinite(nearest)){
+              const x=i%n+.5,y=Math.floor(i/n)+.5;
+              const reference=rasterDepthAt(raster,x,y),nearest=reference.depth;
+              if(reference.ambiguous)ambiguous++;
+              if(!reference.boundary&&!reference.ambiguous&&Number.isFinite(nearest)){
                 checked++;
                 if(Math.abs(tile.depth[i]-nearest)>depthError){depthError=Math.abs(tile.depth[i]-nearest);worst={id:s.model,projection:s.projection,camera:s.camera,n,tile:tile.id,x,y,actual:tile.depth[i],nearest};}
               }
             }
           }
         }
-        return {colored,depthError,worst,checked};
+        return {colored,depthError,worst,checked,ambiguous};
       });
       assert.ok(report.colored>0);assert.ok(report.depthError<.0001,`GPU depth error ${report.depthError}: ${JSON.stringify(report.worst)}`);
-      maxDepthError=Math.max(maxDepthError,report.depthError);depthSamples+=report.checked;poses++;
+      maxDepthError=Math.max(maxDepthError,report.depthError);depthSamples+=report.checked;ambiguousDepthSamples+=report.ambiguous;poses++;
     }
     for(const spec of flowerCatalog){
       await select(spec.id);assert.equal(await page.locator('#flower-heads-only').count(),0);
@@ -96,7 +88,7 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
       await input('resolution',32);
       const fixed=await image('pixel');await page.locator('#source').hover();await page.mouse.wheel(0,-180);await stable();
       assert.equal(await image('pixel'),fixed,'inspection zoom leaves part framing unchanged');
-      for(const [key,value]of Object.entries({flowerSize:1.3,opening:.6,tilt:-15})){
+      for(const [key,value]of Object.entries({flowerSize:1.3,opening:.6,tilt:-15,petalCup:.3,tipCurl:-.4,poseVariation:.15,petalShoulder:.7,petalArch:.27})){
         const before=await image('source');await input('model-'+key,value);assert.equal((await state()).modelSettings[key],value);assert.notEqual(await image('source'),before,`${spec.id} ${key}`);
       }
       const beforeColor=await image('pixel');
@@ -152,11 +144,12 @@ const artifacts=process.env.PREVIEW_ARTIFACT_DIR||path.resolve(__dirname,'../../
     for(const width of [1280,390]){await page.setViewportSize({width,height:width===390?844:720});await stable();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(artifacts,`heads-viewport-${width}.png`),fullPage:true});}
     assert.deepEqual(errors,[]);assert.ok(requests.every(url=>url.startsWith(base)),'preview has no external dependencies');
     assert.ok(depthSamples>1000,'depth oracle must exercise substantial interior samples');
+    assert.ok(ambiguousDepthSamples<depthSamples*.01,'subpixel uncertainty must remain local, not hide broad depth failures');
     // Original output only: no third-party reference images embedded in the sheet.
     const sheet=await browser.newPage({viewport:{width:1200,height:2540},deviceScaleFactor:1});
     await sheet.setContent(`<style>*{box-sizing:border-box}body{margin:0;padding:28px;background:#17231f;color:#e4e8d6;font:14px system-ui}header{padding:4px 12px 20px}h1{margin:0 0 8px;font-size:24px}p{margin:4px 0;color:#a8b6a8}.row{display:grid;grid-template-columns:230px repeat(2,1fr);height:282px;align-items:center;border-top:1px solid #3c5045;gap:10px}.name{padding:12px}img{width:270px;height:270px;object-fit:contain}.pixel{image-rendering:pixelated}.labels{display:grid;grid-template-columns:230px repeat(2,1fr);gap:10px;color:#cdd7b9;margin-bottom:8px}.labels span{text-align:center}small{color:#a7b5a8}</style><header><h1>Re:Flora / ${flowerCatalog.length} 种参数化花草</h1><p>完整花头模型与 32² 后处理（512² 透明合成）</p><p>仅网页预览，不是游戏性能验收。</p></header><div class="labels"><span>植物 / 三角形数</span><span>原始低模</span><span>花头后处理</span></div>${rows.map(row=>`<div class="row"><div class="name"><strong>${row.name}</strong><p>${row.latin}</p><small>${row.triangles} triangles</small></div><img src="${row.source}"><img class="pixel" src="${row.heads}"></div>`).join('')}`);
     await sheet.screenshot({path:path.join(artifacts,'flower-contact-sheet.png'),fullPage:true});await sheet.close();
-    await fs.writeFile(path.join(artifacts,'summary.json'),JSON.stringify({models:rows.map(({name,triangles})=>({name,triangles})),headTilePoses:poses,maxDepthError,depthSamples,occlusionFixtures:occlusion.length,errors},null,2)+'\n');
+    await fs.writeFile(path.join(artifacts,'summary.json'),JSON.stringify({models:rows.map(({name,triangles})=>({name,triangles})),headTilePoses:poses,maxDepthError,depthSamples,ambiguousDepthSamples,occlusionFixtures:occlusion.length,errors},null,2)+'\n');
     console.log(`PASS: ${flowerCatalog.length} flowers; ${poses} head-tile poses; original RGBA and GPU depth (max error ${maxDepthError}); ${occlusion.length} depth-occlusion fixtures; all parameters, PNGs, heads-only reset, resource disposal and mobile. Artifacts: ${artifacts}`);
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

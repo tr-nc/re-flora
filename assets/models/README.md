@@ -122,11 +122,21 @@ owns descriptor retirement. Continuous stems and depth-bearing heads share the g
 attachment and environment lighting. These flowers add no dedicated collision or shadow-caster
 pass. Browser shape/color/weight-map edits remain temporary until intentionally copied to the shared preset and published.
 The shared model deliberately supports a single radial whorl with a shared petal profile and a simple
-center. Optional transverse cupping, outer-tip recurvature and deterministic per-petal lift/twist
-create relief without adding topology or changing the rendering pipeline. Geranium uses a shallow
-cup with outward tips; Forget-me-not uses a raised dome and drooping rim. The other four native
-presets retain their previous geometry. These controls are shared authoring parameters (also
-available in the temporary web studio), not new native Debug settings. Tulips are cup approximations; layered roses, fused bell corollas and orchid-specific organ
+center. Transverse cupping follows the local petal normal, so upright petals wrap inward and
+hanging petals fold outward rather than all displacing along the head axis. Shoulder position,
+mid-petal arch, outer-tip recurvature and deterministic lift/twist shape all six native presets:
+
+- Geranium: five broad spoons forming an open bowl with outward lips.
+- Forget-me-not: a compact rounded crown with a raised heart and softly hanging rim.
+- Oxeye Daisy: fourteen arched strap-like rays around a low domed cushion.
+- Cosmos: eight broad notched fans with an uneven rolled rim.
+- Coneflower: a tall cone over long, ridged, drooping rays.
+- Tulip: upright cupped walls with overlapping shoulders and slightly open tips.
+
+These are shared authoring parameters (also available in the temporary web studio), not new native
+Debug settings. Species IDs/order, stem layers, palette/UV ownership and the complete-head socket
+contract are unchanged. See [six-flower relief evidence](../../docs/evidence/six-flower-relief.md).
+Tulips remain open-cup approximations; layered roses, fused bell corollas and orchid-specific organ
 roles are not supported. Limits are documented in the generator comments; do not resurrect old
 species branches to disguise them.
 

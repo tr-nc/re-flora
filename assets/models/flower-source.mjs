@@ -2,18 +2,24 @@
 // presets, never independent geometry branches. Game owns stems/placement.
 import {parametricFlower,flowerShapeDefaults} from './parametric-flower.mjs';
 export const flowerShapes={
-  'wild-geranium':{petalCount:5,petalWidth:.40,tipSharpness:0,opening:.48,petalCup:.20,tipCurl:-.20,poseVariation:.075},
-  'forget-me-not':{petalCount:5,petalWidth:.38,petalLength:.75,opening:0,centerRadius:.21,centerHeight:.32,petalCup:.10,tipCurl:-.24,poseVariation:.055},
-  'oxeye-daisy':{petalCount:16,petalWidth:.12,tipSharpness:.2,opening:.02,centerRadius:.25,centerShape:'flat'},
-  cosmos:{petalCount:8,petalWidth:.35,tipSharpness:.05,notch:.13,opening:.12,centerRadius:.21},
-  coneflower:{petalCount:12,petalWidth:.16,tipSharpness:.45,opening:-.65,centerRadius:.29,centerHeight:.52,centerShape:'cone'},
-  tulip:{petalCount:6,petalWidth:.56,tipSharpness:0,opening:.95,centerRadius:.13,centerHeight:.04},
+  // Five broad spoons form an open bowl; separated shoulders and rolled lips.
+  'wild-geranium':{petalCount:5,petalWidth:.34,petalShoulder:.60,tipSharpness:0,opening:.64,petalCup:.23,petalArch:.04,tipCurl:-.26,poseVariation:.085,centerHeight:.17},
+  // Compact rounded crown: a raised heart over short, softly hanging petals.
+  'forget-me-not':{flowerSize:.90,petalCount:5,petalWidth:.34,petalLength:.70,petalShoulder:.62,opening:0,centerRadius:.20,centerHeight:.32,petalCup:.09,petalArch:.02,tipCurl:-.16,poseVariation:.045},
+  // Strap-like rays arch over a low cushion, rather than a flat pinwheel.
+  'oxeye-daisy':{petalCount:14,petalWidth:.115,petalShoulder:.62,tipSharpness:.05,opening:.10,petalCup:.045,petalArch:.20,tipCurl:-.17,poseVariation:.055,centerRadius:.27,centerHeight:.17},
+  // Broad notched fans flare from a shallow bowl with an uneven rolled rim.
+  cosmos:{petalCount:8,petalWidth:.28,petalShoulder:.64,tipSharpness:.05,notch:.20,opening:.34,petalCup:.13,petalArch:.07,tipCurl:-.23,poseVariation:.10,centerRadius:.21,centerHeight:.18},
+  // A tall cone above long, ridged, individually drooping rays.
+  coneflower:{petalCount:12,petalWidth:.14,petalShoulder:.38,petalLength:1.1,tipSharpness:.4,opening:-.57,petalCup:.065,petalArch:.11,tipCurl:-.13,poseVariation:.085,centerRadius:.30,centerHeight:.55,centerShape:'cone'},
+  // Upright overlapping spoons wrap around the cup; tips open slightly out.
+  tulip:{petalCount:6,petalWidth:.49,petalShoulder:.67,petalLength:1.08,tipSharpness:0,opening:.98,petalCup:.14,petalArch:.06,tipCurl:-.08,poseVariation:.04,centerRadius:.15,centerHeight:.06},
 };
 const entry=(id,displayName,stemLayers,label,latin,tilt,palette)=>({id,displayName,stemLayers,label,latin,
   cacheFamily:id,defaults:{...flowerShapeDefaults,...flowerShapes[id],tilt,
     paletteA:palette[0],paletteB:palette[1],paletteC:palette[2],paletteD:palette[3],weightMap:'root-tip'}});
-// Stable IDs/order/layers preserve old gardens; heads intentionally adopt the
-// same approved demo approximations. Forget-me-not is five-petal, not cosmos.
+// Stable IDs/order/layers preserve old gardens. Species silhouettes share the
+// same surface mechanism; no per-species mesh or rendering branches.
 export const flowerCatalog=[
   entry('wild-geranium','Wild Geranium',41,'五瓣野花 · 野老鹳草','Geranium maculatum',38,['#be78a6','#d695c5','#ecd18a','#52734a']),
   entry('forget-me-not','Forget-me-not',42,'勿忘草','Myosotis sylvatica',28,['#e5ecda','#83b9eb','#e7ba48','#52734a']),

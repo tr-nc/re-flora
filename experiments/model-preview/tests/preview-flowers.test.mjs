@@ -38,10 +38,13 @@ test('all native and web presets use the same head generator and identical share
 });
 test('shape extremes remain finite and nondegenerate; changing palette never changes geometry',()=>{
   const original=parametricFlower();
-  for(const [key,values]of Object.entries({petalCount:[3,24],flowerSize:[.65,1.3],petalWidth:[.08,.65],petalLength:[.6,1.4],tipSharpness:[0,1],notch:[.1,.25],opening:[-1,1],centerShape:['flat','cone'],centerRadius:[.04,.35],centerHeight:[0,.55],tilt:[-15,85]})){
+  for(const [key,values]of Object.entries({petalCount:[3,24],flowerSize:[.65,1.3],petalWidth:[.08,.65],petalLength:[.6,1.4],tipSharpness:[0,1],notch:[.1,.25],opening:[-1,1],centerShape:['flat','cone'],centerRadius:[.04,.35],centerHeight:[0,.55],tilt:[-15,85],petalCup:[.1,.4],tipCurl:[-.6,.6],poseVariation:[.05,.2],petalShoulder:[.25,.75],petalArch:[-.3,.3]})){
     for(const value of values){const changed=parametricFlower({[key]:value});valid(changed);assert.notDeepEqual(changed,original,key);}
   }
   valid(parametricFlower({petalCount:24,petalWidth:.65,opening:1,notch:.25,tipSharpness:1,centerRadius:.04}));
+  for(const opening of [-1,0,1])for(const tipCurl of [-.6,.6]){
+    valid(parametricFlower({opening,tipCurl,petalArch:.3,petalCup:.4,poseVariation:.2,petalShoulder:.75,notch:.25}));
+  }
   assert.deepEqual(parametricFlower({paletteA:'#ffffff',weightMap:'veins'}),original);
   assert.deepEqual(normalizeFlowerShape({petalCount:NaN,opening:Infinity}),normalizeFlowerShape());
 });
