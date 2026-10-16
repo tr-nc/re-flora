@@ -19,6 +19,9 @@ use glam::{Mat3, Quat, UVec3, Vec3};
 use std::{collections::HashSet, time::Instant};
 
 mod continuity;
+mod loop_review;
+#[cfg(test)]
+mod loop_tests;
 use continuity::{BlockReason, CourseContinuity};
 mod candidate;
 use candidate::{Candidate, CoursePreparation, StagedCoverage};
@@ -70,9 +73,23 @@ pub(super) struct PathIntentPreview {
     floor: usize,
     anchor: Vec3,
     invalid: bool,
+    loop_target: Option<Vec3>,
 }
 
 impl ActivePavement {
+    fn loop_target(&self) -> Option<PathSample> {
+        if self.recipe.is_dirt() || self.retracting() {
+            return None;
+        }
+        let first = self.continuity.first()?;
+        let last = self.continuity.accepted()?;
+        let settings = self.recipe.path_settings();
+        let capture = (settings.width * 0.75).max(settings.pitch);
+        (last.end_distance - first.distance > 6. * settings.width
+            && self.intent.cursor().distance(self.intent.origin()) <= capture)
+            .then_some(first)
+    }
+
     fn block_here(&mut self, reason: BlockReason) {
         let row = self
             .stroke
@@ -106,8 +123,29 @@ impl ActivePavement {
     fn propose_current(&mut self) {
         let mut stroke = self.stroke.clone();
         stroke.replan_unpublished(self.continuity.accepted());
-        let endpoint = self.intent.cursor();
-        let pushed = stroke.push(endpoint);
+        let mut endpoint = self.intent.cursor();
+        let join = self.loop_target().and_then(|first| {
+            self.stroke
+                .close_loop(self.continuity.accepted()?, first, |row| {
+                    let pieces = self.recipe.pieces(row);
+                    !pieces.is_empty()
+                        && match self.recipe {
+                            ConstructionRecipe::LowWall(wall) => {
+                                self.recipe.accepts(&self.coverage, wall.raw_cell(row))
+                            }
+                            _ => pieces
+                                .into_iter()
+                                .all(|cell| self.recipe.accepts(&self.coverage, cell)),
+                        }
+                })
+        });
+        let pushed = if let Some(join) = join {
+            endpoint = join.rows.back().unwrap().exit.center;
+            stroke = join;
+            true
+        } else {
+            stroke.push(endpoint)
+        };
         let invalid = stroke.pending_rows().into_iter().find(|r| !r.valid);
         if !pushed || !self.intent.can_fix() {
             self.block_here(BlockReason::Sampling);
@@ -199,6 +237,11 @@ impl PavementRuntime {
             floor: a.intent.floor(),
             anchor: a.intent.anchor(),
             invalid: a.continuity.blocked().is_some() || preview.iter().any(|p| !p.valid),
+            loop_target: a
+                .candidate
+                .as_ref()
+                .filter(|c| c.closes_loop())
+                .map(|c| c.endpoint),
         })
     }
 
@@ -328,6 +371,20 @@ pub(super) fn draw_intent_preview(
     }
     if let Some(p) = intent.points.first().and_then(|p| project(*p)) {
         painter.circle_stroke(p, 4., egui::Stroke::new(1.5, gold));
+    }
+    if let Some(p) = intent.loop_target.and_then(project) {
+        painter.circle_stroke(
+            p,
+            9.,
+            egui::Stroke::new(
+                2.5,
+                if intent.invalid {
+                    red
+                } else {
+                    egui::Color32::from_rgb(122, 230, 157)
+                },
+            ),
+        );
     }
     if let Some(p) = project(intent.anchor) {
         painter.circle_filled(p, 3., egui::Color32::from_rgb(122, 230, 157));
@@ -726,19 +783,27 @@ impl App {
     }
 
     pub(super) fn pavement_tool_instructions(&self) -> &'static str {
+        if self.pavement.active.as_ref().is_some_and(|a| {
+            a.continuity.blocked().is_none()
+                && a.candidate
+                    .as_ref()
+                    .is_some_and(|c| c.closes_loop() && c.checked)
+        }) {
+            return "Release to close the loop\nMove away to keep drawing an open path";
+        }
         let recipe = self
             .pavement
             .active
             .as_ref()
             .map_or_else(|| self.construction_recipe(), |active| active.recipe);
         if matches!(recipe, ConstructionRecipe::LowWall(_)) {
-            "Left-drag on soil to build a low wall\nTab: material   Shift + wheel: thickness\nCtrl + wheel: height   R: settings"
+            "Left-drag on soil; return to the start to close\nTab: material   Shift + wheel: thickness\nCtrl + wheel: height   R: settings"
         } else if recipe.is_dirt() {
             "Left-drag on soil to clear vegetation\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
         } else if recipe.retraction_scale().is_some() {
-            "Left-drag on soil; backdrag retracts this stroke\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
+            "Return to the start to close; backdrag retracts\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
         } else {
-            "Left-drag on soil to lay a path\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
+            "Left-drag on soil; return to the start to close\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
         }
     }
 
@@ -978,7 +1043,7 @@ impl App {
         // A failed final publication must also silence the shared emitter.
         self.stop_terrain_edit_loop_sound();
         result?;
-        log::info!("[PAVEMENT] finished kind={} pieces={} surface_rows={} gesture_ms={:.2} persistence=terrain-and-flora", active.recipe.name(), active.pieces_placed, active.surfaces_cleared, active.started.elapsed().as_secs_f64() * 1000.);
+        log::info!("[PAVEMENT] finished kind={} pieces={} surface_rows={} closed={} gesture_ms={:.2} persistence=terrain-and-flora", active.recipe.name(), active.pieces_placed, active.surfaces_cleared, active.continuity.accepted().is_some_and(|row| row.closes_loop), active.started.elapsed().as_secs_f64() * 1000.);
         if let Some(performance) = performance {
             performance.finish(&active);
         }
@@ -1039,6 +1104,15 @@ impl App {
         }
         if active.continuity.blocked().is_some() {
             self.stop_terrain_edit_loop_sound();
+            return Ok(());
+        }
+        // A snapped loop is a reversible proposal until release. Do not publish
+        // either its connector or the old open tail while the user is deciding.
+        if active
+            .candidate
+            .as_ref()
+            .is_some_and(Candidate::closes_loop)
+        {
             return Ok(());
         }
         if !active.stroke.prepare() {

@@ -35,6 +35,7 @@ pub(super) struct BlockedCourse {
 pub(super) struct CourseContinuity {
     expected: u32,
     accepted: Option<PathSample>,
+    first: Option<PathSample>,
     blocked: Option<BlockedCourse>,
 }
 impl CourseContinuity {
@@ -46,6 +47,9 @@ impl CourseContinuity {
     }
     pub(super) fn accepted(&self) -> Option<PathSample> {
         self.accepted
+    }
+    pub(super) fn first(&self) -> Option<PathSample> {
+        self.first
     }
     pub(super) fn resume(&mut self) {
         self.blocked = None;
@@ -72,6 +76,9 @@ impl CourseContinuity {
     pub(super) fn accept(&mut self, row: PathSample) {
         debug_assert_eq!(row.index, self.expected);
         self.expected = self.expected.wrapping_add(1);
+        if self.first.is_none() {
+            self.first = Some(row);
+        }
         self.accepted = Some(row);
     }
     pub(super) fn block(

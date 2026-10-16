@@ -3,6 +3,7 @@
 use glam::{Vec2, Vec3};
 use std::{collections::VecDeque, sync::Arc};
 mod adaptive;
+mod closure;
 mod curve;
 mod intent;
 #[cfg(test)]
@@ -53,6 +54,8 @@ pub(super) struct PathSample {
     pub index: u32,
     pub entry: CourseSection,
     pub exit: CourseSection,
+    /// Final boundary shares node zero, including masonry head-gap identity.
+    pub closes_loop: bool,
     pub valid: bool,
 }
 impl PathSample {
@@ -69,6 +72,7 @@ impl PathSample {
             distance,
             end_distance: distance + pitch * 0.5,
             index,
+            closes_loop: false,
             valid: true,
             entry: CourseSection::new(center - forward * pitch * 0.5, forward, 0),
             exit: CourseSection::new(center + forward * pitch * 0.5, forward, 0),
@@ -334,6 +338,7 @@ impl PathStroke {
                 distance: (input.distance_base + input.next_distance) as f32,
                 end_distance: (input.distance_base + input.next_distance + half) as f32,
                 index: input.next_index,
+                closes_loop: false,
                 valid: entry.continuity == exit.continuity
                     && course_fits(entry, exit, self.config.width),
                 entry,
@@ -353,7 +358,7 @@ impl PathStroke {
             return Vec::new();
         };
         if input.finished {
-            return Vec::new();
+            return self.rows.iter().copied().collect();
         }
         let curve = self.curve(input);
         let mut rows: Vec<_> = self.rows.iter().copied().collect();
@@ -380,6 +385,7 @@ impl PathStroke {
                 index,
                 entry,
                 exit,
+                closes_loop: false,
                 valid: entry.continuity == exit.continuity
                     && course_fits(entry, exit, self.config.width),
             });
@@ -461,6 +467,9 @@ impl PathStroke {
     pub(super) fn finish(&mut self) -> bool {
         match &mut self.input {
             StrokeInput::Tiles(input) => {
+                if input.finished {
+                    return true;
+                }
                 input.finished = true;
                 input.dirty = true;
                 self.prepare()

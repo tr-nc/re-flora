@@ -156,6 +156,13 @@ to continue the same gesture; rejected targets do not become permanent guide poi
 finishes the valid end. Right/middle click, a tool/camera switch or a blocking panel cancels the
 unbuilt tail; already published terrain remains.
 
+To make a loop, draw around and bring the cursor near the start of the **same held stroke**.
+A green closure marker and **Release to close the loop** hint indicate a valid join. Release
+connects the ends; move away before releasing to keep an open path. Only the unbuilt tail is
+fitted, with the first built cross-section left in place. Short clicks, dirt vegetation-clearing
+paths and intentional paving backdrag do not trigger closure. Very tight or obstructed joins
+still require a gentler target; the tool never forces an overlap or joins a previous gesture.
+
 Slabs and bricks are real terrain, editable with **Dig** and saved through **Terrain & Plants**.
 Only the resulting terrain is saved, not editable paths or undo history. Paving is unavailable
 in the Rooftop PoC. No experimental collision mode is included.
@@ -174,9 +181,14 @@ Walls become ordinary terrain: **Dig** edits them, and **Terrain & Plants → Sa
 persists them and their vegetation. GUI **Save** saves preferences, not terrain.
 Unsupported ground, existing masonry, self-overlap and world boundaries remain protected.
 A new gesture on a wide enough earth-wall top can add soil height, as with ordinary soil.
+Low walls use the same return-to-start closure: the last cross-section matches the first,
+and masonry keeps its alternating bond and shared joint spacing at the seam. This is useful
+for raised planting beds: draw the stone/brick rim, release to close it, then use **Soil** to
+fill inside and **Grow** to plant. The tool does not automatically fill or clear the enclosed
+area; ordinary masonry gaps and soil behavior are unchanged.
+
 Paving backdrag and inward smoothing do not apply to walls. There are no editable wall
-objects, automatic closed joins, inside fill or whole-wall Undo; cancelling discards
-only the unbuilt tail.
+objects, automatic inside fill or whole-wall Undo; cancelling discards only the unbuilt tail.
 
 ## Problems and Feedback
 

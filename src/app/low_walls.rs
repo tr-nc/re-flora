@@ -138,7 +138,14 @@ impl LowWallRecipe {
                 },
                 0.,
                 if !starts_head {
-                    self.head_gap(row.index.wrapping_add(1), layer) * 0.5
+                    self.head_gap(
+                        if row.closes_loop {
+                            0
+                        } else {
+                            row.index.wrapping_add(1)
+                        },
+                        layer,
+                    ) * 0.5
                 } else {
                     0.
                 },

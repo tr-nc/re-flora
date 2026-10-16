@@ -9,6 +9,11 @@ pub(super) struct Candidate {
     pub expected: u32,
     pub checked: bool,
 }
+impl Candidate {
+    pub(super) fn closes_loop(&self) -> bool {
+        self.stroke.rows.back().is_some_and(|row| row.closes_loop)
+    }
+}
 #[derive(Default)]
 pub(super) struct StagedCoverage {
     cells: PavementCoverage,
@@ -86,7 +91,10 @@ impl App {
         }
         // Keep live previews between spatially spaced fixed endpoints. On release,
         // the last valid small residual is approved too.
-        if force || active.retracting() || active.intent.spaced(active.stroke.config.pitch) {
+        if force
+            || (!active.candidate.as_ref().unwrap().closes_loop()
+                && (active.retracting() || active.intent.spaced(active.stroke.config.pitch)))
+        {
             active.fix_candidate();
         }
         Ok(())

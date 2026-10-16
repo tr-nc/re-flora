@@ -72,6 +72,9 @@ impl App {
         let Ok(mode) = std::env::var("RE_FLORA_LOW_WALL_REVIEW") else {
             return Ok(());
         };
+        if mode == "loops" || mode == "loops-verify" {
+            return self.review_path_loops(mode == "loops-verify");
+        }
         let path = std::path::Path::new("target/low-walls/witness.json");
         if mode == "view" || mode == "verify" || mode == "dig" {
             ensure!(
@@ -137,7 +140,7 @@ impl App {
         }
         ensure!(
             mode == "seed",
-            "RE_FLORA_LOW_WALL_REVIEW expects seed, verify, view or dig"
+            "RE_FLORA_LOW_WALL_REVIEW expects seed, verify, view, dig, loops or loops-verify"
         );
         self.review_low_wall_guards()?;
         let original = (

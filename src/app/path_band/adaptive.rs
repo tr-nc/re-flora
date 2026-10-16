@@ -40,6 +40,7 @@ impl PathStroke {
                 index,
                 entry,
                 exit,
+                closes_loop: false,
                 valid: entry.continuity == exit.continuity
                     && course_fits(entry, exit, self.config.width),
             }
