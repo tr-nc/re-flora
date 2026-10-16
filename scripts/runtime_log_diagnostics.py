@@ -14,7 +14,7 @@ LOG_TIME = r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}"
 FATAL_DIAGNOSTIC = re.compile(
     r"\b(?:VK_)?ERROR(?:_[A-Z0-9]+)+\b|\bERROR\b|"
     r"\bvalidation\s+(?:error|failure)\b|\bpanic(?:ked)?\b|"
-    r"VUID-|\bdevice\s+lost\b|\bdestroyed\s+descriptor\b|"
+    r"VUID-|\bdevice[\s_]+lost\b|\bdestroyed\s+descriptor\b|"
     r"\bstale\s+readback\b",
     re.IGNORECASE | re.MULTILINE,
 )

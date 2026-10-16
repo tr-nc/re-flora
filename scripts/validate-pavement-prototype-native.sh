@@ -21,7 +21,7 @@ RE_FLORA_PAVEMENT_REVIEW=prototype-verify target/release/re-flora \
 grep -q 'restart=verified atlas_crc=.*flora_count=.*authored_identity_and_seed=true' "$output/reload.log"
 for name in seed reload; do
     grep -q 'Application exited successfully' "$output/$name.log"
-    ! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/$name.log"
+    python3 scripts/runtime_log_diagnostics.py "$output/$name.log"
 done
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
 printf 'Native prototype migration: real voxel/flora retraction, branch, stationary pointer, cancel, sharp corner and terrain/flora restart passed.\nArtifacts: %s\n' "$output"

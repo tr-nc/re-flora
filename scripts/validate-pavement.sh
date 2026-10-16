@@ -9,7 +9,10 @@ before=$(sha256sum config/gui.toml)
 binary="$PWD/target/release/re-flora"
 export RUST_LOG=info
 "$binary" --hidden --mute --auto-exit 0.5 > "$output/default.log" 2>&1
-! grep -q '\[PAVEMENT\].*publish' "$output/default.log"
+if grep -q '\[PAVEMENT\].*publish' "$output/default.log"; then
+    echo 'Unexpected pavement publication during ordinary startup' >&2
+    exit 1
+fi
 RE_FLORA_PAVEMENT_REVIEW=seed "$binary" --flat-terrain --hidden --mute --auto-exit 1 \
     --terrain-save "$output/placed.rflterrain" \
     --screenshot player-default "$output/paths.png" --screenshot-delay 0.2 \
@@ -39,7 +42,7 @@ for kind in Slabs Brick; do
 done
 for name in default seed reload; do
     grep -q 'Application exited successfully' "$output/$name.log"
-    ! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/$name.log"
+    python3 scripts/runtime_log_diagnostics.py "$output/$name.log"
 done
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
 printf 'Pavement normal/compressed left/right bends accept all candidates, publish complete courses/materials, preserve exact retrace, dirt clearing, shared Dig sound lifecycle, restart and settings.\nArtifacts: %s\n' "$output"

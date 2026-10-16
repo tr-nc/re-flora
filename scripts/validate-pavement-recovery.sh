@@ -19,6 +19,6 @@ grep -q 'protected_targets=discarded live_atlas_guard=retained rejected_atlas=ex
 grep -q 'garden=flat fixture_only=true ordinary_pointer_garden=unchanged' "$output/native.log"
 grep -q 'complete=true cases=2 settings_restored=true' "$output/native.log"
 grep -q 'Application exited successfully' "$output/native.log"
-! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/native.log"
+python3 scripts/runtime_log_diagnostics.py "$output/native.log"
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
 printf 'Two held paving paths discard rejected endpoints, retry a direct target without retreat, continue through a quarter bend, preserve earlier voxels/frozen width, and mute on release. GUI unchanged.\nArtifacts: %s\n' "$output"

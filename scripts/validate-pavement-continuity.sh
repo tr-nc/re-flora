@@ -15,6 +15,6 @@ for kind in Slabs Brick; do
 done
 grep -q 'complete=true cases=2 single_path_per_drag=true' "$output/native.log"
 grep -q 'Application exited successfully' "$output/native.log"
-! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/native.log"
+python3 scripts/runtime_log_diagnostics.py "$output/native.log"
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
 printf 'Two tight-turn paving drags remain one contiguous prefix, show red, retain exact atlas bytes while held, ignore duplicate down and mute on release. GUI unchanged.\nArtifacts: %s\n' "$output"

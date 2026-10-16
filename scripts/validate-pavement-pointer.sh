@@ -15,6 +15,6 @@ for kind in Slabs Brick; do
 done
 grep -q 'complete=true cases=2 settings_restored=true' "$output/native.log"
 grep -q 'Application exited successfully' "$output/native.log"
-! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/native.log"
+python3 scripts/runtime_log_diagnostics.py "$output/native.log"
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
 printf 'Both paving materials retain their drag preview, extend along ground and mute on release; GUI unchanged.\nArtifacts: %s\n' "$output"

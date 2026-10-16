@@ -9,7 +9,10 @@ before=$(sha256sum config/gui.toml)
 export RUST_LOG=info
 binary="$PWD/target/release/re-flora"
 "$binary" --hidden --mute --auto-exit 0.5 > "$output/default.log" 2>&1
-! grep -q '\[STONE_PREVIEW\]' "$output/default.log"
+if grep -q '\[STONE_PREVIEW\]' "$output/default.log"; then
+    echo 'Unexpected stone preview during ordinary startup' >&2
+    exit 1
+fi
 RE_FLORA_STONE_PLACEMENT_REVIEW=seed "$binary" --hidden --mute --auto-exit 0.5 \
     --terrain-save "$output/placed.rflterrain" > "$output/seed.log" 2>&1
 grep -q '\[STONE_PLACEMENT\].*seed=42 next_seed=43' "$output/seed.log"
@@ -19,7 +22,7 @@ RE_FLORA_STONE_PLACEMENT_REVIEW=verify "$binary" --hidden --mute --auto-exit 0.5
 grep -q 'restart=verified terrain_bytes=exact rock_and_slab=true dig=verified' "$output/reload.log"
 for file in default seed reload; do
     grep -q 'Application exited successfully' "$output/$file.log"
-    ! grep -Eq ' ERROR |panicked|VUID-|DEVICE_LOST' "$output/$file.log"
+    python3 scripts/runtime_log_diagnostics.py "$output/$file.log"
 done
 [[ "$before" == "$(sha256sum config/gui.toml)" ]]
 printf 'No startup preview; seed advancement, terrain restart, Dig and unchanged config passed.\nArtifacts: %s\n' "$output"
