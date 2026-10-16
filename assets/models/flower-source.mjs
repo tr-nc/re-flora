@@ -2,8 +2,8 @@
 // presets, never independent geometry branches. Game owns stems/placement.
 import {parametricFlower,flowerShapeDefaults} from './parametric-flower.mjs';
 export const flowerShapes={
-  'wild-geranium':{petalCount:5,petalWidth:.43,tipSharpness:0,opening:.10},
-  'forget-me-not':{petalCount:5,petalWidth:.49,petalLength:.75,opening:.06,centerRadius:.13},
+  'wild-geranium':{petalCount:5,petalWidth:.40,tipSharpness:0,opening:.48,petalCup:.20,tipCurl:-.20,poseVariation:.075},
+  'forget-me-not':{petalCount:5,petalWidth:.38,petalLength:.75,opening:0,centerRadius:.21,centerHeight:.32,petalCup:.10,tipCurl:-.24,poseVariation:.055},
   'oxeye-daisy':{petalCount:16,petalWidth:.12,tipSharpness:.2,opening:.02,centerRadius:.25,centerShape:'flat'},
   cosmos:{petalCount:8,petalWidth:.35,tipSharpness:.05,notch:.13,opening:.12,centerRadius:.21},
   coneflower:{petalCount:12,petalWidth:.16,tipSharpness:.45,opening:-.65,centerRadius:.29,centerHeight:.52,centerShape:'cone'},

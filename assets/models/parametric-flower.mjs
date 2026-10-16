@@ -1,18 +1,19 @@
 // One head-only surface family. Presets are data, never per-species mesh code.
 // Deliberately scoped for demos, not a universal botanical model: one radial
-// whorl repeats the same petal shape/pose, with a simple disk/dome/cone center.
+// whorl uses a shared petal profile with optional deterministic pose variation,
+// transverse cupping and tip recurvature, with a simple disk/dome/cone center.
 // Tulips are open-cup approximations, not interleaved whorls or closed buds.
 // More petals still share one whorl; this does not model layered double flowers
 // or tightly wrapped rose centers. Separate petals cannot form a fused bell/
-// tube corolla, and identical radial repeats cannot express orchid lip/column
+// tube corolla, and radial repeats cannot express orchid lip/column
 // roles or bilateral structure. Wide/cupped petals may intersect; palette maps
 // change color only, not these structural limits. Accept these limits for the
 // current demos rather than adding more topology families or species branches.
 const TAU=Math.PI*2;
-export const flowerShapeDefaults={flowerSize:1,petalCount:5,petalLength:1,petalWidth:.42,tipSharpness:.15,notch:0,opening:.12,centerRadius:.19,centerHeight:.12,centerShape:'dome',tilt:35};
+export const flowerShapeDefaults={flowerSize:1,petalCount:5,petalLength:1,petalWidth:.42,tipSharpness:.15,notch:0,opening:.12,centerRadius:.19,centerHeight:.12,centerShape:'dome',tilt:35,petalCup:0,tipCurl:0,poseVariation:0};
 export function normalizeFlowerShape(input={}){
   const p={...flowerShapeDefaults,...input};
-  for(const [key,lo,hi]of [['flowerSize',.65,1.3],['petalCount',3,24],['petalLength',.6,1.4],['petalWidth',.08,.65],['tipSharpness',0,1],['notch',0,.25],['opening',-1,1],['centerRadius',.04,.35],['centerHeight',0,.55],['tilt',-15,85]]){
+  for(const [key,lo,hi]of [['flowerSize',.65,1.3],['petalCount',3,24],['petalLength',.6,1.4],['petalWidth',.08,.65],['tipSharpness',0,1],['notch',0,.25],['opening',-1,1],['centerRadius',.04,.35],['centerHeight',0,.55],['tilt',-15,85],['petalCup',0,.4],['tipCurl',-.6,.6],['poseVariation',0,.2]]){
     const v=Number(p[key]);p[key]=Math.min(hi,Math.max(lo,Number.isFinite(v)?v:flowerShapeDefaults[key]));
   }
   p.petalCount=Math.round(p.petalCount);
@@ -44,6 +45,9 @@ export function parametricFlower(input={}){
   };
   const petals=mesh('Flower petals','petal'),segments=12,across=4;
   for(let petal=0;petal<p.petalCount;petal++){
+    const phase=petal*2.399963229728653;
+    const lift=p.poseVariation*Math.sin(phase+.7);
+    const twist=p.poseVariation*.5*Math.cos(phase+1.1);
     const angle=petal*TAU/p.petalCount+.12,rows=[];
     for(let i=0;i<=segments;i++){
       const t=i/segments,row=[];
@@ -56,7 +60,13 @@ export function parametricFlower(input={}){
         const taper=t===1&&p.notch===0?0:Math.max(0,Math.sin(Math.PI*t*(1-p.notch*.35)));
         const width=p.petalWidth*Math.pow(taper,.45+p.tipSharpness*1.6);
         const lateral=w*width;
-        row.push(petals.vertex([radius*Math.cos(angle)-lateral*Math.sin(angle),radius*Math.sin(angle)+lateral*Math.cos(angle),z+.06*Math.abs(w)*Math.sin(Math.PI*t)],[(w+1)/2,t]));
+        // All offsets vanish at the attachment. The broad transverse cup
+        // survives coarse sampling; recurvature acts only on the outer half.
+        const arch=Math.sin(Math.PI*t);
+        const tip=Math.max(0,(t-.5)*2);
+        const depth=z+.06*Math.abs(w)*arch+p.petalCup*w*w*arch
+          +p.tipCurl*tip*tip+lift*t+twist*w*arch;
+        row.push(petals.vertex([radius*Math.cos(angle)-lateral*Math.sin(angle),radius*Math.sin(angle)+lateral*Math.cos(angle),depth],[(w+1)/2,t]));
       }rows.push(row);
     }
     for(let i=0;i<segments;i++)for(let j=0;j<across;j++)petals.quad(rows[i][j],rows[i+1][j],rows[i+1][j+1],rows[i][j+1]);

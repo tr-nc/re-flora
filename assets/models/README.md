@@ -121,8 +121,12 @@ See [independent stem controls](../../docs/evidence/stem-independent-controls.md
 owns descriptor retirement. Continuous stems and depth-bearing heads share the game depth
 attachment and environment lighting. These flowers add no dedicated collision or shadow-caster
 pass. Browser shape/color/weight-map edits remain temporary until intentionally copied to the shared preset and published.
-The shared model deliberately supports a single radial whorl with identical petals and a simple
-center. Tulips are cup approximations; layered roses, fused bell corollas and orchid-specific organ
+The shared model deliberately supports a single radial whorl with a shared petal profile and a simple
+center. Optional transverse cupping, outer-tip recurvature and deterministic per-petal lift/twist
+create relief without adding topology or changing the rendering pipeline. Geranium uses a shallow
+cup with outward tips; Forget-me-not uses a raised dome and drooping rim. The other four native
+presets retain their previous geometry. These controls are shared authoring parameters (also
+available in the temporary web studio), not new native Debug settings. Tulips are cup approximations; layered roses, fused bell corollas and orchid-specific organ
 roles are not supported. Limits are documented in the generator comments; do not resurrect old
 species branches to disguise them.
 
