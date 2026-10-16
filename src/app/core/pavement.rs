@@ -2,6 +2,7 @@
 use super::{player_tools::PlayerTool, App, BuildEdit, VisibleTerrainChange};
 use crate::{
     app::{
+        low_walls::{LowWallKind, LowWallRecipe},
         path_band::{PathCell, PathIntent, PathSample, PathSampling, PathStroke},
         pavement::{PavementCoverage, PavementKind, PavementRecipe, VOXEL_SIZE},
         world_edits::TerrainBrushEdit,
@@ -21,8 +22,11 @@ mod continuity;
 use continuity::{BlockReason, CourseContinuity};
 mod candidate;
 use candidate::{Candidate, CoursePreparation, StagedCoverage};
+mod low_walls;
 mod perf;
 mod pointer_review;
+mod recipe;
+use recipe::ConstructionRecipe;
 mod prototype_review;
 mod retraction;
 mod review;
@@ -38,17 +42,8 @@ pub(super) struct PavementRuntime {
     active: Option<ActivePavement>,
     pointer_review: Option<pointer_review::PointerReview>,
 }
-impl PavementRecipe {
-    fn name(self) -> &'static str {
-        match self.kind {
-            PavementKind::Slabs => "Slabs",
-            PavementKind::Brick => "Brick",
-            PavementKind::Dirt => "Dirt",
-        }
-    }
-}
 struct ActivePavement {
-    recipe: PavementRecipe,
+    recipe: ConstructionRecipe,
     stroke: PathStroke,
     coverage: PavementCoverage,
     previous_surface: Option<Vec3>,
@@ -146,7 +141,7 @@ impl ActivePavement {
     }
 }
 
-impl PavementRecipe {
+impl ConstructionRecipe {
     fn preview_candidate(self, row: PathSample, valid: bool) -> Vec<PendingPathCell> {
         // Never submit folded invalid polygons to the painter. A red straight
         // cell represents the rejected attempt, not an alternative bakeable route.
@@ -473,8 +468,13 @@ fn atlas_blocks_piece(
     false
 }
 /// Keep paving's shallow-substrate no-stacking protection unchanged.
-fn path_protection_depth(cell: PathCell) -> f32 {
-    cell.size.x.max(cell.size.z) + 4. * VOXEL_SIZE
+fn path_protection_depth(recipe: ConstructionRecipe, cell: PathCell) -> f32 {
+    match recipe {
+        ConstructionRecipe::Pavement(_) => cell.size.x.max(cell.size.z) + 4. * VOXEL_SIZE,
+        // Walls protect the whole extruded body plus its voxel shell, not deep
+        // natural rock which is outside the region they can possibly write.
+        ConstructionRecipe::LowWall(_) => 0.,
+    }
 }
 struct GroundSupport {
     point: Vec3,
@@ -689,13 +689,40 @@ impl App {
         )
     }
 
-    pub(super) fn pavement_tool_label(&self) -> String {
-        match self.pavement_recipe().kind {
-            PavementKind::Slabs => "Pavement: stone slabs",
-            PavementKind::Brick => "Pavement: brick",
-            PavementKind::Dirt => "Pavement: dirt",
+    fn construction_recipe(&self) -> ConstructionRecipe {
+        let s = &self.debug_settings.adjustables;
+        if s.low_wall_enabled.value {
+            LowWallRecipe::new(
+                LowWallKind::from_choice(s.low_wall_kind.value),
+                s.low_wall_width.value,
+                s.low_wall_height.value,
+                s.pavement_piece_length.value,
+                s.pavement_seed.value,
+            )
+            .into()
+        } else {
+            self.pavement_recipe().into()
         }
-        .to_owned()
+    }
+
+    pub(super) fn pavement_tool_label(&self) -> String {
+        let recipe = self
+            .pavement
+            .active
+            .as_ref()
+            .map_or_else(|| self.construction_recipe(), |active| active.recipe);
+        match recipe {
+            ConstructionRecipe::Pavement(recipe) => match recipe.kind {
+                PavementKind::Slabs => "Pavement: stone slabs".into(),
+                PavementKind::Brick => "Pavement: brick".into(),
+                PavementKind::Dirt => "Pavement: dirt".into(),
+            },
+            ConstructionRecipe::LowWall(recipe) => format!(
+                "Low wall: {} ({:.2} high)",
+                recipe.kind.name(),
+                recipe.height
+            ),
+        }
     }
 
     pub(super) fn pavement_tool_instructions(&self) -> &'static str {
@@ -703,10 +730,12 @@ impl App {
             .pavement
             .active
             .as_ref()
-            .map_or_else(|| self.pavement_recipe(), |active| active.recipe);
-        if recipe.kind == PavementKind::Dirt {
+            .map_or_else(|| self.construction_recipe(), |active| active.recipe);
+        if matches!(recipe, ConstructionRecipe::LowWall(_)) {
+            "Left-drag on soil to build a low wall\nTab: material   Shift + wheel: thickness\nCtrl + wheel: height   R: settings"
+        } else if recipe.is_dirt() {
             "Left-drag on soil to clear vegetation\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
-        } else if recipe.retract_stroke {
+        } else if recipe.retraction_scale().is_some() {
             "Left-drag on soil; backdrag retracts this stroke\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
         } else {
             "Left-drag on soil to lay a path\nG: camera mode   Tab: surface\nShift + wheel: width   R: settings"
@@ -715,7 +744,12 @@ impl App {
 
     pub(super) fn cycle_pavement_kind(&mut self) {
         self.cancel_pavement_stroke();
-        let value = &mut self.debug_settings.adjustables.pavement_kind.value;
+        let settings = &mut self.debug_settings.adjustables;
+        let value = if settings.low_wall_enabled.value {
+            &mut settings.low_wall_kind.value
+        } else {
+            &mut settings.pavement_kind.value
+        };
         *value = (*value + 1) % 3;
         self.play_item_panel_scroll_sound();
     }
@@ -724,13 +758,25 @@ impl App {
         if !lines.is_finite() {
             return;
         }
-        let width = &mut self.debug_settings.adjustables.pavement_width.value;
-        *width = (*width + lines * 0.01).clamp(0.05, 0.3);
+        let settings = &mut self.debug_settings.adjustables;
+        let (width, maximum) = if settings.low_wall_enabled.value {
+            (&mut settings.low_wall_width.value, 0.15)
+        } else {
+            (&mut settings.pavement_width.value, 0.3)
+        };
+        *width = (*width + lines * 0.01).clamp(0.05, maximum);
+    }
+
+    pub(super) fn adjust_low_wall_height(&mut self, lines: f32) {
+        if lines.is_finite() {
+            let height = &mut self.debug_settings.adjustables.low_wall_height.value;
+            *height = (*height + lines * 0.01).clamp(0.02, 0.3);
+        }
     }
 
     pub(super) fn pavement_preview_width(&self) -> f32 {
         self.pavement.active.as_ref().map_or_else(
-            || self.pavement_recipe().path_settings().width,
+            || self.construction_recipe().path_settings().width,
             |active| active.stroke.config.width,
         )
     }
@@ -801,7 +847,7 @@ impl App {
             return;
         };
         self.begin_path_on_ground(
-            self.pavement_recipe(),
+            self.construction_recipe(),
             hit.position,
             self.tracer.camera_front(),
             ground,
@@ -810,11 +856,12 @@ impl App {
 
     fn begin_path_on_ground(
         &mut self,
-        recipe: PavementRecipe,
+        recipe: impl Into<ConstructionRecipe>,
         start: Vec3,
         heading: Vec3,
         ground: ContreeCpuRayQuerySnapshot,
     ) {
+        let recipe = recipe.into();
         if let Some(stroke) = recipe.stroke(start, heading) {
             self.pavement.active = Some(ActivePavement {
                 recipe,
@@ -828,7 +875,7 @@ impl App {
                 pieces_placed: 0,
                 surfaces_cleared: 0,
                 backdrag: Backdrag::default(),
-                edits: EditHistory::new(recipe.retract_stroke && recipe.kind != PavementKind::Dirt),
+                edits: EditHistory::new(recipe.retraction_scale().is_some()),
                 started: Instant::now(),
             });
             self.start_terrain_edit_loop_sound(start);
@@ -938,12 +985,16 @@ impl App {
         Ok(active)
     }
 
-    fn path_stamp_readback(&self, grounded: &GroundedPiece) -> PathStampReadback {
+    fn path_stamp_readback(
+        &self,
+        recipe: ConstructionRecipe,
+        grounded: &GroundedPiece,
+    ) -> PathStampReadback {
         // Contree is a visible thin shell: soil may occlude older
         // paving in it. Test the authoritative atlas columns as well
         // so joining/retracing never builds a layer over buried tiles.
         let margin = Vec3::splat(VOXEL_SIZE);
-        let extra_depth = path_protection_depth(grounded.piece);
+        let extra_depth = path_protection_depth(recipe, grounded.piece);
         let offset = ((grounded.min - margin - Vec3::Y * extra_depth) * 256.)
             .floor()
             .max(Vec3::ZERO)
@@ -1100,7 +1151,7 @@ mod tests {
         let recipe = PavementRecipe::new(PavementKind::Slabs, 0.06, 0.05, 42);
         PavementRuntime {
             active: Some(ActivePavement {
-                recipe,
+                recipe: recipe.into(),
                 stroke: recipe.stroke(Vec3::ONE, Vec3::X).unwrap(),
                 coverage: PavementCoverage::default(),
                 previous_surface: None,
@@ -1122,6 +1173,39 @@ mod tests {
                 started: Instant::now(),
             }),
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn low_wall_pending_preview_has_all_layers_and_rejected_targets_remain_replaceable() {
+        for kind in [LowWallKind::Earth, LowWallKind::Stone, LowWallKind::Brick] {
+            let wall = LowWallRecipe::new(kind, 0.06, 0.16, 0.05, 42);
+            let mut runtime = pending_pavement_runtime();
+            let active = runtime.active.as_mut().unwrap();
+            active.recipe = wall.into();
+            active.stroke = active.recipe.stroke(Vec3::ONE, Vec3::X).unwrap();
+            let preview = runtime.pending_preview();
+            assert_eq!(preview.len(), wall.layers());
+            assert!(preview.iter().all(|p| p.valid));
+            let highest = preview
+                .iter()
+                .map(|p| p.cell.center.y + p.cell.size.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!((highest - 1.16).abs() < 1e-6);
+            let active = runtime.active.as_mut().unwrap();
+            active.observe_editable_ground(Vec3::ONE + Vec3::X * 0.3);
+            active.fix_candidate();
+            let origin = active.intent.origin();
+            let approved = active.stroke.pending_rows();
+            active.observe_editable_ground(Vec3::ONE - Vec3::X * 0.2);
+            assert!(active.continuity.blocked().is_some());
+            assert_eq!(active.stroke.pending_rows(), approved);
+            assert!(runtime.pending_preview().iter().all(|p| !p.valid));
+            let active = runtime.active.as_mut().unwrap();
+            active.observe_editable_ground(Vec3::ONE + Vec3::X * 0.6);
+            assert!(active.continuity.blocked().is_none());
+            assert_eq!(active.intent.origin(), origin);
+            assert!(runtime.pending_preview().iter().all(|p| p.valid));
         }
     }
 
@@ -1268,7 +1352,7 @@ mod tests {
                     rows.iter()
                         .all(|r| r.valid && !recipe.pieces(*r).is_empty()),
                     "{} lost its preview on a voxel soil step: {rows:?}",
-                    recipe.name()
+                    ConstructionRecipe::from(recipe).name()
                 );
             }
             assert!(stroke.finish());
@@ -1349,7 +1433,7 @@ mod tests {
             assert!(!stroke.rows.is_empty());
             let mut runtime = PavementRuntime {
                 active: Some(ActivePavement {
-                    recipe: PavementRecipe::new(kind, 0.12, 0.05, 42),
+                    recipe: PavementRecipe::new(kind, 0.12, 0.05, 42).into(),
                     stroke,
                     coverage: PavementCoverage::default(),
                     previous_surface: None,

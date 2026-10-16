@@ -24,8 +24,7 @@ struct Checkpoint {
 }
 impl ActivePavement {
     pub(super) fn remember_checkpoint(&mut self) {
-        if !self.recipe.retract_stroke
-            || self.recipe.kind == PavementKind::Dirt
+        if self.recipe.retraction_scale().is_none()
             || self.continuity.blocked().is_some()
             || self.backdrag.rollback_to.is_some()
         {
@@ -64,10 +63,10 @@ impl ActivePavement {
             && self.intent.cursor() == self.intent.origin()
     }
     pub(super) fn observe_editable_ground(&mut self, point: Vec3) {
-        if !self.recipe.retract_stroke || self.recipe.kind == PavementKind::Dirt {
+        let Some(scale) = self.recipe.retraction_scale() else {
             self.observe_ground(point);
             return;
-        }
+        };
         if !point.is_finite() {
             return;
         }
@@ -84,7 +83,7 @@ impl ActivePavement {
         if points.last() != Some(&previous) {
             points.push(previous);
         }
-        let capture = self.recipe.width * 0.25 * self.recipe.retract_scale;
+        let capture = self.recipe.path_settings().width * 0.25 * scale;
         let mut remaining = 0.;
         let mut hit = None;
         for i in (0..points.len().saturating_sub(1)).rev() {
@@ -233,7 +232,9 @@ mod tests {
                             let exit = a.continuity.accepted().unwrap().exit.center;
                             assert!(
                                 exit.distance(a.intent.cursor())
-                                    <= a.recipe.pitch * 0.5 + VOXEL_SIZE * 0.5 + 1e-5
+                                    <= a.recipe.path_settings().pitch * 0.5
+                                        + VOXEL_SIZE * 0.5
+                                        + 1e-5
                             );
                             assert!(
                                 a.coverage.published_pieces().len() < 30,

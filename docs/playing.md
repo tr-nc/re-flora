@@ -129,7 +129,7 @@ slopes remain walkable. Higher ledges require a jump within the existing jump's 
 | **X** | Sprinkler | Left mouse places a sprinkler |
 | **B** | Soil | Hold left mouse to pour soil; retains the main branch's soil controls |
 | **N** | Stone | Left mouse places one terrain rock or slab |
-| **V** | Pave | Left-drag on soil; **Tab** chooses slabs, brick or dirt; **Shift + wheel** adjusts width |
+| **V** | Pave | Left-drag on soil; **R → Pavement** switches paving/low walls; **Tab** changes material; **Shift + wheel** adjusts width |
 
 ### Stone Placement
 
@@ -158,7 +158,25 @@ unbuilt tail; already published terrain remains.
 
 Slabs and bricks are real terrain, editable with **Dig** and saved through **Terrain & Plants**.
 Only the resulting terrain is saved, not editable paths or undo history. Paving is unavailable
-in the Rooftop PoC. No low-wall or experimental collision mode is included here.
+in the Rooftop PoC. No experimental collision mode is included.
+
+#### Low walls
+
+In **R → Pavement**, check **Pavement: build low walls**, then use **V + left-drag**
+on soil. **Tab** cycles Earth (continuous, slightly tapered soil), Stone (layered blocks)
+and Brick (running-bond joints). **Shift + wheel** changes thickness; **Ctrl + wheel**
+changes height independently. The panel also saves material, thickness and height.
+Shared path spacing controls a wall half-brick rather than a paving course.
+Uncheck the wall option to return to paving; both sets of dimensions are retained.
+
+Material and dimensions freeze when a gesture begins; changes affect the next stroke.
+Walls become ordinary terrain: **Dig** edits them, and **Terrain & Plants → Save/Load**
+persists them and their vegetation. GUI **Save** saves preferences, not terrain.
+Unsupported ground, existing masonry, self-overlap and world boundaries remain protected.
+A new gesture on a wide enough earth-wall top can add soil height, as with ordinary soil.
+Paving backdrag and inward smoothing do not apply to walls. There are no editable wall
+objects, automatic closed joins, inside fill or whole-wall Undo; cancelling discards
+only the unbuilt tail.
 
 ## Problems and Feedback
 

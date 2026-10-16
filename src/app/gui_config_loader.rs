@@ -96,6 +96,10 @@ impl GuiConfigLoader {
             .section
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         for id in [
+            "low_wall_enabled",
+            "low_wall_kind",
+            "low_wall_width",
+            "low_wall_height",
             "pavement_kind",
             "pavement_width",
             "pavement_piece_length",
@@ -118,6 +122,7 @@ impl GuiConfigLoader {
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
+        Self::restore_low_wall_controls(&mut config);
         for param in config
             .section
             .iter_mut()
@@ -900,6 +905,30 @@ impl GuiConfigLoader {
         }
     }
 
+    // Old prototype saves use these same IDs. Refresh presentation/conditions,
+    // never their saved material, dimensions, mode or other tool preferences.
+    fn restore_low_wall_controls(config: &mut GuiConfigFile) {
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).expect("compiled GUI defaults");
+        for schema in defaults.section.iter().flat_map(|s| &s.param).filter(|p| {
+            p.id.starts_with("low_wall_")
+                || matches!(
+                    p.id.as_str(),
+                    "pavement_kind" | "pavement_width" | "pavement_piece_length"
+                )
+        }) {
+            for param in config
+                .section
+                .iter_mut()
+                .flat_map(|s| &mut s.param)
+                .filter(|p| p.id == schema.id)
+            {
+                param.label.clone_from(&schema.label);
+                param.enabled_if.clone_from(&schema.enabled_if);
+            }
+        }
+    }
+
     fn add_missing_param(config: &mut GuiConfigFile, section_name: &str, param_id: &str) {
         if config
             .section
@@ -1581,6 +1610,100 @@ mod tests {
                 .0
         );
         assert_eq!(original, std::fs::read(&path).unwrap());
+    }
+
+    #[test]
+    fn low_wall_controls_upgrade_absent_and_prototype_saves_without_changing_values_or_disk() {
+        use super::{GuiParamConditionValue, GuiParamValue};
+        for legacy_mode in [None, Some(false), Some(true)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            for section in &mut config.section {
+                if legacy_mode.is_none() {
+                    section.param.retain(|p| !p.id.starts_with("low_wall_"));
+                }
+                for param in &mut section.param {
+                    match param.id.as_str() {
+                        "low_wall_enabled" => {
+                            param.label = "Low wall A/B prototype (off = original pavement)".into();
+                            param.value = GuiParamValue::Bool {
+                                value: legacy_mode.unwrap(),
+                            };
+                        }
+                        "low_wall_kind" => {
+                            if let GuiParamValue::Choice { value, .. } = &mut param.value {
+                                *value = 2;
+                            }
+                        }
+                        "low_wall_width" | "low_wall_height" => {
+                            if let GuiParamValue::Float { value, .. } = &mut param.value {
+                                *value = 0.1;
+                            }
+                        }
+                        "pavement_width" => {
+                            param.enabled_if = None; // pre-wall main saved document
+                            if let GuiParamValue::Float { value, .. } = &mut param.value {
+                                *value = 0.24;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "load must not rewrite saved settings"
+            );
+            let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
+            assert_eq!(fields.low_wall_enabled.value, legacy_mode.unwrap_or(false));
+            assert_eq!(
+                fields.low_wall_kind.value,
+                if legacy_mode.is_some() { 2 } else { 0 }
+            );
+            assert_eq!(
+                fields.low_wall_width.value,
+                if legacy_mode.is_some() { 0.1 } else { 0.06 }
+            );
+            assert_eq!(
+                fields.low_wall_height.value,
+                if legacy_mode.is_some() { 0.1 } else { 0.12 }
+            );
+            assert_eq!(fields.pavement_width.value, 0.24);
+            let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+            let mode = params.iter().find(|p| p.id == "low_wall_enabled").unwrap();
+            assert_eq!(mode.label, "Pavement: build low walls");
+            for id in [
+                "pavement_kind",
+                "pavement_width",
+                "low_wall_kind",
+                "low_wall_width",
+                "low_wall_height",
+            ] {
+                let condition = params
+                    .iter()
+                    .find(|p| p.id == id)
+                    .unwrap()
+                    .enabled_if
+                    .as_ref()
+                    .unwrap();
+                assert_eq!(condition.param, "low_wall_enabled");
+                assert!(
+                    matches!(&condition.equals, GuiParamConditionValue::Bool(value) if *value == id.starts_with("low_wall_"))
+                );
+            }
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                toml::to_string(&loaded).unwrap(),
+                toml::to_string(&reloaded).unwrap()
+            );
+        }
     }
 
     #[test]

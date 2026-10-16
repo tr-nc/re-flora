@@ -49,7 +49,7 @@ fn three_lane_compressed_bends_accept_every_streaming_target() {
     for sign in [-1., 1.] {
         for steps in [18, 45, 180] {
             let mut a = active();
-            a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+            a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42).into();
             a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
             for i in 1..=steps {
                 let angle = std::f32::consts::FRAC_PI_2 * i as f32 / steps as f32;
@@ -75,7 +75,7 @@ fn three_lane_compressed_bends_accept_every_streaming_target() {
 fn compressed_bend_after_publication_keeps_the_actual_prefix_and_exit() {
     for sign in [-1., 1.] {
         let mut a = active();
-        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42).into();
         a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
         for i in 1..=50 {
             approve_complete_geometry(&mut a, Vec3::ONE + Vec3::X * (i as f32 * 0.01));
@@ -122,7 +122,7 @@ fn compressed_bend_after_publication_keeps_the_actual_prefix_and_exit() {
 fn short_turning_tail_accepts_targets_before_a_full_corner_can_fit() {
     for sign in [-1., 1.] {
         let mut a = active();
-        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42).into();
         a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
         let corner = Vec3::ONE + Vec3::X * 0.3;
         approve_complete_geometry(&mut a, corner);
@@ -173,7 +173,7 @@ fn short_picked_risers_fit_without_projecting_away_the_cursor() {
         Vec3::new(-0.001, 0., 0.005),
     ] {
         let mut a = active();
-        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42);
+        a.recipe = PavementRecipe::new(PavementKind::Slabs, 0.12, 0.05, 42).into();
         a.stroke = PathStroke::new(a.recipe.path_settings(), Vec3::ONE, Vec3::X).unwrap();
         let approved = Vec3::ONE + Vec3::X * 0.3;
         approve_geometry(&mut a, approved);

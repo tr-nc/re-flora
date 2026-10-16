@@ -11,7 +11,7 @@ pub(super) struct Candidate {
 }
 #[derive(Default)]
 pub(super) struct StagedCoverage {
-    paving: PavementCoverage,
+    cells: PavementCoverage,
 }
 pub(super) struct PreparedStamp {
     pub grounded: GroundedPiece,
@@ -102,9 +102,11 @@ impl App {
         if !row.valid {
             return Ok(Rejected(BlockReason::Turn));
         }
-        let paving = active.recipe;
-        match paving.kind {
-            PavementKind::Dirt => {
+        let prepared = match active.recipe {
+            ConstructionRecipe::Pavement(PavementRecipe {
+                kind: PavementKind::Dirt,
+                ..
+            }) => {
                 if !active
                     .ground
                     .query_terrain_ray_cpu(row.center + Vec3::Y * 4. * VOXEL_SIZE, Vec3::NEG_Y)
@@ -114,16 +116,18 @@ impl App {
                 {
                     return Ok(Rejected(BlockReason::Ground));
                 }
-                Ok(Ready(Vec::new()))
+                return Ok(Ready(Vec::new()));
             }
-            PavementKind::Slabs | PavementKind::Brick => {
+            ConstructionRecipe::Pavement(paving) => {
                 let pieces = paving.pieces(row);
                 if pieces.is_empty() {
                     return Ok(Rejected(BlockReason::Turn));
                 }
                 let mut prepared = Vec::with_capacity(pieces.len());
                 for piece in pieces {
-                    if !active.coverage.accepts(piece) || !staged.paving.accepts(piece) {
+                    if !active.recipe.accepts(&active.coverage, piece)
+                        || !active.recipe.accepts(&staged.cells, piece)
+                    {
                         return Ok(Rejected(BlockReason::Overlap));
                     }
                     let Some(grounded) = ground_piece(
@@ -135,8 +139,8 @@ impl App {
                     else {
                         return Ok(Rejected(BlockReason::Ground));
                     };
-                    let readback = self.path_stamp_readback(&grounded);
-                    staged.paving.record(grounded.piece);
+                    let readback = self.path_stamp_readback(active.recipe, &grounded);
+                    staged.cells.record(grounded.piece);
                     prepared.push(PreparedStamp {
                         grounded,
                         readback,
@@ -148,27 +152,59 @@ impl App {
                         },
                     });
                 }
-                // No writes occur during preparation. Read this course's exact
-                // protection regions together, without changing per-piece depth
-                // or using these snapshots as later per-stamp before-images.
-                let regions: Vec<_> = prepared
-                    .iter()
-                    .map(|stamp| (stamp.readback.offset, stamp.readback.dim))
-                    .collect();
-                let snapshots = self.plain_builder.read_chunk_atlas_regions(&regions)?;
-                for (stamp, bytes) in prepared.iter().zip(snapshots) {
-                    if atlas_blocks_piece(
-                        &stamp.grounded,
-                        stamp.readback.offset,
-                        stamp.readback.dim,
-                        &bytes,
-                        active.edits.owned_voxels(),
-                    ) {
-                        return Ok(Rejected(BlockReason::Protected));
-                    }
+                prepared
+            }
+            ConstructionRecipe::LowWall(wall) => {
+                let cell = wall.raw_cell(row);
+                // Coverage is one horizontal column, not one entry per layer.
+                // The same gesture cannot retrace and stack earth on itself.
+                if !active.recipe.accepts(&active.coverage, cell)
+                    || !active.recipe.accepts(&staged.cells, cell)
+                {
+                    return Ok(Rejected(BlockReason::Overlap));
                 }
-                Ok(Ready(prepared))
+                let Some(grounded) = low_walls::ground_wall_cell(
+                    wall,
+                    row,
+                    self.world_chunk_dim.as_vec3(),
+                    |p, d| active.ground.query_terrain_ray_cpu(p, d),
+                )?
+                else {
+                    return Ok(Rejected(BlockReason::Ground));
+                };
+                let readback = self.path_stamp_readback(active.recipe, &grounded);
+                staged.cells.record(grounded.piece);
+                vec![PreparedStamp {
+                    grounded,
+                    readback,
+                    count: wall.layers(),
+                    material: match wall.kind {
+                        LowWallKind::Earth => VOXEL_TYPE_DIRT,
+                        LowWallKind::Stone => VOXEL_TYPE_ROCK,
+                        LowWallKind::Brick => VOXEL_TYPE_TERRACOTTA,
+                    },
+                }]
+            }
+        };
+        // No writes occur during preparation. Check every full course/column,
+        // including all wall layers, before publishing any of its voxels.
+        // These snapshots are NOT used as later per-stamp undo before-images.
+        let regions: Vec<_> = prepared
+            .iter()
+            .map(|stamp| (stamp.readback.offset, stamp.readback.dim))
+            .collect();
+        let snapshots = self.plain_builder.read_chunk_atlas_regions(&regions)?;
+        for (stamp, bytes) in prepared.iter().zip(snapshots) {
+            if atlas_blocks_piece(
+                &stamp.grounded,
+                stamp.readback.offset,
+                stamp.readback.dim,
+                &bytes,
+                active.edits.owned_voxels(),
+            ) {
+                return Ok(Rejected(BlockReason::Protected));
             }
         }
+        Ok(Ready(prepared))
     }
 }

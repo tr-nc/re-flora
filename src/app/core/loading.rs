@@ -408,6 +408,8 @@ impl App {
             .unwrap_or_else(|err| panic!("[STONE_PLACEMENT_REVIEW] seed failed: {err:#}"));
         self.review_pavement()
             .unwrap_or_else(|err| panic!("[PAVEMENT_REVIEW] failed: {err:#}"));
+        self.review_low_walls()
+            .unwrap_or_else(|err| panic!("[LOW_WALL_REVIEW] failed: {err:#}"));
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));

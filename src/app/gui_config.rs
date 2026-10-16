@@ -1323,7 +1323,7 @@ mod search_tests {
     }
 
     #[test]
-    fn pavement_preferences_search_save_and_reload_through_the_unified_document() {
+    fn pavement_and_low_wall_preferences_search_save_and_reload_through_the_unified_document() {
         let mut settings = DebugSettings::load();
         settings.adjustables.pavement_kind.value = 1;
         settings.adjustables.pavement_width.value = 0.23;
@@ -1333,6 +1333,10 @@ mod search_tests {
         settings.adjustables.pavement_smooth_scale.value = 2.75;
         settings.adjustables.pavement_retract_stroke.value = false;
         settings.adjustables.pavement_retract_scale.value = 3.5;
+        settings.adjustables.low_wall_enabled.value = true;
+        settings.adjustables.low_wall_kind.value = 2;
+        settings.adjustables.low_wall_width.value = 0.09;
+        settings.adjustables.low_wall_height.value = 0.25;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("gui.toml");
         settings.save_to_path(&path).unwrap();
@@ -1345,13 +1349,17 @@ mod search_tests {
         assert_eq!(loaded.pavement_smooth_scale.value, 2.75);
         assert!(!loaded.pavement_retract_stroke.value);
         assert_eq!(loaded.pavement_retract_scale.value, 3.5);
+        assert!(loaded.low_wall_enabled.value);
+        assert_eq!(loaded.low_wall_kind.value, 2);
+        assert_eq!(loaded.low_wall_width.value, 0.09);
+        assert_eq!(loaded.low_wall_height.value, 0.25);
         let search = SearchFilter::new("pavement");
         for param in settings
             .config
             .section
             .iter()
             .flat_map(|s| &s.param)
-            .filter(|p| p.id.starts_with("pavement_"))
+            .filter(|p| p.id.starts_with("pavement_") || p.id.starts_with("low_wall_"))
         {
             assert!(search_matches_param(
                 &search,
@@ -1360,6 +1368,53 @@ mod search_tests {
                 &param_search_path("Debug", &param.id, true)
             ));
         }
+    }
+
+    #[test]
+    fn low_wall_search_checkbox_edits_the_real_saved_tool_mode() {
+        let mut settings = DebugSettings::load();
+        settings.adjustables.low_wall_enabled.value = false;
+        settings.search.query = "build low walls".into();
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert_eq!(settings.search_matches, 1);
+            output
+                .shapes
+                .iter()
+                .find_map(|s| text_rect(&s.shape, "Pavement: build low walls"))
+                .expect("search must show the wall mode checkbox")
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.low_wall_enabled.value);
+        assert!(settings.is_dirty());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.low_wall_enabled.value);
+        assert!(!settings.is_dirty());
     }
 
     #[test]

@@ -484,6 +484,14 @@ impl App {
 
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
         let scroll_lines = scroll_delta_lines(delta);
+        if self.modifiers.control_key()
+            && self.terrain_edit_pointer_available()
+            && self.player_tools.selected_tool() == PlayerTool::Pavement
+            && self.debug_settings.adjustables.low_wall_enabled.value
+        {
+            self.adjust_low_wall_height(scroll_lines);
+            return;
+        }
         if self.modifiers.shift_key() {
             if self.terrain_edit_pointer_available()
                 && self.player_tools.selected_tool() == PlayerTool::Pavement

@@ -15,7 +15,7 @@ fn point(action: &Value, transform: usize) -> Vec3 {
 }
 pub(super) fn begin(start: Vec3, recipe: PavementRecipe) -> ActivePavement {
     let mut a = super::tests::pending_pavement_runtime().active.unwrap();
-    a.recipe = recipe;
+    a.recipe = recipe.into();
     a.stroke = recipe.stroke(start, Vec3::X).unwrap();
     a.intent = PathIntent::new(start);
     a

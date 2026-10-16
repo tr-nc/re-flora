@@ -123,10 +123,67 @@ min = 0
 max = 4
 
 [[section.param]]
+id = "low_wall_enabled"
+kind = "bool"
+label = "Pavement: build low walls"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "low_wall_kind"
+kind = "choice"
+label = "Low wall material"
+type = "Choice"
+
+[section.param.enabled_if]
+param = "low_wall_enabled"
+equals = true
+
+[section.param.data]
+value = 0
+options = ["Earth (continuous soil)", "Stone (layered blocks)", "Brick (running bond)"]
+
+[[section.param]]
+id = "low_wall_width"
+kind = "float"
+label = "Low wall thickness (world units)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "low_wall_enabled"
+equals = true
+
+[section.param.data]
+value = 0.06
+min = 0.05
+max = 0.15
+
+[[section.param]]
+id = "low_wall_height"
+kind = "float"
+label = "Low wall height above ground (world units)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "low_wall_enabled"
+equals = true
+
+[section.param.data]
+value = 0.12
+min = 0.02
+max = 0.3
+
+[[section.param]]
 id = "pavement_kind"
 kind = "choice"
 label = "Pavement surface"
 type = "Choice"
+
+[section.param.enabled_if]
+param = "low_wall_enabled"
+equals = false
 
 [section.param.data]
 value = 0
@@ -138,6 +195,10 @@ kind = "float"
 label = "Pavement corridor width (world units)"
 type = "Float"
 
+[section.param.enabled_if]
+param = "low_wall_enabled"
+equals = false
+
 [section.param.data]
 value = 0.12
 min = 0.05
@@ -146,7 +207,7 @@ max = 0.3
 [[section.param]]
 id = "pavement_piece_length"
 kind = "float"
-label = "Pavement course length (world units)"
+label = "Path spacing: pavement course / wall half-brick (world units)"
 type = "Float"
 
 [section.param.data]

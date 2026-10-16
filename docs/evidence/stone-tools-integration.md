@@ -1,5 +1,8 @@
 # 从 main 选择集成 Stone / Pavement 与行走修复
 
+> 本文记录 2026-10-11 的集成范围。低墙后来按用户要求单独恢复，见
+> [Pavement 低墙恢复](pavement-low-walls-restoration.md)；碰撞实验仍未带入。
+
 ## 范围
 
 - 起点：`main` 的 `77fb7eb9b23198298bb373caf80346f5670d5316`。
