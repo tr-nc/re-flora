@@ -135,9 +135,7 @@ impl App {
                     else {
                         return Ok(Rejected(BlockReason::Ground));
                     };
-                    let Some(readback) = self.prepare_path_cell_stamp(active, &grounded)? else {
-                        return Ok(Rejected(BlockReason::Protected));
-                    };
+                    let readback = self.path_stamp_readback(&grounded);
                     staged.paving.record(grounded.piece);
                     prepared.push(PreparedStamp {
                         grounded,
@@ -149,6 +147,25 @@ impl App {
                             VOXEL_TYPE_ROCK
                         },
                     });
+                }
+                // No writes occur during preparation. Read this course's exact
+                // protection regions together, without changing per-piece depth
+                // or using these snapshots as later per-stamp before-images.
+                let regions: Vec<_> = prepared
+                    .iter()
+                    .map(|stamp| (stamp.readback.offset, stamp.readback.dim))
+                    .collect();
+                let snapshots = self.plain_builder.read_chunk_atlas_regions(&regions)?;
+                for (stamp, bytes) in prepared.iter().zip(snapshots) {
+                    if atlas_blocks_piece(
+                        &stamp.grounded,
+                        stamp.readback.offset,
+                        stamp.readback.dim,
+                        &bytes,
+                        active.edits.owned_voxels(),
+                    ) {
+                        return Ok(Rejected(BlockReason::Protected));
+                    }
                 }
                 Ok(Ready(prepared))
             }

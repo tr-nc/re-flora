@@ -134,36 +134,63 @@ impl Image {
         array_layer: u32,
         region: TextureRegion,
     ) {
+        self.copy_image_regions_to_buffer(
+            buffer,
+            queue,
+            command_pool,
+            dst_image_layout,
+            array_layer,
+            &[(0, region)],
+        );
+    }
+
+    /// One submission/wait for a set of regions from the same image layer.
+    /// Callers supply valid, aligned, non-overlapping destination buffer ranges.
+    pub fn copy_image_regions_to_buffer(
+        &self,
+        buffer: &mut Buffer,
+        queue: &Queue,
+        command_pool: &CommandPool,
+        dst_image_layout: TextureLayout,
+        array_layer: u32,
+        regions: &[(u64, TextureRegion)],
+    ) {
+        if regions.is_empty() {
+            return;
+        }
+        let copies: Vec<_> = regions
+            .iter()
+            .map(|(offset, region)| {
+                vk::BufferImageCopy::default()
+                    .buffer_offset(*offset)
+                    .image_subresource(vk::ImageSubresourceLayers {
+                        aspect_mask: self.0.desc.get_aspect_mask(),
+                        mip_level: 0,
+                        base_array_layer: array_layer,
+                        layer_count: 1,
+                    })
+                    .image_offset(vk::Offset3D {
+                        x: region.offset[0],
+                        y: region.offset[1],
+                        z: region.offset[2],
+                    })
+                    .image_extent(vk::Extent3D {
+                        width: region.extent.width,
+                        height: region.extent.height,
+                        depth: region.extent.depth,
+                    })
+            })
+            .collect();
         execute_one_time_command(&self.0.device, command_pool, queue, |cmdbuf| {
             self.record_transition_barrier(cmdbuf, array_layer, TextureLayout::TRANSFER_SRC);
             cmdbuf.use_buffer(buffer, BufferUse::TransferWrite);
-            let region = vk::BufferImageCopy::default()
-                .buffer_offset(0)
-                .buffer_row_length(0)
-                .buffer_image_height(0)
-                .image_subresource(vk::ImageSubresourceLayers {
-                    aspect_mask: self.0.desc.get_aspect_mask(),
-                    mip_level: 0,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .image_offset(vk::Offset3D {
-                    x: region.offset[0],
-                    y: region.offset[1],
-                    z: region.offset[2],
-                })
-                .image_extent(vk::Extent3D {
-                    width: region.extent.width,
-                    height: region.extent.height,
-                    depth: region.extent.depth,
-                });
             unsafe {
                 self.0.device.cmd_copy_image_to_buffer(
                     cmdbuf.as_raw(),
                     self.as_raw(),
                     vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
                     buffer.as_raw(),
-                    &[region],
+                    &copies,
                 )
             }
             self.record_transition_barrier(cmdbuf, array_layer, dst_image_layout);

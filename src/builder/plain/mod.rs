@@ -1,5 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
+mod atlas_readback;
 mod resources;
 use crate::generated::gpu_structs::{
     BvhNodes, ChunkModifyInfo, ChunkSolidSampleInfo, Cuboids, ModelVoxelizeInfo,
@@ -713,21 +714,22 @@ impl PlainBuilder {
         atlas_offset: UVec3,
         atlas_dim: UVec3,
     ) -> Result<Vec<u8>> {
+        self.read_chunk_atlas_regions(&[(atlas_offset, atlas_dim)])?
+            .pop()
+            .context("single atlas read must return one region")
+    }
+
+    /// Fresh authoritative snapshots in request order, with one GPU transfer/wait.
+    /// All bounds are checked before submission; overlapping source regions are
+    /// independent packed copies, never an enlarged protection/undo volume.
+    pub fn read_chunk_atlas_regions(&mut self, regions: &[(UVec3, UVec3)]) -> Result<Vec<Vec<u8>>> {
         let atlas_extent = self.resources.chunk_atlas.get_image().get_desc().extent;
         let atlas_size = UVec3::new(atlas_extent.width, atlas_extent.height, atlas_extent.depth);
-        if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
-            return Ok(Vec::new());
+        let plan = atlas_readback::AtlasReadPlan::new(regions, atlas_size)?;
+        if plan.copies.is_empty() {
+            return plan.read_results(|_, _| unreachable!("empty atlas batch has no host reads"));
         }
-        if (atlas_offset + atlas_dim).cmpgt(atlas_size).any() {
-            anyhow::bail!(
-                "chunk atlas read outside bounds: offset={:?} dim={:?} atlas={:?}",
-                atlas_offset,
-                atlas_dim,
-                atlas_size
-            );
-        }
-
-        let byte_count = atlas_dim.x as u64 * atlas_dim.y as u64 * atlas_dim.z as u64;
+        let byte_count = plan.byte_count;
         self.ensure_chunk_atlas_readback_buffer(byte_count);
 
         let queue = self.vulkan_ctx.get_general_queue();
@@ -738,24 +740,17 @@ impl PlainBuilder {
             .as_mut()
             .expect("chunk atlas readback buffer should be allocated");
         let transfer_start = Instant::now();
-        chunk_atlas.copy_image_to_buffer(
+        chunk_atlas.copy_image_regions_to_buffer(
             buffer,
             &queue,
             command_pool,
             TextureLayout::GENERAL,
             0,
-            TextureRegion {
-                offset: [
-                    atlas_offset.x as i32,
-                    atlas_offset.y as i32,
-                    atlas_offset.z as i32,
-                ],
-                extent: Extent3D::new(atlas_dim.x, atlas_dim.y, atlas_dim.z),
-            },
+            &plan.copies,
         );
         let transfer_ms = transfer_start.elapsed().as_secs_f64() * 1000.;
         let copy_start = Instant::now();
-        let data = buffer.read_back_range(0, byte_count)?;
+        let data = plan.read_results(|offset, count| buffer.read_back_range(offset, count))?;
         let report = if std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some() {
             Some("SOIL_READ")
         } else if std::env::var_os("RE_FLORA_PAVEMENT_PERF_REPORT").is_some() {
@@ -764,7 +759,7 @@ impl PlainBuilder {
             None
         };
         if let Some(report) = report {
-            log::info!("[PERF][{report}] transfer_wait_ms={transfer_ms:.3} host_copy_ms={:.3} bytes={byte_count}", copy_start.elapsed().as_secs_f64() * 1000.);
+            log::info!("[PERF][{report}] transfer_wait_ms={transfer_ms:.3} host_copy_ms={:.3} bytes={byte_count} regions={}", copy_start.elapsed().as_secs_f64() * 1000., plan.copies.len());
         }
         Ok(data)
     }

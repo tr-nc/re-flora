@@ -938,11 +938,7 @@ impl App {
         Ok(active)
     }
 
-    fn prepare_path_cell_stamp(
-        &mut self,
-        active: &ActivePavement,
-        grounded: &GroundedPiece,
-    ) -> Result<Option<PathStampReadback>> {
+    fn path_stamp_readback(&self, grounded: &GroundedPiece) -> PathStampReadback {
         // Contree is a visible thin shell: soil may occlude older
         // paving in it. Test the authoritative atlas columns as well
         // so joining/retracing never builds a layer over buried tiles.
@@ -956,12 +952,10 @@ impl App {
             .ceil()
             .as_uvec3()
             .min(self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK);
-        let dim = end - offset;
-        let bytes = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-        if atlas_blocks_piece(grounded, offset, dim, &bytes, active.edits.owned_voxels()) {
-            return Ok(None);
+        PathStampReadback {
+            offset,
+            dim: end - offset,
         }
-        Ok(Some(PathStampReadback { offset, dim }))
     }
 
     fn stamp_prepared_path_cell(
