@@ -29,6 +29,15 @@ mod sprinkler_mesh;
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
 
+#[cfg(test)]
+pub(crate) fn sprinkler_bake_motions_for_test() -> Vec<Vec3> {
+    model_geometry::source(crate::flora::models::Shape::default())
+        .sprinkler_parts
+        .iter()
+        .map(|p| Vec3::from_slice(&p.motion))
+        .collect()
+}
+
 mod geometry_preview_resources;
 pub use geometry_preview_resources::*;
 
@@ -3385,6 +3394,8 @@ impl Tracer {
     ) -> Result<()> {
         self.mower_resources
             .prepare_frame(gpu_profiler_frame_slot)?;
+        self.sprinkler_resources
+            .prepare_frame(gpu_profiler_frame_slot)?;
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
@@ -3891,11 +3902,6 @@ impl Tracer {
             record_instance(self.mower_resources.instances());
         }
         record_mesh(
-            &self.sprinkler_resources.indices,
-            &self.sprinkler_resources.vertices,
-            self.sprinkler_resources.indices_len,
-        );
-        record_mesh(
             &self.geometry_preview_resources.debug.indices,
             &self.geometry_preview_resources.debug.vertices,
             self.geometry_preview_resources.debug.indices_len,
@@ -3963,9 +3969,6 @@ impl Tracer {
         }
         if self.particle_resources.translucent_instance_count > 0 {
             record_instance(&self.particle_resources.translucent_instance_buffer);
-        }
-        if self.sprinkler_resources.instance_count > 0 {
-            record_instance(&self.sprinkler_resources.instances);
         }
 
         for preview in [
@@ -5080,6 +5083,17 @@ impl Tracer {
                 .cpu_stem_band_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
+        let prepared_sprinklers = (self.sprinkler_resources.instance_count > 0).then(|| {
+            self.model_mesh_frame
+                .sprinklers(
+                    cmdbuf,
+                    MeshPass {
+                        display: &self.pipeline_topology.graphics().sprinkler_ppl,
+                    },
+                    &self.sprinkler_resources,
+                )
+                .expect("sprinkler acquired-frame model descriptors")
+        });
         let prepared_tool_model = self
             .model_mesh_frame
             .soil_bag(
@@ -5453,21 +5467,10 @@ impl Tracer {
                     PipelineStage::ALL_COMMANDS,
                 )
             });
-            let resources = &self.sprinkler_resources;
             let pipeline = &self.pipeline_topology.graphics().sprinkler_ppl;
             pipeline.record_bind(cmdbuf);
             pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
-            cmdbuf.bind_index_buffer_u32(&resources.indices);
-            cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, &resources.instances]);
-            pipeline.record_indexed(
-                cmdbuf,
-                resources.indices_len,
-                resources.instance_count,
-                0,
-                0,
-                0,
-                None,
-            );
+            prepared_sprinklers.as_ref().unwrap().record(cmdbuf, 0);
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), sprinklers_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -6859,6 +6862,10 @@ impl Tracer {
 
     pub(crate) fn sprinkler_instance_count(&self) -> u32 {
         self.sprinkler_resources.instance_count
+    }
+
+    pub(crate) fn sprinkler_cache_status(&self) -> Option<(bool, u32)> {
+        self.model_mesh_frame.sprinkler_cache_status()
     }
 
     pub(crate) fn set_soil_bag_instance(&mut self, instance: Option<crate::soil_bag::Instance>) {

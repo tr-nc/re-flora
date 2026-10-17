@@ -46,12 +46,14 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
                 gui.butterfly_pixel_resolution.value,
                 gui.model_flower_pixel_resolution.value,
                 32, // Soil tool bag: shared sampling, fixed initial art-review resolution.
+                gui.sprinkler_pixel_resolution.value,
             ],
             enabled: [
                 gui.apple_cache_enabled.value,
                 gui.butterfly_cache_enabled.value,
                 gui.model_flower_cache_enabled.value,
                 true,
+                gui.sprinkler_cache_enabled.value,
             ],
         }
         .normalized(),
@@ -323,6 +325,26 @@ mod tests {
         assert_eq!(cache.flowers.resolution, 35);
         assert_eq!(cache.flowers.views, 64);
         assert_eq!(cache.flowers.shape.head_scale, 1.25);
+    }
+
+    #[test]
+    fn sprinkler_sampling_changes_only_its_own_render_cache() {
+        let mut settings = DebugSettings::load();
+        let before = model_cache_inputs(&settings).surfaces;
+        let scene = settings.adjustables.scene_pixel_ratio.value;
+        for n in [8, 17, 32] {
+            for enabled in [false, true] {
+                settings.adjustables.sprinkler_pixel_resolution.value = n;
+                settings.adjustables.sprinkler_cache_enabled.value = enabled;
+                let after = model_cache_inputs(&settings).surfaces;
+                assert_eq!(after.resolutions[4], n);
+                assert_eq!(after.enabled[4], enabled);
+                for kind in 0..4 {
+                    assert_eq!(before.for_kind(kind), after.for_kind(kind));
+                }
+                assert_eq!(settings.adjustables.scene_pixel_ratio.value, scene);
+            }
+        }
     }
 
     #[test]

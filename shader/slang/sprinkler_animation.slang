@@ -15,3 +15,10 @@ public void sprinklerAnimation(uint tick, float tickSeconds, float animationPhas
     float pairPhase = float(cycleTick % pairCycleTicks) / float(pairCycleTicks);
     extension = 0.5 - 0.5 * cos(pairPhase * 6.28318530718);
 }
+
+public float3 sprinklerPartTranslation(float3 motion,float extension,bool alongX)
+{
+    bool xArm=abs(motion.x)>0.0,zArm=abs(motion.z)>0.0;
+    if((xArm||zArm)&&!(alongX?xArm:zArm))motion.xz=float2(0);
+    return motion*extension;
+}

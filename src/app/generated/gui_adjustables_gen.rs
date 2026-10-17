@@ -308,6 +308,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_cache_enabled",
+        kind: "bool",
+        label: "Sprinklers: use model pre-cache",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "sprinkler_pixel_resolution",
+        kind: "uint",
+        label: "Sprinklers: pre-cache resolution (N x N)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "apple_pixel_resolution",
         kind: "uint",
         label: "Apples: pre-cache resolution (N x N, attached and fallen)",
@@ -1743,6 +1755,8 @@ pub struct GuiAdjustables {
     pub apple_cache_enabled: crate::gui_adjustables::BoolParam,
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
     pub raster_tree_wind: crate::gui_adjustables::BoolParam,
@@ -2034,6 +2048,8 @@ impl GuiAdjustables {
         let mut apple_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut raster_tree_wind_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2554,6 +2570,18 @@ impl GuiAdjustables {
                     "model_flower_cache_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             model_flower_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_cache_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_pixel_resolution" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            sprinkler_pixel_resolution_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "apple_pixel_resolution" => {
@@ -4160,6 +4188,8 @@ impl GuiAdjustables {
             apple_cache_enabled: apple_cache_enabled_field.expect("Missing parameter: apple_cache_enabled"),
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
+            sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
+            sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
             raster_tree_wind: raster_tree_wind_field.expect("Missing parameter: raster_tree_wind"),
@@ -4619,6 +4649,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "stone_rock_facets" => Some(&adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
         "flower_stem_model_resolution" => Some(&adjustables.flower_stem_model_resolution),
+        "sprinkler_pixel_resolution" => Some(&adjustables.sprinkler_pixel_resolution),
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&adjustables.grass_render_mode),
@@ -4677,6 +4708,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "apple_cache_enabled" => Some(&adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
+        "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
@@ -4944,6 +4976,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "stone_rock_facets" => Some(&mut adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
         "flower_stem_model_resolution" => Some(&mut adjustables.flower_stem_model_resolution),
+        "sprinkler_pixel_resolution" => Some(&mut adjustables.sprinkler_pixel_resolution),
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
         "model_pixel_view_count" => Some(&mut adjustables.model_pixel_view_count),
         "grass_render_mode" => Some(&mut adjustables.grass_render_mode),
@@ -5002,6 +5035,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "apple_cache_enabled" => Some(&mut adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
+        "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),

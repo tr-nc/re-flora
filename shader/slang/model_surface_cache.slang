@@ -14,6 +14,9 @@ struct CachedModelEntry { uint4 layout; float4 bounds; };
 [[vk::binding(25,1)]] StructuredBuffer<CachedModelEntry> model_cached_flower_entries;
 [[vk::binding(26,1)]] StructuredBuffer<CachedModelSample> model_cached_tool_surfaces;
 [[vk::binding(27,1)]] StructuredBuffer<CachedModelEntry> model_cached_tool_entries;
+// Binding 28 belongs to flower_visit_output (attached butterflies).
+[[vk::binding(29,1)]] StructuredBuffer<CachedModelSample> model_cached_sprinkler_surfaces;
+[[vk::binding(30,1)]] StructuredBuffer<CachedModelEntry> model_cached_sprinkler_entries;
 public struct CachedModelVertex {
     public bool visible; public float4 clip; public float3 position; public float3 normal; public float3 localPosition; public float2 uv; public uint material;
 };
@@ -29,13 +32,16 @@ public bool projectCachedModelSurfaceVertex(float4 planeClip,float4 surfaceClip,
     clip.z=(surfaceClip.z/surfaceClip.w)*clip.w;
     return true;
 }
-public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame physical,float3 pivot,out CachedModelVertex output) {
+// Rigid-part translation is applied after the common view selection. Articulated
+// props keep one direction/grid while revealing independently baked hidden surfaces.
+public bool cachedModelVertexTranslated(uint vertex,uint source,uint kind,ModelPixelFrame physical,float3 pivot,float3 translation,out CachedModelVertex output) {
     output.visible=false;output.clip=float4(2,2,2,1);output.position=float3(0);output.normal=float3(0,1,0);output.localPosition=float3(0);output.uv=float2(0);output.material=0u;
     CachedModelEntry entry;
     if(kind==1u) entry=model_cached_apple_entries[source];
     else if(kind==2u) entry=model_cached_butterfly_entries[source];
     else if(kind==3u) entry=model_cached_flower_entries[source];
-    else entry=model_cached_tool_entries[source];
+    else if(kind==4u) entry=model_cached_tool_entries[source];
+    else entry=model_cached_sprinkler_entries[source];
     if(entry.layout.w==0u)return false;
     uint n=entry.layout.y;
     if(vertex>=n*n*6u||physical.scale<=1e-7)return true;
@@ -48,7 +54,8 @@ public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame 
     if(kind==1u) sample=model_cached_apple_surfaces[address];
     else if(kind==2u) sample=model_cached_butterfly_surfaces[address];
     else if(kind==3u) sample=model_cached_flower_surfaces[address];
-    else sample=model_cached_tool_surfaces[address];
+    else if(kind==4u) sample=model_cached_tool_surfaces[address];
+    else sample=model_cached_sprinkler_surfaces[address];
     if(sample.position.w==0.0)return true;
     float3 direction=bank.direction(view,entry.layout.z);
     float3 reference=abs(direction.y)>0.99?float3(1,0,0):float3(0,1,0);
@@ -60,13 +67,16 @@ public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame 
     float3 plane=entry.bounds.xyz+axisX*coordinate.x+axisY*coordinate.y;
     ModelPixelFrame rendered=modelMeshViewFrame(physical,pivot);
     output.localPosition=sample.position.xyz;
-    output.position=modelViewWorldPoint(rendered,sample.position.xyz);
+    output.position=modelViewWorldPoint(rendered,sample.position.xyz)+translation;
     output.normal=normalize(modelViewWorldVector(rendered,sample.normal.xyz));
     output.uv=sample.uv.xy;output.material=uint(sample.normal.w+0.5);
     // Put each cell on one common image plane; reconstruct its baked surface
     // depth without changing its N×N projected footprint or joining depth seams.
-    float4 planeClip=mul(camera_info.view_proj_mat,float4(modelViewWorldPoint(rendered,plane),1));
+    float4 planeClip=mul(camera_info.view_proj_mat,float4(modelViewWorldPoint(rendered,plane)+translation,1));
     float4 depth=mul(camera_info.view_proj_mat,float4(output.position,1));
     output.visible=projectCachedModelSurfaceVertex(planeClip,depth,output.clip);
     return true;
+}
+public bool cachedModelVertex(uint vertex,uint source,uint kind,ModelPixelFrame physical,float3 pivot,out CachedModelVertex output) {
+    return cachedModelVertexTranslated(vertex,source,kind,physical,pivot,float3(0),output);
 }

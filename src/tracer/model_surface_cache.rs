@@ -16,8 +16,8 @@ use std::sync::{
 
 pub const MIN_RESOLUTION: u32 = 8;
 pub const MAX_RESOLUTION: u32 = 32;
-pub const MODEL_KINDS: usize = 4;
-/// Order is apples, butterflies, flower heads, tool bags; per-kind cache ownership.
+pub const MODEL_KINDS: usize = 5;
+/// Order is apples, butterflies, flower heads, tool bags, sprinklers; independent cache ownership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Options {
     pub views: u32,
@@ -28,7 +28,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             views: 32,
-            resolutions: [32, 22, 16, 32],
+            resolutions: [32, 22, 16, 32, 32],
             enabled: [true; MODEL_KINDS],
         }
     }
@@ -397,13 +397,10 @@ fn bake(source: &Source, options: Options, cancel: &AtomicBool) -> Result<Baked>
         let n = options.resolutions[kind];
         let triangles = &source.triangles[range[0] as usize..(range[0] + range[1]) as usize];
         let bvh = Bvh::new(triangles);
-        let center = if kind == 1 {
-            Vec3::ZERO
-        } else {
-            (bvh.nodes[0].min + bvh.nodes[0].max) * 0.5
-        };
-        let radius = if kind == 1 {
-            1.7
+        let center =
+            source.cache_bounds[id].map_or((bvh.nodes[0].min + bvh.nodes[0].max) * 0.5, |b| b.0);
+        let radius = if let Some((_, radius)) = source.cache_bounds[id] {
+            radius
         } else {
             triangles
                 .iter()
@@ -489,7 +486,7 @@ mod tests {
         let options = Options {
             views: 8,
             resolutions: [8; MODEL_KINDS],
-            enabled: [true, false, false, false],
+            enabled: [true, false, false, false, false],
         };
         let data = bake(&source, options, &AtomicBool::new(false)).unwrap();
         assert_eq!(data.samples.len(), 8 * 8 * 8);
@@ -557,6 +554,49 @@ mod tests {
         }
     }
     #[test]
+    fn sprinkler_resolution_bakes_independent_parts_on_one_whole_prop_grid() {
+        let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
+        assert_eq!(source.sprinkler_parts.len(), 6);
+        for n in [8, 16, 32] {
+            let data = bake(
+                &source,
+                Options {
+                    views: 8,
+                    resolutions: [n; MODEL_KINDS],
+                    enabled: [false, false, false, false, true],
+                },
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            assert_eq!(data.samples.len(), 6 * 8 * (n * n) as usize);
+            let expected = data.entries[source.sprinkler_parts[0].range[2] as usize].bounds;
+            for part in &source.sprinkler_parts {
+                let entry = data.entries[part.range[2] as usize];
+                assert_eq!(
+                    entry.bounds, expected,
+                    "one resolution must mean one cell size"
+                );
+                assert_eq!(entry.layout[1..], [n, 8, 1]);
+                let samples = &data.samples[entry.layout[0] as usize..][..(8 * n * n) as usize];
+                assert!(
+                    samples.iter().any(|s| s.position[3] == 1.),
+                    "each physical part must be sampled"
+                );
+                for sample in samples.iter().filter(|s| s.position[3] == 1.) {
+                    assert!(Vec3::from_slice(&sample.position).is_finite());
+                    assert!((Vec3::from_slice(&sample.normal).length() - 1.).abs() < 1e-5);
+                    assert!((sample.normal[3] as usize) < source.palette.len());
+                }
+            }
+            for (entry, range) in data.entries.iter().zip(&source.ranges) {
+                if range[2] != 5 {
+                    assert_eq!(entry.layout, [0; 4]);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn view_basis_matches_shader_and_forms_rigid_grid() {
         for count in [8, 128, 256, 512] {
             for i in 0..count {
@@ -569,14 +609,14 @@ mod tests {
         assert_eq!(
             Options {
                 views: 0,
-                resolutions: [0, 64, u32::MAX, 16],
-                enabled: [false, true, false, true]
+                resolutions: [0, 64, u32::MAX, 16, 24],
+                enabled: [false, true, false, true, true]
             }
             .normalized(),
             Options {
                 views: 8,
-                resolutions: [8, 32, 32, 16],
-                enabled: [false, true, false, true]
+                resolutions: [8, 32, 32, 16, 24],
+                enabled: [false, true, false, true, true]
             }
         );
     }

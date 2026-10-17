@@ -613,6 +613,8 @@ impl GuiConfigLoader {
             ("Debug", "apple_cache_enabled"),
             ("Debug", "butterfly_cache_enabled"),
             ("Debug", "model_flower_cache_enabled"),
+            ("Debug", "sprinkler_cache_enabled"),
+            ("Debug", "sprinkler_pixel_resolution"),
             ("Debug", "apple_pixel_resolution"),
             ("Butterflies", "butterfly_pixel_resolution"),
             ("Flora", "model_flower_pixel_resolution"),

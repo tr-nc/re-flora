@@ -70,6 +70,7 @@ struct Geometry {
     triangles: Arc<Buffer>,
     ranges: Arc<Buffer>,
     parts: Arc<Buffer>,
+    sprinkler_parts: Arc<Buffer>,
     palette: Arc<Buffer>,
     indices: Arc<Buffer>,
 }
@@ -108,6 +109,10 @@ impl Geometry {
             )?,
             parts: upload(
                 bytemuck::cast_slice(&source.flower_parts),
+                vk::BufferUsageFlags::STORAGE_BUFFER,
+            )?,
+            sprinkler_parts: upload(
+                bytemuck::cast_slice(&source.sprinkler_parts),
                 vk::BufferUsageFlags::STORAGE_BUFFER,
             )?,
             palette: upload(
@@ -261,7 +266,13 @@ impl ModelMeshFrame {
             if self.logged_cache_modes[kind] != Some(cached) {
                 log::info!(
                     "[MODEL_SURFACE_MODE] object={} mode={} views={} resolution={}",
-                    ["apples", "butterflies", "flower_heads", "soil_bag"][kind],
+                    [
+                        "apples",
+                        "butterflies",
+                        "flower_heads",
+                        "soil_bag",
+                        "sprinklers"
+                    ][kind],
                     if cached { "cached" } else { "native" },
                     self.cache_options.views,
                     self.cache_options.resolutions[kind]
@@ -271,7 +282,8 @@ impl ModelMeshFrame {
                     0 => 4 | 16,
                     1 => 1,
                     2 => 8,
-                    _ => 32 | 64,
+                    3 => 32 | 64,
+                    _ => 128,
                 });
             }
             self.frames[self.slot].cache[kind] = Some(cache);
@@ -297,10 +309,13 @@ impl ModelMeshFrame {
             && self.review_draws & bit == 0
             && (std::env::var_os("RE_FLORA_MODEL_VIEW_REVIEW").is_some()
                 || ((bit == 32 || bit == 64)
-                    && std::env::var_os("RE_FLORA_SOIL_BAG_REVIEW").is_some()))
+                    && std::env::var_os("RE_FLORA_SOIL_BAG_REVIEW").is_some())
+                || (bit == 128 && std::env::var_os("RE_FLORA_SPRINKLER_REVIEW").is_some()))
         {
             self.review_draws |= bit;
-            let kind = if bit == 32 || bit == 64 {
+            let kind = if bit == 128 {
+                4
+            } else if bit == 32 || bit == 64 {
                 3
             } else if bit == 1 {
                 1
@@ -510,6 +525,10 @@ impl ModelMeshFrame {
                 "model_cached_flower_entries",
             ),
             ("model_cached_tool_surfaces", "model_cached_tool_entries"),
+            (
+                "model_cached_sprinkler_surfaces",
+                "model_cached_sprinkler_entries",
+            ),
         ]
         .into_iter()
         .enumerate()
@@ -768,6 +787,49 @@ impl ModelMeshFrame {
                 None,
             )?
         }))
+    }
+
+    pub fn sprinkler_cache_status(&self) -> Option<(bool, u32)> {
+        let cache = self.frames.get(self.slot)?.cache[4].as_ref()?;
+        Some((cache.cached(4), self.cache_options.resolutions[4]))
+    }
+
+    pub fn sprinklers(
+        &mut self,
+        cmd: &CommandBuffer,
+        pass: MeshPass<'_>,
+        instances: &super::SprinklerRendererResources,
+    ) -> Result<PreparedModelMeshes> {
+        self.review_draw(128, "sprinklers", instances.instance_count);
+        let g = self.active.as_ref().unwrap();
+        let mut resources = g.bindings().to_vec();
+        resources.push((
+            "sprinkler_instances",
+            DescriptorResource::Buffer(instances.instances()),
+        ));
+        resources.push((
+            "sprinkler_parts",
+            DescriptorResource::Buffer(&g.sprinkler_parts),
+        ));
+        resources.push((
+            "sprinkler_model_colors",
+            DescriptorResource::Buffer(&g.palette),
+        ));
+        let native = g
+            .source
+            .sprinkler_parts
+            .iter()
+            .map(|part| part.range[1] * 3)
+            .max()
+            .unwrap();
+        self.prepare(
+            cmd,
+            pass,
+            instances.instance_count * g.source.sprinkler_parts.len() as u32,
+            self.draw_vertices(4, native),
+            resources,
+            None,
+        )
     }
 
     pub fn fallen_apples(

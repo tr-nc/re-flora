@@ -8,6 +8,9 @@ pub(super) struct Review {
     mode: String,
     frame: u32,
     base: Option<Vec3>,
+    control_step: usize,
+    control_frames: u32,
+    control_baseline: Option<crate::tracer::ModelSurfaceCacheOptions>,
 }
 
 impl Review {
@@ -16,13 +19,16 @@ impl Review {
             return Ok(None);
         };
         ensure!(
-            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle"),
-            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit or lifecycle"
+            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls"),
+            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32 or controls"
         );
         Ok(Some(Self {
             mode,
             frame: 0,
             base: None,
+            control_step: 0,
+            control_frames: 0,
+            control_baseline: None,
         }))
     }
 }
@@ -74,6 +80,18 @@ impl App {
             review.base = Some(base);
             self.set_manual_time_of_day(0.43);
             self.debug_settings.adjustables.auto_daynight_cycle.value = false;
+            if let Some(n) = review.mode.strip_prefix("pixels-") {
+                self.debug_settings
+                    .adjustables
+                    .sprinkler_cache_enabled
+                    .value = true;
+                self.debug_settings
+                    .adjustables
+                    .sprinkler_pixel_resolution
+                    .value = n.parse()?;
+            }
+            review.control_baseline =
+                Some(super::render_frame_input::model_cache_inputs(&self.debug_settings).surfaces);
             log::info!("[SPRINKLER_REVIEW] mode={} base={base:?} placement=production raster=true saved=false", review.mode);
         }
         let base = review.base.unwrap();
@@ -119,6 +137,46 @@ impl App {
             }
             if review.frame == 150 {
                 self.apply_sprinkler_placement(base)?;
+            }
+        }
+        if review.mode == "controls" {
+            const STEPS: [(bool, u32); 7] = [
+                (true, 8),
+                (true, 16),
+                (true, 32),
+                (false, 32),
+                (true, 24),
+                (true, 8),
+                (true, 32),
+            ];
+            if let Some(&(enabled, resolution)) = STEPS.get(review.control_step) {
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_cache_enabled.value = enabled;
+                gui.sprinkler_pixel_resolution.value = resolution;
+                let inputs =
+                    super::render_frame_input::model_cache_inputs(&self.debug_settings).surfaces;
+                for kind in 0..4 {
+                    ensure!(
+                        inputs.for_kind(kind) == review.control_baseline.unwrap().for_kind(kind),
+                        "sprinkler control changed another model's sampling"
+                    );
+                }
+                if review.control_frames > 0
+                    && self.tracer.sprinkler_cache_status() == Some((enabled, resolution))
+                {
+                    review.control_frames += 1;
+                    if review.control_frames >= 12 {
+                        log::info!("[SPRINKLER_CACHE_REVIEW] step={} cached={enabled} resolution={resolution} other_models_unchanged=true",
+                            review.control_step);
+                        review.control_step += 1;
+                        review.control_frames = 0;
+                        if review.control_step == STEPS.len() {
+                            log::info!("[SPRINKLER_CACHE_REVIEW] complete steps=7 saved=false");
+                        }
+                    }
+                } else {
+                    review.control_frames = 1;
+                }
             }
         }
         if review.frame == 180 {

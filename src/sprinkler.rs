@@ -1,5 +1,5 @@
 //! Sprinkler hardware dimensions and tick-driven pose shared by the mesh and water outlets.
-//! World-space rendering is conventional raster geometry; pixel styling belongs to scene resolve.
+//! Rigid-part surface caches and native fallback share this pose; scene resolve stays independent.
 use glam::Vec3;
 
 pub(crate) const WORLD_SCALE: f32 = 1.0 / 256.0;
@@ -82,12 +82,25 @@ mod tests {
         let mut code = String::from(
             "import sprinkler_animation;\nexport __extern_cpp int main() { float e; bool x;\n",
         );
+        let parts = crate::tracer::sprinkler_bake_motions_for_test();
         let mut cases = 0;
         for seconds in [1. / 240., 0.05, 0.08, 0.4, 1.] {
             for phase in [0., 0.0125, 0.125, 0.5, 0.975, 1.] {
                 for tick in [0, 1, 9, 10, 19, 20, 39, 40, 479, u32::MAX] {
                     let pose = Pose::sample(tick, seconds, phase);
                     writeln!(code, "sprinklerAnimation({tick}u, {seconds:.9}, {phase:.9}, e, x); if(abs(e - {:.9}) > 0.00001 || x != {}) return 1;", pose.extension, pose.along_x).unwrap();
+                    for motion in &parts {
+                        let mut active = *motion;
+                        let is_x = motion.x != 0.;
+                        let is_z = motion.z != 0.;
+                        if (is_x || is_z) && !(if pose.along_x { is_x } else { is_z }) {
+                            active.x = 0.;
+                            active.z = 0.;
+                        }
+                        let expected = active * pose.extension;
+                        writeln!(code, "{{ float3 moved=sprinklerPartTranslation(float3({:.12},{:.12},{:.12}), e, x); if(length(moved-float3({:.12},{:.12},{:.12})) > 0.0000001) return 2; }}",
+                            motion.x, motion.y, motion.z, expected.x, expected.y, expected.z).unwrap();
+                    }
                     cases += 1;
                 }
             }

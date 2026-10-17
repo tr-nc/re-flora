@@ -2221,6 +2221,44 @@ mod tests {
     }
 
     #[test]
+    fn sprinkler_sampling_upgrades_old_saves_and_round_trips_independently() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.apple_pixel_resolution.value = 12;
+        settings.adjustables.butterfly_pixel_resolution.value = 24;
+        settings.adjustables.model_flower_pixel_resolution.value = 16;
+        settings.adjustables.scene_pixel_ratio.value = 3;
+        settings.sync_config();
+        for section in &mut settings.config.section {
+            section.param.retain(|p| !p.id.starts_with("sprinkler_"));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old-gui.toml");
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let old = std::fs::read(&path).unwrap();
+        let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            old,
+            "loading must not write user settings"
+        );
+        assert!(loaded.adjustables.sprinkler_cache_enabled.value);
+        assert_eq!(loaded.adjustables.sprinkler_pixel_resolution.value, 32);
+        for (enabled, n) in [(true, 8), (false, 17), (true, 32)] {
+            loaded.adjustables.sprinkler_cache_enabled.value = enabled;
+            loaded.adjustables.sprinkler_pixel_resolution.value = n;
+            loaded.save_to_path(&path).unwrap();
+            loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            let gui = &loaded.adjustables;
+            assert_eq!(gui.sprinkler_cache_enabled.value, enabled);
+            assert_eq!(gui.sprinkler_pixel_resolution.value, n);
+            assert_eq!(gui.apple_pixel_resolution.value, 12);
+            assert_eq!(gui.butterfly_pixel_resolution.value, 24);
+            assert_eq!(gui.model_flower_pixel_resolution.value, 16);
+            assert_eq!(gui.scene_pixel_ratio.value, 3);
+        }
+    }
+
+    #[test]
     fn saved_flower_controls_round_trip_without_reinterpreting_legacy_overall_size() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.model_flower_size_scale.value = 1.75;

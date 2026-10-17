@@ -1,5 +1,4 @@
 //! Authored lathed garden hardware, not voxel cubes. Large material regions survive scene pixels.
-use super::sprinkler_resources::SprinklerVertex;
 use crate::sprinkler::{HEAD_LIFT, NOZZLE_EXTENSION, NOZZLE_HEIGHT, NOZZLE_REACH, WORLD_SCALE};
 use glam::Vec3;
 
@@ -10,6 +9,15 @@ const CREAM: Vec3 = Vec3::new(0.89, 0.83, 0.64);
 const COPPER: Vec3 = Vec3::new(0.72, 0.39, 0.20);
 const BRASS: Vec3 = Vec3::new(0.91, 0.66, 0.35);
 const DARK: Vec3 = Vec3::new(0.18, 0.23, 0.20);
+
+/// Authoring vertices; GPU draws consume the shared model-geometry ABI.
+#[derive(Clone, Copy)]
+pub(super) struct SprinklerVertex {
+    pub position: [f32; 3],
+    pub shading_normal: [f32; 3],
+    pub color_srgb: [f32; 3],
+    pub animation_direction: [f32; 3],
+}
 
 #[derive(Default)]
 struct Mesh {
@@ -27,13 +35,12 @@ impl Mesh {
         let normal = cross.normalize();
         for point in points {
             self.indices.push(self.vertices.len() as u32);
-            self.vertices.push(SprinklerVertex::new(
-                point * WORLD_SCALE,
-                point * WORLD_SCALE,
-                normal,
-                color,
-                motion,
-            ));
+            self.vertices.push(SprinklerVertex {
+                position: (point * WORLD_SCALE).to_array(),
+                shading_normal: normal.to_array(),
+                color_srgb: color.to_array(),
+                animation_direction: motion.to_array(),
+            });
         }
     }
 

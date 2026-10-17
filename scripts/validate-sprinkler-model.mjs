@@ -9,8 +9,9 @@ import {parseArgs} from 'node:util';
 
 const help = `Usage: node scripts/validate-sprinkler-model.mjs [--seconds <positive-number>]
 Check the native sprinkler model, water outlets and place/remove/re-place lifecycle.
-Runs five hidden, muted Release scenes with Vulkan synchronization validation:
-near, garden, orbit, lifecycle and near with the existing dense/contrast resolve.
+Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
+near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
+live cache/resolution controls. Checks actual cached draws, not just saved values.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
 Requires a current Release binary, a Vulkan desktop session, and the Khronos
 validation layer (set VK_LAYER_PATH or VULKAN_SDK if it is not installed globally).
@@ -42,7 +43,7 @@ try {
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  for (const name of ['near', 'garden', 'orbit', 'lifecycle', 'near-dense']) {
+  for (const name of ['near', 'garden', 'orbit', 'lifecycle', 'near-dense', 'pixels-8', 'pixels-16', 'pixels-32', 'controls']) {
     const mode = name === 'near-dense' ? 'near' : name;
     const env = {...process.env};
     // Do not compose this isolated fixture with unrelated development overrides.
@@ -67,6 +68,17 @@ try {
     assert.match(log, new RegExp(`\\[SPRINKLER_REVIEW\\] passed mode=${mode} frames=180`),
       `${name}: incomplete fixture; retry with --seconds 20`);
     assert.match(log, /\[SHUTDOWN\] phase=complete failures=0/, `${name}: incomplete shutdown`);
+    assert.match(log, /MODEL_VIEW_DRAW\] object=sprinklers.*shader=cached_surface_cells/,
+      `${name}: sprinkler did not use shared pre-baked surface cells`);
+    if (name.startsWith('pixels-')) assert.match(log,
+      new RegExp(`MODEL_SURFACE_MODE\\] object=sprinklers mode=cached.*resolution=${name.slice(7)}\\b`));
+    if (name === 'controls') {
+      assert.match(log, /SPRINKLER_CACHE_REVIEW\] complete steps=7/);
+      assert.match(log, /MODEL_VIEW_DRAW\] object=sprinklers.*shader=native_triangle/);
+      const steps = [...log.matchAll(/SPRINKLER_CACHE_REVIEW\] step=(\d+) cached=(true|false) resolution=(\d+)/g)]
+        .map(m => [Number(m[1]), m[2] === 'true', Number(m[3])]);
+      assert.deepEqual(steps, [[0,true,8],[1,true,16],[2,true,32],[3,false,32],[4,true,24],[5,true,8],[6,true,32]]);
+    }
     const png = fs.readFileSync(image);
     assert.equal(png.subarray(1, 4).toString(), 'PNG', `${name}: missing capture`);
     assert.deepEqual(saved.map(hash), before, 'Saved settings changed');
@@ -75,7 +87,7 @@ try {
   }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({saved, hashes: before,
     synchronizationValidation: true, performanceMeasured: false, runs}, null, 2) + '\n');
-  console.log(`PASS: five native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
+  console.log(`PASS: nine native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/*.log; rebuild with cargo build --release and retry.\n${help}`);
   process.exitCode = 1;

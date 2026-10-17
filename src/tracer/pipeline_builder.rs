@@ -1344,15 +1344,26 @@ impl PipelineBuilder {
             })
             .expect("leaf shadow static descriptors must resolve from tracer resources");
 
-        let sprinkler_ppl = Self::create_gfx_pipeline(
+        let sprinkler_ppl = Self::create_gfx_pipeline_uninitialized(
             vulkan_ctx,
             &shader_modules.sprinkler_vert_sm,
-            &shader_modules.flora_frag_sm,
+            &shader_modules.apple_pixel_frag_sm,
             &render_passes.render_pass_color_and_depth,
-            Some(5),
+            None,
             pool,
-            &environment_lighting_resources,
+            GraphicsPipelineDesc {
+                cull_mode: vk::CullModeFlags::NONE,
+                depth_test_enable: true,
+                depth_write_enable: true,
+                ..Default::default()
+            },
         );
+        sprinkler_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &environment_lighting_resources,
+            })
+            .expect("sprinkler model environment descriptors");
 
         let static_scene_ppl = Self::create_gfx_pipeline_with_desc(
             vulkan_ctx,
@@ -1782,32 +1793,6 @@ impl PipelineBuilder {
                 final_layout: TextureLayout::GENERAL,
                 ty: AttachmentType::Color,
             }],
-        )
-    }
-
-    fn create_gfx_pipeline(
-        vulkan_ctx: &VulkanContext,
-        vert_sm: &ShaderModule,
-        frag_sm: &ShaderModule,
-        render_pass: &RenderPass,
-        instance_rate_starting_location: Option<u32>,
-        descriptor_pool: &DescriptorPool,
-        resource_containers: &[&dyn ResourceContainer],
-    ) -> GraphicsPipeline {
-        Self::create_gfx_pipeline_with_desc(
-            vulkan_ctx,
-            vert_sm,
-            frag_sm,
-            render_pass,
-            instance_rate_starting_location,
-            descriptor_pool,
-            resource_containers,
-            GraphicsPipelineDesc {
-                cull_mode: vk::CullModeFlags::BACK,
-                depth_test_enable: true,
-                depth_write_enable: true,
-                ..Default::default()
-            },
         )
     }
 
@@ -2450,7 +2435,6 @@ impl PipelineTopology {
             );
         }
         for pipeline in [
-            &self.graphics.sprinkler_ppl,
             &self.graphics.environment_probe_visualization_depth_ppl,
             &self.graphics.environment_probe_visualization_overlay_ppl,
             &self.graphics.dynamic_fruit_ppl,
@@ -2465,6 +2449,7 @@ impl PipelineTopology {
             );
         }
         for pipeline in [
+            &self.graphics.sprinkler_ppl,
             &self.graphics.apple_pixel_dynamic_ppl,
             &self.graphics.tool_model_ppl,
             &self.graphics.butterfly_tile_ppl,
@@ -3101,6 +3086,8 @@ pipeline_collection! {
 
 impl GraphicsPipelines {
     pub fn begin_transient_descriptor_frame(&self, frame_slot: usize) {
+        self.sprinkler_ppl
+            .begin_transient_descriptor_frame(frame_slot);
         self.apple_pixel_dynamic_ppl
             .begin_transient_descriptor_frame(frame_slot);
         self.tool_model_ppl

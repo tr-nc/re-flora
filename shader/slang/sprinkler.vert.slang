@@ -1,74 +1,57 @@
 import color;
 import flora_shadow;
 import flora_types;
+import model_mesh_geometry;
+import model_mesh_lighting;
+import model_mesh_types;
+import model_mesh_view;
+import model_view_quantization;
+import model_surface_cache;
+import model_pixel_types;
+import model_bake_triangle;
 import sprinkler_animation;
 import terrain_edit_preview;
 import tracer_types;
 
-[[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
-[[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
-[[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
-[[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
-[[vk::binding(4, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(6, 0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
-[[vk::binding(15, 0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
-
-static const float ANIMATION_DISTANCE = 1.0 / 256.0;
-
-struct VertexInput
-{
-    [[vk::location(0)]] float3 position : POSITION0;
-    [[vk::location(1)]] float3 surface_position : TEXCOORD0;
-    [[vk::location(2)]] float3 shading_normal : NORMAL0;
-    [[vk::location(3)]] float3 color_srgb : COLOR0;
-    [[vk::location(4)]] float3 animation_direction : TEXCOORD1;
-    [[vk::location(5)]] float3 base_position : TEXCOORD2;
-    [[vk::location(6)]] float animation_phase : TEXCOORD3;
-};
-
-struct VertexOutput
-{
-    float4 position : SV_Position;
-    [[vk::location(0)]] float3 color : COLOR0;
-};
+[[vk::binding(6,0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
+[[vk::binding(15,0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
+[[vk::binding(11,1)]] StructuredBuffer<float4> sprinkler_instances;
+[[vk::binding(18,1)]] StructuredBuffer<float4> sprinkler_model_colors;
+struct SprinklerPart { uint4 range; float4 motion; };
+[[vk::binding(31,1)]] StructuredBuffer<SprinklerPart> sprinkler_parts;
 
 [shader("vertex")]
-VertexOutput main(VertexInput input)
+ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstanceID)
 {
-    VertexOutput output;
-    float extension;
-    bool animateXArms;
-    sprinklerAnimation(flora_growth_info.flora_tick, gui_input.world_tick_seconds,
-                       input.animation_phase, extension, animateXArms);
-    bool isXArm = abs(input.animation_direction.x) > 0.0;
-    bool isZArm = abs(input.animation_direction.z) > 0.0;
-    bool armIsActive = (!isXArm && !isZArm) ||
-        (animateXArms ? isXArm : isZArm);
-    float3 activeDirection = input.animation_direction;
-    if (!armIsActive)
-    {
-        activeDirection.xz = float2(0.0);
+    uint count, stride;
+    sprinkler_parts.GetDimensions(count,stride);
+    SprinklerPart part=sprinkler_parts[instance%count];
+    float4 pose=sprinkler_instances[instance/count];
+    ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
+    float extension; bool alongX;
+    sprinklerAnimation(flora_growth_info.flora_tick,gui_input.world_tick_seconds,pose.w,extension,alongX);
+    float3 translation=sprinklerPartTranslation(part.motion.xyz,extension,alongX);
+    ModelPixelFrame physical=identityModelPixelFrame();
+    physical.center=pose.xyz;
+    float3 position,normal; uint material;
+    CachedModelVertex cached;
+    if(cachedModelVertexTranslated(vertex,part.range.z,5u,physical,float3(0),translation,cached)) {
+        if(!cached.visible)return output;
+        position=cached.position;normal=cached.normal;material=cached.material;
+        output.position=cached.clip;
+    } else {
+        if(vertex>=part.range.y*3u)return output;
+        ButterflyMeshTriangle t=model_mesh_triangles[part.range.x+vertex/3u];
+        ModelPixelFrame rendered=modelMeshViewFrame(physical,float3(0));
+        position=modelViewWorldPoint(rendered,meshPoint(t,vertex%3u))+translation;
+        normal=normalize(modelViewWorldVector(rendered,meshNormal(t,vertex%3u)));
+        material=uint(t.uv2.z+0.5);
+        output.position=mul(camera_info.view_proj_mat,float4(position,1));
     }
-
-    float3 animationOffset = activeDirection * extension * ANIMATION_DISTANCE;
-    float3 worldPosition =
-        input.base_position + input.position + animationOffset;
-    float3 surfacePosition =
-        input.base_position + input.surface_position + animationOffset;
-    output.position = mul(
-        camera_info.view_proj_mat, float4(worldPosition, 1.0));
-
-    float3 baseColor = srgbToLinear(input.color_srgb);
-    float shadowWeight = stylizedVoxelShadowWeight(
-        gui_input,
-        sun_info,
-        shadow_camera_info,
-        surfacePosition,
-        input.shading_normal);
-    float3 litColor = applyStylizedVoxelLighting(
-        gui_input, sun_info, shading_info, baseColor, shadowWeight,
-        surfacePosition, input.shading_normal);
-    output.color = applyTerrainEditPreviewTint(
-        terrain_edit_preview, litColor, surfacePosition);
+    float3 baseColor=srgbToLinear(sprinkler_model_colors[material].xyz);
+    float shadow=stylizedVoxelShadowWeight(gui_input,sun_info,shadow_camera_info,position,normal);
+    float3 color=applyStylizedVoxelLighting(
+        gui_input,sun_info,shading_info,baseColor,shadow,position,normal);
+    output.color=float4(applyTerrainEditPreviewTint(terrain_edit_preview,color,position),1);
     return output;
 }

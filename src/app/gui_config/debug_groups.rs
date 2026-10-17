@@ -117,16 +117,16 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Model View Quantization",
-        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
+        description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies, sprinklers. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
         initially_open: false,
         params: &["model_pixel_view_count"],
     },
     ControlGroup {
         parent: None,
         title: "Model Pixel Pre-cache",
-        description: "Pre-bake finite-view N x N surfaces for flower heads, butterflies and apples. Each object has an independent saved switch and resolution (8-32). Unchecked uses native triangles; both modes share Model direction count. Poses, roll, lighting, growth and flight remain live. Resolution changes rebuild immutable banks asynchronously; native models remain visible until ready. Leaves stay ordinary voxel particles. UI is not pixelized.",
+        description: "Pre-bake finite-view N x N surfaces for flower heads, butterflies, apples and sprinklers. Each object has an independent saved switch and resolution (8-32). Unchecked uses native triangles; both modes share Model direction count. Poses, roll, lighting, growth and flight remain live. Resolution changes rebuild immutable banks asynchronously; native models remain visible until ready. Leaves stay ordinary voxel particles. UI is not pixelized.",
         initially_open: false,
-        params: &["model_flower_cache_enabled", "model_flower_pixel_resolution", "butterfly_cache_enabled", "butterfly_pixel_resolution", "apple_cache_enabled", "apple_pixel_resolution"],
+        params: &["model_flower_cache_enabled", "model_flower_pixel_resolution", "butterfly_cache_enabled", "butterfly_pixel_resolution", "apple_cache_enabled", "apple_pixel_resolution", "sprinkler_cache_enabled", "sprinkler_pixel_resolution"],
     },
     ControlGroup {
         parent: Some("Wind"),
@@ -182,6 +182,8 @@ const PIXEL_MODEL_CONTROLS: &[(&str, &str)] = &[
     ("Debug", "apple_cache_enabled"),
     ("Debug", "butterfly_cache_enabled"),
     ("Debug", "model_flower_cache_enabled"),
+    ("Debug", "sprinkler_cache_enabled"),
+    ("Debug", "sprinkler_pixel_resolution"),
     ("Debug", "apple_pixel_resolution"),
     ("Butterflies", "butterfly_pixel_resolution"),
     ("Flora", "model_flower_pixel_resolution"),
@@ -521,8 +523,8 @@ mod tests {
             .find(|g| g.title == "Model Pixel Pre-cache")
             .unwrap();
         assert_eq!(global.parent, None);
-        assert_eq!(global.params.len(), 6);
-        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 6);
+        assert_eq!(global.params.len(), 8);
+        assert_eq!(PIXEL_MODEL_CONTROLS.len(), 8);
         let config: crate::app::gui_config_model::GuiConfigFile =
             toml::from_str(include_str!("../../../config/gui.toml")).unwrap();
         for &(section, id) in PIXEL_MODEL_CONTROLS {

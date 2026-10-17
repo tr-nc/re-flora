@@ -1,5 +1,4 @@
-//! Immutable native triangles shared by model draws, with no sampled surface
-//! cache, view bins, tiles or per-model depth reconstruction.
+//! Immutable authored triangles and framing metadata shared by native draws and surface baking.
 use crate::{
     flora::models::{self, Shape},
     model_assets,
@@ -79,6 +78,15 @@ impl FlowerPart {
         self.stem[3] * self.distribution[1]
     }
 }
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(super) struct SprinklerPart {
+    /// Triangle start/count, cache source, reserved.
+    pub range: [u32; 4],
+    /// World-space displacement per unit extension, no animation baked into the source.
+    pub motion: [f32; 4],
+}
+
 #[derive(Clone)]
 pub(super) struct Source {
     pub triangles: Vec<Triangle>,
@@ -87,6 +95,9 @@ pub(super) struct Source {
     pub flower_parts: Vec<FlowerPart>,
     pub soil_bag_sources: [u32; 2],
     pub soil_bag_palette: u32,
+    pub sprinkler_parts: Vec<SprinklerPart>,
+    /// Explicit shared framing for articulated parts or fixed-size animated sources.
+    pub cache_bounds: Vec<Option<(Vec3, f32)>>,
     flower_root_radius: f32,
     flower_spawn_height: f32,
 }
@@ -281,6 +292,79 @@ pub(super) fn source(shape: Shape) -> Source {
         });
         [color[0], color[1], color[2], 0.]
     }));
+    // Separate rigid parts preserve surfaces revealed by live motion. All six
+    // parts share ONE whole-prop grid size, not six independently fitted grids.
+    let (vertices, indices) = super::sprinkler_mesh::build_sprinkler_mesh();
+    let mut motions = Vec::<[f32; 3]>::new();
+    let mut colors = Vec::<[f32; 3]>::new();
+    for vertex in &vertices {
+        if !motions.contains(&vertex.animation_direction) {
+            motions.push(vertex.animation_direction);
+        }
+        if !colors.contains(&vertex.color_srgb) {
+            colors.push(vertex.color_srgb);
+        }
+    }
+    let palette_start = palette.len() as u32;
+    palette.extend(colors.iter().map(|c| [c[0], c[1], c[2], 0.]));
+    let sprinkler_parts: Vec<_> = motions
+        .iter()
+        .map(|motion| {
+            let first = triangles.len() as u32;
+            for ids in indices.chunks_exact(3) {
+                let ids = [ids[0] as usize, ids[1] as usize, ids[2] as usize];
+                if vertices[ids[0]].animation_direction != *motion {
+                    continue;
+                }
+                assert!(ids
+                    .iter()
+                    .all(|&i| vertices[i].animation_direction == *motion));
+                let material = palette_start
+                    + colors
+                        .iter()
+                        .position(|c| *c == vertices[ids[0]].color_srgb)
+                        .unwrap() as u32;
+                triangles.push(triangle(
+                    ids.map(|i| Vec3::from_array(vertices[i].position)),
+                    ids.map(|i| Vec3::from_array(vertices[i].shading_normal)),
+                    [Vec2::ZERO; 3],
+                    material,
+                ));
+            }
+            let source = ranges.len() as u32;
+            let count = triangles.len() as u32 - first;
+            ranges.push([first, count, 5, 0]);
+            SprinklerPart {
+                range: [first, count, source, 0],
+                motion: (Vec3::from_array(*motion) * crate::sprinkler::WORLD_SCALE)
+                    .extend(0.)
+                    .to_array(),
+            }
+        })
+        .collect();
+    let min = vertices
+        .iter()
+        .map(|v| Vec3::from_array(v.position))
+        .reduce(Vec3::min)
+        .unwrap();
+    let max = vertices
+        .iter()
+        .map(|v| Vec3::from_array(v.position))
+        .reduce(Vec3::max)
+        .unwrap();
+    let center = (min + max) * 0.5;
+    let radius = vertices
+        .iter()
+        .map(|v| Vec3::from_array(v.position).distance(center))
+        .fold(0f32, f32::max)
+        * 1.01;
+    let mut cache_bounds = vec![None; ranges.len()];
+    for frame in 0..ANIMATION_FRAMES {
+        cache_bounds[(BUTTERFLY_SOURCE_BASE + frame) as usize] = Some((Vec3::ZERO, 1.7));
+    }
+    for part in &sprinkler_parts {
+        cache_bounds[part.range[2] as usize] = Some((center, radius));
+    }
     Source {
         triangles,
         ranges,
@@ -288,6 +372,8 @@ pub(super) fn source(shape: Shape) -> Source {
         flower_parts,
         soil_bag_sources,
         soil_bag_palette,
+        sprinkler_parts,
+        cache_bounds,
         flower_root_radius,
         flower_spawn_height,
     }
@@ -311,6 +397,41 @@ mod tests {
         assert_eq!(geometry.ranges[APPLE_SOURCE as usize][1], 780);
         assert_eq!(geometry.flower_parts.len(), models::flowers().len() * 4);
     }
+    #[test]
+    fn sprinkler_parts_partition_authored_geometry_without_baking_animation() {
+        let g = source(Shape::default());
+        let (vertices, indices) = super::super::sprinkler_mesh::build_sprinkler_mesh();
+        assert_eq!(g.cache_bounds.len(), g.ranges.len());
+        assert_eq!(g.sprinkler_parts.len(), 6);
+        assert_eq!(std::mem::size_of::<SprinklerPart>(), 32);
+        assert_eq!(
+            g.sprinkler_parts
+                .iter()
+                .map(|p| p.range[1] as usize * 3)
+                .sum::<usize>(),
+            indices.len()
+        );
+        for part in &g.sprinkler_parts {
+            let motion = Vec3::from_slice(&part.motion) / crate::sprinkler::WORLD_SCALE;
+            let source_vertices = vertices
+                .iter()
+                .filter(|v| Vec3::from_array(v.animation_direction).distance(motion) < 1e-6)
+                .collect::<Vec<_>>();
+            assert_eq!(source_vertices.len(), part.range[1] as usize * 3);
+            let triangles = &g.triangles[part.range[0] as usize..][..part.range[1] as usize];
+            for (t, original) in triangles.iter().zip(source_vertices.chunks_exact(3)) {
+                let a = Vec3::from_slice(&t.a);
+                for (p, v) in [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)]
+                    .iter()
+                    .zip(original)
+                {
+                    assert!(p.distance(Vec3::from_array(v.position)) < 1e-8);
+                }
+                assert_eq!(&g.palette[t.uv2[2] as usize][..3], &original[0].color_srgb);
+            }
+        }
+    }
+
     #[test]
     fn animation_source_ids_remain_bounded_and_loop() {
         assert_eq!(animation_frame(0.), animation_frame(1.));
