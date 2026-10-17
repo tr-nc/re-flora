@@ -25,6 +25,7 @@ mod static_scene;
 use mower_resources::MowerRendererResources;
 pub use static_scene::StaticSceneMesh;
 use static_scene::StaticSceneResources;
+mod sprinkler_mesh;
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
 

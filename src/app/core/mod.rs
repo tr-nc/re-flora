@@ -43,6 +43,7 @@ mod soil_bag_preview;
 mod soil_bag_review;
 mod soil_deposition;
 mod soil_performance_bench;
+mod sprinkler_review;
 mod terrain_picking;
 mod tree_kick;
 pub(crate) use lighting_mode_acceptance::{
@@ -509,6 +510,7 @@ pub struct App {
     butterfly_foraging_review: Option<butterfly_foraging_review::Review>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
+    sprinkler_review: Option<sprinkler_review::Review>,
     climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
@@ -1628,6 +1630,7 @@ impl App {
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
+            sprinkler_review: sprinkler_review::Review::from_env()?,
             climbing_plants: Default::default(),
             particle_animation_time_sec: 0.0,
             water,
@@ -2615,6 +2618,8 @@ impl App {
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
                 let tree_age_before_gui = self.debug_settings.adjustables.tree_age.value;
                 let fruit_cycle_before_gui = self.debug_settings.adjustables.fruit_cycle.value;
+                self.prepare_sprinkler_review()
+                    .expect("sprinkler model review fixture");
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
                 self.prepare_apple_pixel_review();

@@ -11,6 +11,10 @@ pub(super) struct PlantableSurfaceAnchor {
 }
 
 impl PlantableSurfaceAnchor {
+    pub(super) fn surface_position_ws(self) -> Vec3 {
+        self.surface_position_ws
+    }
+
     pub(super) fn base_world_vox(self) -> UVec3 {
         self.base_world_vox
     }

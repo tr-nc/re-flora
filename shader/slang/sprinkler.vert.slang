@@ -1,6 +1,7 @@
 import color;
 import flora_shadow;
 import flora_types;
+import sprinkler_animation;
 import terrain_edit_preview;
 import tracer_types;
 
@@ -12,13 +13,12 @@ import tracer_types;
 [[vk::binding(6, 0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(15, 0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
 
-static const float CAP_MOTION_SECONDS = 1.0;
 static const float ANIMATION_DISTANCE = 1.0 / 256.0;
 
 struct VertexInput
 {
     [[vk::location(0)]] float3 position : POSITION0;
-    [[vk::location(1)]] float3 voxel_center : TEXCOORD0;
+    [[vk::location(1)]] float3 surface_position : TEXCOORD0;
     [[vk::location(2)]] float3 shading_normal : NORMAL0;
     [[vk::location(3)]] float3 color_srgb : COLOR0;
     [[vk::location(4)]] float3 animation_direction : TEXCOORD1;
@@ -32,31 +32,14 @@ struct VertexOutput
     [[vk::location(0)]] float3 color : COLOR0;
 };
 
-void sprinklerAnimation(float animationPhase,
-                         out float extension,
-                         out bool animateXArms)
-{
-    float tickSeconds = max(gui_input.world_tick_seconds, 1.0 / 240.0);
-    uint pairCycleTicks = max(
-        uint(round(CAP_MOTION_SECONDS / tickSeconds)), 2u);
-    uint fullCycleTicks = pairCycleTicks * 2u;
-    uint phaseOffsetTicks = uint(round(
-        frac(animationPhase) * float(fullCycleTicks)));
-    uint cycleTick =
-        (flora_growth_info.flora_tick + phaseOffsetTicks) % fullCycleTicks;
-    animateXArms = cycleTick >= pairCycleTicks;
-    uint pairTick = cycleTick % pairCycleTicks;
-    float pairPhase = float(pairTick) / float(pairCycleTicks);
-    extension = 0.5 - 0.5 * cos(pairPhase * 6.28318530718);
-}
-
 [shader("vertex")]
 VertexOutput main(VertexInput input)
 {
     VertexOutput output;
     float extension;
     bool animateXArms;
-    sprinklerAnimation(input.animation_phase, extension, animateXArms);
+    sprinklerAnimation(flora_growth_info.flora_tick, gui_input.world_tick_seconds,
+                       input.animation_phase, extension, animateXArms);
     bool isXArm = abs(input.animation_direction.x) > 0.0;
     bool isZArm = abs(input.animation_direction.z) > 0.0;
     bool armIsActive = (!isXArm && !isZArm) ||
@@ -70,8 +53,8 @@ VertexOutput main(VertexInput input)
     float3 animationOffset = activeDirection * extension * ANIMATION_DISTANCE;
     float3 worldPosition =
         input.base_position + input.position + animationOffset;
-    float3 voxelCenter =
-        input.base_position + input.voxel_center + animationOffset;
+    float3 surfacePosition =
+        input.base_position + input.surface_position + animationOffset;
     output.position = mul(
         camera_info.view_proj_mat, float4(worldPosition, 1.0));
 
@@ -80,12 +63,12 @@ VertexOutput main(VertexInput input)
         gui_input,
         sun_info,
         shadow_camera_info,
-        voxelCenter,
+        surfacePosition,
         input.shading_normal);
     float3 litColor = applyStylizedVoxelLighting(
         gui_input, sun_info, shading_info, baseColor, shadowWeight,
-        voxelCenter, input.shading_normal);
+        surfacePosition, input.shading_normal);
     output.color = applyTerrainEditPreviewTint(
-        terrain_edit_preview, litColor, voxelCenter);
+        terrain_edit_preview, litColor, surfacePosition);
     return output;
 }
