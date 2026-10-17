@@ -336,6 +336,19 @@ float ddgiNominalTrilinearPositionWeight(float3 fragmentInCell,
     return axial.x * axial.y * axial.z;
 }
 
+public float ddgiSurfaceSideWeight(float surfaceAlignment, uint spatialWeightMode)
+{
+    // Air has no surface side. In particular, a coplanar probe remains usable;
+    // two opposing surface queries would both reject it at alignment zero.
+    if ((spatialWeightMode & 4u) != 0u) return 1.0;
+    if ((spatialWeightMode & 2u) != 0u)
+    {
+        float wrapShading = (surfaceAlignment + 1.0) * 0.5;
+        return wrapShading * wrapShading + 0.2;
+    }
+    return sqrt(max(0.0, surfaceAlignment));
+}
+
 float3 ddgiNormalizedSurfaceNormal(float3 surfaceNormal)
 {
     float normalLengthSquared = dot(surfaceNormal, surfaceNormal);
@@ -479,22 +492,8 @@ DdgiProbeContribution getDdgiUnoccludedSpatialWeightProbeContributionAt(
         ? surfaceToProbe * rsqrt(distanceSquared)
         : normal;
     float surfaceAlignment = dot(normal, surfaceToProbeDirection);
-    float surfaceSideWeight;
-    if ((spatialWeightMode & 4u) != 0u)
-    {
-        surfaceSideWeight = 1.0;
-    }
-    else if ((spatialWeightMode & 2u) != 0u)
-    {
-        // RTXGI's wrap-shading component only. Keep the existing support and
-        // exact/moment visibility gates unchanged for this diagnosis.
-        float wrapShading = (surfaceAlignment + 1.0) * 0.5;
-        surfaceSideWeight = wrapShading * wrapShading + 0.2;
-    }
-    else
-    {
-        surfaceSideWeight = sqrt(max(0.0, surfaceAlignment));
-    }
+    float surfaceSideWeight = ddgiSurfaceSideWeight(
+        surfaceAlignment, spatialWeightMode);
     contribution.surface_side_weight = surfaceSideWeight;
     if (surfaceSideWeight <= DDGI_QUERY_WEIGHT_EPSILON)
     {
@@ -1170,6 +1169,70 @@ public DdgiQueryResult sampleDdgiTerrainSmoothEnvironment(
         ddgiConsumerQueryInfo(lighting), ddgi_irradiance_atlas,
         receiverWorldPosition, positionWeightWorldPosition,
         surfaceNormal, true);
+}
+
+// Directional atlas values store diffuse irradiance / pi. Their spherical
+// average is mean incident radiance; six opposing axes provide an isotropic
+// approximation without choosing a fictitious surface normal for the medium.
+float3 ddgiIsotropicProbeRadiance(uint probeIndex, DdgiQueryInfo query)
+{
+    return (
+        sampleDdgiProbeIrradiance(probeIndex, float3(1,0,0), query.irradiance_tile_columns, ddgi_irradiance_atlas) +
+        sampleDdgiProbeIrradiance(probeIndex, float3(-1,0,0), query.irradiance_tile_columns, ddgi_irradiance_atlas) +
+        sampleDdgiProbeIrradiance(probeIndex, float3(0,1,0), query.irradiance_tile_columns, ddgi_irradiance_atlas) +
+        sampleDdgiProbeIrradiance(probeIndex, float3(0,-1,0), query.irradiance_tile_columns, ddgi_irradiance_atlas) +
+        sampleDdgiProbeIrradiance(probeIndex, float3(0,0,1), query.irradiance_tile_columns, ddgi_irradiance_atlas) +
+        sampleDdgiProbeIrradiance(probeIndex, float3(0,0,-1), query.irradiance_tile_columns, ddgi_irradiance_atlas)) / 6.0;
+}
+
+float3 ddgiIsotropicGlobalSkyRadiance()
+{
+    return (sampleDdgiGlobalSky(float3(1,0,0)) + sampleDdgiGlobalSky(float3(-1,0,0)) +
+            sampleDdgiGlobalSky(float3(0,1,0)) + sampleDdgiGlobalSky(float3(0,-1,0)) +
+            sampleDdgiGlobalSky(float3(0,0,1)) + sampleDdgiGlobalSky(float3(0,0,-1))) / 6.0;
+}
+
+public DdgiQueryResult sampleDdgiVolumeEnvironment(
+    U_ShadingInfo lighting, float3 worldPosition)
+{
+    DdgiQueryResult result = makeEmptyDdgiQueryResult();
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    // A volume receiver has neither a surface-side gate nor a normal bias.
+    query.visibility_bias_world = 0.0;
+    uint domain = ddgiQueryDomain(query, worldPosition);
+    if (domain == DDGI_QUERY_DOMAIN_INVALIDATED) return result;
+    if (domain == DDGI_QUERY_DOMAIN_GLOBAL_SKY)
+    {
+        result.irradiance = ddgiIsotropicGlobalSkyRadiance();
+        result.mean_visibility = 1.0;
+        return result;
+    }
+    [unroll]
+    for (uint z = 0u; z < 2u; ++z)
+    {
+        [unroll]
+        for (uint y = 0u; y < 2u; ++y)
+        {
+            [unroll]
+            for (uint x = 0u; x < 2u; ++x)
+            {
+                DdgiProbeContribution contribution =
+                    getDdgiMomentSpatialWeightProbeContributionAt(
+                        query, worldPosition, worldPosition, float3(0,1,0),
+                        uint3(x,y,z), DDGI_SPATIAL_WEIGHT_NOMINAL_NO_SURFACE,
+                        ddgi_irradiance_atlas);
+                if (contribution.trustworthy)
+                    contribution.irradiance = ddgiIsotropicProbeRadiance(
+                        contribution.probe_index, query);
+                accumulateDdgiContribution(result, contribution,
+                    contribution.moment_visibility);
+            }
+        }
+    }
+    // Preserve ordinary field readiness, relocation/support validation, moment
+    // visibility and confidence-aware fail-closed normalization.
+    finalizeDdgiMomentQueryResult(result);
+    return result;
 }
 
 public DdgiQueryResult sampleDdgiDiffuseEnvironment(

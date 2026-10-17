@@ -12,10 +12,11 @@ Check the sprinkler model, surface cache, continuous mist and placement lifecycl
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
 live cache/resolution controls. Checks actual cached draws, not just saved values.
---mist selects twelve optical checks instead: back/front light, zero density, inside,
+--mist selects fourteen optical checks instead: back/front light, zero density, inside,
 wall occlusion, night, live density, particles off, god rays off, shadows off, resize,
-and placement lifecycle. Also verifies zero water particles and real watering brushes
-at zero, normal and strong optical density. It does not measure performance.
+placement lifecycle, and a matched on/off low-angle hilly-terrain seam regression.
+Also verifies zero water particles and real watering brushes at zero, normal and strong
+optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
 Requires a current Release binary, a Vulkan desktop session, and the Khronos
 validation layer (set VK_LAYER_PATH or VULKAN_SDK if it is not installed globally).
@@ -44,6 +45,35 @@ const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root,
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
 const before = saved.map(hash);
 const runs = [];
+let mistSeam;
+function checkMistSeam(on, off) {
+  const pixels = [on, off].map(file => {
+    const result = spawnSync('magick', [file, '-alpha', 'off', '-resize', '960x540!',
+      '-depth', '8', 'rgb:-'], {maxBuffer: 8*1024*1024});
+    assert.equal(result.status, 0, 'mist seam check needs ImageMagick: install magick and retry --mist');
+    return result.stdout;
+  });
+  // The hillside patch is behind the mist and above the nozzle, without flora
+  // or HUD. Matched subtraction removes terrain detail; a continuous medium must
+  // not acquire a thin dark slice when its receiver crosses a DDGI probe layer.
+  const rows = Array.from({length: 540}, (_, y) => {
+    let sum = 0;
+    for (let x=360; x<450; ++x) for (let c=0; c<3; ++c) {
+      const offset=(y*960+x)*3+c;
+      sum+=(pixels[0][offset]-pixels[1][offset])*[0.2126,0.7152,0.0722][c];
+    }
+    return sum/90;
+  });
+  let peak = {row: 0, drop: 0, relativeDrop: 0};
+  for (let y=285; y<320; ++y) {
+    const neighbors=(rows[y-3]+rows[y+3])/2;
+    const drop=neighbors-rows[y], relativeDrop=drop/Math.max(Math.abs(neighbors),1);
+    if (drop>peak.drop && relativeDrop>0.25) peak={row:y,drop,relativeDrop};
+  }
+  assert.ok(peak.drop<=1.8,
+    `horizontal mist seam: ${peak.drop.toFixed(3)} display levels at row ${peak.row}; expected a smooth profile (<=1.8)`);
+  return peak;
+}
 try {
   fs.mkdirSync(settings, {recursive: true});
   fs.writeFileSync(path.join(settings, 'vk_layer_settings.txt'),
@@ -52,7 +82,8 @@ try {
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
   const cases = mist
     ? ['mist-back', 'mist-front', 'mist-off', 'mist-inside', 'mist-wall', 'mist-night',
-       'mist-controls', 'mist-no-particles', 'mist-no-god-rays', 'mist-no-shadows', 'mist-resize', 'lifecycle']
+       'mist-controls', 'mist-no-particles', 'mist-no-god-rays', 'mist-no-shadows', 'mist-resize', 'lifecycle',
+       'mist-level', 'mist-level-off']
     : ['near', 'garden', 'orbit', 'lifecycle', 'near-dense', 'pixels-8', 'pixels-16', 'pixels-32', 'controls'];
   for (const name of cases) {
     const extraArgs = {
@@ -74,7 +105,8 @@ try {
     const image = path.join(output, `${name}.png`);
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
-    const result = spawnSync(binary, ['--flat-terrain', '--hidden', '--mute', ...(mist ? ['--perf'] : []),
+    const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
+      '--hidden', '--mute', ...(mist ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -103,7 +135,7 @@ try {
         'watering did not record brushes at every mist density');
     }
     if (name === 'mist-no-particles') assert.match(log, /particles_enabled=false/);
-    if (mist && name === 'mist-off') assert.doesNotMatch(log, /sprinkler_mist.pass=/);
+    if (mist && name.endsWith('-off')) assert.doesNotMatch(log, /sprinkler_mist.pass=/);
     else if (mist) assert.match(log, /sprinkler_mist.pass=/);
     if (name === 'mist-resize') {
       assert.match(log, /RESIZE_LIFECYCLE\] phase=requests_complete count=5/);
@@ -117,8 +149,9 @@ try {
     runs.push({name, dimensions: [png.readUInt32BE(16), png.readUInt32BE(20)],
       validationErrors: 0, framesChecked: 180, image: path.relative(root, image)});
   }
+  if (mist) mistSeam = checkMistSeam(path.join(output, 'mist-level.png'), path.join(output, 'mist-level-off.png'));
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({saved, hashes: before,
-    synchronizationValidation: true, performanceMeasured: false, runs}, null, 2) + '\n');
+    synchronizationValidation: true, performanceMeasured: false, mistSeam, runs}, null, 2) + '\n');
   console.log(`PASS: ${runs.length} native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/*.log; rebuild with cargo build --release and retry.\n${help}`);

@@ -31,8 +31,8 @@ impl Review {
             return Ok(None);
         };
         ensure!(
-            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls" | "mist-back" | "mist-front" | "mist-off" | "mist-inside" | "mist-controls" | "mist-wall" | "mist-night"),
-            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32, controls, mist-back, mist-front, mist-off, mist-inside, mist-controls, mist-wall or mist-night"
+            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls" | "mist-back" | "mist-front" | "mist-off" | "mist-inside" | "mist-controls" | "mist-wall" | "mist-night" | "mist-level" | "mist-level-off"),
+            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32, controls, mist-back, mist-front, mist-off, mist-inside, mist-controls, mist-wall, mist-night, mist-level or mist-level-off"
         );
         Ok(Some(Self {
             mode,
@@ -93,6 +93,8 @@ impl App {
             review.base = Some(base);
             self.set_manual_time_of_day(if review.mode == "mist-night" {
                 0.0
+            } else if review.mode.starts_with("mist-level") {
+                0.43
             } else if review.mode.starts_with("mist-") {
                 0.30
             } else {
@@ -142,7 +144,7 @@ impl App {
                 } else {
                     3. / 256.
                 };
-        if review.mode == "mist-off" {
+        if matches!(review.mode.as_str(), "mist-off" | "mist-level-off") {
             self.debug_settings.adjustables.sprinkler_mist_density.value = 0.0;
         }
         if review.mode == "mist-controls" {
@@ -171,6 +173,7 @@ impl App {
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
             "mist-wall" => Vec3::new(-0.55, 0.07, -0.392),
+            "mist-level" | "mist-level-off" => Vec3::new(-0.30, -0.020, -0.214),
             "mist-front" => sun * 0.36,
             "mist-inside" => Vec3::new(-0.015, 0.015, -0.025),
             "orbit" => {

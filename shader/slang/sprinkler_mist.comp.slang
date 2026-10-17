@@ -67,10 +67,9 @@ void main(uint3 id:SV_DispatchThreadID)
         float2 interval;
         if(!mistRayInterval(ray.origin,ray.direction,center,radii,distance,interval))continue;
         float3 midpoint=ray.origin+ray.direction*((interval.x+interval.y)*0.5);
-        // Opposing diffuse queries approximate isotropic incident light and keep
-        // shade/local lighting consistent with the live environment publication.
-        float3 ambient=0.5*(sampleDdgiDiffuseEnvironment(shading_info,midpoint,float3(0,1,0)).irradiance+
-                            sampleDdgiDiffuseEnvironment(shading_info,midpoint,float3(0,-1,0)).irradiance);
+        // Air has no surface normal. Opposing surface queries both lose their
+        // support on coplanar probe layers, producing thin dark bands.
+        float3 ambient=sampleDdgiVolumeEnvironment(shading_info,midpoint).irradiance;
         const uint STEPS=12u;
         float step=(interval.y-interval.x)/float(STEPS);
         float localDepth=0.0,litDepth=0.0;
