@@ -159,7 +159,49 @@ cargo build --release
 env -u WAYLAND_DISPLAY WINIT_UNIX_BACKEND=x11 node scripts/validate-sprinkler-model.mjs --flow --seconds 6
 ```
 
-`--flow` 需要 ImageMagick；它检查实际 GPU 结果、悬崖图像传递和同步，不是性能基准。新模式的人口计时应另外关闭验证层测量。
+`--flow` 需要 ImageMagick；它检查实际 GPU 结果、悬崖图像传递和同步，不是性能基准。
+
+## 独立 Release 性能初测（2026-10-18）
+
+产品实现为 `2b20f74a`，本次后续改动只调整专用人口 fixture 的起点、中心和取景，让整组 16／64／256 实例与雾的余量留在体素域内并可见；普通游戏相机不变。fixture 的 `cargo fmt --check`、`cargo check`、17 个 sprinkler 定向测试与 Release 构建通过。设备为 RTX 3060 Ti，X11，原生隐藏窗口、静音、自动 present mode、模型缓存 32、默认雾密度 1。使用现有 `--features no_validation_layer` 构建真正不加载 Khronos 层的独立 Release 测量副本，loader 日志确认没有插入该层；未用验证模式的耗时替代测量。
+
+每条样本来自 `GPU_FRAME_SCOPE` 的真实 GPU 时间戳；丢弃 `Loading complete; first game frame ready` 后前三秒。`prepare` 同时包含轨迹重建、碰撞和每核光照，**不是单独碰撞时间**；`tiles` 为屏幕掩码；`pass` 为积分（含近地形有限核裁剪）与合成。未做关闭地形交互的匹配微基准，不能单独归因纯碰撞或核裁剪的费用。总雾耗时先在每帧把这三段相加，再算分位数，不把分段 P95 简单相加。12 秒的单实例／16／64 场景，45 秒分散 256、120 秒重叠 256；样本数有限，属于初测而非最终接纳。
+
+| 场景 | 屏幕 / 场景像素 | GPU 样本 | prepare 中位数 ms | tiles 中位数 ms | pass 中位数 ms | 雾总计中位数 / P95 ms | 整帧 GPU 中位数 ms |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 原椭球 1，A | 5120×2880 / 1024×576 | 18 | — | — | 0.148 | 0.148 / 0.152 | 5.805 |
+| 新传播 1，A | 同上 | 18 | 0.201 | 0.003 | 0.136 | 0.340 / 0.751 | 6.058 |
+| 新传播 1，B | 同上 | 17 | 0.207 | 0.003 | 0.133 | 0.349 / 1.165 | 5.777 |
+| 原椭球 1，B | 同上 | 17 | — | — | 0.152 | 0.152 / 0.183 | 5.829 |
+| 新传播 16，完整取景 | 4096×2560 / 820×512 | 15 | 0.181 | 0.006 | 0.696 | 0.880 / 0.952 | 9.481 |
+| 新传播 64，完整取景 | 同上 | 12 | 0.165 | 0.008 | 1.266 | 1.440 / 1.471 | 18.140 |
+| 新传播 256，完整取景 | 同上 | 49 | 0.166 | 0.012 | 1.209 | 1.386 / 1.661 | 23.716 |
+| 新传播 256，近景集中重叠 | 同上 | 42 | 0.159 | 0.010 | 25.636 | 25.802 / 40.357 | 76.775 |
+
+限制与结论：
+
+- 同分辨率的单实例 A/B 中，新传播雾总计中位数比旧椭球增加约 **0.19–0.20 ms**；新模式的扩散、下垂与阻挡不是免费的。单实例 P95 出现较大波动，不能只引用中位数保证恒定耗时。
+- 分散人口场景随人数自动后退并居中，表中非单调结果体现取景／屏幕覆盖差异，不证明每个实例的成本下降；未做匹配人口的零密度与原椭球基线，也不能把整帧人口增幅全算成雾。整帧还包括原有浇水、阴影、植被、后处理和原生 UI 等。
+- **256 个高度重叠的近景仍明显昂贵，不能宣称 256 实例任意场景性能已接纳。** 该 fixture 的积分／局部裁剪／合成段占主要雾成本，准备段不是瓶颈；这不代表已经拆分出所有碰撞相关费用。后续若优化，应针对投影覆盖与重叠做 LOD／保量合并或有界候选，而不是去掉地形约束或把所有雾统一变淡。先交玩家确认形态，不把这个问题藏起来。
+- 测量中最高分辨率显示器的可用性发生变化；每次运行均记录真实尺寸。第一组旧／新 1 的四次均为 5120×2880，可互比；人口组均为 4096×2560。`off-a` 的整帧中位数 5.157 ms，而 `off-b` 已变为 4096×2560，**排除后者的配对比较，不据此声称整帧净开销**。
+- 最初仅用 loader 过滤必选验证层会使默认构建启动报 `ERROR_LAYER_NOT_PRESENT`；改用仓库已有 `no_validation_layer` feature 后才采集上述测量。256 的短跑还曾因 fixture 放置耗尽启动时间而没有稳态样本，延长到上述时长重测；启动等待不计作雾 GPU 时间。
+- 另用恢复后的默认 Release 构建，对分散／重叠两个 256 场景各跑 60 秒 Khronos 同步验证：实际缓存绘制均为 256、完整通过 180 帧的实例发布断言、无 Vulkan 同步／资源错误并正常退出。因此累计 **47 次**隐藏 Release 正确性检查通过；这不把极端重叠性能问题变成通过。
+
+原始逐帧 scope、尺寸、统计、完整日志与截图：`target/sprinkler-mist-flow/perf/summary.json` 及同目录。测量脚本是该目录中的临时 `measure.mjs`，不是普通测试。补充同步日志为 `target/sprinkler-mist-flow/mist-{pop,overlap}-256-validation.log`。测量后已恢复 `cargo build --release` 默认构建并跑标准隐藏静音 smoke；GUI／相机哈希未变化。
+
+复现单个人口场景（先正确构建无验证层版本，测完恢复用户用的默认版本）：
+
+```sh
+cargo build --release --features no_validation_layer
+env -u WAYLAND_DISPLAY -u VK_INSTANCE_LAYERS -u VK_LOADER_LAYERS_ENABLE \
+  WINIT_UNIX_BACKEND=x11 VK_LOADER_LAYERS_DISABLE=VK_LAYER_KHRONOS_validation \
+  RE_FLORA_SPRINKLER_REVIEW=mist-pop-256 \
+  RUST_LOG=warn,re_flora=info,re_flora_vkn=info \
+  target/release/re-flora --hidden --mute --flat-terrain --perf --auto-exit 45
+cargo build --release
+```
+
+重叠 fixture 改为 `mist-overlap-256`、`--auto-exit 120`；保持配置与实际屏幕尺寸一致再比较。运行时 A/B 开关供观感比较，不能用两次不同取景的数字推导固定性能保证。
 
 ## 来源
 

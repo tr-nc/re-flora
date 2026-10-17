@@ -130,6 +130,11 @@ impl App {
                 self.stamp_sprinkler_review_box(lo, hi, crate::builder::VOXEL_TYPE_ROCK)?;
                 base.y = (hi.y * 256.0).ceil() / 256.0;
             }
+            if review.mode.starts_with("mist-pop-") {
+                // Keep the complete population and its mist margins inside the voxel domain.
+                base.x = 0.60;
+                base.z = 0.60;
+            }
             self.apply_sprinkler_placement(base)?;
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
                 let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
@@ -251,13 +256,18 @@ impl App {
             }
         }
         let base = review.base.unwrap();
-        let target = base
+        let mut target = base
             + Vec3::Y
                 * if review.mode.starts_with("mist-") {
                     0.075
                 } else {
                     3. / 256.
                 };
+        if review.mode.starts_with("mist-pop-") {
+            let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
+            let span = ((count as f32).sqrt().ceil() - 1.0) * 0.17;
+            target += Vec3::new(span * 0.5, 0.0, span * 0.5);
+        }
         if review.mode.ends_with("-off") {
             self.debug_settings.adjustables.sprinkler_mist_density.value = 0.0;
         }
@@ -316,7 +326,11 @@ impl App {
             "mist-thin-wall" | "mist-thin-wall-off" | "mist-edit" | "mist-corner"
             | "mist-corner-off" => Vec3::new(0.55, 0.05, 0.40),
             "mist-roof" | "mist-roof-off" => Vec3::new(0.55, -0.04, 0.40),
-            "mist-pop-16" | "mist-pop-64" | "mist-pop-256" => Vec3::new(1.7, 1.4, 1.9),
+            "mist-pop-16" | "mist-pop-64" | "mist-pop-256" => {
+                let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
+                let span = ((count as f32).sqrt().ceil() - 1.0) * 0.17;
+                Vec3::new(0.75, 0.55, 0.90) * (span / 0.90).max(0.8)
+            }
             "mist-overlap-256" => Vec3::new(0.50, 0.10, 0.42),
             "mist-inside" => Vec3::new(-0.015, 0.015, -0.025),
             "orbit" => {
