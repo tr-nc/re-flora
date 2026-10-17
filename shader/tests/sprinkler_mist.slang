@@ -55,5 +55,21 @@ export __extern_cpp int main()
     float3 lit=compositeMedium(float3(0.1),0.1,float3(mistPhase(1)));
     float3 front=compositeMedium(float3(0.1),0.1,float3(mistPhase(-1)));
     if(any(lit<=front))return 20;
+    // Readable ordinary angles without concentrating energy into a white
+    // sun-facing flash. Both lobes still integrate to one (checked above).
+    if(mistPhase(-1)<0.03 || mistPhase(0)<0.04)return 21;
+    if(mistPhase(1)>1.0)return 22;
+    // The central path must visibly transfer light at the normal setting, but
+    // retain at least half the background rather than becoming a smoke wall.
+    for(uint phase=0;phase<4;++phase)for(uint t=0;t<16;++t) {
+        float tau=0.0;
+        for(uint step=0;step<64;++step) {
+            float z=-r.z+(float(step)+0.5)*(2*r.z/64);
+            tau+=mistDensityAt(c+float3(0,0,z),base,c,r,float(t)*0.5,float(phase)*0.25)*
+                (2*r.z/64)*MIST_EXTINCTION;
+        }
+        float transmittance=exp(-tau);
+        if(transmittance<0.5 || transmittance>0.88)return 23;
+    }
     return 0;
 }

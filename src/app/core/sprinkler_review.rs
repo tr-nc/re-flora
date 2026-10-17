@@ -31,8 +31,8 @@ impl Review {
             return Ok(None);
         };
         ensure!(
-            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls" | "mist-back" | "mist-front" | "mist-off" | "mist-inside" | "mist-controls" | "mist-wall" | "mist-night" | "mist-level" | "mist-level-off"),
-            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32, controls, mist-back, mist-front, mist-off, mist-inside, mist-controls, mist-wall, mist-night, mist-level or mist-level-off"
+            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls" | "mist-back" | "mist-front" | "mist-off" | "mist-inside" | "mist-controls" | "mist-wall" | "mist-night" | "mist-level" | "mist-level-off" | "mist-front-off"),
+            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32, controls, mist-back, mist-front, mist-off, mist-inside, mist-controls, mist-wall, mist-night, mist-level, mist-level-off or mist-front-off"
         );
         Ok(Some(Self {
             mode,
@@ -144,7 +144,7 @@ impl App {
                 } else {
                     3. / 256.
                 };
-        if matches!(review.mode.as_str(), "mist-off" | "mist-level-off") {
+        if review.mode.ends_with("-off") {
             self.debug_settings.adjustables.sprinkler_mist_density.value = 0.0;
         }
         if review.mode == "mist-controls" {
@@ -174,7 +174,7 @@ impl App {
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
             "mist-wall" => Vec3::new(-0.55, 0.07, -0.392),
             "mist-level" | "mist-level-off" => Vec3::new(-0.30, -0.020, -0.214),
-            "mist-front" => sun * 0.36,
+            "mist-front" | "mist-front-off" => sun * 0.36,
             "mist-inside" => Vec3::new(-0.015, 0.015, -0.025),
             "orbit" => {
                 let angle = review.frame as f32 * 0.012;

@@ -75,7 +75,7 @@ void main(uint3 id:SV_DispatchThreadID)
         float localDepth=0.0,litDepth=0.0;
         for(uint s=0;s<STEPS;++s) {
             float3 point=ray.origin+ray.direction*(interval.x+(float(s)+0.5)*step);
-            float tau=mistDensityAt(point,instance.xyz,center,radii,time,instance.w)*step*1.0*mist_push.density;
+            float tau=mistDensityAt(point,instance.xyz,center,radii,time,instance.w)*step*MIST_EXTINCTION*mist_push.density;
             localDepth+=tau;
             litDepth+=tau*mistSunVisibility(point);
         }

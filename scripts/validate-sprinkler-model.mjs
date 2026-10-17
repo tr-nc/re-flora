@@ -12,9 +12,10 @@ Check the sprinkler model, surface cache, continuous mist and placement lifecycl
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
 live cache/resolution controls. Checks actual cached draws, not just saved values.
---mist selects fourteen optical checks instead: back/front light, zero density, inside,
+--mist selects fifteen optical checks instead: back/front light, zero density, inside,
 wall occlusion, night, live density, particles off, god rays off, shadows off, resize,
-placement lifecycle, and a matched on/off low-angle hilly-terrain seam regression.
+placement lifecycle, matched on/off low-angle hilly-terrain seam regression, and
+front-lit mist versus zero density for direct visibility comparison.
 Also verifies zero water particles and real watering brushes at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
@@ -81,7 +82,7 @@ try {
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
   const cases = mist
-    ? ['mist-back', 'mist-front', 'mist-off', 'mist-inside', 'mist-wall', 'mist-night',
+    ? ['mist-back', 'mist-front', 'mist-front-off', 'mist-off', 'mist-inside', 'mist-wall', 'mist-night',
        'mist-controls', 'mist-no-particles', 'mist-no-god-rays', 'mist-no-shadows', 'mist-resize', 'lifecycle',
        'mist-level', 'mist-level-off']
     : ['near', 'garden', 'orbit', 'lifecycle', 'near-dense', 'pixels-8', 'pixels-16', 'pixels-32', 'controls'];
