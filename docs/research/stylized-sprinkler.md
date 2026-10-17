@@ -117,6 +117,10 @@ Debug → **Mist & Scattering**：
 
 本版通过 `cargo fmt --check`、`cargo check`、全量 Rust（1639 app + 4 collision + 1 integration）、40 个 Slang CPU 测试、15 个 RTX 3060 Ti 隐藏静音 Release 场景的 Khronos 同步验证及图像暗线断言；重新 Release 构建和标准 0.5 秒 smoke 退出正常。保存文件哈希不变。最终观感仍需玩家确认，最大 256 实例性能验收仍未进行。
 
+## 后续形态调研
+
+用户已反馈新版水雾明显改善，并要求进一步考虑悬崖下垂、随传播展开稀释、喷嘴方向及环带／弧段截面，同时评估碰撞成本。见[方向性传播与低成本地形交互调研](sprinkler-mist-transport.md)。该记录解释现有基座高度截断的原因，并建议少量带年龄的体积单元／路径段；尚未改动产品算法，也未完成新方案的视觉或性能验收。
+
 ## 复验
 
 ```sh
