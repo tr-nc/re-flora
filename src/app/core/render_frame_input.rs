@@ -257,6 +257,7 @@ pub(super) fn freeze_render_frame_inputs(
     };
     let environment = EnvironmentFrameInput {
         sprinkler_mist_density: gui.sprinkler_mist_density.value,
+        sprinkler_mist_flow: gui.sprinkler_mist_flow.value,
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
@@ -484,6 +485,7 @@ mod tests {
         let sun_luminance = float!(sun_luminance);
         let sky_light_strength = float!(sky_light_strength);
         let sprinkler_mist_density = float!(sprinkler_mist_density);
+        gui.sprinkler_mist_flow.value = false;
         let sun_display_luminance = float!(sun_display_luminance);
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
@@ -704,6 +706,7 @@ mod tests {
             },
             environment: EnvironmentFrameInput {
                 sprinkler_mist_density,
+                sprinkler_mist_flow: false,
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,

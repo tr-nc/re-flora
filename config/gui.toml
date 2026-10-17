@@ -663,6 +663,15 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_mist_flow"
+kind = "bool"
+label = "Sprinklers: directional terrain-aware mist (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "sprinkler_mist_density"
 kind = "float"
 label = "Sprinklers: mist optical density"

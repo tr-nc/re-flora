@@ -1506,6 +1506,7 @@ pub struct StarlightFrameInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
     pub sprinkler_mist_density: f32,
+    pub sprinkler_mist_flow: bool,
     pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
@@ -1632,6 +1633,7 @@ pub struct Tracer {
     current_view_proj_mat: Mat4,
     direct_sun_shadows: DirectSunShadowRuntime,
     sprinkler_mist_density: f32,
+    sprinkler_mist_flow: bool,
     god_ray_temporal_blend_enabled: bool,
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
@@ -2001,6 +2003,7 @@ impl Tracer {
             current_view_proj_mat: Mat4::IDENTITY,
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             sprinkler_mist_density: 1.0,
+            sprinkler_mist_flow: true,
             god_ray_temporal_blend_enabled: true,
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
@@ -3074,6 +3077,7 @@ impl Tracer {
             environment.god_rays.color,
         )?;
         self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).min(3.0);
+        self.sprinkler_mist_flow = environment.sprinkler_mist_flow;
         self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
         self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
@@ -3398,8 +3402,18 @@ impl Tracer {
     ) -> Result<()> {
         self.mower_resources
             .prepare_frame(gpu_profiler_frame_slot)?;
-        self.sprinkler_resources
-            .prepare_frame(gpu_profiler_frame_slot)?;
+        let mist_extent = self
+            .resources
+            .extent_dependent_resources
+            .composited_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        self.sprinkler_resources.prepare_frame(
+            gpu_profiler_frame_slot,
+            mist_extent.width,
+            mist_extent.height,
+        )?;
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         self.local_light_visibility_diagnostic
             .resolve_readback(&self.resources.local_lighting)?;
@@ -4295,11 +4309,30 @@ impl Tracer {
                 || self.record_glass_resolve_pass(cmdbuf),
             );
         }
-        self.pipeline_topology
-            .compute()
-            .sprinkler_mist_ppl
-            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        for pipeline in [
+            &self.pipeline_topology.compute().sprinkler_mist_ppl,
+            &self.pipeline_topology.compute().sprinkler_mist_prepare_ppl,
+            &self.pipeline_topology.compute().sprinkler_mist_tiles_ppl,
+        ] {
+            pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        }
         if self.sprinkler_resources.instance_count > 0 && self.sprinkler_mist_density > 0.0 {
+            if self.sprinkler_mist_flow {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "sprinkler_mist.prepare",
+                    || self.record_sprinkler_mist_preparation(cmdbuf, render_flags.enable_shadows),
+                )?;
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "sprinkler_mist.tiles",
+                    || self.record_sprinkler_mist_tiles(cmdbuf, render_flags.enable_shadows),
+                )?;
+            }
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -6562,24 +6595,114 @@ impl Tracer {
             );
     }
 
-    fn record_sprinkler_mist_pass(&self, cmdbuf: &CommandBuffer, shadows: bool) -> Result<()> {
-        let push = crate::generated::gpu_structs::PushConstantSprinklerMist {
+    fn sprinkler_mist_push(
+        &self,
+        shadows: bool,
+    ) -> crate::generated::gpu_structs::PushConstantSprinklerMist {
+        let extent = self
+            .resources
+            .extent_dependent_resources
+            .composited_tex
+            .get_image()
+            .get_desc()
+            .extent;
+        crate::generated::gpu_structs::PushConstantSprinklerMist {
             count: self.sprinkler_resources.instance_count,
             density: self.sprinkler_mist_density,
             shadows_enabled: u32::from(shadows),
             glass_enabled: u32::from(
                 self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled,
             ),
-        };
+            flow_enabled: u32::from(self.sprinkler_mist_flow),
+            lobes_per_instance: SPRINKLER_MIST_LOBES,
+            tile_size: SPRINKLER_MIST_TILE_SIZE,
+            width: extent.width,
+            height: extent.height,
+            ..bytemuck::Zeroable::zeroed()
+        }
+    }
+
+    fn record_sprinkler_mist_preparation(
+        &self,
+        cmdbuf: &CommandBuffer,
+        shadows: bool,
+    ) -> Result<()> {
+        let push = self.sprinkler_mist_push(shadows);
+        self.pipeline_topology
+            .compute()
+            .sprinkler_mist_prepare_ppl
+            .record_with_descriptors(
+                cmdbuf,
+                &[
+                    (
+                        "sprinkler_instances",
+                        DescriptorResource::Buffer(self.sprinkler_resources.instances()),
+                    ),
+                    (
+                        "mist_lobes",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_lobes()),
+                    ),
+                    (
+                        "mist_bounds",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_bounds()),
+                    ),
+                ],
+                Extent3D::new(push.count * 64, 1, 1),
+                Some(bytemuck::bytes_of(&push)),
+            )
+    }
+
+    fn record_sprinkler_mist_tiles(&self, cmdbuf: &CommandBuffer, shadows: bool) -> Result<()> {
+        let push = self.sprinkler_mist_push(shadows);
+        self.pipeline_topology
+            .compute()
+            .sprinkler_mist_tiles_ppl
+            .record_with_descriptors(
+                cmdbuf,
+                &[
+                    (
+                        "mist_bounds",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_bounds()),
+                    ),
+                    (
+                        "mist_tiles",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_tiles()),
+                    ),
+                ],
+                Extent3D::new(
+                    push.width.div_ceil(push.tile_size) * push.count.div_ceil(32),
+                    push.height.div_ceil(push.tile_size),
+                    1,
+                ),
+                Some(bytemuck::bytes_of(&push)),
+            )
+    }
+
+    fn record_sprinkler_mist_pass(&self, cmdbuf: &CommandBuffer, shadows: bool) -> Result<()> {
+        let push = self.sprinkler_mist_push(shadows);
         self.pipeline_topology
             .compute()
             .sprinkler_mist_ppl
             .record_with_descriptors(
                 cmdbuf,
-                &[(
-                    "sprinkler_instances",
-                    DescriptorResource::Buffer(self.sprinkler_resources.instances()),
-                )],
+                &[
+                    (
+                        "sprinkler_instances",
+                        DescriptorResource::Buffer(self.sprinkler_resources.instances()),
+                    ),
+                    (
+                        "mist_lobes",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_lobes()),
+                    ),
+                    (
+                        "mist_bounds",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_bounds()),
+                    ),
+                    (
+                        "mist_tiles",
+                        DescriptorResource::Buffer(self.sprinkler_resources.mist_tiles()),
+                    ),
+                ],
                 self.resources
                     .extent_dependent_resources
                     .composited_tex
@@ -6907,6 +7030,39 @@ impl Tracer {
 
     pub(crate) fn sprinkler_instance_count(&self) -> u32 {
         self.sprinkler_resources.instance_count
+    }
+
+    /// Explicit review only. This synchronous readback is never part of normal mist updates.
+    pub(crate) fn sprinkler_mist_review_lobes(
+        &self,
+    ) -> Result<Vec<crate::generated::gpu_structs::SprinklerMistLobe>> {
+        let bytes = u64::from(self.sprinkler_resources.instance_count * SPRINKLER_MIST_LOBES)
+            * std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistLobe>() as u64;
+        let readback = Buffer::new_sized(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            re_flora_vkn::BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            re_flora_vkn::MemoryLocation::GpuToCpu,
+            bytes,
+        );
+        execute_one_time_gpu_job(
+            self.vulkan_ctx.device(),
+            self.vulkan_ctx.command_pool(),
+            &self.vulkan_ctx.get_general_queue(),
+            |cmd| {
+                self.sprinkler_resources
+                    .mist_lobes()
+                    .record_copy_to_buffer(cmd, &readback, bytes, 0, 0);
+                cmd.use_buffer(&readback, BufferUse::HostRead);
+            },
+        );
+        let data = readback.read_back()?;
+        Ok(data
+            .chunks_exact(std::mem::size_of::<
+                crate::generated::gpu_structs::SprinklerMistLobe,
+            >())
+            .map(bytemuck::pod_read_unaligned)
+            .collect())
     }
 
     pub(crate) fn sprinkler_cache_status(&self) -> Option<(bool, u32)> {

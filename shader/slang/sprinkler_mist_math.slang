@@ -10,11 +10,14 @@ public bool mistRayInterval(float3 origin, float3 direction, float3 center,
     interval = float2(0);
     float3 o = (origin - center) / radii;
     float3 d = direction / radii;
-    float a = dot(d, d), b = dot(o, d), c = dot(o, o) - 1.0;
-    float discriminant = b*b - a*c;
-    if (discriminant <= 0.0 || a <= 0.0 || sceneDistance <= 0.0) return false;
-    float root = sqrt(discriminant);
-    interval = float2(max(0.0, (-b-root)/a), min(sceneDistance, (-b+root)/a));
+    float a=dot(d,d);
+    if(a<=0.0 || sceneDistance<=0.0)return false;
+    float closest=-dot(o,d)/a;
+    float3 perpendicular=o+d*closest;
+    float support=1.0-dot(perpendicular,perpendicular);
+    if(support<=0.0)return false;
+    float halfWidth=sqrt(support/a);
+    interval=float2(max(0.0,closest-halfWidth),min(sceneDistance,closest+halfWidth));
     return interval.y > interval.x;
 }
 

@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
-const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist] [--seconds <positive-number>]
+const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow] [--seconds <positive-number>]
 Check the sprinkler model, surface cache, continuous mist and placement lifecycle.
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
@@ -16,6 +16,12 @@ live cache/resolution controls. Checks actual cached draws, not just saved value
 wall occlusion, night, live density, particles off, god rays off, shadows off, resize,
 placement lifecycle, matched on/off low-angle hilly-terrain seam regression, and
 front-lit mist versus zero density for direct visibility comparison.
+--flow selects twenty-one directional-mist checks: flat/top views, original-mode A/B,
+cliff on/off/A/B, one-voxel wall/corner/overhead slab, live terrain removal, mode changes, particles
+off, shadows off, resize, lifecycle, and the matched low-angle seam regression.
+Its GPU readback asserts live density below cliff sources, no path tunnelling through
+the thin wall, and resumed transport after the wall is removed. --mist and --flow
+are mutually exclusive. Neither suite is a performance benchmark.
 Also verifies zero water particles and real watering brushes at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
@@ -23,30 +29,33 @@ Requires a current Release binary, a Vulkan desktop session, and the Khronos
 validation layer (set VK_LAYER_PATH or VULKAN_SDK if it is not installed globally).
 No GUI/camera settings or terrain snapshots are saved. No visible game is launched.
 Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json};
---mist uses target/sprinkler-mist-review/ instead.
+--mist uses target/sprinkler-mist-review/; --flow uses target/sprinkler-mist-flow-review/.
 Example: cargo build --release && node scripts/validate-sprinkler-model.mjs
 Recovery for an incomplete fixture: node scripts/validate-sprinkler-model.mjs --seconds 20
 Exit: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
-let seconds, mist;
+let seconds, mist, flow;
 try {
   const {values} = parseArgs({options: {
-    mist: {type: 'boolean', default: false},
+    mist: {type: 'boolean', default: false}, flow: {type: 'boolean', default: false},
     seconds: {type: 'string', default: '8'}, help: {type: 'boolean', short: 'h'},
   }});
   if (values.help) { console.log(help); process.exit(0); }
   seconds = Number(values.seconds);
   mist = values.mist;
+  flow = values.flow;
+  assert.ok(!(mist && flow), 'choose --mist for optical checks or --flow for transport checks, not both');
   assert.ok(Number.isFinite(seconds) && seconds > 0, '--seconds must be a positive number');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 
 const root = path.resolve(import.meta.dirname, '..');
-const output = path.join(root, mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
+const optical = mist || flow;
+const output = path.join(root, flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
 const settings = path.join(output, 'settings');
 const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
 const before = saved.map(hash);
 const runs = [];
-let mistSeam;
+let mistSeam, mistCliff;
 function checkMistSeam(on, off) {
   const pixels = [on, off].map(file => {
     const result = spawnSync('magick', [file, '-alpha', 'off', '-resize', '960x540!',
@@ -75,13 +84,41 @@ function checkMistSeam(on, off) {
     `horizontal mist seam: ${peak.drop.toFixed(3)} display levels at row ${peak.row}; expected a smooth profile (<=1.8)`);
   return peak;
 }
+function checkCliffTransport() {
+  const pixels = ['mist-cliff', 'mist-cliff-off', 'mist-cliff-legacy'].map(name => {
+    const result = spawnSync('magick', [path.join(output, `${name}.png`), '-alpha', 'off',
+      '-resize', '960x540!', '-depth', '8', 'rgb:-'], {maxBuffer: 8*1024*1024});
+    assert.equal(result.status, 0, 'cliff image check needs ImageMagick: install magick and retry --flow');
+    return result.stdout;
+  });
+  const transfer = on => {
+    let sum=0, count=0;
+    // Below the source/platform top, without HUD. The original base-height gate
+    // cannot produce the hanging skirt here; matched off removes the cliff itself.
+    for (let y=330; y<430; ++y) for (let x=245; x<635; ++x) for (let c=0; c<3; ++c) {
+      const i=(y*960+x)*3+c;
+      sum+=Math.abs(on[i]-pixels[1][i]);++count;
+    }
+    return sum/count;
+  };
+  const result={flowDisplayTransfer:transfer(pixels[0]), legacyDisplayTransfer:transfer(pixels[2])};
+  assert.ok(result.flowDisplayTransfer>0.08 &&
+    result.flowDisplayTransfer>result.legacyDisplayTransfer*2+0.03,
+    `cliff mist did not visibly extend below source: ${JSON.stringify(result)}`);
+  return result;
+}
 try {
   fs.mkdirSync(settings, {recursive: true});
   fs.writeFileSync(path.join(settings, 'vk_layer_settings.txt'),
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  const cases = mist
+  const cases = flow
+    ? ['mist-flow', 'mist-flow-off', 'mist-flow-legacy', 'mist-flow-top', 'mist-cliff', 'mist-cliff-off',
+       'mist-cliff-legacy', 'mist-thin-wall', 'mist-thin-wall-off', 'mist-corner', 'mist-corner-off',
+       'mist-roof', 'mist-roof-off', 'mist-edit', 'mist-flow-controls',
+       'mist-flow-no-particles', 'mist-flow-no-shadows', 'mist-flow-resize', 'lifecycle', 'mist-level', 'mist-level-off']
+    : mist
     ? ['mist-back', 'mist-front', 'mist-front-off', 'mist-off', 'mist-inside', 'mist-wall', 'mist-night',
        'mist-controls', 'mist-no-particles', 'mist-no-god-rays', 'mist-no-shadows', 'mist-resize', 'lifecycle',
        'mist-level', 'mist-level-off']
@@ -92,8 +129,11 @@ try {
       'mist-no-god-rays': ['--no-god-rays'],
       'mist-no-shadows': ['--no-shadows'],
       'mist-resize': ['--resize-lifecycle-test'],
+      'mist-flow-no-particles': ['--no-particles'],
+      'mist-flow-no-shadows': ['--no-shadows'],
+      'mist-flow-resize': ['--resize-lifecycle-test'],
     }[name] ?? [];
-    const mode = extraArgs.length > 0 ? 'mist-back' : name === 'near-dense' ? 'near' : name;
+    const mode = extraArgs.length > 0 ? (flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
     const env = {...process.env};
     // Do not compose this isolated fixture with unrelated development overrides.
     for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_')) delete env[key];
@@ -107,7 +147,7 @@ try {
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
     const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
-      '--hidden', '--mute', ...(mist ? ['--perf'] : []),
+      '--hidden', '--mute', ...(optical ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -135,10 +175,26 @@ try {
       assert.ok(brushes && brushes.slice(1).every(n => Number(n) > 0),
         'watering did not record brushes at every mist density');
     }
-    if (name === 'mist-no-particles') assert.match(log, /particles_enabled=false/);
-    if (mist && name.endsWith('-off')) assert.doesNotMatch(log, /sprinkler_mist.pass=/);
-    else if (mist) assert.match(log, /sprinkler_mist.pass=/);
-    if (name === 'mist-resize') {
+    if (name.endsWith('-no-particles')) assert.match(log, /particles_enabled=false/);
+    if (optical && name.endsWith('-off')) assert.doesNotMatch(log, /sprinkler_mist.pass=|sprinkler_mist.prepare=/);
+    else if (optical) assert.match(log, /sprinkler_mist.pass=/);
+    if (name.endsWith('-legacy')) assert.doesNotMatch(log, /sprinkler_mist.prepare=/);
+    if (flow && !name.endsWith('-off') && !name.endsWith('-legacy') && name !== 'lifecycle')
+      assert.match(log, /SPRINKLER_FLOW_REVIEW\] gpu_lobes=[1-9]/);
+    if (name === 'mist-cliff') assert.match(log, /below_source=[1-9]/);
+    if (name === 'mist-thin-wall') assert.match(log, /beyond_wall=0\b/);
+    if (name === 'mist-corner') assert.match(log, /beyond_corner=0\b/);
+    if (name === 'mist-roof') assert.match(log, /above_roof=0\b/);
+    if (name === 'mist-edit') {
+      assert.match(log, /terrain_edit=removed_wall frame=90/);
+      assert.match(log, /beyond_wall=[1-9]/);
+    }
+    if (name === 'mist-flow-controls') {
+      const steps = [...log.matchAll(/SPRINKLER_FLOW_REVIEW\] step=(\d+) flow=(true|false)/g)]
+        .map(m => [Number(m[1]), m[2] === 'true']);
+      assert.deepEqual(steps, [[0,true],[1,false],[2,true],[3,false],[4,true]]);
+    }
+    if (name.endsWith('-resize')) {
       assert.match(log, /RESIZE_LIFECYCLE\] phase=requests_complete count=5/);
       const generations = [...log.matchAll(/RESIZE_LIFECYCLE\] phase=frame frame_generation=(\d+)/g)];
       assert.ok(new Set(generations.map(match => match[1])).size >= 2,
@@ -150,9 +206,10 @@ try {
     runs.push({name, dimensions: [png.readUInt32BE(16), png.readUInt32BE(20)],
       validationErrors: 0, framesChecked: 180, image: path.relative(root, image)});
   }
-  if (mist) mistSeam = checkMistSeam(path.join(output, 'mist-level.png'), path.join(output, 'mist-level-off.png'));
+  if (optical) mistSeam = checkMistSeam(path.join(output, 'mist-level.png'), path.join(output, 'mist-level-off.png'));
+  if (flow) mistCliff=checkCliffTransport();
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({saved, hashes: before,
-    synchronizationValidation: true, performanceMeasured: false, mistSeam, runs}, null, 2) + '\n');
+    synchronizationValidation: true, performanceMeasured: false, mistSeam, mistCliff, runs}, null, 2) + '\n');
   console.log(`PASS: ${runs.length} native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/*.log; rebuild with cargo build --release and retry.\n${help}`);

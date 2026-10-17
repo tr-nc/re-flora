@@ -105,6 +105,21 @@ mod tests {
                         writeln!(code, "{{ float3 moved=sprinklerPartTranslation(float3({:.12},{:.12},{:.12}), e, x); if(length(moved-float3({:.12},{:.12},{:.12})) > 0.0000001) return 2; }}",
                             motion.x, motion.y, motion.z, expected.x, expected.y, expected.z).unwrap();
                     }
+                    for nozzle in 0..4 {
+                        let x_arm = nozzle < 2;
+                        let sign = if nozzle % 2 == 0 { 1.0 } else { -1.0 };
+                        let direction = if x_arm { Vec3::X } else { Vec3::Z };
+                        let reach = NOZZLE_REACH
+                            + if x_arm == pose.along_x {
+                                NOZZLE_EXTENSION * pose.extension
+                            } else {
+                                0.0
+                            };
+                        let expected = (direction * sign * reach
+                            + Vec3::Y * (NOZZLE_HEIGHT + HEAD_LIFT * pose.extension))
+                            * WORLD_SCALE;
+                        writeln!(code, "{{ float3 outlet=sprinklerOutlet({tick}u,{seconds:.9},{phase:.9},{nozzle}u); if(length(outlet-float3({:.12},{:.12},{:.12}))>0.0000001) return 3; }}", expected.x, expected.y, expected.z).unwrap();
+                    }
                     cases += 1;
                 }
             }

@@ -33,6 +33,29 @@ public bool ddgiVoxelIsOccupied(int3 coordinate, uint3 dimensions)
 
 // The packed occupancy is a separately published live geometry fact. A temporal
 // radiance field's root revision must not be used as its visibility revision.
+// Geometry consumers must observe readiness and the geometry revision together,
+// independently of the temporal radiance field.
+public U_DdgiVoxelVisibilityInfo ddgiPublishedVoxelGeometryInfo()
+{
+    return ddgi_voxel_visibility_info;
+}
+
+public bool ddgiVoxelRegionMayBeOccupied(float3 lowerWorld,float3 upperWorld)
+{
+    U_DdgiVoxelVisibilityInfo info=ddgi_voxel_visibility_info;
+    if(info.ready==0u)return true;
+    int3 lo=int3(floor(lowerWorld*info.world_to_voxel_scale));
+    int3 hi=int3(floor(upperWorld*info.world_to_voxel_scale));
+    if(any(lo<int3(0)) || any(hi>=int3(info.voxel_dimensions)))return true;
+    lo/=int(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE);
+    hi/=int(DDGI_VOXEL_VISIBILITY_BLOCK_SIZE);
+    // A conservative local-region query, never an unbounded world scan.
+    if(any(hi-lo>int3(16)))return true;
+    for(int z=lo.z;z<=hi.z;++z)for(int y=lo.y;y<=hi.y;++y)for(int x=lo.x;x<=hi.x;++x)
+        if(ddgi_voxel_visibility_blocks[uint3(x,y,z)]!=0u)return true;
+    return false;
+}
+
 public uint ddgiPublishedVoxelGeometryRevision()
 {
     return ddgi_voxel_visibility_info.geometry_revision;

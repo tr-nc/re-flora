@@ -326,6 +326,24 @@ pub struct Spheres {
     pub radius: f32,
 }
 
+/// Auto-generated from `B_SprinklerMistBounds` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SprinklerMistBounds {
+    pub lower: [f32; 4],
+    pub upper: [f32; 4],
+    pub screen_rect: [f32; 4],
+}
+
+/// Auto-generated from `B_SprinklerMistLobe` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SprinklerMistLobe {
+    pub center_amplitude: [f32; 4],
+    pub radii_near_geometry: [f32; 4],
+    pub ambient_sun_visibility: [f32; 4],
+}
+
 /// Auto-generated from `B_SurfaceActiveBrickFlags` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -575,6 +593,44 @@ pub struct PushConstantSprinklerMist {
     pub density: f32,
     pub shadows_enabled: u32,
     pub glass_enabled: u32,
+    pub flow_enabled: u32,
+    pub lobes_per_instance: u32,
+    pub tile_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub _pad0: [u8; 12],
+}
+
+/// Auto-generated from `PushConstantSprinklerMistPrepare` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantSprinklerMistPrepare {
+    pub count: u32,
+    pub density: f32,
+    pub shadows_enabled: u32,
+    pub glass_enabled: u32,
+    pub flow_enabled: u32,
+    pub lobes_per_instance: u32,
+    pub tile_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub _pad0: [u8; 12],
+}
+
+/// Auto-generated from `PushConstantSprinklerMistTiles` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantSprinklerMistTiles {
+    pub count: u32,
+    pub density: f32,
+    pub shadows_enabled: u32,
+    pub glass_enabled: u32,
+    pub flow_enabled: u32,
+    pub lobes_per_instance: u32,
+    pub tile_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).

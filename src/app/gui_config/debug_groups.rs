@@ -117,9 +117,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Mist & Scattering",
-        description: "Fine sprinkler mist is a depth-occluded continuous medium, not water particles. Sunlight is strongest through backlighting; density changes only appearance, never watering. Zero hides mist.",
+        description: "Continuous mist, not water particles. Checked: directional spray spreads, settles and meets voxel terrain. Unchecked: original soft dome. Old spray persists across nozzle changes; density changes only appearance, never watering. Zero hides both modes.",
         initially_open: false,
-        params: &["sprinkler_mist_density"],
+        params: &["sprinkler_mist_flow", "sprinkler_mist_density"],
     },
     ControlGroup {
         parent: None,

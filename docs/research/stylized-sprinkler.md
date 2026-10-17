@@ -39,7 +39,7 @@
 - **引入时间**：`73c64384`（2026-10-17）仍沿用并调整这条粒子路径；它不是首次引入粒子的证据，更早的引入提交未在本轮确认。
 - **干净修复**：[局部介质积分](../../shader/slang/sprinkler_mist.comp.slang) 和 [光学数学](../../shader/slang/sprinkler_mist_math.slang) 在合成后、普通后处理前运行，复用硬件的逐帧实例缓冲，不增加第二份发射器登记表。
 
-每个喷水器覆盖半径 0.28、垂向半径 0.105 的柔和椭球，近地面平滑淡出，整体随作者风场轻微偏移，密度只有缓慢的大尺度起伏。没有粒子、广告牌、高频随机亮点或浓烟纹理，也不随喷嘴换向突然消失。
+原版（取消方向性水雾 A/B）每个喷水器覆盖半径 0.28、垂向半径 0.105 的柔和椭球，近地面平滑淡出，整体随作者风场轻微偏移，密度只有缓慢的大尺度起伏。没有粒子、广告牌、高频随机亮点或浓烟纹理，也不随喷嘴换向突然消失。
 
 沿相机射线先与介质相交，再被现有 raster／compute 场景深度裁剪；12 步积分复用太阳颜色、统一太阳阴影查询和 DDGI 环境光。归一化双瓣散射（60% 的 HG 前向瓣 g=0.65，加 40% 宽角度瓣）使逆光仍明显，同时保留普通侧光／顺光的湿空气线索；指数透射压低背景对比度，而不是叠加固定白色。不发光的黑暗环境不会出现自发白雾，零密度严格保留原画面并跳过该 pass。重叠体积以光学薄介质近似可交换地合并，避免实例顺序导致接缝。
 
@@ -59,6 +59,7 @@ Debug → **Model Pixel Pre-cache**：
 
 Debug → **Mist & Scattering**：
 
+- **Sprinklers: directional terrain-aware mist (A/B)**：默认勾选新方向性雾带；取消勾选回到原柔和椭球。保存并保留两种模式，方便玩家比较。
 - **Sprinklers: mist optical density**：0–3，默认 1；0 只隐藏视觉水雾，3 用于检查较强效果。
 
 设置来自 `config/gui.toml` 的声明式字段，可随 Debug 设置保存；旧配置缺字段时补默认值，读取不写盘。不改苹果、蝴蝶、花头、工具袋的分辨率或 `scene_pixel_ratio`。花头保存尺寸仍为用户的 1.11。
@@ -117,9 +118,15 @@ Debug → **Mist & Scattering**：
 
 本版通过 `cargo fmt --check`、`cargo check`、全量 Rust（1639 app + 4 collision + 1 integration）、40 个 Slang CPU 测试、15 个 RTX 3060 Ti 隐藏静音 Release 场景的 Khronos 同步验证及图像暗线断言；重新 Release 构建和标准 0.5 秒 smoke 退出正常。保存文件哈希不变。最终观感仍需玩家确认，最大 256 实例性能验收仍未进行。
 
-## 后续形态调研
+## 方向性雾带与地形交互（当前候选）
 
-用户已反馈新版水雾明显改善，并要求进一步考虑悬崖下垂、随传播展开稀释、喷嘴方向及环带／弧段截面，同时评估碰撞成本。见[方向性传播与低成本地形交互调研](sprinkler-mist-transport.md)。该记录解释现有基座高度截断的原因，并建议少量带年龄的体积单元／路径段；尚未改动产品算法，也未完成新方案的视觉或性能验收。
+用户已反馈前版散射明显改善；本轮保留该散射，替换原椭球的形态模型。详见[方向性传播与低成本地形交互](sprinkler-mist-transport.md)的“已实现版本”。每个喷嘴的年轻雾保留外喷方向，换向保留旧雾；动量衰减后随风、沉降，宽度增大而浓度按体积降低。高处为弧段／非均匀环带，悬崖外能向下延伸，不再按基座高度整片截断。
+
+4×12 个年龄区间在 GPU 上从同一姿态重建，复用真实已发布的体素几何做有界扫掠、切向接触及有限核的局部面裁剪。不是逐滴碰撞，也不做完整流体求解。新模式使用紧支撑核的解析射线积分、每核照明与屏幕 tile 剔除；原版仍由运行时 A/B 复选框保留。未知几何不作空地，正常路径不做 CPU／GPU 碰撞回读。
+
+全量 Rust（1640 app + 4 collision + 1 integration）、41 个 Slang CPU 测试、增强后的 300 组姿态／出水口对照、Release 构建与 smoke 通过。21 次新传播、15 次光学、9 次模型／采样隐藏静音 Release 检查在 RTX 3060 Ti／X11 上通过 Khronos 同步验证；包括实际 GPU 悬崖下垂、单体素墙／墙角／悬空板阻挡、拆墙恢复、A/B、live resize、浇水独立和暗线／悬崖图像断言。配置和相机文件哈希不变，花头仍为 1.11。
+
+当前仍是局部、保守的视觉地形交互，不宣称所有动态对象、细叶碰撞、精确绕流或玻璃后折射雾。实际外观待玩家确认，关闭验证层的人口性能另测。新增截图与报告：`target/sprinkler-mist-flow-review/`。
 
 ## 复验
 
@@ -133,6 +140,7 @@ cargo build --release
 cargo run --release -- --hidden --mute --auto-exit 0.5
 node scripts/validate-sprinkler-model.mjs
 node scripts/validate-sprinkler-model.mjs --mist
+node scripts/validate-sprinkler-model.mjs --flow
 cargo run --release -- --tail-latest-log 25
 ```
 
