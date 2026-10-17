@@ -178,6 +178,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/sprinkler_mist.comp",
+        source_path: "shader/slang/sprinkler_mist.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/composition.comp",
         source_path: "shader/slang/composition.slang",
         module_path: "shader/slang",

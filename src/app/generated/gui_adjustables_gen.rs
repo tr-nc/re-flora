@@ -314,6 +314,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_mist_density",
+        kind: "float",
+        label: "Sprinklers: mist optical density",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_pixel_resolution",
         kind: "uint",
         label: "Sprinklers: pre-cache resolution (N x N)",
@@ -1756,6 +1762,7 @@ pub struct GuiAdjustables {
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
     pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
@@ -2049,6 +2056,7 @@ impl GuiAdjustables {
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2575,6 +2583,13 @@ impl GuiAdjustables {
                     "sprinkler_cache_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_mist_density" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            sprinkler_mist_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "sprinkler_pixel_resolution" => {
@@ -4189,6 +4204,7 @@ impl GuiAdjustables {
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
+            sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
             sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
@@ -4449,6 +4465,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
+        "sprinkler_mist_density" => Some(&adjustables.sprinkler_mist_density),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "tree_kick_strength" => Some(&adjustables.tree_kick_strength),
         "tree_kick_frequency" => Some(&adjustables.tree_kick_frequency),
@@ -4776,6 +4793,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
+        "sprinkler_mist_density" => Some(&mut adjustables.sprinkler_mist_density),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "tree_kick_strength" => Some(&mut adjustables.tree_kick_strength),
         "tree_kick_frequency" => Some(&mut adjustables.tree_kick_frequency),

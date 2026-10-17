@@ -256,6 +256,7 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
+        sprinkler_mist_density: gui.sprinkler_mist_density.value,
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
@@ -482,6 +483,7 @@ mod tests {
         let sun_color = color!(sun_color);
         let sun_luminance = float!(sun_luminance);
         let sky_light_strength = float!(sky_light_strength);
+        let sprinkler_mist_density = float!(sprinkler_mist_density);
         let sun_display_luminance = float!(sun_display_luminance);
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
@@ -701,6 +703,7 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
+                sprinkler_mist_density,
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,

@@ -235,6 +235,12 @@ impl App {
             }
         }
 
+        if let Some(review) = &mut self.sprinkler_review {
+            review.observe_watering(
+                recorded_count,
+                self.debug_settings.adjustables.sprinkler_mist_density.value,
+            );
+        }
         if let Some(record_start) = record_start {
             let record_elapsed = record_start.elapsed();
             BENCH

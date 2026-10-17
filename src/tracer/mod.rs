@@ -1505,6 +1505,7 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
+    pub sprinkler_mist_density: f32,
     pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
@@ -1630,6 +1631,7 @@ pub struct Tracer {
     camera_proj_mat_prev_frame: Mat4,
     current_view_proj_mat: Mat4,
     direct_sun_shadows: DirectSunShadowRuntime,
+    sprinkler_mist_density: f32,
     god_ray_temporal_blend_enabled: bool,
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
@@ -1998,6 +2000,7 @@ impl Tracer {
             camera_proj_mat_prev_frame: Mat4::IDENTITY,
             current_view_proj_mat: Mat4::IDENTITY,
             direct_sun_shadows: DirectSunShadowRuntime::default(),
+            sprinkler_mist_density: 1.0,
             god_ray_temporal_blend_enabled: true,
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
@@ -3070,6 +3073,7 @@ impl Tracer {
             environment.god_rays.weight,
             environment.god_rays.color,
         )?;
+        self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).min(3.0);
         self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
         self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
@@ -4290,6 +4294,19 @@ impl Tracer {
                 "glass.resolve",
                 || self.record_glass_resolve_pass(cmdbuf),
             );
+        }
+        self.pipeline_topology
+            .compute()
+            .sprinkler_mist_ppl
+            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        if self.sprinkler_resources.instance_count > 0 && self.sprinkler_mist_density > 0.0 {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "sprinkler_mist.pass",
+                || self.record_sprinkler_mist_pass(cmdbuf, render_flags.enable_shadows),
+            )?;
         }
         if let Some(profiler) = gpu_profiler {
             let postprocessing_scope = profiler.begin_scope(
@@ -6543,6 +6560,34 @@ impl Tracer {
                     .extent,
                 Some(bytemuck::bytes_of(&push_constants)),
             );
+    }
+
+    fn record_sprinkler_mist_pass(&self, cmdbuf: &CommandBuffer, shadows: bool) -> Result<()> {
+        let push = crate::generated::gpu_structs::PushConstantSprinklerMist {
+            count: self.sprinkler_resources.instance_count,
+            density: self.sprinkler_mist_density,
+            shadows_enabled: u32::from(shadows),
+            glass_enabled: u32::from(
+                self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled,
+            ),
+        };
+        self.pipeline_topology
+            .compute()
+            .sprinkler_mist_ppl
+            .record_with_descriptors(
+                cmdbuf,
+                &[(
+                    "sprinkler_instances",
+                    DescriptorResource::Buffer(self.sprinkler_resources.instances()),
+                )],
+                self.resources
+                    .extent_dependent_resources
+                    .composited_tex
+                    .get_image()
+                    .get_desc()
+                    .extent,
+                Some(bytemuck::bytes_of(&push)),
+            )
     }
 
     fn record_composition_pass(&self, cmdbuf: &CommandBuffer) {

@@ -11,16 +11,28 @@ pub(super) struct Review {
     control_step: usize,
     control_frames: u32,
     control_baseline: Option<crate::tracer::ModelSurfaceCacheOptions>,
+    watering_brushes: [u32; 3],
 }
 
 impl Review {
+    pub fn observe_watering(&mut self, brushes: usize, density: f32) {
+        let slot = if density == 0.0 {
+            0
+        } else if density >= 3.0 {
+            2
+        } else {
+            1
+        };
+        self.watering_brushes[slot] += brushes as u32;
+    }
+
     pub fn from_env() -> Result<Option<Self>> {
         let Ok(mode) = std::env::var("RE_FLORA_SPRINKLER_REVIEW") else {
             return Ok(None);
         };
         ensure!(
-            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls"),
-            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32 or controls"
+            matches!(mode.as_str(), "near" | "garden" | "orbit" | "lifecycle" | "pixels-8" | "pixels-16" | "pixels-32" | "controls" | "mist-back" | "mist-front" | "mist-off" | "mist-inside" | "mist-controls" | "mist-wall" | "mist-night"),
+            "RE_FLORA_SPRINKLER_REVIEW must be near, garden, orbit, lifecycle, pixels-8, pixels-16, pixels-32, controls, mist-back, mist-front, mist-off, mist-inside, mist-controls, mist-wall or mist-night"
         );
         Ok(Some(Self {
             mode,
@@ -29,6 +41,7 @@ impl Review {
             control_step: 0,
             control_frames: 0,
             control_baseline: None,
+            watering_brushes: [0; 3],
         }))
     }
 }
@@ -78,7 +91,24 @@ impl App {
             }
             self.finish_authored_flora_placement(plants)?;
             review.base = Some(base);
-            self.set_manual_time_of_day(0.43);
+            self.set_manual_time_of_day(if review.mode == "mist-night" {
+                0.0
+            } else if review.mode.starts_with("mist-") {
+                0.30
+            } else {
+                0.43
+            });
+            if review.mode.starts_with("mist-") {
+                self.debug_settings.adjustables.sprinkler_mist_density.value = 1.0;
+            }
+            if review.mode == "mist-wall" {
+                self.apply_cube_placement(crate::app::world_edits::CubePlacementEdit {
+                    center: base + Vec3::new(-0.29, 0.10, -0.207),
+                    size: 0.20,
+                    rotation: glam::Quat::IDENTITY,
+                    voxel_type: crate::builder::VOXEL_TYPE_ROCK,
+                })?;
+            }
             self.debug_settings.adjustables.auto_daynight_cycle.value = false;
             if let Some(n) = review.mode.strip_prefix("pixels-") {
                 self.debug_settings
@@ -94,10 +124,55 @@ impl App {
                 Some(super::render_frame_input::model_cache_inputs(&self.debug_settings).surfaces);
             log::info!("[SPRINKLER_REVIEW] mode={} base={base:?} placement=production raster=true saved=false", review.mode);
         }
+        if review.frame == 60 {
+            if let Some(resize) = &mut self.resize_lifecycle_test {
+                // Startup resizes can finish before the first live consumer.
+                // Replay only after hardware, mist and their descriptors have drawn.
+                resize.requested = 0;
+                resize.next_request_frame = 0;
+                resize.complete = false;
+                log::info!("[SPRINKLER_MIST_RESIZE] after_submitted_frames=60");
+            }
+        }
         let base = review.base.unwrap();
-        let target = base + Vec3::Y * (3. / 256.);
+        let target = base
+            + Vec3::Y
+                * if review.mode.starts_with("mist-") {
+                    0.075
+                } else {
+                    3. / 256.
+                };
+        if review.mode == "mist-off" {
+            self.debug_settings.adjustables.sprinkler_mist_density.value = 0.0;
+        }
+        if review.mode == "mist-controls" {
+            let density = match review.frame / 40 {
+                0 => 1.0,
+                1 => 0.0,
+                2 => 3.0,
+                _ => 1.0,
+            };
+            self.debug_settings.adjustables.sprinkler_mist_density.value = density;
+            if review.frame % 40 == 0 && review.frame <= 160 {
+                log::info!(
+                    "[SPRINKLER_MIST_REVIEW] density={density} watering_sources={}",
+                    self.sprinklers.moisture_sources().len()
+                );
+            }
+        }
+        // Align the backlit fixture with the actual low sun, not a guessed azimuth.
+        let (altitude, azimuth) = Self::calculate_sun_position(
+            0.30,
+            self.debug_settings.adjustables.latitude.value,
+            self.debug_settings.adjustables.season.value,
+        );
+        let sun = crate::util::get_sun_dir(altitude.asin().to_degrees(), azimuth * 360.0);
         let offset = match review.mode.as_str() {
             "garden" => Vec3::new(0.20, 0.19, 0.32),
+            "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
+            "mist-wall" => Vec3::new(-0.55, 0.07, -0.392),
+            "mist-front" => sun * 0.36,
+            "mist-inside" => Vec3::new(-0.015, 0.015, -0.025),
             "orbit" => {
                 let angle = review.frame as f32 * 0.012;
                 Vec3::new(angle.sin() * 0.12, 0.065, angle.cos() * 0.12)
@@ -132,7 +207,7 @@ impl App {
                 );
                 ensure!(
                     self.sprinklers.is_empty() && self.tracer.sprinkler_instance_count() == 0,
-                    "removal must retire rendering and water emitters"
+                    "removal must retire hardware, optical volumes and watering sources"
                 );
             }
             if review.frame == 150 {
@@ -180,6 +255,22 @@ impl App {
             }
         }
         if review.frame == 180 {
+            let water_particles = self
+                .particle_snapshots
+                .iter()
+                .filter(|p| p.kind == crate::particles::ParticleRenderKind::WaterDroplet)
+                .count();
+            ensure!(
+                water_particles == 0,
+                "mist must not spawn visible water particles"
+            );
+            if review.mode == "mist-controls" {
+                ensure!(review.watering_brushes.iter().all(|n| *n > 0),
+                    "watering must record real GPU brushes at zero, normal and strong visual density");
+            }
+            log::info!("[SPRINKLER_MIST_REVIEW] water_particles={water_particles} watering_brushes={:?} density={} particles_enabled={}",
+                review.watering_brushes, self.debug_settings.adjustables.sprinkler_mist_density.value,
+                self.render_flags.enable_particles);
             ensure!(
                 self.sprinklers.len() == 1 && self.tracer.sprinkler_instance_count() == 1,
                 "sprinkler review final publication"

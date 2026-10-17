@@ -526,14 +526,6 @@ impl App {
                 &self.wind_prototype.field.frame(),
                 self.render_flags.enable_leaves, // Independent visual effects, never canopy removal.
             );
-            let world_tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
-            self.sprinklers.advance_particles(
-                &mut self.particle_system,
-                dt,
-                wind_time,
-                self.world_clock.flora_tick(),
-                world_tick_seconds,
-            );
         }
         let emit_ms = emit_start.elapsed().as_secs_f32() * 1000.0;
 
@@ -634,13 +626,12 @@ impl App {
 
         if self.perf_logging {
             log::info!(
-                "[PERF][PARTICLES] alive={} snapshots={} water_debug={} emitters butterflies={} leaves={} sprinklers={} tick_step={} dt={:.4} total={:.3}ms setup={:.3} emit={:.3} sim={:.3} collect={:.3} plan={:.3} snapshot={:.3} upload={:.3}",
+                "[PERF][PARTICLES] alive={} snapshots={} water_debug={} emitters butterflies={} leaves={} tick_step={} dt={:.4} total={:.3}ms setup={:.3} emit={:.3} sim={:.3} collect={:.3} plan={:.3} snapshot={:.3} upload={:.3}",
                 self.particle_system.alive_count(),
                 self.particle_snapshots.len(),
                 self.particle_snapshots.len().saturating_sub(sim_snapshot_count),
                 self.butterfly_emitters.len(),
                 self.trees.leaf_emitter_count(),
-                self.sprinklers.len(),
                 tick_step.did_step,
                 dt,
                 total_start.elapsed().as_secs_f32() * 1000.0,

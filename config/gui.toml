@@ -663,6 +663,17 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_mist_density"
+kind = "float"
+label = "Sprinklers: mist optical density"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 3.0
+
+[[section.param]]
 id = "sprinkler_pixel_resolution"
 kind = "uint"
 label = "Sprinklers: pre-cache resolution (N x N)"

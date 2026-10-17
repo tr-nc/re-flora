@@ -116,6 +116,13 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
+        title: "Mist & Scattering",
+        description: "Fine sprinkler mist is a depth-occluded continuous medium, not water particles. Sunlight is strongest through backlighting; density changes only appearance, never watering. Zero hides mist.",
+        initially_open: false,
+        params: &["sprinkler_mist_density"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Model View Quantization",
         description: "Native models always use the nearest model-local direction from one finite sphere bank. The direction count applies to flower heads, attached and fallen apples, mesh butterflies, sprinklers. Positions, growth, wind, articulated poses and roll stay live; player camera, simulation, collisions, world voxels and the scene pixel grid are unchanged. Compare 128 and 256, or 8-512 custom directions.",
         initially_open: false,

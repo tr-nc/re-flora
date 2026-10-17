@@ -7,31 +7,38 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
-const help = `Usage: node scripts/validate-sprinkler-model.mjs [--seconds <positive-number>]
-Check the native sprinkler model, water outlets and place/remove/re-place lifecycle.
+const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist] [--seconds <positive-number>]
+Check the sprinkler model, surface cache, continuous mist and placement lifecycle.
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
 live cache/resolution controls. Checks actual cached draws, not just saved values.
+--mist selects twelve optical checks instead: back/front light, zero density, inside,
+wall occlusion, night, live density, particles off, god rays off, shadows off, resize,
+and placement lifecycle. Also verifies zero water particles and real watering brushes
+at zero, normal and strong optical density. It does not measure performance.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
 Requires a current Release binary, a Vulkan desktop session, and the Khronos
 validation layer (set VK_LAYER_PATH or VULKAN_SDK if it is not installed globally).
 No GUI/camera settings or terrain snapshots are saved. No visible game is launched.
-Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json}.
+Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json};
+--mist uses target/sprinkler-mist-review/ instead.
 Example: cargo build --release && node scripts/validate-sprinkler-model.mjs
 Recovery for an incomplete fixture: node scripts/validate-sprinkler-model.mjs --seconds 20
 Exit: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
-let seconds;
+let seconds, mist;
 try {
   const {values} = parseArgs({options: {
+    mist: {type: 'boolean', default: false},
     seconds: {type: 'string', default: '8'}, help: {type: 'boolean', short: 'h'},
   }});
   if (values.help) { console.log(help); process.exit(0); }
   seconds = Number(values.seconds);
+  mist = values.mist;
   assert.ok(Number.isFinite(seconds) && seconds > 0, '--seconds must be a positive number');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 
 const root = path.resolve(import.meta.dirname, '..');
-const output = path.join(root, 'target/sprinkler-review');
+const output = path.join(root, mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
 const settings = path.join(output, 'settings');
 const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
@@ -43,8 +50,18 @@ try {
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  for (const name of ['near', 'garden', 'orbit', 'lifecycle', 'near-dense', 'pixels-8', 'pixels-16', 'pixels-32', 'controls']) {
-    const mode = name === 'near-dense' ? 'near' : name;
+  const cases = mist
+    ? ['mist-back', 'mist-front', 'mist-off', 'mist-inside', 'mist-wall', 'mist-night',
+       'mist-controls', 'mist-no-particles', 'mist-no-god-rays', 'mist-no-shadows', 'mist-resize', 'lifecycle']
+    : ['near', 'garden', 'orbit', 'lifecycle', 'near-dense', 'pixels-8', 'pixels-16', 'pixels-32', 'controls'];
+  for (const name of cases) {
+    const extraArgs = {
+      'mist-no-particles': ['--no-particles'],
+      'mist-no-god-rays': ['--no-god-rays'],
+      'mist-no-shadows': ['--no-shadows'],
+      'mist-resize': ['--resize-lifecycle-test'],
+    }[name] ?? [];
+    const mode = extraArgs.length > 0 ? 'mist-back' : name === 'near-dense' ? 'near' : name;
     const env = {...process.env};
     // Do not compose this isolated fixture with unrelated development overrides.
     for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_')) delete env[key];
@@ -57,9 +74,9 @@ try {
     const image = path.join(output, `${name}.png`);
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
-    const result = spawnSync(binary, ['--flat-terrain', '--hidden', '--mute',
+    const result = spawnSync(binary, ['--flat-terrain', '--hidden', '--mute', ...(mist ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
-      '--auto-exit', String(seconds)], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
+      '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
     fs.writeFileSync(path.join(output, `${name}.log`), log);
     assert.equal(result.status, 0, `${name}: ${result.error ?? 'native run failed'}`);
@@ -79,6 +96,21 @@ try {
         .map(m => [Number(m[1]), m[2] === 'true', Number(m[3])]);
       assert.deepEqual(steps, [[0,true,8],[1,true,16],[2,true,32],[3,false,32],[4,true,24],[5,true,8],[6,true,32]]);
     }
+    assert.match(log, /SPRINKLER_MIST_REVIEW\] water_particles=0/);
+    if (name === 'mist-controls') {
+      const brushes = log.match(/watering_brushes=\[(\d+), (\d+), (\d+)\]/);
+      assert.ok(brushes && brushes.slice(1).every(n => Number(n) > 0),
+        'watering did not record brushes at every mist density');
+    }
+    if (name === 'mist-no-particles') assert.match(log, /particles_enabled=false/);
+    if (mist && name === 'mist-off') assert.doesNotMatch(log, /sprinkler_mist.pass=/);
+    else if (mist) assert.match(log, /sprinkler_mist.pass=/);
+    if (name === 'mist-resize') {
+      assert.match(log, /RESIZE_LIFECYCLE\] phase=requests_complete count=5/);
+      const generations = [...log.matchAll(/RESIZE_LIFECYCLE\] phase=frame frame_generation=(\d+)/g)];
+      assert.ok(new Set(generations.map(match => match[1])).size >= 2,
+        'mist descriptors were not exercised across extent generations');
+    }
     const png = fs.readFileSync(image);
     assert.equal(png.subarray(1, 4).toString(), 'PNG', `${name}: missing capture`);
     assert.deepEqual(saved.map(hash), before, 'Saved settings changed');
@@ -87,7 +119,7 @@ try {
   }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({saved, hashes: before,
     synchronizationValidation: true, performanceMeasured: false, runs}, null, 2) + '\n');
-  console.log(`PASS: nine native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
+  console.log(`PASS: ${runs.length} native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/*.log; rebuild with cargo build --release and retry.\n${help}`);
   process.exitCode = 1;

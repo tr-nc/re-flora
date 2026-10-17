@@ -1,4 +1,4 @@
-# 园艺喷水器：共享小物体表面预缓存
+# 园艺喷水器：模型表面采样与连续水雾
 
 ## 目标与调研
 
@@ -12,7 +12,7 @@
 - [Haws 官方材料说明](https://haws.co.uk/pages/choosing-the-perfect-metal-indoor-can-for-you)：涂漆钢、铜、黄铜及可拆喷头提供形态参考，不复制品牌或模型。
 - [GARDENA 官方喷水器](https://www.gardena.com/int/products/watering/sprinklers/comfort-circular-sprinkler-vario/900967401.html)：借鉴低位稳定底座和清楚的出水结构，不照搬产品外观或灌溉参数。
 
-造型仍是视觉候选，最终观感需要玩家确认。
+造型和水雾仍是视觉候选，最终观感需要玩家确认。水雾目标是表现空气中悬浮的湿气，而不是能逐颗辨认的水珠或白色烟团。
 
 ## 原先的接线缺口
 
@@ -28,9 +28,27 @@
 - [缓存](../../src/tracer/model_surface_cache.rs)：喷水器是独立第五类，复用方向库和异步任务。修改喷水器分辨率只使这一类缓存失效；缓存未就绪或关闭时走同一模型的原生三角形回退。
 - [顶点路径](../../shader/slang/sprinkler.vert.slang)：缓存及回退共享视角选择，部件升降和活动喷嘴伸缩实时计算；部件平移同时作用于缓存表面位置和面片投影。没有烘死动画或新增离线 RGB 贴图。
 - [实例发布](../../src/tracer/sprinkler_resources.rs)：放置操作只暂存姿态，等待帧槽 fence 完成后才写对应 GPU 缓冲；逐帧描述符由共享模型绘制路径管理，避免删除／重放时覆盖飞行中的数据。
-- [尺寸与姿态](../../src/sprinkler.rs)、[GPU 动画](../../shader/slang/sprinkler_animation.slang)：保留 tick、每实例相位和每秒交替一对喷嘴。水滴的物理出口与网格运动仍共用尺寸及姿态；视角量化和粗采样会带来正常的视觉离散误差，不改变物理浇水范围。
-- [水滴](../../src/app/core/placeables.rs)：从活动出口产生，弹道按实际高度／偏移求解，保留上一实现的细小柔和青白水珠及其浇水、放置、删除行为。
+- [尺寸与姿态](../../src/sprinkler.rs)、[GPU 动画](../../shader/slang/sprinkler_animation.slang)：保留 tick、每实例相位和每秒交替一对喷嘴。CPU 浇水轴与 GPU 硬件动画保持姿态契约；视角量化和粗采样不会改变物理浇水范围。
+- [浇水](../../src/app/core/placeables.rs)：`SprinklerMoistureSource` 独立提供灌溉，不再建立喷水器粒子发射器。关闭水雾或普通粒子不关闭浇水，也不改变其他粒子效果。
 - 保留实时照明、阴影接收、编辑预览染色和场景深度。仍是 **Raster Consumer**：没有新增太阳投影、DDGI 遮挡或碰撞体。
+
+## 连续水雾：替代可见水珠
+
+- **影响范围**：旧喷水器喷雾能被看成独立水粒，尤其在近距离和场景像素化后；模型、放置及实际灌溉不是本次问题。
+- **根因**：旧路径把湿空气表达为有尺寸、颜色和独立轮廓的 `WaterDroplet` 粒子。只改颜色或缩小粒子不能消除这种表现机制。
+- **引入时间**：`73c64384`（2026-10-17）仍沿用并调整这条粒子路径；它不是首次引入粒子的证据，更早的引入提交未在本轮确认。
+- **干净修复**：[局部介质积分](../../shader/slang/sprinkler_mist.comp.slang) 和 [光学数学](../../shader/slang/sprinkler_mist_math.slang) 在合成后、普通后处理前运行，复用硬件的逐帧实例缓冲，不增加第二份发射器登记表。
+
+每个喷水器覆盖半径 0.28、垂向半径 0.105 的柔和椭球，近地面平滑淡出，整体随作者风场轻微偏移，密度只有缓慢的大尺度起伏。没有粒子、广告牌、高频随机亮点或浓烟纹理，也不随喷嘴换向突然消失。
+
+沿相机射线先与介质相交，再被现有 raster／compute 场景深度裁剪；12 步积分复用太阳颜色、统一太阳阴影查询和 DDGI 环境光。HG 前向散射（g=0.72）使逆光更明显；指数透射压低背景对比度，而不是叠加固定白色。不发光的黑暗环境不会出现自发白雾，零密度严格保留原画面并跳过该 pass。重叠体积以光学薄介质近似可交换地合并，避免实例顺序导致接缝。
+
+边界：
+
+- 水雾是连续的世界空间介质，不从模型缓存分辨率或 `scene_pixel_ratio` 推导密度／形状。与其他世界内容一样，最终画面仍经过统一场景采样和后处理。
+- 读取第一层玻璃深度时只积分相机侧空气；不支持玻璃后方的折射水雾传输。本轮未做玻璃专门场景验收。
+- 这是轻薄局部介质的单次散射近似，不是多次散射、完整光线追踪或影响 DDGI 的体积遮挡体。
+- 不把视觉水雾作为浇水成功与否的判据；实际湿润刷仍由 gameplay 所有者提交。
 
 ## 游戏内控制
 
@@ -39,11 +57,15 @@ Debug → **Model Pixel Pre-cache**：
 - **Sprinklers: use model pre-cache**：缓存开关；关闭使用原生三角形。
 - **Sprinklers: pre-cache resolution (N x N)**：8–32，默认 32。降低会使喷水器明显粗粒化，细喷嘴可能只剩几个采样格。
 
-设置来自 `config/gui.toml` 的声明式字段，可随 Debug 设置保存；旧配置缺字段时补默认值，读取不写盘。不改苹果、蝴蝶、花头、工具袋的分辨率或 `scene_pixel_ratio`。
+Debug → **Mist & Scattering**：
+
+- **Sprinklers: mist optical density**：0–3，默认 1；0 只隐藏视觉水雾，3 用于检查较强效果。
+
+设置来自 `config/gui.toml` 的声明式字段，可随 Debug 设置保存；旧配置缺字段时补默认值，读取不写盘。不改苹果、蝴蝶、花头、工具袋的分辨率或 `scene_pixel_ratio`。花头保存尺寸仍为用户的 1.11。
 
 ## 验证结果与边界
 
-本轮：
+### 共享模型缓存阶段（历史记录）
 
 - `cargo fmt --check`、`cargo check`、Release 构建通过。
 - 全量 Rust：1641 app、4 collision、1 integration 通过；既有显式依赖测试按策略跳过。
@@ -52,7 +74,7 @@ Debug → **Model Pixel Pre-cache**：
 - NVIDIA 硬件运行被另一个游戏的显存占用阻塞，启动分配失败；没有关闭用户游戏，也没有把此运行记为通过。
 - 以 **llvmpipe 软件 Vulkan + X11** 运行真正的隐藏／静音 Release 程序：32 采样 smoke、8/16/32 截图、七阶段缓存／分辨率切换、三实例放置／删除／重放。后两组达到 180 帧，Khronos 同步验证无 ERROR／VUID／hazard，退出成功。配置和相机文件哈希不变。
 - 软件 Vulkan 的 Wayland 诊断在销毁 surface 时崩溃，调用栈落在 `wsi_wl_surface_destroy → wl_proxy_destroy`；没有把这次失败记为通过，也没有确认其引入时间。X11 是本轮验证环境选择，不是对此问题的产品修复。
-- 硬件九场景复验、最大 256 实例性能验收和玩家外观认可尚未完成。软件 Vulkan 的耗时不是硬件性能证据。
+- 该阶段硬件九场景复验被阻塞，后续水雾阶段已补齐；最大 256 实例性能验收和玩家外观认可仍未完成。软件 Vulkan 的耗时不是硬件性能证据。
 
 本轮截图及日志在 `target/sprinkler-cache-review/`：
 
@@ -60,7 +82,20 @@ Debug → **Model Pixel Pre-cache**：
 - `software-{controls,lifecycle}.log`：逐阶段缓存状态、180 帧检查和正常退出。
 - `software-x11-smoke.log`、`rust-tests.log`、`slang-tests.log`、`pose-parity.log`：对应验证。
 
-`target/sprinkler-review/` 的旧五场景截图／报告属于 `73c64384` 原生网格验证，不能冒充本轮缓存路径的验收。
+水雾复验前，`target/sprinkler-review/` 的旧五场景报告只属于 `73c64384` 原生网格验证；下述硬件九场景复验已更新该目录。旧证据本身不能代替缓存或水雾验收。
+
+### 连续水雾阶段
+
+- `cargo fmt --check`、`cargo check` 和 Release 构建通过。
+- 全量 Rust：1639 app、4 collision、1 integration 通过；环境依赖测试仍按既有策略忽略。删除两项旧弹道／粒子宽度测试，因为产品路径已移除，而不是用测试保留过时机制。
+- 39 个 Slang CPU 测试通过，新增水雾射线区间、镜头在体积内、遮挡裁剪、连续密度、相函数归一化、零光不发白、零密度恒等及数值稳定透射测试。
+- 显式 300 组 Slang／Rust 硬件姿态对照仍通过。配置测试覆盖旧存档补默认、零密度和 1.75 的保存往返、其他对象／全局像素设置隔离；frame-input 测试检查独立字段映射。
+- **RTX 3060 Ti + X11**：12 个水雾场景、原有 9 个硬件／缓存场景均达到 180 帧，Khronos 同步验证无 ERROR／VUID／hazard，退出成功，配置／相机哈希未变。水雾组额外检查实际 GPU pass、密度为零时不绘制、关闭普通粒子仍有水雾，以及实时消费者存在后的 resize 重放。
+- 密度切换场景的真实浇水刷计数为 `[40, 100, 40]`（零／正常／强密度），水粒子计数始终为零。放置／删除／重放仍使用原生产路径。
+- 已检查逆光／关闭／顺光、墙体、夜晚、雾内及关闭 god rays 截图：逆光有连续柔和的亮雾和背景对比度变化，顺光很轻，没有独立水珠。截图审查不是玩家视觉认可，也不是所有遮挡／玻璃组合的完全验收。
+- 初步单实例硬件测量：隐藏静音 Release，关闭验证层，窗口 5120×2880／场景 1024×576，交替进行两次 off 与两次 back 各 8 秒，丢弃前 180 帧。水雾 GPU pass 中位数分别为 **0.441 ms／0.401 ms**，P95 为 **0.460 ms／0.428 ms**，每次 11 个采样。仅用于本场景 pass 归因，不是旧粒子对照、稳定整帧差值或最大 256 实例性能验收；当前仍逐像素遍历实例，人口扩展性能未获接受。
+
+水雾截图、同步日志及报告：`target/sprinkler-mist-review/{*.png,*.log,summary.json}`；初步测量：`target/sprinkler-mist-review/perf/`。新的九场景硬件／采样复验位于 `target/sprinkler-review/`，不要与旧软件缓存证据混用。
 
 ## 复验
 
@@ -73,9 +108,11 @@ python3 scripts/run_slang_tests.py
 cargo build --release
 cargo run --release -- --hidden --mute --auto-exit 0.5
 node scripts/validate-sprinkler-model.mjs
+node scripts/validate-sprinkler-model.mjs --mist
 cargo run --release -- --tail-latest-log 25
 ```
 
-脚本扩展为九场景：near、garden、orbit、lifecycle、near-dense、pixels-8/16/32、controls。它强制启用 Khronos 同步验证，检查实际缓存绘制／回退、完整夹具、PNG、退出和保存文件哈希；用 `--help` 查看依赖及运行时长恢复方式。
+脚本默认九场景：near、garden、orbit、lifecycle、near-dense、pixels-8/16/32、controls。
+`--mist` 另选十二场景：逆光、顺光、零密度、镜头在雾内、墙体、夜晚、实时密度、关闭粒子、关闭 god rays、关闭阴影、resize 及 lifecycle。它强制启用 Khronos 同步验证，检查实际缓存绘制／回退、完整夹具、PNG、退出和保存文件哈希；水雾组另启隐藏 `--perf` 验证实际 GPU pass，但不是性能基准。用 `--help` 查看依赖及运行时长恢复方式。
 
 手动体验用 `cargo run --release`，按 **X** 放置，再到上述 Debug 分组调节。不会自动启动可见游戏。

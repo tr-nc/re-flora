@@ -272,6 +272,12 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let sprinkler_mist_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/sprinkler_mist.comp",
+            "main",
+        )
+        .unwrap();
         let composition_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             if glass_experiment_enabled {
@@ -678,6 +684,7 @@ impl PipelineBuilder {
             god_ray_sm,
             god_ray_temporal_sm,
             composition_sm,
+            sprinkler_mist_sm,
             glass_resolve_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
@@ -1037,6 +1044,14 @@ impl PipelineBuilder {
             pool,
             &[resources],
         );
+        let sprinkler_mist_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.sprinkler_mist_sm, pool);
+        sprinkler_mist_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "camera_info",
+                providers: &[resources, ddgi_volume, ddgi_voxel_visibility],
+            })
+            .expect("mist environment descriptors must resolve");
         let composition_ppl =
             ComputePipeline::new(device, &shader_modules.composition_sm, pool, &[resources]);
         let glass_resolve_ppl = shader_modules
@@ -1112,6 +1127,7 @@ impl PipelineBuilder {
             lens_flare_temporal_ppl,
             lens_flare_sun_visible_ppl,
             composition_ppl,
+            sprinkler_mist_ppl,
             glass_resolve_ppl,
             player_collider_ppl,
             terrain_query_ppl,
@@ -1929,6 +1945,7 @@ declare_ddgi_consumer_registry! {
     Leaves => Graphics(graphics.leaves_ppl),
     LeavesLod => Graphics(graphics.leaves_lod_ppl),
     Sprinkler => Graphics(graphics.sprinkler_ppl),
+    SprinklerMist => Compute(compute.sprinkler_mist_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
     DdgiResponseSample => Compute(compute.ddgi_response_sample_ppl),
@@ -2339,6 +2356,14 @@ impl PipelineTopology {
             );
         }
 
+        retire_compute(
+            &self.compute.sprinkler_mist_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "camera_info",
+                providers: &all_resources,
+            },
+            "mist extent descriptors must resolve",
+        );
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -2922,6 +2947,7 @@ pub struct ShaderModules {
     pub god_ray_sm: ShaderModule,
     pub god_ray_temporal_sm: ShaderModule,
     pub composition_sm: ShaderModule,
+    pub sprinkler_mist_sm: ShaderModule,
     pub glass_resolve_sm: Option<ShaderModule>,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
     pub terrain_depth_prefill_frag_sm: ShaderModule,
@@ -3033,6 +3059,7 @@ pipeline_collection! {
         lens_flare_temporal_ppl,
         lens_flare_sun_visible_ppl,
         composition_ppl,
+        sprinkler_mist_ppl,
         player_collider_ppl,
         terrain_query_ppl,
         wind_volume_ppl,

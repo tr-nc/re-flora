@@ -6,32 +6,16 @@ use crate::lighting::{
     RasterEmitterPartId, RasterEntityEmitterChange, RasterEntityEmitterProvider, RasterEntityId,
     RASTER_ENTITY_LIGHT_PROVIDER_ID,
 };
-use crate::particles::{
-    MotionMode, ParticleEmitter, ParticleRenderKind, ParticleSpawn, ParticleSystem,
-    ParticleUpdateConfig,
-};
-use crate::sprinkler::{Pose as SprinklerPose, WORLD_SCALE};
+use crate::sprinkler::Pose as SprinklerPose;
 use crate::tracer::SprinklerRenderInstance;
 use anyhow::{anyhow, Result};
-use glam::{Vec3, Vec4};
-use rand::{rngs::SmallRng, RngExt, SeedableRng};
+use glam::Vec3;
 use std::collections::HashSet;
 
 const VOXELS_PER_WORLD_UNIT: f32 = 256.0;
 
-const SPRINKLER_SPAWN_RATE_PER_SECOND: f32 = 576.0;
-const SPRINKLER_MAX_SPAWN_PER_FRAME: u32 = 192;
-// Bead width stays below the bore diameter after the shared billboard's 1.53125x expansion.
-const SPRINKLER_DROPLET_SIZE: f32 = 0.28 * WORLD_SCALE;
-const SPRINKLER_GRAVITY_FACTOR: f32 = 0.82;
-const SPRINKLER_GRAVITY: f32 = 3.6 * SPRINKLER_GRAVITY_FACTOR;
-const SPRINKLER_MIN_LANDING_RADIUS: f32 = 0.025;
-const SPRINKLER_MAX_LANDING_RADIUS: f32 = 0.28;
-const SPRINKLER_MIN_ELEVATION: f32 = 42.0_f32.to_radians();
-const SPRINKLER_MAX_ELEVATION: f32 = 54.0_f32.to_radians();
-const SPRINKLER_COLOR_LOW: Vec4 = Vec4::new(0.12, 0.35, 0.46, 0.32);
-const SPRINKLER_COLOR_HIGH: Vec4 = Vec4::new(0.35, 0.64, 0.70, 0.50);
-const SPRINKLER_PARTICLE_UPDATE: ParticleUpdateConfig = ParticleUpdateConfig::new(0.1, 2);
+// Mist is a continuous optical volume owned by the renderer. Watering below
+// remains a gameplay source, independent of visual density or particle settings.
 // Keep the hardware footprint clear without suppressing the much larger watered area.
 // A smooth ten-voxel influence surrounds the small sliding four-nozzle head.
 const SPRINKLER_GRASS_SUPPRESSION_RADIUS_VOXELS: u32 = 10;
@@ -72,124 +56,6 @@ impl SprinklerRecord {
     }
 }
 
-struct SprinklerEmitter {
-    id: u32,
-    base_position: Vec3,
-    rng: SmallRng,
-    spawn_accumulator: f32,
-    animation_phase: f32,
-    animation_tick: u32,
-    animation_tick_seconds: f32,
-}
-
-impl SprinklerEmitter {
-    fn new(id: u32, base_position: Vec3, animation_phase: f32) -> Self {
-        let seed = sprinkler_seed(id, base_position);
-        Self {
-            id,
-            base_position,
-            rng: SmallRng::seed_from_u64(seed),
-            spawn_accumulator: 0.0,
-            animation_phase,
-            animation_tick: 0,
-            animation_tick_seconds: crate::game_time::WORLD_TICK_SECONDS_DEFAULT,
-        }
-    }
-
-    fn set_animation_clock(&mut self, tick: u32, tick_seconds: f32) {
-        self.animation_tick = tick;
-        self.animation_tick_seconds = crate::game_time::clamp_world_tick_seconds(tick_seconds);
-    }
-
-    fn droplet(&mut self) -> ParticleSpawn {
-        let pose = SprinklerPose::sample(
-            self.animation_tick,
-            self.animation_tick_seconds,
-            self.animation_phase,
-        );
-        let sign = if self.rng.random_bool(0.5) { 1.0 } else { -1.0 };
-        let fan_angle = self
-            .rng
-            .random_range(-std::f32::consts::FRAC_PI_4..=std::f32::consts::FRAC_PI_4);
-        let (sin_angle, cos_angle) = fan_angle.sin_cos();
-        let axis = pose.axis() * sign;
-        let tangent = axis.cross(Vec3::Y);
-        let horizontal_dir = axis * cos_angle + tangent * sin_angle;
-        // Stay inside the bore, just beyond its lip. The mesh, water and wetting
-        // share the world tick and pair phase, including pause and clock retuning.
-        let outlet = pose.outlet(sign)
-            + WORLD_SCALE
-                * (axis * 0.02
-                    + tangent * self.rng.random_range(-0.08..=0.08)
-                    + Vec3::Y * self.rng.random_range(-0.08..=0.08));
-
-        // Preserve the area-biased radial distribution, then solve ballistic launch speed
-        // for that landing radius. This fills the spray footprint instead of concentrating
-        // droplets at its rim, while every near and far droplet follows the same gravity.
-        let area_sample = self.rng.random_range(0.0_f32..=1.0).sqrt();
-        let landing_radius = SPRINKLER_MIN_LANDING_RADIUS
-            + (SPRINKLER_MAX_LANDING_RADIUS - SPRINKLER_MIN_LANDING_RADIUS) * area_sample;
-        let elevation = self
-            .rng
-            .random_range(SPRINKLER_MIN_ELEVATION..=SPRINKLER_MAX_ELEVATION);
-        // Solve distance from the real offset nozzle to the sampled base-centered
-        // radius (not radius + nozzle offset), and use its animated launch height.
-        let horizontal_outlet = Vec3::new(outlet.x, 0., outlet.z);
-        let along = horizontal_outlet.dot(horizontal_dir);
-        let travel = (along * along + landing_radius * landing_radius
-            - horizontal_outlet.length_squared())
-        .max(0.)
-        .sqrt()
-            - along;
-        let (horizontal_speed, vertical_speed, flight_time) =
-            sprinkler_ballistic_launch(travel, elevation, outlet.y);
-        let color_mix = self.rng.random_range(0.0..=1.0);
-        let color = SPRINKLER_COLOR_LOW.lerp(SPRINKLER_COLOR_HIGH, color_mix);
-        let drift_direction = horizontal_dir;
-
-        ParticleSpawn {
-            position: self.base_position + outlet,
-            velocity: horizontal_dir * horizontal_speed + Vec3::Y * vertical_speed,
-            color,
-            size: SPRINKLER_DROPLET_SIZE,
-            lifetime: flight_time + SPRINKLER_PARTICLE_UPDATE.interval_seconds,
-            wind_factor: 0.0,
-            gravity_factor: SPRINKLER_GRAVITY_FACTOR,
-            drift_direction,
-            drift_strength: self.rng.random_range(0.00..=0.008),
-            drift_frequency: self.rng.random_range(1.5..=4.0),
-            speed_noise_offset: self.rng.random_range(0.0..10_000.0) + self.id as f32,
-            motion_mode: MotionMode::Free,
-            sink_on_lifetime: false,
-            sink_speed: 0.0,
-            palette_index: 0,
-            render_kind: ParticleRenderKind::WaterDroplet,
-            despawn_on_lifetime: true,
-            despawn_below_ground: true,
-            update: SPRINKLER_PARTICLE_UPDATE,
-        }
-    }
-}
-
-impl ParticleEmitter for SprinklerEmitter {
-    fn update(&mut self, system: &mut ParticleSystem, dt: f32, _time: f32) {
-        if dt <= 0.0 {
-            return;
-        }
-
-        self.spawn_accumulator += SPRINKLER_SPAWN_RATE_PER_SECOND * dt.min(0.12);
-        let mut spawned = 0;
-        while self.spawn_accumulator >= 1.0 && spawned < SPRINKLER_MAX_SPAWN_PER_FRAME {
-            let _ = system.spawn(self.droplet());
-            self.spawn_accumulator -= 1.0;
-            spawned += 1;
-        }
-        if spawned == SPRINKLER_MAX_SPAWN_PER_FRAME {
-            self.spawn_accumulator = self.spawn_accumulator.min(1.0);
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(super) struct SprinklerMoistureSource {
     pub(super) base_position: Vec3,
@@ -198,18 +64,13 @@ pub(super) struct SprinklerMoistureSource {
 
 impl SprinklerMoistureSource {
     pub(super) fn spray_axis(self, tick: u32, tick_seconds: f32) -> Vec3 {
-        if sprinkler_sprays_along_x(tick, tick_seconds, self.animation_phase) {
-            Vec3::X
-        } else {
-            Vec3::Z
-        }
+        SprinklerPose::sample(tick, tick_seconds, self.animation_phase).axis()
     }
 }
 
 struct SprinklerPlacementPlan {
     expected_revision: u64,
     record: SprinklerRecord,
-    emitter: SprinklerEmitter,
     render_instances: Vec<SprinklerRenderInstance>,
     grass_influence_id: u64,
     grass_influence: GrassGrowthInfluence,
@@ -293,9 +154,8 @@ impl SprinklerRemovalPlan {
 #[derive(Default)]
 pub(super) struct SprinklerRuntime {
     records: Vec<SprinklerRecord>,
-    emitters: Vec<SprinklerEmitter>,
     /// Monotonic, never-reused identity source. `u32::MAX + 1` means exhausted; placement then
-    /// fails explicitly so every u32 consumer (removal, grass influence, RNG, raster key) shares
+    /// fails explicitly so every u32 consumer (removal, grass influence, phase, raster key) shares
     /// the same no-ABA contract.
     next_id: u64,
     revision: u64,
@@ -341,20 +201,6 @@ impl SprinklerRuntime {
             .collect()
     }
 
-    pub(super) fn advance_particles(
-        &mut self,
-        system: &mut ParticleSystem,
-        dt: f32,
-        time: f32,
-        tick: u32,
-        tick_seconds: f32,
-    ) {
-        for emitter in &mut self.emitters {
-            emitter.set_animation_clock(tick, tick_seconds);
-            emitter.update(system, dt, time);
-        }
-    }
-
     #[cfg_attr(not(test), allow(dead_code))]
     fn plan_placement(&self, target: Vec3) -> Result<SprinklerPlacementPlan> {
         self.plan_placement_with_emitter(target, None)
@@ -383,7 +229,6 @@ impl SprinklerRuntime {
         Ok(SprinklerPlacementPlan {
             expected_revision: self.revision,
             record,
-            emitter: SprinklerEmitter::new(id, base_position, animation_phase),
             render_instances,
             grass_influence_id: sprinkler_grass_influence_id(id),
             grass_influence: sprinkler_grass_influence(base_position),
@@ -397,9 +242,7 @@ impl SprinklerRuntime {
         );
         self.next_id = u64::from(plan.record.id) + 1;
         self.records.push(plan.record);
-        self.emitters.push(plan.emitter);
         self.revision = self.revision.wrapping_add(1);
-        debug_assert_eq!(self.records.len(), self.emitters.len());
     }
 
     fn plan_emitter_update(
@@ -446,7 +289,6 @@ impl SprinklerRuntime {
             .expect("emitter update entity must remain live until commit");
         self.records[index].base_position = plan.base_position;
         self.records[index].emitter_component = Some(plan.component);
-        self.emitters[index].base_position = plan.base_position;
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -525,26 +367,9 @@ impl SprinklerRuntime {
         let removed_count = plan.removed_count();
         self.records
             .retain(|record| !plan.removed_ids.contains(&record.id));
-        self.emitters
-            .retain(|emitter| !plan.removed_ids.contains(&emitter.id));
         self.revision = self.revision.wrapping_add(1);
-        debug_assert_eq!(self.records.len(), self.emitters.len());
         removed_count
     }
-}
-
-fn sprinkler_ballistic_launch(
-    landing_radius: f32,
-    elevation: f32,
-    nozzle_height: f32,
-) -> (f32, f32, f32) {
-    let radius = landing_radius.max(f32::EPSILON);
-    let horizontal_speed = (0.5 * SPRINKLER_GRAVITY * radius * radius
-        / (nozzle_height + radius * elevation.tan()))
-    .sqrt();
-    let vertical_speed = horizontal_speed * elevation.tan();
-    let flight_time = radius / horizontal_speed;
-    (horizontal_speed, vertical_speed, flight_time)
 }
 
 fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
@@ -557,6 +382,7 @@ fn distance_sq_to_segment(point: Vec3, start: Vec3, end: Vec3) -> f32 {
     point.distance_squared(start + segment * t)
 }
 
+#[cfg(test)]
 fn sprinkler_sprays_along_x(tick: u32, tick_seconds: f32, animation_phase: f32) -> bool {
     SprinklerPose::sample(tick, tick_seconds, animation_phase).along_x
 }
@@ -903,7 +729,7 @@ mod tests {
 
         runtime.commit_placement(placement);
         assert_eq!(runtime.len(), 1);
-        assert_eq!(runtime.records.len(), runtime.emitters.len());
+        assert_eq!(runtime.records.len(), runtime.moisture_sources().len());
         assert_eq!(runtime.moisture_sources().len(), 1);
 
         let removal = runtime
@@ -923,7 +749,7 @@ mod tests {
 
         assert_eq!(runtime.commit_removal(removal), 1);
         assert!(runtime.is_empty());
-        assert_eq!(runtime.records.len(), runtime.emitters.len());
+        assert_eq!(runtime.records.len(), runtime.moisture_sources().len());
     }
 
     #[test]
@@ -961,7 +787,7 @@ mod tests {
             1,
             "failed preparation must not mutate records"
         );
-        assert_eq!(runtime.records.len(), runtime.emitters.len());
+        assert_eq!(runtime.records.len(), runtime.moisture_sources().len());
     }
 
     #[test]
@@ -1060,38 +886,6 @@ mod tests {
             })
             .is_none());
         assert_eq!(runtime.len(), 1);
-    }
-
-    #[test]
-    fn sprinkler_bead_width_is_smaller_than_bores_and_other_particles() {
-        assert!(SPRINKLER_DROPLET_SIZE * 1.53125 < 0.46 * WORLD_SCALE);
-        assert!(SPRINKLER_DROPLET_SIZE < crate::particles::LeafEmitterDesc::default().size);
-    }
-
-    #[test]
-    fn sprinkler_droplets_leave_animated_bores_and_land_in_the_watered_disk() {
-        let base = Vec3::new(0.5, 0.3, 0.6);
-        for seconds in [1. / 240., 0.05, 0.08, 0.4] {
-            for phase in [0., 0.125, 0.975] {
-                let mut emitter = SprinklerEmitter::new(1, base, phase);
-                for tick in 0..480 {
-                    emitter.set_animation_clock(tick, seconds);
-                    let pose = SprinklerPose::sample(tick, seconds, phase);
-                    let spawn = emitter.droplet();
-                    let start = spawn.position - base;
-                    let sign = start.dot(pose.axis()).signum();
-                    assert!(start.distance(pose.outlet(sign)) < 0.12 * WORLD_SCALE);
-                    assert!(spawn.velocity.dot(pose.axis()) * sign > 0.);
-                    let t = spawn.lifetime - SPRINKLER_PARTICLE_UPDATE.interval_seconds;
-                    let end =
-                        start + spawn.velocity * t - Vec3::Y * (0.5 * SPRINKLER_GRAVITY * t * t);
-                    assert!(end.y.abs() < 1e-6);
-                    let radius = Vec3::new(end.x, 0., end.z).length();
-                    assert!(radius >= SPRINKLER_MIN_LANDING_RADIUS - 1e-6);
-                    assert!(radius <= SPRINKLER_MAX_LANDING_RADIUS + 1e-6);
-                }
-            }
-        }
     }
 
     #[test]

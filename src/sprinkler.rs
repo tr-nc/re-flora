@@ -1,4 +1,4 @@
-//! Sprinkler hardware dimensions and tick-driven pose shared by the mesh and water outlets.
+//! Sprinkler hardware dimensions and tick-driven wetting axis, with CPU mesh-pose contract checks.
 //! Rigid-part surface caches and native fallback share this pose; scene resolve stays independent.
 use glam::Vec3;
 
@@ -10,6 +10,7 @@ pub(crate) const NOZZLE_EXTENSION: f32 = 0.2;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Pose {
+    #[cfg(test)]
     pub extension: f32,
     pub along_x: bool,
 }
@@ -21,8 +22,10 @@ impl Pose {
         let cycle_ticks = pair_ticks * 2;
         let offset = (phase.rem_euclid(1.0) * cycle_ticks as f32).round() as u32;
         let cycle_tick = tick.wrapping_add(offset) % cycle_ticks;
+        #[cfg(test)]
         let pair_phase = (cycle_tick % pair_ticks) as f32 / pair_ticks as f32;
         Self {
+            #[cfg(test)]
             extension: 0.5 - 0.5 * (pair_phase * std::f32::consts::TAU).cos(),
             along_x: cycle_tick >= pair_ticks,
         }
@@ -36,7 +39,8 @@ impl Pose {
         }
     }
 
-    /// Local center of one of the two currently active, opposing nozzle faces.
+    /// Authoring contract: center of one active nozzle face, not a particle spawn.
+    #[cfg(test)]
     pub fn outlet(self, sign: f32) -> Vec3 {
         (Vec3::Y * (NOZZLE_HEIGHT + HEAD_LIFT * self.extension)
             + self.axis() * sign * (NOZZLE_REACH + NOZZLE_EXTENSION * self.extension))

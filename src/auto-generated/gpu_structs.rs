@@ -567,6 +567,16 @@ pub struct PushConstantProbeTrace {
     pub local_refresh_world_max: [f32; 4],
 }
 
+/// Auto-generated from `PushConstantSprinklerMist` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantSprinklerMist {
+    pub count: u32,
+    pub density: f32,
+    pub shadows_enabled: u32,
+    pub glass_enabled: u32,
+}
+
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
