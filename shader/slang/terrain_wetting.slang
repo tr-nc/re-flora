@@ -25,34 +25,86 @@ public float wetPatchNormalCdf(float value)
     return saturate(value<0.0?tail:1.0-tail);
 }
 
-public float wetPatchUniform(float3 voxelPosition,float scale,uint seed)
+// Each lattice site is a wet-patch source, with compact, overlapping support.
+// Test source centers, never receiving voxels, against the two opposite 90-degree
+// sectors. Axis need not be normalized; the two hardware axes remain separate.
+public bool wetPatchCenterInSector(float2 offset,float2 axis)
+{
+    float axisSquared=dot(axis,axis);
+    float along=dot(offset,axis);
+    return axisSquared>1e-10 && 2.0*along*along>=dot(offset,offset)*axisSquared;
+}
+
+// Conservative broad phase: a contributing lattice site is less than one scale
+// away on either XZ coordinate. Outside this band ALL source kernels are zero;
+// this is not a new angular crop of a live patch.
+public bool wetPatchCanReachSector(float2 offset,float2 axis,float scale)
+{
+    float axisLength=length(axis);
+    return axisLength>1e-5 && abs(dot(offset,axis))+(2.0*max(scale,2.0)+0.001)*axisLength>=
+        abs(offset.x*axis.y-offset.y*axis.x);
+}
+
+public struct WetPatchSample
+{
+    public float uniform;
+    public float coverage;
+};
+
+WetPatchSample wetPatchField(float3 voxelPosition,float scale,uint seed,
+                            float2 source,float2 axis,bool directional)
 {
     // Per-dose grid jitter prevents a persistent box/grid imprint. Local
     // coefficients avoid one random amplitude changing the whole wet footprint.
     float3 shift=float3(terrainSoilHash01(uint3(13,29,71),seed),
         terrainSoilHash01(uint3(83,19,31),seed),terrainSoilHash01(uint3(43,53,7),seed));
-    float3 p=voxelPosition/max(scale,2.0)+shift;
+    scale=max(scale,2.0);
+    float3 p=voxelPosition/scale+shift;
     int3 cell=int3(floor(p));
     float3 f=frac(p);
     float3 blend=f*f*(3.0-2.0*f);
-    float normal=0.0,variance=0.0;
+    float normal=0.0,variance=0.0,allowedVariance=0.0;
     [ForceUnroll] for(uint i=0u;i<8u;++i)
     {
         int3 corner=int3(i&1u,(i>>1u)&1u,(i>>2u)&1u);
         float3 w=lerp(1.0-blend,blend,float3(corner));
         float weight=w.x*w.y*w.z;
-        normal+=weight*wetPatchGaussian(cell+corner,seed^0x1B56C4E9u);
-        variance+=weight*weight;
+        float weightSquared=weight*weight;
+        variance+=weightSquared;
+        float2 patchCenter=(float3(cell+corner)-shift).xz*scale;
+        if(!directional || wetPatchCenterInSector(patchCenter-source,axis))
+        {
+            normal+=weight*wetPatchGaussian(cell+corner,seed^0x1B56C4E9u);
+            allowedVariance+=weightSquared;
+        }
     }
-    // Unit variance at EVERY position, including interpolation midpoints.
-    return wetPatchNormalCdf(-normal*rsqrt(variance));
+    WetPatchSample result;
+    // Normalize random thresholds by the contributors' variance, but dose by
+    // ALL kernel weights. Normalizing both by only allowed sites would turn a
+    // tiny kernel tail outside the sector into a fully watered patch.
+    result.uniform=allowedVariance>0.0?
+        wetPatchNormalCdf(-normal*rsqrt(allowedVariance)):0.5;
+    result.coverage=allowedVariance/variance;
+    return result;
+}
+
+public float wetPatchUniform(float3 voxelPosition,float scale,uint seed)
+{
+    return wetPatchField(voxelPosition,scale,seed,float2(0),float2(0),false).uniform;
+}
+
+public WetPatchSample wetPatchDirectionalSample(float3 voxelPosition,float scale,
+                                               uint seed,float2 source,float2 axis)
+{
+    return wetPatchField(voxelPosition,scale,seed,source,axis,true);
 }
 
 // Independent time intervals compose as a Poisson process, including after
 // saturating at the existing three moisture levels. Bernoulli rounding only
 // approximates that property and changes wetting speed at large frame deltas.
-// Scale never enters the dose: larger patches correlate where water lands,
-// not how much water each eligible receiver gets in expectation.
+// For a fixed local dose, scale never multiplies its amount. The directional
+// kernel redistributes coverage at sector edges; its normalized weights sum to
+// one across the two complementary axes, including outside the old sector.
 public uint wetPatchPoissonIncrement(float dose,float uniform)
 {
     if(dose<=0.0)return 0u;

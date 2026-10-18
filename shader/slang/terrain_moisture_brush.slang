@@ -85,15 +85,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             return;
         }
-        if (distanceFromStroke > 1.0e-5)
+        if (!wetPatchCanReachSector(offset, axis, pc.wet_patch.x))
         {
-            float alignment = abs(dot(
-                offset / distanceFromStroke, axis / rangeVoxel));
-            static const float COS_45_DEGREES = 0.70710678;
-            if (alignment < COS_45_DEGREES)
-            {
-                return;
-            }
+            return;
         }
         radiusVoxel = rangeVoxel;
     }
@@ -123,9 +117,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint addMoisture;
     if(directionalPair)
     {
-        float uniform=wetPatchUniform(voxelCenter,pc.wet_patch.x,ditherSeed);
+        WetPatchSample patch=wetPatchDirectionalSample(voxelCenter,pc.wet_patch.x,
+            ditherSeed,startVoxel.xz,endVoxel.xz-startVoxel.xz);
         addMoisture=wetPatchPoissonIncrement(
-            amount*falloff*absorptionFactor*float(VOXEL_MOISTURE_MAX),uniform);
+            amount*falloff*absorptionFactor*patch.coverage*float(VOXEL_MOISTURE_MAX),patch.uniform);
     }
     else
     {

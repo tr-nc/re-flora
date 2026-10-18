@@ -243,15 +243,14 @@ impl App {
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
         for source in sprinkler_sources {
-            let spray_axis = if self
+            let spray_axis = self
                 .sprinkler_review
                 .as_ref()
-                .is_some_and(|r| r.isolates_wetting())
-            {
-                Vec3::Z
-            } else {
-                source.spray_axis(self.world_clock.flora_tick(), tick_seconds)
-            };
+                .filter(|r| r.isolates_wetting())
+                .map_or_else(
+                    || source.spray_axis(self.world_clock.flora_tick(), tick_seconds),
+                    |r| r.wetting_axis(),
+                );
             if self
                 .plain_builder
                 .record_directional_pair_moisture_brush(

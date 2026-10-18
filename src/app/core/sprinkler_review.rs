@@ -11,6 +11,9 @@ struct WettingSamples {
     boundaries: u32,
     trials: u32,
     means: Vec<f64>,
+    footprint_histogram: [u32; 4],
+    footprint_means: Vec<f64>,
+    outside_sector_moisture: u64,
 }
 
 pub(super) struct Review {
@@ -28,6 +31,14 @@ pub(super) struct Review {
 impl Review {
     pub fn isolates_wetting(&self) -> bool {
         self.mode.starts_with("wet-")
+    }
+
+    pub fn wetting_axis(&self) -> Vec3 {
+        if self.mode == "wet-edge-x" {
+            Vec3::X
+        } else {
+            Vec3::Z
+        }
     }
 
     pub fn isolates_drying(&self) -> bool {
@@ -124,6 +135,8 @@ impl Review {
             "wet-4",
             "wet-12",
             "wet-24",
+            "wet-edge-x",
+            "wet-edge-z",
             "wet-30fps",
             "wet-120fps",
             "wet-zero",
@@ -193,6 +206,15 @@ impl App {
         let mut histogram = [0u32; 4];
         let mut edges = 0u32;
         let mut boundaries = 0u32;
+        let mut footprint_histogram = [0u32; 4];
+        let mut outside_sector_moisture = 0u64;
+        let axis = review.wetting_axis();
+        let scale = self
+            .debug_settings
+            .adjustables
+            .sprinkler_wet_patch_size
+            .value
+            .max(2.0);
         let mut eligible = vec![false; data.len()];
         for z in 0..161usize {
             for x in 0..161usize {
@@ -209,12 +231,25 @@ impl App {
                 let dx = offset.x as f32 + x as f32 + 0.5 - base.x * 256.0;
                 let dz = offset.z as f32 + z as f32 + 0.5 - base.z * 256.0;
                 let radius = (dx * dx + dz * dz).sqrt();
+                let along = (dx * axis.x + dz * axis.z).abs();
+                let across = (dx * axis.z - dz * axis.x).abs();
                 let inside = radius < 76.8
-                    && (radius < 0.001 || dz.abs() / radius >= std::f32::consts::FRAC_1_SQRT_2);
-                if !inside && review.mode != "wet-brush" {
-                    ensure!(moisture == 0, "wetting escaped directional coverage");
+                    && (radius < 0.001 || along / radius >= std::f32::consts::FRAC_1_SQRT_2);
+                if review.mode != "wet-brush"
+                    && (radius >= 76.8 || across - along > 2.0 * scale + 0.002)
+                {
+                    ensure!(
+                        moisture == 0,
+                        "wetting escaped range or finite patch support"
+                    );
                 }
-                if inside && radius > 8.0 && radius < 60.0 && dz.abs() / radius > 0.75 {
+                if radius < 76.8 {
+                    footprint_histogram[moisture as usize] += 1;
+                    if !inside {
+                        outside_sector_moisture += u64::from(moisture);
+                    }
+                }
+                if inside && radius > 8.0 && radius < 60.0 && along / radius > 0.75 {
                     eligible[index] = true;
                     histogram[moisture as usize] += 1;
                 }
@@ -240,6 +275,23 @@ impl App {
                 .map(|(i, n)| i as u32 * n)
                 .sum::<u32>();
             samples.means.push(f64::from(dose) / f64::from(count));
+            let footprint_count = footprint_histogram.iter().sum::<u32>().max(1);
+            let footprint_dose = footprint_histogram
+                .iter()
+                .enumerate()
+                .map(|(i, n)| i as u32 * n)
+                .sum::<u32>();
+            samples
+                .footprint_means
+                .push(f64::from(footprint_dose) / f64::from(footprint_count));
+            for (total, part) in samples
+                .footprint_histogram
+                .iter_mut()
+                .zip(footprint_histogram)
+            {
+                *total += part;
+            }
+            samples.outside_sector_moisture += outside_sector_moisture;
             for (total, part) in samples.histogram.iter_mut().zip(histogram) {
                 *total += part;
             }
@@ -273,14 +325,31 @@ impl App {
         let count = histogram.iter().sum::<u32>();
         let mean = dose as f32 / count.max(1) as f32;
         let disagreement = boundaries as f32 / edges.max(1) as f32;
+        let footprint_count = samples.footprint_histogram.iter().sum::<u32>().max(1);
+        let footprint_dose = samples
+            .footprint_histogram
+            .iter()
+            .enumerate()
+            .map(|(i, n)| i as u32 * n)
+            .sum::<u32>();
+        let footprint_mean = f64::from(footprint_dose) / f64::from(footprint_count);
+        if review.mode.starts_with("wet-edge-") {
+            ensure!(
+                samples.outside_sector_moisture > 0,
+                "real wet patches are still hard-clipped at the 90-degree sector edge"
+            );
+        }
         if review.mode == "wet-zero" {
-            ensure!(dose == 0, "zero wetting speed still wrote moisture");
+            ensure!(
+                footprint_dose == 0,
+                "zero wetting speed still wrote moisture"
+            );
         } else if review.mode != "wet-brush" {
             ensure!(dose > 0, "wetting produced no real soil state");
         }
-        log::info!("[SPRINKLER_WETTING_REVIEW] mode={} trials={trials} receivers={count} histogram={histogram:?} mean={mean:.6} adjacent_disagreement={disagreement:.6} saved=false",review.mode);
+        log::info!("[SPRINKLER_WETTING_REVIEW] mode={} trials={trials} receivers={count} histogram={histogram:?} mean={mean:.6} adjacent_disagreement={disagreement:.6} footprint_mean={footprint_mean:.6} outside_sector_moisture={} saved=false",review.mode,samples.outside_sector_moisture);
         if let Ok(path) = std::env::var("RE_FLORA_SPRINKLER_WET_STATS") {
-            let payload = serde_json::json!({"mode":review.mode,"trials":trials,"trialMeans":samples.means,"receivers":count,"histogram":histogram,"mean":mean,"adjacentDisagreement":disagreement,"offset":offset.to_array(),"dimensions":dim.to_array(),"voxels":data});
+            let payload = serde_json::json!({"mode":review.mode,"trials":trials,"trialMeans":samples.means,"receivers":count,"histogram":histogram,"mean":mean,"adjacentDisagreement":disagreement,"footprintMean":footprint_mean,"footprintTrialMeans":samples.footprint_means,"outsideSectorMoisture":samples.outside_sector_moisture,"offset":offset.to_array(),"dimensions":dim.to_array(),"voxels":data});
             std::fs::write(path, serde_json::to_vec(&payload)?)?;
         }
         Ok(())
@@ -348,6 +417,7 @@ impl App {
                         "wet-2" => 2.0,
                         "wet-4" => 4.0,
                         "wet-24" => 24.0,
+                        "wet-edge-x" | "wet-edge-z" => 32.0,
                         _ => 12.0,
                     };
                     gui.sprinkler_wetting_speed.value = match review.mode.as_str() {

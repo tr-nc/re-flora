@@ -22,10 +22,13 @@ off, shadows off, resize, lifecycle, and the matched low-angle seam regression.
 Its GPU readback asserts live density below cliff sources, no path tunnelling through
 the thin wall, and resumed transport after the wall is removed. --mist and --flow
 are mutually exclusive.
---wet selects thirteen soil checks: 2/4/12/24-voxel patches, 30/120-Hz dose
+--wet selects fifteen soil checks: 2/4/12/24-voxel patches, 32-voxel X/Z sector-edge
+spill, 30/120-Hz dose
 partitions, zero/double speed, runtime controls, mist independence, manual Water/tiller,
 particles off and resize. It reads actual soil voxels, checks material/coverage guards,
 compares spatial coherence and seven independent soil trials per dose setting.
+Angular limits constrain patch centers, not their tails; finite support and the
+original irrigation radius still bound writes. Dose checks use the whole footprint.
 Ambient drying/spreading are isolated; snapshots show the final trial, not an average.
 --dry selects six soil checks: 0/0.2/1/3 drying multipliers, live pause/resume,
 and active watering/mist while evaporation is paused. It reads real soil state at
@@ -131,7 +134,7 @@ try {
   const cases = dry
     ? ['dry-zero','dry-slow','dry-normal','dry-fast','dry-controls','dry-watering']
     : wet
-    ? ['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-zero','wet-double',
+    ? ['wet-2','wet-4','wet-12','wet-24','wet-edge-x','wet-edge-z','wet-30fps','wet-120fps','wet-zero','wet-double',
        'wet-controls','wet-mist','wet-brush','wet-no-particles','wet-resize']
     : flow
     ? ['mist-flow', 'mist-flow-off', 'mist-flow-legacy', 'mist-flow-top', 'mist-cliff', 'mist-cliff-off',
@@ -200,8 +203,10 @@ try {
       assert.equal(stats.mode,mode);
       assert.ok(stats.receivers>1000);
       if(name!=='wet-controls' && name!=='wet-brush') assert.equal(stats.trials,7);
-      if(name==='wet-zero') assert.equal(stats.mean,0);
-      else assert.ok(stats.mean>0);
+      if(name==='wet-zero') assert.equal(stats.footprintMean,0);
+      else assert.ok(stats.footprintMean>0);
+      if(name.startsWith('wet-edge-')) assert.ok(stats.outsideSectorMoisture>0,
+        `${name}: real wet patches were hard-clipped at the sector edge`);
       if(name==='wet-controls') {
         const controls=[...log.matchAll(/SPRINKLER_WETTING_CONTROL\] step=(\d+) scale=([\d.]+) speed=([\d.]+)/g)]
           .map(m=>[+m[1],+m[2],+m[3]]);
@@ -270,7 +275,10 @@ try {
     const meanChecks={};
     for(const name of ['wet-2','wet-4','wet-24','wet-30fps','wet-120fps']) {
       const sample=stats(name);
-      const differences=sample.trialMeans.map((x,i)=>x-current.trialMeans[i]);
+      // The center-gated kernel moves water across angular edges. Compare the
+      // whole footprint, not just the old interior wedge that intentionally loses
+      // some water to its neighbors. Material/finite-support guards run in-app.
+      const differences=sample.footprintTrialMeans.map((x,i)=>x-current.footprintTrialMeans[i]);
       const average=differences.reduce((a,b)=>a+b,0)/differences.length;
       const variance=differences.reduce((a,b)=>a+(b-average)**2,0)/(differences.length-1);
       const standardError=Math.sqrt(variance/differences.length);
@@ -281,9 +289,12 @@ try {
       meanChecks[name]={difference:average,standardError,limit};
       assert.ok(Math.abs(average)<limit,`${name}: mean dose differs beyond paired-trial uncertainty (${JSON.stringify(meanChecks[name])})`);
     }
-    assert.ok(stats('wet-double').mean>current.mean*1.4,'wetting speed did not increase actual moisture');
+    assert.ok(stats('wet-double').footprintMean>current.footprintMean*1.4,'wetting speed did not increase actual moisture');
     wettingComparison={meanChecks,smallBoundary:small.adjacentDisagreement,newBoundary:current.adjacentDisagreement,
-      largeBoundary:large.adjacentDisagreement,means:Object.fromEntries(['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
+      largeBoundary:large.adjacentDisagreement,
+      footprintMeans:Object.fromEntries(['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).footprintMean])),
+      outsideSectorMoisture:Object.fromEntries(['wet-edge-x','wet-edge-z'].map(n=>[n,stats(n).outsideSectorMoisture])),
+      means:Object.fromEntries(['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
   }
   if (dry) {
     const stats=name=>JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));
