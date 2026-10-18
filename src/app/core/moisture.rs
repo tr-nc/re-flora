@@ -23,6 +23,18 @@ const TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS: u32 = 1;
 const TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT: u32 = 2;
 const TERRAIN_MOISTURE_SPREAD_CHUNKS_PER_FRAME: usize = 1;
 
+// Scale the authoritative evaporation probability, not the chunk budget or
+// irrigation. One is exactly the existing policy, including its solar/residual
+// modifiers. Keep the legacy per-visit scheduler unchanged.
+fn drying_probability(speed: f32) -> f32 {
+    let speed = if speed.is_finite() {
+        speed.max(0.0)
+    } else {
+        1.0
+    };
+    (TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT * speed).clamp(0.0, 1.0)
+}
+
 pub(super) struct TerrainMoistureRuntime {
     dry_chunk_cursor: u32,
     spread_task_cursor: u32,
@@ -108,8 +120,13 @@ impl TerrainMoistureRuntime {
         sun_dir: Vec3,
         direct_shadow_source_mask: u32,
         direct_shadow_available_mask: u32,
+        drying_speed: f32,
         perf_logging: bool,
     ) -> usize {
+        let dry_probability = drying_probability(drying_speed);
+        if dry_probability <= 0.0 {
+            return 0;
+        }
         let mut recorded_count = 0;
         for _ in 0..TERRAIN_MOISTURE_DRY_CHUNKS_PER_FRAME {
             let Some(chunk_id) = self.next_dry_chunk() else {
@@ -124,7 +141,7 @@ impl TerrainMoistureRuntime {
                 cmdbuf,
                 atlas_offset,
                 VOXEL_DIM_PER_CHUNK,
-                TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
+                dry_probability,
                 sun_dir,
                 TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                 TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
@@ -150,7 +167,7 @@ impl TerrainMoistureRuntime {
                     VOXEL_DIM_PER_CHUNK,
                     surface_leaf_info.leaf_count,
                     surface_leaf_info.chunk_info_index,
-                    TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT,
+                    dry_probability,
                     TERRAIN_MOISTURE_SUNLIT_DRY_PROBABILITY_MULTIPLIER,
                     TERRAIN_MOISTURE_RESIDUAL_DRY_PROBABILITY_MULTIPLIER,
                     direct_shadow_source_mask,
@@ -302,10 +319,24 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        TerrainMoistureRuntime, TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT,
+        drying_probability, TerrainMoistureRuntime,
+        TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT, TERRAIN_MOISTURE_SPREAD_PAIR_PHASE_COUNT,
         TERRAIN_MOISTURE_SPREAD_VERTICAL_AXIS,
     };
     use std::collections::HashSet;
+
+    #[test]
+    fn drying_speed_scales_evaporation_without_changing_legacy_default() {
+        let baseline = TERRAIN_MOISTURE_DRY_PROBABILITY_PER_CHUNK_VISIT;
+        for speed in [0.0, 0.25, 0.5, 1.0, 2.0, 3.0] {
+            assert_eq!(drying_probability(speed), baseline * speed);
+        }
+        assert_eq!(drying_probability(-1.0), 0.0);
+        assert_eq!(drying_probability(1000.0), 1.0);
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(drying_probability(invalid), baseline);
+        }
+    }
 
     #[test]
     fn dry_schedule_visits_each_chunk_once_before_wrapping() {

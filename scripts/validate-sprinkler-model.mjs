@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
-const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet] [--seconds <positive-number>]
+const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet | --dry] [--seconds <positive-number>]
 Check the sprinkler model, surface cache, continuous mist and placement lifecycle.
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
@@ -27,6 +27,10 @@ partitions, zero/double speed, runtime controls, mist independence, manual Water
 particles off and resize. It reads actual soil voxels, checks material/coverage guards,
 compares spatial coherence and seven independent soil trials per dose setting.
 Ambient drying/spreading are isolated; snapshots show the final trial, not an average.
+--dry selects six soil checks: 0/0.5/1/3 drying multipliers, live pause/resume,
+and active watering/mist while evaporation is paused. It reads real soil state at
+frames 60/120/180, verifies material/state bits, and isolates vertical transfer.
+Artifacts for --dry: target/soil-drying-review/{*.png,*.log,*.json,summary.json}.
 Choose at most one suite. None is a performance benchmark.
 Also verifies zero water particles and real watering brushes at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
@@ -38,13 +42,13 @@ Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json};
 --mist uses target/sprinkler-mist-review/; --flow uses target/sprinkler-mist-flow-review/;
 --wet uses target/sprinkler-wetting-review/ (including voxel statistics).
 Example: cargo build --release && node scripts/validate-sprinkler-model.mjs
-Recovery for an incomplete fixture: node scripts/validate-sprinkler-model.mjs --seconds 20
+Recovery for an incomplete fixture: repeat the same suite flag with --seconds 20
 Exit: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
-let seconds, mist, flow, wet;
+let seconds, mist, flow, wet, dry;
 try {
   const {values} = parseArgs({options: {
     mist: {type: 'boolean', default: false}, flow: {type: 'boolean', default: false},
-    wet: {type: 'boolean', default: false},
+    wet: {type: 'boolean', default: false}, dry: {type: 'boolean', default: false},
     seconds: {type: 'string', default: '8'}, help: {type: 'boolean', short: 'h'},
   }});
   if (values.help) { console.log(help); process.exit(0); }
@@ -52,19 +56,21 @@ try {
   mist = values.mist;
   flow = values.flow;
   wet = values.wet;
-  assert.ok(Number(mist)+Number(flow)+Number(wet)<=1, 'choose only one of --mist, --flow, or --wet');
+  dry = values.dry;
+  assert.ok([mist,flow,wet,dry].filter(Boolean).length<=1, 'choose only one of --mist, --flow, --wet, or --dry');
   assert.ok(Number.isFinite(seconds) && seconds > 0, '--seconds must be a positive number');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 
 const root = path.resolve(import.meta.dirname, '..');
 const optical = mist || flow;
-const output = path.join(root, wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
+const suiteFlag = dry ? '--dry' : wet ? '--wet' : flow ? '--flow' : mist ? '--mist' : '';
+const output = path.join(root, dry ? 'target/soil-drying-review' : wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
 const settings = path.join(output, 'settings');
 const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
 const before = saved.map(hash);
 const runs = [];
-let mistSeam, mistCliff, wettingComparison;
+let mistSeam, mistCliff, wettingComparison, dryingComparison;
 function checkMistSeam(on, off) {
   const pixels = [on, off].map(file => {
     const result = spawnSync('magick', [file, '-alpha', 'off', '-resize', '960x540!',
@@ -122,7 +128,9 @@ try {
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  const cases = wet
+  const cases = dry
+    ? ['dry-zero','dry-slow','dry-normal','dry-fast','dry-controls','dry-watering']
+    : wet
     ? ['wet-legacy','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-zero','wet-double',
        'wet-controls','wet-mist','wet-brush','wet-no-particles','wet-resize']
     : flow
@@ -155,6 +163,7 @@ try {
       VK_INSTANCE_LAYERS: 'VK_LAYER_KHRONOS_validation', VK_LAYER_SETTINGS_PATH: settings,
       VK_LOADER_DEBUG: 'error,warn,layer'});
     if (wet) env.RE_FLORA_SPRINKLER_WET_STATS=path.join(output,`${name}.json`);
+    if (dry) env.RE_FLORA_SOIL_DRY_STATS=path.join(output,`${name}.json`);
     if (!env.VK_LAYER_PATH && env.VULKAN_SDK)
       env.VK_LAYER_PATH = path.join(env.VULKAN_SDK, 'share/vulkan/explicit_layer.d');
     if (name === 'near-dense') env.RE_FLORA_SCENE_PIXEL_TRYOUT = '1';
@@ -162,7 +171,7 @@ try {
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
     const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
-      '--hidden', '--mute', ...(wet ? ['--no-flora'] : []), ...(optical || wet ? ['--perf'] : []),
+      '--hidden', '--mute', ...(wet || dry ? ['--no-flora'] : []), ...(optical || wet || dry ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -171,7 +180,7 @@ try {
     assert.match(log, /Insert instance layer.*VK_LAYER_KHRONOS_validation/, `${name}: validation layer not observed`);
     assert.ok(!/\bERROR\b|VUID-|SYNC-HAZARD|panicked at|Validation (Error|Warning)/.test(log), `${name}: render/validation errors`);
     assert.match(log, new RegExp(`\\[SPRINKLER_REVIEW\\] passed mode=${mode} frames=180`),
-      `${name}: incomplete fixture; retry with --seconds 20`);
+      `${name}: incomplete fixture; retry: node scripts/validate-sprinkler-model.mjs ${suiteFlag} --seconds 20`);
     assert.match(log, /\[SHUTDOWN\] phase=complete failures=0/, `${name}: incomplete shutdown`);
     assert.match(log, /MODEL_VIEW_DRAW\] object=sprinklers.*shader=cached_surface_cells/,
       `${name}: sprinkler did not use shared pre-baked surface cells`);
@@ -197,6 +206,22 @@ try {
         const controls=[...log.matchAll(/SPRINKLER_WETTING_CONTROL\] step=(\d+) patches=(true|false) scale=([\d.]+) speed=([\d.]+)/g)]
           .map(m=>[+m[1],m[2]==='true',+m[3],+m[4]]);
         assert.deepEqual(controls,[[0,true,4,1],[1,true,12,1],[2,false,12,1],[3,true,24,1.5],[4,true,24,0]]);
+      }
+    }
+    if (dry) {
+      const stats=JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));
+      assert.equal(stats.mode,mode);
+      assert.ok(stats.receivers>1000);
+      assert.deepEqual(stats.samples.map(x=>x.frame),[60,120,180]);
+      assert.ok(stats.samples.every(x=>Number.isFinite(x.mean) && x.mean>=0 && x.mean<=3));
+      if(name==='dry-watering') {
+        assert.ok(stats.samples.at(-1).mean>0,'pausing evaporation disabled irrigation');
+        assert.match(log,/sprinkler_mist.pass=/,'pausing evaporation disabled mist');
+      }
+      if(name==='dry-controls') {
+        assert.deepEqual(stats.samples.map(x=>x.speed),[1,0,3]);
+        assert.equal(stats.samples[1].mean,stats.samples[0].mean,'live evaporation pause failed');
+        assert.ok(stats.samples[2].mean<stats.samples[1].mean,'live evaporation resume failed');
       }
     }
     if (name === 'mist-controls') {
@@ -260,11 +285,19 @@ try {
     wettingComparison={meanChecks,legacyBoundary:legacy.adjacentDisagreement,newBoundary:current.adjacentDisagreement,
       largeBoundary:large.adjacentDisagreement,means:Object.fromEntries(['wet-legacy','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
   }
+  if (dry) {
+    const stats=name=>JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));
+    const means=Object.fromEntries(cases.map(name=>[name,stats(name).samples.at(-1).mean]));
+    assert.equal(means['dry-zero'],3,'zero drying did not preserve wet soil');
+    assert.ok(means['dry-slow']>means['dry-normal']+0.001,'lower multiplier did not slow drying');
+    assert.ok(means['dry-normal']>means['dry-fast']+0.001,'higher multiplier did not accelerate drying');
+    dryingComparison={initialMoisture:3,means,controls:stats('dry-controls').samples};
+  }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({saved, hashes: before,
-    synchronizationValidation: true, performanceMeasured: false, mistSeam, mistCliff, wettingComparison, runs}, null, 2) + '\n');
+    synchronizationValidation: true, performanceMeasured: false, mistSeam, mistCliff, wettingComparison, dryingComparison, runs}, null, 2) + '\n');
   console.log(`PASS: ${runs.length} native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
 } catch (error) {
-  console.error(`${error.message}\nInspect ${output}/*.log; rebuild with cargo build --release and retry.\n${help}`);
+  console.error(`${error.message}\nInspect ${output}/*.log. Retry: cargo build --release && node scripts/validate-sprinkler-model.mjs ${suiteFlag} --seconds 20\n${help}`);
   process.exitCode = 1;
 } finally {
   if (JSON.stringify(saved.map(hash)) !== JSON.stringify(before)) {

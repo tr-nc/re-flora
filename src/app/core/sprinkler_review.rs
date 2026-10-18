@@ -1,5 +1,5 @@
 //! Opt-in real-game visual/lifecycle fixture. No settings or terrain snapshots are saved.
-use super::{planting::AuthoredFloraPlacementBatch, App};
+use super::{planting::AuthoredFloraPlacementBatch, soil_drying_review::DryingReview, App};
 use crate::app::world_edits::TerrainBrushEdit;
 use anyhow::{ensure, Result};
 use glam::{UVec2, Vec3};
@@ -22,11 +22,20 @@ pub(super) struct Review {
     control_baseline: Option<crate::tracer::ModelSurfaceCacheOptions>,
     watering_brushes: [u32; 3],
     wetting_samples: WettingSamples,
+    drying: Option<DryingReview>,
 }
 
 impl Review {
     pub fn isolates_wetting(&self) -> bool {
         self.mode.starts_with("wet-")
+    }
+
+    pub fn isolates_drying(&self) -> bool {
+        self.mode.starts_with("dry-")
+    }
+
+    pub fn freezes_drying(&self) -> bool {
+        self.isolates_wetting() || (self.isolates_drying() && self.frame > 180)
     }
 
     fn wetting_ensemble(&self) -> bool {
@@ -122,6 +131,12 @@ impl Review {
             "wet-controls",
             "wet-mist",
             "wet-brush",
+            "dry-zero",
+            "dry-slow",
+            "dry-normal",
+            "dry-fast",
+            "dry-controls",
+            "dry-watering",
         ];
         ensure!(
             MODES.contains(&mode.as_str()),
@@ -137,6 +152,7 @@ impl Review {
             control_baseline: None,
             watering_brushes: [0; 3],
             wetting_samples: WettingSamples::default(),
+            drying: None,
         }))
     }
 }
@@ -297,7 +313,7 @@ impl App {
                 base.x = 0.60;
                 base.z = 0.60;
             }
-            if review.isolates_wetting() {
+            if review.isolates_wetting() || review.isolates_drying() {
                 self.stamp_sprinkler_review_box(
                     base - Vec3::new(0.34, 0.03, 0.34),
                     base + Vec3::new(0.34, 0.0, 0.34),
@@ -310,19 +326,36 @@ impl App {
                     crate::builder::VOXEL_TYPE_ROCK,
                 )?;
                 let gui = &mut self.debug_settings.adjustables;
-                gui.sprinkler_mist_density.value =
-                    if review.mode == "wet-mist" { 1.0 } else { 0.0 };
-                gui.sprinkler_wetting_patches.value = review.mode != "wet-legacy";
-                gui.sprinkler_wet_patch_size.value = match review.mode.as_str() {
-                    "wet-4" => 4.0,
-                    "wet-24" => 24.0,
-                    _ => 12.0,
-                };
-                gui.sprinkler_wetting_speed.value = match review.mode.as_str() {
-                    "wet-zero" | "wet-brush" => 0.0,
-                    "wet-double" => 2.0,
-                    _ => 1.0,
-                };
+                if review.isolates_drying() {
+                    let watering = review.mode == "dry-watering";
+                    gui.sprinkler_wetting_speed.value = if watering { 1.0 } else { 0.0 };
+                    gui.sprinkler_mist_density.value = if watering { 1.0 } else { 0.0 };
+                    gui.soil_drying_speed.value = match review.mode.as_str() {
+                        "dry-zero" | "dry-watering" => 0.0,
+                        "dry-slow" => 0.5,
+                        "dry-fast" => 3.0,
+                        _ => 1.0,
+                    };
+                    review.drying = Some(DryingReview::new(
+                        &mut self.plain_builder,
+                        base,
+                        if watering { 0 } else { 3 },
+                    )?);
+                } else {
+                    gui.sprinkler_mist_density.value =
+                        if review.mode == "wet-mist" { 1.0 } else { 0.0 };
+                    gui.sprinkler_wetting_patches.value = review.mode != "wet-legacy";
+                    gui.sprinkler_wet_patch_size.value = match review.mode.as_str() {
+                        "wet-4" => 4.0,
+                        "wet-24" => 24.0,
+                        _ => 12.0,
+                    };
+                    gui.sprinkler_wetting_speed.value = match review.mode.as_str() {
+                        "wet-zero" | "wet-brush" => 0.0,
+                        "wet-double" => 2.0,
+                        _ => 1.0,
+                    };
+                }
             }
             self.apply_sprinkler_placement(base)?;
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
@@ -445,6 +478,29 @@ impl App {
             }
         }
         let base = review.base.unwrap();
+        if let Some(drying) = &mut review.drying {
+            drying.checkpoint(
+                &mut self.plain_builder,
+                &review.mode,
+                review.frame,
+                self.debug_settings.adjustables.soil_drying_speed.value,
+            )?;
+            if review.mode == "dry-controls" {
+                let speed = match review.frame / 60 {
+                    0 => 1.0,
+                    1 => 0.0,
+                    2 => 3.0,
+                    _ => 0.0,
+                };
+                self.debug_settings.adjustables.soil_drying_speed.value = speed;
+                if review.frame % 60 == 0 && review.frame <= 180 {
+                    log::info!(
+                        "[SOIL_DRYING_CONTROL] step={} speed={speed:.2} saved=false",
+                        review.frame / 60
+                    );
+                }
+            }
+        }
         if review.wetting_ensemble()
             && review.frame > 0
             && review.frame <= 7 * review.wetting_steps()
@@ -537,7 +593,9 @@ impl App {
         );
         let sun = crate::util::get_sun_dir(altitude.asin().to_degrees(), azimuth * 360.0);
         let offset = match review.mode.as_str() {
-            _ if review.isolates_wetting() => Vec3::new(0.001, 0.50, 0.001),
+            _ if review.isolates_wetting() || review.isolates_drying() => {
+                Vec3::new(0.001, 0.50, 0.001)
+            }
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
             "mist-wall" => Vec3::new(-0.55, 0.07, -0.392),

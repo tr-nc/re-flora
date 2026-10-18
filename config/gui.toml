@@ -698,6 +698,17 @@ min = 0.0
 max = 3.0
 
 [[section.param]]
+id = "soil_drying_speed"
+kind = "float"
+label = "Soil: drying speed multiplier"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 3.0
+
+[[section.param]]
 id = "sprinkler_mist_flow"
 kind = "bool"
 label = "Sprinklers: directional terrain-aware mist (A/B)"

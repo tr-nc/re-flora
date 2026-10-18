@@ -42,6 +42,7 @@ mod snapshot_controls;
 mod soil_bag_preview;
 mod soil_bag_review;
 mod soil_deposition;
+mod soil_drying_review;
 mod soil_performance_bench;
 mod sprinkler_review;
 mod terrain_picking;
@@ -3586,7 +3587,7 @@ impl App {
                     && !self
                         .sprinkler_review
                         .as_ref()
-                        .is_some_and(|r| r.isolates_wetting())
+                        .is_some_and(|r| r.isolates_wetting() || r.isolates_drying())
                 {
                     let moisture_spread_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {
@@ -3768,7 +3769,7 @@ impl App {
                     && !self
                         .sprinkler_review
                         .as_ref()
-                        .is_some_and(|r| r.isolates_wetting())
+                        .is_some_and(|r| r.freezes_drying())
                 {
                     let moisture_dry_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                         profiler.begin_scope(
@@ -3787,6 +3788,7 @@ impl App {
                         sun_dir,
                         DIRECT_SUN_SHADOW_SOURCE_ALL,
                         direct_shadow_available_mask,
+                        self.debug_settings.adjustables.soil_drying_speed.value,
                         self.perf_logging,
                     );
                     if let Some(scope) = moisture_dry_gpu_scope {

@@ -332,6 +332,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "soil_drying_speed",
+        kind: "float",
+        label: "Soil: drying speed multiplier",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_mist_flow",
         kind: "bool",
         label: "Sprinklers: directional terrain-aware mist (A/B)",
@@ -1789,6 +1795,7 @@ pub struct GuiAdjustables {
     pub sprinkler_wetting_patches: crate::gui_adjustables::BoolParam,
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
+    pub soil_drying_speed: crate::gui_adjustables::FloatParam,
     pub sprinkler_mist_flow: crate::gui_adjustables::BoolParam,
     pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
     pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
@@ -2087,6 +2094,7 @@ impl GuiAdjustables {
         let mut sprinkler_wetting_patches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_mist_flow_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2634,6 +2642,13 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             sprinkler_wetting_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "soil_drying_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            soil_drying_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "sprinkler_mist_flow" => {
@@ -4263,6 +4278,7 @@ impl GuiAdjustables {
             sprinkler_wetting_patches: sprinkler_wetting_patches_field.expect("Missing parameter: sprinkler_wetting_patches"),
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
+            soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
             sprinkler_mist_flow: sprinkler_mist_flow_field.expect("Missing parameter: sprinkler_mist_flow"),
             sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
             sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
@@ -4527,6 +4543,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
         "sprinkler_wet_patch_size" => Some(&adjustables.sprinkler_wet_patch_size),
         "sprinkler_wetting_speed" => Some(&adjustables.sprinkler_wetting_speed),
+        "soil_drying_speed" => Some(&adjustables.soil_drying_speed),
         "sprinkler_mist_density" => Some(&adjustables.sprinkler_mist_density),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "tree_kick_strength" => Some(&adjustables.tree_kick_strength),
@@ -4859,6 +4876,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
         "sprinkler_wet_patch_size" => Some(&mut adjustables.sprinkler_wet_patch_size),
         "sprinkler_wetting_speed" => Some(&mut adjustables.sprinkler_wetting_speed),
+        "soil_drying_speed" => Some(&mut adjustables.soil_drying_speed),
         "sprinkler_mist_density" => Some(&mut adjustables.sprinkler_mist_density),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "tree_kick_strength" => Some(&mut adjustables.tree_kick_strength),

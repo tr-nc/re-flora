@@ -2275,6 +2275,41 @@ mod tests {
     }
 
     #[test]
+    fn soil_drying_speed_upgrades_old_saves_and_round_trips_independently() {
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        settings.adjustables.sprinkler_wetting_speed.value = 1.75;
+        settings.adjustables.sprinkler_wet_patch_size.value = 17.0;
+        settings.adjustables.sprinkler_mist_density.value = 0.8;
+        let flower_head_size = settings.adjustables.model_flower_head_scale.value;
+        settings.sync_config();
+        for section in &mut settings.config.section {
+            section.param.retain(|p| p.id != "soil_drying_speed");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old-gui.toml");
+        GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "loading must not write settings"
+        );
+        assert_eq!(loaded.adjustables.soil_drying_speed.value, 1.0);
+        for speed in [0.0, 0.25, 1.0, 3.0] {
+            loaded.adjustables.soil_drying_speed.value = speed;
+            loaded.save_to_path(&path).unwrap();
+            loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            let gui = &loaded.adjustables;
+            assert_eq!(gui.soil_drying_speed.value, speed);
+            assert_eq!(gui.sprinkler_wetting_speed.value, 1.75);
+            assert_eq!(gui.sprinkler_wet_patch_size.value, 17.0);
+            assert_eq!(gui.sprinkler_mist_density.value, 0.8);
+            assert_eq!(gui.model_flower_head_scale.value, flower_head_size);
+        }
+    }
+
+    #[test]
     fn saved_flower_controls_round_trip_without_reinterpreting_legacy_overall_size() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.model_flower_size_scale.value = 1.75;

@@ -117,9 +117,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Soil Wetting",
-        description: "Checked: soft, connected wet patches on soil. Unchecked: original independent voxel wetting. Patch scale changes spatial coherence, not spray reach or average water input. Speed scales actual irrigation; zero stops watering, not mist. Four soil moisture levels and manual Water brush are unchanged.",
+        description: "Drying speed affects all soil: 1 preserves the existing sun/shade and residual-drying rules; zero pauses evaporation, not watering or vertical moisture transfer. Checked: soft, connected wet patches. Unchecked: original independent voxel wetting. Patch scale changes coherence, not spray reach or average water input. Wetting speed scales sprinkler irrigation; zero stops watering, not mist. Four soil moisture levels and manual Water brush are unchanged.",
         initially_open: false,
-        params: &["sprinkler_wetting_patches", "sprinkler_wet_patch_size", "sprinkler_wetting_speed"],
+        params: &["soil_drying_speed", "sprinkler_wetting_patches", "sprinkler_wet_patch_size", "sprinkler_wetting_speed"],
     },
     ControlGroup {
         parent: None,

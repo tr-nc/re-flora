@@ -62,8 +62,9 @@ Debug → **Mist & Scattering**：
 - **Sprinklers: directional terrain-aware mist (A/B)**：默认勾选新方向性雾带；取消勾选回到原柔和椭球。保存并保留两种模式，方便玩家比较。
 - **Sprinklers: mist optical density**：0–3，默认 1；0 只隐藏视觉水雾，3 用于检查较强效果。
 
-Debug → **Soil Wetting**：
+Debug → **Soil Wetting**（也可在 Debug Search 搜索 `drying`）：
 
+- **Soil: drying speed multiplier**：0–3，默认 1；控制全局土壤蒸发，不只喷水器附近。调低变慢、调高变快，0 暂停蒸发；不关闭浇水、水雾或垂直水分迁移。
 - **Sprinklers: coherent soil wetting (A/B)**：默认勾选柔边、片内相关的湿斑；取消勾选保留原来的独立体素受湿。
 - **Sprinklers: wet patch scale (voxels)**：2–32，默认 12。调整局部相关尺度，不是固定斑块直径，也不增加喷水覆盖半径。
 - **Sprinklers: wetting speed multiplier**：0–3，默认 1。单独调整实际浇水速度；0 停止喷水器灌溉，不关闭空中水雾或手动 Water 笔刷。
@@ -163,6 +164,22 @@ Debug → **Soil Wetting**：
 
 一次启动曾在 90 MiB Contree 缓冲分配时报 GPU 内存不足，另一次并行 CPU 测试期间 6 秒夹具未完成；均未计作通过。未关闭其他应用，重新以足够时长运行后通过全部 34 项；显存失败的具体触发原因未确认，记录保存在 `target/sprinkler-wetting/startup-oom.log`。本轮不把正确性检查当作新版受湿的人口性能验收，也不消除上文已记录的极端水雾重叠开销。
 
+## 独立土壤干燥速度
+
+此前 `c1084a19` 只有喷水器的浇湿速度，蒸发仍用固定的每次 chunk 访问概率。现在增加声明式、可保存的 `soil_drying_speed`，默认 1、范围 0–3。旧文件缺字段时只在内存补 1，已有零值/小数值保留；不增加 App 临时副本或单独保存分支。
+
+唯一接线所有者是 `TerrainMoistureRuntime::record_dry`：用倍率缩放原蒸发概率，0 直接跳过蒸发录制，1 保持原值。日晒/阴影、残余湿度和邻居策略继续由原 shader 决定；不修改灌溉量、湿斑尺度、视觉水雾、模型采样或体素格式。垂直迁移仍运行，因此暂停蒸发**不是冻结所有湿度或地表颜色**。
+
+这仍是既有的按帧轮转 chunk 调度，不是新的按秒蒸发模型。倍率不是固定干透秒数，也不承诺 2 一定恰好在一半秒数内干透；不同帧率绝对速度的一致性不在本轮已完成范围内。
+
+`--dry` 六个真实 GPU 场景检查 0/0.5/1/3、运行时 1→0→3 暂停/恢复，以及蒸发暂停时正常灌溉和水雾。专用夹具仅隔离垂直迁移；在真实 161×1×161 atlas 切片中初始化湿度、保留材质/其他状态位，并在 60/120/180 帧读回。暂停阶段逐字节比较湿度不变，其他场景比较真实失水量；不进入普通单元测试，不拿截图计时作性能基准。
+
+本轮 `cargo fmt --check`、`cargo check`、Release 构建、全量 Rust（1642 app + 4 collision + 1 integration，既有忽略保留）和 42 个 Slang CPU 测试通过。RTX 3060 Ti / X11 的 6 个干燥场景及 13 个湿斑回归均完成 180 帧、Khronos 同步验证及正常退出；标准隐藏静音 0.5 秒 smoke 通过，配置/相机文件哈希不变。仅 GUI 生成字段变化，无 shader/体素布局修改。
+
+在相同初始湿度 3、固定 180 帧的隔离场景，0/0.5/1/3 的平均湿度分别为 **3.00000 / 2.73260 / 2.45400 / 1.44889**。运行时暂停前后均为 2.81560，采样切片逐字节相等；恢复到 3 后降至 2.30185。蒸发暂停且开启灌溉的另一场景从 0 升到 1.04486，真实水雾 pass 仍执行。已查看零/高速截图；这些结果验证实际湿度及独立控制，不是不同 FPS 的按秒对照或性能验收。
+
+日志位于 `target/soil-drying/`，六场景图像、湿度直方图及报告位于 `target/soil-drying-review/`；`--help` 和互斥选项/非法时长恢复检查通过，运行失败时提示保留原套件的重试命令。
+
 ## 复验
 
 ```sh
@@ -177,6 +194,7 @@ node scripts/validate-sprinkler-model.mjs
 node scripts/validate-sprinkler-model.mjs --mist
 node scripts/validate-sprinkler-model.mjs --flow
 node scripts/validate-sprinkler-model.mjs --wet
+node scripts/validate-sprinkler-model.mjs --dry
 cargo run --release -- --tail-latest-log 25
 ```
 
