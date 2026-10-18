@@ -4,6 +4,15 @@ use crate::app::world_edits::TerrainBrushEdit;
 use anyhow::{ensure, Result};
 use glam::{UVec2, Vec3};
 
+#[derive(Default)]
+struct WettingSamples {
+    histogram: [u32; 4],
+    edges: u32,
+    boundaries: u32,
+    trials: u32,
+    means: Vec<f64>,
+}
+
 pub(super) struct Review {
     mode: String,
     frame: u32,
@@ -12,9 +21,43 @@ pub(super) struct Review {
     control_frames: u32,
     control_baseline: Option<crate::tracer::ModelSurfaceCacheOptions>,
     watering_brushes: [u32; 3],
+    wetting_samples: WettingSamples,
 }
 
 impl Review {
+    pub fn isolates_wetting(&self) -> bool {
+        self.mode.starts_with("wet-")
+    }
+
+    fn wetting_ensemble(&self) -> bool {
+        self.isolates_wetting() && self.mode != "wet-controls" && self.mode != "wet-brush"
+    }
+
+    fn wetting_steps(&self) -> u32 {
+        match self.mode.as_str() {
+            "wet-30fps" => 6,
+            "wet-120fps" => 24,
+            _ => 12,
+        }
+    }
+
+    pub fn wetting_dt(&self, real_dt: f32) -> f32 {
+        if !self.isolates_wetting() {
+            return real_dt;
+        }
+        let steps = self.wetting_steps();
+        let frame = if self.mode == "wet-controls" {
+            self.frame % 40
+        } else {
+            self.frame
+        };
+        if frame > 0 && frame <= steps * if self.wetting_ensemble() { 7 } else { 1 } {
+            0.2 / steps as f32
+        } else {
+            0.0
+        }
+    }
+
     pub fn observe_watering(&mut self, brushes: usize, density: f32) {
         let slot = if density == 0.0 {
             0
@@ -68,6 +111,17 @@ impl Review {
             "mist-pop-64",
             "mist-pop-256",
             "mist-overlap-256",
+            "wet-legacy",
+            "wet-4",
+            "wet-12",
+            "wet-24",
+            "wet-30fps",
+            "wet-120fps",
+            "wet-zero",
+            "wet-double",
+            "wet-controls",
+            "wet-mist",
+            "wet-brush",
         ];
         ensure!(
             MODES.contains(&mode.as_str()),
@@ -82,6 +136,7 @@ impl Review {
             control_frames: 0,
             control_baseline: None,
             watering_brushes: [0; 3],
+            wetting_samples: WettingSamples::default(),
         }))
     }
 }
@@ -105,6 +160,113 @@ impl App {
             }],
             bounds,
         ))?;
+        Ok(())
+    }
+
+    fn review_sprinkler_wetting(
+        &mut self,
+        review: &mut Review,
+        base: Vec3,
+        save: bool,
+    ) -> Result<()> {
+        use glam::UVec3;
+        let center = (base * 256.0).round().as_uvec3();
+        let offset = UVec3::new(center.x - 80, center.y - 1, center.z - 80);
+        let dim = UVec3::new(161, 1, 161);
+        let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        let mut histogram = [0u32; 4];
+        let mut edges = 0u32;
+        let mut boundaries = 0u32;
+        let mut eligible = vec![false; data.len()];
+        for z in 0..161usize {
+            for x in 0..161usize {
+                let index = z * 161 + x;
+                let byte = data[index];
+                let ty = byte & 15;
+                let moisture = (byte >> 4) & 3;
+                if ty != crate::builder::VOXEL_TYPE_DIRT as u8
+                    && ty != crate::builder::VOXEL_TYPE_SAND as u8
+                {
+                    ensure!(moisture == 0, "wetting modified non-soil material");
+                    continue;
+                }
+                let dx = offset.x as f32 + x as f32 + 0.5 - base.x * 256.0;
+                let dz = offset.z as f32 + z as f32 + 0.5 - base.z * 256.0;
+                let radius = (dx * dx + dz * dz).sqrt();
+                let inside = radius < 76.8
+                    && (radius < 0.001 || dz.abs() / radius >= std::f32::consts::FRAC_1_SQRT_2);
+                if !inside && review.mode != "wet-brush" {
+                    ensure!(moisture == 0, "wetting escaped directional coverage");
+                }
+                if inside && radius > 8.0 && radius < 60.0 && dz.abs() / radius > 0.75 {
+                    eligible[index] = true;
+                    histogram[moisture as usize] += 1;
+                }
+            }
+        }
+        for z in 0..160usize {
+            for x in 0..160usize {
+                let i = z * 161 + x;
+                for j in [i + 1, i + 161] {
+                    if eligible[i] && eligible[j] {
+                        edges += 1;
+                        boundaries += u32::from(((data[i] >> 4) & 3) != ((data[j] >> 4) & 3));
+                    }
+                }
+            }
+        }
+        let samples = &mut review.wetting_samples;
+        if !save || samples.trials == 0 {
+            let count = histogram.iter().sum::<u32>().max(1);
+            let dose = histogram
+                .iter()
+                .enumerate()
+                .map(|(i, n)| i as u32 * n)
+                .sum::<u32>();
+            samples.means.push(f64::from(dose) / f64::from(count));
+            for (total, part) in samples.histogram.iter_mut().zip(histogram) {
+                *total += part;
+            }
+            samples.edges += edges;
+            samples.boundaries += boundaries;
+            samples.trials += 1;
+        }
+        if !save {
+            if samples.trials < 7 {
+                // Explicit review only: reset moisture, preserving all type/state
+                // bits and geometry. A single correlated realization is NOT a
+                // meaningful conservation test; compare independent soil trials.
+                let dry: Vec<u8> = data
+                    .iter()
+                    .map(|b| b & !crate::builder::VOXEL_MOISTURE_MASK)
+                    .collect();
+                self.plain_builder
+                    .write_chunk_atlas_region(offset, dim, &dry)?;
+            }
+            return Ok(());
+        }
+        let histogram = samples.histogram;
+        let edges = samples.edges;
+        let boundaries = samples.boundaries;
+        let trials = samples.trials;
+        let dose = histogram
+            .iter()
+            .enumerate()
+            .map(|(i, n)| i as u32 * n)
+            .sum::<u32>();
+        let count = histogram.iter().sum::<u32>();
+        let mean = dose as f32 / count.max(1) as f32;
+        let disagreement = boundaries as f32 / edges.max(1) as f32;
+        if review.mode == "wet-zero" {
+            ensure!(dose == 0, "zero wetting speed still wrote moisture");
+        } else if review.mode != "wet-brush" {
+            ensure!(dose > 0, "wetting produced no real soil state");
+        }
+        log::info!("[SPRINKLER_WETTING_REVIEW] mode={} trials={trials} receivers={count} histogram={histogram:?} mean={mean:.6} adjacent_disagreement={disagreement:.6} saved=false",review.mode);
+        if let Ok(path) = std::env::var("RE_FLORA_SPRINKLER_WET_STATS") {
+            let payload = serde_json::json!({"mode":review.mode,"trials":trials,"trialMeans":samples.means,"receivers":count,"histogram":histogram,"mean":mean,"adjacentDisagreement":disagreement,"offset":offset.to_array(),"dimensions":dim.to_array(),"voxels":data});
+            std::fs::write(path, serde_json::to_vec(&payload)?)?;
+        }
         Ok(())
     }
 
@@ -134,6 +296,33 @@ impl App {
                 // Keep the complete population and its mist margins inside the voxel domain.
                 base.x = 0.60;
                 base.z = 0.60;
+            }
+            if review.isolates_wetting() {
+                self.stamp_sprinkler_review_box(
+                    base - Vec3::new(0.34, 0.03, 0.34),
+                    base + Vec3::new(0.34, 0.0, 0.34),
+                    crate::builder::VOXEL_TYPE_DIRT,
+                )?;
+                // A non-absorbing stripe inside the footprint guards material/state ownership.
+                self.stamp_sprinkler_review_box(
+                    base + Vec3::new(0.10, -0.03, -0.30),
+                    base + Vec3::new(0.11, 0.0, 0.30),
+                    crate::builder::VOXEL_TYPE_ROCK,
+                )?;
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_mist_density.value =
+                    if review.mode == "wet-mist" { 1.0 } else { 0.0 };
+                gui.sprinkler_wetting_patches.value = review.mode != "wet-legacy";
+                gui.sprinkler_wet_patch_size.value = match review.mode.as_str() {
+                    "wet-4" => 4.0,
+                    "wet-24" => 24.0,
+                    _ => 12.0,
+                };
+                gui.sprinkler_wetting_speed.value = match review.mode.as_str() {
+                    "wet-zero" | "wet-brush" => 0.0,
+                    "wet-double" => 2.0,
+                    _ => 1.0,
+                };
             }
             self.apply_sprinkler_placement(base)?;
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
@@ -256,6 +445,41 @@ impl App {
             }
         }
         let base = review.base.unwrap();
+        if review.wetting_ensemble()
+            && review.frame > 0
+            && review.frame <= 7 * review.wetting_steps()
+            && review.frame % review.wetting_steps() == 0
+        {
+            self.review_sprinkler_wetting(&mut review, base, false)?;
+        }
+        if review.mode == "wet-controls" {
+            let (enabled, size, speed) = match review.frame / 40 {
+                0 => (true, 4.0, 1.0),
+                1 => (true, 12.0, 1.0),
+                2 => (false, 12.0, 1.0),
+                3 => (true, 24.0, 1.5),
+                _ => (true, 24.0, 0.0),
+            };
+            let gui = &mut self.debug_settings.adjustables;
+            gui.sprinkler_wetting_patches.value = enabled;
+            gui.sprinkler_wet_patch_size.value = size;
+            gui.sprinkler_wetting_speed.value = speed;
+            if review.frame % 40 == 0 && review.frame <= 160 {
+                log::info!("[SPRINKLER_WETTING_CONTROL] step={} patches={enabled} scale={size} speed={speed} saved=false",review.frame/40);
+            }
+        }
+        if review.mode == "wet-brush" && review.frame == 1 {
+            self.add_watering_brush_moisture(TerrainBrushEdit {
+                start: base,
+                end: base + Vec3::Z * 0.08,
+                radius: 0.07,
+            })?;
+            self.mix_tiller_brush_soil(TerrainBrushEdit {
+                start: base + Vec3::Z * 0.15,
+                end: base + Vec3::Z * 0.17,
+                radius: 0.04,
+            })?;
+        }
         let mut target = base
             + Vec3::Y
                 * if review.mode.starts_with("mist-") {
@@ -313,6 +537,7 @@ impl App {
         );
         let sun = crate::util::get_sun_dir(altitude.asin().to_degrees(), azimuth * 360.0);
         let offset = match review.mode.as_str() {
+            _ if review.isolates_wetting() => Vec3::new(0.001, 0.50, 0.001),
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
             "mist-wall" => Vec3::new(-0.55, 0.07, -0.392),
@@ -415,6 +640,9 @@ impl App {
             }
         }
         if review.frame == 180 {
+            if review.isolates_wetting() {
+                self.review_sprinkler_wetting(&mut review, base, true)?;
+            }
             if review.mode.starts_with("mist-")
                 && self.debug_settings.adjustables.sprinkler_mist_flow.value
                 && self.debug_settings.adjustables.sprinkler_mist_density.value > 0.0

@@ -26,6 +26,7 @@ public struct TerrainSoilBrushPushConstants
     public uint4 dim;
     public float4 start_radius;
     public float4 end_amount;
+    public float4 wet_patch; // x: correlation scale in voxels; zero preserves legacy.
 };
 
 public bool terrainSoilIsVoxel(uint voxelType)

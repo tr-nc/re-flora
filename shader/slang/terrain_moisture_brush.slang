@@ -1,4 +1,5 @@
 import terrain_soil;
+import terrain_wetting;
 import voxel_data;
 import voxel_types;
 
@@ -53,6 +54,7 @@ float nearSurfaceAbsorptionFactor(int3 position, uint voxelType)
 [numthreads(8, 8, 8)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+    bool patches=pc.dim.w!=0u && pc.wet_patch.x>=2.0;
     uint3 local = dispatchThreadId;
     uint3 dimension = pc.dim.xyz;
     bool directionalPair = pc.dim.w != 0u;
@@ -66,7 +68,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 startVoxel = pc.start_radius.xyz;
     float radiusVoxel = max(pc.start_radius.w, 0.0);
     float3 endVoxel = pc.end_amount.xyz;
-    float amount = clamp(pc.end_amount.w, 0.0, 1.0);
+    float amount = patches ? max(pc.end_amount.w,0.0) : clamp(pc.end_amount.w,0.0,1.0);
     if (radiusVoxel <= 0.0 || amount <= 0.0)
     {
         return;
@@ -119,20 +121,27 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         1.0 - distanceFromStroke / max(radiusVoxel, 0.0001),
         0.0,
         1.0);
-    float fineNoise = terrainSoilHash01(atlasPosition, ditherSeed);
-    float coarseNoise = terrainSoilHash01(
-        atlasPosition / 4u, ditherSeed ^ 0xA511E9B3u);
-    float noisyFalloff = clamp(
-        falloff + (lerp(fineNoise, coarseNoise, 0.35) - 0.5) * 0.28,
-        0.0,
-        1.0);
-    float continuousAdd = amount * noisyFalloff * absorptionFactor *
-                          float(VOXEL_MOISTURE_MAX);
-    uint addMoisture = uint(floor(continuousAdd));
-    if (terrainSoilHash01(atlasPosition, ditherSeed ^ 0x68BC21EBu) <
-        frac(continuousAdd))
+    uint addMoisture;
+    if(patches)
     {
-        addMoisture += 1u;
+        float uniform=wetPatchUniform(voxelCenter,pc.wet_patch.x,ditherSeed);
+        addMoisture=wetPatchPoissonIncrement(
+            amount*falloff*absorptionFactor*float(VOXEL_MOISTURE_MAX),uniform);
+    }
+    else
+    {
+        // Preserve the original sprinkler A/B and manual Water brush exactly.
+        float fineNoise = terrainSoilHash01(atlasPosition, ditherSeed);
+        float coarseNoise = terrainSoilHash01(
+            atlasPosition / 4u, ditherSeed ^ 0xA511E9B3u);
+        float noisyFalloff = clamp(
+            falloff + (lerp(fineNoise, coarseNoise, 0.35) - 0.5) * 0.28,
+            0.0, 1.0);
+        float continuousAdd = amount * noisyFalloff * absorptionFactor *
+                              float(VOXEL_MOISTURE_MAX);
+        addMoisture = uint(floor(continuousAdd));
+        if (terrainSoilHash01(atlasPosition, ditherSeed ^ 0x68BC21EBu) < frac(continuousAdd))
+            addMoisture += 1u;
     }
     if (addMoisture == 0u)
     {

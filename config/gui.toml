@@ -663,6 +663,41 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_wetting_patches"
+kind = "bool"
+label = "Sprinklers: coherent soil wetting (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "sprinkler_wet_patch_size"
+kind = "float"
+label = "Sprinklers: wet patch scale (voxels)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "sprinkler_wetting_patches"
+equals = true
+
+[section.param.data]
+value = 12.0
+min = 2.0
+max = 32.0
+
+[[section.param]]
+id = "sprinkler_wetting_speed"
+kind = "float"
+label = "Sprinklers: wetting speed multiplier"
+type = "Float"
+
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 3.0
+
+[[section.param]]
 id = "sprinkler_mist_flow"
 kind = "bool"
 label = "Sprinklers: directional terrain-aware mist (A/B)"

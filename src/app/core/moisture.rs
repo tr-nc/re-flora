@@ -209,17 +209,35 @@ impl TerrainMoistureRuntime {
 
 impl App {
     pub(super) fn record_sprinkler_moisture(&mut self, cmdbuf: &CommandBuffer, dt: f32) -> usize {
-        if dt <= 0.0 || self.sprinklers.is_empty() {
+        let dt = self
+            .sprinkler_review
+            .as_ref()
+            .map_or(dt, |r| r.wetting_dt(dt));
+        if !dt.is_finite() || dt <= 0.0 || self.sprinklers.is_empty() {
             return 0;
         }
 
         let record_start = self.perf_logging.then(Instant::now);
-        let amount = SPRINKLER_MOISTURE_PER_SECOND * dt;
+        let gui = &self.debug_settings.adjustables;
+        let speed = gui.sprinkler_wetting_speed.value.clamp(0.0, 3.0);
+        let patch_size = gui
+            .sprinkler_wetting_patches
+            .value
+            .then_some(gui.sprinkler_wet_patch_size.value);
+        let amount = SPRINKLER_MOISTURE_PER_SECOND * speed * dt;
         let sprinkler_sources = self.sprinklers.moisture_sources();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
         for source in sprinkler_sources {
-            let spray_axis = source.spray_axis(self.world_clock.flora_tick(), tick_seconds);
+            let spray_axis = if self
+                .sprinkler_review
+                .as_ref()
+                .is_some_and(|r| r.isolates_wetting())
+            {
+                Vec3::Z
+            } else {
+                source.spray_axis(self.world_clock.flora_tick(), tick_seconds)
+            };
             if self
                 .plain_builder
                 .record_directional_pair_moisture_brush(
@@ -228,6 +246,7 @@ impl App {
                     spray_axis,
                     SPRINKLER_MOISTURE_RADIUS,
                     amount,
+                    patch_size,
                 )
                 .is_some()
             {

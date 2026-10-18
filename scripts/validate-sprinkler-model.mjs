@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
-const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow] [--seconds <positive-number>]
+const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet] [--seconds <positive-number>]
 Check the sprinkler model, surface cache, continuous mist and placement lifecycle.
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
@@ -21,7 +21,13 @@ cliff on/off/A/B, one-voxel wall/corner/overhead slab, live terrain removal, mod
 off, shadows off, resize, lifecycle, and the matched low-angle seam regression.
 Its GPU readback asserts live density below cliff sources, no path tunnelling through
 the thin wall, and resumed transport after the wall is removed. --mist and --flow
-are mutually exclusive. Neither suite is a performance benchmark.
+are mutually exclusive.
+--wet selects thirteen soil checks: original/4/12/24-voxel patches, 30/120-Hz dose
+partitions, zero/double speed, runtime controls, mist independence, manual Water/tiller,
+particles off and resize. It reads actual soil voxels, checks material/coverage guards,
+compares spatial coherence and seven independent soil trials per dose setting.
+Ambient drying/spreading are isolated; snapshots show the final trial, not an average.
+Choose at most one suite. None is a performance benchmark.
 Also verifies zero water particles and real watering brushes at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
@@ -29,33 +35,36 @@ Requires a current Release binary, a Vulkan desktop session, and the Khronos
 validation layer (set VK_LAYER_PATH or VULKAN_SDK if it is not installed globally).
 No GUI/camera settings or terrain snapshots are saved. No visible game is launched.
 Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json};
---mist uses target/sprinkler-mist-review/; --flow uses target/sprinkler-mist-flow-review/.
+--mist uses target/sprinkler-mist-review/; --flow uses target/sprinkler-mist-flow-review/;
+--wet uses target/sprinkler-wetting-review/ (including voxel statistics).
 Example: cargo build --release && node scripts/validate-sprinkler-model.mjs
 Recovery for an incomplete fixture: node scripts/validate-sprinkler-model.mjs --seconds 20
 Exit: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
-let seconds, mist, flow;
+let seconds, mist, flow, wet;
 try {
   const {values} = parseArgs({options: {
     mist: {type: 'boolean', default: false}, flow: {type: 'boolean', default: false},
+    wet: {type: 'boolean', default: false},
     seconds: {type: 'string', default: '8'}, help: {type: 'boolean', short: 'h'},
   }});
   if (values.help) { console.log(help); process.exit(0); }
   seconds = Number(values.seconds);
   mist = values.mist;
   flow = values.flow;
-  assert.ok(!(mist && flow), 'choose --mist for optical checks or --flow for transport checks, not both');
+  wet = values.wet;
+  assert.ok(Number(mist)+Number(flow)+Number(wet)<=1, 'choose only one of --mist, --flow, or --wet');
   assert.ok(Number.isFinite(seconds) && seconds > 0, '--seconds must be a positive number');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 
 const root = path.resolve(import.meta.dirname, '..');
 const optical = mist || flow;
-const output = path.join(root, flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
+const output = path.join(root, wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
 const settings = path.join(output, 'settings');
 const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
 const before = saved.map(hash);
 const runs = [];
-let mistSeam, mistCliff;
+let mistSeam, mistCliff, wettingComparison;
 function checkMistSeam(on, off) {
   const pixels = [on, off].map(file => {
     const result = spawnSync('magick', [file, '-alpha', 'off', '-resize', '960x540!',
@@ -113,7 +122,10 @@ try {
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  const cases = flow
+  const cases = wet
+    ? ['wet-legacy','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-zero','wet-double',
+       'wet-controls','wet-mist','wet-brush','wet-no-particles','wet-resize']
+    : flow
     ? ['mist-flow', 'mist-flow-off', 'mist-flow-legacy', 'mist-flow-top', 'mist-cliff', 'mist-cliff-off',
        'mist-cliff-legacy', 'mist-thin-wall', 'mist-thin-wall-off', 'mist-corner', 'mist-corner-off',
        'mist-roof', 'mist-roof-off', 'mist-edit', 'mist-flow-controls',
@@ -132,14 +144,17 @@ try {
       'mist-flow-no-particles': ['--no-particles'],
       'mist-flow-no-shadows': ['--no-shadows'],
       'mist-flow-resize': ['--resize-lifecycle-test'],
+      'wet-no-particles': ['--no-particles'],
+      'wet-resize': ['--resize-lifecycle-test'],
     }[name] ?? [];
-    const mode = extraArgs.length > 0 ? (flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
+    const mode = extraArgs.length > 0 ? (wet ? 'wet-12' : flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
     const env = {...process.env};
     // Do not compose this isolated fixture with unrelated development overrides.
     for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_')) delete env[key];
     Object.assign(env, {RE_FLORA_SPRINKLER_REVIEW: mode, RUST_LOG: 'info',
       VK_INSTANCE_LAYERS: 'VK_LAYER_KHRONOS_validation', VK_LAYER_SETTINGS_PATH: settings,
       VK_LOADER_DEBUG: 'error,warn,layer'});
+    if (wet) env.RE_FLORA_SPRINKLER_WET_STATS=path.join(output,`${name}.json`);
     if (!env.VK_LAYER_PATH && env.VULKAN_SDK)
       env.VK_LAYER_PATH = path.join(env.VULKAN_SDK, 'share/vulkan/explicit_layer.d');
     if (name === 'near-dense') env.RE_FLORA_SCENE_PIXEL_TRYOUT = '1';
@@ -147,7 +162,7 @@ try {
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
     const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
-      '--hidden', '--mute', ...(optical ? ['--perf'] : []),
+      '--hidden', '--mute', ...(wet ? ['--no-flora'] : []), ...(optical || wet ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -170,6 +185,20 @@ try {
       assert.deepEqual(steps, [[0,true,8],[1,true,16],[2,true,32],[3,false,32],[4,true,24],[5,true,8],[6,true,32]]);
     }
     assert.match(log, /SPRINKLER_MIST_REVIEW\] water_particles=0/);
+    if (wet) {
+      assert.match(log,/SPRINKLER_WETTING_REVIEW/);
+      const stats=JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));
+      assert.equal(stats.mode,mode);
+      assert.ok(stats.receivers>1000);
+      if(name!=='wet-controls' && name!=='wet-brush') assert.equal(stats.trials,7);
+      if(name==='wet-zero') assert.equal(stats.mean,0);
+      else assert.ok(stats.mean>0);
+      if(name==='wet-controls') {
+        const controls=[...log.matchAll(/SPRINKLER_WETTING_CONTROL\] step=(\d+) patches=(true|false) scale=([\d.]+) speed=([\d.]+)/g)]
+          .map(m=>[+m[1],m[2]==='true',+m[3],+m[4]]);
+        assert.deepEqual(controls,[[0,true,4,1],[1,true,12,1],[2,false,12,1],[3,true,24,1.5],[4,true,24,0]]);
+      }
+    }
     if (name === 'mist-controls') {
       const brushes = log.match(/watering_brushes=\[(\d+), (\d+), (\d+)\]/);
       assert.ok(brushes && brushes.slice(1).every(n => Number(n) > 0),
@@ -208,8 +237,31 @@ try {
   }
   if (optical) mistSeam = checkMistSeam(path.join(output, 'mist-level.png'), path.join(output, 'mist-level-off.png'));
   if (flow) mistCliff=checkCliffTransport();
+  if (wet) {
+    const stats=name=>JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));
+    const legacy=stats('wet-legacy'), current=stats('wet-12'), large=stats('wet-24');
+    assert.ok(current.adjacentDisagreement<legacy.adjacentDisagreement*0.65,'wetting is still independent voxel noise');
+    assert.ok(large.adjacentDisagreement<current.adjacentDisagreement,'larger wetting scale did not make broader patches');
+    const meanChecks={};
+    for(const name of ['wet-legacy','wet-4','wet-24','wet-30fps','wet-120fps']) {
+      const sample=stats(name);
+      const differences=sample.trialMeans.map((x,i)=>x-current.trialMeans[i]);
+      const average=differences.reduce((a,b)=>a+b,0)/differences.length;
+      const variance=differences.reduce((a,b)=>a+(b-average)**2,0)/(differences.length-1);
+      const standardError=Math.sqrt(variance/differences.length);
+      // Correlated patches intentionally have higher whole-footprint variance.
+      // Use the measured paired-trial uncertainty, not a fixed percentage of a
+      // single random image. CPU CDF tests separately enforce unbiased dose.
+      const limit=4*standardError+0.02;
+      meanChecks[name]={difference:average,standardError,limit};
+      assert.ok(Math.abs(average)<limit,`${name}: mean dose differs beyond paired-trial uncertainty (${JSON.stringify(meanChecks[name])})`);
+    }
+    assert.ok(stats('wet-double').mean>current.mean*1.4,'wetting speed did not increase actual moisture');
+    wettingComparison={meanChecks,legacyBoundary:legacy.adjacentDisagreement,newBoundary:current.adjacentDisagreement,
+      largeBoundary:large.adjacentDisagreement,means:Object.fromEntries(['wet-legacy','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
+  }
   fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({saved, hashes: before,
-    synchronizationValidation: true, performanceMeasured: false, mistSeam, mistCliff, runs}, null, 2) + '\n');
+    synchronizationValidation: true, performanceMeasured: false, mistSeam, mistCliff, wettingComparison, runs}, null, 2) + '\n');
   console.log(`PASS: ${runs.length} native checks; inspect screenshots in ${output}.\nVisual approval and population performance acceptance remain separate.`);
 } catch (error) {
   console.error(`${error.message}\nInspect ${output}/*.log; rebuild with cargo build --release and retry.\n${help}`);

@@ -281,6 +281,7 @@ struct TerrainSoilBrushPushConstants {
     dim: [u32; 4],
     start_radius: [f32; 4],
     end_amount: [f32; 4],
+    wet_patch: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -953,13 +954,30 @@ impl PlainBuilder {
         radius_world: f32,
         amount: f32,
         directional_pair: bool,
+        wet_patch_size_voxels: f32,
     ) -> Option<(TerrainSoilBrushPushConstants, UVec3, UAabb3)> {
         let atlas_dim = chunk_atlas_dim(&self.resources);
         let start_vox = start * 256.0;
         let end_vox = end * 256.0;
         let radius_vox = (radius_world * 256.0).max(0.0);
-        let amount = amount.clamp(0.0, 1.0);
-        if radius_vox <= 0.0 || amount <= 0.0 || !start_vox.is_finite() || !end_vox.is_finite() {
+        let patch_size =
+            if directional_pair && wet_patch_size_voxels.is_finite() && wet_patch_size_voxels > 0.0
+            {
+                wet_patch_size_voxels.clamp(2.0, 32.0)
+            } else {
+                0.0
+            };
+        let amount = if patch_size > 0.0 {
+            amount.max(0.0)
+        } else {
+            amount.clamp(0.0, 1.0)
+        };
+        if radius_vox <= 0.0
+            || amount <= 0.0
+            || !amount.is_finite()
+            || !start_vox.is_finite()
+            || !end_vox.is_finite()
+        {
             return None;
         }
 
@@ -997,6 +1015,7 @@ impl PlainBuilder {
             dim: [dim.x, dim.y, dim.z, u32::from(directional_pair)],
             start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
             end_amount: [end_vox.x, end_vox.y, end_vox.z, amount],
+            wet_patch: [patch_size, 0.0, 0.0, 0.0],
         };
         let changed_bound = UAabb3::new(offset, offset + dim - UVec3::ONE);
         Some((push_constants, dim, changed_bound))
@@ -1025,7 +1044,7 @@ impl PlainBuilder {
         amount: f32,
     ) -> Option<UAabb3> {
         let (push_constants, dim, changed_bound) =
-            self.prepare_terrain_moisture_brush(start, end, radius_world, amount, false)?;
+            self.prepare_terrain_moisture_brush(start, end, radius_world, amount, false, 0.0)?;
         self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
         Some(changed_bound)
     }
@@ -1037,14 +1056,21 @@ impl PlainBuilder {
         axis: Vec3,
         range_world: f32,
         amount: f32,
+        wet_patch_size_voxels: Option<f32>,
     ) -> Option<UAabb3> {
         let direction = Vec3::new(axis.x, 0.0, axis.z).normalize_or_zero();
         if direction == Vec3::ZERO {
             return None;
         }
         let end = center + direction * range_world;
-        let (push_constants, dim, changed_bound) =
-            self.prepare_terrain_moisture_brush(center, end, range_world, amount, true)?;
+        let (push_constants, dim, changed_bound) = self.prepare_terrain_moisture_brush(
+            center,
+            end,
+            range_world,
+            amount,
+            true,
+            wet_patch_size_voxels.unwrap_or(0.0),
+        )?;
         self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
         Some(changed_bound)
     }
@@ -1058,7 +1084,7 @@ impl PlainBuilder {
         amount: f32,
     ) -> Result<Option<UAabb3>> {
         let Some((push_constants, dim, changed_bound)) =
-            self.prepare_terrain_moisture_brush(start, end, radius_world, amount, false)
+            self.prepare_terrain_moisture_brush(start, end, radius_world, amount, false, 0.0)
         else {
             return Ok(None);
         };
@@ -1123,6 +1149,7 @@ impl PlainBuilder {
             dim: [dim.x, dim.y, dim.z, 0],
             start_radius: [start_vox.x, start_vox.y, start_vox.z, radius_vox],
             end_amount: [end_vox.x, end_vox.y, end_vox.z, strength],
+            wet_patch: [0.0; 4],
         };
         let changed_bound = UAabb3::new(offset, offset + dim - UVec3::ONE);
         Some((push_constants, dim, changed_bound))

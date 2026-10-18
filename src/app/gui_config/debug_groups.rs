@@ -116,6 +116,13 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
+        title: "Soil Wetting",
+        description: "Checked: soft, connected wet patches on soil. Unchecked: original independent voxel wetting. Patch scale changes spatial coherence, not spray reach or average water input. Speed scales actual irrigation; zero stops watering, not mist. Four soil moisture levels and manual Water brush are unchanged.",
+        initially_open: false,
+        params: &["sprinkler_wetting_patches", "sprinkler_wet_patch_size", "sprinkler_wetting_speed"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Mist & Scattering",
         description: "Continuous mist, not water particles. Checked: directional spray spreads, settles and meets voxel terrain. Unchecked: original soft dome. Old spray persists across nozzle changes; density changes only appearance, never watering. Zero hides both modes.",
         initially_open: false,

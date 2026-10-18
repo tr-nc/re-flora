@@ -198,6 +198,9 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_patches");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_wet_patch_size");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_speed");
         Self::migrate_stem_rendering_controls(&mut config);
         for id in [
             "apple_size_scale",
