@@ -22,12 +22,12 @@ off, shadows off, resize, lifecycle, and the matched low-angle seam regression.
 Its GPU readback asserts live density below cliff sources, no path tunnelling through
 the thin wall, and resumed transport after the wall is removed. --mist and --flow
 are mutually exclusive.
---wet selects thirteen soil checks: original/4/12/24-voxel patches, 30/120-Hz dose
+--wet selects thirteen soil checks: 2/4/12/24-voxel patches, 30/120-Hz dose
 partitions, zero/double speed, runtime controls, mist independence, manual Water/tiller,
 particles off and resize. It reads actual soil voxels, checks material/coverage guards,
 compares spatial coherence and seven independent soil trials per dose setting.
 Ambient drying/spreading are isolated; snapshots show the final trial, not an average.
---dry selects six soil checks: 0/0.5/1/3 drying multipliers, live pause/resume,
+--dry selects six soil checks: 0/0.2/1/3 drying multipliers, live pause/resume,
 and active watering/mist while evaporation is paused. It reads real soil state at
 frames 60/120/180, verifies material/state bits, and isolates vertical transfer.
 Artifacts for --dry: target/soil-drying-review/{*.png,*.log,*.json,summary.json}.
@@ -131,7 +131,7 @@ try {
   const cases = dry
     ? ['dry-zero','dry-slow','dry-normal','dry-fast','dry-controls','dry-watering']
     : wet
-    ? ['wet-legacy','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-zero','wet-double',
+    ? ['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-zero','wet-double',
        'wet-controls','wet-mist','wet-brush','wet-no-particles','wet-resize']
     : flow
     ? ['mist-flow', 'mist-flow-off', 'mist-flow-legacy', 'mist-flow-top', 'mist-cliff', 'mist-cliff-off',
@@ -203,9 +203,9 @@ try {
       if(name==='wet-zero') assert.equal(stats.mean,0);
       else assert.ok(stats.mean>0);
       if(name==='wet-controls') {
-        const controls=[...log.matchAll(/SPRINKLER_WETTING_CONTROL\] step=(\d+) patches=(true|false) scale=([\d.]+) speed=([\d.]+)/g)]
-          .map(m=>[+m[1],m[2]==='true',+m[3],+m[4]]);
-        assert.deepEqual(controls,[[0,true,4,1],[1,true,12,1],[2,false,12,1],[3,true,24,1.5],[4,true,24,0]]);
+        const controls=[...log.matchAll(/SPRINKLER_WETTING_CONTROL\] step=(\d+) scale=([\d.]+) speed=([\d.]+)/g)]
+          .map(m=>[+m[1],+m[2],+m[3]]);
+        assert.deepEqual(controls,[[0,2,1],[1,4,1],[2,12,1],[3,24,1.5],[4,24,0]]);
       }
     }
     if (dry) {
@@ -264,11 +264,11 @@ try {
   if (flow) mistCliff=checkCliffTransport();
   if (wet) {
     const stats=name=>JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));
-    const legacy=stats('wet-legacy'), current=stats('wet-12'), large=stats('wet-24');
-    assert.ok(current.adjacentDisagreement<legacy.adjacentDisagreement*0.65,'wetting is still independent voxel noise');
+    const small=stats('wet-2'), current=stats('wet-12'), large=stats('wet-24');
+    assert.ok(current.adjacentDisagreement<small.adjacentDisagreement*0.65,'patch scale did not control wetting coherence');
     assert.ok(large.adjacentDisagreement<current.adjacentDisagreement,'larger wetting scale did not make broader patches');
     const meanChecks={};
-    for(const name of ['wet-legacy','wet-4','wet-24','wet-30fps','wet-120fps']) {
+    for(const name of ['wet-2','wet-4','wet-24','wet-30fps','wet-120fps']) {
       const sample=stats(name);
       const differences=sample.trialMeans.map((x,i)=>x-current.trialMeans[i]);
       const average=differences.reduce((a,b)=>a+b,0)/differences.length;
@@ -282,8 +282,8 @@ try {
       assert.ok(Math.abs(average)<limit,`${name}: mean dose differs beyond paired-trial uncertainty (${JSON.stringify(meanChecks[name])})`);
     }
     assert.ok(stats('wet-double').mean>current.mean*1.4,'wetting speed did not increase actual moisture');
-    wettingComparison={meanChecks,legacyBoundary:legacy.adjacentDisagreement,newBoundary:current.adjacentDisagreement,
-      largeBoundary:large.adjacentDisagreement,means:Object.fromEntries(['wet-legacy','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
+    wettingComparison={meanChecks,smallBoundary:small.adjacentDisagreement,newBoundary:current.adjacentDisagreement,
+      largeBoundary:large.adjacentDisagreement,means:Object.fromEntries(['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
   }
   if (dry) {
     const stats=name=>JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));

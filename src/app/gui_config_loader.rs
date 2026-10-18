@@ -80,6 +80,7 @@ impl GuiConfigLoader {
         for section in &mut config.section {
             section.param.retain(|param| {
                 param.id != "grass_natural_bend_min_voxels"
+                    && param.id != "sprinkler_wetting_patches"
                     && !matches!(
                         param.id.as_str(),
                         "stone_direct_triangles"
@@ -128,9 +129,11 @@ impl GuiConfigLoader {
             .iter_mut()
             .flat_map(|section| &mut section.param)
         {
-            // Ground-detail traversal is now the player's only path. Keep saved
-            // tuning, but remove the old switch dependency before validation.
-            if param.id == "walk_ground_detail_height" {
+            // Permanent paths keep saved tuning but no obsolete A/B dependency.
+            if matches!(
+                param.id.as_str(),
+                "walk_ground_detail_height" | "sprinkler_wet_patch_size"
+            ) {
                 param.enabled_if = None;
             }
             if let Some(condition) = &mut param.enabled_if {
@@ -198,7 +201,6 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_patches");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wet_patch_size");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_speed");
         Self::add_missing_param(&mut config, "Debug", "soil_drying_speed");
@@ -1341,6 +1343,74 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sprinkler_wetting_switch_retires_without_losing_scale_or_disabling_slider() {
+        use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};
+        for enabled in [false, true] {
+            for scale in [2.0, 4.5, 17.0, 32.0] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let params = &mut config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap()
+                    .param;
+                let mut toggle = params
+                    .iter()
+                    .find(|p| p.id == "sprinkler_cache_enabled")
+                    .unwrap()
+                    .clone();
+                toggle.id = "sprinkler_wetting_patches".into();
+                toggle.value = super::GuiParamValue::Bool { value: enabled };
+                params.push(toggle);
+                let slider = params
+                    .iter_mut()
+                    .find(|p| p.id == "sprinkler_wet_patch_size")
+                    .unwrap();
+                slider.value = super::GuiParamValue::Float {
+                    value: scale,
+                    min: Some(2.0),
+                    max: Some(32.0),
+                };
+                slider.enabled_if = Some(GuiParamEnabledIf {
+                    param: "sprinkler_wetting_patches".into(),
+                    equals: GuiParamConditionValue::Bool(true),
+                });
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                let original = toml::to_string_pretty(&config).unwrap();
+                std::fs::write(&path, &original).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+                assert!(!loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .any(|p| p.id == "sprinkler_wetting_patches"));
+                let slider = loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "sprinkler_wet_patch_size")
+                    .unwrap();
+                assert!(slider.enabled_if.is_none());
+                assert!(
+                    matches!(slider.value,super::GuiParamValue::Float{value,..} if value==scale)
+                );
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert!(!std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("sprinkler_wetting_patches"));
+                let reloaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(
+                    serde_json::to_value(reloaded).unwrap(),
+                    serde_json::to_value(loaded).unwrap()
+                );
+            }
+        }
+    }
+
     #[test]
     fn walking_detail_height_upgrades_old_saves_without_rewriting_and_round_trips() {
         use super::GuiParamValue;

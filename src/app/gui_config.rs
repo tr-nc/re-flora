@@ -2227,6 +2227,8 @@ mod tests {
         settings.adjustables.butterfly_pixel_resolution.value = 24;
         settings.adjustables.model_flower_pixel_resolution.value = 16;
         settings.adjustables.scene_pixel_ratio.value = 3;
+        let default_patch_size = settings.adjustables.sprinkler_wet_patch_size.value;
+        let default_wetting_speed = settings.adjustables.sprinkler_wetting_speed.value;
         settings.sync_config();
         for section in &mut settings.config.section {
             section.param.retain(|p| !p.id.starts_with("sprinkler_"));
@@ -2245,16 +2247,20 @@ mod tests {
         assert_eq!(loaded.adjustables.sprinkler_pixel_resolution.value, 32);
         assert_eq!(loaded.adjustables.sprinkler_mist_density.value, 1.0);
         assert!(loaded.adjustables.sprinkler_mist_flow.value);
-        assert!(loaded.adjustables.sprinkler_wetting_patches.value);
-        assert_eq!(loaded.adjustables.sprinkler_wet_patch_size.value, 12.0);
-        assert_eq!(loaded.adjustables.sprinkler_wetting_speed.value, 1.0);
+        assert_eq!(
+            loaded.adjustables.sprinkler_wet_patch_size.value,
+            default_patch_size
+        );
+        assert_eq!(
+            loaded.adjustables.sprinkler_wetting_speed.value,
+            default_wetting_speed
+        );
         for (enabled, n) in [(true, 8), (false, 17), (true, 32)] {
             loaded.adjustables.sprinkler_cache_enabled.value = enabled;
             loaded.adjustables.sprinkler_pixel_resolution.value = n;
             let density = if enabled { 0.0 } else { 1.75 };
             loaded.adjustables.sprinkler_mist_density.value = density;
             loaded.adjustables.sprinkler_mist_flow.value = !enabled;
-            loaded.adjustables.sprinkler_wetting_patches.value = enabled;
             loaded.adjustables.sprinkler_wet_patch_size.value = n as f32;
             loaded.adjustables.sprinkler_wetting_speed.value = density;
             loaded.save_to_path(&path).unwrap();
@@ -2264,7 +2270,6 @@ mod tests {
             assert_eq!(gui.sprinkler_pixel_resolution.value, n);
             assert_eq!(gui.sprinkler_mist_density.value, density);
             assert_eq!(gui.sprinkler_mist_flow.value, !enabled);
-            assert_eq!(gui.sprinkler_wetting_patches.value, enabled);
             assert_eq!(gui.sprinkler_wet_patch_size.value, n as f32);
             assert_eq!(gui.sprinkler_wetting_speed.value, density);
             assert_eq!(gui.apple_pixel_resolution.value, 12);
@@ -2295,8 +2300,8 @@ mod tests {
             original,
             "loading must not write settings"
         );
-        assert_eq!(loaded.adjustables.soil_drying_speed.value, 1.0);
-        for speed in [0.0, 0.25, 1.0, 3.0] {
+        assert_eq!(loaded.adjustables.soil_drying_speed.value, 0.2);
+        for speed in [0.0, 0.2, 0.25, 1.0, 3.0] {
             loaded.adjustables.soil_drying_speed.value = speed;
             loaded.save_to_path(&path).unwrap();
             loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));

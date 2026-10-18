@@ -120,7 +120,7 @@ impl Review {
             "mist-pop-64",
             "mist-pop-256",
             "mist-overlap-256",
-            "wet-legacy",
+            "wet-2",
             "wet-4",
             "wet-12",
             "wet-24",
@@ -332,7 +332,7 @@ impl App {
                     gui.sprinkler_mist_density.value = if watering { 1.0 } else { 0.0 };
                     gui.soil_drying_speed.value = match review.mode.as_str() {
                         "dry-zero" | "dry-watering" => 0.0,
-                        "dry-slow" => 0.5,
+                        "dry-slow" => 0.2,
                         "dry-fast" => 3.0,
                         _ => 1.0,
                     };
@@ -344,8 +344,8 @@ impl App {
                 } else {
                     gui.sprinkler_mist_density.value =
                         if review.mode == "wet-mist" { 1.0 } else { 0.0 };
-                    gui.sprinkler_wetting_patches.value = review.mode != "wet-legacy";
                     gui.sprinkler_wet_patch_size.value = match review.mode.as_str() {
+                        "wet-2" => 2.0,
                         "wet-4" => 4.0,
                         "wet-24" => 24.0,
                         _ => 12.0,
@@ -509,19 +509,21 @@ impl App {
             self.review_sprinkler_wetting(&mut review, base, false)?;
         }
         if review.mode == "wet-controls" {
-            let (enabled, size, speed) = match review.frame / 40 {
-                0 => (true, 4.0, 1.0),
-                1 => (true, 12.0, 1.0),
-                2 => (false, 12.0, 1.0),
-                3 => (true, 24.0, 1.5),
-                _ => (true, 24.0, 0.0),
+            let (size, speed) = match review.frame / 40 {
+                0 => (2.0, 1.0),
+                1 => (4.0, 1.0),
+                2 => (12.0, 1.0),
+                3 => (24.0, 1.5),
+                _ => (24.0, 0.0),
             };
             let gui = &mut self.debug_settings.adjustables;
-            gui.sprinkler_wetting_patches.value = enabled;
             gui.sprinkler_wet_patch_size.value = size;
             gui.sprinkler_wetting_speed.value = speed;
             if review.frame % 40 == 0 && review.frame <= 160 {
-                log::info!("[SPRINKLER_WETTING_CONTROL] step={} patches={enabled} scale={size} speed={speed} saved=false",review.frame/40);
+                log::info!(
+                    "[SPRINKLER_WETTING_CONTROL] step={} scale={size} speed={speed} saved=false",
+                    review.frame / 40
+                );
             }
         }
         if review.mode == "wet-brush" && review.frame == 1 {

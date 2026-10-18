@@ -960,14 +960,16 @@ impl PlainBuilder {
         let start_vox = start * 256.0;
         let end_vox = end * 256.0;
         let radius_vox = (radius_world * 256.0).max(0.0);
-        let patch_size =
-            if directional_pair && wet_patch_size_voxels.is_finite() && wet_patch_size_voxels > 0.0
-            {
+        let patch_size = if directional_pair {
+            if wet_patch_size_voxels.is_finite() {
                 wet_patch_size_voxels.clamp(2.0, 32.0)
             } else {
-                0.0
-            };
-        let amount = if patch_size > 0.0 {
+                12.0
+            }
+        } else {
+            0.0
+        };
+        let amount = if directional_pair {
             amount.max(0.0)
         } else {
             amount.clamp(0.0, 1.0)
@@ -1056,7 +1058,7 @@ impl PlainBuilder {
         axis: Vec3,
         range_world: f32,
         amount: f32,
-        wet_patch_size_voxels: Option<f32>,
+        wet_patch_size_voxels: f32,
     ) -> Option<UAabb3> {
         let direction = Vec3::new(axis.x, 0.0, axis.z).normalize_or_zero();
         if direction == Vec3::ZERO {
@@ -1069,7 +1071,7 @@ impl PlainBuilder {
             range_world,
             amount,
             true,
-            wet_patch_size_voxels.unwrap_or(0.0),
+            wet_patch_size_voxels,
         )?;
         self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
         Some(changed_bound)

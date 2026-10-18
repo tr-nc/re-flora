@@ -54,7 +54,6 @@ float nearSurfaceAbsorptionFactor(int3 position, uint voxelType)
 [numthreads(8, 8, 8)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    bool patches=pc.dim.w!=0u && pc.wet_patch.x>=2.0;
     uint3 local = dispatchThreadId;
     uint3 dimension = pc.dim.xyz;
     bool directionalPair = pc.dim.w != 0u;
@@ -68,7 +67,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 startVoxel = pc.start_radius.xyz;
     float radiusVoxel = max(pc.start_radius.w, 0.0);
     float3 endVoxel = pc.end_amount.xyz;
-    float amount = patches ? max(pc.end_amount.w,0.0) : clamp(pc.end_amount.w,0.0,1.0);
+    float amount = directionalPair ? max(pc.end_amount.w,0.0) : clamp(pc.end_amount.w,0.0,1.0);
     if (radiusVoxel <= 0.0 || amount <= 0.0)
     {
         return;
@@ -122,7 +121,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         0.0,
         1.0);
     uint addMoisture;
-    if(patches)
+    if(directionalPair)
     {
         float uniform=wetPatchUniform(voxelCenter,pc.wet_patch.x,ditherSeed);
         addMoisture=wetPatchPoissonIncrement(
@@ -130,7 +129,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     else
     {
-        // Preserve the original sprinkler A/B and manual Water brush exactly.
+        // Manual Water retains its existing independent-voxel brush.
         float fineNoise = terrainSoilHash01(atlasPosition, ditherSeed);
         float coarseNoise = terrainSoilHash01(
             atlasPosition / 4u, ditherSeed ^ 0xA511E9B3u);

@@ -314,12 +314,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "sprinkler_wetting_patches",
-        kind: "bool",
-        label: "Sprinklers: coherent soil wetting (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "sprinkler_wet_patch_size",
         kind: "float",
         label: "Sprinklers: wet patch scale (voxels)",
@@ -1792,7 +1786,6 @@ pub struct GuiAdjustables {
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
-    pub sprinkler_wetting_patches: crate::gui_adjustables::BoolParam,
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
     pub soil_drying_speed: crate::gui_adjustables::FloatParam,
@@ -2091,7 +2084,6 @@ impl GuiAdjustables {
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut sprinkler_wetting_patches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2623,11 +2615,6 @@ impl GuiAdjustables {
                     "sprinkler_cache_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "sprinkler_wetting_patches" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            sprinkler_wetting_patches_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sprinkler_wet_patch_size" => {
@@ -4275,7 +4262,6 @@ impl GuiAdjustables {
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
-            sprinkler_wetting_patches: sprinkler_wetting_patches_field.expect("Missing parameter: sprinkler_wetting_patches"),
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
             soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
@@ -4805,7 +4791,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
-        "sprinkler_wetting_patches" => Some(&adjustables.sprinkler_wetting_patches),
         "sprinkler_mist_flow" => Some(&adjustables.sprinkler_mist_flow),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
@@ -5138,7 +5123,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
-        "sprinkler_wetting_patches" => Some(&mut adjustables.sprinkler_wetting_patches),
         "sprinkler_mist_flow" => Some(&mut adjustables.sprinkler_mist_flow),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),

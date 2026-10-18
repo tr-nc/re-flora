@@ -237,10 +237,7 @@ impl App {
         let record_start = self.perf_logging.then(Instant::now);
         let gui = &self.debug_settings.adjustables;
         let speed = gui.sprinkler_wetting_speed.value.clamp(0.0, 3.0);
-        let patch_size = gui
-            .sprinkler_wetting_patches
-            .value
-            .then_some(gui.sprinkler_wet_patch_size.value);
+        let patch_size = gui.sprinkler_wet_patch_size.value;
         let amount = SPRINKLER_MOISTURE_PER_SECOND * speed * dt;
         let sprinkler_sources = self.sprinklers.moisture_sources();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
