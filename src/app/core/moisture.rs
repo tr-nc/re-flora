@@ -238,6 +238,7 @@ impl App {
         let gui = &self.debug_settings.adjustables;
         let speed = gui.sprinkler_wetting_speed.value.clamp(0.0, 3.0);
         let patch_size = gui.sprinkler_wet_patch_size.value;
+        let rotary = gui.sprinkler_rotary.value;
         let amount = SPRINKLER_MOISTURE_PER_SECOND * speed * dt;
         let sprinkler_sources = self.sprinklers.moisture_sources();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
@@ -246,20 +247,28 @@ impl App {
             let spray_axis = self
                 .sprinkler_review
                 .as_ref()
-                .filter(|r| r.isolates_wetting())
+                .filter(|r| r.isolates_wetting() && !r.is_rotary())
                 .map_or_else(
-                    || source.spray_axis(self.world_clock.flora_tick(), tick_seconds),
+                    || {
+                        source.spray_axis_for_mode(
+                            self.world_clock.flora_tick(),
+                            self.world_clock.flora_tick_fraction(),
+                            tick_seconds,
+                            rotary,
+                        )
+                    },
                     |r| r.wetting_axis(),
                 );
             if self
                 .plain_builder
-                .record_directional_pair_moisture_brush(
+                .record_sprinkler_moisture_brush(
                     cmdbuf,
                     source.base_position,
                     spray_axis,
                     SPRINKLER_MOISTURE_RADIUS,
                     amount,
                     patch_size,
+                    rotary,
                 )
                 .is_some()
             {

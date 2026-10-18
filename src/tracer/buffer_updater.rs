@@ -146,6 +146,7 @@ impl BufferUpdater {
     pub fn update_flora_growth_info(
         resources: &TracerResources,
         flora_tick: u32,
+        flora_tick_fraction: f32,
         sprout_delay_ticks: u32,
         full_growth_ticks: u32,
         spawn_time_ms: u32,
@@ -163,6 +164,7 @@ impl BufferUpdater {
             .flora_growth_info
             .fill_uniform(&FloraGrowthInfo {
                 flora_tick,
+                flora_tick_fraction,
                 sprout_delay_ticks,
                 full_growth_ticks,
                 spawn_time_ms,
@@ -340,6 +342,7 @@ impl BufferUpdater {
             lens_flare_sun_pixel_scale: environment.lens_flare_sun_pixel_scale,
 
             world_tick_seconds: motion.world_tick_seconds,
+            sprinkler_rotary: u32::from(environment.sprinkler_rotary),
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
             grass_vibration_secondary_speed: motion.grass_vibration_secondary_speed,

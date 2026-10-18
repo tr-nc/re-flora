@@ -33,6 +33,10 @@ impl Review {
         self.mode.starts_with("wet-")
     }
 
+    pub fn is_rotary(&self) -> bool {
+        self.mode.starts_with("rotary-") || self.mode == "wet-rotary"
+    }
+
     pub fn wetting_axis(&self) -> Vec3 {
         if self.mode == "wet-edge-x" {
             Vec3::X
@@ -95,6 +99,19 @@ impl Review {
         };
         const MODES: &[&str] = &[
             "near",
+            "rotary-near",
+            "rotary-top",
+            "rotary-pixels-8",
+            "rotary-pixels-16",
+            "rotary-pixels-32",
+            "rotary-controls",
+            "rotary-mist",
+            "rotary-mist-off",
+            "rotary-mist-legacy",
+            "rotary-lifecycle",
+            "rotary-wall",
+            "rotary-cliff",
+            "wet-rotary",
             "garden",
             "orbit",
             "lifecycle",
@@ -236,7 +253,8 @@ impl App {
                 let inside = radius < 76.8
                     && (radius < 0.001 || along / radius >= std::f32::consts::FRAC_1_SQRT_2);
                 if review.mode != "wet-brush"
-                    && (radius >= 76.8 || across - along > 2.0 * scale + 0.002)
+                    && (radius >= 76.8
+                        || (!review.is_rotary() && across - along > 2.0 * scale + 0.002))
                 {
                     ensure!(
                         moisture == 0,
@@ -371,7 +389,23 @@ impl App {
                 .resolve_plantable_surface_column(UVec2::new(196, 360))
                 .map_err(|e| anyhow::anyhow!("sprinkler review surface: {e:?}"))?;
             let mut base = anchor.surface_position_ws();
-            if review.mode.starts_with("mist-cliff") {
+            self.debug_settings.adjustables.sprinkler_rotary.value = review.is_rotary();
+            if review.is_rotary() {
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_cache_enabled.value = true;
+                gui.sprinkler_pixel_resolution.value = 32;
+                gui.sprinkler_mist_flow.value = !review.mode.ends_with("-legacy");
+                gui.sprinkler_mist_density.value = if review.mode.contains("mist")
+                    || matches!(
+                        review.mode.as_str(),
+                        "rotary-controls" | "rotary-wall" | "rotary-cliff"
+                    ) {
+                    1.0
+                } else {
+                    0.0
+                };
+            }
+            if review.mode.starts_with("mist-cliff") || review.mode == "rotary-cliff" {
                 let lo = base + Vec3::new(-0.30, -0.01, -0.20);
                 let hi = base + Vec3::new(0.08, 0.32, 0.20);
                 self.stamp_sprinkler_review_box(lo, hi, crate::builder::VOXEL_TYPE_ROCK)?;
@@ -490,11 +524,13 @@ impl App {
             if review.mode.starts_with("mist-thin-wall")
                 || review.mode.starts_with("mist-corner")
                 || review.mode == "mist-edit"
+                || review.mode == "rotary-wall"
             {
+                let span = if review.is_rotary() { 0.5 } else { 0.22 };
                 let x = (base.x * 256.0).floor() + 24.0;
                 self.stamp_sprinkler_review_box(
-                    Vec3::new(x / 256.0, base.y, base.z - 0.22),
-                    Vec3::new((x + 1.0) / 256.0, base.y + 0.26, base.z + 0.22),
+                    Vec3::new(x / 256.0, base.y, base.z - span),
+                    Vec3::new((x + 1.0) / 256.0, base.y + 0.26, base.z + span),
                     crate::builder::VOXEL_TYPE_ROCK,
                 )?;
             }
@@ -523,7 +559,11 @@ impl App {
                 })?;
             }
             self.debug_settings.adjustables.auto_daynight_cycle.value = false;
-            if let Some(n) = review.mode.strip_prefix("pixels-") {
+            if let Some(n) = review
+                .mode
+                .strip_prefix("pixels-")
+                .or_else(|| review.mode.strip_prefix("rotary-pixels-"))
+            {
                 self.debug_settings
                     .adjustables
                     .sprinkler_cache_enabled
@@ -623,6 +663,30 @@ impl App {
         if review.mode.ends_with("-off") {
             self.debug_settings.adjustables.sprinkler_mist_density.value = 0.0;
         }
+        if review.mode == "rotary-controls" {
+            if review.frame > 0 && review.frame <= 160 && review.frame % 40 == 0 {
+                let previous = self.debug_settings.adjustables.sprinkler_rotary.value;
+                let lobes = self.tracer.sprinkler_mist_review_lobes()?;
+                ensure!(lobes.len() == 48, "rotary review lobe ABI");
+                let fourth = lobes[36..]
+                    .iter()
+                    .filter(|l| l.center_amplitude[3] > 0.0)
+                    .count();
+                ensure!(
+                    if previous { fourth == 0 } else { fourth > 0 },
+                    "GPU mist mode did not follow the live checkbox"
+                );
+                log::info!("[SPRINKLER_ROTARY_REVIEW] gpu_previous={previous} fourth_nozzle_lobes={fourth} explicit_readback=true");
+            }
+            let enabled = (review.frame / 40) % 2 == 0;
+            self.debug_settings.adjustables.sprinkler_rotary.value = enabled;
+            if review.frame % 40 == 0 && review.frame <= 160 {
+                log::info!(
+                    "[SPRINKLER_ROTARY_REVIEW] step={} enabled={enabled} saved=false",
+                    review.frame / 40
+                );
+            }
+        }
         if review.mode == "mist-flow-controls" {
             let flow = (review.frame / 40) % 2 == 0;
             self.debug_settings.adjustables.sprinkler_mist_flow.value = flow;
@@ -668,6 +732,10 @@ impl App {
             _ if review.isolates_wetting() || review.isolates_drying() => {
                 Vec3::new(0.001, 0.50, 0.001)
             }
+            "rotary-top" => Vec3::new(0.001, 0.10, 0.001),
+            "rotary-cliff" => Vec3::new(0.65, -0.09, 0.45),
+            "rotary-wall" => Vec3::new(0.55, 0.05, 0.40),
+            _ if review.mode.contains("rotary-mist") => Vec3::new(0.50, 0.10, 0.42),
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
             "mist-wall" => Vec3::new(-0.55, 0.07, -0.392),
@@ -702,7 +770,7 @@ impl App {
             "sprinkler review camera"
         );
         self.reset_camera_movement_input();
-        if review.mode == "lifecycle" {
+        if matches!(review.mode.as_str(), "lifecycle" | "rotary-lifecycle") {
             if review.frame == 40 {
                 self.apply_sprinkler_placement(base + Vec3::X * 0.035)?;
                 self.apply_sprinkler_placement(base - Vec3::X * 0.035)?;
@@ -729,7 +797,7 @@ impl App {
                 self.apply_sprinkler_placement(base)?;
             }
         }
-        if review.mode == "controls" {
+        if matches!(review.mode.as_str(), "controls" | "rotary-controls") {
             const STEPS: [(bool, u32); 7] = [
                 (true, 8),
                 (true, 16),
@@ -773,7 +841,7 @@ impl App {
             if review.isolates_wetting() {
                 self.review_sprinkler_wetting(&mut review, base, true)?;
             }
-            if review.mode.starts_with("mist-")
+            if (review.mode.starts_with("mist-") || review.is_rotary())
                 && self.debug_settings.adjustables.sprinkler_mist_flow.value
                 && self.debug_settings.adjustables.sprinkler_mist_density.value > 0.0
                 && !review.mode.starts_with("mist-pop-")
@@ -815,10 +883,10 @@ impl App {
                     active > 0,
                     "terrain-aware mist produced no live continuous density"
                 );
-                if review.mode == "mist-cliff" {
+                if matches!(review.mode.as_str(), "mist-cliff" | "rotary-cliff") {
                     ensure!(below > 0, "cliff mist never settled below its source");
                 }
-                if review.mode == "mist-thin-wall" {
+                if matches!(review.mode.as_str(), "mist-thin-wall" | "rotary-wall") {
                     ensure!(beyond_wall == 0, "mist tunnelled through a one-voxel wall");
                 }
                 if review.mode == "mist-corner" {

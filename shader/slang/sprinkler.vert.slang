@@ -28,11 +28,18 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
     SprinklerPart part=sprinkler_parts[instance%count];
     float4 pose=sprinkler_instances[instance/count];
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
+    if ((part.range.w&1u)!=gui_input.sprinkler_rotary) return output;
+    bool rotary=(part.range.w&1u)!=0u;
     float extension; bool alongX;
     sprinklerAnimation(flora_growth_info.flora_tick,gui_input.world_tick_seconds,pose.w,extension,alongX);
-    float3 translation=sprinklerPartTranslation(part.motion.xyz,extension,alongX);
+    float3 translation=rotary?float3(0):sprinklerPartTranslation(part.motion.xyz,extension,alongX);
     ModelPixelFrame physical=identityModelPixelFrame();
     physical.center=pose.xyz;
+    if((part.range.w&2u)!=0u) {
+        float angle=sprinklerRotaryAngle(flora_growth_info.flora_tick,flora_growth_info.flora_tick_fraction,gui_input.world_tick_seconds,pose.w);
+        physical.axisX=sprinklerRotate(physical.axisX,angle);
+        physical.axisZ=sprinklerRotate(physical.axisZ,angle);
+    }
     float3 position,normal; uint material;
     CachedModelVertex cached;
     if(cachedModelVertexTranslated(vertex,part.range.z,5u,physical,float3(0),translation,cached)) {

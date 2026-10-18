@@ -27,6 +27,11 @@ impl WorldClock {
         self.flora_tick
     }
 
+    /// Canonical sub-tick progress; pausing preserves this same fraction.
+    pub fn flora_tick_fraction(&self) -> f32 {
+        self.tick_accumulator.clamp(0.0, 1.0)
+    }
+
     pub fn live_time_of_day(&self) -> f32 {
         self.live_time_of_day
     }
@@ -121,7 +126,9 @@ mod tests {
         let mut clock = WorldClock::new(30, 0.25);
 
         assert_eq!(clock.advance_simulation(0.025, 0.05, true), 0);
+        assert_eq!(clock.flora_tick_fraction(), 0.5);
         assert_eq!(clock.advance_simulation(1.0, 0.05, false), 0);
+        assert_eq!(clock.flora_tick_fraction(), 0.5);
         assert_eq!(clock.advance_simulation(0.025, 0.05, true), 1);
         assert_eq!(clock.flora_tick(), 31);
     }

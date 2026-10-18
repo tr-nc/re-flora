@@ -34,6 +34,7 @@ pub(crate) fn sprinkler_bake_motions_for_test() -> Vec<Vec3> {
     model_geometry::source(crate::flora::models::Shape::default())
         .sprinkler_parts
         .iter()
+        .filter(|p| p.range[3] == 0)
         .map(|p| Vec3::from_slice(&p.motion))
         .collect()
 }
@@ -1442,6 +1443,7 @@ pub struct LeafLightingFrameInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloraGrowthFrameInput {
     pub flora_tick: u32,
+    pub flora_tick_fraction: f32,
     pub sprout_delay_ticks: u32,
     pub full_growth_ticks: u32,
     pub spawn_time_ms: u32,
@@ -1505,6 +1507,7 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
+    pub sprinkler_rotary: bool,
     pub sprinkler_mist_density: f32,
     pub sprinkler_mist_flow: bool,
     pub sky_light_strength: f32,
@@ -3178,6 +3181,7 @@ impl Tracer {
         BufferUpdater::update_flora_growth_info(
             &self.resources,
             vegetation.growth.flora_tick,
+            vegetation.growth.flora_tick_fraction,
             vegetation.growth.sprout_delay_ticks,
             vegetation.growth.full_growth_ticks,
             vegetation.growth.spawn_time_ms,

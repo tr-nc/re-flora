@@ -884,6 +884,7 @@ pub struct EnvInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FloraGrowthInfo {
     pub flora_tick: u32,
+    pub flora_tick_fraction: f32,
     pub sprout_delay_ticks: u32,
     pub full_growth_ticks: u32,
     pub spawn_time_ms: u32,
@@ -892,7 +893,7 @@ pub struct FloraGrowthInfo {
     pub spawn_overshoot_min_voxels: f32,
     pub spawn_overshoot_max_voxels: f32,
     pub spawn_stagger_seconds: f32,
-    pub _pad0: [u8; 12],
+    pub _pad0: [u8; 8],
     pub moisture_growth_factors: [u32; 32],
 }
 
@@ -953,6 +954,7 @@ pub struct GuiInput {
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub world_tick_seconds: f32,
+    pub sprinkler_rotary: u32,
     pub grass_vibration_amplitude_voxels: f32,
     pub grass_vibration_primary_speed: f32,
     pub grass_vibration_secondary_speed: f32,
@@ -982,7 +984,6 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
-    pub _pad7: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

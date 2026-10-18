@@ -663,6 +663,15 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_rotary"
+kind = "bool"
+label = "Sprinklers: rotating three-arm head (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "sprinkler_wet_patch_size"
 kind = "float"
 label = "Sprinklers: wet patch scale (voxels)"

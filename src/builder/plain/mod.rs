@@ -1051,7 +1051,7 @@ impl PlainBuilder {
         Some(changed_bound)
     }
 
-    pub fn record_directional_pair_moisture_brush(
+    pub fn record_sprinkler_moisture_brush(
         &mut self,
         cmdbuf: &CommandBuffer,
         center: Vec3,
@@ -1059,13 +1059,14 @@ impl PlainBuilder {
         range_world: f32,
         amount: f32,
         wet_patch_size_voxels: f32,
+        rotary: bool,
     ) -> Option<UAabb3> {
         let direction = Vec3::new(axis.x, 0.0, axis.z).normalize_or_zero();
         if direction == Vec3::ZERO {
             return None;
         }
         let end = center + direction * range_world;
-        let (push_constants, dim, changed_bound) = self.prepare_terrain_moisture_brush(
+        let (mut push_constants, dim, changed_bound) = self.prepare_terrain_moisture_brush(
             center,
             end,
             range_world,
@@ -1073,6 +1074,7 @@ impl PlainBuilder {
             true,
             wet_patch_size_voxels,
         )?;
+        push_constants.wet_patch[1] = if rotary { 1.0 } else { 0.0 };
         self.record_prepared_terrain_moisture_brush(cmdbuf, &push_constants, dim);
         Some(changed_bound)
     }

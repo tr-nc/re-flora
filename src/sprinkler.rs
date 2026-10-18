@@ -48,9 +48,87 @@ impl Pose {
     }
 }
 
+pub(crate) const ROTARY_PERIOD_SECONDS: f32 = 4.0;
+pub(crate) const ROTARY_NOZZLE_HEIGHT: f32 = 4.2;
+pub(crate) const ROTARY_NOZZLE_X: f32 = 3.15;
+pub(crate) const ROTARY_NOZZLE_Z: f32 = -0.85;
+pub(crate) const ROTARY_NOZZLE_YAW: f32 = -0.65;
+
+/// Shared continuous rotor pose. Reduce integer ticks before float conversion.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RotorPose {
+    pub angle: f32,
+}
+
+impl RotorPose {
+    pub fn sample(tick: u32, fraction: f32, tick_seconds: f32, phase: f32) -> Self {
+        let ticks = (ROTARY_PERIOD_SECONDS
+            / crate::game_time::clamp_world_tick_seconds(tick_seconds))
+        .round()
+        .max(4.0) as u32;
+        let time = (tick % ticks) as f32 + fraction.clamp(0.0, 1.0);
+        Self {
+            angle: ((time / ticks as f32 + phase.rem_euclid(1.0)).rem_euclid(1.0))
+                * std::f32::consts::TAU,
+        }
+    }
+    pub fn rotate(self, value: Vec3) -> Vec3 {
+        let (s, c) = self.angle.sin_cos();
+        Vec3::new(
+            c * value.x - s * value.z,
+            value.y,
+            s * value.x + c * value.z,
+        )
+    }
+    pub fn nozzle(self, nozzle: u32) -> Self {
+        Self {
+            angle: self.angle + (nozzle % 3) as f32 * std::f32::consts::TAU / 3.0,
+        }
+    }
+    pub fn direction(self, nozzle: u32) -> Vec3 {
+        self.nozzle(nozzle).rotate(Vec3::new(
+            ROTARY_NOZZLE_YAW.cos(),
+            0.0,
+            ROTARY_NOZZLE_YAW.sin(),
+        ))
+    }
+    pub fn outlet(self, nozzle: u32) -> Vec3 {
+        self.nozzle(nozzle).rotate(Vec3::new(
+            ROTARY_NOZZLE_X,
+            ROTARY_NOZZLE_HEIGHT,
+            ROTARY_NOZZLE_Z,
+        )) * WORLD_SCALE
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotor_is_continuous_periodic_and_has_three_matching_spouts() {
+        let first = RotorPose::sample(7, 0.0, 0.05, 0.125);
+        let half = RotorPose::sample(7, 0.5, 0.05, 0.125);
+        assert!(first.direction(0).distance(half.direction(0)) > 0.01);
+        assert!(
+            first
+                .direction(0)
+                .distance(RotorPose::sample(87, 0.0, 0.05, 0.125).direction(0))
+                < 1e-6
+        );
+        assert!(
+            RotorPose::sample(7, 1.0, 0.05, 0.125)
+                .direction(0)
+                .distance(RotorPose::sample(8, 0.0, 0.05, 0.125).direction(0))
+                < 1e-6
+        );
+        for nozzle in 0..3 {
+            let a = half.direction(nozzle);
+            let b = half.direction((nozzle + 1) % 3);
+            assert!((a.length() - 1.0).abs() < 1e-6 && (a.dot(b) + 0.5).abs() < 1e-6);
+            assert!((half.outlet(nozzle).y - ROTARY_NOZZLE_HEIGHT * WORLD_SCALE).abs() < 1e-8);
+        }
+    }
 
     #[test]
     fn outlets_follow_both_pairs_lift_and_extension_on_the_world_clock() {
@@ -121,6 +199,23 @@ mod tests {
                         writeln!(code, "{{ float3 outlet=sprinklerOutlet({tick}u,{seconds:.9},{phase:.9},{nozzle}u); if(length(outlet-float3({:.12},{:.12},{:.12}))>0.0000001) return 3; }}", expected.x, expected.y, expected.z).unwrap();
                     }
                     cases += 1;
+                }
+            }
+        }
+        for seconds in [1.0 / 240.0, 0.05, 0.08, 0.4, 1.0] {
+            let period = (ROTARY_PERIOD_SECONDS / seconds).round().max(4.0) as u32;
+            for tick in [0, 1, 79, 80, 100000007, u32::MAX] {
+                for fraction in [0.0, 0.5, 0.999] {
+                    for phase in [0.0, 0.125, 0.975, 1.0] {
+                        let rotor = RotorPose::sample(tick, fraction, seconds, phase);
+                        let reduced = (tick % period) as f32 + fraction;
+                        for nozzle in 0..3 {
+                            let d = rotor.direction(nozzle);
+                            let p = rotor.outlet(nozzle);
+                            writeln!(code,"{{ float a=sprinklerRotaryAngle({tick}u,{fraction:.9},{seconds:.9},{phase:.9}); if(length(sprinklerRotate(float3(1,0,0),a)-float3({:.12},0,{:.12}))>0.00001)return 4; float3 p=sprinklerRotaryOutletAtTick({reduced:.9},{seconds:.9},{phase:.9},{nozzle}u),d=sprinklerRotaryDirectionAtTick({reduced:.9},{seconds:.9},{phase:.9},{nozzle}u); if(length(p-float3({:.12},{:.12},{:.12}))>0.0000002 || length(d-float3({:.12},{:.12},{:.12}))>0.00001)return 5; }}",rotor.angle.cos(),rotor.angle.sin(),p.x,p.y,p.z,d.x,d.y,d.z).unwrap();
+                        }
+                        cases += 1;
+                    }
                 }
             }
         }

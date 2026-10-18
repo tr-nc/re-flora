@@ -45,6 +45,37 @@ public bool wetPatchCanReachSector(float2 offset,float2 axis,float scale)
         abs(offset.x*axis.y-offset.y*axis.x);
 }
 
+// Three one-sided 60-degree fans have the same 180-degree total aperture as
+// the original opposing pair. This rotates sources, never crops receiving tails.
+public float2 wetPatchRotaryAxis(float2 axis,uint nozzle)
+{
+    if(nozzle==0u)return axis;
+    float s=nozzle==1u?0.866025403784:-0.866025403784;
+    return float2(-0.5*axis.x-s*axis.y,s*axis.x-0.5*axis.y);
+}
+public bool wetPatchCenterInRotarySector(float2 offset,float2 axis)
+{
+    float product=dot(offset,offset)*dot(axis,axis);
+    if(dot(axis,axis)<=1e-10)return false;
+    [ForceUnroll] for(uint n=0u;n<3u;++n) {
+        float along=dot(offset,wetPatchRotaryAxis(axis,n));
+        if(along>=0.0 && along*along>=0.75*product)return true;
+    }
+    return false;
+}
+public bool wetPatchCanReachRotarySector(float2 offset,float2 axis,float scale)
+{
+    float axisLength=length(axis);
+    if(axisLength<=1e-5)return false;
+    // Expanded one-sided 90-degree fans conservatively enclose the 60-degree
+    // source fans plus their square compact support. False positives are safe.
+    [ForceUnroll] for(uint n=0u;n<3u;++n) {
+        float2 a=wetPatchRotaryAxis(axis,n);
+        if(dot(offset,a)+(2.0*max(scale,2.0)+0.001)*axisLength>=abs(offset.x*a.y-offset.y*a.x))return true;
+    }
+    return false;
+}
+
 public struct WetPatchSample
 {
     public float uniform;
@@ -52,7 +83,7 @@ public struct WetPatchSample
 };
 
 WetPatchSample wetPatchField(float3 voxelPosition,float scale,uint seed,
-                            float2 source,float2 axis,bool directional)
+                            float2 source,float2 axis,bool directional,bool rotary)
 {
     // Per-dose grid jitter prevents a persistent box/grid imprint. Local
     // coefficients avoid one random amplitude changing the whole wet footprint.
@@ -72,7 +103,7 @@ WetPatchSample wetPatchField(float3 voxelPosition,float scale,uint seed,
         float weightSquared=weight*weight;
         variance+=weightSquared;
         float2 patchCenter=(float3(cell+corner)-shift).xz*scale;
-        if(!directional || wetPatchCenterInSector(patchCenter-source,axis))
+        if(!directional || (rotary?wetPatchCenterInRotarySector(patchCenter-source,axis):wetPatchCenterInSector(patchCenter-source,axis)))
         {
             normal+=weight*wetPatchGaussian(cell+corner,seed^0x1B56C4E9u);
             allowedVariance+=weightSquared;
@@ -90,13 +121,13 @@ WetPatchSample wetPatchField(float3 voxelPosition,float scale,uint seed,
 
 public float wetPatchUniform(float3 voxelPosition,float scale,uint seed)
 {
-    return wetPatchField(voxelPosition,scale,seed,float2(0),float2(0),false).uniform;
+    return wetPatchField(voxelPosition,scale,seed,float2(0),float2(0),false,false).uniform;
 }
 
 public WetPatchSample wetPatchDirectionalSample(float3 voxelPosition,float scale,
-                                               uint seed,float2 source,float2 axis)
+                                               uint seed,float2 source,float2 axis,bool rotary=false)
 {
-    return wetPatchField(voxelPosition,scale,seed,source,axis,true);
+    return wetPatchField(voxelPosition,scale,seed,source,axis,true,rotary);
 }
 
 // Independent time intervals compose as a Poisson process, including after

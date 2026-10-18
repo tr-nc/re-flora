@@ -16,6 +16,35 @@ public void sprinklerAnimation(uint tick, float tickSeconds, float animationPhas
     extension = 0.5 - 0.5 * cos(pairPhase * 6.28318530718);
 }
 
+// A separate original mode is retained; these functions own the new rotor pose.
+public uint sprinklerRotaryTicks(float seconds)
+{
+    return max(uint(floor(4.0/max(seconds,1.0/240.0)+0.5)),4u);
+}
+public float3 sprinklerRotate(float3 value,float angle)
+{
+    float s=sin(angle),c=cos(angle);
+    return float3(c*value.x-s*value.z,value.y,s*value.x+c*value.z);
+}
+public float sprinklerRotaryAngleAtTick(float tick,float seconds,float phase)
+{
+    return 6.28318530718*frac(tick/float(sprinklerRotaryTicks(seconds))+frac(phase));
+}
+public float sprinklerRotaryAngle(uint tick,float fraction,float seconds,float phase)
+{
+    return sprinklerRotaryAngleAtTick(float(tick%sprinklerRotaryTicks(seconds))+fraction,seconds,phase);
+}
+public float3 sprinklerRotaryOutletAtTick(float tick,float seconds,float phase,uint nozzle)
+{
+    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase)+float(nozzle)*2.09439510239;
+    return sprinklerRotate(float3(3.15,4.2,-0.85)/256.0,angle);
+}
+public float3 sprinklerRotaryDirectionAtTick(float tick,float seconds,float phase,uint nozzle)
+{
+    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase)+float(nozzle)*2.09439510239-0.65;
+    return float3(cos(angle),0,sin(angle));
+}
+
 // Shared outlet contract for hardware pose and the continuous spray source.
 public float3 sprinklerOutlet(uint tick,float tickSeconds,float phase,uint nozzle)
 {

@@ -292,33 +292,56 @@ pub(super) fn source(shape: Shape) -> Source {
         });
         [color[0], color[1], color[2], 0.]
     }));
-    // Separate rigid parts preserve surfaces revealed by live motion. All six
-    // parts share ONE whole-prop grid size, not six independently fitted grids.
-    let (vertices, indices) = super::sprinkler_mesh::build_sprinkler_mesh();
-    let mut motions = Vec::<[f32; 3]>::new();
-    let mut colors = Vec::<[f32; 3]>::new();
-    for vertex in &vertices {
-        if !motions.contains(&vertex.animation_direction) {
-            motions.push(vertex.animation_direction);
+    // Each variant has ONE whole-prop grid, shared by its rigid parts.
+    let mut sprinkler_parts = Vec::new();
+    let mut sprinkler_bounds = Vec::new();
+    for (rotary, (vertices, indices)) in [
+        (false, super::sprinkler_mesh::build_sprinkler_mesh()),
+        (true, super::sprinkler_mesh::build_rotary_sprinkler_mesh()),
+    ] {
+        let mut motions = Vec::<[f32; 3]>::new();
+        let mut colors = Vec::<[f32; 3]>::new();
+        for vertex in &vertices {
+            if !motions.contains(&vertex.animation_direction) {
+                motions.push(vertex.animation_direction);
+            }
+            if !colors.contains(&vertex.color_srgb) {
+                colors.push(vertex.color_srgb);
+            }
         }
-        if !colors.contains(&vertex.color_srgb) {
-            colors.push(vertex.color_srgb);
-        }
-    }
-    let palette_start = palette.len() as u32;
-    palette.extend(colors.iter().map(|c| [c[0], c[1], c[2], 0.]));
-    let sprinkler_parts: Vec<_> = motions
-        .iter()
-        .map(|motion| {
+        let min = vertices
+            .iter()
+            .map(|v| Vec3::from_array(v.position))
+            .reduce(Vec3::min)
+            .unwrap();
+        let max = vertices
+            .iter()
+            .map(|v| Vec3::from_array(v.position))
+            .reduce(Vec3::max)
+            .unwrap();
+        // A rotor-invariant center makes the whole-prop sphere valid at every angle.
+        let center = if rotary {
+            Vec3::new(0., (min.y + max.y) * 0.5, 0.)
+        } else {
+            (min + max) * 0.5
+        };
+        let radius = vertices
+            .iter()
+            .map(|v| Vec3::from_array(v.position).distance(center))
+            .fold(0f32, f32::max)
+            * 1.01;
+        let palette_start = palette.len() as u32;
+        palette.extend(colors.iter().map(|c| [c[0], c[1], c[2], 0.]));
+        for motion in motions {
             let first = triangles.len() as u32;
             for ids in indices.chunks_exact(3) {
                 let ids = [ids[0] as usize, ids[1] as usize, ids[2] as usize];
-                if vertices[ids[0]].animation_direction != *motion {
+                if vertices[ids[0]].animation_direction != motion {
                     continue;
                 }
                 assert!(ids
                     .iter()
-                    .all(|&i| vertices[i].animation_direction == *motion));
+                    .all(|&i| vertices[i].animation_direction == motion));
                 let material = palette_start
                     + colors
                         .iter()
@@ -334,36 +357,27 @@ pub(super) fn source(shape: Shape) -> Source {
             let source = ranges.len() as u32;
             let count = triangles.len() as u32 - first;
             ranges.push([first, count, 5, 0]);
-            SprinklerPart {
-                range: [first, count, source, 0],
-                motion: (Vec3::from_array(*motion) * crate::sprinkler::WORLD_SCALE)
+            sprinkler_parts.push(SprinklerPart {
+                // bit 0: rotary variant; bit 1: rotating rigid head.
+                range: [
+                    first,
+                    count,
+                    source,
+                    u32::from(rotary) | (u32::from(rotary && motion != [0.; 3]) << 1),
+                ],
+                motion: (Vec3::from_array(motion) * crate::sprinkler::WORLD_SCALE)
                     .extend(0.)
                     .to_array(),
-            }
-        })
-        .collect();
-    let min = vertices
-        .iter()
-        .map(|v| Vec3::from_array(v.position))
-        .reduce(Vec3::min)
-        .unwrap();
-    let max = vertices
-        .iter()
-        .map(|v| Vec3::from_array(v.position))
-        .reduce(Vec3::max)
-        .unwrap();
-    let center = (min + max) * 0.5;
-    let radius = vertices
-        .iter()
-        .map(|v| Vec3::from_array(v.position).distance(center))
-        .fold(0f32, f32::max)
-        * 1.01;
+            });
+            sprinkler_bounds.push((source, (center, radius)));
+        }
+    }
     let mut cache_bounds = vec![None; ranges.len()];
     for frame in 0..ANIMATION_FRAMES {
         cache_bounds[(BUTTERFLY_SOURCE_BASE + frame) as usize] = Some((Vec3::ZERO, 1.7));
     }
-    for part in &sprinkler_parts {
-        cache_bounds[part.range[2] as usize] = Some((center, radius));
+    for (source, bounds) in sprinkler_bounds {
+        cache_bounds[source as usize] = Some(bounds);
     }
     Source {
         triangles,
@@ -402,16 +416,17 @@ mod tests {
         let g = source(Shape::default());
         let (vertices, indices) = super::super::sprinkler_mesh::build_sprinkler_mesh();
         assert_eq!(g.cache_bounds.len(), g.ranges.len());
-        assert_eq!(g.sprinkler_parts.len(), 6);
+        assert_eq!(g.sprinkler_parts.len(), 8);
         assert_eq!(std::mem::size_of::<SprinklerPart>(), 32);
         assert_eq!(
             g.sprinkler_parts
                 .iter()
+                .filter(|p| p.range[3] == 0)
                 .map(|p| p.range[1] as usize * 3)
                 .sum::<usize>(),
             indices.len()
         );
-        for part in &g.sprinkler_parts {
+        for part in g.sprinkler_parts.iter().filter(|p| p.range[3] == 0) {
             let motion = Vec3::from_slice(&part.motion) / crate::sprinkler::WORLD_SCALE;
             let source_vertices = vertices
                 .iter()
@@ -428,6 +443,38 @@ mod tests {
                     assert!(p.distance(Vec3::from_array(v.position)) < 1e-8);
                 }
                 assert_eq!(&g.palette[t.uv2[2] as usize][..3], &original[0].color_srgb);
+            }
+        }
+    }
+
+    #[test]
+    fn rotor_cache_uses_two_parts_and_one_rotation_invariant_whole_prop_grid() {
+        let g = source(Shape::default());
+        let parts: Vec<_> = g
+            .sprinkler_parts
+            .iter()
+            .filter(|p| p.range[3] & 1 != 0)
+            .collect();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts.iter().filter(|p| p.range[3] & 2 != 0).count(), 1);
+        let bounds = g.cache_bounds[parts[0].range[2] as usize].unwrap();
+        assert_eq!(Some(bounds), g.cache_bounds[parts[1].range[2] as usize]);
+        let (vertices, indices) = super::super::sprinkler_mesh::build_rotary_sprinkler_mesh();
+        assert_eq!(
+            parts.iter().map(|p| p.range[1] as usize * 3).sum::<usize>(),
+            indices.len()
+        );
+        for frame in 0..80 {
+            let rotor = crate::sprinkler::RotorPose::sample(frame, 0.5, 0.05, 0.0);
+            for v in &vertices {
+                let p = Vec3::from_array(v.position);
+                let p = if v.animation_direction == [0.; 3] {
+                    p
+                } else {
+                    rotor.rotate(p)
+                };
+                assert!(p.distance(bounds.0) <= bounds.1);
+                assert!(v.shading_normal.iter().all(|n| n.is_finite()));
             }
         }
     }

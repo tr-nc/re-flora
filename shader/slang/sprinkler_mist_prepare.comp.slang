@@ -54,15 +54,18 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         float seconds=max(gui_input.world_tick_seconds,1.0/240.0);
         float pairTicks=max(floor(1.0/seconds+0.5),2.0);
         // Integer reduction preserves sub-second ages after days of uptime.
-        float birthTick=float(flora_growth_info.flora_tick%(uint(pairTicks)*2u))-age/seconds;
-        float emission=mistPairEmission(birthTick,width/seconds,seconds,pose.w,nozzle);
+        bool rotary=gui_input.sprinkler_rotary!=0u;
+        uint cycle=rotary?sprinklerRotaryTicks(seconds):uint(pairTicks)*2u;
+        float birthTick=float(flora_growth_info.flora_tick%cycle)+(rotary?flora_growth_info.flora_tick_fraction:0.0)-age/seconds;
+        float emission=rotary?mistRotaryEmission(nozzle):mistPairEmission(birthTick,width/seconds,seconds,pose.w,nozzle);
         if(emission>0.0 && mistGeometryReady()) {
             uint wrappedTick=uint(floor(birthTick)-floor(floor(birthTick)/(pairTicks*2.0))*pairTicks*2.0);
-            float3 position=pose.xyz+sprinklerOutlet(wrappedTick,seconds,pose.w,nozzle);
+            float3 position=pose.xyz+(rotary?sprinklerRotaryOutletAtTick(birthTick,seconds,pose.w,nozzle):sprinklerOutlet(wrappedTick,seconds,pose.w,nozzle));
             float2 wind=authoredWindEnabled() ? sampleAuthoredWind(pose.xz*256.0) : float2(0);
             wind*=0.03/(1.0+length(wind));
             float3 target=float3(wind.x,-MIST_FLOW_SETTLING_SPEED,wind.y);
-            float3 velocity=mistFlowDirection(nozzle)*0.43+float3(0,0.22,0);
+            float3 direction=rotary?sprinklerRotaryDirectionAtTick(birthTick,seconds,pose.w,nozzle):mistFlowDirection(nozzle);
+            float3 velocity=direction*0.43+float3(0,0.22,0);
             uint steps=uint(ceil(age/0.125));
             float dt=age/float(steps);
             bool alive=true;
@@ -73,7 +76,7 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
                 position=next;velocity=nextVelocity;
             }
             if(alive) {
-                float3 radii=mistFlowRadii(age,width,nozzle);
+                float3 radii=mistFlowRadii(age,width,nozzle,rotary);
                 float amplitude=mistKernelAmplitude(mistVisibleAmount(age,width,emission),radii);
                 lobe.center_amplitude=float4(position,amplitude);
                 lobe.radii_near_geometry=float4(radii,mistLobeNearTerrain(position,radii) ? 1.0 : 0.0);

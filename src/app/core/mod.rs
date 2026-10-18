@@ -3623,6 +3623,7 @@ impl App {
                     LiveRenderFrameFacts {
                         world_tick_seconds,
                         flora_tick: self.world_clock.flora_tick(),
+                        flora_tick_fraction: self.world_clock.flora_tick_fraction(),
                         visual_time_since_start,
                         sun_direction: sun_dir,
                         sun_altitude,

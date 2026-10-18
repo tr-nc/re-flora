@@ -116,6 +116,13 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
+        title: "Sprinkler Motion",
+        description: "Unchecked: original alternating X/Z pairs. Checked: a brass three-arm head rotates continuously, with matching watering and directional mist history. Original ellipsoid mist remains nondirectional when selected. Same reach and independent density, wet-patch, watering and drying controls.",
+        initially_open: false,
+        params: &["sprinkler_rotary"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Soil Wetting",
         description: "Drying speed affects all soil: 1 is the original evaporation rate; zero pauses evaporation, not watering or vertical moisture transfer. Sprinklers use coherent wet patches: lower scale is finer-grained, higher scale is broader. Scale changes coherence, not spray reach or average water input. Wetting speed scales sprinkler irrigation; zero stops watering, not mist. Four soil moisture levels and manual Water brush are unchanged.",
         initially_open: false,

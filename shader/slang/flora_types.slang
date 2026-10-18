@@ -63,6 +63,7 @@ public uint floraLightingCacheInstanceCount(PushConstantFlora pc)
 public struct U_FloraGrowthInfo
 {
     public uint flora_tick;
+    public float flora_tick_fraction;
     public uint sprout_delay_ticks;
     public uint full_growth_ticks;
     public uint spawn_time_ms;

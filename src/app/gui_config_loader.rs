@@ -201,6 +201,7 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_rotary");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wet_patch_size");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_speed");
         Self::add_missing_param(&mut config, "Debug", "soil_drying_speed");
@@ -1343,6 +1344,70 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rotary_switch_migrates_without_writing_and_round_trips_both_modes() {
+        for saved in [None, Some(false), Some(true)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            // Like production, missing fields use the compiled declarative value.
+            // A user's Save may legitimately change this local build-time input.
+            let default = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "sprinkler_rotary")
+                .and_then(|p| match &p.value {
+                    super::GuiParamValue::Bool { value } => Some(*value),
+                    _ => None,
+                })
+                .unwrap();
+            let expected = saved.unwrap_or(default);
+            for section in &mut config.section {
+                if let Some(p) = section
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "sprinkler_rotary")
+                {
+                    p.value = super::GuiParamValue::Bool { value: expected };
+                }
+                if saved.is_none() {
+                    section.param.retain(|p| p.id != "sprinkler_rotary");
+                }
+            }
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+            assert!(
+                matches!(params.iter().find(|p|p.id=="sprinkler_rotary").unwrap().value,super::GuiParamValue::Bool{value} if value==expected)
+            );
+            for p in config.section.iter().flat_map(|s| &s.param).filter(|p| {
+                matches!(
+                    p.id.as_str(),
+                    "sprinkler_wet_patch_size"
+                        | "sprinkler_wetting_speed"
+                        | "soil_drying_speed"
+                        | "sprinkler_mist_flow"
+                        | "model_flower_head_scale"
+                )
+            }) {
+                let after = params.iter().find(|q| q.id == p.id).unwrap();
+                assert_eq!(
+                    serde_json::to_value(p).unwrap(),
+                    serde_json::to_value(after).unwrap()
+                );
+            }
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap(),
+                serde_json::to_value(loaded).unwrap()
+            );
+        }
+    }
+
     #[test]
     fn sprinkler_wetting_switch_retires_without_losing_scale_or_disabling_slider() {
         use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};

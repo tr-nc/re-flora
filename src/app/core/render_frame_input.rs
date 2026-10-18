@@ -14,6 +14,7 @@ use glam::Vec3;
 pub(super) struct LiveRenderFrameFacts {
     pub world_tick_seconds: f32,
     pub flora_tick: u32,
+    pub flora_tick_fraction: f32,
     pub visual_time_since_start: f32,
     pub sun_direction: Vec3,
     pub sun_altitude: f32,
@@ -242,6 +243,7 @@ pub(super) fn freeze_render_frame_inputs(
         },
         growth: FloraGrowthFrameInput {
             flora_tick: live.flora_tick,
+            flora_tick_fraction: live.flora_tick_fraction,
             sprout_delay_ticks: FLORA_SPROUT_DELAY_TICKS,
             full_growth_ticks: FLORA_FULL_GROWTH_TICKS,
             spawn_time_ms: (live.visual_time_since_start * 1000.0) as u32,
@@ -256,6 +258,7 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
+        sprinkler_rotary: gui.sprinkler_rotary.value,
         sprinkler_mist_density: gui.sprinkler_mist_density.value,
         sprinkler_mist_flow: gui.sprinkler_mist_flow.value,
         sky_light_strength: gui.sky_light_strength.value,
@@ -486,6 +489,7 @@ mod tests {
         let sky_light_strength = float!(sky_light_strength);
         let sprinkler_mist_density = float!(sprinkler_mist_density);
         gui.sprinkler_mist_flow.value = false;
+        gui.sprinkler_rotary.value = true;
         let sun_display_luminance = float!(sun_display_luminance);
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
@@ -514,6 +518,7 @@ mod tests {
         let live = LiveRenderFrameFacts {
             world_tick_seconds: 301.25,
             flora_tick: 302,
+            flora_tick_fraction: 0.375,
             visual_time_since_start: 303.125,
             sun_direction: Vec3::new(304.0, 305.0, 306.0),
             sun_altitude: 307.25,
@@ -691,6 +696,7 @@ mod tests {
                 },
                 growth: FloraGrowthFrameInput {
                     flora_tick: live.flora_tick,
+                    flora_tick_fraction: live.flora_tick_fraction,
                     sprout_delay_ticks: FLORA_SPROUT_DELAY_TICKS,
                     full_growth_ticks: FLORA_FULL_GROWTH_TICKS,
                     spawn_time_ms: 303_125,
@@ -705,6 +711,7 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
+                sprinkler_rotary: true,
                 sprinkler_mist_density,
                 sprinkler_mist_flow: false,
                 sky_light_strength,
