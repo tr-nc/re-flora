@@ -5,6 +5,7 @@ import ray;
 import sprinkler_mist_geometry;
 import sprinkler_mist_math;
 import sprinkler_mist_transport;
+import sprinkler_spray;
 import sunlight;
 import tracer_types;
 import tracer_shadowing;
@@ -78,12 +79,14 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
             for(uint node=0;node<mist_push.lobes_per_instance;++node) {
                 B_SprinklerMistLobe lobe=mist_lobes[instance*mist_push.lobes_per_instance+node];
                 if(lobe.center_amplitude.w<=0.0)continue;
+                float3 localOrigin=mistSprayToLocal(ray.origin-lobe.center_amplitude.xyz,lobe.tangent_rotary);
+                float3 localDirection=mistSprayToLocal(ray.direction,lobe.tangent_rotary);
                 float2 interval;
-                if(!mistRayInterval(ray.origin,ray.direction,lobe.center_amplitude.xyz,
+                if(!mistRayInterval(localOrigin,localDirection,float3(0),
                                     lobe.radii_near_geometry.xyz,distance,interval))continue;
                 if(lobe.radii_near_geometry.w>0.0 &&
                    !mistClipLobeToTerrain(ray.origin,ray.direction,lobe.center_amplitude.xyz,interval))continue;
-                float tau=mistKernelLineIntegral(ray.origin,ray.direction,lobe.center_amplitude.xyz,
+                float tau=mistKernelLineIntegral(localOrigin,localDirection,float3(0),
                     lobe.radii_near_geometry.xyz,interval)*lobe.center_amplitude.w*MIST_EXTINCTION*mist_push.density;
                 opticalDepth+=tau;
                 source+=tau*(lobe.ambient_sun_visibility.xyz+sun*lobe.ambient_sun_visibility.w);

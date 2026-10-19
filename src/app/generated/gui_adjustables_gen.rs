@@ -316,7 +316,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "sprinkler_rotary",
         kind: "bool",
-        label: "Sprinklers: rotating three-arm head (A/B)",
+        label: "Sprinklers: rotating single-nozzle head (A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",

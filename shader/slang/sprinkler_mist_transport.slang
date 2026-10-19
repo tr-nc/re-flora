@@ -17,6 +17,7 @@ public struct B_SprinklerMistLobe {
     public float4 center_amplitude;
     public float4 radii_near_geometry;
     public float4 ambient_sun_visibility;
+    public float4 tangent_rotary;
 };
 
 public struct B_SprinklerMistBounds {
@@ -47,18 +48,16 @@ public void mistFlowAdvance(float3 position,float3 velocity,float3 target,float 
 
 public float mistRotaryEmission(uint nozzle)
 {
-    // Three active mouths replace two active mouths, never triple the source.
-    return nozzle<3u?2.0/3.0:0.0;
+    // One mouth carries the same total visual source as the original pair.
+    return nozzle==0u?2.0:0.0;
 }
 
-public float3 mistFlowRadii(float age,float ageWidth,uint nozzle,bool rotary=false)
+public float3 mistFlowRadii(float age,float ageWidth,uint nozzle)
 {
     float radialSpeed=0.43*exp(-age/MIST_FLOW_DRAG_TIME);
     float longitudinal=0.027+radialSpeed*ageWidth*0.6;
     float lateral=sqrt(0.025*0.025+0.0010*age+0.0011*age*age);
     float vertical=sqrt(0.023*0.023+0.00035*age+0.00012*age*age);
-    // Axis-aligned isotropic XZ support preserves volume at arbitrary yaw.
-    if(rotary)return float3(sqrt(longitudinal*lateral),vertical,sqrt(longitudinal*lateral));
     return nozzle<2u ? float3(longitudinal,vertical,lateral)
                      : float3(lateral,vertical,longitudinal);
 }

@@ -80,20 +80,15 @@ impl RotorPose {
             s * value.x + c * value.z,
         )
     }
-    pub fn nozzle(self, nozzle: u32) -> Self {
-        Self {
-            angle: self.angle + (nozzle % 3) as f32 * std::f32::consts::TAU / 3.0,
-        }
-    }
-    pub fn direction(self, nozzle: u32) -> Vec3 {
-        self.nozzle(nozzle).rotate(Vec3::new(
+    pub fn direction(self) -> Vec3 {
+        self.rotate(Vec3::new(
             ROTARY_NOZZLE_YAW.cos(),
             0.0,
             ROTARY_NOZZLE_YAW.sin(),
         ))
     }
-    pub fn outlet(self, nozzle: u32) -> Vec3 {
-        self.nozzle(nozzle).rotate(Vec3::new(
+    pub fn outlet(self) -> Vec3 {
+        self.rotate(Vec3::new(
             ROTARY_NOZZLE_X,
             ROTARY_NOZZLE_HEIGHT,
             ROTARY_NOZZLE_Z,
@@ -106,28 +101,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rotor_is_continuous_periodic_and_has_three_matching_spouts() {
+    fn rotor_is_continuous_periodic_and_has_one_matching_spout() {
         let first = RotorPose::sample(7, 0.0, 0.05, 0.125);
         let half = RotorPose::sample(7, 0.5, 0.05, 0.125);
-        assert!(first.direction(0).distance(half.direction(0)) > 0.01);
+        assert!(first.direction().distance(half.direction()) > 0.01);
         assert!(
             first
-                .direction(0)
-                .distance(RotorPose::sample(87, 0.0, 0.05, 0.125).direction(0))
+                .direction()
+                .distance(RotorPose::sample(87, 0.0, 0.05, 0.125).direction())
                 < 1e-6
         );
         assert!(
             RotorPose::sample(7, 1.0, 0.05, 0.125)
-                .direction(0)
-                .distance(RotorPose::sample(8, 0.0, 0.05, 0.125).direction(0))
+                .direction()
+                .distance(RotorPose::sample(8, 0.0, 0.05, 0.125).direction())
                 < 1e-6
         );
-        for nozzle in 0..3 {
-            let a = half.direction(nozzle);
-            let b = half.direction((nozzle + 1) % 3);
-            assert!((a.length() - 1.0).abs() < 1e-6 && (a.dot(b) + 0.5).abs() < 1e-6);
-            assert!((half.outlet(nozzle).y - ROTARY_NOZZLE_HEIGHT * WORLD_SCALE).abs() < 1e-8);
-        }
+        assert!((half.direction().length() - 1.0).abs() < 1e-6);
+        assert!((half.outlet().y - ROTARY_NOZZLE_HEIGHT * WORLD_SCALE).abs() < 1e-8);
     }
 
     #[test]
@@ -209,11 +200,9 @@ mod tests {
                     for phase in [0.0, 0.125, 0.975, 1.0] {
                         let rotor = RotorPose::sample(tick, fraction, seconds, phase);
                         let reduced = (tick % period) as f32 + fraction;
-                        for nozzle in 0..3 {
-                            let d = rotor.direction(nozzle);
-                            let p = rotor.outlet(nozzle);
-                            writeln!(code,"{{ float a=sprinklerRotaryAngle({tick}u,{fraction:.9},{seconds:.9},{phase:.9}); if(length(sprinklerRotate(float3(1,0,0),a)-float3({:.12},0,{:.12}))>0.00001)return 4; float3 p=sprinklerRotaryOutletAtTick({reduced:.9},{seconds:.9},{phase:.9},{nozzle}u),d=sprinklerRotaryDirectionAtTick({reduced:.9},{seconds:.9},{phase:.9},{nozzle}u); if(length(p-float3({:.12},{:.12},{:.12}))>0.0000002 || length(d-float3({:.12},{:.12},{:.12}))>0.00001)return 5; }}",rotor.angle.cos(),rotor.angle.sin(),p.x,p.y,p.z,d.x,d.y,d.z).unwrap();
-                        }
+                        let d = rotor.direction();
+                        let p = rotor.outlet();
+                        writeln!(code,"{{ float a=sprinklerRotaryAngle({tick}u,{fraction:.9},{seconds:.9},{phase:.9}); if(length(sprinklerRotate(float3(1,0,0),a)-float3({:.12},0,{:.12}))>0.00001)return 4; float3 p=sprinklerRotaryOutletAtTick({reduced:.9},{seconds:.9},{phase:.9}),d=sprinklerRotaryDirectionAtTick({reduced:.9},{seconds:.9},{phase:.9}); if(length(p-float3({:.12},{:.12},{:.12}))>0.0000002 || length(d-float3({:.12},{:.12},{:.12}))>0.00001)return 5; }}",rotor.angle.cos(),rotor.angle.sin(),p.x,p.y,p.z,d.x,d.y,d.z).unwrap();
                         cases += 1;
                     }
                 }

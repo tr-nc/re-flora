@@ -342,6 +342,7 @@ pub struct SprinklerMistLobe {
     pub center_amplitude: [f32; 4],
     pub radii_near_geometry: [f32; 4],
     pub ambient_sun_visibility: [f32; 4],
+    pub tangent_rotary: [f32; 4],
 }
 
 /// Auto-generated from `B_SurfaceActiveBrickFlags` (native Slang source of truth).

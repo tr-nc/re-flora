@@ -106,6 +106,9 @@ impl Review {
             "rotary-pixels-32",
             "rotary-controls",
             "rotary-mist",
+            "rotary-mist-back",
+            "rotary-mist-front",
+            "rotary-mist-top",
             "rotary-mist-off",
             "rotary-mist-legacy",
             "rotary-lifecycle",
@@ -511,7 +514,12 @@ impl App {
                 0.0
             } else if review.mode.starts_with("mist-level") {
                 0.43
-            } else if review.mode.starts_with("mist-") {
+            } else if review.mode.starts_with("mist-")
+                || matches!(
+                    review.mode.as_str(),
+                    "rotary-mist-back" | "rotary-mist-front" | "rotary-mist-top"
+                )
+            {
                 0.30
             } else {
                 0.43
@@ -668,15 +676,16 @@ impl App {
                 let previous = self.debug_settings.adjustables.sprinkler_rotary.value;
                 let lobes = self.tracer.sprinkler_mist_review_lobes()?;
                 ensure!(lobes.len() == 48, "rotary review lobe ABI");
-                let fourth = lobes[36..]
+                let live: Vec<_> = lobes
                     .iter()
                     .filter(|l| l.center_amplitude[3] > 0.0)
-                    .count();
+                    .collect();
+                ensure!(!live.is_empty(), "GPU mist mode has no live spray");
                 ensure!(
-                    if previous { fourth == 0 } else { fourth > 0 },
+                    live.iter().all(|l| (l.tangent_rotary[3] > 0.5) == previous),
                     "GPU mist mode did not follow the live checkbox"
                 );
-                log::info!("[SPRINKLER_ROTARY_REVIEW] gpu_previous={previous} fourth_nozzle_lobes={fourth} explicit_readback=true");
+                log::info!("[SPRINKLER_ROTARY_REVIEW] gpu_previous={previous} oriented_single_outlet={previous} live_samples={} explicit_readback=true", live.len());
             }
             let enabled = (review.frame / 40) % 2 == 0;
             self.debug_settings.adjustables.sprinkler_rotary.value = enabled;
@@ -735,6 +744,9 @@ impl App {
             "rotary-top" => Vec3::new(0.001, 0.10, 0.001),
             "rotary-cliff" => Vec3::new(0.65, -0.09, 0.45),
             "rotary-wall" => Vec3::new(0.55, 0.05, 0.40),
+            "rotary-mist-back" => -Vec3::new(sun.x, 0.0, sun.z).normalize() * 0.36 + Vec3::Y * 0.14,
+            "rotary-mist-front" => Vec3::new(sun.x, 0.0, sun.z).normalize() * 0.36 + Vec3::Y * 0.14,
+            "rotary-mist-top" => Vec3::new(0.001, 0.45, 0.001),
             _ if review.mode.contains("rotary-mist") => Vec3::new(0.50, 0.10, 0.42),
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,

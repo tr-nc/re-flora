@@ -3,6 +3,7 @@ import flora_types;
 import sprinkler_animation;
 import sprinkler_mist_geometry;
 import sprinkler_mist_transport;
+import sprinkler_spray;
 import tracer_types;
 import tracer_shadowing;
 import wind_field;
@@ -46,45 +47,48 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
     float3 lo=float3(1.0e10),hi=float3(-1.0e10);
     if(local<mist_push.lobes_per_instance) {
         B_SprinklerMistLobe lobe=(B_SprinklerMistLobe)0;
-        uint ages=mist_push.lobes_per_instance/4u;
-        uint nozzle=local/ages,ageIndex=local%ages;
-        float width=MIST_FLOW_LIFETIME/float(ages);
-        float age=(float(ageIndex)+0.5)*width;
         float4 pose=sprinkler_instances[instance];
         float seconds=max(gui_input.world_tick_seconds,1.0/240.0);
         float pairTicks=max(floor(1.0/seconds+0.5),2.0);
         // Integer reduction preserves sub-second ages after days of uptime.
         bool rotary=gui_input.sprinkler_rotary!=0u;
         uint cycle=rotary?sprinklerRotaryTicks(seconds):uint(pairTicks)*2u;
-        float birthTick=float(flora_growth_info.flora_tick%cycle)+(rotary?flora_growth_info.flora_tick_fraction:0.0)-age/seconds;
-        float emission=rotary?mistRotaryEmission(nozzle):mistPairEmission(birthTick,width/seconds,seconds,pose.w,nozzle);
-        if(emission>0.0 && mistGeometryReady()) {
-            uint wrappedTick=uint(floor(birthTick)-floor(floor(birthTick)/(pairTicks*2.0))*pairTicks*2.0);
-            float3 position=pose.xyz+(rotary?sprinklerRotaryOutletAtTick(birthTick,seconds,pose.w,nozzle):sprinklerOutlet(wrappedTick,seconds,pose.w,nozzle));
+        float tick=float(flora_growth_info.flora_tick%cycle)+(rotary?flora_growth_info.flora_tick_fraction:0.0);
+        MistSpraySource source=mistSpraySource(local,mist_push.lobes_per_instance,tick,seconds,pose.w,rotary);
+        float age=source.age;
+        if(source.emission>0.0 && mistGeometryReady()) {
+            float3 position=pose.xyz+source.outlet;
             float2 wind=authoredWindEnabled() ? sampleAuthoredWind(pose.xz*256.0) : float2(0);
             wind*=0.03/(1.0+length(wind));
-            float3 target=float3(wind.x,-MIST_FLOW_SETTLING_SPEED,wind.y);
-            float3 direction=rotary?sprinklerRotaryDirectionAtTick(birthTick,seconds,pose.w,nozzle):mistFlowDirection(nozzle);
-            float3 velocity=direction*0.43+float3(0,0.22,0);
+            float3 target=mistSprayTarget(wind,rotary);
+            float3 velocity=source.velocity;
             uint steps=uint(ceil(age/0.125));
             float dt=age/float(steps);
             bool alive=true;
             for(uint s=0;s<steps;++s) {
                 float3 next,nextVelocity;
                 mistFlowAdvance(position,velocity,target,dt,next,nextVelocity);
-                if(!mistConstrainMotion(position,next,nextVelocity)) { alive=false;break; }
+                if(rotary) {
+                    // Water deposits at first contact. Do not keep old droplets
+                    // sliding around the base as a rotating ground-smoke ring.
+                    float fraction;float3 normal;
+                    if(mistSweepTerrain(position,next,fraction,normal)) { alive=false;break; }
+                } else if(!mistConstrainMotion(position,next,nextVelocity)) { alive=false;break; }
                 position=next;velocity=nextVelocity;
             }
             if(alive) {
-                float3 radii=mistFlowRadii(age,width,nozzle,rotary);
-                float amplitude=mistKernelAmplitude(mistVisibleAmount(age,width,emission),radii);
+                float3 tangent=rotary?mistSprayAgeTangent(source,target,seconds):float3(1,0,0);
+                lobe.tangent_rotary=float4(normalize(tangent),rotary?1.0:0.0);
+                float3 radii=rotary?mistSprayRadii(source,tangent):mistFlowRadii(age,source.width,source.nozzle);
+                float3 boundsRadius=mistSprayBoundsRadius(radii,lobe.tangent_rotary);
+                float amplitude=mistKernelAmplitude(mistSprayVisibleAmount(source,rotary),radii);
                 lobe.center_amplitude=float4(position,amplitude);
-                lobe.radii_near_geometry=float4(radii,mistLobeNearTerrain(position,radii) ? 1.0 : 0.0);
+                lobe.radii_near_geometry=float4(radii,mistLobeNearTerrain(position,boundsRadius) ? 1.0 : 0.0);
                 float3 ambient=sampleDdgiVolumeEnvironment(shading_info,position).irradiance;
                 float visibility=mist_push.shadows_enabled==0u ? 1.0 :
                     sampleDirectSunShadow(pointSunShadowReceiver(position),gui_input,shadow_camera_info).combined;
                 lobe.ambient_sun_visibility=float4(ambient,visibility);
-                lo=position-radii;hi=position+radii;
+                lo=position-boundsRadius;hi=position+boundsRadius;
             }
         }
         mist_lobes[instance*mist_push.lobes_per_instance+local]=lobe;

@@ -45,35 +45,23 @@ public bool wetPatchCanReachSector(float2 offset,float2 axis,float scale)
         abs(offset.x*axis.y-offset.y*axis.x);
 }
 
-// Three one-sided 60-degree fans have the same 180-degree total aperture as
-// the original opposing pair. This rotates sources, never crops receiving tails.
-public float2 wetPatchRotaryAxis(float2 axis,uint nozzle)
-{
-    if(nozzle==0u)return axis;
-    float s=nozzle==1u?0.866025403784:-0.866025403784;
-    return float2(-0.5*axis.x-s*axis.y,s*axis.x-0.5*axis.y);
-}
+// One forward 60-degree fan follows the only outlet. Concentrate the old
+// 180-degree input into this fan, preserving the dose over a full revolution.
+// Source centers are directional; finite wet-patch tails are never cropped.
+public static const float WET_ROTARY_DOSE_SCALE = 3.0;
 public bool wetPatchCenterInRotarySector(float2 offset,float2 axis)
 {
     float product=dot(offset,offset)*dot(axis,axis);
-    if(dot(axis,axis)<=1e-10)return false;
-    [ForceUnroll] for(uint n=0u;n<3u;++n) {
-        float along=dot(offset,wetPatchRotaryAxis(axis,n));
-        if(along>=0.0 && along*along>=0.75*product)return true;
-    }
-    return false;
+    float along=dot(offset,axis);
+    return dot(axis,axis)>1e-10 && along>=0.0 && along*along>=0.75*product;
 }
 public bool wetPatchCanReachRotarySector(float2 offset,float2 axis,float scale)
 {
     float axisLength=length(axis);
     if(axisLength<=1e-5)return false;
-    // Expanded one-sided 90-degree fans conservatively enclose the 60-degree
-    // source fans plus their square compact support. False positives are safe.
-    [ForceUnroll] for(uint n=0u;n<3u;++n) {
-        float2 a=wetPatchRotaryAxis(axis,n);
-        if(dot(offset,a)+(2.0*max(scale,2.0)+0.001)*axisLength>=abs(offset.x*a.y-offset.y*a.x))return true;
-    }
-    return false;
+    // Expanded one-sided 90-degree fan conservatively encloses the 60-degree
+    // source fan plus its square compact support. False positives are safe.
+    return dot(offset,axis)+(2.0*max(scale,2.0)+0.001)*axisLength>=abs(offset.x*axis.y-offset.y*axis.x);
 }
 
 public struct WetPatchSample

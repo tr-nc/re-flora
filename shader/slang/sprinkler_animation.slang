@@ -34,14 +34,14 @@ public float sprinklerRotaryAngle(uint tick,float fraction,float seconds,float p
 {
     return sprinklerRotaryAngleAtTick(float(tick%sprinklerRotaryTicks(seconds))+fraction,seconds,phase);
 }
-public float3 sprinklerRotaryOutletAtTick(float tick,float seconds,float phase,uint nozzle)
+public float3 sprinklerRotaryOutletAtTick(float tick,float seconds,float phase)
 {
-    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase)+float(nozzle)*2.09439510239;
+    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase);
     return sprinklerRotate(float3(3.15,4.2,-0.85)/256.0,angle);
 }
-public float3 sprinklerRotaryDirectionAtTick(float tick,float seconds,float phase,uint nozzle)
+public float3 sprinklerRotaryDirectionAtTick(float tick,float seconds,float phase)
 {
-    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase)+float(nozzle)*2.09439510239-0.65;
+    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase)-0.65;
     return float3(cos(angle),0,sin(angle));
 }
 

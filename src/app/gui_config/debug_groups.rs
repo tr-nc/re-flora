@@ -117,7 +117,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Sprinkler Motion",
-        description: "Unchecked: original alternating X/Z pairs. Checked: a brass three-arm head rotates continuously, with matching watering and directional mist history. Original ellipsoid mist remains nondirectional when selected. Same reach and independent density, wet-patch, watering and drying controls.",
+        description: "Unchecked: original alternating X/Z pairs. Checked: one brass nozzle rotates continuously, emitting a narrow spray that opens and settles along its birth-direction history, with matching one-sided watering. Original ellipsoid mist remains nondirectional when selected. Same reach and independent density, wet-patch, watering and drying controls.",
         initially_open: false,
         params: &["sprinkler_rotary"],
     },

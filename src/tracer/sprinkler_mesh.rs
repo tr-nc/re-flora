@@ -181,9 +181,9 @@ pub(super) fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     (mesh.vertices, mesh.indices)
 }
 
-/// Independent three-arm rotor; only two rigid groups share its whole-object cache.
+/// Single-outlet rotor; only two rigid groups share its whole-object cache.
 pub(super) fn build_rotary_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
-    use crate::sprinkler::{RotorPose, ROTARY_NOZZLE_HEIGHT, ROTARY_NOZZLE_YAW};
+    use crate::sprinkler::{RotorPose, ROTARY_NOZZLE_HEIGHT};
     let mut mesh = Mesh::default();
     mesh.lathe(
         Vec3::ZERO,
@@ -256,42 +256,34 @@ pub(super) fn build_rotary_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) 
         Vec3::new(2.45, ROTARY_NOZZLE_HEIGHT, -0.32),
         Vec3::new(2.8, ROTARY_NOZZLE_HEIGHT, -0.58),
     ];
-    for arm in 0..3 {
-        let pose = RotorPose {
-            angle: arm as f32 * std::f32::consts::TAU / 3.0,
-        };
-        for segment in path.windows(2) {
-            let delta = segment[1] - segment[0];
-            mesh.lathe(
-                pose.rotate(segment[0] - delta.normalize() * 0.03),
-                pose.rotate(delta.normalize()),
-                &[(0., 0.21, COPPER), (delta.length() + 0.06, 0.21, BRASS)],
-                8,
-                moving,
-            );
-        }
-        let direction = pose.rotate(Vec3::new(
-            ROTARY_NOZZLE_YAW.cos(),
-            0.,
-            ROTARY_NOZZLE_YAW.sin(),
-        ));
-        let outlet = pose.outlet(0) / WORLD_SCALE;
+    for segment in path.windows(2) {
+        let delta = segment[1] - segment[0];
         mesh.lathe(
-            outlet - direction * 0.66,
-            direction,
-            &[
-                (0., 0.22, COPPER),
-                (0.15, 0.30, BRASS),
-                (0.5, 0.36, COPPER),
-                (0.66, 0.34, BRASS),
-                (0.66, 0.18, BRASS),
-                (0.55, 0.18, DARK),
-                (0.55, 0., DARK),
-            ],
-            10,
+            segment[0] - delta.normalize() * 0.03,
+            delta.normalize(),
+            &[(0., 0.21, COPPER), (delta.length() + 0.06, 0.21, BRASS)],
+            8,
             moving,
         );
     }
+    let pose = RotorPose { angle: 0.0 };
+    let direction = pose.direction();
+    let outlet = pose.outlet() / WORLD_SCALE;
+    mesh.lathe(
+        outlet - direction * 0.66,
+        direction,
+        &[
+            (0., 0.22, COPPER),
+            (0.15, 0.30, BRASS),
+            (0.5, 0.36, COPPER),
+            (0.66, 0.34, BRASS),
+            (0.66, 0.18, BRASS),
+            (0.55, 0.18, DARK),
+            (0.55, 0., DARK),
+        ],
+        10,
+        moving,
+    );
     (mesh.vertices, mesh.indices)
 }
 
@@ -321,6 +313,37 @@ mod tests {
                 assert!(p.x.abs() <= NOZZLE_REACH && p.z.abs() <= NOZZLE_REACH);
                 assert!(Vec3::from_array(vertex.color_srgb).min_element() >= 0.);
                 assert!(Vec3::from_array(vertex.color_srgb).max_element() <= 1.);
+            }
+        }
+    }
+
+    #[test]
+    fn rotary_mesh_has_only_one_arm_and_its_rim_tracks_the_spray_outlet() {
+        use crate::sprinkler::RotorPose;
+        let (vertices, _) = build_rotary_sprinkler_mesh();
+        let bind = RotorPose { angle: 0.0 };
+        let outlet = bind.outlet() / WORLD_SCALE;
+        let moving: Vec<_> = vertices
+            .iter()
+            .filter(|v| v.animation_direction != [0.; 3])
+            .map(|v| Vec3::from_array(v.position) / WORLD_SCALE)
+            .collect();
+        assert!(
+            moving.iter().all(|p| p.x >= -0.89),
+            "no extra arm behind the hub"
+        );
+        let rim: Vec<_> = moving
+            .iter()
+            .copied()
+            .filter(|p| (*p - outlet).dot(bind.direction()).abs() < 1e-5)
+            .collect();
+        assert!(rim.len() >= 20);
+        for tick in [0, 7, 20, 39, 79] {
+            let pose = RotorPose::sample(tick, 0.5, 0.05, 0.125);
+            for p in &rim {
+                let offset = pose.rotate(*p) - pose.outlet() / WORLD_SCALE;
+                assert!(offset.dot(pose.direction()).abs() < 1e-5);
+                assert!((0.179..=0.341).contains(&offset.length()));
             }
         }
     }

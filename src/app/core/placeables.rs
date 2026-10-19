@@ -72,7 +72,7 @@ impl SprinklerMoistureSource {
     ) -> Vec3 {
         if rotary {
             crate::sprinkler::RotorPose::sample(tick, fraction, tick_seconds, self.animation_phase)
-                .direction(0)
+                .direction()
         } else {
             self.spray_axis(tick, tick_seconds)
         }

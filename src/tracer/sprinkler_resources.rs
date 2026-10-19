@@ -187,7 +187,7 @@ mod tests {
         assert!(SPRINKLER_MIST_LOBES <= 64 && SPRINKLER_MIST_LOBES % 4 == 0);
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistLobe>(),
-            48
+            64
         );
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistBounds>(),
