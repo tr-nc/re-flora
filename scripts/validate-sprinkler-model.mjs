@@ -231,8 +231,14 @@ try {
       assert.match(log,/sprinkler_spray.prepare=/);
       const stats=JSON.parse(fs.readFileSync(path.join(output,name+'.json')));
       assert.equal(stats.mode,mode);
-      if(mode.endsWith('-off') || mode.endsWith('-wall')) assert.equal(stats.totalMoisture,0);
-      else assert.ok(stats.wetVoxels>0,'shared spray did not wet real soil');
+      if(mode.endsWith('-off')) assert.equal(stats.totalMoisture,0);
+      else if(mode.endsWith('-wall')) {
+        assert.ok(stats.radialWet[0]>0,'walls removed unblocked near water');
+        assert.equal(stats.outsideWalls,0,'water escaped the solid enclosure');
+      } else {
+        assert.ok(stats.radialWet.every(n=>n>0),'spray missed a near/middle/far band');
+        assert.ok(stats.underSource>0,'spray still leaves a dry inner ring');
+      }
       if(mode.endsWith('-off')) assert.deepEqual(stats.contacts,[]);
       if(mode.endsWith('-invisible')) {
         assert.doesNotMatch(log,/sprinkler_mist.pass=/);

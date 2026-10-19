@@ -5,7 +5,16 @@ use glam::Vec3;
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 
 pub const SPRINKLER_RENDER_CAPACITY: usize = 256;
-pub const SPRINKLER_MIST_LOBES: u32 = 48;
+pub const SPRINKLER_MIST_LOBES: u32 = 256;
+
+pub fn sprinkler_mist_sample_count(rotary: bool) -> u32 {
+    // Eight launch-velocity bands × 32 ages. Original A/B keeps its exact 4×12 budget.
+    if rotary {
+        SPRINKLER_MIST_LOBES
+    } else {
+        48
+    }
+}
 pub const SPRINKLER_MIST_TILE_SIZE: u32 = 16;
 
 #[repr(C)]
@@ -205,10 +214,27 @@ mod tests {
 
     #[test]
     fn mist_frame_work_is_bounded_and_tiles_cover_partial_edges_without_overflow() {
-        assert!(SPRINKLER_MIST_LOBES <= 64 && SPRINKLER_MIST_LOBES % 4 == 0);
+        assert_eq!(sprinkler_mist_sample_count(false), 48);
+        assert_eq!(sprinkler_mist_sample_count(true), 256);
+        assert!(sprinkler_mist_sample_count(true) % 8 == 0);
+        for rotary in [false, true] {
+            assert!(sprinkler_mist_sample_count(rotary) <= SPRINKLER_MIST_LOBES);
+            // The shader's 64 lanes stride over samples without omission/repetition.
+            let mut visits = vec![0; sprinkler_mist_sample_count(rotary) as usize];
+            for lane in 0..64usize {
+                for sample in (lane..visits.len()).step_by(64) {
+                    visits[sample] += 1;
+                }
+            }
+            assert!(visits.iter().all(|&n| n == 1));
+        }
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistLobe>(),
             64
+        );
+        assert_eq!(
+            std::mem::size_of::<crate::generated::gpu_structs::SprinklerWaterContact>(),
+            80
         );
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistBounds>(),

@@ -51,7 +51,9 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
     uint instance=group.x;
     float3 lo=float3(1.0e10),hi=float3(-1.0e10);
     float3 waterLo=lo,waterHi=hi;
-    if(local<mist_push.lobes_per_instance) {
+    // Multiple velocity bands share one instance group. Each lane accumulates
+    // all of its samples before the group bounds reduction.
+    for(uint index=local;index<mist_push.lobes_per_instance;index+=64u) {
         B_SprinklerMistLobe lobe=(B_SprinklerMistLobe)0;
         B_SprinklerWaterContact contact=(B_SprinklerWaterContact)0;
         float4 pose=sprinkler_instances[instance];
@@ -62,10 +64,10 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         uint cycle=rotary?sprinklerRotaryTicks(seconds):uint(pairTicks)*2u;
         float tick=float(flora_growth_info.flora_tick%cycle)+(rotary?flora_growth_info.flora_tick_fraction:0.0);
         MistSpraySource source=rotary?
-            mistRotarySource(local,mist_push.lobes_per_instance,gui_input.sprinkler_rotor_angle,pose.w,
+            mistRotarySource(index,mist_push.lobes_per_instance,gui_input.sprinkler_rotor_angle,pose.w,
                 gui_input.sprinkler_rotation_speed,gui_input.sprinkler_spray_angle,
                 gui_input.sprinkler_pulse_duty,gui_input.sprinkler_pulse_time):
-            mistSpraySource(local,mist_push.lobes_per_instance,tick,seconds,pose.w,false);
+            mistSpraySource(index,mist_push.lobes_per_instance,tick,seconds,pose.w,false);
         float age=source.age;
         float airFraction=1.0;
         if(source.emission>0.0 && mistGeometryReady()) {
@@ -90,8 +92,10 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
                         float hitAge=(float(s)+fraction)*dt;
                         float3 hit=lerp(position,next,fraction);
                         if(dot(normal,normal)>0.0 && sprinklerArrivesInBin(hitAge,source)) {
-                            contact=sprinklerWaterContact(source,hit,normal,target,seconds);
-                            sprinklerContactBounds(contact,waterLo,waterHi);
+                            contact=sprinklerWaterContact(source,hit,normal,target,seconds,hitAge);
+                            float3 contactLo,contactHi;
+                            sprinklerContactBounds(contact,contactLo,contactHi);
+                            waterLo=min(waterLo,contactLo);waterHi=max(waterHi,contactHi);
                             airFraction=saturate((hitAge-(age-source.width*0.5))/source.width);
                             age=min(age,hitAge-0.0001);
                         } else alive=false;
@@ -115,11 +119,11 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
                 float visibility=mist_push.shadows_enabled==0u ? 1.0 :
                     sampleDirectSunShadow(pointSunShadowReceiver(position),gui_input,shadow_camera_info).combined;
                 lobe.ambient_sun_visibility=float4(ambient,visibility);
-                lo=position-boundsRadius;hi=position+boundsRadius;
+                lo=min(lo,position-boundsRadius);hi=max(hi,position+boundsRadius);
             }
         }
-        mist_lobes[instance*mist_push.lobes_per_instance+local]=lobe;
-        water_contacts[instance*mist_push.lobes_per_instance+local]=contact;
+        mist_lobes[instance*mist_push.lobes_per_instance+index]=lobe;
+        water_contacts[instance*mist_push.lobes_per_instance+index]=contact;
     }
     lowerBounds[local]=lo;upperBounds[local]=hi;
     waterLower[local]=waterLo;waterUpper[local]=waterHi;

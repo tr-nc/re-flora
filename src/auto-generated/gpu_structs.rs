@@ -353,6 +353,7 @@ pub struct SprinklerWaterContact {
     pub radii: [f32; 4],
     pub tangent_rotary: [f32; 4],
     pub normal: [f32; 4],
+    pub projection: [f32; 4],
 }
 
 /// Auto-generated from `B_SurfaceActiveBrickFlags` (native Slang source of truth).

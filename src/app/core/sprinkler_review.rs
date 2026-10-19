@@ -241,6 +241,8 @@ impl App {
         let mut dose = 0u64;
         let mut wet = 0;
         let mut under_source = 0;
+        let mut radial_wet = [0u32; 3];
+        let mut outside_walls = 0;
         for (i, byte) in data.iter().enumerate() {
             let moisture = (byte >> 4) & 3;
             let x = i % 321;
@@ -252,9 +254,20 @@ impl App {
                 );
                 wet += 1;
                 dose += u64::from(moisture);
-                under_source += usize::from(
-                    (x as f32 - 160.0).powi(2) + (z as f32 - 160.0).powi(2) < 8.0 * 8.0,
-                );
+                let dx = x as f32 - 159.5;
+                let dz = z as f32 - 159.5;
+                let radius = (dx * dx + dz * dz).sqrt() / 256.0;
+                under_source += usize::from(radius < 8.0 / 256.0);
+                if (0.012..0.09).contains(&radius) {
+                    radial_wet[0] += 1;
+                }
+                if (0.09..0.19).contains(&radius) {
+                    radial_wet[1] += 1;
+                }
+                if (0.19..0.33).contains(&radius) {
+                    radial_wet[2] += 1;
+                }
+                outside_walls += usize::from(dx.abs() > 27.0 || dz.abs() > 27.0);
             }
         }
         let contacts = self.tracer.sprinkler_water_review_contacts()?;
@@ -265,36 +278,44 @@ impl App {
                     .iter()
                     .chain(c.radii.iter())
                     .chain(c.normal.iter())
+                    .chain(c.projection.iter())
                     .all(|v| v.is_finite()),
                 "non-finite GPU water contact"
             );
         }
-        if review.mode.ends_with("-off") || review.mode.ends_with("-wall") {
+        if review.mode.ends_with("-off") {
+            ensure!(dose == 0, "closed valve still watered soil: {dose}");
+        } else if review.mode.ends_with("-wall") {
+            // Near droplets legitimately land BEFORE the wall. Far water must
+            // stop there, not disappear with the inner flow or leak outside.
             ensure!(
-                dose == 0,
-                "closed valve/solid walls still watered soil: {dose}"
+                radial_wet[0] > 0,
+                "walls also removed the unblocked near spray"
+            );
+            ensure!(
+                outside_walls == 0,
+                "spray watered outside the solid enclosure"
             );
         } else {
-            ensure!(wet > 0, "visible spray never reached real soil");
-            if !review.mode.ends_with("-controls") {
-                ensure!(
-                    under_source == 0,
-                    "old vertical/radial watering remains below the source"
-                );
-            }
+            ensure!(
+                radial_wet.iter().all(|n| *n > 0),
+                "spray missed a near/middle/far band: {radial_wet:?}"
+            );
+            ensure!(under_source > 0, "spray still leaves a dry inner ring");
         }
         if review.mode.ends_with("-off") {
             ensure!(active.is_empty(), "closed valve still emitted water");
         }
-        log::info!("[SPRINKLER_CONTACT_REVIEW] mode={} wet_voxels={wet} total_moisture={dose} under_source={under_source} contacts={} density={} saved=false",
+        log::info!("[SPRINKLER_CONTACT_REVIEW] mode={} wet_voxels={wet} total_moisture={dose} under_source={under_source} radial_wet={radial_wet:?} outside_walls={outside_walls} contacts={} density={} saved=false",
             review.mode,active.len(),self.debug_settings.adjustables.sprinkler_mist_density.value);
         if let Ok(path) = std::env::var("RE_FLORA_SPRINKLER_WET_STATS") {
             let hits:Vec<_>=active.iter().map(|c|serde_json::json!({
-                "centerFlux":c.center_flux,"radii":c.radii,"tangent":c.tangent_rotary,"normal":c.normal})).collect();
+                "centerFlux":c.center_flux,"radii":c.radii,"tangent":c.tangent_rotary,"normal":c.normal,"projection":c.projection})).collect();
             std::fs::write(
                 path,
                 serde_json::to_vec(&serde_json::json!({
                     "mode":review.mode,"wetVoxels":wet,"totalMoisture":dose,"underSource":under_source,
+                    "radialWet":radial_wet,"outsideWalls":outside_walls,
                     "contacts":hits,"base":base.to_array(),"offset":offset.to_array(),"dimensions":dim.to_array(),"voxels":data
                 }))?,
             )?;
@@ -867,7 +888,10 @@ impl App {
             if review.frame > 0 && review.frame <= 160 && review.frame % 40 == 0 {
                 let previous = self.debug_settings.adjustables.sprinkler_rotary.value;
                 let lobes = self.tracer.sprinkler_mist_review_lobes()?;
-                ensure!(lobes.len() == 48, "rotary review lobe ABI");
+                ensure!(
+                    lobes.len() == crate::tracer::sprinkler_mist_sample_count(previous) as usize,
+                    "rotary review lobe count"
+                );
                 let live: Vec<_> = lobes
                     .iter()
                     .filter(|l| l.center_amplitude[3] > 0.0)

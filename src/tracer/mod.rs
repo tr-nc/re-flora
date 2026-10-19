@@ -6659,7 +6659,7 @@ impl Tracer {
                 self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled,
             ),
             flow_enabled: u32::from(self.sprinkler_mist_flow),
-            lobes_per_instance: SPRINKLER_MIST_LOBES,
+            lobes_per_instance: sprinkler_mist_sample_count(self.sprinkler_rotary),
             tile_size: SPRINKLER_MIST_TILE_SIZE,
             width: extent.width,
             height: extent.height,
@@ -6681,7 +6681,7 @@ impl Tracer {
         for instance in 0..self.sprinkler_resources.instance_count {
             let push = crate::generated::gpu_structs::PushConstantSprinklerWetting {
                 instance,
-                samples: SPRINKLER_MIST_LOBES,
+                samples: sprinkler_mist_sample_count(self.sprinkler_rotary),
                 amount: self.sprinkler_water_amount,
                 patch_size: self.sprinkler_patch_size,
                 invocations: 4096,
@@ -7144,8 +7144,10 @@ impl Tracer {
     }
 
     fn sprinkler_review_buffer<T: bytemuck::Pod>(&self, source: &Buffer) -> Result<Vec<T>> {
-        let bytes = u64::from(self.sprinkler_resources.instance_count * SPRINKLER_MIST_LOBES)
-            * std::mem::size_of::<T>() as u64;
+        let bytes = u64::from(
+            self.sprinkler_resources.instance_count
+                * sprinkler_mist_sample_count(self.sprinkler_rotary),
+        ) * std::mem::size_of::<T>() as u64;
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
