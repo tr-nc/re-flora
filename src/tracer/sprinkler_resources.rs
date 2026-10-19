@@ -26,6 +26,8 @@ struct SprinklerFrame {
     published: Vec<SprinklerInstanceGpu>,
     lobes: Buffer,
     bounds: Buffer,
+    water_contacts: Buffer,
+    water_bounds: Buffer,
     tiles: Buffer,
     tile_capacity: u64,
 }
@@ -102,6 +104,17 @@ impl SprinklerRendererResources {
                         * SPRINKLER_RENDER_CAPACITY) as u64,
                     MemoryLocation::GpuOnly,
                 )?,
+                water_contacts: self.buffer(
+                    (std::mem::size_of::<crate::generated::gpu_structs::SprinklerWaterContact>()
+                        * SPRINKLER_MIST_LOBES as usize
+                        * SPRINKLER_RENDER_CAPACITY) as u64,
+                    MemoryLocation::GpuOnly,
+                )?,
+                water_bounds: self.buffer(
+                    (std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistBounds>()
+                        * SPRINKLER_RENDER_CAPACITY) as u64,
+                    MemoryLocation::GpuOnly,
+                )?,
                 tiles: self.buffer(tile_bytes, MemoryLocation::GpuOnly)?,
                 tile_capacity: tile_bytes,
             });
@@ -129,6 +142,14 @@ impl SprinklerRendererResources {
 
     pub fn mist_bounds(&self) -> &Buffer {
         &self.frames[self.slot].bounds
+    }
+
+    pub fn water_contacts(&self) -> &Buffer {
+        &self.frames[self.slot].water_contacts
+    }
+
+    pub fn water_bounds(&self) -> &Buffer {
+        &self.frames[self.slot].water_bounds
     }
 
     pub fn mist_tiles(&self) -> &Buffer {

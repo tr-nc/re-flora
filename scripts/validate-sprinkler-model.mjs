@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
-const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet | --dry | --rotary] [--seconds <positive-number>]
+const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet | --dry | --rotary | --spray] [--seconds <positive-number>]
 Check the sprinkler model, surface cache, continuous mist and placement lifecycle.
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
@@ -36,8 +36,12 @@ frames 60/120/180, verifies material/state bits, and isolates vertical transfer.
 Artifacts for --dry: target/soil-drying-review/{*.png,*.log,*.json,summary.json}.
 --rotary selects sixteen rotating-head checks: near/top silhouettes, 8/16/32 sampling,
 cache/native fallback and live mode switching, directional mist/on/off/legacy,
-particles off, resize, placement/removal, one-voxel wall, cliff settling, and paired real-soil trials versus the
-original mode. Outputs: target/rotary-sprinkler-review/.
+particles off, resize, placement/removal, one-voxel wall, cliff settling, shared-contact soil and
+original-mode soil. Outputs: target/rotary-sprinkler-review/.
+--spray selects nine shared spray/soil checks: continuous and pulsed water, closed valve,
+invisible mist, live angle/RPM/duty sliders, blocking walls, fast rotation, resize and
+placement/removal. Reads GPU first contacts and real soil; confirms zero duty stops both
+consumers and invisible mist still waters. Outputs: target/sprinkler-coupling-review/.
 Choose at most one suite. None is a performance benchmark.
 Also verifies zero water particles and real watering brushes at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
@@ -51,12 +55,12 @@ Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json};
 Example: cargo build --release && node scripts/validate-sprinkler-model.mjs
 Recovery for an incomplete fixture: repeat the same suite flag with --seconds 20
 Exit: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
-let seconds, mist, flow, wet, dry, rotary;
+let seconds, mist, flow, wet, dry, rotary, spray;
 try {
   const {values} = parseArgs({options: {
     mist: {type: 'boolean', default: false}, flow: {type: 'boolean', default: false},
     wet: {type: 'boolean', default: false}, dry: {type: 'boolean', default: false},
-    rotary: {type: 'boolean', default: false},
+    rotary: {type: 'boolean', default: false}, spray: {type: 'boolean', default: false},
     seconds: {type: 'string', default: '8'}, help: {type: 'boolean', short: 'h'},
   }});
   if (values.help) { console.log(help); process.exit(0); }
@@ -66,14 +70,15 @@ try {
   wet = values.wet;
   dry = values.dry;
   rotary = values.rotary;
-  assert.ok([mist,flow,wet,dry,rotary].filter(Boolean).length<=1, 'choose only one of --mist, --flow, --wet, --dry, or --rotary');
+  spray = values.spray;
+  assert.ok([mist,flow,wet,dry,rotary,spray].filter(Boolean).length<=1, 'choose only one of --mist, --flow, --wet, --dry, --rotary, or --spray');
   assert.ok(Number.isFinite(seconds) && seconds > 0, '--seconds must be a positive number');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 
 const root = path.resolve(import.meta.dirname, '..');
 const optical = mist || flow;
-const suiteFlag = rotary ? '--rotary' : dry ? '--dry' : wet ? '--wet' : flow ? '--flow' : mist ? '--mist' : '';
-const output = path.join(root, rotary ? 'target/rotary-sprinkler-review' : dry ? 'target/soil-drying-review' : wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
+const suiteFlag = spray ? '--spray' : rotary ? '--rotary' : dry ? '--dry' : wet ? '--wet' : flow ? '--flow' : mist ? '--mist' : '';
+const output = path.join(root, spray ? 'target/sprinkler-coupling-review' : rotary ? 'target/rotary-sprinkler-review' : dry ? 'target/soil-drying-review' : wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
 const settings = path.join(output, 'settings');
 const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
@@ -137,7 +142,10 @@ try {
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  const cases = rotary
+  const cases = spray
+    ? ['rotary-contact-continuous','rotary-contact-pulse','rotary-contact-off','rotary-contact-invisible',
+       'rotary-contact-controls','rotary-contact-wall','rotary-contact-fast','spray-resize','spray-lifecycle']
+    : rotary
     ? ['rotary-near','rotary-top','rotary-pixels-8','rotary-pixels-16','rotary-pixels-32',
        'rotary-controls','rotary-mist','rotary-mist-off','rotary-mist-legacy','rotary-no-particles',
        'rotary-resize','rotary-lifecycle','rotary-wall','rotary-cliff','rotary-wet','rotary-wet-original']
@@ -167,18 +175,20 @@ try {
       'mist-flow-resize': ['--resize-lifecycle-test'],
       'rotary-no-particles': ['--no-particles'],
       'rotary-resize': ['--resize-lifecycle-test'],
+      'spray-resize': ['--resize-lifecycle-test'],
       'wet-no-particles': ['--no-particles'],
       'wet-resize': ['--resize-lifecycle-test'],
     }[name] ?? [];
-    const mode = name==='rotary-wet' ? 'wet-rotary' : name==='rotary-wet-original' ? 'wet-12' : extraArgs.length > 0 ? (rotary ? 'rotary-mist' : wet ? 'wet-12' : flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
-    const soil=mode.startsWith('wet-');
+    const mode = name==='spray-resize' ? 'rotary-contact-continuous' : name==='spray-lifecycle' ? 'rotary-lifecycle' : name==='rotary-wet' ? 'wet-rotary' : name==='rotary-wet-original' ? 'wet-12' : extraArgs.length > 0 ? (rotary ? 'rotary-mist' : wet ? 'wet-12' : flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
+    const coupled=mode.startsWith('rotary-contact-') || mode==='wet-rotary';
+    const soil=mode.startsWith('wet-') && !coupled;
     const env = {...process.env};
     // Do not compose this isolated fixture with unrelated development overrides.
     for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_')) delete env[key];
     Object.assign(env, {RE_FLORA_SPRINKLER_REVIEW: mode, RUST_LOG: 'info',
       VK_INSTANCE_LAYERS: 'VK_LAYER_KHRONOS_validation', VK_LAYER_SETTINGS_PATH: settings,
       VK_LOADER_DEBUG: 'error,warn,layer'});
-    if (soil) env.RE_FLORA_SPRINKLER_WET_STATS=path.join(output,`${name}.json`);
+    if (soil || coupled) env.RE_FLORA_SPRINKLER_WET_STATS=path.join(output,`${name}.json`);
     if (dry) env.RE_FLORA_SOIL_DRY_STATS=path.join(output,`${name}.json`);
     if (!env.VK_LAYER_PATH && env.VULKAN_SDK)
       env.VK_LAYER_PATH = path.join(env.VULKAN_SDK, 'share/vulkan/explicit_layer.d');
@@ -187,7 +197,7 @@ try {
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
     const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
-      '--hidden', '--mute', ...(soil || dry ? ['--no-flora'] : []), ...(optical || soil || dry || rotary ? ['--perf'] : []),
+      '--hidden', '--mute', ...(soil || dry || coupled ? ['--no-flora'] : []), ...(optical || soil || dry || rotary || spray ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -215,6 +225,25 @@ try {
     if (name==='rotary-controls') {
       const steps=[...log.matchAll(/SPRINKLER_ROTARY_REVIEW\] step=(\d+) enabled=(true|false)/g)].map(m=>[+m[1],m[2]==='true']);
       assert.deepEqual(steps,[[0,true],[1,false],[2,true],[3,false],[4,true]]);
+    }
+    if (coupled) {
+      assert.match(log,/SPRINKLER_CONTACT_REVIEW/);
+      assert.match(log,/sprinkler_spray.prepare=/);
+      const stats=JSON.parse(fs.readFileSync(path.join(output,name+'.json')));
+      assert.equal(stats.mode,mode);
+      if(mode.endsWith('-off') || mode.endsWith('-wall')) assert.equal(stats.totalMoisture,0);
+      else assert.ok(stats.wetVoxels>0,'shared spray did not wet real soil');
+      if(mode.endsWith('-off')) assert.deepEqual(stats.contacts,[]);
+      if(mode.endsWith('-invisible')) {
+        assert.doesNotMatch(log,/sprinkler_mist.pass=/);
+        assert.match(log,/sprinkler_spray.wetting=/);
+      }
+      if(mode.endsWith('-controls')) {
+        assert.match(log,/stopped_air_and_water=true/);
+        const steps=[...log.matchAll(/SPRINKLER_CONTACT_CONTROL\] step=(\d+) angle=([\d.]+) rpm=([\d.]+) duty=([\d.]+)/g)]
+          .map(m=>m.slice(1).map(Number));
+        assert.deepEqual(steps,[[0,10,0,100],[1,90,60,100],[2,40,15,0],[3,40,15,50],[4,40,15,100]]);
+      }
     }
     if (soil) {
       assert.match(log,/SPRINKLER_WETTING_REVIEW/);
@@ -254,14 +283,17 @@ try {
         'watering did not record brushes at every mist density');
     }
     if (name.endsWith('-no-particles')) assert.match(log, /particles_enabled=false/);
-    if (optical && name.endsWith('-off')) assert.doesNotMatch(log, /sprinkler_mist.pass=|sprinkler_mist.prepare=/);
+    if (optical && name.endsWith('-off')) assert.doesNotMatch(log, /sprinkler_mist.pass=|sprinkler_spray.prepare=/);
     else if (optical) assert.match(log, /sprinkler_mist.pass=/);
     if(rotary && (mode.includes('mist') || ['rotary-wall','rotary-cliff'].includes(name)) && !name.endsWith('-off')) {
       assert.match(log,/sprinkler_mist.pass=/);
       if(!name.endsWith('-legacy')) assert.match(log,/SPRINKLER_FLOW_REVIEW\] gpu_lobes=[1-9]/);
     }
-    if(rotary && name.endsWith('-off')) assert.doesNotMatch(log,/sprinkler_mist.pass=|sprinkler_mist.prepare=/);
-    if (name.endsWith('-legacy')) assert.doesNotMatch(log, /sprinkler_mist.prepare=/);
+    if(rotary && name.endsWith('-off')) {
+      assert.doesNotMatch(log,/sprinkler_mist.pass=/);
+      assert.match(log,/sprinkler_spray.prepare=/);
+    }
+    if (name.endsWith('-legacy') && !rotary) assert.doesNotMatch(log, /sprinkler_spray.prepare=/);
     if (flow && !name.endsWith('-off') && !name.endsWith('-legacy') && name !== 'lifecycle')
       assert.match(log, /SPRINKLER_FLOW_REVIEW\] gpu_lobes=[1-9]/);
     if (name === 'mist-cliff' || name==='rotary-cliff') assert.match(log, /below_source=[1-9]/);
@@ -319,14 +351,6 @@ try {
       footprintMeans:Object.fromEntries(['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).footprintMean])),
       outsideSectorMoisture:Object.fromEntries(['wet-edge-x','wet-edge-z'].map(n=>[n,stats(n).outsideSectorMoisture])),
       means:Object.fromEntries(['wet-2','wet-4','wet-12','wet-24','wet-30fps','wet-120fps','wet-double'].map(n=>[n,stats(n).mean]))};
-  }
-  if (rotary) {
-    const [a,b]=['rotary-wet','rotary-wet-original'].map(n=>JSON.parse(fs.readFileSync(path.join(output,`${n}.json`))));
-    const delta=a.footprintTrialMeans.map((x,i)=>x-b.footprintTrialMeans[i]);
-    const mean=delta.reduce((x,y)=>x+y,0)/delta.length;
-    const error=Math.sqrt(delta.reduce((s,x)=>s+(x-mean)**2,0)/(delta.length-1)/delta.length);
-    assert.ok(Math.abs(mean)<4*error+0.02,'three nozzles changed water input beyond paired-trial uncertainty');
-    wettingComparison={rotaryMean:a.footprintMean,originalMean:b.footprintMean,difference:mean,standardError:error,limit:4*error+0.02};
   }
   if (dry) {
     const stats=name=>JSON.parse(fs.readFileSync(path.join(output,`${name}.json`)));

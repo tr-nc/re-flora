@@ -13,6 +13,8 @@ public struct MistSpraySource {
     public float emission;
     public float3 outlet;
     public float3 velocity;
+    public float angular_velocity;
+    public float spread;
 };
 
 public float2 mistSprayAgeInterval(uint index,uint count,bool rotary)
@@ -42,24 +44,51 @@ public float mistSprayVisibleAmount(MistSpraySource s,bool rotary)
     return mistVisibleAmount(s.age,s.width,s.emission)*breakup;
 }
 
+// Integral of an on/off valve over a birth interval. This is the same source
+// weight for air and arrival flux; zero duty never gets normalized back to one.
+public float sprinklerPulsePrimitive(float seconds,float duty)
+{
+    float cycles=seconds*4.0;
+    return (floor(cycles)*duty+min(frac(cycles),duty))*0.25;
+}
+public float sprinklerPulseAmount(float center,float width,float duty)
+{
+    if(duty<=0.0)return 0.0;
+    if(duty>=1.0)return 1.0;
+    return saturate((sprinklerPulsePrimitive(center+width*0.5,duty)-
+        sprinklerPulsePrimitive(center-width*0.5,duty))/width);
+}
+
+public MistSpraySource mistRotarySource(uint index,uint count,float angleNow,float phase,
+    float rpm,float angleDegrees,float duty,float pulseTime)
+{
+    MistSpraySource s;
+    float2 interval=mistSprayAgeInterval(index,count,true);
+    s.age=(interval.x+interval.y)*0.5;s.width=interval.y-interval.x;s.nozzle=0u;
+    s.angular_velocity=rpm*6.28318530718/60.0;
+    s.spread=tan(angleDegrees*3.14159265359/360.0);
+    float angle=angleNow+frac(phase)*6.28318530718-s.age*s.angular_velocity;
+    s.outlet=sprinklerRotaryOutlet(angle);
+    s.velocity=sprinklerRotaryDirection(angle)*0.65+float3(0,0.32,0);
+    s.emission=2.0*sprinklerPulseAmount(pulseTime+frac(phase)*0.25-s.age,s.width,duty);
+    return s;
+}
+
 public MistSpraySource mistSpraySource(uint index,uint count,float tick,float seconds,
                                       float phase,bool rotary)
 {
+    if(rotary)return mistRotarySource(index,count,sprinklerRotaryAngleAtTick(tick,seconds,0),phase,15.0,40.0,1.0,0.0);
     MistSpraySource s;
+    s.angular_velocity=0.0;s.spread=0.18;
     float2 interval=mistSprayAgeInterval(index,count,rotary);
     s.age=(interval.x+interval.y)*0.5;s.width=interval.y-interval.x;
-    s.nozzle=rotary?0u:index/(count/4u);
+    s.nozzle=index/(count/4u);
     float birth=tick-s.age/seconds;
-    s.emission=rotary?mistRotaryEmission(s.nozzle):mistPairEmission(birth,s.width/seconds,seconds,phase,s.nozzle);
-    if(rotary) {
-        s.outlet=sprinklerRotaryOutletAtTick(birth,seconds,phase);
-        s.velocity=mistSprayLaunchVelocity(birth,seconds,phase);
-    } else {
-        float cycle=2.0*max(floor(1.0/seconds+0.5),2.0);
-        uint wrapped=uint(floor(birth)-floor(floor(birth)/cycle)*cycle);
-        s.outlet=sprinklerOutlet(wrapped,seconds,phase,s.nozzle);
-        s.velocity=mistFlowDirection(s.nozzle)*0.43+float3(0,0.22,0);
-    }
+    s.emission=mistPairEmission(birth,s.width/seconds,seconds,phase,s.nozzle);
+    float cycle=2.0*max(floor(1.0/seconds+0.5),2.0);
+    uint wrapped=uint(floor(birth)-floor(floor(birth)/cycle)*cycle);
+    s.outlet=sprinklerOutlet(wrapped,seconds,phase,s.nozzle);
+    s.velocity=mistFlowDirection(s.nozzle)*0.43+float3(0,0.22,0);
     return s;
 }
 
@@ -70,7 +99,7 @@ public float3 mistSprayAgeTangent(MistSpraySource s,float3 target,float seconds)
 {
     float decay=exp(-s.age/MIST_FLOW_DRAG_TIME);
     float travel=MIST_FLOW_DRAG_TIME*(1.0-decay);
-    float omega=6.28318530718/(float(sprinklerRotaryTicks(seconds))*seconds);
+    float omega=s.angular_velocity;
     float3 swept=s.outlet+s.velocity*travel;
     return target+(s.velocity-target)*decay+omega*float3(swept.z,0,-swept.x);
 }
@@ -81,8 +110,8 @@ public float3 mistSprayRadii(MistSpraySource s,float3 tangent)
     // The nozzle aperture opens into a thin spray cone, then disperses with age.
     // Never enlarge all axes to bridge age samples: only the streak-aligned
     // reconstruction support follows their separation. Width stays physical.
-    float lateral=0.18/256.0+travel*0.18+0.004*s.age*s.age;
-    float vertical=0.18/256.0+travel*0.09+0.002*s.age*s.age;
+    float lateral=0.18/256.0+travel*s.spread+0.004*s.age*s.age;
+    float vertical=0.18/256.0+travel*s.spread*0.5+0.002*s.age*s.age;
     float longitudinal=max(lateral,length(tangent)*s.width*1.1);
     return float3(longitudinal,lateral,vertical);
 }

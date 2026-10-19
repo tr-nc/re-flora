@@ -85,7 +85,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             return;
         }
-        bool reachable=pc.wet_patch.y>0.5?wetPatchCanReachRotarySector(offset,axis,pc.wet_patch.x):wetPatchCanReachSector(offset,axis,pc.wet_patch.x);
+        bool reachable=wetPatchCanReachSector(offset,axis,pc.wet_patch.x);
         if (!reachable)
         {
             return;
@@ -119,10 +119,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if(directionalPair)
     {
         WetPatchSample patch=wetPatchDirectionalSample(voxelCenter,pc.wet_patch.x,
-            ditherSeed,startVoxel.xz,endVoxel.xz-startVoxel.xz,pc.wet_patch.y>0.5);
-        float sourceScale=pc.wet_patch.y>0.5?WET_ROTARY_DOSE_SCALE:1.0;
+            ditherSeed,startVoxel.xz,endVoxel.xz-startVoxel.xz);
         addMoisture=wetPatchPoissonIncrement(
-            amount*sourceScale*falloff*absorptionFactor*patch.coverage*float(VOXEL_MOISTURE_MAX),patch.uniform);
+            amount*falloff*absorptionFactor*patch.coverage*float(VOXEL_MOISTURE_MAX),patch.uniform);
     }
     else
     {

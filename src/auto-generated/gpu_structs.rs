@@ -345,6 +345,16 @@ pub struct SprinklerMistLobe {
     pub tangent_rotary: [f32; 4],
 }
 
+/// Auto-generated from `B_SprinklerWaterContact` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SprinklerWaterContact {
+    pub center_flux: [f32; 4],
+    pub radii: [f32; 4],
+    pub tangent_rotary: [f32; 4],
+    pub normal: [f32; 4],
+}
+
 /// Auto-generated from `B_SurfaceActiveBrickFlags` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -632,6 +642,19 @@ pub struct PushConstantSprinklerMistTiles {
     pub width: u32,
     pub height: u32,
     pub _pad0: [u8; 12],
+}
+
+/// Auto-generated from `PushConstantSprinklerWetting` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantSprinklerWetting {
+    pub instance: u32,
+    pub samples: u32,
+    pub seed: u32,
+    pub amount: f32,
+    pub patch_size: f32,
+    pub invocations: u32,
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
@@ -956,6 +979,11 @@ pub struct GuiInput {
     pub lens_flare_sun_pixel_scale: f32,
     pub world_tick_seconds: f32,
     pub sprinkler_rotary: u32,
+    pub sprinkler_spray_angle: f32,
+    pub sprinkler_rotation_speed: f32,
+    pub sprinkler_pulse_duty: f32,
+    pub sprinkler_rotor_angle: f32,
+    pub sprinkler_pulse_time: f32,
     pub grass_vibration_amplitude_voxels: f32,
     pub grass_vibration_primary_speed: f32,
     pub grass_vibration_secondary_speed: f32,
@@ -985,6 +1013,7 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
+    pub _pad7: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

@@ -26,11 +26,16 @@ pub(super) struct Review {
     watering_brushes: [u32; 3],
     wetting_samples: WettingSamples,
     drying: Option<DryingReview>,
+    contact_pause: Option<Vec<u8>>,
 }
 
 impl Review {
     pub fn isolates_wetting(&self) -> bool {
-        self.mode.starts_with("wet-")
+        self.mode.starts_with("wet-") && self.mode != "wet-rotary"
+    }
+
+    pub fn checks_spray_contact(&self) -> bool {
+        self.mode.starts_with("rotary-contact-") || self.mode == "wet-rotary"
     }
 
     pub fn is_rotary(&self) -> bool {
@@ -50,7 +55,9 @@ impl Review {
     }
 
     pub fn freezes_drying(&self) -> bool {
-        self.isolates_wetting() || (self.isolates_drying() && self.frame > 180)
+        self.isolates_wetting()
+            || self.checks_spray_contact()
+            || (self.isolates_drying() && self.frame > 180)
     }
 
     fn wetting_ensemble(&self) -> bool {
@@ -100,6 +107,13 @@ impl Review {
         const MODES: &[&str] = &[
             "near",
             "rotary-near",
+            "rotary-contact-continuous",
+            "rotary-contact-pulse",
+            "rotary-contact-off",
+            "rotary-contact-invisible",
+            "rotary-contact-controls",
+            "rotary-contact-wall",
+            "rotary-contact-fast",
             "rotary-top",
             "rotary-pixels-8",
             "rotary-pixels-16",
@@ -186,6 +200,7 @@ impl Review {
             watering_brushes: [0; 3],
             wetting_samples: WettingSamples::default(),
             drying: None,
+            contact_pause: None,
         }))
     }
 }
@@ -209,6 +224,81 @@ impl App {
             }],
             bounds,
         ))?;
+        Ok(())
+    }
+
+    fn spray_contact_review_region(base: Vec3) -> (glam::UVec3, glam::UVec3) {
+        let center = (base * 256.0).round().as_uvec3();
+        (
+            center - glam::UVec3::new(160, 1, 160),
+            glam::UVec3::new(321, 1, 321),
+        )
+    }
+
+    fn review_spray_contact(&mut self, review: &Review, base: Vec3) -> Result<()> {
+        let (offset, dim) = Self::spray_contact_review_region(base);
+        let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        let mut dose = 0u64;
+        let mut wet = 0;
+        let mut under_source = 0;
+        for (i, byte) in data.iter().enumerate() {
+            let moisture = (byte >> 4) & 3;
+            let x = i % 321;
+            let z = i / 321;
+            if moisture > 0 {
+                ensure!(
+                    byte & 15 == crate::builder::VOXEL_TYPE_DIRT as u8,
+                    "spray changed non-soil material"
+                );
+                wet += 1;
+                dose += u64::from(moisture);
+                under_source += usize::from(
+                    (x as f32 - 160.0).powi(2) + (z as f32 - 160.0).powi(2) < 8.0 * 8.0,
+                );
+            }
+        }
+        let contacts = self.tracer.sprinkler_water_review_contacts()?;
+        let active: Vec<_> = contacts.iter().filter(|c| c.center_flux[3] > 0.0).collect();
+        for c in &contacts {
+            ensure!(
+                c.center_flux
+                    .iter()
+                    .chain(c.radii.iter())
+                    .chain(c.normal.iter())
+                    .all(|v| v.is_finite()),
+                "non-finite GPU water contact"
+            );
+        }
+        if review.mode.ends_with("-off") || review.mode.ends_with("-wall") {
+            ensure!(
+                dose == 0,
+                "closed valve/solid walls still watered soil: {dose}"
+            );
+        } else {
+            ensure!(wet > 0, "visible spray never reached real soil");
+            if !review.mode.ends_with("-controls") {
+                ensure!(
+                    under_source == 0,
+                    "old vertical/radial watering remains below the source"
+                );
+            }
+        }
+        if review.mode.ends_with("-off") {
+            ensure!(active.is_empty(), "closed valve still emitted water");
+        }
+        log::info!("[SPRINKLER_CONTACT_REVIEW] mode={} wet_voxels={wet} total_moisture={dose} under_source={under_source} contacts={} density={} saved=false",
+            review.mode,active.len(),self.debug_settings.adjustables.sprinkler_mist_density.value);
+        if let Ok(path) = std::env::var("RE_FLORA_SPRINKLER_WET_STATS") {
+            let hits:Vec<_>=active.iter().map(|c|serde_json::json!({
+                "centerFlux":c.center_flux,"radii":c.radii,"tangent":c.tangent_rotary,"normal":c.normal})).collect();
+            std::fs::write(
+                path,
+                serde_json::to_vec(&serde_json::json!({
+                    "mode":review.mode,"wetVoxels":wet,"totalMoisture":dose,"underSource":under_source,
+                    "contacts":hits,"base":base.to_array(),"offset":offset.to_array(),"dimensions":dim.to_array(),"voxels":data
+                }))?,
+            )?;
+        }
         Ok(())
     }
 
@@ -392,9 +482,17 @@ impl App {
                 .resolve_plantable_surface_column(UVec2::new(196, 360))
                 .map_err(|e| anyhow::anyhow!("sprinkler review surface: {e:?}"))?;
             let mut base = anchor.surface_position_ws();
+            if review.checks_spray_contact() {
+                // Full 90-degree cone footprint must stay inside the 512² fixture atlas.
+                base.x = 0.75;
+                base.z = 1.25;
+            }
             self.debug_settings.adjustables.sprinkler_rotary.value = review.is_rotary();
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_spray_angle.value = 40.0;
+                gui.sprinkler_rotation_speed.value = 15.0;
+                gui.sprinkler_pulse_duty.value = 100.0;
                 gui.sprinkler_cache_enabled.value = true;
                 gui.sprinkler_pixel_resolution.value = 32;
                 gui.sprinkler_mist_flow.value = !review.mode.ends_with("-legacy");
@@ -464,6 +562,52 @@ impl App {
                     };
                 }
             }
+            if review.checks_spray_contact() {
+                self.stamp_sprinkler_review_box(
+                    base - Vec3::new(0.64, 0.03, 0.64),
+                    base + Vec3::new(0.64, 0.0, 0.64),
+                    crate::builder::VOXEL_TYPE_DIRT,
+                )?;
+                let (offset, dim) = Self::spray_contact_review_region(base);
+                let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+                let dry: Vec<_> = data
+                    .iter()
+                    .map(|v| v & !crate::builder::VOXEL_MOISTURE_MASK)
+                    .collect();
+                self.plain_builder
+                    .write_chunk_atlas_region(offset, dim, &dry)?;
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_wetting_speed.value = 3.0;
+                gui.sprinkler_mist_density.value = if review.mode.ends_with("-invisible") {
+                    0.0
+                } else {
+                    1.0
+                };
+                gui.sprinkler_pulse_duty.value = if review.mode.ends_with("-off") {
+                    0.0
+                } else if review.mode.ends_with("-pulse") || review.mode.ends_with("-fast") {
+                    50.0
+                } else {
+                    100.0
+                };
+                if review.mode.ends_with("-fast") {
+                    gui.sprinkler_rotation_speed.value = 60.0;
+                    gui.sprinkler_spray_angle.value = 60.0;
+                }
+                if review.mode.ends_with("-wall") {
+                    for axis in [Vec3::X, Vec3::Z] {
+                        for sign in [-1.0, 1.0] {
+                            let center = base + axis * sign * 0.10 + Vec3::Y * 0.13;
+                            let half = Vec3::splat(0.13) - axis * (0.13 - 0.5 / 256.0);
+                            self.stamp_sprinkler_review_box(
+                                center - half,
+                                center + half,
+                                crate::builder::VOXEL_TYPE_ROCK,
+                            )?;
+                        }
+                    }
+                }
+            }
             self.apply_sprinkler_placement(base)?;
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
                 let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
@@ -515,6 +659,7 @@ impl App {
             } else if review.mode.starts_with("mist-level") {
                 0.43
             } else if review.mode.starts_with("mist-")
+                || review.checks_spray_contact()
                 || matches!(
                     review.mode.as_str(),
                     "rotary-mist-back" | "rotary-mist-front" | "rotary-mist-top"
@@ -596,6 +741,53 @@ impl App {
             }
         }
         let base = review.base.unwrap();
+        if review.mode == "rotary-contact-controls" {
+            // Read the actual GPU consumers before changing their next snapshot.
+            if review.frame == 84 {
+                let (offset, dim) = Self::spray_contact_review_region(base);
+                review.contact_pause =
+                    Some(self.plain_builder.read_chunk_atlas_region(offset, dim)?);
+            }
+            if review.frame == 120 {
+                let (offset, dim) = Self::spray_contact_review_region(base);
+                ensure!(
+                    review.contact_pause.as_ref()
+                        == Some(&self.plain_builder.read_chunk_atlas_region(offset, dim)?),
+                    "zero duty changed real soil"
+                );
+                ensure!(
+                    self.tracer
+                        .sprinkler_water_review_contacts()?
+                        .iter()
+                        .all(|c| c.center_flux[3] == 0.0),
+                    "zero duty left incoming water"
+                );
+                ensure!(
+                    self.tracer
+                        .sprinkler_mist_review_lobes()?
+                        .iter()
+                        .all(|l| l.center_amplitude[3] == 0.0),
+                    "zero duty left visible spray"
+                );
+                log::info!(
+                    "[SPRINKLER_CONTACT_CONTROL] stopped_air_and_water=true rotor_continues=true"
+                );
+            }
+            let (angle, rpm, duty) = match review.frame / 40 {
+                0 => (10.0, 0.0, 100.0),
+                1 => (90.0, 60.0, 100.0),
+                2 => (40.0, 15.0, 0.0),
+                3 => (40.0, 15.0, 50.0),
+                _ => (40.0, 15.0, 100.0),
+            };
+            let gui = &mut self.debug_settings.adjustables;
+            gui.sprinkler_spray_angle.value = angle;
+            gui.sprinkler_rotation_speed.value = rpm;
+            gui.sprinkler_pulse_duty.value = duty;
+            if review.frame % 40 == 0 && review.frame <= 160 {
+                log::info!("[SPRINKLER_CONTACT_CONTROL] step={} angle={angle} rpm={rpm} duty={duty} saved=false",review.frame/40);
+            }
+        }
         if let Some(drying) = &mut review.drying {
             drying.checkpoint(
                 &mut self.plain_builder,
@@ -738,6 +930,7 @@ impl App {
         );
         let sun = crate::util::get_sun_dir(altitude.asin().to_degrees(), azimuth * 360.0);
         let offset = match review.mode.as_str() {
+            _ if review.checks_spray_contact() => Vec3::new(0.001, 0.85, 0.001),
             _ if review.isolates_wetting() || review.isolates_drying() => {
                 Vec3::new(0.001, 0.50, 0.001)
             }
@@ -850,11 +1043,16 @@ impl App {
             }
         }
         if review.frame == 180 {
+            if review.checks_spray_contact() {
+                self.review_spray_contact(&review, base)?;
+            }
             if review.isolates_wetting() {
                 self.review_sprinkler_wetting(&mut review, base, true)?;
             }
             if (review.mode.starts_with("mist-") || review.is_rotary())
                 && self.debug_settings.adjustables.sprinkler_mist_flow.value
+                && (!review.is_rotary()
+                    || self.debug_settings.adjustables.sprinkler_pulse_duty.value > 0.0)
                 && self.debug_settings.adjustables.sprinkler_mist_density.value > 0.0
                 && !review.mode.starts_with("mist-pop-")
                 && !review.mode.starts_with("mist-overlap-")

@@ -34,15 +34,22 @@ public float sprinklerRotaryAngle(uint tick,float fraction,float seconds,float p
 {
     return sprinklerRotaryAngleAtTick(float(tick%sprinklerRotaryTicks(seconds))+fraction,seconds,phase);
 }
+public float3 sprinklerRotaryOutlet(float angle)
+{
+    return sprinklerRotate(float3(3.15,4.2,-0.85)/256.0,angle);
+}
+public float3 sprinklerRotaryDirection(float angle)
+{
+    angle-=0.65;
+    return float3(cos(angle),0,sin(angle));
+}
 public float3 sprinklerRotaryOutletAtTick(float tick,float seconds,float phase)
 {
-    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase);
-    return sprinklerRotate(float3(3.15,4.2,-0.85)/256.0,angle);
+    return sprinklerRotaryOutlet(sprinklerRotaryAngleAtTick(tick,seconds,phase));
 }
 public float3 sprinklerRotaryDirectionAtTick(float tick,float seconds,float phase)
 {
-    float angle=sprinklerRotaryAngleAtTick(tick,seconds,phase)-0.65;
-    return float3(cos(angle),0,sin(angle));
+    return sprinklerRotaryDirection(sprinklerRotaryAngleAtTick(tick,seconds,phase));
 }
 
 // Shared outlet contract for hardware pose and the continuous spray source.

@@ -116,10 +116,10 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Sprinkler Motion",
-        description: "Unchecked: original alternating X/Z pairs. Checked: one brass nozzle rotates continuously, emitting a narrow spray that opens and settles along its birth-direction history, with matching one-sided watering. Original ellipsoid mist remains nondirectional when selected. Same reach and independent density, wet-patch, watering and drying controls.",
+        title: "Sprinkler Spray & Motion",
+        description: "Unchecked: original alternating X/Z pairs. Checked: one rotating nozzle. Spray angle changes both the visible spray and its landing footprint; RPM changes rotation, not flight speed. Pulses repeat four times per second: 100% is continuous, 0% stops water but not rotation. Soil receives water only where the shared spray meets terrain. Mist density changes visibility only. The legacy soft dome is a nondirectional visual comparison.",
         initially_open: false,
-        params: &["sprinkler_rotary"],
+        params: &["sprinkler_rotary", "sprinkler_spray_angle", "sprinkler_rotation_speed", "sprinkler_pulse_duty"],
     },
     ControlGroup {
         parent: None,

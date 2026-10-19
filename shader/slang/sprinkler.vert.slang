@@ -36,7 +36,7 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
     ModelPixelFrame physical=identityModelPixelFrame();
     physical.center=pose.xyz;
     if((part.range.w&2u)!=0u) {
-        float angle=sprinklerRotaryAngle(flora_growth_info.flora_tick,flora_growth_info.flora_tick_fraction,gui_input.world_tick_seconds,pose.w);
+        float angle=gui_input.sprinkler_rotor_angle+frac(pose.w)*6.28318530718;
         physical.axisX=sprinklerRotate(physical.axisX,angle);
         physical.axisZ=sprinklerRotate(physical.axisZ,angle);
     }

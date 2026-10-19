@@ -710,6 +710,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/tracer/sprinkler_mist_prepare.comp",
     "shader/tracer/sprinkler_mist_tiles.comp",
     "shader/tracer/sprinkler_mist_abi.comp",
+    "shader/tracer/sprinkler_wetting.comp",
     "shader/tracer/glass_resolve.comp",
     "shader/tracer/god_ray.comp",
     "shader/tracer/post_processing.comp",

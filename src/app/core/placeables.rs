@@ -63,21 +63,6 @@ pub(super) struct SprinklerMoistureSource {
 }
 
 impl SprinklerMoistureSource {
-    pub(super) fn spray_axis_for_mode(
-        self,
-        tick: u32,
-        fraction: f32,
-        tick_seconds: f32,
-        rotary: bool,
-    ) -> Vec3 {
-        if rotary {
-            crate::sprinkler::RotorPose::sample(tick, fraction, tick_seconds, self.animation_phase)
-                .direction()
-        } else {
-            self.spray_axis(tick, tick_seconds)
-        }
-    }
-
     pub(super) fn spray_axis(self, tick: u32, tick_seconds: f32) -> Vec3 {
         SprinklerPose::sample(tick, tick_seconds, self.animation_phase).axis()
     }

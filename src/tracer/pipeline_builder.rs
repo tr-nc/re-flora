@@ -278,6 +278,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let sprinkler_wetting_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/sprinkler_wetting.comp",
+            "main",
+        )
+        .unwrap();
         let sprinkler_mist_prepare_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/sprinkler_mist_prepare.comp",
@@ -699,6 +705,7 @@ impl PipelineBuilder {
             sprinkler_mist_sm,
             sprinkler_mist_prepare_sm,
             sprinkler_mist_tiles_sm,
+            sprinkler_wetting_sm,
             glass_resolve_sm,
             terrain_depth_prefill_vert_sm,
             terrain_depth_prefill_frag_sm,
@@ -1066,6 +1073,14 @@ impl PipelineBuilder {
                 providers: &[resources, ddgi_volume, ddgi_voxel_visibility],
             })
             .expect("mist environment descriptors must resolve");
+        let sprinkler_wetting_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.sprinkler_wetting_sm, pool);
+        sprinkler_wetting_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "chunk_atlas",
+                providers: &[plain_builder_resources],
+            })
+            .expect("sprinkler soil descriptors must resolve");
         let sprinkler_mist_prepare_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.sprinkler_mist_prepare_sm,
@@ -1160,6 +1175,7 @@ impl PipelineBuilder {
             sprinkler_mist_ppl,
             sprinkler_mist_prepare_ppl,
             sprinkler_mist_tiles_ppl,
+            sprinkler_wetting_ppl,
             glass_resolve_ppl,
             player_collider_ppl,
             terrain_query_ppl,
@@ -2389,6 +2405,14 @@ impl PipelineTopology {
             );
         }
 
+        retire_compute(
+            &self.compute.sprinkler_wetting_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "chunk_atlas",
+                providers: &all_resources,
+            },
+            "sprinkler soil extent descriptors must resolve",
+        );
         for pipeline in [
             &self.compute.sprinkler_mist_ppl,
             &self.compute.sprinkler_mist_prepare_ppl,
@@ -2987,6 +3011,7 @@ pub struct ShaderModules {
     pub composition_sm: ShaderModule,
     pub sprinkler_mist_sm: ShaderModule,
     pub sprinkler_mist_prepare_sm: ShaderModule,
+    pub sprinkler_wetting_sm: ShaderModule,
     pub sprinkler_mist_tiles_sm: ShaderModule,
     pub glass_resolve_sm: Option<ShaderModule>,
     pub terrain_depth_prefill_vert_sm: ShaderModule,
@@ -3102,6 +3127,7 @@ pipeline_collection! {
         sprinkler_mist_ppl,
         sprinkler_mist_prepare_ppl,
         sprinkler_mist_tiles_ppl,
+        sprinkler_wetting_ppl,
         player_collider_ppl,
         terrain_query_ppl,
         wind_volume_ppl,

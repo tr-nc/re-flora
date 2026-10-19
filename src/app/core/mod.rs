@@ -3584,10 +3584,9 @@ impl App {
 
                 if !self.launch_owners.glass_experiment_enabled()
                     && self.terrain_moisture.has_chunks()
-                    && !self
-                        .sprinkler_review
-                        .as_ref()
-                        .is_some_and(|r| r.isolates_wetting() || r.isolates_drying())
+                    && !self.sprinkler_review.as_ref().is_some_and(|r| {
+                        r.isolates_wetting() || r.isolates_drying() || r.checks_spray_contact()
+                    })
                 {
                     let moisture_spread_gpu_scope =
                         self.gpu_profiler.as_mut().and_then(|profiler| {

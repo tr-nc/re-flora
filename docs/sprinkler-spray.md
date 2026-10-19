@@ -1,87 +1,114 @@
-# 单喷口旋转喷流
+# 单喷口：共享喷流与落地浇水
 
-本轮替换 `acfe9476` 的三臂方案，保留原有 `sprinkler_rotary` 设置 ID、保存路径和运行时 A/B。
-**Debug → Sprinkler Motion → Sprinklers: rotating single-nozzle head (A/B)**：
-勾选为单喷口持续旋转，取消为原交替 X/Z 双向喷水。`Sprinkler Mist` 的方向雾开关仍独立；
-取消它会回到无方向的旧椭球雾，不能用来检查单向喷流。
+**Debug → Sprinkler Spray & Motion**。勾选
+`Sprinklers: rotating single-nozzle head (A/B)` 使用单口旋转模式；取消仍是原交替 X/Z 模式。
 
-## 现象、原因与引入点
+三个新增滑杆均为声明式、可保存设置，旧配置只补缺项，不覆盖已有值：
 
-- **影响范围**：三臂旋转模式的方向水雾沿轨迹呈离散团块；不是普通水滴粒子开关的问题。
-  原交替模式和无方向旧雾不是本次形状修改的目标。
-- **根因**：旋转模式沿用每喷口 12 个等间隔年龄样本，再把轴向支持换成 XZ 圆截面。
-  邻接年龄的空间间距既包含向前运动，也包含出生时喷口方向的变化；旧半径没有覆盖后者。
-  圆胖的初始支持又掩盖了喷口应当很细、沿程展开的形状。单纯放大雾团无法解决形态问题。
-- **引入点**：`acfe9476`（2026-10-19，`add rotating three-arm sprinkler mode`）。
-  修改前对真实生产函数组成的自由空气轨迹采样：0.25/0.5/0.75 秒处，样本间密度只有邻居均值的
-  0.0026/0.0737/0.0216；1.0–1.75 秒处为零。基线截图与诊断输出在
-  `target/sprinkler-shape-review/`。这证明离散采样造成缺口，不以启动成功代替形状检查。
+| 控件 | 范围 | 默认 | 行为 |
+| --- | --- | --- | --- |
+| Spray angle (degrees) | 10–90° | 40° | 横向全开角；同时改变可见支持和落地分布。原固定宽度约等于 20° |
+| Rotation speed (RPM) | 0–60 | 15 | 15 RPM 为四秒一圈；0 停转但可继续喷水；改速不跳转喷头当前朝向 |
+| Pulse duty (%) | 0–100% | 50% | 每秒四次开关；50% 约开 125 ms／关 125 ms；100% 连续；0% 停喷但不停止旋转 |
 
-## 设计与不变量
+`Mist & Scattering` 的 density 只影响能否看见水雾，不控制浇水。
+方向雾开关仍独立：关闭时显示旧的无方向椭球雾，**它是视觉对照，不是共享喷流的形状预览**。
+`Soil Wetting` 的 wetting speed 控制入水量，wet patch scale 控制四级湿度随机量化的空间相关性，
+drying speed 控制后续蒸发；它们不再为旋转模式定义另一套浇水半径或扇区。
 
-- **一个物理出口**：[CPU pose](../src/sprinkler.rs)、[Slang pose](../shader/slang/sprinkler_animation.slang)
-  都移除旋转模式的喷口索引；[网格](../src/tracer/sprinkler_mesh.rs)只保留一根弯臂及其喷嘴。
-  底座固定、头部刚体旋转，缓存／原生回退仍共用同一姿态。周期仍约四秒。
-- **连续喷流而非团块**：[sprinkler_spray](../shader/slang/sprinkler_spray.slang)统一拥有生产／测试使用的
-  出生时间分区、出口、初速度、光学量、轨迹切线和支持形状。沿用每实例 48 个槽位，不增加 emitter。
-  单出口使用全部槽位，年龄二次分布增加喷口附近精度。椭球长轴沿当前喷流的年龄切线，支持长度随
-  相邻年龄的空间间距变化；横向／竖向宽度独立从喷口内径展开，不靠把整个雾团变胖来填洞。
-- **更接近喷水而不是烟**：向前／向上初速度、阻力与下落组成弧线；出口附近较粗的水对应较低
-  光学散射量，下游细雾逐渐增加。旋转后的历史水仍按出生方向飞行。碰到地形即沉积、结束该样本，
-  不再让旧水沿地面滑成一圈烟。未实现独立逐滴流体或高频亮点粒子，仍是风格化连续体积喷雾。
-- **正确的体积／遮挡**：光学量按年龄区间宽度与椭球体积归一化，不随细分数量倍增。
-  光线转入正交局部坐标后做精确线积分，深度和地形裁剪的射线参数不变；tile bounds 与近地形查询
-  使用旋转支持的保守 AABB。所有槽位逐帧写入，包括被地形终止的零密度样本，切模式不留下旧雾。
-- **土壤也只向前浇**：[wetting](../shader/slang/terrain_wetting.slang)使用一个单向 60° 湿斑中心扇区，
-  不保留隐藏的另两个浇水方向。把原 180° 输入集中到 60°（扇区内剂量乘三），保持完整一圈的
-  预期输入；半径、湿斑尾缘、吸收、四级湿度上限与用户倍率不变。这不是任意大帧间隔的角度积分。
-- **保存与兼容**：只更名已有声明式 checkbox，无新 App-only 设置、无新 save hook。
-  用户 `config/gui.toml` 的湿斑尺度 4.5、浇水速度 0.3、干燥 0.2 等原样保留，不纳入提交。
-  生成布局来自 `cargo check`：lobe 增加正交朝向与模式标记，由 48 变为 64 bytes；实例仍 16 bytes。
+## 确认的两次问题
 
-## 回归入口
+### 原三臂雾团断裂（历史修复 d6369a78）
+
+`acfe9476` 的旋转模式每喷口只有 12 个等间隔年龄样本，XZ 圆形支持忽略出生方向变化造成的
+样本间距，部分年龄的样本间密度为零。单纯放大雾团会掩盖喷口应细、沿程展开的形态。
+修复为一个真实喷口、48 个二次年龄分区、沿喷流年龄切线定向的有限支持；碰地结束，不沿地面
+滑成烟圈。基线与视觉证据保留在 `target/sprinkler-shape-review/`。
+
+### 可见喷雾与实际土壤不同模型（本次修复）
+
+`d6369a78` 的空中水按历史方向、阻力和下落飞行，但土壤仍调用当前方向的独立 60° 扇区和
+固定 0.30 半径。这不是只缺一个角度偏移：喷幅、转速、风、地形和飞行时间均可能改变落点。
+
+调用当时生产函数的复现 `target/sprinkler-coupling-review/alignment-before.slang` 显示：
+平地首次接触约 **0.7755 秒**，距离 **0.3062**，64 个湿斑种子在可见落点的旧浇水覆盖均为 **0**。
+该基线程序对应旧提交；新代码已删除旧旋转扇区 API，不能在新版本上用它代替新回归。
+
+## 共享模型与所有权
+
+1. [sprinkler_spray.slang](../shader/slang/sprinkler_spray.slang)拥有年龄分区、阀门积分、
+   出生角、出口／发射速度、拖曳／下落、喷幅、沿轨迹支持和散射权重。喷头网格和水源使用
+   [sprinkler_animation.slang](../shader/slang/sprinkler_animation.slang)同一个出口与朝向。
+   [SprayClock](../src/sprinkler.rs)积分世界时钟增量，维护有界旋转／脉冲相位；暂停不补转，
+   tick 回绕不跳变，改 RPM 不以新速度重算整段运行时长。
+2. [prepare](../shader/slang/sprinkler_mist_prepare.comp.slang)每实例仍使用 48 个年龄区间，
+   一次求轨迹与真实体素地形的首次相交。接触落在某个区间内时，同时发布其空中可见部分和
+   `SprinklerWaterContact`。光学消费者和土壤消费者读同一份结果；没有第二个 emitter registry。
+   整个 prepare 在地形绘制之前运行，即使 density 为零或选择旧雾外观也不能关闭实际浇水。
+3. [contact](../shader/slang/sprinkler_spray_contact.slang)将**同一归一化有限支持**投影到接触面。
+   复用精确核线积分，平面上的面积积分为一；加宽会摊薄单位面积水量，不会凭空增加总水量。
+   age-bin 条件只选择当前到达边界，不把整条空中喷流竖直投影为湿区。
+4. [wetting](../shader/slang/sprinkler_wetting.comp.slang)从接触数据计算每个土壤体素的入水密度，
+   检查地形遮挡，仅写首次接触表层。后续深入土壤由原有垂直迁移机制负责。
+   独立的旧旋转扇区、三倍剂量补偿和 CPU 当前轴适配已删除；原交替模式和手动 Water 保持原路径。
+   固定 `INPUT_AREA` 只校准源的总入水量，不限定空间范围。
+5. 保留原四级湿度、相关 Poisson 量化、湿斑尺度、材质与状态位。一个体素只有一个 invocation，
+   实例间依次 dispatch；不用对 R8 atlas 做不支持的原子操作，也不让重叠喷头并发丢失更新。
+   接触／边界缓冲区和雾缓冲区一样归 acquired frame slot 所有，resize 和移除不会借用在途资源。
+
+在 15 RPM 时，约 0.78 秒的飞行会产生约 **70°** 的出生方向滞后，不能按当前喷头轴浇水。
+空中的弯曲喷流和逐时落点自然来自这个时间关系。**空中呈螺旋状并不意味着其整个投影立即湿透**：
+只有接触土壤的部分加水。平地连续转很多圈后，累计湿痕趋于环带，这是落地累积而非另一张圆形贴图。
+
+## 近似边界与成本
+
+这是有界的解析密度场，不是逐滴流体模拟。沿用 48 个年龄样本，在可变地形上用有界短段 sweep
+求中心轨迹接触，再投影有限宽度；不声称覆盖每个微小水滴各自不同的碰撞时间。
+固定控制值下，水按出生时方向飞行，周期性开关沿年龄传播。
+
+**运行时改喷幅、RPM 或占空比会重新求当前场，包括已在空中的部分**，而不是为每滴水保留旧参数。
+例如将占空比设为零会立即清掉当前水场。喷头当前角度仍连续，两个消费者仍使用同一个新场。
+喷头基座目前是静态放置物；尚未实现搬运中的逐滴源位置历史。极低帧率下的整帧空间积分、
+更精细的首次接触和跨调参历史，可在共享 source/contact 边界继续改进，不能再另拟合土壤扇区。
+
+新接触结构为 64 bytes，实例仍为 16 bytes、雾 lobe 仍为 64 bytes；生成文件由 `cargo check`
+更新。水量写入仅遍历接触 AABB，并跳过无接触区间，避免在整个喷射半径立方体里运行另一套水模型。
+本轮优先验证形态与耦合，不以 debug 测试或带同步验证的 GPU 时间宣称大量喷头性能验收。
+
+## 验证与复现
 
 ```sh
 cargo fmt --check
 cargo check
 cargo test
-cargo test sprinkler_shader_pose_matches_water_outlets -- --ignored --nocapture
 python3 scripts/run_slang_tests.py
+cargo test sprinkler_shader_pose_matches_water_outlets -- --ignored --nocapture
 cargo build --release
-node scripts/validate-sprinkler-model.mjs --rotary --seconds 8
+node scripts/validate-sprinkler-model.mjs --spray --seconds 8
 cargo run --release -- --hidden --mute --auto-exit 0.5
 ```
 
-[连续性测试](../shader/tests/sprinkler_spray_continuity.slang)直接调用生产 source／shape 函数，
-在 48 槽位、12 个时间／相位／风／tick 长度组合上检查喷口接续、沿程展开、密度谷值、下落、
-细分光学量、正交坐标变换、积分及保守边界。与旧场景同类的样本间密度谷值约 **0.9415**，
-高于邻居均值的 60% 守卫，旧方案最低为零。
-[单口契约](../shader/tests/sprinkler_rotary.slang)验证仅一个活跃源、60° 开口及旋转一圈的剂量守恒、
-背后无水、2/4/12/32 尺度的湿斑尾缘和 Poisson 分布。Rust 网格测试检查只有一根臂、旋转后的
-喷口边缘包围真实出口；CPU/Slang 660 个姿态案例继续通过。
+- [共享接触契约](../shader/tests/sprinkler_contact_contracts.slang)：0／15／60 RPM ×
+  10／40／90° 的真实飞行落点都有正入水密度；无关源头下方及空气／深层土壤为零。
+  接触核面积积分最坏误差 **0.000013**；风导致的落点变化符合相同传输公式。
+  0／10／50／90／100% 阀门在 30／60／120 Hz 下验证输入；50% 测得 0.4985–0.5000，
+  0% 与 100% 精确。不同年龄、不同当前角度下同一次出生的发射方向一致。
+- [连续性回归](../shader/tests/sprinkler_spray_continuity.slang)：默认加宽连续模式的密度谷值
+  **0.9531**，高于 0.6 守卫。间歇模式有意保留阀门关闭，不把空隙强行接成连续雾。
+- Rust 全套 **1649 app + 4 collider + 1 integration** 通过；46 项 Slang CPU 测试和
+  显式运行的 **660** 个 CPU／Slang 姿态案例通过。
+  新控件通过统一实际保存／重载测试，另测缺字段迁移、保留保存值及不在加载时写盘。
+- `--spray` 九个真实隐藏静音 Release 场景通过，全部到 frame 180，Vulkan 同步验证零错误。
+  覆盖连续／50%／0%、density=0、实时 10–90°／0–60 RPM／0–100% 调参、四面薄墙、
+  60 RPM、resize、重叠放置／移除。GPU 接触读回与实际土壤字节检查：关阀／墙挡时零湿体素；
+  density=0 仍有真实湿土；调参关阀期间土壤字节不变，空中 lobe 和接触同时为零。
+  日志与截图：`target/sprinkler-coupling-review/`，套件结果见 `summary.json`。
+- 另跑原方向雾 `mist-flow`、旋转悬崖 `rotary-cliff`、原浇水 `wet-12` 三个 Release 场景，
+  均到 frame 180、正常退出、日志无错误。悬崖有 10 个活跃中心落到源头下方；原模式七次
+  土壤试验整足迹均值 0.114311。标准隐藏静音 smoke 也通过，最终日志：
+  `target/re-flora-logs/re-flora-20261020-022418.797-65186.log`，`failures=0`。
+- `cargo fmt --check`、`cargo check`、`git diff --check`、最终 Release 构建通过。
+- 用户已有 GUI 值保留；套件核对 GUI／相机哈希不变。新增三项之外没有默认值修改。
+  没有自动启动可见游戏。逆光喷幅截图为 `back-wide.png`，间歇序列为 `pulse-sequence.*.png`。
 
-隐藏 Release 视觉检查可使用 `RE_FLORA_SPRINKLER_REVIEW=rotary-mist`；
-另有 `rotary-mist-back`／`rotary-mist-front`／`rotary-mist-top` 用于顺逆光与俯视。
-与现有 fixture 一样不保存 GUI、相机或地形；截图用于外观审阅，不是性能基准。
-
-## 最终验证
-
-- `cargo fmt --check`、`cargo check`、`git diff --check`、最终 `cargo build --release` 通过。
-  Rust 全套 **1647 app + 4 collider + 1 integration** 通过；45 项 Slang CPU 和 660 个跨语言姿态案例通过。
-- 16 个旋转套件隐藏静音 Release 场景全部到 frame 180，Khronos 同步验证零错误；覆盖
-  模型／缓存／原生回退、8/16/32、实时开关、方向雾 on/off/旧模式、粒子关闭、resize、放置／移除、
-  墙、悬崖与真实土壤。墙后中心数为 0；悬崖 36 个活跃样本中有 10 个低于源头。
-  运行时切换读回全部活跃样本的模式标记正确，无遗留三嘴或旧朝向。
-- 七组真实土壤试验的整圆湿度均值为 **0.13691 / 0.11431**（单口／原模式），差 0.02260、
-  配对标准误 0.00959，低于既定容差 0.05834。它是随机四级土壤状态统计，不是单图逐像素守恒。
-- 另跑顺光／逆光／俯视三个序列，各 4 张截图，均到 frame 180、正常退出、无错误日志。
-  已查看模型近景、常规视角、逆光和俯视序列：喷口有细喷流、沿程展开，未见原来的断团和整圈地面雾；
-  逆光可见度明显较强，顺光／俯视较淡。截图在 `target/sprinkler-shape-review/`，
-  套件统计在 `target/rotary-sprinkler-review/summary.json`。
-- 标准 `cargo run --release -- --hidden --mute --auto-exit 0.5` 通过，使用同 worktree 的
-  `--latest-log`／`--tail-latest-log` 检查正常退出及 `failures=0`，完整日志无 ERROR/panic/VUID。
-  最终 smoke 日志：`target/re-flora-logs/re-flora-20261020-010726.626-36126.log`。
-- GUI／相机文件在套件中哈希不变；另验证用户 GUI 文件除 checkbox 文案外逐字节保留。
-  没有启动可见游戏。生成文件变更仅为上述 lobe ABI 与 checkbox 文案。
-
-视觉是否达到玩家心中的真实感仍需玩家确认；本轮不宣称精确流体、大量实例的性能验收或逐水滴模拟。
+视觉真实感仍需玩家确认；前／俯视比逆光淡，不能把这些正确性结果当成最终美术或人口规模性能验收。

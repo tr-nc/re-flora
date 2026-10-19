@@ -202,6 +202,13 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_rotary");
+        for id in [
+            "sprinkler_spray_angle",
+            "sprinkler_rotation_speed",
+            "sprinkler_pulse_duty",
+        ] {
+            Self::add_missing_param(&mut config, "Debug", id);
+        }
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wet_patch_size");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_speed");
         Self::add_missing_param(&mut config, "Debug", "soil_drying_speed");
@@ -1344,6 +1351,69 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn spray_controls_migrate_without_overwriting_saved_values() {
+        let ids = [
+            "sprinkler_spray_angle",
+            "sprinkler_rotation_speed",
+            "sprinkler_pulse_duty",
+        ];
+        for existing in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let defaults: Vec<_> = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .filter(|p| ids.contains(&p.id.as_str()))
+                .cloned()
+                .collect();
+            assert_eq!(defaults.len(), 3);
+            for section in &mut config.section {
+                if existing {
+                    for p in &mut section.param {
+                        if ids.contains(&p.id.as_str()) {
+                            if let super::GuiParamValue::Float { value, .. } = &mut p.value {
+                                *value = 27.0;
+                            }
+                        }
+                    }
+                } else {
+                    section.param.retain(|p| !ids.contains(&p.id.as_str()));
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            for p in loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .filter(|p| ids.contains(&p.id.as_str()))
+            {
+                let expected = defaults.iter().find(|d| d.id == p.id).unwrap();
+                if existing {
+                    assert!(
+                        matches!(p.value, super::GuiParamValue::Float { value, .. } if value == 27.0)
+                    );
+                } else {
+                    assert_eq!(
+                        serde_json::to_value(p).unwrap(),
+                        serde_json::to_value(expected).unwrap()
+                    );
+                }
+            }
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                serde_json::to_value(&loaded).unwrap(),
+                serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
+            );
+        }
+    }
+
     #[test]
     fn rotary_switch_migrates_without_writing_and_round_trips_both_modes() {
         for saved in [None, Some(false), Some(true)] {

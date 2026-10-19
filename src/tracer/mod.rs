@@ -1508,6 +1508,9 @@ pub struct StarlightFrameInput {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
     pub sprinkler_rotary: bool,
+    pub sprinkler_spray_angle: f32,
+    pub sprinkler_rotation_speed: f32,
+    pub sprinkler_pulse_duty: f32,
     pub sprinkler_mist_density: f32,
     pub sprinkler_mist_flow: bool,
     pub sky_light_strength: f32,
@@ -1637,6 +1640,11 @@ pub struct Tracer {
     direct_sun_shadows: DirectSunShadowRuntime,
     sprinkler_mist_density: f32,
     sprinkler_mist_flow: bool,
+    sprinkler_rotary: bool,
+    sprinkler_clock: crate::sprinkler::SprayClock,
+    sprinkler_water_amount: f32,
+    sprinkler_patch_size: f32,
+    sprinkler_water_seed: u32,
     god_ray_temporal_blend_enabled: bool,
     god_ray_temporal_alpha: f32,
     god_ray_history_valid: bool,
@@ -2007,6 +2015,11 @@ impl Tracer {
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             sprinkler_mist_density: 1.0,
             sprinkler_mist_flow: true,
+            sprinkler_rotary: false,
+            sprinkler_clock: Default::default(),
+            sprinkler_water_amount: 0.0,
+            sprinkler_patch_size: 12.0,
+            sprinkler_water_seed: 1,
             god_ray_temporal_blend_enabled: true,
             god_ray_temporal_alpha: 0.10,
             god_ray_history_valid: false,
@@ -3081,6 +3094,7 @@ impl Tracer {
         )?;
         self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).min(3.0);
         self.sprinkler_mist_flow = environment.sprinkler_mist_flow;
+        self.sprinkler_rotary = environment.sprinkler_rotary;
         self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
         self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
@@ -3168,6 +3182,12 @@ impl Tracer {
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
 
         BufferUpdater::update_wind_inputs(&self.resources, &wind)?;
+        let sprinkler_clock = self.sprinkler_clock.sample(
+            vegetation.growth.flora_tick,
+            vegetation.growth.flora_tick_fraction,
+            vegetation.motion.world_tick_seconds,
+            environment.sprinkler_rotation_speed,
+        );
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             self.raster_trees.enabled,
@@ -3176,6 +3196,7 @@ impl Tracer {
             &materials,
             &vegetation,
             &environment,
+            sprinkler_clock,
         )?;
 
         BufferUpdater::update_flora_growth_info(
@@ -4099,6 +4120,34 @@ impl Tracer {
             );
         }
 
+        for pipeline in [
+            &self.pipeline_topology.compute().sprinkler_mist_prepare_ppl,
+            &self.pipeline_topology.compute().sprinkler_wetting_ppl,
+        ] {
+            pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        }
+        if self.sprinkler_resources.instance_count > 0
+            && (self.sprinkler_rotary
+                || (self.sprinkler_mist_flow && self.sprinkler_mist_density > 0.0))
+        {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "sprinkler_spray.prepare",
+                || self.record_sprinkler_mist_preparation(cmdbuf, render_flags.enable_shadows),
+            )?;
+            if self.sprinkler_rotary && self.sprinkler_water_amount > 0.0 {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "sprinkler_spray.wetting",
+                    || self.record_sprinkler_wetting(cmdbuf),
+                )?;
+            }
+        }
+
         // Terrain depth must exist before the raster pass. The raster pass seeds
         // its hardware depth attachment from this output so every raster
         // fragment is tested against terrain before transparent blending can
@@ -4315,20 +4364,12 @@ impl Tracer {
         }
         for pipeline in [
             &self.pipeline_topology.compute().sprinkler_mist_ppl,
-            &self.pipeline_topology.compute().sprinkler_mist_prepare_ppl,
             &self.pipeline_topology.compute().sprinkler_mist_tiles_ppl,
         ] {
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
         }
         if self.sprinkler_resources.instance_count > 0 && self.sprinkler_mist_density > 0.0 {
             if self.sprinkler_mist_flow {
-                Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "sprinkler_mist.prepare",
-                    || self.record_sprinkler_mist_preparation(cmdbuf, render_flags.enable_shadows),
-                )?;
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
@@ -6626,6 +6667,51 @@ impl Tracer {
         }
     }
 
+    /// Staged every simulation frame, even when paused or mist is invisible.
+    /// The GPU spray preparation owns spatial placement; this is only dose/time.
+    pub fn stage_sprinkler_wetting(&mut self, amount: f32, patch_size: f32) {
+        self.sprinkler_water_amount = amount.max(0.0);
+        self.sprinkler_patch_size = patch_size;
+        if amount > 0.0 {
+            self.sprinkler_water_seed = self.sprinkler_water_seed.wrapping_add(0x9e3779b9);
+        }
+    }
+
+    fn record_sprinkler_wetting(&self, cmdbuf: &CommandBuffer) -> Result<()> {
+        for instance in 0..self.sprinkler_resources.instance_count {
+            let push = crate::generated::gpu_structs::PushConstantSprinklerWetting {
+                instance,
+                samples: SPRINKLER_MIST_LOBES,
+                amount: self.sprinkler_water_amount,
+                patch_size: self.sprinkler_patch_size,
+                invocations: 4096,
+                seed: self
+                    .sprinkler_water_seed
+                    .wrapping_add(instance.wrapping_mul(0x85ebca6b)),
+                ..bytemuck::Zeroable::zeroed()
+            };
+            self.pipeline_topology
+                .compute()
+                .sprinkler_wetting_ppl
+                .record_with_descriptors(
+                    cmdbuf,
+                    &[
+                        (
+                            "water_contacts",
+                            DescriptorResource::Buffer(self.sprinkler_resources.water_contacts()),
+                        ),
+                        (
+                            "water_bounds",
+                            DescriptorResource::Buffer(self.sprinkler_resources.water_bounds()),
+                        ),
+                    ],
+                    Extent3D::new(push.invocations, 1, 1),
+                    Some(bytemuck::bytes_of(&push)),
+                )?;
+        }
+        Ok(())
+    }
+
     fn record_sprinkler_mist_preparation(
         &self,
         cmdbuf: &CommandBuffer,
@@ -6649,6 +6735,14 @@ impl Tracer {
                     (
                         "mist_bounds",
                         DescriptorResource::Buffer(self.sprinkler_resources.mist_bounds()),
+                    ),
+                    (
+                        "water_contacts",
+                        DescriptorResource::Buffer(self.sprinkler_resources.water_contacts()),
+                    ),
+                    (
+                        "water_bounds",
+                        DescriptorResource::Buffer(self.sprinkler_resources.water_bounds()),
                     ),
                 ],
                 Extent3D::new(push.count * 64, 1, 1),
@@ -7040,8 +7134,18 @@ impl Tracer {
     pub(crate) fn sprinkler_mist_review_lobes(
         &self,
     ) -> Result<Vec<crate::generated::gpu_structs::SprinklerMistLobe>> {
+        self.sprinkler_review_buffer(self.sprinkler_resources.mist_lobes())
+    }
+
+    pub(crate) fn sprinkler_water_review_contacts(
+        &self,
+    ) -> Result<Vec<crate::generated::gpu_structs::SprinklerWaterContact>> {
+        self.sprinkler_review_buffer(self.sprinkler_resources.water_contacts())
+    }
+
+    fn sprinkler_review_buffer<T: bytemuck::Pod>(&self, source: &Buffer) -> Result<Vec<T>> {
         let bytes = u64::from(self.sprinkler_resources.instance_count * SPRINKLER_MIST_LOBES)
-            * std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistLobe>() as u64;
+            * std::mem::size_of::<T>() as u64;
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
@@ -7054,17 +7158,13 @@ impl Tracer {
             self.vulkan_ctx.command_pool(),
             &self.vulkan_ctx.get_general_queue(),
             |cmd| {
-                self.sprinkler_resources
-                    .mist_lobes()
-                    .record_copy_to_buffer(cmd, &readback, bytes, 0, 0);
+                source.record_copy_to_buffer(cmd, &readback, bytes, 0, 0);
                 cmd.use_buffer(&readback, BufferUse::HostRead);
             },
         );
         let data = readback.read_back()?;
         Ok(data
-            .chunks_exact(std::mem::size_of::<
-                crate::generated::gpu_structs::SprinklerMistLobe,
-            >())
+            .chunks_exact(std::mem::size_of::<T>())
             .map(bytemuck::pod_read_unaligned)
             .collect())
     }

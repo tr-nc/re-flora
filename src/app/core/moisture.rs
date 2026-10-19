@@ -226,11 +226,22 @@ impl TerrainMoistureRuntime {
 
 impl App {
     pub(super) fn record_sprinkler_moisture(&mut self, cmdbuf: &CommandBuffer, dt: f32) -> usize {
+        self.tracer.stage_sprinkler_wetting(
+            0.0,
+            self.debug_settings
+                .adjustables
+                .sprinkler_wet_patch_size
+                .value,
+        );
         let dt = self
             .sprinkler_review
             .as_ref()
             .map_or(dt, |r| r.wetting_dt(dt));
-        if !dt.is_finite() || dt <= 0.0 || self.sprinklers.is_empty() {
+        if !dt.is_finite()
+            || dt <= 0.0
+            || self.sprinklers.is_empty()
+            || !self.terrain_persistence.allows_world_updates()
+        {
             return 0;
         }
 
@@ -243,36 +254,37 @@ impl App {
         let sprinkler_sources = self.sprinklers.moisture_sources();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
-        for source in sprinkler_sources {
-            let spray_axis = self
-                .sprinkler_review
-                .as_ref()
-                .filter(|r| r.isolates_wetting() && !r.is_rotary())
-                .map_or_else(
-                    || {
-                        source.spray_axis_for_mode(
-                            self.world_clock.flora_tick(),
-                            self.world_clock.flora_tick_fraction(),
-                            tick_seconds,
-                            rotary,
-                        )
-                    },
-                    |r| r.wetting_axis(),
-                );
-            if self
-                .plain_builder
-                .record_sprinkler_moisture_brush(
-                    cmdbuf,
-                    source.base_position,
-                    spray_axis,
-                    SPRINKLER_MOISTURE_RADIUS,
-                    amount,
-                    patch_size,
-                    rotary,
-                )
-                .is_some()
-            {
-                recorded_count += 1;
+        if rotary {
+            self.tracer.stage_sprinkler_wetting(amount, patch_size);
+            recorded_count = if amount > 0.0 {
+                sprinkler_sources.len()
+            } else {
+                0
+            };
+        } else {
+            for source in sprinkler_sources {
+                let spray_axis = self
+                    .sprinkler_review
+                    .as_ref()
+                    .filter(|r| r.isolates_wetting() && !r.is_rotary())
+                    .map_or_else(
+                        || source.spray_axis(self.world_clock.flora_tick(), tick_seconds),
+                        |r| r.wetting_axis(),
+                    );
+                if self
+                    .plain_builder
+                    .record_sprinkler_moisture_brush(
+                        cmdbuf,
+                        source.base_position,
+                        spray_axis,
+                        SPRINKLER_MOISTURE_RADIUS,
+                        amount,
+                        patch_size,
+                    )
+                    .is_some()
+                {
+                    recorded_count += 1;
+                }
             }
         }
 

@@ -320,6 +320,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_spray_angle",
+        kind: "float",
+        label: "Sprinklers: spray angle (degrees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "sprinkler_rotation_speed",
+        kind: "float",
+        label: "Sprinklers: rotation speed (RPM)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "sprinkler_pulse_duty",
+        kind: "float",
+        label: "Sprinklers: pulse duty (%)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_wet_patch_size",
         kind: "float",
         label: "Sprinklers: wet patch scale (voxels)",
@@ -1793,6 +1811,9 @@ pub struct GuiAdjustables {
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_rotary: crate::gui_adjustables::BoolParam,
+    pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
+    pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
+    pub sprinkler_pulse_duty: crate::gui_adjustables::FloatParam,
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
     pub soil_drying_speed: crate::gui_adjustables::FloatParam,
@@ -2092,6 +2113,9 @@ impl GuiAdjustables {
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_rotary_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut sprinkler_pulse_duty_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2628,6 +2652,27 @@ impl GuiAdjustables {
                     "sprinkler_rotary" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_rotary_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_spray_angle" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            sprinkler_spray_angle_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "sprinkler_rotation_speed" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            sprinkler_rotation_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "sprinkler_pulse_duty" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            sprinkler_pulse_duty_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "sprinkler_wet_patch_size" => {
@@ -4276,6 +4321,9 @@ impl GuiAdjustables {
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
             sprinkler_rotary: sprinkler_rotary_field.expect("Missing parameter: sprinkler_rotary"),
+            sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
+            sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
+            sprinkler_pulse_duty: sprinkler_pulse_duty_field.expect("Missing parameter: sprinkler_pulse_duty"),
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
             soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
@@ -4541,6 +4589,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
+        "sprinkler_spray_angle" => Some(&adjustables.sprinkler_spray_angle),
+        "sprinkler_rotation_speed" => Some(&adjustables.sprinkler_rotation_speed),
+        "sprinkler_pulse_duty" => Some(&adjustables.sprinkler_pulse_duty),
         "sprinkler_wet_patch_size" => Some(&adjustables.sprinkler_wet_patch_size),
         "sprinkler_wetting_speed" => Some(&adjustables.sprinkler_wetting_speed),
         "soil_drying_speed" => Some(&adjustables.soil_drying_speed),
@@ -4874,6 +4925,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
+        "sprinkler_spray_angle" => Some(&mut adjustables.sprinkler_spray_angle),
+        "sprinkler_rotation_speed" => Some(&mut adjustables.sprinkler_rotation_speed),
+        "sprinkler_pulse_duty" => Some(&mut adjustables.sprinkler_pulse_duty),
         "sprinkler_wet_patch_size" => Some(&mut adjustables.sprinkler_wet_patch_size),
         "sprinkler_wetting_speed" => Some(&mut adjustables.sprinkler_wetting_speed),
         "soil_drying_speed" => Some(&mut adjustables.soil_drying_speed),

@@ -4,6 +4,7 @@ import sprinkler_animation;
 import sprinkler_mist_geometry;
 import sprinkler_mist_transport;
 import sprinkler_spray;
+import sprinkler_spray_contact;
 import tracer_types;
 import tracer_shadowing;
 import wind_field;
@@ -16,10 +17,14 @@ import wind_field;
 [[vk::binding(0,1)]] StructuredBuffer<float4> sprinkler_instances;
 [[vk::binding(1,1)]] RWStructuredBuffer<B_SprinklerMistLobe> mist_lobes;
 [[vk::binding(2,1)]] RWStructuredBuffer<B_SprinklerMistBounds> mist_bounds;
+[[vk::binding(3,1)]] RWStructuredBuffer<B_SprinklerWaterContact> water_contacts;
+[[vk::binding(4,1)]] RWStructuredBuffer<B_SprinklerMistBounds> water_bounds;
 [[vk::push_constant]] ConstantBuffer<PushConstantSprinklerMist> mist_push;
 
 groupshared float3 lowerBounds[64];
 groupshared float3 upperBounds[64];
+groupshared float3 waterLower[64];
+groupshared float3 waterUpper[64];
 
 float4 mistScreenRect(float3 lo,float3 hi)
 {
@@ -45,8 +50,10 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
 {
     uint instance=group.x;
     float3 lo=float3(1.0e10),hi=float3(-1.0e10);
+    float3 waterLo=lo,waterHi=hi;
     if(local<mist_push.lobes_per_instance) {
         B_SprinklerMistLobe lobe=(B_SprinklerMistLobe)0;
+        B_SprinklerWaterContact contact=(B_SprinklerWaterContact)0;
         float4 pose=sprinkler_instances[instance];
         float seconds=max(gui_input.world_tick_seconds,1.0/240.0);
         float pairTicks=max(floor(1.0/seconds+0.5),2.0);
@@ -54,34 +61,54 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         bool rotary=gui_input.sprinkler_rotary!=0u;
         uint cycle=rotary?sprinklerRotaryTicks(seconds):uint(pairTicks)*2u;
         float tick=float(flora_growth_info.flora_tick%cycle)+(rotary?flora_growth_info.flora_tick_fraction:0.0);
-        MistSpraySource source=mistSpraySource(local,mist_push.lobes_per_instance,tick,seconds,pose.w,rotary);
+        MistSpraySource source=rotary?
+            mistRotarySource(local,mist_push.lobes_per_instance,gui_input.sprinkler_rotor_angle,pose.w,
+                gui_input.sprinkler_rotation_speed,gui_input.sprinkler_spray_angle,
+                gui_input.sprinkler_pulse_duty,gui_input.sprinkler_pulse_time):
+            mistSpraySource(local,mist_push.lobes_per_instance,tick,seconds,pose.w,false);
         float age=source.age;
+        float airFraction=1.0;
         if(source.emission>0.0 && mistGeometryReady()) {
             float3 position=pose.xyz+source.outlet;
             float2 wind=authoredWindEnabled() ? sampleAuthoredWind(pose.xz*256.0) : float2(0);
             wind*=0.03/(1.0+length(wind));
             float3 target=mistSprayTarget(wind,rotary);
             float3 velocity=source.velocity;
-            uint steps=uint(ceil(age/0.125));
-            float dt=age/float(steps);
+            // Trace to the end of the birth interval, not only its center: an
+            // interval can straddle the air/soil boundary. Publish that boundary
+            // once and let both consumers use it.
+            float traceAge=rotary?age+source.width*0.5:age;
+            uint steps=uint(ceil(traceAge/(rotary?0.0625:0.125)));
+            float dt=traceAge/float(steps);
             bool alive=true;
             for(uint s=0;s<steps;++s) {
                 float3 next,nextVelocity;
                 mistFlowAdvance(position,velocity,target,dt,next,nextVelocity);
                 if(rotary) {
-                    // Water deposits at first contact. Do not keep old droplets
-                    // sliding around the base as a rotating ground-smoke ring.
                     float fraction;float3 normal;
-                    if(mistSweepTerrain(position,next,fraction,normal)) { alive=false;break; }
+                    if(mistSweepTerrain(position,next,fraction,normal)) {
+                        float hitAge=(float(s)+fraction)*dt;
+                        float3 hit=lerp(position,next,fraction);
+                        if(dot(normal,normal)>0.0 && sprinklerArrivesInBin(hitAge,source)) {
+                            contact=sprinklerWaterContact(source,hit,normal,target,seconds);
+                            sprinklerContactBounds(contact,waterLo,waterHi);
+                            airFraction=saturate((hitAge-(age-source.width*0.5))/source.width);
+                            age=min(age,hitAge-0.0001);
+                        } else alive=false;
+                        break;
+                    }
                 } else if(!mistConstrainMotion(position,next,nextVelocity)) { alive=false;break; }
                 position=next;velocity=nextVelocity;
             }
             if(alive) {
+                // In free flight use the same exact flow, at the visible age.
+                // Contact-clipped volume never moves to a separately fitted path.
+                if(rotary)mistFlowAdvance(pose.xyz+source.outlet,source.velocity,target,max(0.0,age),position,velocity);
                 float3 tangent=rotary?mistSprayAgeTangent(source,target,seconds):float3(1,0,0);
                 lobe.tangent_rotary=float4(normalize(tangent),rotary?1.0:0.0);
                 float3 radii=rotary?mistSprayRadii(source,tangent):mistFlowRadii(age,source.width,source.nozzle);
                 float3 boundsRadius=mistSprayBoundsRadius(radii,lobe.tangent_rotary);
-                float amplitude=mistKernelAmplitude(mistSprayVisibleAmount(source,rotary),radii);
+                float amplitude=mistKernelAmplitude(mistSprayVisibleAmount(source,rotary)*airFraction,radii);
                 lobe.center_amplitude=float4(position,amplitude);
                 lobe.radii_near_geometry=float4(radii,mistLobeNearTerrain(position,boundsRadius) ? 1.0 : 0.0);
                 float3 ambient=sampleDdgiVolumeEnvironment(shading_info,position).irradiance;
@@ -92,13 +119,17 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
             }
         }
         mist_lobes[instance*mist_push.lobes_per_instance+local]=lobe;
+        water_contacts[instance*mist_push.lobes_per_instance+local]=contact;
     }
     lowerBounds[local]=lo;upperBounds[local]=hi;
+    waterLower[local]=waterLo;waterUpper[local]=waterHi;
     GroupMemoryBarrierWithGroupSync();
     for(uint offset=32u;offset>0u;offset>>=1u) {
         if(local<offset) {
             lowerBounds[local]=min(lowerBounds[local],lowerBounds[local+offset]);
             upperBounds[local]=max(upperBounds[local],upperBounds[local+offset]);
+            waterLower[local]=min(waterLower[local],waterLower[local+offset]);
+            waterUpper[local]=max(waterUpper[local],waterUpper[local+offset]);
         }
         GroupMemoryBarrierWithGroupSync();
     }
@@ -107,5 +138,8 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         bounds.lower=float4(lowerBounds[0],0);bounds.upper=float4(upperBounds[0],0);
         bounds.screen_rect=mistScreenRect(bounds.lower.xyz,bounds.upper.xyz);
         mist_bounds[instance]=bounds;
+        bounds.lower=float4(waterLower[0],0);bounds.upper=float4(waterUpper[0],0);
+        bounds.screen_rect=float4(0);
+        water_bounds[instance]=bounds;
     }
 }

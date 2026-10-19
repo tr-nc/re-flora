@@ -48,6 +48,7 @@ impl Pose {
     }
 }
 
+#[cfg(test)]
 pub(crate) const ROTARY_PERIOD_SECONDS: f32 = 4.0;
 pub(crate) const ROTARY_NOZZLE_HEIGHT: f32 = 4.2;
 pub(crate) const ROTARY_NOZZLE_X: f32 = 3.15;
@@ -61,6 +62,7 @@ pub(crate) struct RotorPose {
 }
 
 impl RotorPose {
+    #[cfg(test)]
     pub fn sample(tick: u32, fraction: f32, tick_seconds: f32, phase: f32) -> Self {
         let ticks = (ROTARY_PERIOD_SECONDS
             / crate::game_time::clamp_world_tick_seconds(tick_seconds))
@@ -96,9 +98,52 @@ impl RotorPose {
     }
 }
 
+/// Phase integration follows the canonical world clock, not rendered frame count.
+/// Changing RPM does not jump the head; pausing never accumulates deferred water.
+#[derive(Default)]
+pub(crate) struct SprayClock {
+    previous: Option<(u32, f32)>,
+    angle: f64,
+    pulse_seconds: f64,
+}
+
+impl SprayClock {
+    pub fn sample(&mut self, tick: u32, fraction: f32, seconds: f32, rpm: f32) -> [f32; 2] {
+        let fraction = fraction.clamp(0.0, 1.0);
+        let seconds = crate::game_time::clamp_world_tick_seconds(seconds);
+        let rpm = if rpm.is_finite() {
+            rpm.clamp(0.0, 60.0)
+        } else {
+            15.0
+        };
+        let dt = self.previous.map_or(0.0, |(old_tick, old_fraction)| {
+            (f64::from(tick.wrapping_sub(old_tick)) + f64::from(fraction - old_fraction)).max(0.0)
+                * f64::from(seconds)
+        });
+        self.angle = (self.angle + dt * f64::from(rpm) * std::f64::consts::TAU / 60.0)
+            .rem_euclid(std::f64::consts::TAU);
+        self.pulse_seconds = (self.pulse_seconds + dt).rem_euclid(0.25);
+        self.previous = Some((tick, fraction));
+        [self.angle as f32, self.pulse_seconds as f32]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spray_clock_is_continuous_under_speed_changes_pause_and_tick_wrap() {
+        let mut clock = SprayClock::default();
+        assert_eq!(clock.sample(u32::MAX, 0.5, 0.05, 15.0), [0.0, 0.0]);
+        let a = clock.sample(0, 0.5, 0.05, 15.0);
+        assert!((a[0] - std::f32::consts::TAU / 80.0).abs() < 1e-6);
+        assert_eq!(clock.sample(0, 0.5, 0.05, 60.0), a);
+        let stopped = clock.sample(10, 0.5, 0.05, 0.0);
+        assert_eq!(stopped[0], a[0]);
+        let b = clock.sample(20, 0.5, 0.05, 30.0);
+        assert!((b[0] - a[0] - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
 
     #[test]
     fn rotor_is_continuous_periodic_and_has_one_matching_spout() {

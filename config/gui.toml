@@ -672,6 +672,51 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "sprinkler_spray_angle"
+kind = "float"
+label = "Sprinklers: spray angle (degrees)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "sprinkler_rotary"
+equals = true
+
+[section.param.data]
+value = 40.0
+min = 10.0
+max = 90.0
+
+[[section.param]]
+id = "sprinkler_rotation_speed"
+kind = "float"
+label = "Sprinklers: rotation speed (RPM)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "sprinkler_rotary"
+equals = true
+
+[section.param.data]
+value = 15.0
+min = 0.0
+max = 60.0
+
+[[section.param]]
+id = "sprinkler_pulse_duty"
+kind = "float"
+label = "Sprinklers: pulse duty (%)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "sprinkler_rotary"
+equals = true
+
+[section.param.data]
+value = 50.0
+min = 0.0
+max = 100.0
+
+[[section.param]]
 id = "sprinkler_wet_patch_size"
 kind = "float"
 label = "Sprinklers: wet patch scale (voxels)"
