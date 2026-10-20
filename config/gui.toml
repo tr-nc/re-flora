@@ -669,9 +669,9 @@ label = "Sprinklers: spray angle (degrees)"
 type = "Float"
 
 [section.param.data]
-value = 40.0
-min = 10.0
-max = 90.0
+value = 30
+min = 10
+max = 90
 
 [[section.param]]
 id = "sprinkler_rotation_speed"
@@ -680,9 +680,9 @@ label = "Sprinklers: rotation speed (RPM)"
 type = "Float"
 
 [section.param.data]
-value = 15.0
-min = 0.0
-max = 60.0
+value = 5
+min = 0
+max = 60
 
 [[section.param]]
 id = "sprinkler_pulse_duty"
@@ -691,9 +691,9 @@ label = "Sprinklers: pulse duty (%)"
 type = "Float"
 
 [section.param.data]
-value = 50.0
-min = 0.0
-max = 100.0
+value = 30
+min = 0
+max = 100
 
 [[section.param]]
 id = "sprinkler_wet_patch_size"
@@ -702,9 +702,9 @@ label = "Sprinklers: wet patch scale (voxels)"
 type = "Float"
 
 [section.param.data]
-value = 12.0
-min = 2.0
-max = 32.0
+value = 2
+min = 2
+max = 32
 
 [[section.param]]
 id = "sprinkler_wetting_speed"
@@ -713,9 +713,9 @@ label = "Sprinklers: wetting speed multiplier"
 type = "Float"
 
 [section.param.data]
-value = 1.0
-min = 0.0
-max = 3.0
+value = 3
+min = 0
+max = 3
 
 [[section.param]]
 id = "soil_drying_speed"
@@ -724,9 +724,9 @@ label = "Soil: drying speed multiplier"
 type = "Float"
 
 [section.param.data]
-value = 0.2
-min = 0.0
-max = 3.0
+value = 0.05
+min = 0
+max = 3
 
 [[section.param]]
 id = "sprinkler_mist_flow"
@@ -744,9 +744,9 @@ label = "Sprinklers: mist intensity"
 type = "Float"
 
 [section.param.data]
-value = 2.0
-min = 0.0
-max = 6.0
+value = 6
+min = 0
+max = 6
 
 [[section.param]]
 id = "sprinkler_mist_particles"
@@ -764,9 +764,9 @@ label = "Sprinklers: pulse frequency (Hz)"
 type = "Float"
 
 [section.param.data]
-value = 4.0
+value = 5
 min = 0.25
-max = 20.0
+max = 20
 
 [[section.param]]
 id = "sprinkler_pixel_resolution"
