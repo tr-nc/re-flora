@@ -55,6 +55,32 @@ impl Pose {
 #[cfg(test)]
 pub(crate) const ROTARY_PERIOD_SECONDS: f32 = 4.0;
 pub(crate) const ROTARY_FRAMES: u32 = 16;
+
+/// Appearance only. Stable indices select complete assemblies, never water sources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub(crate) enum Design {
+    Current,
+    BrassImpact,
+    GardenPulse,
+    EnclosedRotor,
+}
+impl Design {
+    pub const ALL: [Self; 4] = [
+        Self::Current,
+        Self::BrassImpact,
+        Self::GardenPulse,
+        Self::EnclosedRotor,
+    ];
+
+    pub fn comparison(enabled: bool, candidate: u32) -> Self {
+        if enabled {
+            Self::ALL[1 + candidate.min(Self::ALL.len() as u32 - 2) as usize]
+        } else {
+            Self::Current
+        }
+    }
+}
 pub(crate) const ROTARY_NOZZLE_HEIGHT: f32 = 4.2;
 pub(crate) const ROTARY_NOZZLE_X: f32 = 3.15;
 pub(crate) const ROTARY_NOZZLE_Z: f32 = -0.85;

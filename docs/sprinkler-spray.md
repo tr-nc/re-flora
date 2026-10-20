@@ -12,7 +12,43 @@ A/B 设置与依赖条件在加载时退休，不写回文件、不覆盖其它�
 新回归先在旧实现失败（没有 16 个完整姿态），再验证每个姿态包含全部几何、固定底座不变、
 只转动喷嘴几何、全部姿态共享包围球。源与 baked sample 的数量随全局方向数增长，不随实例数增长。
 
-喷流控制均为声明式、可保存设置，旧配置只补缺项，不覆盖已有值：
+## 外观候选（仅外观 A/B）
+
+**Debug → Hardware Appearance**：
+
+- **Sprinklers: alternative hardware designs (A/B)**：不勾选保留原来的弯管造型。
+- 勾选后用 **Sprinklers: hardware candidate** 选择：
+  - **Brass impact head**：黄铜摇臂式，开放支架、回位弹簧、挡水臂和斜喷嘴。
+  - **Garden pulse head**：宽滑橇底座、粗塑料机头、调节盘与摇臂。
+  - **Enclosed gear rotor**：封闭圆筒机头、顶部方向标记和单个侧向喷嘴。
+
+两项都是声明式、可保存设置；关闭 A/B 不丢失所选候选。旧文件加载时只补缺项，
+不会写盘或覆盖其它设置。Debug 搜索可搜 hardware、impact、pulse 或 rotor。
+[实物调研与官方来源](research/sprinkler-hardware-candidates.md) 区分了冲击式的周期性打散水柱、
+齿轮式的平稳旋转与游戏的阀门 Duty；不要把三者当成相同机械机制。
+
+候选采用原创简化几何和游戏配色，不是产品模型复刻。**摇臂／弹簧只是固定机械姿态，
+尚未实现撞击与回弹动画。** 这轮只换硬件：相同的真实喷口位置和水源，喷幅、连续转动、
+阀门、雾、小水滴、碰撞与土壤入水均不变；不复活已退休的交替喷水模式。
+
+每种外观都有 16 个整机姿态，原生几何保留全部四种；表面采样只烘焙当前所选的 16 个，
+不是同时保留四份大缓存。切换仅重建喷头缓存，等待时显示所选外观的原生几何，
+不能读取其它外观的旧采样。每个外观内部的中心／半径／网格随转动固定，
+不同外观可有不同包围球。外部方向数仍与苹果共享。
+
+外观候选验证记录在 `target/sprinkler-design-review/`：全量 Rust **1654 app + 4 collider
++ 1 integration**、**49** 项 Slang CPU、显式 **660** 个姿态案例通过；最后一次几何细化后
+重跑 **26** 项喷头测试和 **4** 项候选测试。**5** 个原生候选／切换场景、
+**4** 个游戏距离机位、连续水／关阀／粒子墙阻挡 **3** 个共享水源兼容场景均通过
+Vulkan 同步验证；隐藏静音 Release smoke 正常退出。原有 GUI 内容逐字节不变，
+只新增上述两项；相机配置不变。对照图为 `hardware-comparison.png`，
+上行为近景、下行为 2.7 倍相机距离；每行相同机位／光照／比例，只裁剪和加标题。
+
+## 喷流控制
+
+喷流控制均为声明式、可保存设置，旧配置只补缺项，不覆盖已有值。
+下表列出控件**引入时**的默认值；当前已提交的用户设置以 `config/gui.toml` 为准
+（30°、5 RPM、5 Hz、30% Duty、mist intensity 6），不会因外观切换而重置：
 
 | 控件 | 范围 | 默认 | 行为 |
 | --- | --- | --- | --- |
@@ -21,7 +57,7 @@ A/B 设置与依赖条件在加载时退休，不写回文件、不覆盖其它�
 | Pulse frequency (Hz) | 0.25–20 | 4 | 每秒开关次数；调频保持阀门当前相位，暂停不积累补喷 |
 | Pulse duty (%) | 0–100% | 50% | 每周期打开的比例；默认 4 Hz / 50% 为开 125 ms／关 125 ms；100% 连续；0% 停喷但不停止旋转 |
 
-`Mist & Scattering` 的 **Mist intensity**（原 `sprinkler_mist_density`）为 0–6，默认 **2**，
+`Mist & Scattering` 的 **Mist intensity**（原 `sprinkler_mist_density`）为 0–6，引入时默认 **2**，
 即原默认光学密度的两倍，不影响浇水。已有自定义值加载时保留，旧控件名称／范围更新。
 **Small water droplets** 默认开启，可独立关闭；mist intensity 为零时仍可只看小水滴。
 全局 `--no-particles` 只隐藏小水滴，不停止雾与浇水。
@@ -167,10 +203,16 @@ python3 scripts/run_slang_tests.py
 cargo test sprinkler_shader_pose_matches_water_outlets -- --ignored --nocapture
 cargo build --release
 node scripts/validate-sprinkler-model.mjs --spray --seconds 8
+node scripts/validate-sprinkler-model.mjs --designs --seconds 15
 RUST_LOG=info cargo run --release -- --hidden --mute --auto-exit 0.5
 cargo run --release -- --tail-latest-log 180
 ```
 
+- `--designs`：四种造型与七次实时 A/B／候选／cache-native 切换，检查当前选中缓存、
+  实际 draw、其它模型 cache key 不变、Vulkan 同步和正常退出。
+  输出在 `target/sprinkler-design-review/`。几何测试覆盖四种外观的 16 姿态、喷口、
+  固定底座、绕序／法线、8/16/32 采样与仅当前家族占用样本；GUI 测试覆盖补缺、保存、
+  关闭后记忆选择及所有非外观帧输入保持不变。这些都不是美术认可或大量实例性能验收。
 - [径向覆盖](../shader/tests/sprinkler_radial_coverage.slang)：生产预算下，近／中／远均有入水；
   默认喷幅不靠过量浇中心填洞；旋转后密度场保持协变。包含最窄、最宽、停止和高速旋转。
 - [接触契约](../shader/tests/sprinkler_contact_contracts.slang)：每个速度带的可见落点都有水；

@@ -346,6 +346,7 @@ impl BufferUpdater {
             sprinkler_spray_angle: environment.sprinkler_spray_angle.clamp(10.0, 90.0),
             sprinkler_rotation_speed: environment.sprinkler_rotation_speed.clamp(0.0, 60.0),
             sprinkler_pulse_duty: environment.sprinkler_pulse_duty.clamp(0.0, 100.0) * 0.01,
+            sprinkler_design: terrain.model_surface_cache.sprinkler_design,
             sprinkler_rotor_angle: sprinkler_clock[0],
             sprinkler_pulse_time: sprinkler_clock[1],
             sprinkler_pulse_frequency: environment.sprinkler_pulse_frequency.max(0.25).min(20.0),

@@ -314,6 +314,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_design_variants",
+        kind: "bool",
+        label: "Sprinklers: alternative hardware designs (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "sprinkler_design",
+        kind: "choice",
+        label: "Sprinklers: hardware candidate",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_spray_angle",
         kind: "float",
         label: "Sprinklers: spray angle (degrees)",
@@ -1816,6 +1828,8 @@ pub struct GuiAdjustables {
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub sprinkler_design_variants: crate::gui_adjustables::BoolParam,
+    pub sprinkler_design: crate::gui_adjustables::ChoiceParam,
     pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
     pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
     pub sprinkler_pulse_duty: crate::gui_adjustables::FloatParam,
@@ -2119,6 +2133,8 @@ impl GuiAdjustables {
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_design_variants_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_design_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_pulse_duty_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2655,6 +2671,16 @@ impl GuiAdjustables {
                     "sprinkler_cache_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_design_variants" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            sprinkler_design_variants_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_design" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            sprinkler_design_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "sprinkler_spray_angle" => {
@@ -4335,6 +4361,8 @@ impl GuiAdjustables {
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
+            sprinkler_design_variants: sprinkler_design_variants_field.expect("Missing parameter: sprinkler_design_variants"),
+            sprinkler_design: sprinkler_design_field.expect("Missing parameter: sprinkler_design"),
             sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
             sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
             sprinkler_pulse_duty: sprinkler_pulse_duty_field.expect("Missing parameter: sprinkler_pulse_duty"),
@@ -4842,6 +4870,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "pavement_kind" => Some(&adjustables.pavement_kind),
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
+        "sprinkler_design" => Some(&adjustables.sprinkler_design),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
         _ => None,
     }
@@ -4873,6 +4902,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
+        "sprinkler_design_variants" => Some(&adjustables.sprinkler_design_variants),
         "sprinkler_mist_flow" => Some(&adjustables.sprinkler_mist_flow),
         "sprinkler_mist_particles" => Some(&adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
@@ -5179,6 +5209,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "pavement_kind" => Some(&mut adjustables.pavement_kind),
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
+        "sprinkler_design" => Some(&mut adjustables.sprinkler_design),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
         _ => None,
     }
@@ -5210,6 +5241,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
+        "sprinkler_design_variants" => Some(&mut adjustables.sprinkler_design_variants),
         "sprinkler_mist_flow" => Some(&mut adjustables.sprinkler_mist_flow),
         "sprinkler_mist_particles" => Some(&mut adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),

@@ -201,6 +201,8 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_design_variants");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_pulse_frequency");
         for p in config
@@ -1377,6 +1379,66 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hardware_candidates_load_old_files_and_preserve_saved_choices_without_writing() {
+        for existing in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            for section in &mut config.section {
+                if !existing {
+                    section.param.retain(|p| {
+                        p.id != "sprinkler_design" && p.id != "sprinkler_design_variants"
+                    });
+                } else {
+                    for p in &mut section.param {
+                        if p.id == "sprinkler_design" {
+                            if let super::GuiParamValue::Choice { value, .. } = &mut p.value {
+                                *value = 2;
+                            }
+                        }
+                        if p.id == "sprinkler_design_variants" {
+                            if let super::GuiParamValue::Bool { value } = &mut p.value {
+                                *value = true;
+                            }
+                        }
+                    }
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+            assert_eq!(
+                params
+                    .iter()
+                    .find(|p| p.id == "sprinkler_design")
+                    .unwrap()
+                    .value
+                    .get_choice()
+                    .unwrap()
+                    .0,
+                if existing { 2 } else { 0 }
+            );
+            assert_eq!(
+                params
+                    .iter()
+                    .find(|p| p.id == "sprinkler_design_variants")
+                    .unwrap()
+                    .value
+                    .get_bool(),
+                Some(existing)
+            );
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                serde_json::to_value(&loaded).unwrap(),
+                serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
+            );
+        }
+    }
+
     #[test]
     fn spray_controls_migrate_without_overwriting_saved_values() {
         let ids = [

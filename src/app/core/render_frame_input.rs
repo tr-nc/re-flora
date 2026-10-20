@@ -41,6 +41,10 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
         views: gui.model_pixel_view_count.value,
         apple_resolution: gui.apple_pixel_resolution.value,
         surfaces: crate::tracer::ModelSurfaceCacheOptions {
+            sprinkler_design: crate::sprinkler::Design::comparison(
+                gui.sprinkler_design_variants.value,
+                gui.sprinkler_design.value,
+            ) as u32,
             views: gui.model_pixel_view_count.value,
             resolutions: [
                 gui.apple_pixel_resolution.value,
@@ -352,6 +356,58 @@ mod tests {
                     assert_eq!(before.for_kind(kind), after.for_kind(kind));
                 }
                 assert_eq!(settings.adjustables.scene_pixel_ratio.value, scene);
+            }
+        }
+    }
+
+    #[test]
+    fn hardware_candidates_only_change_the_sprinkler_cache_selection() {
+        let mut settings = DebugSettings::load();
+        settings.adjustables.sprinkler_design_variants.value = false;
+        let before = model_cache_inputs(&settings);
+        let freeze = |settings: &DebugSettings| {
+            freeze_render_frame_inputs(
+                settings,
+                LiveRenderFrameFacts {
+                    world_tick_seconds: 0.05,
+                    flora_tick: 123,
+                    flora_tick_fraction: 0.375,
+                    visual_time_since_start: 9.5,
+                    sun_direction: Vec3::Y,
+                    sun_altitude: 0.4,
+                    sun_azimuth: 0.3,
+                    terrain_edit_preview_center: None,
+                    terrain_edit_preview_radius: 0.0,
+                    terrain_edit_preview_shape: TerrainEditPreviewShape::SurfaceCircle,
+                    terrain_edit_preview_color: Vec3::ZERO,
+                    terrain_edit_preview_alpha: 0.0,
+                },
+            )
+        };
+        let before_frame = freeze(&settings);
+        for enabled in [false, true] {
+            for candidate in 0..3 {
+                settings.adjustables.sprinkler_design_variants.value = enabled;
+                settings.adjustables.sprinkler_design.value = candidate;
+                let after = model_cache_inputs(&settings);
+                // No water, clock, optics, material or vegetation input changes:
+                // the selected hardware cache family is the only variation.
+                let mut after_frame = freeze(&settings);
+                after_frame.terrain.model_surface_cache.sprinkler_design =
+                    before_frame.terrain.model_surface_cache.sprinkler_design;
+                assert_eq!(after_frame, before_frame);
+                assert_eq!(
+                    after.surfaces.sprinkler_design,
+                    if enabled { candidate + 1 } else { 0 }
+                );
+                assert_eq!(after.views, before.views);
+                assert_eq!(after.flowers, before.flowers);
+                for kind in 0..4 {
+                    assert_eq!(
+                        after.surfaces.for_kind(kind),
+                        before.surfaces.for_kind(kind)
+                    );
+                }
             }
         }
     }

@@ -27,7 +27,8 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
     sprinkler_parts.GetDimensions(count,stride);
     float4 pose=sprinkler_instances[instance];
     float angle=gui_input.sprinkler_rotor_angle+frac(pose.w)*6.28318530718;
-    SprinklerPart part=sprinkler_parts[sprinklerRotaryFrame(angle)];
+    uint design=min(gui_input.sprinkler_design,count/16u-1u);
+    SprinklerPart part=sprinkler_parts[design*16u+sprinklerRotaryFrame(angle)];
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
     // One fixed assembly frame selects the same camera view/grid for all 16
     // internal poses. Do not rotate this frame with the nozzle.

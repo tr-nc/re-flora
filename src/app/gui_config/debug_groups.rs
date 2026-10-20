@@ -116,6 +116,13 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
+        title: "Hardware Appearance",
+        description: "Sprinklers: unchecked keeps the original curved arm; checked selects a brass impact, garden pulse, or enclosed rotor candidate. Appearance only: the same water outlet, rotation and irrigation. Arms are posed, not a spring/impact simulation. Only the selected design is pre-cached; native geometry appears while its 16 whole-assembly poses bake. Saved with Save.",
+        initially_open: false,
+        params: &["sprinkler_design_variants", "sprinkler_design"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Sprinkler Spray & Motion",
         description: "One rotating nozzle. The whole assembly shares one cached grid; the nozzle selects the nearest of 16 internal poses. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. 100% duty is continuous; 0% stops water, not rotation.",
         initially_open: false,

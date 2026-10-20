@@ -4,6 +4,16 @@ use crate::sprinkler::WORLD_SCALE;
 use crate::sprinkler::{HEAD_LIFT, NOZZLE_EXTENSION, NOZZLE_HEIGHT, NOZZLE_REACH};
 use glam::Vec3;
 
+mod candidates;
+
+pub(super) fn build_design(design: crate::sprinkler::Design) -> (Vec<SprinklerVertex>, Vec<u32>) {
+    if design == crate::sprinkler::Design::Current {
+        build_rotary_sprinkler_mesh()
+    } else {
+        candidates::build(design)
+    }
+}
+
 const SAGE: Vec3 = Vec3::new(0.39, 0.57, 0.43);
 const SAGE_LIGHT: Vec3 = Vec3::new(0.55, 0.69, 0.48);
 const SAGE_DARK: Vec3 = Vec3::new(0.23, 0.36, 0.29);
@@ -56,7 +66,8 @@ impl Mesh {
         sides: u32,
         motion: Vec3,
     ) {
-        let u = if axis.y.abs() > 0.9 { Vec3::X } else { Vec3::Y };
+        let reference = if axis.y.abs() > 0.9 { Vec3::X } else { Vec3::Y };
+        let u = (reference - axis * reference.dot(axis)).normalize();
         let v = axis.cross(u);
         for band in profile.windows(2) {
             let [(h0, r0, _), (h1, r1, color)] = [band[0], band[1]];
@@ -348,6 +359,57 @@ mod tests {
                 assert!(offset.dot(pose.direction()).abs() < 1e-5);
                 assert!((0.179..=0.341).contains(&offset.length()));
             }
+        }
+    }
+
+    #[test]
+    fn candidates_are_finite_distinct_complete_meshes_with_the_same_mouth() {
+        let outlet = crate::sprinkler::RotorPose { angle: 0. }.outlet();
+        let mut signatures = Vec::new();
+        for design in crate::sprinkler::Design::ALL {
+            let (vertices, indices) = build_design(design);
+            assert!(indices.len() / 3 < 2200, "bounded prop mesh: {design:?}");
+            assert!(vertices.iter().any(|v| v.animation_direction == [0.; 3]));
+            assert!(vertices.iter().any(|v| v.animation_direction != [0.; 3]));
+            let mut rim = Vec::new();
+            for v in &vertices {
+                let p = Vec3::from_array(v.position) / WORLD_SCALE;
+                let normal = Vec3::from_array(v.shading_normal);
+                assert!(
+                    p.is_finite() && p.y >= -1e-5 && p.y < 6.5 && p.x.abs() < 5. && p.z.abs() < 5.
+                );
+                assert!(normal.is_finite() && (normal.length() - 1.).abs() < 1e-5);
+                assert!(v.color_srgb.iter().all(|c| (0.0..=1.0).contains(c)));
+                if v.animation_direction != [0.; 3]
+                    && ((Vec3::from_array(v.position) - outlet).length() / WORLD_SCALE - 0.34).abs()
+                        < 1e-4
+                {
+                    rim.push(Vec3::from_array(v.position));
+                }
+            }
+            assert!(rim.len() >= 20, "one real outlet rim for {design:?}");
+            let center = rim.iter().sum::<Vec3>() / rim.len() as f32;
+            for frame in 0..16 {
+                let pose = crate::sprinkler::RotorPose {
+                    angle: frame as f32 * std::f32::consts::TAU / 16.,
+                };
+                assert!(pose.rotate(center).distance(pose.outlet()) < 1e-6);
+            }
+            for tri in indices.chunks_exact(3) {
+                let p = tri
+                    .iter()
+                    .map(|i| Vec3::from_array(vertices[*i as usize].position))
+                    .collect::<Vec<_>>();
+                let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize();
+                assert!(n.dot(Vec3::from_array(vertices[tri[0] as usize].shading_normal)) > 0.999);
+            }
+            let signature = vertices.iter().fold(0u64, |hash, v| {
+                v.position.iter().fold(hash, |h, x| {
+                    h.wrapping_mul(1099511628211) ^ u64::from(x.to_bits())
+                })
+            });
+            assert!(!signatures.contains(&signature));
+            signatures.push(signature);
         }
     }
 

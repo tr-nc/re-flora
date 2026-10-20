@@ -23,6 +23,8 @@ pub struct Options {
     pub views: u32,
     pub resolutions: [u32; MODEL_KINDS],
     pub enabled: [bool; MODEL_KINDS],
+    /// Only this hardware family is baked; other designs keep native fallback.
+    pub sprinkler_design: u32,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -30,6 +32,7 @@ impl Default for Options {
             views: 32,
             resolutions: [32, 22, 16, 32, 32],
             enabled: [true; MODEL_KINDS],
+            sprinkler_design: 0,
         }
     }
 }
@@ -41,12 +44,16 @@ impl Options {
             views: self.views,
             resolutions: [self.resolutions[kind]; MODEL_KINDS],
             enabled,
+            sprinkler_design: if kind == 4 { self.sprinkler_design } else { 0 },
         }
         .normalized()
     }
     pub fn normalized(self) -> Self {
         Self {
             views: model_pixel_views::runtime_count(self.views),
+            sprinkler_design: self
+                .sprinkler_design
+                .min(crate::sprinkler::Design::ALL.len() as u32 - 1),
             resolutions: self
                 .resolutions
                 .map(|n| n.clamp(MIN_RESOLUTION, MAX_RESOLUTION)),
@@ -377,13 +384,16 @@ fn bake(source: &Source, options: Options, cancel: &AtomicBool) -> Result<Baked>
         .filter(|p| p.range[1] > 0)
         .map(|p| p.range[2])
         .collect();
+    let selected = |id: usize, r: &[u32; 4]| {
+        options.enabled[r[2] as usize - 1]
+            && (r[2] != 3 || heads.contains(&(id as u32)))
+            && (r[2] != 5 || r[3] / crate::sprinkler::ROTARY_FRAMES == options.sprinkler_design)
+    };
     let needed: usize = source
         .ranges
         .iter()
         .enumerate()
-        .filter(|(id, r)| {
-            options.enabled[r[2] as usize - 1] && (r[2] != 3 || heads.contains(&(*id as u32)))
-        })
+        .filter(|(id, r)| selected(*id, r))
         .map(|(_, r)| {
             options.views as usize * options.resolutions[r[2] as usize - 1].pow(2) as usize
         })
@@ -391,7 +401,7 @@ fn bake(source: &Source, options: Options, cancel: &AtomicBool) -> Result<Baked>
     samples.try_reserve_exact(needed)?;
     for (id, range) in source.ranges.iter().enumerate() {
         let kind = range[2] as usize - 1;
-        if !options.enabled[kind] || (kind == 2 && !heads.contains(&(id as u32))) {
+        if !selected(id, range) {
             continue;
         }
         let n = options.resolutions[kind];
@@ -487,6 +497,7 @@ mod tests {
             views: 8,
             resolutions: [8; MODEL_KINDS],
             enabled: [true, false, false, false, false],
+            ..Options::default()
         };
         let data = bake(&source, options, &AtomicBool::new(false)).unwrap();
         assert_eq!(data.samples.len(), 8 * 8 * 8);
@@ -512,6 +523,12 @@ mod tests {
         assert_eq!(a.for_kind(1), b.for_kind(1));
         assert_eq!(a.for_kind(2), b.for_kind(2));
         assert_ne!(a.for_kind(0), b.for_kind(0));
+        let mut candidate = a;
+        candidate.sprinkler_design = 2;
+        for kind in 0..4 {
+            assert_eq!(a.for_kind(kind), candidate.for_kind(kind));
+        }
+        assert_ne!(a.for_kind(4), candidate.for_kind(4));
     }
     #[test]
     fn every_head_and_butterfly_frame_has_a_bounded_cache_entry() {
@@ -522,6 +539,7 @@ mod tests {
                 views: 8,
                 resolutions: [8; MODEL_KINDS],
                 enabled: [true; MODEL_KINDS],
+                ..Options::default()
             },
             &AtomicBool::new(false),
         )
@@ -556,41 +574,51 @@ mod tests {
     #[test]
     fn sprinkler_resolution_bakes_complete_poses_on_one_fixed_grid() {
         let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
-        assert_eq!(source.sprinkler_parts.len(), 16);
-        for n in [8, 16, 32] {
-            let data = bake(
-                &source,
-                Options {
-                    views: 8,
-                    resolutions: [n; MODEL_KINDS],
-                    enabled: [false, false, false, false, true],
-                },
-                &AtomicBool::new(false),
-            )
-            .unwrap();
-            assert_eq!(data.samples.len(), 16 * 8 * (n * n) as usize);
-            for part in &source.sprinkler_parts {
-                let expected = data.entries[source.sprinkler_parts[0].range[2] as usize].bounds;
-                let entry = data.entries[part.range[2] as usize];
-                assert_eq!(
-                    entry.bounds, expected,
-                    "one resolution must mean one cell size"
-                );
-                assert_eq!(entry.layout[1..], [n, 8, 1]);
-                let samples = &data.samples[entry.layout[0] as usize..][..(8 * n * n) as usize];
-                assert!(
-                    samples.iter().any(|s| s.position[3] == 1.),
-                    "each physical part must be sampled"
-                );
-                for sample in samples.iter().filter(|s| s.position[3] == 1.) {
-                    assert!(Vec3::from_slice(&sample.position).is_finite());
-                    assert!((Vec3::from_slice(&sample.normal).length() - 1.).abs() < 1e-5);
-                    assert!((sample.normal[3] as usize) < source.palette.len());
+        assert_eq!(
+            source.sprinkler_parts.len(),
+            crate::sprinkler::Design::ALL.len() * 16
+        );
+        for design in crate::sprinkler::Design::ALL {
+            for n in [8, 16, 32] {
+                let data = bake(
+                    &source,
+                    Options {
+                        views: 8,
+                        resolutions: [n; MODEL_KINDS],
+                        enabled: [false, false, false, false, true],
+                        sprinkler_design: design as u32,
+                    },
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+                assert_eq!(data.samples.len(), 16 * 8 * (n * n) as usize);
+                let parts = &source.sprinkler_parts[design as usize * 16..][..16];
+                for part in parts {
+                    let expected = data.entries[parts[0].range[2] as usize].bounds;
+                    let entry = data.entries[part.range[2] as usize];
+                    assert_eq!(
+                        entry.bounds, expected,
+                        "one resolution must mean one cell size"
+                    );
+                    assert_eq!(entry.layout[1..], [n, 8, 1]);
+                    let samples = &data.samples[entry.layout[0] as usize..][..(8 * n * n) as usize];
+                    assert!(
+                        samples.iter().any(|s| s.position[3] == 1.),
+                        "each physical part must be sampled"
+                    );
+                    for sample in samples.iter().filter(|s| s.position[3] == 1.) {
+                        assert!(Vec3::from_slice(&sample.position).is_finite());
+                        assert!((Vec3::from_slice(&sample.normal).length() - 1.).abs() < 1e-5);
+                        assert!((sample.normal[3] as usize) < source.palette.len());
+                    }
                 }
-            }
-            for (entry, range) in data.entries.iter().zip(&source.ranges) {
-                if range[2] != 5 {
-                    assert_eq!(entry.layout, [0; 4]);
+                for (entry, range) in data.entries.iter().zip(&source.ranges) {
+                    if range[2] != 5 || range[3] / 16 != design as u32 {
+                        assert_eq!(
+                            entry.layout, [0; 4],
+                            "inactive candidates must use native geometry, not a stale cache"
+                        );
+                    }
                 }
             }
         }
@@ -610,13 +638,15 @@ mod tests {
             Options {
                 views: 0,
                 resolutions: [0, 64, u32::MAX, 16, 24],
-                enabled: [false, true, false, true, true]
+                enabled: [false, true, false, true, true],
+                sprinkler_design: u32::MAX,
             }
             .normalized(),
             Options {
                 views: 8,
                 resolutions: [8, 32, 32, 16, 24],
-                enabled: [false, true, false, true, true]
+                enabled: [false, true, false, true, true],
+                sprinkler_design: 3,
             }
         );
     }

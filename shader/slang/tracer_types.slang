@@ -39,6 +39,7 @@ public struct U_GuiInput
     public float sprinkler_spray_angle;
     public float sprinkler_rotation_speed;
     public float sprinkler_pulse_duty;
+    public uint sprinkler_design;
     public float sprinkler_rotor_angle;
     public float sprinkler_pulse_time;
     public float sprinkler_pulse_frequency;

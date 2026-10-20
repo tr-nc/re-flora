@@ -789,9 +789,13 @@ impl ModelMeshFrame {
         }))
     }
 
-    pub fn sprinkler_cache_status(&self) -> Option<(bool, u32)> {
+    pub fn sprinkler_cache_status(&self) -> Option<(bool, u32, u32)> {
         let cache = self.frames.get(self.slot)?.cache[4].as_ref()?;
-        Some((cache.cached(4), self.cache_options.resolutions[4]))
+        Some((
+            cache.cached(4),
+            self.cache_options.resolutions[4],
+            self.cache_options.sprinkler_design,
+        ))
     }
 
     pub fn sprinklers(

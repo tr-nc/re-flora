@@ -292,52 +292,56 @@ pub(super) fn source(shape: Shape) -> Source {
     }));
     // Articulation is a source index, never a second camera frame. Every source
     // contains the complete base + rotor, including their mutual occlusion.
-    let (vertices, indices) = super::sprinkler_mesh::build_rotary_sprinkler_mesh();
-    let mut colors = Vec::new();
-    for v in &vertices {
-        if !colors.contains(&v.color_srgb) {
-            colors.push(v.color_srgb);
-        }
-    }
-    let palette_start = palette.len() as u32;
-    palette.extend(colors.iter().map(|c| [c[0], c[1], c[2], 0.]));
-    let height = vertices.iter().map(|v| v.position[1]).fold(0f32, f32::max);
-    let center = Vec3::Y * (height * 0.5);
-    let radius = vertices
-        .iter()
-        .map(|v| Vec3::from_array(v.position).distance(center))
-        .fold(0f32, f32::max)
-        * 1.01;
     let mut sprinkler_parts = Vec::new();
     let mut sprinkler_bounds = Vec::new();
-    for frame in 0..crate::sprinkler::ROTARY_FRAMES {
-        let pose = crate::sprinkler::RotorPose {
-            angle: frame as f32 * std::f32::consts::TAU / crate::sprinkler::ROTARY_FRAMES as f32,
-        };
-        let first = triangles.len() as u32;
-        for ids in indices.chunks_exact(3) {
-            let ids = [ids[0] as usize, ids[1] as usize, ids[2] as usize];
-            let moving = vertices[ids[0]].animation_direction != [0.; 3];
-            let transform = |v| if moving { pose.rotate(v) } else { v };
-            let material = palette_start
-                + colors
-                    .iter()
-                    .position(|c| *c == vertices[ids[0]].color_srgb)
-                    .unwrap() as u32;
-            triangles.push(triangle(
-                ids.map(|i| transform(Vec3::from_array(vertices[i].position))),
-                ids.map(|i| transform(Vec3::from_array(vertices[i].shading_normal))),
-                [Vec2::ZERO; 3],
-                material,
-            ));
+    for design in crate::sprinkler::Design::ALL {
+        let (vertices, indices) = super::sprinkler_mesh::build_design(design);
+        let mut colors = Vec::new();
+        for v in &vertices {
+            if !colors.contains(&v.color_srgb) {
+                colors.push(v.color_srgb);
+            }
         }
-        let source = ranges.len() as u32;
-        let count = triangles.len() as u32 - first;
-        ranges.push([first, count, 5, frame]);
-        sprinkler_parts.push(SprinklerPart {
-            range: [first, count, source, frame],
-        });
-        sprinkler_bounds.push((source, (center, radius)));
+        let palette_start = palette.len() as u32;
+        palette.extend(colors.iter().map(|c| [c[0], c[1], c[2], 0.]));
+        let height = vertices.iter().map(|v| v.position[1]).fold(0f32, f32::max);
+        let center = Vec3::Y * (height * 0.5);
+        let radius = vertices
+            .iter()
+            .map(|v| Vec3::from_array(v.position).distance(center))
+            .fold(0f32, f32::max)
+            * 1.01;
+        for frame in 0..crate::sprinkler::ROTARY_FRAMES {
+            let pose = crate::sprinkler::RotorPose {
+                angle: frame as f32 * std::f32::consts::TAU
+                    / crate::sprinkler::ROTARY_FRAMES as f32,
+            };
+            let first = triangles.len() as u32;
+            for ids in indices.chunks_exact(3) {
+                let ids = [ids[0] as usize, ids[1] as usize, ids[2] as usize];
+                let moving = vertices[ids[0]].animation_direction != [0.; 3];
+                let transform = |v| if moving { pose.rotate(v) } else { v };
+                let material = palette_start
+                    + colors
+                        .iter()
+                        .position(|c| *c == vertices[ids[0]].color_srgb)
+                        .unwrap() as u32;
+                triangles.push(triangle(
+                    ids.map(|i| transform(Vec3::from_array(vertices[i].position))),
+                    ids.map(|i| transform(Vec3::from_array(vertices[i].shading_normal))),
+                    [Vec2::ZERO; 3],
+                    material,
+                ));
+            }
+            let source = ranges.len() as u32;
+            let count = triangles.len() as u32 - first;
+            let assembly = design as u32 * crate::sprinkler::ROTARY_FRAMES + frame;
+            ranges.push([first, count, 5, assembly]);
+            sprinkler_parts.push(SprinklerPart {
+                range: [first, count, source, assembly],
+            });
+            sprinkler_bounds.push((source, (center, radius)));
+        }
     }
     let mut cache_bounds = vec![None; ranges.len()];
     for frame in 0..ANIMATION_FRAMES {
@@ -381,56 +385,65 @@ mod tests {
     #[test]
     fn sprinkler_assembly_has_sixteen_complete_poses() {
         let g = source(Shape::default());
-        let (_, indices) = super::super::sprinkler_mesh::build_rotary_sprinkler_mesh();
         assert_eq!(
             g.sprinkler_parts.len(),
-            16,
-            "one complete assembly per nozzle pose"
+            crate::sprinkler::Design::ALL.len() * 16
         );
-        let bounds = g.cache_bounds[g.sprinkler_parts[0].range[2] as usize];
-        for frame in &g.sprinkler_parts {
-            assert_eq!(
-                frame.range[1] as usize * 3,
-                indices.len(),
-                "base and nozzle must be baked together"
-            );
-            assert_eq!(
-                g.cache_bounds[frame.range[2] as usize], bounds,
-                "rotation must not move the cache grid"
-            );
+        for (design, parts) in crate::sprinkler::Design::ALL
+            .into_iter()
+            .zip(g.sprinkler_parts.chunks(16))
+        {
+            let (_, indices) = super::super::sprinkler_mesh::build_design(design);
+            let bounds = g.cache_bounds[parts[0].range[2] as usize];
+            for frame in parts {
+                assert_eq!(
+                    frame.range[1] as usize * 3,
+                    indices.len(),
+                    "base and nozzle must be baked together"
+                );
+                assert_eq!(
+                    g.cache_bounds[frame.range[2] as usize], bounds,
+                    "rotation must not move the cache grid"
+                );
+            }
         }
     }
 
     #[test]
     fn sprinkler_poses_keep_static_geometry_bit_identical_and_rotate_only_the_head() {
         let g = source(Shape::default());
-        let (vertices, indices) = super::super::sprinkler_mesh::build_rotary_sprinkler_mesh();
-        for (frame, part) in g.sprinkler_parts.iter().enumerate() {
-            let pose = crate::sprinkler::RotorPose {
-                angle: frame as f32 * std::f32::consts::TAU / 16.,
-            };
-            let bounds = g.cache_bounds[part.range[2] as usize].unwrap();
-            let triangles = &g.triangles[part.range[0] as usize..][..part.range[1] as usize];
-            for (t, ids) in triangles.iter().zip(indices.chunks_exact(3)) {
-                let a = Vec3::from_slice(&t.a);
-                for (p, &id) in [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)]
-                    .iter()
-                    .zip(ids)
-                {
-                    let v = vertices[id as usize];
-                    let original = Vec3::from_array(v.position);
-                    let expected = if v.animation_direction == [0.; 3] {
-                        original
-                    } else {
-                        pose.rotate(original)
-                    };
-                    assert!(p.distance(expected) < 1e-8);
-                    assert!(p.distance(bounds.0) <= bounds.1);
+        for (design, parts) in crate::sprinkler::Design::ALL
+            .into_iter()
+            .zip(g.sprinkler_parts.chunks(16))
+        {
+            let (vertices, indices) = super::super::sprinkler_mesh::build_design(design);
+            for (frame, part) in parts.iter().enumerate() {
+                let pose = crate::sprinkler::RotorPose {
+                    angle: frame as f32 * std::f32::consts::TAU / 16.,
+                };
+                let bounds = g.cache_bounds[part.range[2] as usize].unwrap();
+                let triangles = &g.triangles[part.range[0] as usize..][..part.range[1] as usize];
+                for (t, ids) in triangles.iter().zip(indices.chunks_exact(3)) {
+                    let a = Vec3::from_slice(&t.a);
+                    for (p, &id) in [a, a + Vec3::from_slice(&t.e1), a + Vec3::from_slice(&t.e2)]
+                        .iter()
+                        .zip(ids)
+                    {
+                        let v = vertices[id as usize];
+                        let original = Vec3::from_array(v.position);
+                        let expected = if v.animation_direction == [0.; 3] {
+                            original
+                        } else {
+                            pose.rotate(original)
+                        };
+                        assert!(p.distance(expected) < 1e-8);
+                        assert!(p.distance(bounds.0) <= bounds.1);
+                    }
+                    assert_eq!(
+                        &g.palette[t.uv2[2] as usize][..3],
+                        &vertices[ids[0] as usize].color_srgb
+                    );
                 }
-                assert_eq!(
-                    &g.palette[t.uv2[2] as usize][..3],
-                    &vertices[ids[0] as usize].color_srgb
-                );
             }
         }
     }

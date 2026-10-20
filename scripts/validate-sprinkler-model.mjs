@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 
-const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet | --dry | --rotary | --spray] [--seconds <positive-number>]
+const help = `Usage: node scripts/validate-sprinkler-model.mjs [--mist | --flow | --wet | --dry | --rotary | --spray | --designs] [--seconds <positive-number>]
 Check the sprinkler model, surface cache, continuous mist and placement lifecycle.
 Runs nine hidden, muted Release scenes with Vulkan synchronization validation:
 near, garden, orbit, lifecycle, dense/contrast resolve, 8/16/32 model pixels, and
@@ -43,6 +43,9 @@ invisible mist, live angle/RPM/duty/frequency sliders, walls, fast rotation, sma
 particles on/off/without mist, global --no-particles, resize and placement/removal.
 Also checks every tread of a concentric terraced slope. Reads GPU contacts/droplets and
 real soil; zero duty stops all spray, optical toggles never stop irrigation. Outputs: target/sprinkler-coupling-review/.
+--designs compares the current hardware and three candidates, then switches all designs,
+A/B and cached/native drawing live (seven transitions). Each retains 16 whole-assembly poses.
+Outputs: target/sprinkler-design-review/. Use --seconds 15 for the full switching sequence.
 Choose at most one suite. None is a performance benchmark.
 Also verifies no duplicate CPU irrigation particles and real watering at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
@@ -56,12 +59,13 @@ Artifacts: target/sprinkler-review/{*.png,*.log,settings,summary.json};
 Example: cargo build --release && node scripts/validate-sprinkler-model.mjs
 Recovery for an incomplete fixture: repeat the same suite flag with --seconds 20
 Exit: 0 passed/help; 1 runtime/validation failure; 2 invalid arguments.`;
-let seconds, mist, flow, wet, dry, rotary, spray;
+let seconds, mist, flow, wet, dry, rotary, spray, designs;
 try {
   const {values} = parseArgs({options: {
     mist: {type: 'boolean', default: false}, flow: {type: 'boolean', default: false},
     wet: {type: 'boolean', default: false}, dry: {type: 'boolean', default: false},
     rotary: {type: 'boolean', default: false}, spray: {type: 'boolean', default: false},
+    designs: {type: 'boolean', default: false},
     seconds: {type: 'string', default: '8'}, help: {type: 'boolean', short: 'h'},
   }});
   if (values.help) { console.log(help); process.exit(0); }
@@ -72,14 +76,15 @@ try {
   dry = values.dry;
   rotary = values.rotary;
   spray = values.spray;
-  assert.ok([mist,flow,wet,dry,rotary,spray].filter(Boolean).length<=1, 'choose only one of --mist, --flow, --wet, --dry, --rotary, or --spray');
+  designs = values.designs;
+  assert.ok([mist,flow,wet,dry,rotary,spray,designs].filter(Boolean).length<=1, 'choose only one of --mist, --flow, --wet, --dry, --rotary, --spray, or --designs');
   assert.ok(Number.isFinite(seconds) && seconds > 0, '--seconds must be a positive number');
 } catch (error) { console.error(`${error.message}\n${help}`); process.exit(2); }
 
 const root = path.resolve(import.meta.dirname, '..');
 const optical = mist || flow;
-const suiteFlag = spray ? '--spray' : rotary ? '--rotary' : dry ? '--dry' : wet ? '--wet' : flow ? '--flow' : mist ? '--mist' : '';
-const output = path.join(root, spray ? 'target/sprinkler-coupling-review' : rotary ? 'target/rotary-sprinkler-review' : dry ? 'target/soil-drying-review' : wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
+const suiteFlag = designs ? '--designs' : spray ? '--spray' : rotary ? '--rotary' : dry ? '--dry' : wet ? '--wet' : flow ? '--flow' : mist ? '--mist' : '';
+const output = path.join(root, designs ? 'target/sprinkler-design-review' : spray ? 'target/sprinkler-coupling-review' : rotary ? 'target/rotary-sprinkler-review' : dry ? 'target/soil-drying-review' : wet ? 'target/sprinkler-wetting-review' : flow ? 'target/sprinkler-mist-flow-review' : mist ? 'target/sprinkler-mist-review' : 'target/sprinkler-review');
 const settings = path.join(output, 'settings');
 const hash = file => createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
 const saved = ['config/gui.toml', 'config/camera_snapshots.toml'];
@@ -143,7 +148,7 @@ try {
     'khronos_validation.validate_sync = true\nkhronos_validation.duplicate_message_limit = 10000\n');
   const binary = path.join(root, 'target/release/re-flora');
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
-  const cases = spray
+  const cases = designs ? ['rotary-design-current','rotary-design-impact','rotary-design-garden','rotary-design-rotor','rotary-design-switch'] : spray
     ? ['rotary-contact-continuous','rotary-contact-pulse','rotary-contact-off','rotary-contact-invisible',
        'rotary-contact-controls','rotary-contact-wall','rotary-contact-fast',
        'rotary-contact-particles','rotary-contact-particles-only','rotary-contact-particles-disabled',
@@ -202,7 +207,7 @@ try {
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
     const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
-      '--hidden', '--mute', ...(soil || dry || coupled || terraces ? ['--no-flora'] : []), ...(optical || soil || dry || rotary || spray ? ['--perf'] : []),
+      '--hidden', '--mute', ...(soil || dry || coupled || terraces || designs ? ['--no-flora'] : []), ...(optical || soil || dry || rotary || spray ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -215,6 +220,16 @@ try {
     assert.match(log, /\[SHUTDOWN\] phase=complete failures=0/, `${name}: incomplete shutdown`);
     assert.match(log, /MODEL_VIEW_DRAW\] object=sprinklers.*shader=cached_surface_cells/,
       `${name}: sprinkler did not use shared pre-baked surface cells`);
+    if (name==='rotary-design-switch') {
+      assert.match(log,/SPRINKLER_DESIGN_REVIEW\] complete steps=7/,'design switching incomplete; retry --designs --seconds 20');
+      assert.match(log,/MODEL_VIEW_DRAW\] object=sprinklers.*shader=native_triangle/);
+      const steps=[...log.matchAll(/SPRINKLER_DESIGN_REVIEW\] step=(\d+) design=(\d+) cached=(true|false)/g)].map(m=>[+m[1],+m[2],m[3]==='true']);
+      assert.deepEqual(steps,[[0,0,true],[1,1,true],[2,2,true],[3,3,true],[4,3,false],[5,0,true],[6,1,true]]);
+    }
+    if (designs && name!=='rotary-design-switch') {
+      const id=['current','impact','garden','rotor'].indexOf(name.split('-').at(-1));
+      assert.ok(log.includes('status=Some((true, 32, '+id+'))'),'selected design did not reach cached rendering');
+    }
     if (name.startsWith('rotary-pixels-')) assert.match(log,
       new RegExp(`MODEL_SURFACE_MODE\\] object=sprinklers mode=cached.*resolution=${name.split('-').at(-1)}\\b`));
     if (name.startsWith('pixels-')) assert.match(log,

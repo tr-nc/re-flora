@@ -108,6 +108,11 @@ impl Review {
         const MODES: &[&str] = &[
             "near",
             "rotary-near",
+            "rotary-design-current",
+            "rotary-design-impact",
+            "rotary-design-garden",
+            "rotary-design-rotor",
+            "rotary-design-switch",
             "rotary-terraces",
             "rotary-contact-continuous",
             "rotary-contact-pulse",
@@ -592,6 +597,10 @@ impl App {
                 .adjustables
                 .sprinkler_pulse_frequency
                 .value = 4.0;
+            self.debug_settings
+                .adjustables
+                .sprinkler_design_variants
+                .value = false;
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 40.0;
@@ -609,6 +618,18 @@ impl App {
                 } else {
                     0.0
                 };
+            }
+            if review.mode.starts_with("rotary-design-") {
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_design_variants.value =
+                    review.mode != "rotary-design-current" && review.mode != "rotary-design-switch";
+                gui.sprinkler_design.value = match review.mode.as_str() {
+                    "rotary-design-garden" => 1,
+                    "rotary-design-rotor" => 2,
+                    _ => 0,
+                };
+                gui.sprinkler_rotation_speed.value = 0.0;
+                gui.sprinkler_wetting_speed.value = 0.0;
             }
             if review.mode.starts_with("mist-cliff") || review.mode == "rotary-cliff" {
                 let lo = base + Vec3::new(-0.30, -0.01, -0.20);
@@ -1045,6 +1066,23 @@ impl App {
         );
         let sun = crate::util::get_sun_dir(altitude.asin().to_degrees(), azimuth * 360.0);
         let offset = match review.mode.as_str() {
+            _ if review.mode.starts_with("rotary-design-") => {
+                // Same three-quarter view of the actual fixed nozzle pose for
+                // every candidate; a head-on view hides the arm silhouettes.
+                let phase = self.sprinklers.render_instances()[0].animation_phase;
+                let pose = crate::sprinkler::RotorPose {
+                    angle: (phase * 16.0).round() * std::f32::consts::TAU / 16.0,
+                };
+                let forward = crate::sprinkler::RotorPose { angle: 0.0 }.direction();
+                let side = Vec3::new(-forward.z, 0.0, forward.x);
+                let scale =
+                    if std::env::var("RE_FLORA_SPRINKLER_DESIGN_VIEW").as_deref() == Ok("play") {
+                        2.7
+                    } else {
+                        1.0
+                    };
+                pose.rotate((forward + side).normalize() * 0.085 + Vec3::Y * 0.035) * scale
+            }
             _ if review.checks_spray_contact() => Vec3::new(0.001, 0.85, 0.001),
             _ if review.isolates_wetting() || review.isolates_drying() => {
                 Vec3::new(0.001, 0.50, 0.001)
@@ -1118,6 +1156,47 @@ impl App {
                 self.apply_sprinkler_placement(base)?;
             }
         }
+        if review.mode == "rotary-design-switch" {
+            const STEPS: [(bool, u32, bool); 7] = [
+                (false, 0, true),
+                (true, 0, true),
+                (true, 1, true),
+                (true, 2, true),
+                (true, 2, false),
+                (false, 2, true),
+                (true, 0, true),
+            ];
+            if let Some(&(enabled, candidate, cached)) = STEPS.get(review.control_step) {
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_design_variants.value = enabled;
+                gui.sprinkler_design.value = candidate;
+                gui.sprinkler_cache_enabled.value = cached;
+                let selected = crate::sprinkler::Design::comparison(enabled, candidate) as u32;
+                let input =
+                    super::render_frame_input::model_cache_inputs(&self.debug_settings).surfaces;
+                for kind in 0..4 {
+                    ensure!(
+                        input.for_kind(kind) == review.control_baseline.unwrap().for_kind(kind),
+                        "candidate affected other model caches"
+                    );
+                }
+                if review.control_frames > 0
+                    && self.tracer.sprinkler_cache_status() == Some((cached, 32, selected))
+                {
+                    review.control_frames += 1;
+                    if review.control_frames >= 8 {
+                        log::info!("[SPRINKLER_DESIGN_REVIEW] step={} design={selected} cached={cached} other_models_unchanged=true",review.control_step);
+                        review.control_step += 1;
+                        review.control_frames = 0;
+                        if review.control_step == STEPS.len() {
+                            log::info!("[SPRINKLER_DESIGN_REVIEW] complete steps=7 saved=false");
+                        }
+                    }
+                } else {
+                    review.control_frames = 1;
+                }
+            }
+        }
         if matches!(review.mode.as_str(), "controls" | "rotary-controls") {
             const STEPS: [(bool, u32); 7] = [
                 (true, 8),
@@ -1141,7 +1220,7 @@ impl App {
                     );
                 }
                 if review.control_frames > 0
-                    && self.tracer.sprinkler_cache_status() == Some((enabled, resolution))
+                    && self.tracer.sprinkler_cache_status() == Some((enabled, resolution, 0))
                 {
                     review.control_frames += 1;
                     if review.control_frames >= 12 {
@@ -1159,6 +1238,13 @@ impl App {
             }
         }
         if review.frame == 180 {
+            if review.mode.starts_with("rotary-design-") {
+                log::info!(
+                    "[SPRINKLER_DESIGN_REVIEW] mode={} status={:?}",
+                    review.mode,
+                    self.tracer.sprinkler_cache_status()
+                );
+            }
             if review.mode == "rotary-terraces" {
                 self.review_sprinkler_terraces(base)?;
             }
