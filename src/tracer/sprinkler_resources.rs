@@ -7,7 +7,8 @@ use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 pub const SPRINKLER_RENDER_CAPACITY: usize = 256;
 pub const SPRINKLER_MIST_LOBES: u32 = 256;
 
-pub fn sprinkler_mist_sample_count(rotary: bool) -> u32 {
+#[cfg(test)]
+fn sprinkler_mist_sample_count(rotary: bool) -> u32 {
     // Eight launch-velocity bands × 32 ages. Original A/B keeps its exact 4×12 budget.
     if rotary {
         SPRINKLER_MIST_LOBES

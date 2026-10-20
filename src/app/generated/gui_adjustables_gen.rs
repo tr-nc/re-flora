@@ -314,12 +314,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "sprinkler_rotary",
-        kind: "bool",
-        label: "Sprinklers: rotating single-nozzle head (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "sprinkler_spray_angle",
         kind: "float",
         label: "Sprinklers: spray angle (degrees)",
@@ -1810,7 +1804,6 @@ pub struct GuiAdjustables {
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
-    pub sprinkler_rotary: crate::gui_adjustables::BoolParam,
     pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
     pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
     pub sprinkler_pulse_duty: crate::gui_adjustables::FloatParam,
@@ -2112,7 +2105,6 @@ impl GuiAdjustables {
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut sprinkler_rotary_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_pulse_duty_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2647,11 +2639,6 @@ impl GuiAdjustables {
                     "sprinkler_cache_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "sprinkler_rotary" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            sprinkler_rotary_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sprinkler_spray_angle" => {
@@ -4320,7 +4307,6 @@ impl GuiAdjustables {
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
-            sprinkler_rotary: sprinkler_rotary_field.expect("Missing parameter: sprinkler_rotary"),
             sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
             sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
             sprinkler_pulse_duty: sprinkler_pulse_duty_field.expect("Missing parameter: sprinkler_pulse_duty"),
@@ -4856,7 +4842,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
-        "sprinkler_rotary" => Some(&adjustables.sprinkler_rotary),
         "sprinkler_mist_flow" => Some(&adjustables.sprinkler_mist_flow),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
@@ -5192,7 +5177,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
-        "sprinkler_rotary" => Some(&mut adjustables.sprinkler_rotary),
         "sprinkler_mist_flow" => Some(&mut adjustables.sprinkler_mist_flow),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),

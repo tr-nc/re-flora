@@ -4,6 +4,12 @@ import sprinkler_mist_transport;
 export __extern_cpp int main()
 {
     uint failures=0;
+    // Whole hardware pose selection uses nearest, wrapped 16-way articulation.
+    for(int frame=-32;frame<=32;++frame)
+        for(int offset=-4;offset<=4;++offset) {
+            float angle=(float(frame)+float(offset)*0.1)*6.28318530718/16.0;
+            if(sprinklerRotaryFrame(angle)!=uint((frame%16+16)%16))failures++;
+        }
     float sum=0.0;
     for(uint n=0u;n<4u;++n) {
         sum+=mistRotaryEmission(n);

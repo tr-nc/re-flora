@@ -249,12 +249,17 @@ impl App {
         let gui = &self.debug_settings.adjustables;
         let speed = gui.sprinkler_wetting_speed.value.clamp(0.0, 3.0);
         let patch_size = gui.sprinkler_wet_patch_size.value;
-        let rotary = gui.sprinkler_rotary.value;
+        // The retired sector brush is exercised only by its explicit noise/soil
+        // diagnostic, never by a player's sprinkler or a saved A/B preference.
+        let legacy_brush_review = self
+            .sprinkler_review
+            .as_ref()
+            .is_some_and(|r| r.isolates_wetting());
         let amount = SPRINKLER_MOISTURE_PER_SECOND * speed * dt;
         let sprinkler_sources = self.sprinklers.moisture_sources();
         let tick_seconds = self.debug_settings.adjustables.world_tick_seconds.value;
         let mut recorded_count = 0;
-        if rotary {
+        if !legacy_brush_review {
             self.tracer.stage_sprinkler_wetting(amount, patch_size);
             recorded_count = if amount > 0.0 {
                 sprinkler_sources.len()

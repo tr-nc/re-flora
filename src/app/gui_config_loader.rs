@@ -201,7 +201,19 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_rotary");
+        // Accept both old A/B values, but only the rotating assembly remains.
+        // Retire its UI conditions too; never write a file during migration.
+        for section in &mut config.section {
+            section.param.retain(|p| p.id != "sprinkler_rotary");
+            for p in &mut section.param {
+                if p.enabled_if
+                    .as_ref()
+                    .is_some_and(|c| c.param == "sprinkler_rotary")
+                {
+                    p.enabled_if = None;
+                }
+            }
+        }
         for id in [
             "sprinkler_spray_angle",
             "sprinkler_rotation_speed",
@@ -1415,34 +1427,35 @@ mod tests {
     }
 
     #[test]
-    fn rotary_switch_migrates_without_writing_and_round_trips_both_modes() {
-        for saved in [None, Some(false), Some(true)] {
+    fn rotary_switch_retires_without_writing_or_disabling_saved_controls() {
+        use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};
+        for enabled in [false, true] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-            // Like production, missing fields use the compiled declarative value.
-            // A user's Save may legitimately change this local build-time input.
-            let default = config
+            let params = &mut config
                 .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap()
+                .param;
+            let mut obsolete = params
                 .iter()
-                .flat_map(|s| &s.param)
-                .find(|p| p.id == "sprinkler_rotary")
-                .and_then(|p| match &p.value {
-                    super::GuiParamValue::Bool { value } => Some(*value),
-                    _ => None,
-                })
-                .unwrap();
-            let expected = saved.unwrap_or(default);
-            for section in &mut config.section {
-                if let Some(p) = section
-                    .param
-                    .iter_mut()
-                    .find(|p| p.id == "sprinkler_rotary")
-                {
-                    p.value = super::GuiParamValue::Bool { value: expected };
-                }
-                if saved.is_none() {
-                    section.param.retain(|p| p.id != "sprinkler_rotary");
-                }
+                .find(|p| p.id == "sprinkler_cache_enabled")
+                .unwrap()
+                .clone();
+            obsolete.id = "sprinkler_rotary".into();
+            obsolete.value = super::GuiParamValue::Bool { value: enabled };
+            params.push(obsolete);
+            for p in params.iter_mut().filter(|p| {
+                matches!(
+                    p.id.as_str(),
+                    "sprinkler_spray_angle" | "sprinkler_rotation_speed" | "sprinkler_pulse_duty"
+                )
+            }) {
+                p.enabled_if = Some(GuiParamEnabledIf {
+                    param: "sprinkler_rotary".into(),
+                    equals: GuiParamConditionValue::Bool(true),
+                });
             }
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().join("gui.toml");
@@ -1451,24 +1464,22 @@ mod tests {
             let loaded = GuiConfigLoader::load_from_path(&path);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
             let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
-            assert!(
-                matches!(params.iter().find(|p|p.id=="sprinkler_rotary").unwrap().value,super::GuiParamValue::Bool{value} if value==expected)
-            );
-            for p in config.section.iter().flat_map(|s| &s.param).filter(|p| {
-                matches!(
-                    p.id.as_str(),
-                    "sprinkler_wet_patch_size"
-                        | "sprinkler_wetting_speed"
-                        | "soil_drying_speed"
-                        | "sprinkler_mist_flow"
-                        | "model_flower_head_scale"
-                )
-            }) {
+            assert!(!params.iter().any(|p| p.id == "sprinkler_rotary"));
+            for p in config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .filter(|p| p.id != "sprinkler_rotary")
+            {
                 let after = params.iter().find(|q| q.id == p.id).unwrap();
                 assert_eq!(
-                    serde_json::to_value(p).unwrap(),
-                    serde_json::to_value(after).unwrap()
+                    serde_json::to_value(&p.value).unwrap(),
+                    serde_json::to_value(&after.value).unwrap()
                 );
+                assert!(!after
+                    .enabled_if
+                    .as_ref()
+                    .is_some_and(|c| c.param == "sprinkler_rotary"));
             }
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             assert_eq!(

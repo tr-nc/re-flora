@@ -3,9 +3,13 @@
 use glam::Vec3;
 
 pub(crate) const WORLD_SCALE: f32 = 1.0 / 256.0;
+#[cfg(test)]
 pub(crate) const NOZZLE_HEIGHT: f32 = 4.0;
+#[cfg(test)]
 pub(crate) const NOZZLE_REACH: f32 = 3.1;
+#[cfg(test)]
 pub(crate) const HEAD_LIFT: f32 = 1.0;
+#[cfg(test)]
 pub(crate) const NOZZLE_EXTENSION: f32 = 0.2;
 
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +54,7 @@ impl Pose {
 
 #[cfg(test)]
 pub(crate) const ROTARY_PERIOD_SECONDS: f32 = 4.0;
+pub(crate) const ROTARY_FRAMES: u32 = 16;
 pub(crate) const ROTARY_NOZZLE_HEIGHT: f32 = 4.2;
 pub(crate) const ROTARY_NOZZLE_X: f32 = 3.15;
 pub(crate) const ROTARY_NOZZLE_Z: f32 = -0.85;

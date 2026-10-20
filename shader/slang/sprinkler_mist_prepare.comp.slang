@@ -60,7 +60,7 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         float seconds=max(gui_input.world_tick_seconds,1.0/240.0);
         float pairTicks=max(floor(1.0/seconds+0.5),2.0);
         // Integer reduction preserves sub-second ages after days of uptime.
-        bool rotary=gui_input.sprinkler_rotary!=0u;
+        const bool rotary=true; // the original alternating hardware has retired
         uint cycle=rotary?sprinklerRotaryTicks(seconds):uint(pairTicks)*2u;
         float tick=float(flora_growth_info.flora_tick%cycle)+(rotary?flora_growth_info.flora_tick_fraction:0.0);
         MistSpraySource source=rotary?

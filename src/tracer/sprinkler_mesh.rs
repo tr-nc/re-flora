@@ -1,5 +1,7 @@
 //! Authored lathed garden hardware, not voxel cubes. Large material regions survive scene pixels.
-use crate::sprinkler::{HEAD_LIFT, NOZZLE_EXTENSION, NOZZLE_HEIGHT, NOZZLE_REACH, WORLD_SCALE};
+use crate::sprinkler::WORLD_SCALE;
+#[cfg(test)]
+use crate::sprinkler::{HEAD_LIFT, NOZZLE_EXTENSION, NOZZLE_HEIGHT, NOZZLE_REACH};
 use glam::Vec3;
 
 const SAGE: Vec3 = Vec3::new(0.39, 0.57, 0.43);
@@ -78,6 +80,7 @@ impl Mesh {
     }
 }
 
+#[cfg(test)]
 pub(super) fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     let mut mesh = Mesh::default();
     // Low, rolled enamel foot: a stable planted silhouette, not an industrial spike.
@@ -181,7 +184,7 @@ pub(super) fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     (mesh.vertices, mesh.indices)
 }
 
-/// Single-outlet rotor; only two rigid groups share its whole-object cache.
+/// Single-outlet rotor. Group markers are consumed while baking whole-assembly poses.
 pub(super) fn build_rotary_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     use crate::sprinkler::{RotorPose, ROTARY_NOZZLE_HEIGHT};
     let mut mesh = Mesh::default();

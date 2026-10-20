@@ -554,9 +554,9 @@ mod tests {
         }
     }
     #[test]
-    fn sprinkler_resolution_bakes_independent_parts_on_one_whole_prop_grid() {
+    fn sprinkler_resolution_bakes_complete_poses_on_one_fixed_grid() {
         let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
-        assert_eq!(source.sprinkler_parts.len(), 8);
+        assert_eq!(source.sprinkler_parts.len(), 16);
         for n in [8, 16, 32] {
             let data = bake(
                 &source,
@@ -568,10 +568,9 @@ mod tests {
                 &AtomicBool::new(false),
             )
             .unwrap();
-            assert_eq!(data.samples.len(), 8 * 8 * (n * n) as usize);
+            assert_eq!(data.samples.len(), 16 * 8 * (n * n) as usize);
             for part in &source.sprinkler_parts {
-                let first = if part.range[3] & 1 == 0 { 0 } else { 6 };
-                let expected = data.entries[source.sprinkler_parts[first].range[2] as usize].bounds;
+                let expected = data.entries[source.sprinkler_parts[0].range[2] as usize].bounds;
                 let entry = data.entries[part.range[2] as usize];
                 assert_eq!(
                     entry.bounds, expected,

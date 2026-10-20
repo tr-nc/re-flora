@@ -36,7 +36,6 @@ public struct U_GuiInput
     public float lens_flare_intensity;
     public float lens_flare_sun_pixel_scale;
     public float world_tick_seconds;
-    public uint sprinkler_rotary;
     public float sprinkler_spray_angle;
     public float sprinkler_rotation_speed;
     public float sprinkler_pulse_duty;

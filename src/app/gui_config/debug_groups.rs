@@ -117,9 +117,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Sprinkler Spray & Motion",
-        description: "Unchecked: original alternating X/Z pairs. Checked: one rotating nozzle. Spray angle changes both the visible spray and its landing footprint; RPM changes rotation, not flight speed. Pulses repeat four times per second: 100% is continuous, 0% stops water but not rotation. Soil receives water only where the shared spray meets terrain. Mist density changes visibility only. The legacy soft dome is a nondirectional visual comparison.",
+        description: "One rotating nozzle. The whole assembly shares one cached grid; the nozzle selects the nearest of 16 internal poses. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. 100% duty is continuous; 0% stops water, not rotation.",
         initially_open: false,
-        params: &["sprinkler_rotary", "sprinkler_spray_angle", "sprinkler_rotation_speed", "sprinkler_pulse_duty"],
+        params: &["sprinkler_spray_angle", "sprinkler_rotation_speed", "sprinkler_pulse_duty"],
     },
     ControlGroup {
         parent: None,

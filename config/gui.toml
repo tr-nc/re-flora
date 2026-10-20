@@ -663,23 +663,10 @@ type = "Bool"
 value = true
 
 [[section.param]]
-id = "sprinkler_rotary"
-kind = "bool"
-label = "Sprinklers: rotating single-nozzle head (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "sprinkler_spray_angle"
 kind = "float"
 label = "Sprinklers: spray angle (degrees)"
 type = "Float"
-
-[section.param.enabled_if]
-param = "sprinkler_rotary"
-equals = true
 
 [section.param.data]
 value = 40.0
@@ -692,10 +679,6 @@ kind = "float"
 label = "Sprinklers: rotation speed (RPM)"
 type = "Float"
 
-[section.param.enabled_if]
-param = "sprinkler_rotary"
-equals = true
-
 [section.param.data]
 value = 15.0
 min = 0.0
@@ -706,10 +689,6 @@ id = "sprinkler_pulse_duty"
 kind = "float"
 label = "Sprinklers: pulse duty (%)"
 type = "Float"
-
-[section.param.enabled_if]
-param = "sprinkler_rotary"
-equals = true
 
 [section.param.data]
 value = 50.0

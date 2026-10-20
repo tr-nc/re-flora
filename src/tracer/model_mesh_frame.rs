@@ -825,7 +825,7 @@ impl ModelMeshFrame {
         self.prepare(
             cmd,
             pass,
-            instances.instance_count * g.source.sprinkler_parts.len() as u32,
+            instances.instance_count,
             self.draw_vertices(4, native),
             resources,
             None,

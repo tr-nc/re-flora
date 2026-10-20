@@ -223,8 +223,8 @@ try {
     }
     assert.match(log, /SPRINKLER_MIST_REVIEW\] water_particles=0/);
     if (name==='rotary-controls') {
-      const steps=[...log.matchAll(/SPRINKLER_ROTARY_REVIEW\] step=(\d+) enabled=(true|false)/g)].map(m=>[+m[1],m[2]==='true']);
-      assert.deepEqual(steps,[[0,true],[1,false],[2,true],[3,false],[4,true]]);
+      const steps=[...log.matchAll(/SPRINKLER_ROTARY_REVIEW\] step=(\d+) whole_assembly=true internal_poses=16/g)].map(m=>+m[1]);
+      assert.deepEqual(steps,[1,2,3,4]);
     }
     if (coupled) {
       assert.match(log,/SPRINKLER_CONTACT_REVIEW/);

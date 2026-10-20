@@ -17,7 +17,7 @@ import tracer_types;
 [[vk::binding(15,0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
 [[vk::binding(11,1)]] StructuredBuffer<float4> sprinkler_instances;
 [[vk::binding(18,1)]] StructuredBuffer<float4> sprinkler_model_colors;
-struct SprinklerPart { uint4 range; float4 motion; };
+struct SprinklerPart { uint4 range; };
 [[vk::binding(31,1)]] StructuredBuffer<SprinklerPart> sprinkler_parts;
 
 [shader("vertex")]
@@ -25,24 +25,17 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
 {
     uint count, stride;
     sprinkler_parts.GetDimensions(count,stride);
-    SprinklerPart part=sprinkler_parts[instance%count];
-    float4 pose=sprinkler_instances[instance/count];
+    float4 pose=sprinkler_instances[instance];
+    float angle=gui_input.sprinkler_rotor_angle+frac(pose.w)*6.28318530718;
+    SprinklerPart part=sprinkler_parts[sprinklerRotaryFrame(angle)];
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
-    if ((part.range.w&1u)!=gui_input.sprinkler_rotary) return output;
-    bool rotary=(part.range.w&1u)!=0u;
-    float extension; bool alongX;
-    sprinklerAnimation(flora_growth_info.flora_tick,gui_input.world_tick_seconds,pose.w,extension,alongX);
-    float3 translation=rotary?float3(0):sprinklerPartTranslation(part.motion.xyz,extension,alongX);
+    // One fixed assembly frame selects the same camera view/grid for all 16
+    // internal poses. Do not rotate this frame with the nozzle.
     ModelPixelFrame physical=identityModelPixelFrame();
     physical.center=pose.xyz;
-    if((part.range.w&2u)!=0u) {
-        float angle=gui_input.sprinkler_rotor_angle+frac(pose.w)*6.28318530718;
-        physical.axisX=sprinklerRotate(physical.axisX,angle);
-        physical.axisZ=sprinklerRotate(physical.axisZ,angle);
-    }
     float3 position,normal; uint material;
     CachedModelVertex cached;
-    if(cachedModelVertexTranslated(vertex,part.range.z,5u,physical,float3(0),translation,cached)) {
+    if(cachedModelVertex(vertex,part.range.z,5u,physical,float3(0),cached)) {
         if(!cached.visible)return output;
         position=cached.position;normal=cached.normal;material=cached.material;
         output.position=cached.clip;
@@ -50,7 +43,7 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
         if(vertex>=part.range.y*3u)return output;
         ButterflyMeshTriangle t=model_mesh_triangles[part.range.x+vertex/3u];
         ModelPixelFrame rendered=modelMeshViewFrame(physical,float3(0));
-        position=modelViewWorldPoint(rendered,meshPoint(t,vertex%3u))+translation;
+        position=modelViewWorldPoint(rendered,meshPoint(t,vertex%3u));
         normal=normalize(modelViewWorldVector(rendered,meshNormal(t,vertex%3u)));
         material=uint(t.uv2.z+0.5);
         output.position=mul(camera_info.view_proj_mat,float4(position,1));

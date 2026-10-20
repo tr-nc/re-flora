@@ -31,12 +31,15 @@ pub use sprinkler_resources::*;
 
 #[cfg(test)]
 pub(crate) fn sprinkler_bake_motions_for_test() -> Vec<Vec3> {
-    model_geometry::source(crate::flora::models::Shape::default())
-        .sprinkler_parts
-        .iter()
-        .filter(|p| p.range[3] == 0)
-        .map(|p| Vec3::from_slice(&p.motion))
-        .collect()
+    let (vertices, _) = sprinkler_mesh::build_sprinkler_mesh();
+    let mut motions = Vec::new();
+    for v in vertices {
+        let motion = Vec3::from_array(v.animation_direction) * crate::sprinkler::WORLD_SCALE;
+        if !motions.contains(&motion) {
+            motions.push(motion);
+        }
+    }
+    motions
 }
 
 mod geometry_preview_resources;
@@ -1507,7 +1510,6 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
-    pub sprinkler_rotary: bool,
     pub sprinkler_spray_angle: f32,
     pub sprinkler_rotation_speed: f32,
     pub sprinkler_pulse_duty: f32,
@@ -1640,7 +1642,6 @@ pub struct Tracer {
     direct_sun_shadows: DirectSunShadowRuntime,
     sprinkler_mist_density: f32,
     sprinkler_mist_flow: bool,
-    sprinkler_rotary: bool,
     sprinkler_clock: crate::sprinkler::SprayClock,
     sprinkler_water_amount: f32,
     sprinkler_patch_size: f32,
@@ -2015,7 +2016,6 @@ impl Tracer {
             direct_sun_shadows: DirectSunShadowRuntime::default(),
             sprinkler_mist_density: 1.0,
             sprinkler_mist_flow: true,
-            sprinkler_rotary: false,
             sprinkler_clock: Default::default(),
             sprinkler_water_amount: 0.0,
             sprinkler_patch_size: 12.0,
@@ -3094,7 +3094,6 @@ impl Tracer {
         )?;
         self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).min(3.0);
         self.sprinkler_mist_flow = environment.sprinkler_mist_flow;
-        self.sprinkler_rotary = environment.sprinkler_rotary;
         self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
         self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
@@ -4126,10 +4125,7 @@ impl Tracer {
         ] {
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
         }
-        if self.sprinkler_resources.instance_count > 0
-            && (self.sprinkler_rotary
-                || (self.sprinkler_mist_flow && self.sprinkler_mist_density > 0.0))
-        {
+        if self.sprinkler_resources.instance_count > 0 {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4137,7 +4133,7 @@ impl Tracer {
                 "sprinkler_spray.prepare",
                 || self.record_sprinkler_mist_preparation(cmdbuf, render_flags.enable_shadows),
             )?;
-            if self.sprinkler_rotary && self.sprinkler_water_amount > 0.0 {
+            if self.sprinkler_water_amount > 0.0 {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
                     gpu_profiler_frame_slot,
@@ -6659,7 +6655,7 @@ impl Tracer {
                 self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled,
             ),
             flow_enabled: u32::from(self.sprinkler_mist_flow),
-            lobes_per_instance: sprinkler_mist_sample_count(self.sprinkler_rotary),
+            lobes_per_instance: SPRINKLER_MIST_LOBES,
             tile_size: SPRINKLER_MIST_TILE_SIZE,
             width: extent.width,
             height: extent.height,
@@ -6681,7 +6677,7 @@ impl Tracer {
         for instance in 0..self.sprinkler_resources.instance_count {
             let push = crate::generated::gpu_structs::PushConstantSprinklerWetting {
                 instance,
-                samples: sprinkler_mist_sample_count(self.sprinkler_rotary),
+                samples: SPRINKLER_MIST_LOBES,
                 amount: self.sprinkler_water_amount,
                 patch_size: self.sprinkler_patch_size,
                 invocations: 4096,
@@ -7144,10 +7140,8 @@ impl Tracer {
     }
 
     fn sprinkler_review_buffer<T: bytemuck::Pod>(&self, source: &Buffer) -> Result<Vec<T>> {
-        let bytes = u64::from(
-            self.sprinkler_resources.instance_count
-                * sprinkler_mist_sample_count(self.sprinkler_rotary),
-        ) * std::mem::size_of::<T>() as u64;
+        let bytes = u64::from(self.sprinkler_resources.instance_count * SPRINKLER_MIST_LOBES)
+            * std::mem::size_of::<T>() as u64;
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),

@@ -508,7 +508,6 @@ impl App {
                 base.x = 0.75;
                 base.z = 1.25;
             }
-            self.debug_settings.adjustables.sprinkler_rotary.value = review.is_rotary();
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 40.0;
@@ -884,33 +883,26 @@ impl App {
         if review.mode.ends_with("-off") {
             self.debug_settings.adjustables.sprinkler_mist_density.value = 0.0;
         }
-        if review.mode == "rotary-controls" {
-            if review.frame > 0 && review.frame <= 160 && review.frame % 40 == 0 {
-                let previous = self.debug_settings.adjustables.sprinkler_rotary.value;
-                let lobes = self.tracer.sprinkler_mist_review_lobes()?;
-                ensure!(
-                    lobes.len() == crate::tracer::sprinkler_mist_sample_count(previous) as usize,
-                    "rotary review lobe count"
-                );
-                let live: Vec<_> = lobes
-                    .iter()
-                    .filter(|l| l.center_amplitude[3] > 0.0)
-                    .collect();
-                ensure!(!live.is_empty(), "GPU mist mode has no live spray");
-                ensure!(
-                    live.iter().all(|l| (l.tangent_rotary[3] > 0.5) == previous),
-                    "GPU mist mode did not follow the live checkbox"
-                );
-                log::info!("[SPRINKLER_ROTARY_REVIEW] gpu_previous={previous} oriented_single_outlet={previous} live_samples={} explicit_readback=true", live.len());
-            }
-            let enabled = (review.frame / 40) % 2 == 0;
-            self.debug_settings.adjustables.sprinkler_rotary.value = enabled;
-            if review.frame % 40 == 0 && review.frame <= 160 {
-                log::info!(
-                    "[SPRINKLER_ROTARY_REVIEW] step={} enabled={enabled} saved=false",
-                    review.frame / 40
-                );
-            }
+        if review.mode == "rotary-controls"
+            && review.frame > 0
+            && review.frame <= 160
+            && review.frame % 40 == 0
+        {
+            let lobes = self.tracer.sprinkler_mist_review_lobes()?;
+            ensure!(
+                lobes.len() == crate::tracer::SPRINKLER_MIST_LOBES as usize,
+                "spray sample count"
+            );
+            let live: Vec<_> = lobes
+                .iter()
+                .filter(|l| l.center_amplitude[3] > 0.0)
+                .collect();
+            ensure!(
+                !live.is_empty() && live.iter().all(|l| l.tangent_rotary[3] > 0.5),
+                "retired alternating spray became active"
+            );
+            log::info!("[SPRINKLER_ROTARY_REVIEW] step={} whole_assembly=true internal_poses=16 live_samples={} explicit_readback=true",
+                review.frame / 40, live.len());
         }
         if review.mode == "mist-flow-controls" {
             let flow = (review.frame / 40) % 2 == 0;

@@ -16,7 +16,12 @@ public void sprinklerAnimation(uint tick, float tickSeconds, float animationPhas
     extension = 0.5 - 0.5 * cos(pairPhase * 6.28318530718);
 }
 
-// A separate original mode is retained; these functions own the new rotor pose.
+// Only the hardware image is quantized. The shared water source remains continuous.
+public uint sprinklerRotaryFrame(float angle)
+{
+    return uint(floor(frac(angle/6.28318530718)*16.0+0.5))%16u;
+}
+// These functions own the continuous water rotor pose.
 public uint sprinklerRotaryTicks(float seconds)
 {
     return max(uint(floor(4.0/max(seconds,1.0/240.0)+0.5)),4u);

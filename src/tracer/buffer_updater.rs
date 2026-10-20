@@ -343,7 +343,6 @@ impl BufferUpdater {
             lens_flare_sun_pixel_scale: environment.lens_flare_sun_pixel_scale,
 
             world_tick_seconds: motion.world_tick_seconds,
-            sprinkler_rotary: u32::from(environment.sprinkler_rotary),
             sprinkler_spray_angle: environment.sprinkler_spray_angle.clamp(10.0, 90.0),
             sprinkler_rotation_speed: environment.sprinkler_rotation_speed.clamp(0.0, 60.0),
             sprinkler_pulse_duty: environment.sprinkler_pulse_duty.clamp(0.0, 100.0) * 0.01,
