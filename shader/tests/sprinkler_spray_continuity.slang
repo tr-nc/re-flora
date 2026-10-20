@@ -30,15 +30,16 @@ float density(float3 point,Prepared lobes[COUNT],uint band)
 
 export __extern_cpp int main()
 {
-    uint failures=0u;float worst=1.0e10;
+    uint failures=0u;float worst=1.0e10,worstValley=1.0e10;
     float speeds[3]={0,15,60},angles[3]={10,40,90};
-    for(uint variant=0u;variant<36u;++variant) {
+    for(uint q=0u;q<65u;++q)for(uint variant=0u;variant<36u;++variant) {
+        float quadrature=q==64u?0.5:(float(q)+0.5)/64.0;
         float angleNow=float(variant)*0.37,seconds=variant<18u?0.05:0.08,phase=float(variant)/36.0;
         float rpm=speeds[variant%3u],angle=angles[(variant/3u)%3u];
         float3 target=mistSprayTarget(float2(variant%2u==0u?0.0:0.02,0.01),true);
         MistSpraySource sources[COUNT];Prepared lobes[COUNT];
         for(uint n=0;n<COUNT;++n) {
-            MistSpraySource s=mistRotarySource(n,COUNT,angleNow,phase,rpm,angle,1,0);
+            MistSpraySource s=mistRotarySource(n,COUNT,angleNow,phase,rpm,angle,1,0,4,quadrature);
             sources[n]=s;
             lobes[n].position=centerAtOffset(s,0,target);
             lobes[n].tangent=mistSprayAgeTangent(s,target,seconds);
@@ -72,11 +73,17 @@ export __extern_cpp int main()
                 else if(abs(mistKernelLineIntegral(localOrigin,localDir,float3(0),r,interval)/(16.0*r.y/15.0)-1.0)>0.001)failures++;
                 if(age>=3u && age+1u<AGES && lobes[n+1u].position.y>0) {
                     float offset=(sources[n+1u].age-s.age)*0.5;
-                    float average=0.5*(density(lobes[n].position,lobes,band)+density(lobes[n+1u].position,lobes,band));
-                    float ratio=density(centerAtOffset(s,offset,target),lobes,band)/average;
-                    worst=min(worst,ratio);
-                    if(!isfinite(ratio) || ratio<0.6) {
-                        printf("gap rpm=%.0f angle=%.0f band=%u age=%.5f density_ratio=%.5f\n",rpm,angle,band,s.age,ratio);
+                    float a=density(lobes[n].position,lobes,band),b=density(lobes[n+1u].position,lobes,band);
+                    float middle=density(centerAtOffset(s,offset,target),lobes,band);
+                    float ratio=middle/(0.5*(a+b)),valley=middle/min(a,b);
+                    // Retain the original midpoint guard. At very weak reaches,
+                    // density can fall steeply near the apex: a ramp is not a
+                    // hole. Across all strata, reject an interior trough below
+                    // BOTH neighbors rather than treating their mean as a floor.
+                    if(q==64u)worst=min(worst,ratio);
+                    worstValley=min(worstValley,valley);
+                    if(!isfinite(ratio) || !isfinite(valley) || valley<0.6 || (q==64u && ratio<0.6)) {
+                        printf("gap q=%.4f rpm=%.0f angle=%.0f band=%u age=%.5f density_ratio=%.5f\n",quadrature,rpm,angle,band,s.age,ratio);
                         failures++;
                     }
                 }
@@ -102,6 +109,6 @@ export __extern_cpp int main()
     }
     printf("optical amount refinement %.6f / %.6f\n",amounts[0]/amounts[2],amounts[1]/amounts[2]);
     if(abs(amounts[0]/amounts[2]-1)>0.002 || abs(amounts[1]/amounts[2]-1)>0.001)failures++;
-    printf("single-mouth deflected spray: density floor %.4f (required >=0.6), failures=%u\n",worst,failures);
+    printf("single-mouth deflected spray: midpoint density floor %.4f, all-strata valley floor %.4f (required >=0.6), failures=%u\n",worst,worstValley,failures);
     return int(failures!=0u);
 }

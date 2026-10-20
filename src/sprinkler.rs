@@ -111,6 +111,8 @@ pub(crate) struct SprayClock {
     angle: f64,
     pulse_phase: f64,
     droplet_seconds: f64,
+    quadrature_fraction: f64,
+    quadrature_epoch: u32,
 }
 
 impl SprayClock {
@@ -121,7 +123,7 @@ impl SprayClock {
         seconds: f32,
         rpm: f32,
         frequency: f32,
-    ) -> [f32; 3] {
+    ) -> [f32; 4] {
         let frequency = frequency.max(0.25).min(20.0);
         let fraction = fraction.clamp(0.0, 1.0);
         let seconds = crate::game_time::clamp_world_tick_seconds(seconds);
@@ -138,11 +140,19 @@ impl SprayClock {
             .rem_euclid(std::f64::consts::TAU);
         self.pulse_phase = (self.pulse_phase + dt * f64::from(frequency)).rem_euclid(1.0);
         self.droplet_seconds = (self.droplet_seconds + dt).rem_euclid(3.0);
+        // A bounded world-time quadrature, not frame randomness or a new source.
+        // Weyl scrambling avoids locking a finite velocity lattice to valve Hz,
+        // rotation or skipped render frames. 64 strata resolve sub-voxel reaches.
+        let samples = self.quadrature_fraction + dt * 60.0;
+        self.quadrature_fraction = samples.fract();
+        self.quadrature_epoch = self.quadrature_epoch.wrapping_add(samples.floor() as u32);
+        let stratum = self.quadrature_epoch.wrapping_mul(0x9e3779b9) >> 26;
         self.previous = Some((tick, fraction));
         [
             self.angle as f32,
             (self.pulse_phase / f64::from(frequency)) as f32,
             self.droplet_seconds as f32,
+            (stratum as f32 + 0.5) / 64.0,
         ]
     }
 }
@@ -156,7 +166,7 @@ mod tests {
         let mut clock = SprayClock::default();
         assert_eq!(
             clock.sample(u32::MAX, 0.5, 0.05, 15.0, 4.0),
-            [0.0, 0.0, 0.0]
+            [0.0, 0.0, 0.0, 0.5 / 64.0]
         );
         let a = clock.sample(0, 0.5, 0.05, 15.0, 4.0);
         assert!((a[0] - std::f32::consts::TAU / 80.0).abs() < 1e-6);
@@ -165,6 +175,39 @@ mod tests {
         assert_eq!(stopped[0], a[0]);
         let b = clock.sample(20, 0.5, 0.05, 30.0, 4.0);
         assert!((b[0] - a[0] - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn spray_quadrature_covers_strata_at_multiple_cadences_and_freezes_when_paused() {
+        for stride in [1, 2, 4] {
+            let mut clock = SprayClock::default();
+            let mut seen = [false; 64];
+            for i in 0..2048 {
+                let t = i * stride;
+                let s = clock.sample(t / 4, (t % 4) as f32 / 4.0, 1.0 / 15.0, 15.0, 4.0);
+                assert!(s[3] > 0.0 && s[3] < 1.0);
+                seen[(s[3] * 64.0) as usize] = true;
+                assert_eq!(
+                    s,
+                    clock.sample(t / 4, (t % 4) as f32 / 4.0, 1.0 / 15.0, 15.0, 4.0)
+                );
+            }
+            assert!(
+                seen.into_iter().all(|v| v),
+                "velocity strata aliased with frame cadence"
+            );
+        }
+        let mut a = SprayClock::default();
+        let mut b = SprayClock::default();
+        a.sample(0, 0.0, 0.05, 15.0, 4.0);
+        b.sample(0, 0.0, 0.05, 15.0, 4.0);
+        for tick in 1..=20 {
+            a.sample(tick, 0.0, 0.05, 15.0, 4.0);
+        }
+        assert_eq!(
+            a.sample(20, 0.0, 0.05, 15.0, 4.0)[3],
+            b.sample(20, 0.0, 0.05, 15.0, 4.0)[3]
+        );
     }
 
     #[test]

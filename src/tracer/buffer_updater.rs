@@ -289,7 +289,7 @@ impl BufferUpdater {
         materials: &MaterialFrameInput,
         vegetation: &VegetationFrameInput,
         environment: &EnvironmentFrameInput,
-        sprinkler_clock: [f32; 3],
+        sprinkler_clock: [f32; 4],
     ) -> Result<()> {
         let appearance = vegetation.appearance;
         let motion = vegetation.motion;
@@ -350,6 +350,7 @@ impl BufferUpdater {
             sprinkler_pulse_time: sprinkler_clock[1],
             sprinkler_pulse_frequency: environment.sprinkler_pulse_frequency.max(0.25).min(20.0),
             sprinkler_droplet_time: sprinkler_clock[2],
+            sprinkler_quadrature: sprinkler_clock[3],
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
             grass_vibration_secondary_speed: motion.grass_vibration_secondary_speed,

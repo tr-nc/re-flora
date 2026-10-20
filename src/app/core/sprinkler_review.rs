@@ -57,6 +57,7 @@ impl Review {
     pub fn freezes_drying(&self) -> bool {
         self.isolates_wetting()
             || self.checks_spray_contact()
+            || self.mode == "rotary-terraces"
             || (self.isolates_drying() && self.frame > 180)
     }
 
@@ -107,6 +108,7 @@ impl Review {
         const MODES: &[&str] = &[
             "near",
             "rotary-near",
+            "rotary-terraces",
             "rotary-contact-continuous",
             "rotary-contact-pulse",
             "rotary-contact-off",
@@ -228,6 +230,76 @@ impl App {
             }],
             bounds,
         ))?;
+        Ok(())
+    }
+
+    fn stamp_sprinkler_terraces(&mut self, base: Vec3) -> Result<Vec3> {
+        use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
+        use crate::geom::{build_bvh, Cuboid, UAabb3};
+        let center = (base * 256.0).round();
+        let mut cuboids = Vec::new();
+        for z in -90..90 {
+            for x in -90..90 {
+                let radius = glam::Vec2::new(x as f32 + 0.5, z as f32 + 0.5).length();
+                let level = (radius / 6.4).floor() as i32;
+                if level >= 14 {
+                    continue;
+                }
+                let lo = center + Vec3::new(x as f32, 0.0, z as f32);
+                let hi = lo + Vec3::new(1.0, (14 - level) as f32, 1.0);
+                cuboids.push(Cuboid::from_min_max(lo, hi));
+            }
+        }
+        let boxes: Vec<_> = cuboids.iter().map(|c| c.aabb()).collect();
+        let indices: Vec<_> = (0..cuboids.len() as u32).collect();
+        let bvh_nodes = build_bvh(&boxes, &indices).map_err(anyhow::Error::msg)?;
+        let bounds = UAabb3::new(bvh_nodes[0].aabb.min_uvec3(), bvh_nodes[0].aabb.max_uvec3());
+        self.execute_world_edit(WorldEditTransaction::terrain_change(
+            vec![VoxelEdit::StampCuboids {
+                bvh_nodes,
+                cuboids,
+                voxel_type: crate::builder::VOXEL_TYPE_DIRT,
+                atlas_state_write: Default::default(),
+            }],
+            bounds,
+        ))?;
+        Ok((center + Vec3::Y * 14.0) / 256.0)
+    }
+
+    fn review_sprinkler_terraces(&mut self, base: Vec3) -> Result<()> {
+        let center = (base * 256.0).round().as_uvec3();
+        let offset = center - glam::UVec3::new(92, 14, 92);
+        let dim = glam::UVec3::new(185, 14, 185);
+        let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+        let mut wet = [0u32; 14];
+        let mut cells = [0u32; 14];
+        let mut surface = vec![0u8; 185 * 185];
+        for z in 0..185usize {
+            for x in 0..185usize {
+                let r = glam::Vec2::new(x as f32 - 91.5, z as f32 - 91.5).length();
+                let level = (r / 6.4).floor() as usize;
+                if level >= 14 {
+                    continue;
+                }
+                let byte = data[x + (13 - level) * 185 + z * 185 * 14];
+                ensure!(
+                    byte & 15 == crate::builder::VOXEL_TYPE_DIRT as u8,
+                    "terrace receiver was not soil"
+                );
+                surface[x + z * 185] = byte;
+                cells[level] += 1;
+                wet[level] += u32::from((byte >> 4) & 3 > 0);
+            }
+        }
+        log::info!("[SPRINKLER_TERRACES] wet={wet:?} cells={cells:?} real_surface_readback=true");
+        if let Ok(path) = std::env::var("RE_FLORA_SPRINKLER_WET_STATS") {
+            std::fs::write(
+                path,
+                serde_json::to_vec(&serde_json::json!({
+                    "mode":"rotary-terraces","wet":wet,"cells":cells,"surface":surface,"base":base.to_array()
+                }))?,
+            )?;
+        }
         Ok(())
     }
 
@@ -642,6 +714,13 @@ impl App {
                     }
                 }
             }
+            if review.mode == "rotary-terraces" {
+                base = self.stamp_sprinkler_terraces(base)?;
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_wetting_speed.value = 3.0;
+                gui.sprinkler_wet_patch_size.value = 2.6;
+                gui.sprinkler_pulse_duty.value = 100.0;
+            }
             self.apply_sprinkler_placement(base)?;
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
                 let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
@@ -976,6 +1055,7 @@ impl App {
             "rotary-mist-back" => -Vec3::new(sun.x, 0.0, sun.z).normalize() * 0.36 + Vec3::Y * 0.14,
             "rotary-mist-front" => Vec3::new(sun.x, 0.0, sun.z).normalize() * 0.36 + Vec3::Y * 0.14,
             "rotary-mist-top" => Vec3::new(0.001, 0.45, 0.001),
+            "rotary-terraces" => Vec3::new(0.28, 0.52, 0.40),
             _ if review.mode.contains("rotary-mist") => Vec3::new(0.50, 0.10, 0.42),
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
@@ -1079,6 +1159,9 @@ impl App {
             }
         }
         if review.frame == 180 {
+            if review.mode == "rotary-terraces" {
+                self.review_sprinkler_terraces(base)?;
+            }
             if review.checks_spray_contact() {
                 self.review_spray_contact(&review, base)?;
             }

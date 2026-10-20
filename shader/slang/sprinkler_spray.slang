@@ -104,13 +104,16 @@ public MistSpraySource mistRotaryKinematics(float age,float width,float reach,
 }
 
 public MistSpraySource mistRotarySource(uint index,uint count,float angleNow,float phase,
-    float rpm,float angleDegrees,float duty,float pulseTime,float frequency=4.0)
+    float rpm,float angleDegrees,float duty,float pulseTime,float frequency=4.0,float quadrature=0.5)
 {
     float2 interval=mistSprayAgeInterval(index,count,true);
     uint band=index/(count/MIST_ROTARY_BANDS);
     float2 range=float2(band,band+1u)/float(MIST_ROTARY_BANDS);
     MistSpraySource s=mistRotaryKinematics((interval.x+interval.y)*0.5,interval.y-interval.x,
-        (range.x+range.y)*0.5,angleNow,phase,rpm,angleDegrees);
+        // Fixed midpoints collapse whole velocity intervals onto a few terrain
+        // height planes forever. Temporal stratification integrates that same
+        // continuous distribution without painting or jittering soil receivers.
+        lerp(range.x,range.y,quadrature),angleNow,phase,rpm,angleDegrees);
     float angle=angleNow+frac(phase)*6.28318530718-s.age*s.angular_velocity;
     s.velocity_span=mistSprayDeflectedVelocity(angle,range.y)-mistSprayDeflectedVelocity(angle,range.x);
     float weight=(mistSprayReferenceRangeSquared(range.y)-mistSprayReferenceRangeSquared(range.x))/

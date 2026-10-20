@@ -39,7 +39,7 @@ drying speed 控制后续蒸发；它们不为旋转模式定义另一套浇水�
 
 整机姿态缓存的样本预算为 `16 × 全局视角数 × N² × 48 bytes`；128 视角、32px 时为
 **96 MiB**，由全部喷头共享，不为每个实例复制。新增粒子在最大 256 实例、三帧槽时占
-6 MiB。这里是容量说明，不是大量喷头性能验收。
+6 MiB。这是稳定态的样本／粒子容量，不含重建时重叠的旧缓存、其它资源，也不是大量喷头性能验收。
 
 本轮控制／粒子验证：1650 app + 4 collider + 1 integration 测试、48 项 Slang 测试，
 14 个 Vulkan 同步验证场景、隐藏静音 Release smoke 通过；运行日志见
@@ -49,7 +49,35 @@ drying speed 控制后续蒸发；它们不为旋转模式定义另一套浇水�
 
 ## 问题记录
 
-### 只浇外环，内部干燥
+### 阶梯坡面形成永久干湿同心环
+
+在 `51be5b52` 的固定速度采样机制上复现，也在加入整机缓存／光学粒子的版本中做了
+真实 GPU 对照。八个速度带永远取各自中点，首次接触长期落在少数高度平面；
+有限接触支持不能替代对整个速度区间的地形相交积分。转一圈后，未被选中的台阶仍然干燥。
+这不是土壤纹理、随机湿度量化或缓存造成的；未对更早版本逐提交回测坡面表现。
+
+- 生产 source/contact 的量化前探针：13 层下降台阶，原采样有 **5 层零入水**。
+- 真实场景：14 层、每层高 1 体素、径向宽 6.4 体素，修复前 **5 层零湿体素**；
+  修复后 **0 层**。逐层读取的是实际最上层 Dirt 字节，而非推算出的湿圆盘。
+- 修复在共享 source 的**积分采样**中：每带内使用 64 个分层位置，按 60 Hz 世界时间
+  的 Weyl 序列覆盖；不是固定于渲染帧号，也不锁定喷头转速／阀门周期。暂停保持采样位置。
+  每帧仍只有 **8 × 32 = 256** 个雾／接触样本，出水份额相加仍为一。
+- 空中体积和真实首次接触从同一采样源生成；不修改土壤纹理、不在接收点撒噪声、
+  不增加另一个浇水源。光学小水滴仍按自己的出生槽连续推进，不随积分采样跳位置。
+
+[阶梯回归](../shader/tests/sprinkler_terraces.slang)覆盖平地、1／2 体素台阶、64 个带内位置，
+无干环；每次采样核对总出水。30／60／120 Hz 与 0.25／1／4／9／20 Hz 阀门的
+累计输入最坏绝对误差为 **0.003716**（不到 0.4 个百分点）。
+连续性额外覆盖全部 64 个位置 × 36 组控制组合，保留原固定中点的平均密度守卫；
+新位置用两端较低密度识别真正的中间凹谷，避免把弱流顶点附近的陡密度梯度误判为断裂。
+原守卫仍为 **0.7692**，全位置凹谷比最低 **0.9571**，均高于 0.6。
+
+证据在 `target/sprinkler-integrated-review/`：`terraces-before.log`、
+`terraces-native-{before,after}.{png,json,log}`。相同相机、参数、6 秒时刻的截图对照为
+`terraces-comparison.png`（左旧右新，只做相同裁剪、等比缩放和标签）。
+这是一个受控坡面的积湿结果，不承诺任意地形的完全均匀或每个像素立即湿透。
+
+### 只浇外环，内部干燥（`51be5b52` 历史修复）
 
 - **影响**：旋转模式在无风平地仍缺少近、中距离入水。扩大横向喷角不能代替射程分布。
   原交替模式与手动 Water 不是本次问题的修复对象。
@@ -80,14 +108,14 @@ drying speed 控制后续蒸发；它们不为旋转模式定义另一套浇水�
 1. [sprinkler_spray.slang](../shader/slang/sprinkler_spray.slang)拥有年龄分区、阀门积分、
    出生角、出口／发射速度、拖曳／下落、喷幅、有限支持和散射权重。
    - 一个物理喷口，八个代表性的速度／仰角带；弱、陡的水落近处，强水到远处。
-     速度区间本身也随飞行展开，不能只画八条分离的中心线。
+     带内积分位置随世界时间分层覆盖；速度区间本身也随飞行展开，不能只画八条分离的中心线。
    - 以同一发射／阻力模型、喷口高度下的平地环带面积分配出水份额，所有份额相加为一。
      这是挡片的**源流量标定**，不是另一套土壤落点模型；实际地形接触仍单独追踪。
    - 速度区间支持按均匀区间方差 `span²/12` 与有限核方差 `radius²/9` 配准。
      陡近流的定向框架随喷头转动，不在接近竖直时切换成任意世界轴。
    喷头网格和水源仍使用 [sprinkler_animation.slang](../shader/slang/sprinkler_animation.slang)
    的同一个出口与朝向。[SprayClock](../src/sprinkler.rs)积分世界时钟增量，维护有界旋转／
-   脉冲相位；暂停不补转，tick 回绕不跳变，改 RPM 不重算整段运行时长。
+   脉冲相位、粒子时间与带内积分时钟；暂停不补转，tick 回绕不跳变，改 RPM 不重算整段运行时长。
 2. [prepare](../shader/slang/sprinkler_mist_prepare.comp.slang)的旋转模式使用 **8 × 32 = 256**
    个速度／年龄区间。一组 64 个线程分段处理全部样本，合并所有区间的可见／接触边界。
    玩家喷头不再进入原交替模式；旧扇区刷仅留在显式土壤噪声诊断中。
@@ -124,7 +152,7 @@ drying speed 控制后续蒸发；它们不为旋转模式定义另一套浇水�
 反射生成由 `cargo check` 完成，不手改生成结构。额外速度带提高了计算和缓冲区成本；
 需要用 Release 实测，而非 debug 测试推断大量喷头的性能。
 
-**运行时改喷幅、RPM 或占空比会重新求当前场，包括已在空中的部分**，而非逐滴保留旧参数。
+**运行时改喷幅、RPM、频率或占空比会重新求当前场，包括已在空中的部分**，而非逐滴保留旧参数。
 例如占空比设为零会立即清掉当前水场。喷头当前角度仍连续，两个消费者仍使用同一新场。
 基座目前静态放置；搬运中的源位置历史、极低帧率整帧空间积分、更精细碰撞与跨调参历史
 尚未实现。后续应在共享 source/contact 边界改进，不能另拟合土壤扇区。
@@ -139,7 +167,8 @@ python3 scripts/run_slang_tests.py
 cargo test sprinkler_shader_pose_matches_water_outlets -- --ignored --nocapture
 cargo build --release
 node scripts/validate-sprinkler-model.mjs --spray --seconds 8
-cargo run --release -- --hidden --mute --auto-exit 0.5
+RUST_LOG=info cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --tail-latest-log 180
 ```
 
 - [径向覆盖](../shader/tests/sprinkler_radial_coverage.slang)：生产预算下，近／中／远均有入水；
@@ -148,16 +177,24 @@ cargo run --release -- --hidden --mute --auto-exit 0.5
   空气／深层／远离支持处无水；平地、墙面、顶面和数值相切情况下保持面积积分与正确边界。
   当前最坏面积积分误差 **0.000125**。0／10／50／90／100% 阀门在 30／60／120 Hz 下
   验证实际到达区间的总输入，0%／100% 保持精确端点；风使用同一传输方程。
-- [连续性](../shader/tests/sprinkler_spray_continuity.slang)：36 组角度、转速、相位和风组合；
-  每个速度带的可见部分均连续、从同一喷口开始，保持亚体素嘴部支持及归一化光学量。
-- `--spray` 九个隐藏静音 Release 场景：连续／50%／0%、density=0、实时三个滑杆、
-  四面墙、60 RPM、resize、重叠放置／移除。直接读取 GPU 接触和实际土壤字节，
-  检查近／中／远均湿、关阀无水、墙内近水保留且墙外不漏；带 Vulkan 同步验证。
-  套件输出在 `target/sprinkler-coupling-review/`，本轮保留结果在 `target/sprinkler-deflector-review/`。
-- 用户已有 GUI 值必须逐字节保留；验证套件同时核对 GUI／相机哈希不变。
-  没有新增设置或改变原模式默认值，也不自动启动可见游戏。
+- [连续性](../shader/tests/sprinkler_spray_continuity.slang)：36 组角度、转速、相位和风组合，
+  原固定中点及 64 个积分位置共 2340 组；同一喷口、亚体素嘴部支持、有限边界和归一化光学量。
+- `--spray` **15** 个隐藏静音 Release 场景：连续／50%／0%、intensity=0、四个实时滑杆、
+  四面墙、60 RPM、粒子独立开关／纯粒子／墙阻挡／全局禁用、阶梯坡面、resize、放置／移除。
+  直接读取 GPU 接触、粒子和土壤字节，检查近／中／远均湿、关阀无水、墙外不漏，带 Vulkan 同步验证。
+  场景输出在 `target/sprinkler-coupling-review/`；当前整合日志为
+  `target/sprinkler-integrated-review/final-*`。
+- 本轮按请求删除旧外观 A/B、修改雾强度默认值、添加频率与粒子控件；除此之外的 GUI 保存值
+  保留。测试运行前后核对 GUI／相机哈希，不自动启动可见游戏。
 
-本轮实际结果：**1649 app + 4 collider + 1 integration** Rust 测试、**47** 项 Slang CPU
+当前整合结果：**1651 app + 4 collider + 1 integration** Rust 测试、**49** 项 Slang CPU
+测试、显式 **660** 个 CPU／Slang 姿态案例、**15** 个 Vulkan 同步场景与隐藏静音
+Release smoke 通过；smoke 运行日志在 `final-smoke.log` 给出，`final-smoke-tail.log` 确认
+`[SHUTDOWN] phase=complete failures=0`。这些不是大量喷头的性能验收。
+
+### 近远覆盖阶段的历史证据（`51be5b52`，不是当前版本性能测量）
+
+该阶段实际结果：**1649 app + 4 collider + 1 integration** Rust 测试、**47** 项 Slang CPU
 测试、显式 **660** 个 CPU／Slang 姿态案例通过。九个 `--spray` 场景通过 Vulkan 同步验证；
 另跑 `rotary-controls`、`rotary-wall`、`rotary-cliff`、`mist-flow`、`wet-12` 五个兼容场景，
 均到 frame 180、正常退出。隐藏静音 smoke 的实际运行日志为

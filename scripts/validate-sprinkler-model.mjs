@@ -38,11 +38,11 @@ Artifacts for --dry: target/soil-drying-review/{*.png,*.log,*.json,summary.json}
 cache/native fallback and sixteen complete assembly poses, directional mist/on/off/legacy,
 particles off, resize, placement/removal, one-voxel wall, cliff settling, shared-contact soil and
 the historical soil-brush diagnostic. Outputs: target/rotary-sprinkler-review/.
---spray selects fourteen shared spray/soil checks: continuous and pulsed water, closed valve,
+--spray selects fifteen shared spray/soil checks: continuous and pulsed water, closed valve,
 invisible mist, live angle/RPM/duty/frequency sliders, walls, fast rotation, small optical
 particles on/off/without mist, global --no-particles, resize and placement/removal.
-Reads GPU contacts/droplets and real soil; zero duty stops all spray, optical toggles never
-stop irrigation. Outputs: target/sprinkler-coupling-review/.
+Also checks every tread of a concentric terraced slope. Reads GPU contacts/droplets and
+real soil; zero duty stops all spray, optical toggles never stop irrigation. Outputs: target/sprinkler-coupling-review/.
 Choose at most one suite. None is a performance benchmark.
 Also verifies no duplicate CPU irrigation particles and real watering at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
@@ -147,7 +147,7 @@ try {
     ? ['rotary-contact-continuous','rotary-contact-pulse','rotary-contact-off','rotary-contact-invisible',
        'rotary-contact-controls','rotary-contact-wall','rotary-contact-fast',
        'rotary-contact-particles','rotary-contact-particles-only','rotary-contact-particles-disabled',
-       'rotary-contact-particles-wall','spray-no-particles','spray-resize','spray-lifecycle']
+       'rotary-contact-particles-wall','rotary-terraces','spray-no-particles','spray-resize','spray-lifecycle']
     : rotary
     ? ['rotary-near','rotary-top','rotary-pixels-8','rotary-pixels-16','rotary-pixels-32',
        'rotary-controls','rotary-mist','rotary-mist-off','rotary-mist-legacy','rotary-no-particles',
@@ -186,13 +186,14 @@ try {
     const mode = name==='spray-no-particles' ? 'rotary-contact-particles' : name==='spray-resize' ? 'rotary-contact-continuous' : name==='spray-lifecycle' ? 'rotary-lifecycle' : name==='rotary-wet' ? 'wet-rotary' : name==='rotary-wet-original' ? 'wet-12' : extraArgs.length > 0 ? (rotary ? 'rotary-mist' : wet ? 'wet-12' : flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
     const coupled=mode.startsWith('rotary-contact-') || mode==='wet-rotary';
     const soil=mode.startsWith('wet-') && !coupled;
+    const terraces=mode==='rotary-terraces';
     const env = {...process.env};
     // Do not compose this isolated fixture with unrelated development overrides.
     for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_')) delete env[key];
     Object.assign(env, {RE_FLORA_SPRINKLER_REVIEW: mode, RUST_LOG: 'info',
       VK_INSTANCE_LAYERS: 'VK_LAYER_KHRONOS_validation', VK_LAYER_SETTINGS_PATH: settings,
       VK_LOADER_DEBUG: 'error,warn,layer'});
-    if (soil || coupled) env.RE_FLORA_SPRINKLER_WET_STATS=path.join(output,`${name}.json`);
+    if (soil || coupled || terraces) env.RE_FLORA_SPRINKLER_WET_STATS=path.join(output,`${name}.json`);
     if (dry) env.RE_FLORA_SOIL_DRY_STATS=path.join(output,`${name}.json`);
     if (!env.VK_LAYER_PATH && env.VULKAN_SDK)
       env.VK_LAYER_PATH = path.join(env.VULKAN_SDK, 'share/vulkan/explicit_layer.d');
@@ -201,7 +202,7 @@ try {
     fs.rmSync(image, {force: true});
     console.log(`validating ${name}`);
     const result = spawnSync(binary, [name.startsWith('mist-level') ? '--windowed' : '--flat-terrain',
-      '--hidden', '--mute', ...(soil || dry || coupled ? ['--no-flora'] : []), ...(optical || soil || dry || rotary || spray ? ['--perf'] : []),
+      '--hidden', '--mute', ...(soil || dry || coupled || terraces ? ['--no-flora'] : []), ...(optical || soil || dry || rotary || spray ? ['--perf'] : []),
       '--screenshot', 'player-default', image, '--screenshot-delay', String(seconds * 0.6),
       '--auto-exit', String(seconds), ...extraArgs], {cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024});
     const log = (result.stdout ?? '') + (result.stderr ?? '');
@@ -231,6 +232,12 @@ try {
       assert.deepEqual(steps,[1,2,3,4]);
     }
     if (mode.includes('particles')) assert.match(log,/SPRINKLER_DROPLET_REVIEW/);
+    if (terraces) {
+      const stats=JSON.parse(fs.readFileSync(path.join(output,name+'.json')));
+      assert.equal(stats.wet.length,14);
+      assert.ok(stats.wet.every(n=>n>0),`permanently dry terrace: ${stats.wet}`);
+      assert.match(log,/SPRINKLER_TERRACES/);
+    }
     if (coupled) {
       assert.match(log,/SPRINKLER_CONTACT_REVIEW/);
       assert.match(log,/sprinkler_spray.prepare=/);
