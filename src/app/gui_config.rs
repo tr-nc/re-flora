@@ -2228,6 +2228,8 @@ mod tests {
         settings.adjustables.model_flower_pixel_resolution.value = 16;
         settings.adjustables.scene_pixel_ratio.value = 3;
         let default_patch_size = settings.adjustables.sprinkler_wet_patch_size.value;
+        let default_mist = settings.adjustables.sprinkler_mist_density.value;
+        let default_frequency = settings.adjustables.sprinkler_pulse_frequency.value;
         let default_wetting_speed = settings.adjustables.sprinkler_wetting_speed.value;
         settings.sync_config();
         for section in &mut settings.config.section {
@@ -2245,9 +2247,15 @@ mod tests {
         );
         assert!(loaded.adjustables.sprinkler_cache_enabled.value);
         assert_eq!(loaded.adjustables.sprinkler_pixel_resolution.value, 32);
-        assert_eq!(loaded.adjustables.sprinkler_mist_density.value, 2.0);
+        assert_eq!(
+            loaded.adjustables.sprinkler_mist_density.value,
+            default_mist
+        );
         assert!(loaded.adjustables.sprinkler_mist_particles.value);
-        assert_eq!(loaded.adjustables.sprinkler_pulse_frequency.value, 4.0);
+        assert_eq!(
+            loaded.adjustables.sprinkler_pulse_frequency.value,
+            default_frequency
+        );
         assert!(loaded.adjustables.sprinkler_mist_flow.value);
         assert_eq!(
             loaded.adjustables.sprinkler_wet_patch_size.value,
@@ -2284,6 +2292,7 @@ mod tests {
     #[test]
     fn soil_drying_speed_upgrades_old_saves_and_round_trips_independently() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
+        let default_drying = settings.adjustables.soil_drying_speed.value;
         settings.adjustables.sprinkler_wetting_speed.value = 1.75;
         settings.adjustables.sprinkler_wet_patch_size.value = 17.0;
         settings.adjustables.sprinkler_mist_density.value = 0.8;
@@ -2302,7 +2311,7 @@ mod tests {
             original,
             "loading must not write settings"
         );
-        assert_eq!(loaded.adjustables.soil_drying_speed.value, 0.2);
+        assert_eq!(loaded.adjustables.soil_drying_speed.value, default_drying);
         for speed in [0.0, 0.2, 0.25, 1.0, 3.0] {
             loaded.adjustables.soil_drying_speed.value = speed;
             loaded.save_to_path(&path).unwrap();
