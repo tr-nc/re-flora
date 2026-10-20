@@ -35,15 +35,16 @@ and active watering/mist while evaporation is paused. It reads real soil state a
 frames 60/120/180, verifies material/state bits, and isolates vertical transfer.
 Artifacts for --dry: target/soil-drying-review/{*.png,*.log,*.json,summary.json}.
 --rotary selects sixteen rotating-head checks: near/top silhouettes, 8/16/32 sampling,
-cache/native fallback and live mode switching, directional mist/on/off/legacy,
+cache/native fallback and sixteen complete assembly poses, directional mist/on/off/legacy,
 particles off, resize, placement/removal, one-voxel wall, cliff settling, shared-contact soil and
-original-mode soil. Outputs: target/rotary-sprinkler-review/.
---spray selects nine shared spray/soil checks: continuous and pulsed water, closed valve,
-invisible mist, live angle/RPM/duty sliders, blocking walls, fast rotation, resize and
-placement/removal. Reads GPU first contacts and real soil; confirms zero duty stops both
-consumers and invisible mist still waters. Outputs: target/sprinkler-coupling-review/.
+the historical soil-brush diagnostic. Outputs: target/rotary-sprinkler-review/.
+--spray selects fourteen shared spray/soil checks: continuous and pulsed water, closed valve,
+invisible mist, live angle/RPM/duty/frequency sliders, walls, fast rotation, small optical
+particles on/off/without mist, global --no-particles, resize and placement/removal.
+Reads GPU contacts/droplets and real soil; zero duty stops all spray, optical toggles never
+stop irrigation. Outputs: target/sprinkler-coupling-review/.
 Choose at most one suite. None is a performance benchmark.
-Also verifies zero water particles and real watering brushes at zero, normal and strong
+Also verifies no duplicate CPU irrigation particles and real watering at zero, normal and strong
 optical density. The seam check requires ImageMagick (magick). This is not a benchmark.
 --seconds is the duration of each run (default: 8); each must reach frame 180.
 Requires a current Release binary, a Vulkan desktop session, and the Khronos
@@ -144,7 +145,9 @@ try {
   assert.ok(fs.existsSync(binary), 'Release binary missing; run cargo build --release');
   const cases = spray
     ? ['rotary-contact-continuous','rotary-contact-pulse','rotary-contact-off','rotary-contact-invisible',
-       'rotary-contact-controls','rotary-contact-wall','rotary-contact-fast','spray-resize','spray-lifecycle']
+       'rotary-contact-controls','rotary-contact-wall','rotary-contact-fast',
+       'rotary-contact-particles','rotary-contact-particles-only','rotary-contact-particles-disabled',
+       'rotary-contact-particles-wall','spray-no-particles','spray-resize','spray-lifecycle']
     : rotary
     ? ['rotary-near','rotary-top','rotary-pixels-8','rotary-pixels-16','rotary-pixels-32',
        'rotary-controls','rotary-mist','rotary-mist-off','rotary-mist-legacy','rotary-no-particles',
@@ -176,10 +179,11 @@ try {
       'rotary-no-particles': ['--no-particles'],
       'rotary-resize': ['--resize-lifecycle-test'],
       'spray-resize': ['--resize-lifecycle-test'],
+      'spray-no-particles': ['--no-particles'],
       'wet-no-particles': ['--no-particles'],
       'wet-resize': ['--resize-lifecycle-test'],
     }[name] ?? [];
-    const mode = name==='spray-resize' ? 'rotary-contact-continuous' : name==='spray-lifecycle' ? 'rotary-lifecycle' : name==='rotary-wet' ? 'wet-rotary' : name==='rotary-wet-original' ? 'wet-12' : extraArgs.length > 0 ? (rotary ? 'rotary-mist' : wet ? 'wet-12' : flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
+    const mode = name==='spray-no-particles' ? 'rotary-contact-particles' : name==='spray-resize' ? 'rotary-contact-continuous' : name==='spray-lifecycle' ? 'rotary-lifecycle' : name==='rotary-wet' ? 'wet-rotary' : name==='rotary-wet-original' ? 'wet-12' : extraArgs.length > 0 ? (rotary ? 'rotary-mist' : wet ? 'wet-12' : flow ? 'mist-flow' : 'mist-back') : name === 'near-dense' ? 'near' : name;
     const coupled=mode.startsWith('rotary-contact-') || mode==='wet-rotary';
     const soil=mode.startsWith('wet-') && !coupled;
     const env = {...process.env};
@@ -226,6 +230,7 @@ try {
       const steps=[...log.matchAll(/SPRINKLER_ROTARY_REVIEW\] step=(\d+) whole_assembly=true internal_poses=16/g)].map(m=>+m[1]);
       assert.deepEqual(steps,[1,2,3,4]);
     }
+    if (mode.includes('particles')) assert.match(log,/SPRINKLER_DROPLET_REVIEW/);
     if (coupled) {
       assert.match(log,/SPRINKLER_CONTACT_REVIEW/);
       assert.match(log,/sprinkler_spray.prepare=/);

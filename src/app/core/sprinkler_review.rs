@@ -114,6 +114,10 @@ impl Review {
             "rotary-contact-controls",
             "rotary-contact-wall",
             "rotary-contact-fast",
+            "rotary-contact-particles",
+            "rotary-contact-particles-only",
+            "rotary-contact-particles-disabled",
+            "rotary-contact-particles-wall",
             "rotary-top",
             "rotary-pixels-8",
             "rotary-pixels-16",
@@ -508,6 +512,14 @@ impl App {
                 base.x = 0.75;
                 base.z = 1.25;
             }
+            self.debug_settings
+                .adjustables
+                .sprinkler_mist_particles
+                .value = review.mode.contains("particles") && !review.mode.ends_with("disabled");
+            self.debug_settings
+                .adjustables
+                .sprinkler_pulse_frequency
+                .value = 4.0;
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 40.0;
@@ -598,7 +610,9 @@ impl App {
                     .write_chunk_atlas_region(offset, dim, &dry)?;
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_wetting_speed.value = 3.0;
-                gui.sprinkler_mist_density.value = if review.mode.ends_with("-invisible") {
+                gui.sprinkler_mist_density.value = if review.mode.ends_with("-invisible")
+                    || review.mode.ends_with("particles-only")
+                {
                     0.0
                 } else {
                     1.0
@@ -801,6 +815,12 @@ impl App {
                 _ => (40.0, 15.0, 100.0),
             };
             let gui = &mut self.debug_settings.adjustables;
+            gui.sprinkler_pulse_frequency.value = match review.frame / 40 {
+                0 => 0.25,
+                1 => 20.0,
+                3 => 1.0,
+                _ => 4.0,
+            };
             gui.sprinkler_spray_angle.value = angle;
             gui.sprinkler_rotation_speed.value = rpm;
             gui.sprinkler_pulse_duty.value = duty;
@@ -1132,6 +1152,49 @@ impl App {
                 }
                 log::info!("[SPRINKLER_FLOW_REVIEW] gpu_lobes={active} below_source={below} beyond_wall={beyond_wall} beyond_corner={beyond_corner} above_roof={above_roof} readback=explicit_review_only");
             }
+            if review.mode.contains("particles") {
+                let drops = self.tracer.sprinkler_review_droplets()?;
+                let live: Vec<_> = drops
+                    .iter()
+                    .filter(|p| p.center_amplitude[3] > 0.0)
+                    .collect();
+                let enabled = self
+                    .debug_settings
+                    .adjustables
+                    .sprinkler_mist_particles
+                    .value
+                    && self.render_flags.enable_particles;
+                ensure!(
+                    drops.len() == crate::tracer::SPRINKLER_DROPLETS as usize,
+                    "bounded droplet slots"
+                );
+                ensure!(
+                    live.is_empty() != enabled,
+                    "droplet checkbox/global particle flag not followed"
+                );
+                for p in &live {
+                    ensure!(
+                        p.center_amplitude
+                            .iter()
+                            .chain(&p.radii_near_geometry)
+                            .all(|v| v.is_finite()),
+                        "non-finite droplet"
+                    );
+                    ensure!(
+                        p.radii_near_geometry[0] < 0.001 && p.center_amplitude[1] > base.y,
+                        "droplets must be small airborne samples"
+                    );
+                    if review.mode.ends_with("-wall") {
+                        ensure!(
+                            (p.center_amplitude[0] - base.x).abs() < 27.5 / 256.0
+                                && (p.center_amplitude[2] - base.z).abs() < 27.5 / 256.0,
+                            "droplet escaped enclosure"
+                        );
+                    }
+                }
+                log::info!("[SPRINKLER_DROPLET_REVIEW] enabled={enabled} active={} capacity={} mist_intensity={} optical_only=true",
+                    live.len(),drops.len(),self.debug_settings.adjustables.sprinkler_mist_density.value);
+            }
             let water_particles = self
                 .particle_snapshots
                 .iter()
@@ -1139,7 +1202,7 @@ impl App {
                 .count();
             ensure!(
                 water_particles == 0,
-                "mist must not spawn visible water particles"
+                "optical droplets must not create CPU irrigation particles"
             );
             if review.mode == "mist-controls" {
                 ensure!(review.watering_brushes.iter().all(|n| *n > 0),

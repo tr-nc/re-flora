@@ -2245,7 +2245,9 @@ mod tests {
         );
         assert!(loaded.adjustables.sprinkler_cache_enabled.value);
         assert_eq!(loaded.adjustables.sprinkler_pixel_resolution.value, 32);
-        assert_eq!(loaded.adjustables.sprinkler_mist_density.value, 1.0);
+        assert_eq!(loaded.adjustables.sprinkler_mist_density.value, 2.0);
+        assert!(loaded.adjustables.sprinkler_mist_particles.value);
+        assert_eq!(loaded.adjustables.sprinkler_pulse_frequency.value, 4.0);
         assert!(loaded.adjustables.sprinkler_mist_flow.value);
         assert_eq!(
             loaded.adjustables.sprinkler_wet_patch_size.value,

@@ -11,6 +11,8 @@ public struct PushConstantSprinklerMist {
     public uint tile_size;
     public uint width;
     public uint height;
+    public uint droplets_per_instance;
+    public uint particles_enabled;
 };
 
 public struct B_SprinklerMistLobe {

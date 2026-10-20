@@ -41,6 +41,8 @@ public struct U_GuiInput
     public float sprinkler_pulse_duty;
     public float sprinkler_rotor_angle;
     public float sprinkler_pulse_time;
+    public float sprinkler_pulse_frequency;
+    public float sprinkler_droplet_time;
     public float grass_vibration_amplitude_voxels;
     public float grass_vibration_primary_speed;
     public float grass_vibration_secondary_speed;

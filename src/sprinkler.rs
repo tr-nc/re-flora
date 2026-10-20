@@ -109,11 +109,20 @@ impl RotorPose {
 pub(crate) struct SprayClock {
     previous: Option<(u32, f32)>,
     angle: f64,
-    pulse_seconds: f64,
+    pulse_phase: f64,
+    droplet_seconds: f64,
 }
 
 impl SprayClock {
-    pub fn sample(&mut self, tick: u32, fraction: f32, seconds: f32, rpm: f32) -> [f32; 2] {
+    pub fn sample(
+        &mut self,
+        tick: u32,
+        fraction: f32,
+        seconds: f32,
+        rpm: f32,
+        frequency: f32,
+    ) -> [f32; 3] {
+        let frequency = frequency.max(0.25).min(20.0);
         let fraction = fraction.clamp(0.0, 1.0);
         let seconds = crate::game_time::clamp_world_tick_seconds(seconds);
         let rpm = if rpm.is_finite() {
@@ -127,9 +136,14 @@ impl SprayClock {
         });
         self.angle = (self.angle + dt * f64::from(rpm) * std::f64::consts::TAU / 60.0)
             .rem_euclid(std::f64::consts::TAU);
-        self.pulse_seconds = (self.pulse_seconds + dt).rem_euclid(0.25);
+        self.pulse_phase = (self.pulse_phase + dt * f64::from(frequency)).rem_euclid(1.0);
+        self.droplet_seconds = (self.droplet_seconds + dt).rem_euclid(3.0);
         self.previous = Some((tick, fraction));
-        [self.angle as f32, self.pulse_seconds as f32]
+        [
+            self.angle as f32,
+            (self.pulse_phase / f64::from(frequency)) as f32,
+            self.droplet_seconds as f32,
+        ]
     }
 }
 
@@ -140,14 +154,31 @@ mod tests {
     #[test]
     fn spray_clock_is_continuous_under_speed_changes_pause_and_tick_wrap() {
         let mut clock = SprayClock::default();
-        assert_eq!(clock.sample(u32::MAX, 0.5, 0.05, 15.0), [0.0, 0.0]);
-        let a = clock.sample(0, 0.5, 0.05, 15.0);
+        assert_eq!(
+            clock.sample(u32::MAX, 0.5, 0.05, 15.0, 4.0),
+            [0.0, 0.0, 0.0]
+        );
+        let a = clock.sample(0, 0.5, 0.05, 15.0, 4.0);
         assert!((a[0] - std::f32::consts::TAU / 80.0).abs() < 1e-6);
-        assert_eq!(clock.sample(0, 0.5, 0.05, 60.0), a);
-        let stopped = clock.sample(10, 0.5, 0.05, 0.0);
+        assert_eq!(clock.sample(0, 0.5, 0.05, 60.0, 4.0), a);
+        let stopped = clock.sample(10, 0.5, 0.05, 0.0, 4.0);
         assert_eq!(stopped[0], a[0]);
-        let b = clock.sample(20, 0.5, 0.05, 30.0);
+        let b = clock.sample(20, 0.5, 0.05, 30.0, 4.0);
         assert!((b[0] - a[0] - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn frequency_changes_preserve_valve_phase_and_pause_droplet_motion() {
+        let mut clock = SprayClock::default();
+        clock.sample(0, 0.0, 0.05, 15.0, 4.0);
+        let before = clock.sample(1, 0.0, 0.05, 15.0, 4.0);
+        let after = clock.sample(1, 0.0, 0.05, 15.0, 0.25);
+        assert_eq!(before[0], after[0]);
+        assert_eq!(before[2], after[2]);
+        assert!((before[1] * 4.0 - after[1] * 0.25).abs() < 1e-6);
+        let advanced = clock.sample(2, 0.0, 0.05, 15.0, 20.0);
+        assert!((advanced[1] * 20.0 - after[1] * 0.25).abs() < 1e-6);
+        assert!((advanced[2] - after[2] - 0.05).abs() < 1e-6);
     }
 
     #[test]

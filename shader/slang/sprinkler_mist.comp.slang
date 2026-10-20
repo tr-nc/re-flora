@@ -25,6 +25,7 @@ import wind_field; // owns binding 4
 [[vk::binding(1,1)]] StructuredBuffer<B_SprinklerMistLobe> mist_lobes;
 [[vk::binding(2,1)]] StructuredBuffer<B_SprinklerMistBounds> mist_bounds;
 [[vk::binding(3,1)]] StructuredBuffer<uint> mist_tiles;
+[[vk::binding(4,1)]] StructuredBuffer<B_SprinklerMistLobe> droplet_lobes;
 [[vk::push_constant]] ConstantBuffer<PushConstantSprinklerMist> mist_push;
 
 float mistSunVisibility(float3 position)
@@ -76,8 +77,13 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
             float radius=length((bounds.upper.xyz-bounds.lower.xyz)*0.5);
             float2 boundsInterval;
             if(!mistRayInterval(ray.origin,ray.direction,center,float3(radius),distance,boundsInterval))continue;
-            for(uint node=0;node<mist_push.lobes_per_instance;++node) {
-                B_SprinklerMistLobe lobe=mist_lobes[instance*mist_push.lobes_per_instance+node];
+            uint drops=mist_push.particles_enabled!=0u?mist_push.droplets_per_instance:0u;
+            uint start=mist_push.flow_enabled!=0u && mist_push.density>0.0?0u:mist_push.lobes_per_instance;
+            for(uint node=start;node<mist_push.lobes_per_instance+drops;++node) {
+                bool particle=node>=mist_push.lobes_per_instance;
+                B_SprinklerMistLobe lobe=particle?
+                    droplet_lobes[instance*mist_push.droplets_per_instance+node-mist_push.lobes_per_instance]:
+                    mist_lobes[instance*mist_push.lobes_per_instance+node];
                 if(lobe.center_amplitude.w<=0.0)continue;
                 float3 localOrigin=mistSprayToLocal(ray.origin-lobe.center_amplitude.xyz,lobe.tangent_rotary);
                 float3 localDirection=mistSprayToLocal(ray.direction,lobe.tangent_rotary);
@@ -87,9 +93,9 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
                 if(lobe.radii_near_geometry.w>0.0 &&
                    !mistClipLobeToTerrain(ray.origin,ray.direction,lobe.center_amplitude.xyz,interval))continue;
                 float tau=mistKernelLineIntegral(localOrigin,localDirection,float3(0),
-                    lobe.radii_near_geometry.xyz,interval)*lobe.center_amplitude.w*MIST_EXTINCTION*mist_push.density;
+                    lobe.radii_near_geometry.xyz,interval)*lobe.center_amplitude.w*MIST_EXTINCTION*(particle?1.0:mist_push.density);
                 opticalDepth+=tau;
-                source+=tau*(lobe.ambient_sun_visibility.xyz+sun*lobe.ambient_sun_visibility.w);
+                source+=tau*(lobe.ambient_sun_visibility.xyz*(particle?1.5:1.0)+sun*lobe.ambient_sun_visibility.w);
             }
         }
     }
@@ -111,8 +117,14 @@ void main(uint3 id:SV_DispatchThreadID)
     float3 sun=sun_info.sun_color*sun_info.sun_luminance*
         sunLuminanceFromDirection(sun_info.sun_dir,1.0)*mistPhase(dot(ray.direction,normalize(sun_info.sun_dir)));
     float opticalDepth;float3 source;
-    if(mist_push.flow_enabled!=0u)integrateFlow(ray,distance,sun,id.xy,opticalDepth,source);
-    else integrateLegacy(ray,distance,sun,opticalDepth,source);
+    opticalDepth=0.0;source=float3(0);
+    if(mist_push.flow_enabled!=0u || mist_push.particles_enabled!=0u)
+        integrateFlow(ray,distance,sun,id.xy,opticalDepth,source);
+    if(mist_push.flow_enabled==0u) {
+        float legacyDepth;float3 legacySource;
+        integrateLegacy(ray,distance,sun,legacyDepth,legacySource);
+        opticalDepth+=legacyDepth;source+=legacySource;
+    }
     if(opticalDepth<=0.0)return;
     float4 color=composited_tex[pixel];
     composited_tex[pixel]=float4(mistComposite(color.rgb,opticalDepth,source),color.a);

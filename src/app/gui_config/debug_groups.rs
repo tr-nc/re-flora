@@ -119,7 +119,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Sprinkler Spray & Motion",
         description: "One rotating nozzle. The whole assembly shares one cached grid; the nozzle selects the nearest of 16 internal poses. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. 100% duty is continuous; 0% stops water, not rotation.",
         initially_open: false,
-        params: &["sprinkler_spray_angle", "sprinkler_rotation_speed", "sprinkler_pulse_duty"],
+        params: &["sprinkler_spray_angle", "sprinkler_rotation_speed", "sprinkler_pulse_frequency", "sprinkler_pulse_duty"],
     },
     ControlGroup {
         parent: None,
@@ -131,9 +131,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Mist & Scattering",
-        description: "Continuous mist, not water particles. Checked: directional spray spreads, settles and meets voxel terrain. Unchecked: original soft dome. Old spray persists across nozzle changes; density changes only appearance, never watering. Zero hides both modes.",
+        description: "Mist supplies the spray body; optional small droplets follow the same nozzle, launch law, wind, valve and terrain. Intensity changes mist only (2 is twice the former default); zero leaves enabled droplets visible. Droplets are optical only and never add irrigation. The directional-mist switch compares the old soft dome; the droplet switch is independent.",
         initially_open: false,
-        params: &["sprinkler_mist_flow", "sprinkler_mist_density"],
+        params: &["sprinkler_mist_flow", "sprinkler_mist_density", "sprinkler_mist_particles"],
     },
     ControlGroup {
         parent: None,

@@ -262,6 +262,8 @@ pub(super) fn freeze_render_frame_inputs(
         sprinkler_rotation_speed: gui.sprinkler_rotation_speed.value,
         sprinkler_pulse_duty: gui.sprinkler_pulse_duty.value,
         sprinkler_mist_density: gui.sprinkler_mist_density.value,
+        sprinkler_mist_particles: gui.sprinkler_mist_particles.value,
+        sprinkler_pulse_frequency: gui.sprinkler_pulse_frequency.value,
         sprinkler_mist_flow: gui.sprinkler_mist_flow.value,
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
@@ -493,6 +495,8 @@ mod tests {
         let sprinkler_spray_angle = float!(sprinkler_spray_angle);
         let sprinkler_rotation_speed = float!(sprinkler_rotation_speed);
         let sprinkler_pulse_duty = float!(sprinkler_pulse_duty);
+        let sprinkler_pulse_frequency = float!(sprinkler_pulse_frequency);
+        gui.sprinkler_mist_particles.value = false;
         gui.sprinkler_mist_flow.value = false;
         let sun_display_luminance = float!(sun_display_luminance);
         let god_ray_max_depth = float!(god_ray_max_depth);
@@ -719,6 +723,8 @@ mod tests {
                 sprinkler_rotation_speed,
                 sprinkler_pulse_duty,
                 sprinkler_mist_density,
+                sprinkler_mist_particles: false,
+                sprinkler_pulse_frequency,
                 sprinkler_mist_flow: false,
                 sky_light_strength,
                 lens_flare_intensity,

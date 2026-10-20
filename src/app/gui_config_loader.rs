@@ -201,6 +201,20 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
+        Self::add_missing_param(&mut config, "Debug", "sprinkler_pulse_frequency");
+        for p in config
+            .section
+            .iter_mut()
+            .flat_map(|s| &mut s.param)
+            .filter(|p| p.id == "sprinkler_mist_density")
+        {
+            p.label = "Sprinklers: mist intensity".into();
+            if let GuiParamValue::Float { min, max, .. } = &mut p.value {
+                *min = Some(0.0);
+                *max = Some(6.0);
+            }
+        }
         // Accept both old A/B values, but only the rotating assembly remains.
         // Retire its UI conditions too; never write a file during migration.
         for section in &mut config.section {

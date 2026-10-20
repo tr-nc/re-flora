@@ -6,6 +6,7 @@ use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 
 pub const SPRINKLER_RENDER_CAPACITY: usize = 256;
 pub const SPRINKLER_MIST_LOBES: u32 = 256;
+pub const SPRINKLER_DROPLETS: u32 = 128;
 
 #[cfg(test)]
 fn sprinkler_mist_sample_count(rotary: bool) -> u32 {
@@ -35,6 +36,7 @@ struct SprinklerFrame {
     instances: Buffer,
     published: Vec<SprinklerInstanceGpu>,
     lobes: Buffer,
+    droplets: Buffer,
     bounds: Buffer,
     water_contacts: Buffer,
     water_bounds: Buffer,
@@ -109,6 +111,12 @@ impl SprinklerRendererResources {
                         * SPRINKLER_RENDER_CAPACITY) as u64,
                     MemoryLocation::GpuOnly,
                 )?,
+                droplets: self.buffer(
+                    (std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistLobe>()
+                        * SPRINKLER_DROPLETS as usize
+                        * SPRINKLER_RENDER_CAPACITY) as u64,
+                    MemoryLocation::GpuOnly,
+                )?,
                 bounds: self.buffer(
                     (std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistBounds>()
                         * SPRINKLER_RENDER_CAPACITY) as u64,
@@ -148,6 +156,10 @@ impl SprinklerRendererResources {
 
     pub fn mist_lobes(&self) -> &Buffer {
         &self.frames[self.slot].lobes
+    }
+
+    pub fn droplets(&self) -> &Buffer {
+        &self.frames[self.slot].droplets
     }
 
     pub fn mist_bounds(&self) -> &Buffer {
