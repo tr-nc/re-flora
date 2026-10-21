@@ -223,7 +223,8 @@ impl LaunchOwners {
     /// Garden loading is also used by fixtures; only the ordinary world owns this recipe.
     pub(super) fn permits_fresh_garden(&self) -> bool {
         matches!(&self.mode, LaunchMode::General {
-            scenario: ScenarioOwner::Standard(StandardScenarioOwner::World(WorldScenarioOwner::Garden)), ..
+            camera: CameraOwner::None | CameraOwner::Snapshot { .. },
+            scenario: ScenarioOwner::Standard(StandardScenarioOwner::World(WorldScenarioOwner::Garden)),
         }) && self.tree_bench.is_none() && self.raster_tree_smoke.is_none()
             && self.authored_flora_bench.is_none()
             // Opt-in native fixture harnesses have their own authored world/camera.
@@ -813,6 +814,28 @@ mod tests {
 
     fn launch_for(scenario: Scenario) -> LaunchOwners {
         prepare_startup_owners(AutomationPlan::default(), scenario).unwrap()
+    }
+
+    #[test]
+    fn fresh_garden_excludes_shared_loading_directive_fixtures_and_benchmarks() {
+        assert!(launch_for(Scenario::Garden).permits_fresh_garden());
+        for scenario in [
+            Scenario::House,
+            Scenario::Rooftop,
+            Scenario::WaterExperience,
+            Scenario::WaterEditSoak,
+            Scenario::HybridTransparency,
+            Scenario::CanopyAudioDiagnostic {
+                constrained_budget: false,
+            },
+            Scenario::EnvironmentLighting(crate::cli::EnvironmentLightingTestCase::Sealed),
+        ] {
+            assert!(!launch_for(scenario).permits_fresh_garden());
+        }
+        assert!(!camera_denoiser_owners().permits_fresh_garden());
+        assert!(!foliage_denoiser_owners().permits_fresh_garden());
+        let snapshot = capture_for(CameraAutomation::Snapshot("player-default".to_owned()));
+        assert!(snapshot.permits_fresh_garden()); // Explicit cameras own pose, not terrain.
     }
 
     #[test]
