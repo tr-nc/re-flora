@@ -1,4 +1,4 @@
-# Garden delivery — scope v1
+# Garden delivery — scope v2
 
 ## Authority and target
 
@@ -49,7 +49,7 @@ in focused validated steps. The controller owns integration and final acceptance
   Shared files have one owner or are edited in serialized stages. Workers never share a
   writable checkout. Read-only review can inspect an existing checkout.
 - All later builds/tests/apps/inference use the same heavy-resource lock:
-  `flock /tmp/re-flora-garden-delivery-heavy.lock <command>` (hold one lock around compound
+  `flock -o /tmp/re-flora-garden-delivery-heavy.lock <command>` (hold one lock around compound
   shell commands, avoid nested lock acquisition). No simultaneous game processes. No forced
   present mode. Validation layers for correctness; disable layers for performance measurement.
 - Build outputs are separate per worktree; never symlink/hardlink mutable `target` trees.
@@ -93,3 +93,49 @@ Required aggregate evidence:
   before/after numbers, sources/licenses, known limitations and remaining priorities.
 - Local commits only, clean target and task-owned cleanup. Visual approval remains the
   player's decision; honest remaining performance limits are not concealed by the artwork.
+
+## Stage 1 integration and stage 2 contracts
+
+Research and the complete performance branch (through `0c625974`, including the logical
+workgroup correction) are integrated. Raw evidence was copied to integration
+`target/garden-delivery/`. Two exact optimizations are retained; no quality/water samples
+were removed. Isolated GPU frame improvements are real but FIFO-limited FPS and the full
+player-world symptom are not yet accepted. Final garden-context checks remain required.
+
+The configured `small`/`medium` provider lacked credentials. This task uses the **same
+GPT-6.1 Sol model and low/medium reasoning** through the available OpenAI provider via
+per-call overrides, not a model upgrade or global configuration change. The initial null
+run is failed coverage, not successful research.
+
+Next, world and wetness implementation may run concurrently with these exclusive owners:
+
+- **world** owns the new garden recipe, terrain/startup/placement and launch policy,
+  `src/cli.rs`, `src/main.rs`, `src/app/core/{mod,loading,launch_owners,vegetation}.rs`,
+  relevant terrain/placement sources and its dedicated review/harness. Use a separate
+  garden recipe data file if useful. Do not edit `config/gui.toml`, GUI generators,
+  `src/tracer/mod.rs`, grass material/render input files, or audio/PetalSonic.
+- **wetness** owns grass support/material helpers and cached/native shader consumers,
+  additive grass-only controls in `config/gui.toml`, their GUI migration/grouping and
+  render-input plumbing (including narrowly the frame input structs in `src/tracer/mod.rs`).
+  Native validation should extend existing `src/app/core/grass_stem_review.rs` so it does
+  not edit world-owned `src/app/core/mod.rs` or startup/placement policy. Keep existing
+  growth helper interfaces compatible. Generated-file overlaps are resolved by regeneration.
+- Neither edits the other's owned source files. If a hook is absolutely necessary, record
+  a precise small patch request and let the controller serialize it rather than guessing
+  at uncommitted files. Each slice must still wire actual user-visible behavior.
+- Builders, native runs and timing experiments use the common `flock -o` heavy lock;
+  source authoring/research can overlap. No nested locks. Never benchmark while another
+  worker compiles, runs tests, launches a game or performs inference.
+
+**Audio is implemented after world/wetness integration**, not concurrently in their shared
+files. Select original procedural DSP; restricted/unverified AI weights are not acquired.
+Choose the smaller authoritative-clock seam: expose a typed read-only snapshot of the
+exact `SprayClock::sample` result already uploaded by Tracer, including normalized valve
+phase/rate/duty and rotor angle; consume it at the existing end-of-frame spatial transaction
+with committed stable sprinkler IDs and world pause status. Never sample/advance a second
+clock or derive the envelope from optical density/wetting gain. Add sample-domain anchored
+voice modulation in PetalSonic only as needed for 20 Hz/low-render-FPS correctness, with
+bounded stale-state silence and no realtime allocation/locks. Retain publish-before-play,
+clean failure/removal ownership and a bounded total voice count. The final audio owner must
+verify ordering and may refine snapshot fields, but not replace this with a free-running
+unanchored loop or frame-rate-only gate.
