@@ -11,6 +11,9 @@ pub(super) struct SprinklerAudioReview {
     reload: Option<String>,
     reload_waiting: bool,
     reload_resumed: bool,
+    wet_pause: bool,
+    pause_sample: Option<(u32, u32, f32)>,
+    soil_center: Vec3,
 }
 impl SprinklerAudioReview {
     pub fn from_environment() -> Option<Self> {
@@ -20,6 +23,9 @@ impl SprinklerAudioReview {
             .expect("audio review population");
         assert!(count <= 32);
         Some(Self {
+            wet_pause: std::env::var_os("RE_FLORA_SPRINKLER_WET_PAUSE").is_some(),
+            pause_sample: None,
+            soil_center: Vec3::ZERO,
             reload: std::env::var("RE_FLORA_SPRINKLER_AUDIO_RELOAD").ok(),
             reload_waiting: false,
             reload_resumed: false,
@@ -77,6 +83,10 @@ impl App {
                             0.5 + (i / 6) as f32 * 0.12,
                         ),
                 )?;
+            }
+            if review.wet_pause {
+                let xz = glam::Vec2::new(0.72, 1.30);
+                review.soil_center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
             }
             log::info!(
                 "[SPRINKLER_AUDIO_REVIEW] placed={} committed={} muted=true",
@@ -161,6 +171,54 @@ impl App {
                 "[SPRINKLER_AUDIO_RELOAD] complete successful_and_recoverable_load=true cap=16"
             );
         }
+        if [201, 206, 271, 281].contains(&review.frame) {
+            ensure!(self.mute_audio_output);
+            match review.frame {
+                201 => {
+                    ensure!(self.debug_settings.audio_mix.terrain.enabled);
+                    self.debug_settings.audio_mix.terrain.enabled = false;
+                }
+                206 => self.debug_settings.audio_mix.terrain.enabled = true,
+                271 => {
+                    ensure!(self.debug_settings.audio_mix.master.enabled);
+                    self.debug_settings.audio_mix.master.enabled = false;
+                }
+                281 => self.debug_settings.audio_mix.master.enabled = true,
+                _ => unreachable!(),
+            }
+            self.apply_effective_master_volume_gain("native mix review");
+        }
+        if review.wet_pause && review.frame == 230 {
+            self.add_watering_brush_moisture(crate::app::world_edits::TerrainBrushEdit {
+                start: review.soil_center,
+                end: review.soil_center,
+                radius: 0.12,
+            })?;
+        }
+        if review.wet_pause && [250, 269, 295].contains(&review.frame) {
+            let soil = self
+                .plain_builder
+                .sample_soil_moisture_sphere(review.soil_center, 0.08)?;
+            let tick = self.world_clock.flora_tick();
+            let fraction = self.world_clock.flora_tick_fraction();
+            ensure!(soil.sum > 0, "pause review requires genuinely wet soil");
+            if review.frame == 250 {
+                review.pause_sample = Some((soil.sum, tick, fraction));
+            }
+            if review.frame == 269 {
+                ensure!(review.pause_sample == Some((soil.sum, tick, fraction)), "global pause must preserve settled wet soil and clock: old={:?} now=({}, {tick}, {fraction})", review.pause_sample, soil.sum);
+            }
+            if review.frame == 295 {
+                ensure!(
+                    tick > review.pause_sample.unwrap().1,
+                    "world clock must resume"
+                );
+            }
+            log::info!(
+                "[SPRINKLER_WET_PAUSE] frame={} soil={soil:?} tick={tick} fraction={fraction}",
+                review.frame
+            );
+        }
         if review.frame == 300 {
             let removed =
                 self.remove_sprinklers_in_brush(crate::app::world_edits::TerrainBrushEdit {
@@ -203,21 +261,21 @@ impl App {
                 .samples
                 .push(self.spatial_frame.sprinkler_reconcile_us());
         }
-        if [195, 238, 295].contains(&review.frame) {
+        if [195, 210, 238, 295].contains(&review.frame) {
             assert_eq!(
                 counts.0,
                 review.count.min(16) as usize,
                 "optical independence / continuous / resume"
             );
         }
-        if [222, 260, 350].contains(&review.frame) {
+        if [205, 222, 260, 278, 350].contains(&review.frame) {
             assert_eq!(
                 counts.0 + counts.1 + counts.2,
                 0,
                 "zero duty / pause / removal must reclaim voices"
             );
         }
-        if [180, 195, 222, 238, 260, 295, 350].contains(&review.frame) {
+        if [180, 195, 205, 210, 222, 238, 260, 278, 295, 350].contains(&review.frame) {
             log::info!("[SPRINKLER_AUDIO_REVIEW] frame={} committed={} running={} active={} pending={} retiring={} render_owned={} engine_voices={}", review.frame, self.sprinklers.len(), review.running(), counts.0, counts.1, counts.2, counts.3, self.spatial_sound_manager.engine_voice_count());
         }
     }

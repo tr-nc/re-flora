@@ -3608,7 +3608,14 @@ impl App {
                                 PipelineStage::COMPUTE_SHADER,
                             )
                         });
-                    self.record_sprinkler_moisture(cmdbuf, frame_delta_time);
+                    self.record_sprinkler_moisture(
+                        cmdbuf,
+                        if world_updates_running {
+                            frame_delta_time
+                        } else {
+                            0.0
+                        },
+                    );
                     if let Some(scope) = sprinkler_moisture_gpu_scope {
                         if let Some(profiler) = self.gpu_profiler.as_mut() {
                             profiler.end_scope(
@@ -3621,7 +3628,8 @@ impl App {
                     }
                 }
 
-                if !self.launch_owners.glass_experiment_enabled()
+                if world_updates_running
+                    && !self.launch_owners.glass_experiment_enabled()
                     && self.terrain_moisture.has_chunks()
                     && !self.sprinkler_review.as_ref().is_some_and(|r| {
                         r.isolates_wetting() || r.isolates_drying() || r.checks_spray_contact()
@@ -3806,7 +3814,8 @@ impl App {
                 }
                 self.gpu_profiler = gpu_profiler_for_shadow;
 
-                if !self.launch_owners.glass_experiment_enabled()
+                if world_updates_running
+                    && !self.launch_owners.glass_experiment_enabled()
                     && self.terrain_moisture.has_chunks()
                     && !self
                         .sprinkler_review
