@@ -20,6 +20,8 @@ pub(super) struct GrassStemReview {
     resolution: u32,
     sample_frames: u32,
     pub(super) interactive: bool,
+    moisture_review: Option<String>,
+    moisture_response: bool,
 }
 
 impl GrassStemReview {
@@ -27,6 +29,16 @@ impl GrassStemReview {
         if let Ok(case) = std::env::var("RE_FLORA_GRASS_STEM_REVIEW") {
             let mut review = Self::parse(&case).expect("grass stem review case");
             review.grid = environment_uint("RE_FLORA_GRASS_STEM_GRID", 3);
+            review.moisture_review = std::env::var("RE_FLORA_GRASS_MOISTURE_REVIEW").ok();
+            if let Some(mode) = &review.moisture_review {
+                assert!(
+                    ["dry", "manual", "sprinkler"].contains(&mode.as_str()),
+                    "moisture review must be dry, manual or sprinkler"
+                );
+            }
+            let response = environment_uint("RE_FLORA_GRASS_MOISTURE_RESPONSE", 1);
+            assert!(response <= 1, "moisture response must be 0 or 1");
+            review.moisture_response = response != 0;
             let reuse = environment_uint("RE_FLORA_GRASS_BAND_POSE_REUSE", 1);
             assert!(reuse <= 1, "pose reuse must be 0 or 1");
             review.pose_reuse = reuse != 0;
@@ -98,11 +110,21 @@ impl GrassStemReview {
             resolution: 45,
             sample_frames: 300,
             interactive: false,
+            moisture_review: None,
+            moisture_response: true,
         })
     }
 
     pub(super) fn fixed_response_time(&self) -> Option<f32> {
-        (!self.interactive).then_some(self.frame as f32 / 60.)
+        // Freeze wind/spawn pose after warmup for moisture A/B images. Old
+        // fixtures retain their advancing fixed clock and all existing modes.
+        let frame = if self.moisture_review.is_some() {
+            self.frame
+                .min(self.grid * self.grid + POST_PAINT_WARMUP_FRAMES)
+        } else {
+            self.frame
+        };
+        (!self.interactive).then_some(frame as f32 / 60.)
     }
 
     fn pixel_settings(&self, frame: u32) -> (bool, u32) {
@@ -173,7 +195,45 @@ impl GrassStemReview {
                 .set_camera_pose_looking_at(target + offset, target),
             "grass stem review camera"
         );
+        if let Some(mode) = &self.moisture_review {
+            app.debug_settings.adjustables.soil_drying_speed.value = 0.0;
+            if frame == 0 && mode == "sprinkler" {
+                let base_xz = xz - Vec2::new(0.14, 0.0);
+                let base = Vec3::new(base_xz.x, app.query_terrain_height_cpu(base_xz), base_xz.y);
+                app.apply_sprinkler_placement(base)?;
+                let gui = &mut app.debug_settings.adjustables;
+                gui.sprinkler_wetting_speed.value = 3.0;
+                gui.sprinkler_pulse_duty.value = 100.0;
+            }
+            if mode == "manual" && (10..=25).contains(&frame) {
+                let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
+                app.add_watering_brush_moisture(crate::app::world_edits::TerrainBrushEdit {
+                    start: center,
+                    end: center,
+                    radius: 0.12,
+                })?;
+            }
+            if frame == warmup_frames || frame == total_frames {
+                let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
+                let stats = app
+                    .plain_builder
+                    .sample_soil_moisture_sphere(center, 0.08)?;
+                let neighbor_xz = xz + Vec2::new(0.35, 0.0);
+                let neighbor = Vec3::new(
+                    neighbor_xz.x,
+                    app.query_terrain_height_cpu(neighbor_xz),
+                    neighbor_xz.y,
+                );
+                let dry = app
+                    .plain_builder
+                    .sample_soil_moisture_sphere(neighbor, 0.04)?;
+                log::info!("[GRASS_MOISTURE_REVIEW] mode={mode} response={} frame={frame} soil={stats:?} neighbor={dry:?} pose_reuse={} pixels={} growth_override=1 drying_speed=0 saved=false", self.moisture_response, self.pose_reuse, self.pixelization);
+            }
+        }
         let gui = &mut app.debug_settings.adjustables;
+        if self.moisture_review.is_some() {
+            gui.grass_moisture_response.value = self.moisture_response;
+        }
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
             gui.grass_band_pose_reuse.value = self.pose_reuse;
@@ -272,6 +332,18 @@ mod tests {
         assert!(review.fixed_response_time().unwrap() - 3.75 > 0.28);
         review.interactive = true;
         assert_eq!(review.fixed_response_time(), None);
+    }
+
+    #[test]
+    fn moisture_review_freezes_pose_but_not_the_original_fixture() {
+        let mut review = GrassStemReview::parse("near-both-b").unwrap();
+        review.moisture_review = Some("manual".into());
+        review.frame = 120;
+        let pose = review.fixed_response_time();
+        review.frame = 600;
+        assert_eq!(review.fixed_response_time(), pose);
+        review.moisture_review = None;
+        assert_eq!(review.fixed_response_time(), Some(10.0));
     }
 
     #[test]
