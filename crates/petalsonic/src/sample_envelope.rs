@@ -6,7 +6,7 @@ use std::sync::{
 };
 use std::time::Instant;
 
-/// Maximum time an unrefreshed control can emit (including callback latency).
+/// Rendering horizon for an unrefreshed control (excludes buffered device latency).
 pub const ENVELOPE_STALE_SECONDS: f64 = 0.2;
 
 #[derive(Debug)]
@@ -85,6 +85,7 @@ pub struct SampleEnvelopeRenderer {
     rate: f64,
     duty: f64,
     age: f64,
+    anchor_stamp: f64,
     gain: f32,
 }
 impl SampleEnvelopeRenderer {
@@ -96,11 +97,17 @@ impl SampleEnvelopeRenderer {
             rate: 0.0,
             duty: 0.0,
             age: 1.0,
+            anchor_stamp: 0.0,
             gain: 0.0,
         }
     }
     pub fn begin_block(&mut self) {
         let s = &self.control.0;
+        // Rendered sample age alone is insufficient after a device gap / full output ring.
+        // Recheck wall age even when no new authoritative state was published.
+        self.age = self
+            .age
+            .max((s.epoch.elapsed().as_secs_f64() - self.anchor_stamp).max(0.0));
         let a = s.sequence.load(Ordering::SeqCst);
         if a == self.sequence || a & 1 != 0 {
             return;
@@ -113,6 +120,7 @@ impl SampleEnvelopeRenderer {
             return;
         }
         self.sequence = a;
+        self.anchor_stamp = stamp;
         self.phase = phase;
         self.rate = rate;
         self.duty = duty;
@@ -137,7 +145,7 @@ impl SampleEnvelopeRenderer {
             };
         }
         // Bounded de-click including stale controls, pause and phase discontinuities.
-        // Narrow pulses are never extended: release is bounded by the on-window edge.
+        // Narrow pulses use shortened interior edges above; the de-click tail is <= 1 ms.
         let step = (dt / 0.001) as f32;
         self.gain += (target - self.gain).clamp(-step, step);
         self.phase = (self.phase + self.rate * dt).rem_euclid(1.0);
@@ -149,6 +157,25 @@ impl SampleEnvelopeRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "offline wall-clock/device-gap staleness regression; 220 ms sleep, no device"]
+    fn unchanged_control_expires_across_a_render_or_device_gap() {
+        let c = SampleEnvelopeControl::default();
+        let mut r = SampleEnvelopeRenderer::new(c.clone());
+        c.anchor(0.0, 20.0, 1.0);
+        r.begin_block();
+        for _ in 0..100 {
+            r.next_gain(48000);
+        }
+        assert!(r.next_gain(48000) > 0.7);
+        std::thread::sleep(std::time::Duration::from_millis(220));
+        r.begin_block();
+        for _ in 0..100 {
+            r.next_gain(48000);
+        }
+        assert_eq!(r.next_gain(48000), 0.0);
+    }
+
     #[test]
     fn continuous_has_no_pulse_and_edits_pause_resume_have_no_event_backlog() {
         let c = SampleEnvelopeControl::default();
@@ -194,7 +221,8 @@ mod tests {
                     let control = SampleEnvelopeControl::default();
                     let mut render = SampleEnvelopeRenderer::new(control.clone());
                     let mut energy = 0.0;
-                    for frame in 0..fps {
+                    // Cover a complete 0.25 Hz period as well as fast valves.
+                    for frame in 0..fps * 4 {
                         control.anchor((frame as f64 * hz / fps as f64) % 1.0, hz, duty);
                         render.begin_block();
                         for sample in 0..48000 / fps {
