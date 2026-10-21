@@ -143,6 +143,12 @@ impl App {
                         });
                         self.plain_builder.mark_all_solid_workgroups_dirty();
                     } else {
+                        if matches!(
+                            loading.terrain_generation,
+                            crate::builder::TerrainGeneration::Garden(_)
+                        ) {
+                            self.plain_builder.mark_all_solid_workgroups_dirty();
+                        }
                         should_apply_water_experience_terrain = water_experience_requested;
                         should_apply_house_scene = house_scene_requested;
                     }
@@ -378,7 +384,11 @@ impl App {
                     .unwrap_or_else(|err| panic!("[ROOFTOP] setup failed: {err:#}"));
             }
             launch_owners::LoadingDirective::Garden => {
-                if !self.terrain_persistence.startup_load_requested() {
+                if let Some(seed) = self.fresh_garden_seed {
+                    self.establish_garden_opening(seed).unwrap_or_else(|err| {
+                        panic!("[GARDEN_OPENING] establishment failed: {err:#}")
+                    });
+                } else if !self.terrain_persistence.startup_load_requested() {
                     if let Err(err) = self.plant_startup_tuned_tree(canopy_audio_vegetation_startup)
                     {
                         log::error!("Failed to plant startup tuning tree: {}", err);
@@ -394,6 +404,7 @@ impl App {
         self.restore_startup_garden().unwrap_or_else(|err| {
             panic!("[GARDEN_PERSISTENCE] startup vegetation restore failed: {err:#}")
         });
+        self.apply_garden_opening_camera();
 
         if self.launch_owners.is_foliage_shadow() || self.lighting_mode_acceptance.is_active() {
             self.configure_foliage_shadow_bench_receiver()

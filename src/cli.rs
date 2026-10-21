@@ -847,6 +847,13 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
         .as_ref()
         .map(|screenshot| screenshot.options.clone());
     let flat_terrain = args.iter().any(|arg| arg == "--flat-terrain");
+    let legacy_terrain = args.iter().any(|arg| arg == "--legacy-terrain");
+    let garden_seed = parse_optional_u32_after(&args, "--garden-seed")?;
+    if (flat_terrain && legacy_terrain)
+        || (garden_seed.is_some() && (flat_terrain || legacy_terrain))
+    {
+        return Err("Choose one terrain recipe: default garden [--garden-seed <u32>], --legacy-terrain, or --flat-terrain.".to_owned());
+    }
     let terrain_load_path =
         parse_required_string_after("--terrain-load", "a terrain snapshot path")?;
     let terrain_save_path =
@@ -1054,6 +1061,12 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
         return Err("--flat-terrain requires a generated garden; omit --terrain-load and fixed scenario flags. Try: re-flora --flat-terrain".to_owned());
     }
 
+    if (legacy_terrain || garden_seed.is_some())
+        && (terrain_load_path.is_some() || scenario != Scenario::Garden)
+    {
+        return Err("--legacy-terrain and --garden-seed require a fresh ordinary garden; omit --terrain-load and fixed scenarios. Try: re-flora --legacy-terrain".to_owned());
+    }
+
     if house_scene && camera_snapshot.is_none() {
         camera_snapshot = Some("cozy-home-arrival".to_owned());
     }
@@ -1112,11 +1125,14 @@ fn parse_run_plan(mut args: Vec<String>) -> Result<RunPlan, String> {
         },
         world: WorldPlan {
             terrain: TerrainPersistencePlan {
-                load_path: terrain_load_path,
+                load_path: terrain_load_path.clone(),
                 save_path: terrain_save_path,
             },
             terrain_generation: if flat_terrain {
                 TerrainGeneration::Flat
+            } else if !legacy_terrain && terrain_load_path.is_none() && scenario == Scenario::Garden
+            {
+                TerrainGeneration::Garden(garden_seed.unwrap_or(crate::garden_layout::DEFAULT_SEED))
             } else {
                 TerrainGeneration::Procedural
             },
@@ -1550,6 +1566,11 @@ Options:
                              Bounded to one readback writer; actual capture times are logged.
                              Example: --screenshot player-default target/frame --screenshot-delay 0 --screenshot-sequence 100 0.1 --auto-exit 15
   --flat-terrain             Start a level soil terrain for debugging (no terrain load or fixed scenario)
+  --legacy-terrain           Use the original procedural terrain and tuning tree instead of the fresh garden
+  --garden-seed <u32>         Fresh garden layout seed (default: 20260519); never applied to loaded worlds
+                              Ordinary fresh launches open an editable Restorative Garden.
+                              Built-in capture presets: garden-arrival, garden-corridor, garden-reverse, garden-overview.
+                              Example: --hidden --mute --screenshot garden-arrival target/arrival.png --screenshot-delay 3
   --terrain-load <path>      Load terrain and vegetation during startup
   --terrain-save <path>      Save terrain and vegetation once startup is ready
   --denoiser-bench <preset> <report.toml>
@@ -2559,7 +2580,7 @@ mod tests {
     fn flat_terrain_is_opt_in_and_can_be_saved() {
         assert_eq!(
             parse(&["re-flora"]).world.terrain_generation,
-            TerrainGeneration::Procedural
+            TerrainGeneration::Garden(crate::garden_layout::DEFAULT_SEED)
         );
         let plan = parse(&[
             "re-flora",

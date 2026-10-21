@@ -3335,6 +3335,38 @@ impl App {
         Ok(status)
     }
 
+    /// Explicit selection for deterministic authored startup, independent of the active UI brush.
+    pub(super) fn seed_opening_grass(
+        &mut self,
+        edit: TerrainBrushEdit,
+        seed: u32,
+        selection: species::FloraPaintSelection,
+    ) -> Result<()> {
+        let compiled = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+            edit,
+            self.world_chunk_dim,
+        )
+        .context("opening grass footprint outside world")?;
+        world_ops::mesh_regenerate_flora_for_brush_edit(
+            &mut self.surface_builder,
+            super::VOXEL_DIM_PER_CHUNK,
+            compiled.rebuild_bound,
+            world_ops::FloraBrushEdit {
+                start: edit.start,
+                end: edit.end,
+                radius: edit.radius,
+                tick: self
+                    .world_clock
+                    .flora_tick()
+                    .wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+                spawn_time_ms: 0,
+            },
+            selection,
+            seed,
+            species::flora_paint_brush_settings(selection),
+        )
+    }
+
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
         edit: TerrainBrushEdit,
@@ -3713,6 +3745,14 @@ impl App {
 
     #[allow(dead_code)]
     pub(super) fn apply_tree_placement(&mut self, edit: TreePlacementEdit) -> Result<()> {
+        self.apply_tree_placement_at_age(edit, self.debug_settings.adjustables.tree_age.value)
+    }
+
+    pub(super) fn apply_tree_placement_at_age(
+        &mut self,
+        edit: TreePlacementEdit,
+        age: f32,
+    ) -> Result<()> {
         let total_start = Instant::now();
         let TreePlacementEdit {
             tree_desc,
@@ -3732,7 +3772,7 @@ impl App {
             tree_desc,
             tree_pos,
             UAabb3::default(),
-            self.debug_settings.adjustables.tree_age.value,
+            age,
             canopy_generation,
             self.debug_settings
                 .adjustables

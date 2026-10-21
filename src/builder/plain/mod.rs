@@ -60,6 +60,7 @@ pub const VOXEL_FIXED_SCENE_BIT: u8 = 0x80;
 pub enum TerrainGeneration {
     #[default]
     Procedural,
+    Garden(u32),
     Flat,
 }
 
@@ -1645,6 +1646,16 @@ impl PlainBuilder {
     ) -> Result<()> {
         if atlas_dim.x == 0 || atlas_dim.y == 0 || atlas_dim.z == 0 {
             return Ok(());
+        }
+        if let TerrainGeneration::Garden(seed) = terrain {
+            let extent = self.resources.chunk_atlas.get_image().get_desc().extent;
+            let bytes = crate::garden_layout::terrain_chunk(
+                atlas_offset,
+                atlas_dim,
+                UVec3::new(extent.width, extent.height, extent.depth),
+                seed,
+            );
+            return self.write_chunk_atlas_region(atlas_offset, atlas_dim, &bytes);
         }
         update_buffers(&self.resources, atlas_offset, atlas_dim)?;
 

@@ -220,6 +220,20 @@ pub(super) enum LaunchMode {
 }
 
 impl LaunchOwners {
+    /// Garden loading is also used by fixtures; only the ordinary world owns this recipe.
+    pub(super) fn permits_fresh_garden(&self) -> bool {
+        matches!(&self.mode, LaunchMode::General {
+            scenario: ScenarioOwner::Standard(StandardScenarioOwner::World(WorldScenarioOwner::Garden)), ..
+        }) && self.tree_bench.is_none() && self.raster_tree_smoke.is_none()
+            && self.authored_flora_bench.is_none()
+            // Opt-in native fixture harnesses have their own authored world/camera.
+            && !std::env::vars_os().any(|(key, _)| {
+                let key = key.to_string_lossy();
+                key.starts_with("RE_FLORA_") && (key.contains("REVIEW") || key.contains("BENCH")
+                    || key.contains("SMOKE") || key.contains("VALIDATE"))
+            })
+    }
+
     pub(super) fn snapshot_name(&self) -> Option<&str> {
         match &self.mode {
             LaunchMode::General { camera, .. }

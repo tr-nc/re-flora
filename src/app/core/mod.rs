@@ -23,6 +23,7 @@ mod flower_model_review;
 mod foliage_shadow_bench;
 mod fps_chart;
 mod frame_timing;
+mod garden_opening;
 mod glass_voxel_test_scene;
 mod grass_stem_review;
 mod house_scene;
@@ -425,6 +426,7 @@ impl ResizeLifecycleTest {
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
+    fresh_garden_seed: Option<u32>,
     splash_transition: Option<loading::SplashTransition>,
     pending_frame_extent: Option<Extent2D>,
     resize_lifecycle_test: Option<ResizeLifecycleTest>,
@@ -1107,6 +1109,21 @@ impl App {
             water: water_plan,
             lighting,
         } = world;
+        let terrain_generation = match terrain_generation {
+            crate::builder::TerrainGeneration::Garden(seed)
+                if terrain.load_path.is_none() && launch_owners.permits_fresh_garden() =>
+            {
+                crate::builder::TerrainGeneration::Garden(seed)
+            }
+            crate::builder::TerrainGeneration::Garden(_) => {
+                crate::builder::TerrainGeneration::Procedural
+            }
+            other => other,
+        };
+        let fresh_garden_seed = match terrain_generation {
+            crate::builder::TerrainGeneration::Garden(seed) => Some(seed),
+            _ => None,
+        };
         let display = &display;
         let render = &render;
         let lifecycle = &lifecycle;
@@ -1536,6 +1553,7 @@ impl App {
                 canopy_audio_vegetation_startup,
             }),
 
+            fresh_garden_seed,
             splash_transition: None,
             cursor_position_physical: None,
             wind_prototype: wind_prototype::WindPrototype::new(),
@@ -1705,7 +1723,12 @@ impl App {
         }
         // Test scenes provide a useful default pose, but an explicit snapshot
         // is the caller's final camera choice for screenshots and repro runs.
-        app.apply_startup_camera_snapshot(startup_camera_snapshot.as_deref())?;
+        if !startup_camera_snapshot
+            .as_deref()
+            .is_some_and(garden_opening::is_review_preset)
+        {
+            app.apply_startup_camera_snapshot(startup_camera_snapshot.as_deref())?;
+        }
         if foliage_shadow_bench || lighting_mode_acceptance_requested {
             app.configure_foliage_shadow_bench_camera()?;
         }
@@ -2781,14 +2804,20 @@ impl App {
                         .unwrap_or(true),
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
-                let hide_ui_for_environment_test_capture = (self
-                    .launch_owners
-                    .test_scene_frame_plan()
-                    .owns_capture_scene()
-                    || self.launch_owners.loading_directive()
-                        == launch_owners::LoadingDirective::House)
-                    && (self.launch_owners.screenshot().is_scheduled()
-                        || !matches!(denoiser_frame.ui_step(), DenoiserUiStep::Inactive));
+                let hide_ui_for_garden_capture = self.launch_owners.screenshot().is_scheduled()
+                    && self
+                        .launch_owners
+                        .snapshot_name()
+                        .is_some_and(garden_opening::is_review_preset);
+                let hide_ui_for_environment_test_capture = hide_ui_for_garden_capture
+                    || (self
+                        .launch_owners
+                        .test_scene_frame_plan()
+                        .owns_capture_scene()
+                        || self.launch_owners.loading_directive()
+                            == launch_owners::LoadingDirective::House)
+                        && (self.launch_owners.screenshot().is_scheduled()
+                            || !matches!(denoiser_frame.ui_step(), DenoiserUiStep::Inactive));
                 let hide_ui_for_frame_stability_bench =
                     matches!(denoiser_frame.ui_step(), DenoiserUiStep::FoliageStability)
                         || self

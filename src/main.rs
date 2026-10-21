@@ -14,6 +14,7 @@ mod environment_probes;
 mod flora;
 mod game_time;
 mod gameplay;
+mod garden_layout;
 #[path = "auto-generated/mod.rs"]
 mod generated;
 mod geom;
@@ -136,6 +137,9 @@ fn handle_camera_snapshot_query() {
             for name in library.names_for_cli() {
                 println!("{name}");
             }
+            for name in garden_layout::REVIEW_PRESETS {
+                println!("{name}");
+            }
         }
         Err(err) => {
             eprintln!("Failed to load camera snapshots: {err}");
@@ -149,6 +153,9 @@ fn validate_requested_camera_snapshot(camera: &CameraAutomation) -> Result<(), S
         return Ok(());
     };
 
+    if garden_layout::is_review_preset(requested_name) {
+        return Ok(());
+    }
     let library = app::camera_snapshots::CameraSnapshotLibrary::load_default().map_err(|err| {
         format!(
             "Failed to load camera snapshots: {err}\n{}",
