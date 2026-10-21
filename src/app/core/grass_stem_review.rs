@@ -233,6 +233,12 @@ impl GrassStemReview {
                     end: center,
                     radius: 0.12,
                 };
+                if frame == 30 || frame == 60 {
+                    let paused = frame == 30;
+                    app.debug_settings.adjustables.sprinkler_pulse_duty.value =
+                        if paused { 0.0 } else { 100.0 };
+                    log::info!("[GRASS_MOISTURE_LIFECYCLE] valve_paused={paused} frame={frame} authoritative_duty={}", app.debug_settings.adjustables.sprinkler_pulse_duty.value);
+                }
                 if frame == 60 {
                     let before = app
                         .plain_builder
@@ -285,7 +291,7 @@ impl GrassStemReview {
             }
             if frame == warmup_frames
                 || frame == total_frames
-                || (mode == "lifecycle" && [60, 90, 150, 180, 300, 600].contains(&frame))
+                || (mode == "lifecycle" && [30, 59, 60, 90, 150, 180, 300, 600].contains(&frame))
             {
                 let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
                 let stats = app
@@ -352,7 +358,7 @@ impl GrassStemReview {
         app.render_flags.enable_flora = true;
         if frame == warmup_frames
             || (self.moisture_review.as_deref() == Some("lifecycle")
-                && [60, 90, 150, 180, 300, 600].contains(&frame))
+                && [30, 59, 60, 90, 150, 180, 300, 600].contains(&frame))
         {
             if let Some(directory) = std::env::var_os("RE_FLORA_GRASS_STEM_CAPTURE") {
                 let directory = std::path::PathBuf::from(directory);
