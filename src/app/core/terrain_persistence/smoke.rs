@@ -125,12 +125,19 @@ impl App {
                 self.advance_water_terrain(false);
                 anyhow::ensure!(
                     Instant::now() < deadline,
-                    "garden load water publication did not settle"
+                    "garden load water publication did not settle: {:?}",
+                    self.water.terrain_status()
                 );
                 std::thread::yield_now();
             }
+            anyhow::ensure!(
+                self.water.is_running()
+                    && self.water.terrain_status().is_ready()
+                    && self.terrain_persistence.allows_world_updates(),
+                "runtime garden load must resume real water and world updates"
+            );
             self.verify_live_garden_file(Path::new(&path))?;
-            log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain=exact flora=exact trees=exact no_duplicates=true", pass + 1);
+            log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain=exact flora=exact trees=exact no_duplicates=true water=Running terrain=Ready world_updates=true", pass + 1);
         }
         log::info!("[GARDEN_SMOKE] passed startup_and_repeated_runtime_load=true");
         Ok(())

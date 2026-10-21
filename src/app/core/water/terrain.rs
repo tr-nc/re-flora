@@ -183,6 +183,7 @@ struct TerrainSdfSourceRefreshRequest {
 
 pub(super) struct WaterTerrainRuntime {
     initialized: bool,
+    full_terrain_observed: bool,
     collider_cache_rebuild_pending: bool,
     source_refreshes: LatestChunkQueue<TerrainSdfSourceRefreshRequest>,
     collider_rebuilds: LatestChunkQueue<TerrainSdfColliderRebuildRequest>,
@@ -274,6 +275,7 @@ impl WaterTerrainRuntime {
 
         Ok(Self {
             initialized: false,
+            full_terrain_observed: false,
             collider_cache_rebuild_pending: false,
             source_refreshes: LatestChunkQueue::default(),
             collider_rebuilds: LatestChunkQueue::default(),
@@ -361,6 +363,10 @@ impl WaterTerrainRuntime {
         self.process_deferred_terrain_sdf_collider_rebuild(water_sim, focus);
         let collider_ms = elapsed_ms(collider_start);
 
+        // Completion is a property of observation and drained work, not of whether
+        // this advance happened to publish a nonempty collider (or any result).
+        self.finish_startup_water_terrain_collider_batch_if_ready(water_sim);
+
         WaterTerrainAdvanceTimings {
             source_ms,
             cache_ms,
@@ -399,6 +405,7 @@ impl WaterTerrainRuntime {
                 }
             }
         }
+        self.full_terrain_observed = true;
         log::info!(
             "[WATER][TERRAIN] enqueued startup collider rebuilds for {} water-domain chunks, skipped {} out-of-domain chunks",
             enqueued,
@@ -1013,7 +1020,6 @@ impl WaterTerrainRuntime {
             self.built_source_revisions
                 .insert(chunk_key, source_revision);
             self.collider_rebuilds.complete(chunk_key, revision);
-            self.finish_startup_water_terrain_collider_batch_if_ready(water_sim);
             return;
         }
 
@@ -1121,7 +1127,6 @@ impl WaterTerrainRuntime {
                 .insert(result.chunk_key, result.source_revision);
             self.collider_rebuilds
                 .complete(result.chunk_key, result.revision);
-            self.finish_startup_water_terrain_collider_batch_if_ready(water_sim);
         }
     }
 
@@ -1185,7 +1190,7 @@ impl WaterTerrainRuntime {
         &mut self,
         water_sim: &mut AsyncWaterSim,
     ) {
-        if self.initialized || !self.water_terrain_has_startup_collider(water_sim) {
+        if self.initialized || !self.startup_observation_complete() {
             return;
         }
 
@@ -1197,21 +1202,14 @@ impl WaterTerrainRuntime {
         log::info!("[WATER][TERRAIN] initialized startup collider batch");
     }
 
-    fn water_terrain_has_startup_collider(&self, water_sim: &AsyncWaterSim) -> bool {
-        if self.collider_build_inflight
-            || !self.source_refreshes.is_idle()
-            || !self.collider_rebuilds.is_idle()
-            || !self.cache_rebuilds.is_idle()
-        {
-            return false;
-        }
-
-        let bounds = water_sim.config.collider;
-        water_sim.terrain_collider_set().is_some_and(|set| {
-            set.chunks.keys().any(|&chunk_id| {
-                water_terrain_chunk_strictly_overlaps_box(chunk_id, bounds.min_ws, bounds.max_ws)
-            })
-        })
+    fn startup_observation_complete(&self) -> bool {
+        // An empty result is authoritative only after the whole domain was
+        // scheduled and every source/collider/cache dependency has completed.
+        self.full_terrain_observed
+            && !self.collider_build_inflight
+            && !self.cache_rebuild_inflight
+            && self.source_refresh_inflight.is_none()
+            && !self.status().has_work()
     }
 
     fn submit_terrain_sdf_solid_sample_chunk(
@@ -1479,6 +1477,212 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(exits.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn empty_observation_initializes_without_fabricating_a_collider() {
+        let mut runtime = WaterTerrainRuntime::new();
+        let mut sim = AsyncWaterSim::new(re_flora_water::PondWaterConfig::default());
+        runtime.finish_startup_water_terrain_collider_batch_if_ready(&mut sim);
+        assert!(!runtime.status().is_ready(), "unobserved is not empty");
+        runtime.observe_full_terrain(UVec3::ONE, Vec3::ZERO, Vec3::ONE);
+        let work = runtime
+            .source_refreshes
+            .pop(ChunkPopMode::NearestWithAging {
+                focus: Vec3::ZERO,
+                chunk_extent: UVec3::ONE,
+            })
+            .unwrap();
+        runtime
+            .enqueue_deferred_terrain_sdf_collider_rebuild(UVec3::ZERO, sampled_request(1, false));
+        runtime.finish_startup_water_terrain_collider_batch_if_ready(&mut sim);
+        assert!(
+            !runtime.status().is_ready(),
+            "active sampling still blocks publication"
+        );
+        runtime
+            .source_refreshes
+            .complete(work.chunk_id, work.revision);
+        runtime.try_submit_next_terrain_sdf_collider_rebuild(&mut sim, Vec3::ZERO);
+        runtime.finish_startup_water_terrain_collider_batch_if_ready(&mut sim);
+        assert!(
+            runtime.status().is_ready(),
+            "observed empty domain must be Ready"
+        );
+        assert!(sim.terrain_collider_set().is_none());
+    }
+
+    fn sampled_request(revision: u64, solid: bool) -> TerrainSdfColliderRebuildRequest {
+        TerrainSdfColliderRebuildRequest {
+            source_revision: TerrainSdfSourceRevision {
+                dependencies: vec![ContreeCpuVoxelSourceDependency {
+                    chunk_idx: UVec3::ZERO,
+                    source_revision: Some(revision),
+                    is_present: solid,
+                }],
+            },
+            source: TerrainSdfSolidGrid {
+                chunk_id: UVec3::ZERO,
+                dim: TERRAIN_SDF_COLLIDER_DIM,
+                solid: vec![solid; grid_len(TERRAIN_SDF_COLLIDER_DIM)],
+                solid_count: if solid {
+                    grid_len(TERRAIN_SDF_COLLIDER_DIM)
+                } else {
+                    0
+                },
+            },
+        }
+    }
+
+    // Synchronous worker transport: real requests, queue revisions, builders and
+    // publication, without timing-dependent thread polling or GPU/window setup.
+    struct ColliderTestDriver {
+        runtime: WaterTerrainRuntime,
+        sim: AsyncWaterSim,
+        jobs: mpsc::Receiver<TerrainSdfColliderWorkerJob>,
+        results: mpsc::Sender<TerrainSdfColliderWorkerResult>,
+        cache_jobs: mpsc::Receiver<WaterTerrainCacheWorkerJob>,
+        cache_results: mpsc::Sender<WaterTerrainCacheWorkerResult>,
+    }
+
+    impl ColliderTestDriver {
+        fn new() -> Self {
+            let mut runtime = WaterTerrainRuntime::new();
+            let (tx, jobs) = mpsc::channel();
+            runtime.workers.collider_job_tx = Some(tx);
+            let (results, rx) = mpsc::channel();
+            runtime.collider_result_rx = rx;
+            let (tx, cache_jobs) = mpsc::channel();
+            runtime.workers.cache_job_tx = Some(tx);
+            let (cache_results, rx) = mpsc::channel();
+            runtime.cache_result_rx = rx;
+            // No GPU source work in this test adapter; requests below stand for
+            // already sampled immutable grids, just like production's handoff.
+            runtime.observe_full_terrain(UVec3::ZERO, Vec3::ZERO, Vec3::ONE);
+            Self {
+                runtime,
+                sim: AsyncWaterSim::new(
+                    re_flora_water::PondWaterConfig::default()
+                        .with_cubic_grid_dim(8)
+                        .with_particle_count(0),
+                ),
+                jobs,
+                results,
+                cache_jobs,
+                cache_results,
+            }
+        }
+
+        fn enqueue(&mut self, revision: u64, solid: bool) {
+            self.runtime.enqueue_deferred_terrain_sdf_collider_rebuild(
+                UVec3::ZERO,
+                sampled_request(revision, solid),
+            );
+            assert!(!self.runtime.status().is_ready());
+        }
+
+        fn finish(&mut self) {
+            self.runtime
+                .process_deferred_terrain_sdf_collider_rebuild(&mut self.sim, Vec3::ZERO);
+            if let Ok(job) = self.jobs.try_recv() {
+                self.results
+                    .send(TerrainSdfColliderWorkerResult {
+                        chunk_key: job.chunk_key,
+                        chunk_id: job.chunk_id,
+                        revision: job.revision,
+                        source_revision: job.source_revision,
+                        build: build_terrain_sdf_collider_chunk(
+                            &job.source,
+                            job.chunk_id,
+                            job.revision,
+                        ),
+                    })
+                    .unwrap();
+                self.runtime
+                    .publish_completed_terrain_sdf_collider_rebuilds(&mut self.sim);
+            }
+            self.runtime
+                .process_deferred_water_terrain_cache_rebuild(&mut self.sim, Vec3::ZERO);
+            if let Ok(job) = self.cache_jobs.try_recv() {
+                assert!(
+                    !self.runtime.status().is_ready(),
+                    "cache publication is still pending"
+                );
+                self.cache_results
+                    .send(WaterTerrainCacheWorkerResult {
+                        chunk_key: job.chunk_key,
+                        chunk_id: job.chunk_id,
+                        revision: job.revision,
+                        patch: build_terrain_grid_cache_patch(job.request),
+                    })
+                    .unwrap();
+                self.runtime
+                    .publish_completed_water_terrain_cache_rebuilds(&mut self.sim);
+            }
+            self.runtime
+                .finish_startup_water_terrain_collider_batch_if_ready(&mut self.sim);
+            assert!(self.runtime.status().is_ready());
+        }
+    }
+
+    #[test]
+    fn repeated_empty_noop_solid_and_last_solid_removal_settle() {
+        let mut driver = ColliderTestDriver::new();
+        for (revision, solid) in [
+            (1, false),
+            (1, false),
+            (2, false),
+            (3, true),
+            (4, false),
+            (5, true),
+            (6, false),
+            (6, false),
+        ] {
+            driver.enqueue(revision, solid);
+            driver.finish();
+            assert_eq!(driver.sim.terrain_collider_set().is_some(), solid);
+            assert_eq!(
+                driver.runtime.built_source_revisions.get(&UVec3::ZERO),
+                Some(&sampled_request(revision, solid).source_revision)
+            );
+        }
+    }
+
+    #[test]
+    fn stale_nonempty_worker_cannot_replace_newer_empty_observation() {
+        let mut driver = ColliderTestDriver::new();
+        driver.enqueue(1, true);
+        driver
+            .runtime
+            .try_submit_next_terrain_sdf_collider_rebuild(&mut driver.sim, Vec3::ZERO);
+        let old = driver.jobs.try_recv().unwrap();
+        driver.enqueue(2, false);
+        driver
+            .results
+            .send(TerrainSdfColliderWorkerResult {
+                chunk_key: old.chunk_key,
+                chunk_id: old.chunk_id,
+                revision: old.revision,
+                source_revision: old.source_revision,
+                build: build_terrain_sdf_collider_chunk(&old.source, old.chunk_id, old.revision),
+            })
+            .unwrap();
+        driver
+            .runtime
+            .publish_completed_terrain_sdf_collider_rebuilds(&mut driver.sim);
+        driver
+            .runtime
+            .finish_startup_water_terrain_collider_batch_if_ready(&mut driver.sim);
+        assert!(!driver.runtime.status().is_ready());
+        assert!(
+            driver.sim.terrain_collider_set().is_none(),
+            "stale solids must not publish"
+        );
+        driver.finish();
+        assert_eq!(
+            driver.runtime.built_source_revisions.get(&UVec3::ZERO),
+            Some(&sampled_request(2, false).source_revision)
+        );
     }
 
     #[test]
