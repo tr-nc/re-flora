@@ -176,3 +176,10 @@ fixture 行为。lifecycle 用 sample frames=600，产生上述完整阶段。�
 解码和越界保护有 CPU contract/source wiring/编译证据，但不谎称后几项 native 场景已经跑过。
 当前高曝光黄绿色配色下效果温和，不是高光、反射或强制“更健康”的饱和度变化。
 所有最终 code/config 改动均本地提交；只增加必要配置项，无用户世界或相机偏好改动。
+
+## 集成后续（scope v4，已完成）
+
+最终验收补齐真实世界时钟暂停、湿支撑移除、越界编辑和完整花园性能测量，并修复旧 moisture
+提交未随暂停停止的缺口。主工作树暂停时土壤 sum=3177、tick/fraction 精确保持；恢复后继续变化。
+见[最终验收](garden-final-acceptance.md)及[总报告](garden-delivery.md)。这不等于新增了完整的
+pixelized/uncached 大人口性能矩阵，也不把当前测量外推为所有渲染路径零成本。

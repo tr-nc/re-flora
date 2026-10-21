@@ -167,3 +167,9 @@ fmt/check、全量测试及默认 Release 构建通过；native 均 hidden/mute�
 validation 错误。原全空 smoke 树印章的边界裁剪 WARN 仍如实保留。生成文件与用户设置无变化。
 详见 [全空重载根因及验证](empty-world-reload.md)。这项功能验收不代表玩家视觉批准、声音批准，
 也不替代 controller 的集成与性能验收。
+
+## 最终集成（scope v4）
+
+同一 realized garden 已用于66次原生、交错的喷头性能对照；当前声音、湿草和空世界修复全部在场。
+控制器已在 main 重建并验证活跃声音读档、保存优先与普通新花园开局，任务工作树已正常清理。
+详见[最终验收](garden-final-acceptance.md)及[总报告](garden-delivery.md)。视觉仍是候选，未替玩家批准。

@@ -207,3 +207,16 @@ to 16 voices and all slots reclaimed. This is still not an active-audio-during-r
    Chinese aggregate handoff and removes accepted clean task worktrees/branches. Player
    art/listening approval stays pending; small measured cost alone does not veto the visual
    candidate. Crashes, data loss or broken resource/publication contracts are not waived.
+
+## Delivery closed — 2026-10-21
+
+All four slices and the three confirmed lifecycle/publication/pause fixes are locally integrated
+through `6e367fc9`. Controller reviewed actual code, screenshots, 66 matched runs and native logs;
+rebuilt default Release in main; repeated targeted tests, active-audio garden/empty reloads,
+wet-soil pause/resume and the ordinary hidden-muted garden smoke. Original GUI bytes (apart
+from the additive grass checkbox), camera library and task snapshot hashes are preserved.
+
+The four clean task-owned worktrees and branches were removed only after ancestry and evidence
+checks. Useful evidence remains under `target/garden-delivery/`; no push, package, visible window
+or audible playback occurred. See [final Chinese handoff](../reports/garden-delivery.md).
+High-population optical cost remains explicit; player art/listening approval is still pending.

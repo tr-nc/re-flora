@@ -108,3 +108,10 @@ PetalSonic 新增可附着在 resident clip 上的小型 `SampleEnvelopeControl`
 
 
 最终复验（所有源码提交后、默认构建配置）：`petalsonic-final-all-tests.log` 为 194 unit + 6 integration + 2 doctest 通过、12 opt-in 忽略；`runtime-final-tests.log` 两个显式原生所有权回归通过；`previews-final.log` 从最终生产实现重新导出四个 WAV；`offline-app-quality-final-cost.log` 是上表最终 DSP 数值。`final-fmt.log`、`final-check.log`、`delivered-release-build.log` 全部成功，最后 Release 构建为默认验证层配置。设备间隙修复后的普通花园隐藏静音原生检查另见 `gap-final-smoke.log`，正常退出、关闭失败数为零。
+
+## 集成后续（scope v4，已完成）
+
+上述切片当时待验收的活跃声音读档已完成，并复现、修复了仅使用 world-update gate 的准入缺口：
+接受 Load 即退休，独立 audio readiness 等待依赖，成功/可恢复失败均可安全重新锚定。
+花园/全空两种实际载入、Terrain/master 禁用、暂停/恢复和删除均有最终主工作树复验。
+见[最终验收](garden-final-acceptance.md)及[总报告](garden-delivery.md)；原切片的测试与性能边界保持不变。
