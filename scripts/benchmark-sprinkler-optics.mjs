@@ -25,8 +25,9 @@ other particles stay enabled in every case. This is attribution, NOT an optimiza
   --help, -h        Show help without running the app
 
 Uses hidden/muted native fullscreen, garden-arrival camera, saved quality, automatic
-present mode. Does not write preferences, camera or snapshots. Requires flowing mist
-and droplets enabled in saved settings. Warmup ends after publication +1s and at least
+present mode. Records the first run's native screen/scene dimensions and requires them
+to remain unchanged (no hardcoded old monitor size). Does not write preferences,
+camera or snapshots. Requires flowing mist and droplets enabled in saved settings. Warmup ends after publication +1s and at least
 5s of profiler samples; at least 100 samples and 12 measured seconds per run are required.
 Per-run means/p50/p90, actual cadence, raw logs and binary/input hashes are retained.
 Attribution uses means (not sums/differences of percentiles). Symmetric marginal shares
@@ -42,6 +43,14 @@ const mean = values => values.reduce((a, b) => a + b, 0) / values.length;
 const quantile = (values, p) => values.toSorted((a, b) => a - b)[Math.floor((values.length - 1) * p)];
 const stats = values => ({ mean: mean(values), p50: quantile(values, 0.5), p90: quantile(values, 0.9) });
 const stamp = m => +m[1] * 3600 + +m[2] * 60 + +m[3];
+
+export function sceneDimensions(text) {
+  const matches = [...text.matchAll(/\[SCENE_PIXELS\] screen=(\d+x\d+) scene=(\d+x\d+).*?pixel_stride=(\d+)/g)];
+  assert.ok(matches.length, 'Missing scene dimensions');
+  const dimensions = matches.map(m => ({ screen: m[1], scene: m[2], pixel_stride: +m[3] }));
+  for (const value of dimensions) assert.deepEqual(value, dimensions[0], 'Scene dimensions changed within the run');
+  return dimensions[0];
+}
 
 export function metrics(text, kind) {
   const origin = text.match(/\[(\d+):(\d+):(\d+\.\d+) /);
@@ -143,6 +152,7 @@ function run(o) {
   const files = ['config/gui.toml', 'config/camera_snapshots.toml', o.snapshot];
   const hashes = () => Object.fromEntries(files.map(file => [file, hash(file)]));
   const inputs = hashes(), binaryHash = hash(o.binary), results = [];
+  let scene;
   mkdirSync(o.output, { recursive: true });
   assert.equal(readdirSync(o.output).length, 0, 'Evidence directory must be NEW/empty; choose another --output');
   for (let repeat = 0; repeat < +o.repeats; repeat++) {
@@ -168,7 +178,9 @@ function run(o) {
       writeFileSync(path.join(o.output, `${name}.log`), text);
       assert.equal(child.status, 0, `${name} exited ${child.status}: ${child.error ?? ''}`);
       assert.doesNotMatch(text, /\bERROR\b|VUID-|SYNC-HAZARD|panicked at|Insert instance layer.*KHRONOS_validation/);
-      assert.match(text, /screen=4096x2560 scene=820x512/);
+      const dimensions = sceneDimensions(text);
+      scene ??= dimensions;
+      assert.deepEqual(dimensions, scene, 'Scene dimensions changed across comparison runs');
       assert.match(text, /phase=complete failures=0/);
       assert.ok(text.includes(`[SPRINKLER_OPTICAL_DIAGNOSTIC] channels=${mode} preparation=both bounds=both irrigation=unchanged saved=false`));
       assert.ok(text.includes(`[SPRINKLER_PERF_PUBLICATION] instances=${count} all_instances_live=true`));
@@ -176,7 +188,7 @@ function run(o) {
       const row = { name, count, mode, repeat, cpu: metrics(text, 'CPU'), gpu: metrics(text, 'GPU') };
       results.push(row);
       assert.deepEqual(hashes(), inputs, 'Inputs changed');
-      writeFileSync(path.join(o.output, 'summary.json'), JSON.stringify({ options: o, hashes: inputs, binaryHash, results, analysis: analyze(results) }, null, 2) + '\n');
+      writeFileSync(path.join(o.output, 'summary.json'), JSON.stringify({ options: o, hashes: inputs, binaryHash, scene, results, analysis: analyze(results) }, null, 2) + '\n');
       console.log(JSON.stringify({ name, samples: row.gpu.samples, optical: row.gpu.scopes['sprinkler_mist.pass'], frame: row.gpu.scopes['frame.render'], fps: row.cpu.cadence_fps }));
     }
   }

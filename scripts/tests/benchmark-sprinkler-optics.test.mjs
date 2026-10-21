@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { metrics, attribution, analyze, options } from '../benchmark-sprinkler-optics.mjs';
+import { metrics, attribution, analyze, options, sceneDimensions } from '../benchmark-sprinkler-optics.mjs';
 
 function log({ dropped = 0, publication = true } = {}) {
   const lines = ['[23:59:55.000 INFO test] start'];
@@ -54,6 +54,15 @@ test('incomplete factorial groups cannot affect completed attribution', () => {
   assert.deepEqual(analyze([...rows, { ...rows[3], repeat: 1, gpu: { ...rows[3].gpu, scopes: { ...rows[3].gpu.scopes, 'sprinkler_mist.pass': { mean: 999 } } } }]), result);
   assert.equal(result[0].complete_repeats, 1);
   assert.deepEqual(result[0].symmetric_percent_of_optical, { shared_floor: 10, mist: 55, droplets: 35 });
+});
+
+test('capture actual monitor dimensions instead of inheriting an old benchmark resolution', () => {
+  for (const [screen, scene] of [['4096x2560', '820x512'], ['5120x2880', '1024x576']]) {
+    const line = `[SCENE_PIXELS] screen=${screen} scene=${scene} ratio=25:1 pixel_stride=5`;
+    assert.deepEqual(sceneDimensions(`${line}\n${line}`), { screen, scene, pixel_stride: 5 });
+    assert.throws(() => sceneDimensions(`${line}\n[SCENE_PIXELS] screen=1600x1000 scene=320x200 pixel_stride=5`), /changed within/);
+  }
+  assert.throws(() => sceneDimensions(''), /Missing scene dimensions/);
 });
 
 test('CLI discovers valid commands and rejects unsafe/misleading matrices before launching', () => {
