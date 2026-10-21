@@ -575,6 +575,19 @@ impl App {
         let (count, overlap, duty) = sprinkler_perf_parameters()?;
         if review.frame == 0 {
             ensure!(self.sprinklers.is_empty() && self.mute_audio_output);
+            if let Ok(mode) = std::env::var("RE_FLORA_SPRINKLER_OPTICAL_DIAGNOSTIC") {
+                let diagnostic = crate::tracer::SprinklerOpticalDiagnostic::parse(&mode)?;
+                let gui = &self.debug_settings.adjustables;
+                ensure!(
+                    gui.sprinkler_mist_flow.value
+                        && gui.sprinkler_mist_density.value > 0.0
+                        && gui.sprinkler_mist_particles.value
+                        && self.render_flags.enable_particles,
+                    "optical diagnostic needs flowing mist and droplets enabled in saved settings; it only masks the consumer"
+                );
+                self.tracer.set_sprinkler_optical_diagnostic(diagnostic);
+                log::info!("[SPRINKLER_OPTICAL_DIAGNOSTIC] channels={mode} preparation=both bounds=both irrigation=unchanged saved=false");
+            }
             self.set_manual_time_of_day(0.43);
             self.debug_settings.adjustables.sprinkler_pulse_duty.value = duty;
             // Fixed 4x4 prefix, independent of population. Every source resolves its own
@@ -613,6 +626,31 @@ impl App {
                         && instance.iter().any(|l| l.center_amplitude[3] > 0.0),
                     "garden missing GPU source {index}"
                 );
+            }
+            if std::env::var_os("RE_FLORA_SPRINKLER_OPTICAL_DIAGNOSTIC").is_some() {
+                let droplets = if count > 0 {
+                    self.tracer.sprinkler_review_droplets()?
+                } else {
+                    Vec::new()
+                };
+                ensure!(droplets.len() == count * crate::tracer::SPRINKLER_DROPLETS as usize);
+                ensure!(
+                    droplets
+                        .iter()
+                        .all(|l| bytemuck::cast_slice::<_, f32>(std::slice::from_ref(l))
+                            .iter()
+                            .all(|v| v.is_finite())),
+                    "nonfinite diagnostic droplet data"
+                );
+                let live = droplets
+                    .iter()
+                    .filter(|l| l.center_amplitude[3] > 0.0)
+                    .count();
+                ensure!(
+                    count == 0 || live > 0,
+                    "diagnostic disabled droplet preparation"
+                );
+                log::info!("[SPRINKLER_OPTICAL_PUBLICATION] instances={count} slots={} live={live} droplets_prepared=true readback=warmup_only", droplets.len());
             }
             let voices = self.spatial_frame.sprinkler_diagnostics();
             ensure!(

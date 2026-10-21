@@ -26,6 +26,8 @@ use mower_resources::MowerRendererResources;
 pub use static_scene::StaticSceneMesh;
 use static_scene::StaticSceneResources;
 mod sprinkler_mesh;
+mod sprinkler_optical_diagnostic;
+pub(crate) use sprinkler_optical_diagnostic::SprinklerOpticalDiagnostic;
 mod sprinkler_resources;
 pub use sprinkler_resources::*;
 
@@ -1646,6 +1648,7 @@ pub struct Tracer {
     sprinkler_mist_density: f32,
     sprinkler_mist_particles: bool,
     sprinkler_mist_flow: bool,
+    sprinkler_optical_diagnostic: Option<SprinklerOpticalDiagnostic>,
     sprinkler_clock: crate::sprinkler::SprayClock,
     sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
     sprinkler_water_amount: f32,
@@ -2029,6 +2032,7 @@ impl Tracer {
             sprinkler_mist_density: 2.0,
             sprinkler_mist_particles: true,
             sprinkler_mist_flow: true,
+            sprinkler_optical_diagnostic: None,
             sprinkler_clock: Default::default(),
             sprinkler_snapshot: None,
             sprinkler_water_amount: 0.0,
@@ -6830,13 +6834,23 @@ impl Tracer {
             )
     }
 
+    pub(crate) fn set_sprinkler_optical_diagnostic(
+        &mut self,
+        diagnostic: SprinklerOpticalDiagnostic,
+    ) {
+        self.sprinkler_optical_diagnostic = Some(diagnostic);
+    }
+
     fn record_sprinkler_mist_pass(
         &self,
         cmdbuf: &CommandBuffer,
         shadows: bool,
         particles: bool,
     ) -> Result<()> {
-        let push = self.sprinkler_mist_push(shadows, particles);
+        let mut push = self.sprinkler_mist_push(shadows, particles);
+        if let Some(diagnostic) = self.sprinkler_optical_diagnostic {
+            diagnostic.apply(&mut push);
+        }
         self.pipeline_topology
             .compute()
             .sprinkler_mist_ppl
