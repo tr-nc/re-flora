@@ -289,7 +289,7 @@ impl BufferUpdater {
         materials: &MaterialFrameInput,
         vegetation: &VegetationFrameInput,
         environment: &EnvironmentFrameInput,
-        sprinkler_clock: [f32; 4],
+        sprinkler_snapshot: crate::sprinkler::SpraySnapshot,
     ) -> Result<()> {
         let appearance = vegetation.appearance;
         let motion = vegetation.motion;
@@ -346,13 +346,13 @@ impl BufferUpdater {
             world_tick_seconds: motion.world_tick_seconds,
             sprinkler_spray_angle: environment.sprinkler_spray_angle.clamp(10.0, 90.0),
             sprinkler_rotation_speed: environment.sprinkler_rotation_speed.clamp(0.0, 60.0),
-            sprinkler_pulse_duty: environment.sprinkler_pulse_duty.clamp(0.0, 100.0) * 0.01,
+            sprinkler_pulse_duty: sprinkler_snapshot.duty,
             sprinkler_design: terrain.model_surface_cache.sprinkler_design,
-            sprinkler_rotor_angle: sprinkler_clock[0],
-            sprinkler_pulse_time: sprinkler_clock[1],
-            sprinkler_pulse_frequency: environment.sprinkler_pulse_frequency.max(0.25).min(20.0),
-            sprinkler_droplet_time: sprinkler_clock[2],
-            sprinkler_quadrature: sprinkler_clock[3],
+            sprinkler_rotor_angle: sprinkler_snapshot.clock[0],
+            sprinkler_pulse_time: sprinkler_snapshot.clock[1],
+            sprinkler_pulse_frequency: sprinkler_snapshot.frequency,
+            sprinkler_droplet_time: sprinkler_snapshot.clock[2],
+            sprinkler_quadrature: sprinkler_snapshot.clock[3],
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
             grass_vibration_secondary_speed: motion.grass_vibration_secondary_speed,

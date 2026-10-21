@@ -677,6 +677,29 @@ impl SpatialSoundManager {
         Ok(TransientSpatialEmitter { emitter })
     }
 
+    pub(crate) fn prepare_sprinkler_emitter(
+        &self,
+        clip: ResidentClip,
+        position: Vec3,
+    ) -> Result<TransientSpatialEmitter> {
+        let volume_db = -12.0;
+        let emitter = self.world.create_emitter(
+            clip,
+            EmitterDesc::spatial(Self::pose(position))
+                .with_gain_db(volume_db)
+                .with_bus(self.category_bus(AudioCategory::Terrain)),
+        )?;
+        self.transient_spatial_emitters.lock().unwrap().insert(
+            emitter,
+            TransientSpatialSource {
+                volume_db,
+                position,
+            },
+        );
+        self.mark_spatial_frame_structure_changed();
+        Ok(TransientSpatialEmitter { emitter })
+    }
+
     pub(crate) fn transient_clip_duration_seconds(&self, path: &str) -> Result<f64> {
         let clip = self.cached_clip(path)?;
         Ok(clip.total_frames() as f64 / f64::from(clip.sample_rate()))
@@ -1111,6 +1134,10 @@ impl SpatialSoundManager {
             .lock()
             .unwrap()
             .mark_structure_changed();
+    }
+
+    pub(crate) fn engine_voice_count(&self) -> usize {
+        self.world.active_voice_count()
     }
 
     pub fn stop(&self) -> Result<()> {

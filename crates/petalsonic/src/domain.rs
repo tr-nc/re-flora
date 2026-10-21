@@ -13,26 +13,36 @@ use std::time::Duration;
 #[derive(Clone, Debug)]
 pub struct ResidentClip {
     pub(crate) data: Arc<PetalSonicAudioData>,
+    pub(crate) sample_envelope: Option<crate::SampleEnvelopeControl>,
 }
 
 impl ResidentClip {
+    pub fn with_sample_envelope(mut self, control: crate::SampleEnvelopeControl) -> Self {
+        self.sample_envelope = Some(control);
+        self
+    }
     pub fn from_path(path: impl AsRef<std::path::Path>) -> crate::error::Result<Self> {
         let path = path.as_ref().to_str().ok_or_else(|| {
             crate::error::PetalSonicError::AudioLoading("Audio path is not valid UTF-8".to_string())
         })?;
         Ok(Self {
             data: Arc::new(decode_file(path)?),
+            sample_envelope: None,
         })
     }
 
     #[cfg(test)]
     pub(crate) fn from_audio_data(data: Arc<PetalSonicAudioData>) -> Self {
-        Self { data }
+        Self {
+            data,
+            sample_envelope: None,
+        }
     }
 
     pub(crate) fn resampled_to(self, sample_rate: u32) -> crate::error::Result<Self> {
         Ok(Self {
             data: self.data.resample(sample_rate)?,
+            sample_envelope: self.sample_envelope,
         })
     }
 
@@ -69,6 +79,7 @@ impl ResidentClip {
         let frame_count = samples.len() / channels as usize;
         let duration = Duration::from_secs_f64(frame_count as f64 / sample_rate as f64);
         Ok(Self {
+            sample_envelope: None,
             data: Arc::new(PetalSonicAudioData::new(
                 samples,
                 sample_rate,

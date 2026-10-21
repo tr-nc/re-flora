@@ -385,3 +385,54 @@ mod tests {
         print!("{}", String::from_utf8_lossy(&output.stdout));
     }
 }
+
+/// Exact render-input sample shared with audio. Index 1 remains pulse *seconds*.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SpraySnapshot {
+    pub clock: [f32; 4],
+    pub frequency: f32,
+    pub duty: f32,
+}
+impl SpraySnapshot {
+    pub fn new(clock: [f32; 4], frequency: f32, duty_percent: f32) -> Self {
+        Self {
+            clock,
+            frequency: frequency.max(0.25).min(20.0),
+            duty: duty_percent.clamp(0.0, 100.0) * 0.01,
+        }
+    }
+    pub fn phase(self, animation_phase: f32) -> f64 {
+        // Same f32 arithmetic as the source-age-zero shader valve.
+        f64::from((self.clock[1] * self.frequency + animation_phase.fract()).fract())
+    }
+}
+
+#[cfg(test)]
+mod audio_clock_contract_tests {
+    use super::*;
+    #[test]
+    fn upload_snapshot_and_audio_share_exact_normalization_and_instance_valve() {
+        for duty in [0.0, 1.0, 10.0, 30.0, 50.0, 90.0, 100.0] {
+            for frequency in [0.25, 5.0, 20.0] {
+                for fps in [15, 30, 60, 120] {
+                    let mut clock = SprayClock::default();
+                    for frame in 0..fps {
+                        let ticks = frame as f32 / fps as f32 / 0.05;
+                        let gpu =
+                            clock.sample(ticks.floor() as u32, ticks.fract(), 0.05, 0.0, frequency);
+                        let snapshot = SpraySnapshot::new(gpu, frequency, duty);
+                        assert_eq!(snapshot.clock, gpu);
+                        for offset in [0.0_f32, 0.213, 1.7, 12.875] {
+                            let shader_valve =
+                                (gpu[1] * frequency + offset.fract()).fract() < duty * 0.01;
+                            assert_eq!(
+                                snapshot.phase(offset) < f64::from(snapshot.duty),
+                                shader_valve
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

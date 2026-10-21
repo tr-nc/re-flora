@@ -939,6 +939,7 @@ mod tests {
         spatial_frames: Publisher<SpatialFrame>,
         acoustic_responses: Publisher<AcousticResponse>,
         commands: Sender<PlaybackCommand>,
+        lifecycle_commands: Sender<PlaybackCommand>,
         events: crossbeam_channel::Receiver<PetalSonicEvent>,
         timing: crossbeam_channel::Receiver<RenderTimingEvent>,
         _voice_retirement_owner: crossbeam_channel::Receiver<VoiceRetirement>,
@@ -971,7 +972,7 @@ mod tests {
             ..PetalSonicWorldDesc::default()
         };
         let (commands, regular) = crossbeam_channel::bounded(max_voices.max(1));
-        let (_lifecycle, lifecycle) = crossbeam_channel::bounded(max_voices.max(1));
+        let (lifecycle_commands, lifecycle) = crossbeam_channel::bounded(max_voices.max(1));
         let (retirement_sender, _) = crossbeam_channel::bounded(max_voices.max(1));
         let (spatial_frames, spatial_frame_consumer) = RealtimeLatest::bounded(1);
         let (acoustic_responses, acoustic_response_consumer) = RealtimeLatest::bounded(2);
@@ -1002,6 +1003,7 @@ mod tests {
             spatial_frames,
             acoustic_responses,
             commands,
+            lifecycle_commands,
             events,
             timing,
             _voice_retirement_owner: voice_retirement_owner,
@@ -1724,6 +1726,151 @@ mod tests {
             assert!(
                 p99 <= limit,
                 "full-quantum p99 regressed: current={p99}us limit={limit}us"
+            );
+        }
+    }
+    #[test]
+    fn sample_envelope_real_bounded_queue_rejection_and_destroy_retry() {
+        use crate::playback::AcceptedVoice;
+        use crate::{ResidentClip, SampleEnvelopeControl};
+        let mut h = harness(64, 1);
+        h.quantum.active_voice_count.store(1, Ordering::Release);
+        let control = SampleEnvelopeControl::default();
+        let emitter = Emitter {
+            world_id: 1,
+            index: 0,
+            generation: 1,
+        };
+        let clip = ResidentClip::from_mono_pcm(vec![0.1; 256], 48000)
+            .unwrap()
+            .with_sample_envelope(control.clone());
+        let prepared = |id| {
+            AcceptedVoice::capture(
+                VoiceId::from(id),
+                emitter,
+                &clip,
+                &EmitterDesc::non_spatial(),
+                PlayOptions::looping(),
+                None,
+                0,
+            )
+            .prepare(64)
+        };
+        h.commands
+            .try_send(PlaybackCommand::Play(prepared(1)))
+            .unwrap();
+        let rejected = h.commands.try_send(PlaybackCommand::Play(prepared(2)));
+        assert!(matches!(
+            rejected,
+            Err(crossbeam_channel::TrySendError::Full(_))
+        ));
+        drop(rejected);
+        h.quantum.process_commands();
+        assert_eq!(h.quantum.active_playback.len(), 1);
+        h.lifecycle_commands
+            .try_send(PlaybackCommand::StopEmitter(emitter))
+            .unwrap();
+        assert!(matches!(
+            h.lifecycle_commands
+                .try_send(PlaybackCommand::DestroyEmitter(emitter)),
+            Err(crossbeam_channel::TrySendError::Full(_))
+        ));
+        // Owner keeps the control until the reserved lifecycle queue can accept a retry.
+        assert!(control.has_render_owners());
+        h.quantum.process_commands();
+        h.lifecycle_commands
+            .try_send(PlaybackCommand::DestroyEmitter(emitter))
+            .unwrap();
+        h.quantum.process_commands();
+        let mut output = h.quantum.connect_output(48000).unwrap();
+        control.anchor(0.0, 0.0, 0.0);
+        for _ in 0..5 {
+            h.quantum.generate_samples(64);
+            while output.try_pop().is_some() {}
+            h.quantum.retire_completed_voices();
+        }
+        assert!(h.quantum.active_playback.is_empty());
+        drop(clip);
+        drop(h);
+        assert!(!control.has_render_owners());
+    }
+
+    #[test]
+    #[ignore = "Release-only offline production spatial/DSP timing; no device"]
+    fn sprinkler_envelope_offline_render_cost() {
+        use crate::playback::AcceptedVoice;
+        use crate::{ResidentClip, SampleEnvelopeControl};
+        assert!(
+            !cfg!(debug_assertions),
+            "performance evidence requires --release"
+        );
+        for count in [0, 1, 4, 8, 16] {
+            let mut h = harness(256, 16);
+            h.quantum
+                .active_voice_count
+                .store(count as usize, Ordering::Release);
+            let mut output = h.quantum.connect_output(48000).unwrap();
+            let mut controls = Vec::new();
+            let clip = ResidentClip::from_mono_pcm(
+                (0..48000)
+                    .map(|i| ((i as f32 * 1.37).sin()) * 0.02)
+                    .collect(),
+                48000,
+            )
+            .unwrap();
+            for i in 0..count {
+                let control = SampleEnvelopeControl::default();
+                let input = clip.clone().with_sample_envelope(control.clone());
+                let emitter = Emitter {
+                    world_id: 1,
+                    index: i,
+                    generation: 1,
+                };
+                let desc = EmitterDesc::spatial(crate::Pose::from_position(crate::Vec3::new(
+                    i as f32 * 0.1,
+                    0.0,
+                    1.0,
+                )))
+                .with_gain_db(-12.0);
+                h.commands
+                    .try_send(PlaybackCommand::Play(
+                        AcceptedVoice::capture(
+                            VoiceId::from(i as u64 + 1),
+                            emitter,
+                            &input,
+                            &desc,
+                            PlayOptions::looping(),
+                            None,
+                            0,
+                        )
+                        .prepare(256),
+                    ))
+                    .unwrap();
+                controls.push(control);
+            }
+            h.quantum.process_commands();
+            let mut times = Vec::with_capacity(1000);
+            for block in 0..1200 {
+                for (i, c) in controls.iter().enumerate() {
+                    c.anchor(
+                        (block as f64 * 256.0 / 48000.0 * 20.0 + i as f64 * 0.037) % 1.0,
+                        20.0,
+                        0.3,
+                    );
+                }
+                let start = Instant::now();
+                let metrics = h.quantum.generate_samples(256);
+                let us = start.elapsed().as_secs_f64() * 1e6;
+                if block >= 200 {
+                    times.push(us);
+                }
+                assert_eq!(metrics.spatial_source_count, count as usize);
+                while output.try_pop().is_some() {}
+            }
+            times.sort_by(f64::total_cmp);
+            println!(
+                "offline_production_render voices={count} sample_rate=48000 block=256 quality=Balanced warmed=200 measured=1000 p50_us={:.3} p95_us={:.3} p99_us={:.3}",
+                times[500], times[950], times[990]
             );
         }
     }

@@ -45,6 +45,7 @@ mod soil_bag_review;
 mod soil_deposition;
 mod soil_drying_review;
 mod soil_performance_bench;
+mod sprinkler_audio_review;
 mod sprinkler_review;
 mod terrain_picking;
 mod tree_kick;
@@ -513,6 +514,7 @@ pub struct App {
     butterfly_foraging_review: Option<butterfly_foraging_review::Review>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
+    sprinkler_audio_review: Option<sprinkler_audio_review::SprinklerAudioReview>,
     sprinkler_review: Option<sprinkler_review::Review>,
     climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
@@ -1649,6 +1651,8 @@ impl App {
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
+            sprinkler_audio_review: sprinkler_audio_review::SprinklerAudioReview::from_environment(
+            ),
             sprinkler_review: sprinkler_review::Review::from_env()?,
             climbing_plants: Default::default(),
             particle_animation_time_sec: 0.0,
@@ -2519,6 +2523,8 @@ impl App {
                 let frame_delta_time = denoiser_timeline.frame_delta_seconds;
                 let visual_time_since_start = denoiser_timeline.visual_time_seconds;
 
+                self.advance_sprinkler_audio_review()
+                    .expect("native sprinkler audio review");
                 self.advance_soil_bag_review()
                     .expect("native Soil bag review");
                 self.poll_pointer_picks()
@@ -2582,7 +2588,11 @@ impl App {
                 let world_tick_seconds = crate::game_time::clamp_world_tick_seconds(
                     self.debug_settings.adjustables.world_tick_seconds.value,
                 );
-                let world_updates_running = self.terrain_persistence.allows_world_updates();
+                let world_updates_running = self.terrain_persistence.allows_world_updates()
+                    && self
+                        .sprinkler_audio_review
+                        .as_ref()
+                        .is_none_or(|r| r.running());
                 let world_tick_steps = self.world_clock.advance_simulation(
                     frame_delta_time,
                     world_tick_seconds,
@@ -4137,12 +4147,20 @@ impl App {
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
                 let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
+                    sprinkler_snapshot: self.tracer.sprinkler_audio_snapshot(),
+                    sprinklers: &self.sprinklers.audio_sources(),
+                    world_running: world_updates_running
+                        && self.debug_settings.audio_mix.master.enabled
+                        && self.debug_settings.audio_mix.master.scale > 0.0
+                        && self.debug_settings.audio_mix.terrain.enabled
+                        && self.debug_settings.audio_mix.terrain.scale > 0.0,
                     sim_time_seconds: f64::from(time_since_start),
                     listener: self.tracer.camera_pose(),
                     local_footsteps: &footstep_events,
                     footstep_volume_gain_db: -40.0
                         + self.debug_settings.adjustables.footstep_volume_db.value,
                 });
+                self.observe_sprinkler_audio_review();
                 self.tree_audio_manager
                     .observe_canopy_acoustic_telemetry(canopy_audio_observations);
                 self.finish_canopy_audio_diagnostic_frame(

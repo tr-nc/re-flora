@@ -122,3 +122,6 @@ pub use events::{
 };
 pub use math::{Pose, Quat, Vec3};
 pub use world::PetalSonicWorld;
+
+mod sample_envelope;
+pub use sample_envelope::{ENVELOPE_STALE_SECONDS, SampleEnvelopeControl, SampleEnvelopeRenderer};

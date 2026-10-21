@@ -3,6 +3,9 @@ use crate::gameplay::{CameraPose, FootstepEvent};
 
 /// Domain facts observed by spatial audio at the end of one application frame.
 pub(crate) struct SpatialFrameFacts<'a> {
+    pub(crate) sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
+    pub(crate) sprinklers: &'a [super::SprinklerSource],
+    pub(crate) world_running: bool,
     pub(crate) sim_time_seconds: f64,
     pub(crate) listener: CameraPose,
     pub(crate) local_footsteps: &'a [FootstepEvent],
@@ -21,14 +24,29 @@ pub(crate) struct SpatialFrameFacts<'a> {
 pub(crate) struct SpatialFrame {
     spatial_sound_manager: SpatialSoundManager,
     local_player_footsteps: LocalPlayerFootstepAudio,
+    sprinklers: super::sprinkler_audio::SprinklerAudio,
+    sprinkler_reconcile_us: f64,
 }
 
 impl SpatialFrame {
     pub(crate) fn new(spatial_sound_manager: SpatialSoundManager) -> Self {
         Self {
             local_player_footsteps: LocalPlayerFootstepAudio::new(spatial_sound_manager.clone()),
+            sprinklers: super::sprinkler_audio::SprinklerAudio::new(spatial_sound_manager.clone()),
+            sprinkler_reconcile_us: 0.0,
             spatial_sound_manager,
         }
+    }
+
+    pub(crate) fn sprinkler_diagnostics(&self) -> (usize, usize, usize, usize) {
+        self.sprinklers.counts()
+    }
+    pub(crate) fn sprinkler_reconcile_us(&self) -> f64 {
+        self.sprinkler_reconcile_us
+    }
+
+    pub(crate) fn clear_sprinklers(&mut self) {
+        self.sprinklers.clear();
     }
 
     pub(crate) fn advance(
@@ -49,14 +67,28 @@ impl SpatialFrame {
             .local_player_footsteps
             .prepare(facts.local_footsteps, facts.sim_time_seconds);
 
+        let sprinkler_start = std::time::Instant::now();
+        self.sprinklers.prepare(
+            facts.sprinkler_snapshot,
+            facts.sprinklers,
+            facts.listener.position,
+            facts.world_running,
+        );
+        let prepare_us = sprinkler_start.elapsed().as_secs_f64() * 1e6;
         match self
             .spatial_sound_manager
             .publish_spatial_frame(facts.sim_time_seconds)
         {
-            Ok(publication) => self
-                .local_player_footsteps
-                .play_after_publication(prepared, publication),
+            Ok(publication) => {
+                let start = std::time::Instant::now();
+                self.sprinklers.finish_publication(true);
+                self.sprinkler_reconcile_us = prepare_us + start.elapsed().as_secs_f64() * 1e6;
+                self.local_player_footsteps
+                    .play_after_publication(prepared, publication);
+            }
             Err(err) => {
+                self.sprinklers.finish_publication(false);
+                self.sprinkler_reconcile_us = prepare_us;
                 log::warn!("Failed to publish spatial audio frame: {err}");
                 self.local_player_footsteps
                     .abort_prepared(prepared, "spatial_frame_publish_failed");
@@ -206,6 +238,9 @@ mod tests {
 
         assert!(frame
             .advance(SpatialFrameFacts {
+                sprinkler_snapshot: None,
+                sprinklers: &[],
+                world_running: true,
                 sim_time_seconds: 0.0,
                 listener: camera(),
                 local_footsteps: &initial_footsteps,
@@ -263,6 +298,9 @@ mod tests {
 
         let retirement_time = completed_deadline.max(deadline) + 0.001;
         let mut canopy_owner_observations = frame.advance(SpatialFrameFacts {
+            sprinkler_snapshot: None,
+            sprinklers: &[],
+            world_running: true,
             sim_time_seconds: retirement_time,
             listener: camera(),
             local_footsteps: &[],

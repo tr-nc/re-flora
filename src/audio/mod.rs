@@ -59,3 +59,7 @@ pub(crate) use tree_audio_manager::TreeAudioPublicationCheckpoint;
 mod summer_cicadas;
 pub(crate) use summer_cicadas::SummerCicadas;
 pub mod mixer;
+
+mod sprinkler_audio;
+mod sprinkler_synthesis;
+pub(crate) use sprinkler_audio::SprinklerSource;

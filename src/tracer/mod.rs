@@ -1647,6 +1647,7 @@ pub struct Tracer {
     sprinkler_mist_particles: bool,
     sprinkler_mist_flow: bool,
     sprinkler_clock: crate::sprinkler::SprayClock,
+    sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
     sprinkler_water_amount: f32,
     sprinkler_patch_size: f32,
     sprinkler_water_seed: u32,
@@ -2022,6 +2023,7 @@ impl Tracer {
             sprinkler_mist_particles: true,
             sprinkler_mist_flow: true,
             sprinkler_clock: Default::default(),
+            sprinkler_snapshot: None,
             sprinkler_water_amount: 0.0,
             sprinkler_patch_size: 12.0,
             sprinkler_water_seed: 1,
@@ -3194,6 +3196,11 @@ impl Tracer {
             environment.sprinkler_rotation_speed,
             environment.sprinkler_pulse_frequency,
         );
+        let sprinkler_snapshot = crate::sprinkler::SpraySnapshot::new(
+            sprinkler_clock,
+            environment.sprinkler_pulse_frequency,
+            environment.sprinkler_pulse_duty,
+        );
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             self.raster_trees.enabled,
@@ -3202,8 +3209,9 @@ impl Tracer {
             &materials,
             &vegetation,
             &environment,
-            sprinkler_clock,
+            sprinkler_snapshot,
         )?;
+        self.sprinkler_snapshot = Some(sprinkler_snapshot);
 
         BufferUpdater::update_flora_growth_info(
             &self.resources,
@@ -8315,5 +8323,11 @@ impl Tracer {
             tied_axes: ((packed >> 12) & 0x07) as u8,
             dda_steps: (packed >> 15) & 0x0fff,
         })
+    }
+}
+
+impl Tracer {
+    pub(crate) fn sprinkler_audio_snapshot(&self) -> Option<crate::sprinkler::SpraySnapshot> {
+        self.sprinkler_snapshot
     }
 }

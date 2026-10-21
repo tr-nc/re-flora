@@ -181,6 +181,17 @@ impl SprinklerRuntime {
         self.revision
     }
 
+    pub(super) fn audio_sources(&self) -> Vec<crate::audio::SprinklerSource> {
+        self.records
+            .iter()
+            .map(|r| crate::audio::SprinklerSource {
+                id: r.id,
+                position: r.base_position,
+                animation_phase: r.animation_phase,
+            })
+            .collect()
+    }
+
     pub(super) fn render_instances(&self) -> Vec<SprinklerRenderInstance> {
         self.records
             .iter()

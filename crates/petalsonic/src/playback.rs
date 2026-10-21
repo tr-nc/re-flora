@@ -158,6 +158,7 @@ impl PlaybackInfo {
 /// The World captures this value from a validated Emitter snapshot. The runtime can then prepare
 /// render-owned storage without reconstructing or independently interpreting the accepted facts.
 pub(crate) struct AcceptedVoice {
+    sample_envelope: Option<crate::SampleEnvelopeControl>,
     voice_id: VoiceId,
     emitter: Emitter,
     audio_data: Arc<PetalSonicAudioData>,
@@ -189,6 +190,7 @@ impl AcceptedVoice {
             voice_id,
             emitter,
             audio_data: clip.data.clone(),
+            sample_envelope: clip.sample_envelope.clone(),
             render_state: VoiceRenderState::capture(emitter_desc, options.gain_db),
             loop_mode: options.loop_mode,
             bus_index,
@@ -235,6 +237,7 @@ impl PreparedVoice {
             acoustic_retirement_witness,
         } = self;
         let AcceptedVoice {
+            sample_envelope,
             voice_id,
             emitter,
             audio_data,
@@ -269,6 +272,7 @@ impl PreparedVoice {
         let total_frames = audio_data.total_frames();
         let sample_rate = audio_data.sample_rate();
         let mut playback = PlaybackInstance {
+            sample_envelope: sample_envelope.map(crate::SampleEnvelopeRenderer::new),
             emitter,
             detached,
             completion_tag,
@@ -341,6 +345,7 @@ pub(crate) fn prepare_test_voice(
 /// Active playback instance
 #[derive(Debug)]
 pub struct PlaybackInstance {
+    sample_envelope: Option<crate::SampleEnvelopeRenderer>,
     /// Logical emitter that initiated this voice.
     pub emitter: Emitter,
     /// Detached voices survive emitter destruction and stop following emitter updates.
@@ -603,6 +608,9 @@ impl PlaybackInstance {
         }
 
         let mut frames_filled = 0;
+        if let Some(envelope) = &mut self.sample_envelope {
+            envelope.begin_block();
+        }
 
         for out_sample in buffer.iter_mut() {
             let Some(source_frame) = self.next_source_frame() else {
@@ -631,7 +639,15 @@ impl PlaybackInstance {
             } else {
                 1.0
             };
-            *out_sample = (mono / channels as f32) * volume * self.mix_gain_linear * fade_gain;
+            let envelope_gain = self
+                .sample_envelope
+                .as_mut()
+                .map_or(1.0, |e| e.next_gain(self.sample_rate));
+            *out_sample = (mono / channels as f32)
+                * volume
+                * self.mix_gain_linear
+                * fade_gain
+                * envelope_gain;
             frames_filled += 1;
             if self.retired {
                 break;
@@ -1006,5 +1022,52 @@ mod tests {
         assert_eq!(reclaim.completion_tag, None);
         assert_eq!(instance.take_reclaim(), None);
         assert_eq!(instance.completion_tag, None);
+    }
+}
+
+#[cfg(test)]
+mod envelope_integration_tests {
+    use super::*;
+    use crate::{SampleEnvelopeControl, test_support::realtime_memory_activity};
+    #[test]
+    fn resident_voice_uses_envelope_and_reclaims_without_realtime_allocation() {
+        let control = SampleEnvelopeControl::default();
+        let clip = ResidentClip::from_mono_pcm(vec![0.1; 1024], 48000)
+            .unwrap()
+            .with_sample_envelope(control.clone());
+        let emitter = Emitter {
+            world_id: 1,
+            index: 0,
+            generation: 1,
+        };
+        let mut voice = AcceptedVoice::capture(
+            VoiceId::from(1),
+            emitter,
+            &clip,
+            &EmitterDesc::non_spatial(),
+            PlayOptions::looping(),
+            None,
+            0,
+        )
+        .prepare(256)
+        .start()
+        .1;
+        let mut pcm = [0.0; 256];
+        control.anchor(0.0, 20.0, 1.0);
+        let allocations = realtime_memory_activity(|| {
+            voice.fill_mono_buffer(&mut pcm, 1.0);
+        });
+        assert_eq!(allocations, 0);
+        assert!(pcm[255] > 0.07 && pcm[255] < 0.073);
+        control.anchor(0.0, 0.0, 0.0);
+        voice.fill_mono_buffer(&mut pcm, 1.0);
+        assert_eq!(pcm[255], 0.0);
+        drop(clip);
+        assert!(control.has_render_owners());
+        voice.begin_fade_out();
+        voice.fill_mono_buffer(&mut pcm, 1.0);
+        assert!(voice.retired);
+        drop(voice);
+        assert!(!control.has_render_owners());
     }
 }
