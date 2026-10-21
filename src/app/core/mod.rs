@@ -45,6 +45,7 @@ mod soil_bag_review;
 mod soil_deposition;
 mod soil_drying_review;
 mod soil_performance_bench;
+mod sprinkler_air_review;
 mod sprinkler_audio_review;
 mod sprinkler_review;
 mod terrain_picking;
@@ -2604,7 +2605,11 @@ impl App {
                     && self
                         .sprinkler_audio_review
                         .as_ref()
-                        .is_none_or(|r| r.running());
+                        .is_none_or(|r| r.running())
+                    && self
+                        .sprinkler_review
+                        .as_ref()
+                        .is_none_or(|r| r.air_world_running());
                 let world_tick_steps = self.world_clock.advance_simulation(
                     frame_delta_time,
                     world_tick_seconds,
@@ -3694,6 +3699,9 @@ impl App {
                     },
                 );
                 frame_inputs.wind.field = self.wind_prototype.field.frame();
+                if let Some(review) = &mut self.sprinkler_review {
+                    review.apply_air_render_inputs(&mut frame_inputs);
+                }
                 if let Some(review) = &self.sprinkler_audio_review {
                     review.apply_render_inputs(&mut frame_inputs);
                 }

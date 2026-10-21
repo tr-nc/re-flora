@@ -271,6 +271,24 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let god_ray_air_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/god_ray_air.comp",
+            "main",
+        )
+        .unwrap();
+        let sprinkler_air_bounds_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/sprinkler_air_bounds.comp",
+            "main",
+        )
+        .unwrap();
+        let sprinkler_air_splat_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/tracer/sprinkler_air_splat.comp",
+            "main",
+        )
+        .unwrap();
         let god_ray_temporal_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/tracer/god_ray_temporal.comp",
@@ -706,6 +724,9 @@ impl PipelineBuilder {
             vsm_blur_h_sm,
             vsm_blur_v_sm,
             god_ray_sm,
+            god_ray_air_sm,
+            sprinkler_air_bounds_sm,
+            sprinkler_air_splat_sm,
             god_ray_temporal_sm,
             composition_sm,
             sprinkler_mist_sm,
@@ -1065,6 +1086,32 @@ impl PipelineBuilder {
             ComputePipeline::new(device, &shader_modules.vsm_blur_v_sm, pool, &[resources]);
         let god_ray_ppl =
             ComputePipeline::new(device, &shader_modules.god_ray_sm, pool, &[resources]);
+        let god_ray_air_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.god_ray_air_sm, pool);
+        for anchor in ["camera_info", "scalar_bn"] {
+            god_ray_air_ppl
+                .initialize_descriptors(DescriptorUpdate::SetContaining {
+                    anchor,
+                    providers: &[resources],
+                })
+                .expect("volumetric-air camera and shadow descriptors must resolve");
+        }
+        let sprinkler_air_bounds_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.sprinkler_air_bounds_sm,
+            pool,
+        );
+        let sprinkler_air_splat_ppl = ComputePipeline::new_uninitialized(
+            device,
+            &shader_modules.sprinkler_air_splat_sm,
+            pool,
+        );
+        sprinkler_air_splat_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "ddgi_voxel_visibility_info",
+                providers: &[resources, ddgi_volume, ddgi_voxel_visibility],
+            })
+            .expect("volumetric-air terrain descriptors must resolve");
         let god_ray_temporal_ppl = ComputePipeline::new(
             device,
             &shader_modules.god_ray_temporal_sm,
@@ -1173,6 +1220,9 @@ impl PipelineBuilder {
             vsm_blur_h_ppl,
             vsm_blur_v_ppl,
             god_ray_ppl,
+            god_ray_air_ppl,
+            sprinkler_air_bounds_ppl,
+            sprinkler_air_splat_ppl,
             god_ray_temporal_ppl,
             lens_flare_ppl,
             lens_flare_temporal_ppl,
@@ -2001,6 +2051,7 @@ declare_ddgi_consumer_registry! {
     Sprinkler => Graphics(graphics.sprinkler_ppl),
     SprinklerMist => Compute(compute.sprinkler_mist_ppl),
     SprinklerMistPreparation => Compute(compute.sprinkler_mist_prepare_ppl),
+    SprinklerAirSplat => Compute(compute.sprinkler_air_splat_ppl),
     RasterTree => Graphics(graphics.raster_tree_ppl),
     RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
     DdgiResponseSample => Compute(compute.ddgi_response_sample_ppl),
@@ -2422,6 +2473,7 @@ impl PipelineTopology {
         for pipeline in [
             &self.compute.sprinkler_mist_ppl,
             &self.compute.sprinkler_mist_prepare_ppl,
+            &self.compute.god_ray_air_ppl,
         ] {
             retire_compute(
                 pipeline,
@@ -2432,6 +2484,14 @@ impl PipelineTopology {
                 "mist extent descriptors must resolve",
             );
         }
+        retire_compute(
+            &self.compute.sprinkler_air_splat_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "ddgi_voxel_visibility_info",
+                providers: &all_resources,
+            },
+            "volumetric-air terrain extent descriptors must resolve",
+        );
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -3013,6 +3073,9 @@ pub struct ShaderModules {
     pub vsm_blur_h_sm: ShaderModule,
     pub vsm_blur_v_sm: ShaderModule,
     pub god_ray_sm: ShaderModule,
+    pub god_ray_air_sm: ShaderModule,
+    pub sprinkler_air_bounds_sm: ShaderModule,
+    pub sprinkler_air_splat_sm: ShaderModule,
     pub god_ray_temporal_sm: ShaderModule,
     pub composition_sm: ShaderModule,
     pub sprinkler_mist_sm: ShaderModule,
@@ -3125,6 +3188,9 @@ pipeline_collection! {
         vsm_blur_h_ppl,
         vsm_blur_v_ppl,
         god_ray_ppl,
+        god_ray_air_ppl,
+        sprinkler_air_bounds_ppl,
+        sprinkler_air_splat_ppl,
         god_ray_temporal_ppl,
         lens_flare_ppl,
         lens_flare_temporal_ppl,

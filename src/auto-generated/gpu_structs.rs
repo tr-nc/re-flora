@@ -326,6 +326,15 @@ pub struct Spheres {
     pub radius: f32,
 }
 
+/// Auto-generated from `B_SprinklerAirInfo` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SprinklerAirInfo {
+    pub lower_valid: [f32; 4],
+    pub cell_side: [f32; 4],
+    pub ambient_mass: [f32; 4],
+}
+
 /// Auto-generated from `B_SprinklerMistBounds` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -486,6 +495,19 @@ pub struct PushConstantGlassResolve {
     pub use_stored_voxel_normal: u32,
 }
 
+/// Auto-generated from `PushConstantGodRayAir` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantGodRayAir {
+    pub count: u32,
+    pub lobes_per_instance: u32,
+    pub grid_side: u32,
+    pub background_enabled: u32,
+    pub glass_enabled: u32,
+    pub shadows_enabled: u32,
+    pub _pad0: [u8; 8],
+}
+
 /// Auto-generated from `PushConstantGrassBand` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -597,6 +619,32 @@ pub struct PushConstantProbeTrace {
     pub local_refresh_world_max: [f32; 4],
 }
 
+/// Auto-generated from `PushConstantSprinklerAirBounds` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantSprinklerAirBounds {
+    pub count: u32,
+    pub lobes_per_instance: u32,
+    pub grid_side: u32,
+    pub background_enabled: u32,
+    pub glass_enabled: u32,
+    pub shadows_enabled: u32,
+    pub _pad0: [u8; 8],
+}
+
+/// Auto-generated from `PushConstantSprinklerAirSplat` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantSprinklerAirSplat {
+    pub count: u32,
+    pub lobes_per_instance: u32,
+    pub grid_side: u32,
+    pub background_enabled: u32,
+    pub glass_enabled: u32,
+    pub shadows_enabled: u32,
+    pub _pad0: [u8; 8],
+}
+
 /// Auto-generated from `PushConstantSprinklerMist` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -612,7 +660,7 @@ pub struct PushConstantSprinklerMist {
     pub height: u32,
     pub droplets_per_instance: u32,
     pub particles_enabled: u32,
-    pub _pad0: [u8; 4],
+    pub air_enabled: u32,
 }
 
 /// Auto-generated from `PushConstantSprinklerMistPrepare` (native Slang source of truth).
@@ -630,7 +678,7 @@ pub struct PushConstantSprinklerMistPrepare {
     pub height: u32,
     pub droplets_per_instance: u32,
     pub particles_enabled: u32,
-    pub _pad0: [u8; 4],
+    pub air_enabled: u32,
 }
 
 /// Auto-generated from `PushConstantSprinklerMistTiles` (native Slang source of truth).
@@ -648,7 +696,7 @@ pub struct PushConstantSprinklerMistTiles {
     pub height: u32,
     pub droplets_per_instance: u32,
     pub particles_enabled: u32,
-    pub _pad0: [u8; 4],
+    pub air_enabled: u32,
 }
 
 /// Auto-generated from `PushConstantSprinklerWetting` (native Slang source of truth).

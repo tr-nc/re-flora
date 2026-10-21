@@ -25,6 +25,7 @@ mod static_scene;
 use mower_resources::MowerRendererResources;
 pub use static_scene::StaticSceneMesh;
 use static_scene::StaticSceneResources;
+mod sprinkler_air;
 mod sprinkler_mesh;
 mod sprinkler_optical_diagnostic;
 pub(crate) use sprinkler_optical_diagnostic::SprinklerOpticalDiagnostic;
@@ -1520,6 +1521,7 @@ pub struct EnvironmentFrameInput {
     pub sprinkler_mist_particles: bool,
     pub sprinkler_pulse_frequency: f32,
     pub sprinkler_mist_flow: bool,
+    pub sprinkler_mist_air: bool,
     pub sky_light_strength: f32,
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
@@ -1648,6 +1650,7 @@ pub struct Tracer {
     sprinkler_mist_density: f32,
     sprinkler_mist_particles: bool,
     sprinkler_mist_flow: bool,
+    sprinkler_mist_air: bool,
     sprinkler_optical_diagnostic: Option<SprinklerOpticalDiagnostic>,
     sprinkler_clock: crate::sprinkler::SprayClock,
     sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
@@ -2032,6 +2035,7 @@ impl Tracer {
             sprinkler_mist_density: 2.0,
             sprinkler_mist_particles: true,
             sprinkler_mist_flow: true,
+            sprinkler_mist_air: false,
             sprinkler_optical_diagnostic: None,
             sprinkler_clock: Default::default(),
             sprinkler_snapshot: None,
@@ -3113,6 +3117,7 @@ impl Tracer {
         self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).min(6.0);
         self.sprinkler_mist_particles = environment.sprinkler_mist_particles;
         self.sprinkler_mist_flow = environment.sprinkler_mist_flow;
+        self.sprinkler_mist_air = environment.sprinkler_mist_air;
         self.god_ray_temporal_blend_enabled = environment.god_rays.temporal_blend_enabled;
         self.god_ray_temporal_alpha = environment.god_rays.temporal_alpha.clamp(0.01, 1.0);
 
@@ -3459,10 +3464,12 @@ impl Tracer {
             .get_image()
             .get_desc()
             .extent;
+        let air_enabled = self.sprinkler_air_active();
         self.sprinkler_resources.prepare_frame(
             gpu_profiler_frame_slot,
             mist_extent.width,
             mist_extent.height,
+            air_enabled,
         )?;
         self.record_graphics_buffer_uses(cmdbuf, surface_resources);
         self.local_light_visibility_diagnostic
@@ -4322,7 +4329,29 @@ impl Tracer {
             // composition pipeline declares its shader reads after the render pass.
         }
 
-        if render_flags.enable_god_rays {
+        if self.sprinkler_air_active() {
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "sprinkler_air.field",
+                || self.record_sprinkler_air_field(cmdbuf, gpu_profiler_frame_slot),
+            )?;
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "god_ray.air",
+                || {
+                    self.record_air_god_ray_pass(
+                        cmdbuf,
+                        gpu_profiler_frame_slot,
+                        render_flags.enable_god_rays,
+                        render_flags.enable_shadows,
+                    )
+                },
+            )?;
+        } else if render_flags.enable_god_rays {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -4330,6 +4359,8 @@ impl Tracer {
                 "god_ray.pass",
                 || self.record_god_ray_pass(cmdbuf),
             );
+        }
+        if render_flags.enable_god_rays {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
                 gpu_profiler_frame_slot,
@@ -6848,6 +6879,8 @@ impl Tracer {
         particles: bool,
     ) -> Result<()> {
         let mut push = self.sprinkler_mist_push(shadows, particles);
+        // Consumer-only selection: preparation, contacts and water keep the original push.
+        push.air_enabled = u32::from(self.sprinkler_air_active());
         if let Some(diagnostic) = self.sprinkler_optical_diagnostic {
             diagnostic.apply(&mut push);
         }
@@ -6876,6 +6909,10 @@ impl Tracer {
                     (
                         "mist_tiles",
                         DescriptorResource::Buffer(self.sprinkler_resources.mist_tiles()),
+                    ),
+                    (
+                        "sprinkler_air_info",
+                        DescriptorResource::Buffer(self.sprinkler_resources.air_info()),
                     ),
                 ],
                 self.resources
@@ -7234,8 +7271,18 @@ impl Tracer {
         source: &Buffer,
         samples: u32,
     ) -> Result<Vec<T>> {
-        let bytes = u64::from(self.sprinkler_resources.instance_count * samples)
-            * std::mem::size_of::<T>() as u64;
+        self.sprinkler_review_buffer_elements(
+            source,
+            self.sprinkler_resources.instance_count * samples,
+        )
+    }
+
+    fn sprinkler_review_buffer_elements<T: bytemuck::Pod>(
+        &self,
+        source: &Buffer,
+        elements: u32,
+    ) -> Result<Vec<T>> {
+        let bytes = u64::from(elements) * std::mem::size_of::<T>() as u64;
         let readback = Buffer::new_sized(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),

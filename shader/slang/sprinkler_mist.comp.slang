@@ -2,6 +2,7 @@ import ddgi_query;
 import flora_types;
 import projection;
 import ray;
+import sprinkler_air_math;
 import sprinkler_mist_geometry;
 import sprinkler_mist_math;
 import sprinkler_mist_transport;
@@ -21,6 +22,8 @@ import wind_field; // owns binding 4
 [[vk::binding(8,0)]] [[vk::image_format("r32f")]] readonly RWTexture2D<float> compute_depth_tex;
 [[vk::binding(9,0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> composited_tex;
 [[vk::binding(10,0)]] Texture2D<float> glass_front_depth_tex;
+[[vk::binding(11,0)]] [[vk::image_format("rg32f")]] readonly RWTexture2D<float2> sprinkler_air_optical_tex;
+[[vk::binding(5,1)]] StructuredBuffer<B_SprinklerAirInfo> sprinkler_air_info;
 [[vk::binding(0,1)]] StructuredBuffer<float4> sprinkler_instances;
 [[vk::binding(1,1)]] StructuredBuffer<B_SprinklerMistLobe> mist_lobes;
 [[vk::binding(2,1)]] StructuredBuffer<B_SprinklerMistBounds> mist_bounds;
@@ -78,7 +81,7 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
             float2 boundsInterval;
             if(!mistRayInterval(ray.origin,ray.direction,center,float3(radius),distance,boundsInterval))continue;
             uint drops=mist_push.particles_enabled!=0u?mist_push.droplets_per_instance:0u;
-            uint start=mist_push.flow_enabled!=0u && mist_push.density>0.0?0u:mist_push.lobes_per_instance;
+            uint start=mist_push.flow_enabled!=0u && mist_push.density>0.0 && mist_push.air_enabled==0u?0u:mist_push.lobes_per_instance;
             for(uint node=start;node<mist_push.lobes_per_instance+drops;++node) {
                 bool particle=node>=mist_push.lobes_per_instance;
                 B_SprinklerMistLobe lobe=particle?
@@ -124,6 +127,13 @@ void main(uint3 id:SV_DispatchThreadID)
         float legacyDepth;float3 legacySource;
         integrateLegacy(ray,distance,sun,legacyDepth,legacySource);
         opticalDepth+=legacyDepth;source+=legacySource;
+    }
+    if(mist_push.air_enabled!=0u) {
+        // Add the approximate medium and exact droplets, then composite ONCE.
+        // Never blend the original mist as well, and never temporally accumulate pulses.
+        float2 air=sprinkler_air_optical_tex[pixel]*mist_push.density;
+        opticalDepth+=air.x;
+        source+=sprinkler_air_info[0].ambient_mass.xyz*air.x+sun*air.y;
     }
     if(opticalDepth<=0.0)return;
     float4 color=composited_tex[pixel];

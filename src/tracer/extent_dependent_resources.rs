@@ -59,6 +59,7 @@ pub struct ExtentDependentResources {
     pub ddgi_spatial_weight_readback: Resource<Buffer>,
     pub gfx_output_tex: Resource<Texture>,
     pub god_ray_raw_tex: Resource<Texture>,
+    pub sprinkler_air_optical_tex: Resource<Texture>,
     pub god_ray_history_tex: Resource<Texture>,
     pub god_ray_output_tex: Resource<Texture>,
     pub lens_flare_required_count_tex: Resource<Texture>,
@@ -116,12 +117,30 @@ impl ExtentDependentResources {
             god_ray_extent(rendering_extent).width,
             god_ray_extent(rendering_extent).height,
         );
-        let god_ray_raw_tex =
-            Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
-        let god_ray_history_tex =
-            Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
-        let god_ray_output_tex =
-            Self::create_god_ray_tex(device.clone(), allocator.clone(), rendering_extent);
+        let god_ray_raw_tex = Self::create_volumetric_tex(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent,
+            vk::Format::R32_SFLOAT,
+        );
+        let god_ray_history_tex = Self::create_volumetric_tex(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent,
+            vk::Format::R32_SFLOAT,
+        );
+        let god_ray_output_tex = Self::create_volumetric_tex(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent,
+            vk::Format::R32_SFLOAT,
+        );
+        let sprinkler_air_optical_tex = Self::create_volumetric_tex(
+            device.clone(),
+            allocator.clone(),
+            rendering_extent,
+            vk::Format::R32G32_SFLOAT,
+        );
         let lens_flare_required_count_tex =
             Self::create_lens_flare_count_tex(device.clone(), allocator.clone());
         let lens_flare_visible_count_tex =
@@ -207,6 +226,7 @@ impl ExtentDependentResources {
             ddgi_spatial_weight_readback: Resource::new(ddgi_spatial_weight_readback),
             gfx_output_tex: Resource::new(gfx_output_tex),
             god_ray_raw_tex: Resource::new(god_ray_raw_tex),
+            sprinkler_air_optical_tex: Resource::new(sprinkler_air_optical_tex),
             god_ray_history_tex: Resource::new(god_ray_history_tex),
             god_ray_output_tex: Resource::new(god_ray_output_tex),
             lens_flare_required_count_tex: Resource::new(lens_flare_required_count_tex),
@@ -411,15 +431,16 @@ impl ExtentDependentResources {
         Texture::new(device, allocator, &tex_desc, &Default::default())
     }
 
-    fn create_god_ray_tex(
+    fn create_volumetric_tex(
         device: Device,
         allocator: Allocator,
         rendering_extent: Extent2D,
+        format: vk::Format,
     ) -> Texture {
         let tex_desc = ImageDesc {
             extent: god_ray_extent(rendering_extent).into(),
             image_type_override: Some(vk::ImageType::TYPE_2D),
-            format: vk::Format::R32_SFLOAT,
+            format,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::TRANSFER_SRC

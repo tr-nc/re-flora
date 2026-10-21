@@ -703,6 +703,24 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/tracer/god_ray_air.comp",
+        source_path: "shader/slang/god_ray_air.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/tracer/sprinkler_air_bounds.comp",
+        source_path: "shader/slang/sprinkler_air_bounds.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/tracer/sprinkler_air_splat.comp",
+        source_path: "shader/slang/sprinkler_air_splat.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/tracer/god_ray_temporal.comp",
         source_path: "shader/slang/god_ray_temporal.slang",
         module_path: "shader/slang",

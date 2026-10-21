@@ -761,6 +761,19 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_mist_air"
+kind = "bool"
+label = "Sprinklers: volumetric-air mist (unchecked: original)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[section.param.enabled_if]
+param = "sprinkler_mist_flow"
+equals = true
+
+[[section.param]]
 id = "sprinkler_mist_density"
 kind = "float"
 label = "Sprinklers: mist intensity"

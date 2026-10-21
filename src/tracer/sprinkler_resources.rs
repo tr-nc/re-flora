@@ -7,6 +7,13 @@ use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 pub const SPRINKLER_RENDER_CAPACITY: usize = 256;
 pub const SPRINKLER_MIST_LOBES: u32 = 256;
 pub const SPRINKLER_DROPLETS: u32 = 128;
+// One bounded field shared by ALL sprinklers, not one volume per source.
+// The shader reads this side from the frame header; no duplicated shader constant.
+pub const SPRINKLER_AIR_GRID_SIDE: u32 = 96;
+pub const SPRINKLER_AIR_GRID_BYTES: u64 = SPRINKLER_AIR_GRID_SIDE as u64
+    * SPRINKLER_AIR_GRID_SIDE as u64
+    * SPRINKLER_AIR_GRID_SIDE as u64
+    * 4;
 
 #[cfg(test)]
 fn sprinkler_mist_sample_count(rotary: bool) -> u32 {
@@ -42,6 +49,8 @@ struct SprinklerFrame {
     water_bounds: Buffer,
     tiles: Buffer,
     tile_capacity: u64,
+    air_info: Buffer,
+    air_density: Option<Buffer>,
 }
 
 pub struct SprinklerRendererResources {
@@ -91,7 +100,13 @@ impl SprinklerRendererResources {
         )
     }
 
-    pub fn prepare_frame(&mut self, slot: usize, width: u32, height: u32) -> Result<()> {
+    pub fn prepare_frame(
+        &mut self,
+        slot: usize,
+        width: u32,
+        height: u32,
+        air_enabled: bool,
+    ) -> Result<()> {
         self.slot = slot;
         if self.pending.is_empty() {
             return Ok(());
@@ -135,12 +150,30 @@ impl SprinklerRendererResources {
                 )?,
                 tiles: self.buffer(tile_bytes, MemoryLocation::GpuOnly)?,
                 tile_capacity: tile_bytes,
+                air_info: self.buffer(
+                    std::mem::size_of::<crate::generated::gpu_structs::SprinklerAirInfo>() as u64,
+                    MemoryLocation::GpuOnly,
+                )?,
+                air_density: None,
             });
         }
         if self.frames[slot].tile_capacity < tile_bytes {
             // This slot's fence has completed; no other frame owns its buffer.
             self.frames[slot].tiles = self.buffer(tile_bytes, MemoryLocation::GpuOnly)?;
             self.frames[slot].tile_capacity = tile_bytes;
+        }
+        if air_enabled && self.frames[slot].air_density.is_none() {
+            self.frames[slot].air_density = Some(Buffer::try_new_sized(
+                self.device.clone(),
+                self.allocator.clone(),
+                BufferUsage::from_flags(
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::TRANSFER_DST
+                        | vk::BufferUsageFlags::TRANSFER_SRC,
+                ),
+                MemoryLocation::GpuOnly,
+                SPRINKLER_AIR_GRID_BYTES,
+            )?);
         }
         let frame = &mut self.frames[slot];
         if frame.published != self.pending {
@@ -174,6 +207,17 @@ impl SprinklerRendererResources {
         &self.frames[self.slot].water_bounds
     }
 
+    pub fn air_info(&self) -> &Buffer {
+        &self.frames[self.slot].air_info
+    }
+
+    pub fn air_density(&self) -> &Buffer {
+        self.frames[self.slot]
+            .air_density
+            .as_ref()
+            .expect("air field prepared in the acquired frame slot")
+    }
+
     pub fn mist_tiles(&self) -> &Buffer {
         &self.frames[self.slot].tiles
     }
@@ -204,6 +248,18 @@ fn encode_instances(instances: &[SprinklerRenderInstance]) -> Result<Vec<Sprinkl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn air_field_storage_and_integer_accumulation_are_bounded() {
+        assert_eq!(SPRINKLER_AIR_GRID_BYTES, 3_538_944);
+        assert!(SPRINKLER_AIR_GRID_SIDE > 4);
+        assert_eq!(
+            std::mem::size_of::<crate::generated::gpu_structs::SprinklerAirInfo>(),
+            48
+        );
+        let maximum_deposits = SPRINKLER_RENDER_CAPACITY as u64 * u64::from(SPRINKLER_MIST_LOBES);
+        assert!(maximum_deposits * 65_535 <= u64::from(u32::MAX));
+    }
 
     #[test]
     fn sprinkler_pose_upload_is_bounded_finite_and_normalizes_phase() {

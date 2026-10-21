@@ -13,6 +13,7 @@ public struct PushConstantSprinklerMist {
     public uint height;
     public uint droplets_per_instance;
     public uint particles_enabled;
+    public uint air_enabled; // consumer only; preparation/contacts keep their original inputs
 };
 
 public struct B_SprinklerMistLobe {

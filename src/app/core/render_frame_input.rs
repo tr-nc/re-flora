@@ -270,6 +270,7 @@ pub(super) fn freeze_render_frame_inputs(
         sprinkler_mist_particles: gui.sprinkler_mist_particles.value,
         sprinkler_pulse_frequency: gui.sprinkler_pulse_frequency.value,
         sprinkler_mist_flow: gui.sprinkler_mist_flow.value,
+        sprinkler_mist_air: gui.sprinkler_mist_air.value,
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
@@ -411,6 +412,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn volumetric_air_switch_changes_no_emission_clock_water_material_or_hardware_inputs() {
+        let mut settings = DebugSettings::load();
+        let freeze = |s: &DebugSettings| {
+            freeze_render_frame_inputs(
+                s,
+                LiveRenderFrameFacts {
+                    world_tick_seconds: 0.05,
+                    flora_tick: 123,
+                    flora_tick_fraction: 0.375,
+                    visual_time_since_start: 9.5,
+                    sun_direction: Vec3::Y,
+                    sun_altitude: 0.4,
+                    sun_azimuth: 0.3,
+                    terrain_edit_preview_center: None,
+                    terrain_edit_preview_radius: 0.0,
+                    terrain_edit_preview_shape: TerrainEditPreviewShape::SurfaceCircle,
+                    terrain_edit_preview_color: Vec3::ZERO,
+                    terrain_edit_preview_alpha: 0.0,
+                },
+            )
+        };
+        settings.adjustables.sprinkler_mist_air.value = false;
+        let before = freeze(&settings);
+        settings.adjustables.sprinkler_mist_air.value = true;
+        let mut after = freeze(&settings);
+        assert!(after.environment.sprinkler_mist_air);
+        after.environment.sprinkler_mist_air = false;
+        assert_eq!(after, before);
     }
 
     #[test]
@@ -785,6 +817,7 @@ mod tests {
                 sprinkler_mist_particles: false,
                 sprinkler_pulse_frequency,
                 sprinkler_mist_flow: false,
+                sprinkler_mist_air: false,
                 sky_light_strength,
                 lens_flare_intensity,
                 lens_flare_sun_pixel_scale,

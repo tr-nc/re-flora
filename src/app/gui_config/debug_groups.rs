@@ -145,9 +145,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Mist & Scattering",
-        description: "Mist supplies the spray body; optional small droplets follow the same nozzle, launch law, wind, valve and terrain. Intensity changes mist only (2 is twice the former default); zero leaves enabled droplets visible. Droplets are optical only and never add irrigation. The directional-mist switch compares the old soft dome; the droplet switch is independent.",
+        description: "Mist supplies the spray body; optional small droplets follow the same nozzle, launch law, wind, valve and terrain. Intensity changes mist only (2 is twice the former default); zero leaves enabled droplets visible. Droplets are optical only and never add irrigation. Volumetric-air mist is a coarse current-frame scattering approximation using the existing volumetric-light shadow path; unchecked keeps the original analytic mist. Thin shapes and terrain edges soften; no refraction, fog self-shadowing or temporal mist history. It only applies to directional mist. Droplets, irrigation and sound are unchanged; Save remembers the comparison. The directional-mist switch still compares the old soft dome.",
         initially_open: false,
-        params: &["sprinkler_mist_flow", "sprinkler_mist_density", "sprinkler_mist_particles"],
+        params: &["sprinkler_mist_flow", "sprinkler_mist_air", "sprinkler_mist_density", "sprinkler_mist_particles"],
     },
     ControlGroup {
         parent: None,

@@ -27,9 +27,22 @@ pub(super) struct Review {
     wetting_samples: WettingSamples,
     drying: Option<DryingReview>,
     contact_pause: Option<Vec<u8>>,
+    air: Option<super::sprinkler_air_review::AirReview>,
 }
 
 impl Review {
+    pub fn air_world_running(&self) -> bool {
+        self.air
+            .as_ref()
+            .is_none_or(|r| r.world_running(self.frame))
+    }
+
+    pub fn apply_air_render_inputs(&mut self, inputs: &mut crate::tracer::RenderFrameInputs) {
+        if let Some(air) = self.air.as_mut() {
+            air.apply_render_inputs(self.frame, inputs);
+        }
+    }
+
     pub fn isolates_wetting(&self) -> bool {
         self.mode.starts_with("wet-") && self.mode != "wet-rotary"
     }
@@ -213,6 +226,7 @@ impl Review {
             wetting_samples: WettingSamples::default(),
             drying: None,
             contact_pause: None,
+            air: super::sprinkler_air_review::AirReview::from_env()?,
         }))
     }
 }
@@ -670,6 +684,9 @@ impl App {
         let Some(mut review) = self.sprinkler_review.take() else {
             return Ok(());
         };
+        if let Some(air) = review.air.as_mut() {
+            air.prepare(self, review.frame)?;
+        }
         if std::env::var_os("RE_FLORA_GARDEN_PERF").is_some() {
             self.prepare_garden_sprinkler_perf(&mut review)?;
             self.sprinkler_review = Some(review);
