@@ -106,6 +106,7 @@ impl Review {
             return Ok(None);
         };
         const MODES: &[&str] = &[
+            "rotary-perf",
             "near",
             "rotary-near",
             "rotary-design-current",
@@ -742,7 +743,32 @@ impl App {
                 gui.sprinkler_wet_patch_size.value = 2.6;
                 gui.sprinkler_pulse_duty.value = 100.0;
             }
-            self.apply_sprinkler_placement(base)?;
+            if review.mode == "rotary-perf" {
+                let (count, overlap, duty) = sprinkler_perf_parameters()?;
+                base.x = 0.75;
+                base.z = 0.95;
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_spray_angle.value = 30.0;
+                gui.sprinkler_rotation_speed.value = 5.0;
+                gui.sprinkler_pulse_frequency.value = 5.0;
+                gui.sprinkler_pulse_duty.value = duty;
+                gui.sprinkler_mist_density.value = 6.0;
+                gui.sprinkler_mist_particles.value = true;
+                let side = (count as f32).sqrt().ceil() as usize;
+                for i in 0..count {
+                    let spacing = if overlap { 0.0001 } else { 0.17 };
+                    self.apply_sprinkler_placement(
+                        base + Vec3::new(
+                            (i % side) as f32 * spacing - 0.255,
+                            0.0,
+                            (i / side) as f32 * spacing - 0.255,
+                        ),
+                    )?;
+                }
+                log::info!("[SPRINKLER_PERF] count={count} overlap={overlap} angle=30 rpm=5 hz=5 duty={duty} intensity=6 droplets=true seed=fixture camera_target={base:?} camera_offset=(0.75,0.55,0.90) saved=false");
+            } else {
+                self.apply_sprinkler_placement(base)?;
+            }
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
                 let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
                 let side = (count as f32).sqrt().ceil() as usize;
@@ -1087,6 +1113,7 @@ impl App {
             _ if review.isolates_wetting() || review.isolates_drying() => {
                 Vec3::new(0.001, 0.50, 0.001)
             }
+            "rotary-perf" => Vec3::new(0.75, 0.55, 0.90),
             "rotary-top" => Vec3::new(0.001, 0.10, 0.001),
             "rotary-cliff" => Vec3::new(0.65, -0.09, 0.45),
             "rotary-wall" => Vec3::new(0.55, 0.05, 0.40),
@@ -1259,6 +1286,7 @@ impl App {
                 && (!review.is_rotary()
                     || self.debug_settings.adjustables.sprinkler_pulse_duty.value > 0.0)
                 && self.debug_settings.adjustables.sprinkler_mist_density.value > 0.0
+                && review.mode != "rotary-perf"
                 && !review.mode.starts_with("mist-pop-")
                 && !review.mode.starts_with("mist-overlap-")
             {
@@ -1380,7 +1408,9 @@ impl App {
             log::info!("[SPRINKLER_MIST_REVIEW] water_particles={water_particles} watering_brushes={:?} density={} particles_enabled={}",
                 review.watering_brushes, self.debug_settings.adjustables.sprinkler_mist_density.value,
                 self.render_flags.enable_particles);
-            let expected = if review.mode.starts_with("mist-pop-")
+            let expected = if review.mode == "rotary-perf" {
+                sprinkler_perf_parameters()?.0
+            } else if review.mode.starts_with("mist-pop-")
                 || review.mode.starts_with("mist-overlap-")
             {
                 review.mode.rsplit('-').next().unwrap().parse::<usize>()?
@@ -1400,5 +1430,58 @@ impl App {
         review.frame += 1;
         self.sprinkler_review = Some(review);
         Ok(())
+    }
+}
+
+// Separate opt-in benchmark parameters: never persisted and never used by normal play.
+fn sprinkler_perf_parameters() -> Result<(usize, bool, f32)> {
+    parse_sprinkler_perf_parameters(&std::env::var("RE_FLORA_SPRINKLER_PERF")?)
+}
+
+fn parse_sprinkler_perf_parameters(raw: &str) -> Result<(usize, bool, f32)> {
+    let parts: Vec<_> = raw.split(',').collect();
+    ensure!(
+        parts.len() == 3,
+        "sprinkler perf expects count,spread|overlap,30|100"
+    );
+    let count = parts[0].parse::<usize>()?;
+    ensure!([0, 1, 4, 8, 16].contains(&count), "invalid perf population");
+    ensure!(
+        ["spread", "overlap"].contains(&parts[1]),
+        "invalid perf layout"
+    );
+    let duty = parts[2].parse::<f32>()?;
+    ensure!(duty == 30.0 || duty == 100.0, "invalid perf duty");
+    Ok((count, parts[1] == "overlap", duty))
+}
+
+#[cfg(test)]
+mod perf_tests {
+    use super::parse_sprinkler_perf_parameters as parse;
+
+    #[test]
+    fn perf_matrix_accepts_only_bounded_explicit_workloads() {
+        for count in [0, 1, 4, 8, 16] {
+            for layout in ["spread", "overlap"] {
+                for duty in [30, 100] {
+                    assert_eq!(
+                        parse(&format!("{count},{layout},{duty}")).unwrap(),
+                        (count, layout == "overlap", duty as f32)
+                    );
+                }
+            }
+        }
+        for bad in [
+            "",
+            "4",
+            "256,spread,30",
+            "3,spread,30",
+            "4,away,30",
+            "4,spread,NaN",
+            "4,spread,0",
+            "4,spread,30,extra",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 }
