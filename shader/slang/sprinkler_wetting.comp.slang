@@ -10,6 +10,12 @@ import voxel_types;
 [[vk::binding(1,1)]] StructuredBuffer<B_SprinklerMistBounds> water_bounds;
 [[vk::push_constant]] ConstantBuffer<PushConstantSprinklerWetting> pc;
 
+// Preparation publishes one slot per age bin, but only first-arrival bins
+// contain water. Build the stable live list once per workgroup, not once per
+// soil receiver. Keep source/contact storage and summation order unchanged.
+groupshared uint liveContacts[256];
+groupshared uint liveCount;
+
 bool contactReachesSurface(B_SprinklerWaterContact contact,float3 receiver)
 {
     // Clip finite footprints at real terrain, not the source's height or radius.
@@ -26,10 +32,19 @@ bool contactReachesSurface(B_SprinklerWaterContact contact,float3 receiver)
 
 [shader("compute")]
 [numthreads(64,1,1)]
-void main(uint3 id:SV_DispatchThreadID)
+void main(uint3 id:SV_DispatchThreadID,uint local:SV_GroupIndex)
 {
     B_SprinklerMistBounds bounds=water_bounds[pc.instance];
     if(any(bounds.lower.xyz>bounds.upper.xyz) || pc.amount<=0.0)return;
+    for(uint n=local;n<pc.samples;n+=64u)
+        liveContacts[n]=water_contacts[pc.instance*pc.samples+n].center_flux.w>0.0?1u:0u;
+    GroupMemoryBarrierWithGroupSync();
+    if(local==0u) {
+        uint count=0u;
+        for(uint n=0u;n<pc.samples;++n)if(liveContacts[n]!=0u)liveContacts[count++]=n;
+        liveCount=count;
+    }
+    GroupMemoryBarrierWithGroupSync();
     uint width,height,depth;chunk_atlas.GetDimensions(width,height,depth);
     int3 dimensions=int3(width,height,depth);
     int3 lo=clamp(int3(floor(bounds.lower.xyz*256.0)),int3(0),dimensions);
@@ -45,8 +60,8 @@ void main(uint3 id:SV_DispatchThreadID)
         if(!terrainSoilIsVoxel(voxelTypeFromAtlasData(old)))continue;
         float3 center=float3(p)+0.5;
         float flux=0.0;
-        for(uint n=0u;n<pc.samples;++n) {
-            B_SprinklerWaterContact contact=water_contacts[pc.instance*pc.samples+n];
+        for(uint n=0u;n<liveCount;++n) {
+            B_SprinklerWaterContact contact=water_contacts[pc.instance*pc.samples+liveContacts[n]];
             float density=sprinklerContactDensity(contact,center/256.0);
             if(density>0.0 && contactReachesSurface(contact,center))flux+=density;
         }

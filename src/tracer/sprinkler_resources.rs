@@ -229,6 +229,8 @@ mod tests {
     fn mist_frame_work_is_bounded_and_tiles_cover_partial_edges_without_overflow() {
         assert_eq!(sprinkler_mist_sample_count(false), 48);
         assert_eq!(sprinkler_mist_sample_count(true), 256);
+        // Wetting's per-workgroup live-contact index list has this capacity.
+        assert!(SPRINKLER_MIST_LOBES <= 256);
         assert!(sprinkler_mist_sample_count(true) % 8 == 0);
         for rotary in [false, true] {
             assert!(sprinkler_mist_sample_count(rotary) <= SPRINKLER_MIST_LOBES);

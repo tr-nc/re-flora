@@ -68,3 +68,18 @@ prepare 非线性下降也提示小 population GPU 利用率/频率影响，不�
 引入性能问题的提交未知；没有逐提交复测证据，不能把当前基线或历史覆盖修复称为引入点。
 
 本报告随保留优化及最终验证补充；单测耗时不作为性能证据。
+
+## 优化一：在浇水消费边界稳定压缩非零接触
+
+确认机制：`sprinkler_wetting.comp.slang` 对包围盒内每个 soil receiver 遍历全部 256 个年龄槽。
+但首次到达只占少数槽（平地每个速度带一个）；无水槽的 density 必为零。
+现在每个 64-lane 工作组只检查一次全部槽，把非零索引在 shared memory 中按原顺序压缩；
+所有 receiver 只遍历这个精确子序列。**不是减少 source 样本**，不改变 256 个 airborne/contact
+发布槽，不降低覆盖/剂量，不延迟一帧，也不增加第二个湿区。
+
+正确性理由：密度函数对 `center_flux.w<=0` 精确返回零；压缩仅删除这些零项，
+保留每个非零 contact 的原索引、浮点累加顺序、terrain sweep 与 receiver 唯一写入；
+实例仍依次 dispatch，重叠 R8 atlas 不发生并发更新。所有线程在 uniform early return 后
+共同参加两次 group barrier；shared list 256 uint + count，新增约 1 KiB/workgroup。
+代价是每组初始化/串行稳定 scan，但摊销掉每个 receiver 的 256-slot 扫描。
+暂停和运行时控制仍每帧来自本帧 contact，四种硬件与缓存 ABI 无改动。
