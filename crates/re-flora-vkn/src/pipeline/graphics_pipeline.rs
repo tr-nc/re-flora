@@ -301,7 +301,14 @@ impl GraphicsPipeline {
             .depth_stencil_state(&depth_stencil_state_create_info)
             .dynamic_state(&dynamic_states_info);
 
+        let creation_start = std::time::Instant::now();
         let pipeline = Self::create_pipeline(device, &pipeline_info);
+        log::debug!(
+            "[PIPELINE_CREATE] kind=graphics vertex={} fragment={} create_ms={:.3}",
+            vert_shader_module.get_module_name(),
+            frag_shader_module.get_module_name(),
+            creation_start.elapsed().as_secs_f64() * 1000.0,
+        );
 
         let vert_descriptor_sets_bindings = vert_shader_module.get_descriptor_sets_bindings();
         let frag_descriptor_sets_bindings = frag_shader_module.get_descriptor_sets_bindings();

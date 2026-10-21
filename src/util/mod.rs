@@ -1,3 +1,5 @@
+pub(crate) mod startup_progress;
+
 mod time_info;
 pub use time_info::*;
 

@@ -77,6 +77,7 @@ impl ComputePipeline {
             .stage(stage_info)
             .layout(pipeline_layout.as_raw());
 
+        let creation_start = std::time::Instant::now();
         let pipeline = unsafe {
             device
                 .create_compute_pipelines(
@@ -87,6 +88,12 @@ impl ComputePipeline {
                 .map_err(|e| e.1)
                 .unwrap()[0]
         };
+
+        log::debug!(
+            "[PIPELINE_CREATE] kind=compute shader={} create_ms={:.3}",
+            shader_module.get_module_name(),
+            creation_start.elapsed().as_secs_f64() * 1000.0,
+        );
 
         let descriptor_sets_bindings = shader_module.get_descriptor_sets_bindings();
         let descriptors = ReflectedDescriptorRuntime::from_reflection(

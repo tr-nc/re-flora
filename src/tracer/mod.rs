@@ -1864,6 +1864,7 @@ impl Tracer {
         scene_accel_resources: &SceneAccelBuilderResources,
         plain_builder_resources: &PlainBuilderResources,
         raster_lighting_state: ResolvedRasterLightingState,
+        startup_progress: &crate::util::startup_progress::StartupProgress,
         desc: TracerDesc,
     ) -> Result<Self> {
         let screen_extent = frame_extent_generation.extent();
@@ -1885,12 +1886,14 @@ impl Tracer {
 
         let pool = DescriptorPool::new(vulkan_ctx.device()).unwrap();
 
+        startup_progress.stage("shader_modules");
         let pipeline_builder = PipelineBuilder::new(
             &vulkan_ctx,
             desc.glass_experiment_enabled || desc.dedicated_glass_enabled,
         )?;
         let shader_modules = pipeline_builder.shader_modules();
 
+        startup_progress.stage("renderer_resources");
         let resources = TracerResources::new(
             &vulkan_ctx,
             allocator.clone(),
@@ -1974,18 +1977,22 @@ impl Tracer {
             allocator.clone(),
         );
 
-        let pipeline_topology = pipeline_builder.build(PipelineTopologyBuild {
-            vulkan_ctx: &vulkan_ctx,
-            pool: &pool,
-            resources: &resources,
-            contree_builder_resources,
-            scene_accel_resources,
-            plain_builder_resources,
-            ddgi_resources: ddgi_runtime.active_resources(),
-            ddgi_voxel_visibility: &ddgi_voxel_visibility,
-            frame_extent_generation,
-            frame_retirement_sink: frame_retirement_sink.clone(),
-        });
+        let pipeline_topology = pipeline_builder.build(
+            PipelineTopologyBuild {
+                vulkan_ctx: &vulkan_ctx,
+                pool: &pool,
+                resources: &resources,
+                contree_builder_resources,
+                scene_accel_resources,
+                plain_builder_resources,
+                ddgi_resources: ddgi_runtime.active_resources(),
+                ddgi_voxel_visibility: &ddgi_voxel_visibility,
+                frame_extent_generation,
+                frame_retirement_sink: frame_retirement_sink.clone(),
+            },
+            startup_progress,
+        );
+        startup_progress.stage("renderer_geometry");
         log::info!("[ENV_LIGHTING] backend=ddgi ready=false state=initializing");
 
         let mower_resources =

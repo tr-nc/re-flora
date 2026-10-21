@@ -427,6 +427,7 @@ impl ResizeLifecycleTest {
 pub struct App {
     egui_renderer: EguiRenderer,
     loading_state: Option<LoadingState>,
+    startup_progress: Option<crate::util::startup_progress::StartupProgress>,
     fresh_garden_seed: Option<u32>,
     splash_transition: Option<loading::SplashTransition>,
     pending_frame_extent: Option<Extent2D>,
@@ -1099,6 +1100,7 @@ impl App {
         audio: AudioPlan,
         owners: LaunchOwners,
     ) -> Result<Self> {
+        let startup_progress = crate::util::startup_progress::StartupProgress::new("window_vulkan");
         let mut launch_owners = owners;
         let PlatformPlan {
             display,
@@ -1171,6 +1173,7 @@ impl App {
         let chunk_bound = UAabb3::new(UVec3::ZERO, world_chunk_dim);
         let window_state = Self::create_window_state(_event_loop, display);
         let vulkan_ctx = Self::create_vulkan_context(&window_state);
+        startup_progress.stage("swapchain_gui");
 
         let device = vulkan_ctx.device();
 
@@ -1231,6 +1234,7 @@ impl App {
             .egui_texture_test
             .then(|| EguiTextureLifecycleTest::new(renderer.context()));
 
+        startup_progress.stage("terrain_builders");
         let plain_builder = PlainBuilder::new(
             vulkan_ctx.clone(),
             allocator.clone(),
@@ -1289,6 +1293,7 @@ impl App {
             indices
         };
 
+        startup_progress.stage("spatial_audio");
         // Shared spatial audio engine (PetalSonic) used by the frame transaction and tree ambience.
         let spatial_sound_manager = SpatialSoundManager::new(
             1024,
@@ -1323,6 +1328,7 @@ impl App {
             scene_accel_builder.get_resources(),
             plain_builder.get_resources(),
             lighting_mode_acceptance::initial_raster_lighting_state(),
+            &startup_progress,
             TracerDesc {
                 scene_pixel_settings: scene_supersampling::from_gui(&debug_settings.adjustables),
                 default_camera_look_at: ORBIT_CAMERA_DEFAULT_FOCUS,
@@ -1348,6 +1354,7 @@ impl App {
                 glass_debug_view: glass_debug_view.as_u32(),
             },
         )?;
+        startup_progress.stage("scene_services");
         {
             let shadow = tracer.direct_sun_shadow_resources();
             let contree_resources = contree_builder.get_resources();
@@ -1542,6 +1549,7 @@ impl App {
             vulkan_ctx,
             egui_renderer: renderer,
             window_state,
+            startup_progress: Some(startup_progress),
             loading_state: Some(LoadingState {
                 splash: Default::default(),
                 chunk_indices,
@@ -1737,6 +1745,10 @@ impl App {
             app.configure_foliage_shadow_bench_camera()?;
         }
         app.sync_cursor_with_panels();
+        app.startup_progress
+            .as_ref()
+            .unwrap()
+            .stage("terrain_and_model_caches");
 
         Ok(app)
     }
@@ -4061,6 +4073,9 @@ impl App {
                         "Loading complete; first game frame ready (gpu_wait_ms={:.3})",
                         completion_start.elapsed().as_secs_f64() * 1000.0,
                     );
+                    if let Some(progress) = self.startup_progress.take() {
+                        progress.finish();
+                    }
                 }
                 if presented
                     && self

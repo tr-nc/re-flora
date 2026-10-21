@@ -17,6 +17,50 @@ Playback/publication failures, missed completion deadlines, voice-cap pressure a
 failures remain warnings/errors. Runtime/device transitions, initial mix/assets, cicada
 clear/shutdown totals and the final acoustics summary remain lifecycle evidence.
 
+## Startup progress
+
+Ordinary launches include `[STARTUP]` records on the existing `re_flora::run_summary`
+INFO target; no `RUST_LOG` or `--perf` is needed. The App owns one startup reporter
+from window/Vulkan initialization until the first successfully presented game frame
+has completed on the GPU. It reports real stage boundaries (`begin`/`done`), stage
+and total wall-clock milliseconds, and `waiting` every two seconds during a long
+stage, including synchronous driver calls blocking the window thread. `waiting`
+is a heartbeat, **not proof that the driver is making progress**, an ETA, or a
+percentage. Stage names separate shader modules, GPU resources, compute/graphics
+pipelines, geometry, terrain/model caches, world population/lighting, and the first
+frame.
+
+`ready` is emitted only after first-frame completion. Early return or unwinding
+emits `aborted`, not success. The reporter is woken and joined on either path; it
+never accesses rendering/world state and does not remain alive during gameplay.
+Explicit `RUST_LOG` filters still control these INFO messages.
+
+For per-pipeline **CPU time inside `vkCreate*Pipelines`** (including enabled
+validation layers and the driver), opt in to:
+
+```bash
+RUST_LOG=warn,re_flora::run_summary=info,re_flora::run_log_binding=info,re_flora_vkn::pipeline=debug \
+  cargo run --release -- --hidden --mute --auto-exit 0.5
+```
+
+`[PIPELINE_CREATE]` includes compute shader or graphics vertex/fragment names and
+`create_ms`. This excludes resource/descriptor preparation, is not GPU frame time,
+and does not prove a cache miss or a particular driver-internal compilation step.
+Normal startup progress does not print every shader. No pipeline-cache policy,
+shader quality, scene defaults, or persisted preferences are changed by logging.
+
+Check a completed normal startup log with:
+
+```bash
+cargo run --release -- --latest-log
+node scripts/check-startup-log.mjs <path-printed-above>
+```
+
+The checker validates stage/heartbeat ordering, first-frame readiness, no later
+startup messages, and the absence of silent gaps over the two-second heartbeat
+plus a one-second scheduling allowance on the test host. This is an observability
+check, not a startup-speed budget. It fails on the original silent startup log.
+
 ## Existing diagnostics and tests
 
 - No in-repository script parses the removed local-footstep/cicada/routine-acoustics messages.

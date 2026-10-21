@@ -338,6 +338,9 @@ impl App {
             let canopy_audio_vegetation_startup = loading.take_canopy_audio_vegetation_startup();
             self.finalize_loading(&mut publication, canopy_audio_vegetation_startup);
             self.splash_transition = Some(SplashTransition::new(loading.splash));
+            if let Some(progress) = &self.startup_progress {
+                progress.stage("first_frame");
+            }
         }
     }
 
@@ -354,6 +357,9 @@ impl App {
         publication: &mut visible_terrain::VisibleTerrainPublication,
         canopy_audio_vegetation_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
     ) {
+        if let Some(progress) = &self.startup_progress {
+            progress.stage("world_population_and_lighting");
+        }
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         if !self.contree_builder.cpu_chunk_cache_jobs_idle() {

@@ -44,7 +44,12 @@ impl PipelineBuilder {
         &self.shader_modules
     }
 
-    pub fn build(self, input: PipelineTopologyBuild<'_>) -> PipelineTopology {
+    pub fn build(
+        self,
+        input: PipelineTopologyBuild<'_>,
+        startup_progress: &crate::util::startup_progress::StartupProgress,
+    ) -> PipelineTopology {
+        startup_progress.stage("compute_pipelines");
         let compute = Self::create_compute_pipelines(
             input.vulkan_ctx,
             &self.shader_modules,
@@ -56,6 +61,7 @@ impl PipelineBuilder {
             &input.ddgi_resources,
             input.ddgi_voxel_visibility,
         );
+        startup_progress.stage("graphics_pipelines");
         let render_passes = Self::create_render_passes(
             input.vulkan_ctx,
             input
