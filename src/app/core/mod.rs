@@ -4181,6 +4181,7 @@ impl App {
                 if frame_perf_enabled
                     && (response_bench_time.is_some()
                         || self.launch_owners.tree_bench.is_some()
+                        || std::env::var_os("RE_FLORA_GARDEN_PERF").is_some()
                         || frame_count.is_multiple_of(30))
                 {
                     log::info!(

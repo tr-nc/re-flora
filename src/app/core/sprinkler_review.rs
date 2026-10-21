@@ -2,7 +2,7 @@
 use super::{planting::AuthoredFloraPlacementBatch, soil_drying_review::DryingReview, App};
 use crate::app::world_edits::TerrainBrushEdit;
 use anyhow::{ensure, Result};
-use glam::{UVec2, Vec3};
+use glam::{UVec2, Vec2, Vec3};
 
 #[derive(Default)]
 struct WettingSamples {
@@ -569,6 +569,62 @@ impl App {
         Ok(())
     }
 
+    // Loaded realized garden only. No terrain stamps, flora painting or quality overrides.
+    fn prepare_garden_sprinkler_perf(&mut self, review: &mut Review) -> Result<()> {
+        ensure!(review.mode == "rotary-perf" && self.terrain_persistence.startup_load_requested());
+        let (count, overlap, duty) = sprinkler_perf_parameters()?;
+        if review.frame == 0 {
+            ensure!(self.sprinklers.is_empty() && self.mute_audio_output);
+            self.set_manual_time_of_day(0.43);
+            self.debug_settings.adjustables.sprinkler_pulse_duty.value = duty;
+            // Fixed 4x4 prefix, independent of population. Every source resolves its own
+            // actual support column (the old flat-height fixture is not valid on hills).
+            for i in 0..count {
+                let spacing = if overlap { 0.0001 } else { 0.10 };
+                let xz = Vec2::new(
+                    0.62 + (i % 4) as f32 * spacing,
+                    1.30 - (i / 4) as f32 * spacing,
+                );
+                let column = (xz * 256.0).floor().as_uvec2();
+                let anchor = self
+                    .resolve_plantable_surface_column(column)
+                    .map_err(|e| anyhow::anyhow!("garden sprinkler support {i}: {e:?}"))?;
+                let base = anchor.surface_position_ws();
+                self.apply_sprinkler_placement(base)?;
+                log::info!("[GARDEN_PERF_SOURCE] index={i} column={column:?} grounded={base:?} instance={:?}", self.sprinklers.render_instances()[i]);
+            }
+            log::info!("[SPRINKLER_PERF] count={count} overlap={overlap} duty={duty} garden=true quality=saved camera={:?} time=0.43 saved=false", self.tracer.camera_pose());
+        }
+        if review.frame == 180 {
+            let lobes = if count > 0 {
+                self.tracer.sprinkler_mist_review_lobes()?
+            } else {
+                Vec::new()
+            };
+            ensure!(lobes.len() == count * crate::tracer::SPRINKLER_MIST_LOBES as usize);
+            for (index, instance) in lobes
+                .chunks_exact(crate::tracer::SPRINKLER_MIST_LOBES as usize)
+                .enumerate()
+            {
+                ensure!(
+                    instance
+                        .iter()
+                        .all(|l| l.center_amplitude.iter().all(|v| v.is_finite()))
+                        && instance.iter().any(|l| l.center_amplitude[3] > 0.0),
+                    "garden missing GPU source {index}"
+                );
+            }
+            let voices = self.spatial_frame.sprinkler_diagnostics();
+            ensure!(
+                voices.0 == count.min(16),
+                "garden must run real audio: {voices:?}"
+            );
+            log::info!("[SPRINKLER_PERF_PUBLICATION] instances={count} all_instances_live=true audio={voices:?} readback=warmup_only");
+        }
+        review.frame += 1;
+        Ok(())
+    }
+
     pub(super) fn prepare_sprinkler_review(&mut self) -> Result<()> {
         if !self.terrain_persistence.allows_world_updates() {
             return Ok(());
@@ -576,6 +632,11 @@ impl App {
         let Some(mut review) = self.sprinkler_review.take() else {
             return Ok(());
         };
+        if std::env::var_os("RE_FLORA_GARDEN_PERF").is_some() {
+            self.prepare_garden_sprinkler_perf(&mut review)?;
+            self.sprinkler_review = Some(review);
+            return Ok(());
+        }
         if review.frame == 0 {
             ensure!(
                 self.sprinklers.is_empty(),
