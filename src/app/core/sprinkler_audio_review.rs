@@ -104,8 +104,41 @@ impl App {
                 counts.0 == review.count.min(16) as usize && counts.0 > 0,
                 "reload must start with genuine active voices: {counts:?}"
             );
+            let retained_sources = self
+                .sprinklers
+                .audio_sources()
+                .into_iter()
+                .map(|s| (s.id, s.position, s.animation_phase))
+                .collect::<Vec<_>>();
+            let clock_before = (
+                self.world_clock.flora_tick(),
+                self.world_clock.flora_tick_fraction(),
+            );
             *self.terrain_persistence.snapshot_path_mut() = review.reload.clone().unwrap();
             self.perform_runtime_terrain_load();
+            ensure!(
+                clock_before
+                    == (
+                        self.world_clock.flora_tick(),
+                        self.world_clock.flora_tick_fraction()
+                    ),
+                "synchronous load must not advance world time"
+            );
+            ensure!(
+                self.water.phase() == super::water::WaterPhase::Quiesced
+                    && !self.terrain_persistence.allows_sprinkler_audio(),
+                "replacement must retain acknowledged water freeze and audio gate"
+            );
+            ensure!(
+                retained_sources
+                    == self
+                        .sprinklers
+                        .audio_sources()
+                        .into_iter()
+                        .map(|s| (s.id, s.position, s.animation_phase))
+                        .collect::<Vec<_>>(),
+                "session source identities, positions and phases must survive load exactly"
+            );
             let counts = self.spatial_frame.sprinkler_diagnostics();
             ensure!(
                 counts.0 + counts.1 == 0,
@@ -120,7 +153,7 @@ impl App {
                 "session sprinklers must survive terrain replacement"
             );
             review.reload_waiting = true;
-            log::info!("[SPRINKLER_AUDIO_RELOAD] published active=0 session_retained=true awaiting_dependents=true");
+            log::info!("[SPRINKLER_AUDIO_RELOAD] published active=0 session_retained=exact awaiting_dependents=true water=Quiesced world_clock=frozen_during_load");
         }
         if review.reload_waiting {
             if self.terrain_persistence.awaits_dependents() {
