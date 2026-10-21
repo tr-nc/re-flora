@@ -494,6 +494,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "grass_moisture_response",
+        kind: "bool",
+        label: "Grass soil-moisture darkening (unchecked: original)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_growth_override_enabled",
         kind: "bool",
         label: "Override Flora Growth",
@@ -1858,6 +1864,7 @@ pub struct GuiAdjustables {
     pub tree_kick_rustle_body: crate::gui_adjustables::FloatParam,
     pub tree_kick_rustle_brightness: crate::gui_adjustables::FloatParam,
     pub tree_kick_rustle_crackle: crate::gui_adjustables::FloatParam,
+    pub grass_moisture_response: crate::gui_adjustables::BoolParam,
     pub flora_growth_override_enabled: crate::gui_adjustables::BoolParam,
     pub flora_growth_override: crate::gui_adjustables::FloatParam,
     pub tree_age: crate::gui_adjustables::FloatParam,
@@ -2163,6 +2170,7 @@ impl GuiAdjustables {
         let mut tree_kick_rustle_body_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_rustle_brightness_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_kick_rustle_crackle_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_moisture_response_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_growth_override_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_age_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2871,6 +2879,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_kick_rustle_crackle_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_moisture_response" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            grass_moisture_response_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "flora_growth_override_enabled" => {
@@ -4391,6 +4404,7 @@ impl GuiAdjustables {
             tree_kick_rustle_body: tree_kick_rustle_body_field.expect("Missing parameter: tree_kick_rustle_body"),
             tree_kick_rustle_brightness: tree_kick_rustle_brightness_field.expect("Missing parameter: tree_kick_rustle_brightness"),
             tree_kick_rustle_crackle: tree_kick_rustle_crackle_field.expect("Missing parameter: tree_kick_rustle_crackle"),
+            grass_moisture_response: grass_moisture_response_field.expect("Missing parameter: grass_moisture_response"),
             flora_growth_override_enabled: flora_growth_override_enabled_field.expect("Missing parameter: flora_growth_override_enabled"),
             flora_growth_override: flora_growth_override_field.expect("Missing parameter: flora_growth_override"),
             tree_age: tree_age_field.expect("Missing parameter: tree_age"),
@@ -4906,6 +4920,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "sprinkler_mist_flow" => Some(&adjustables.sprinkler_mist_flow),
         "sprinkler_mist_particles" => Some(&adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
+        "grass_moisture_response" => Some(&adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&adjustables.flora_inertial_response),
@@ -5245,6 +5260,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "sprinkler_mist_flow" => Some(&mut adjustables.sprinkler_mist_flow),
         "sprinkler_mist_particles" => Some(&mut adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
+        "grass_moisture_response" => Some(&mut adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&mut adjustables.flora_inertial_response),

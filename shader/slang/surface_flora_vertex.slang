@@ -3,6 +3,7 @@ module surface_flora_vertex;
 import flora_types;
 import flora_vertex;
 import flora_lighting_resources;
+import grass_moisture_material;
 
 struct B_GrassGrowthPotentialLevels
 {
@@ -34,19 +35,41 @@ public float floraCompetitionGrowthFactor(uint3 localBase, uint targetSpecies)
         : 1.0;
 }
 
-public float floraEnvironmentGrowthFactor(uint3 localBase,
-                                           uint3 chunkWorldOffset,
-                                           uint targetSpecies)
+public struct FloraSupportSample
 {
-    if (targetSpecies >= FLORA_SPECIES_COUNT) return 1.0;
+    public float growth_factor;
+    public uint moisture_level;
+};
+
+public FloraSupportSample floraSupportSample(uint3 localBase,
+                                             uint3 chunkWorldOffset,
+                                             uint targetSpecies)
+{
+    FloraSupportSample sample;
+    sample.growth_factor = 1.0;
+    sample.moisture_level = 0u;
+    if (targetSpecies >= FLORA_SPECIES_COUNT) return sample;
     uint3 atlasPosition = chunkWorldOffset + localBase;
     uint width;
     uint height;
     uint depth;
     chunk_atlas.GetDimensions(width, height, depth);
-    if (any(atlasPosition >= uint3(width, height, depth))) return 1.0;
+    if (any(atlasPosition < chunkWorldOffset) ||
+        any(atlasPosition >= uint3(width, height, depth))) return sample;
 
     uint atlasData = chunk_atlas[atlasPosition];
     uint moistureLevel = min((atlasData & 0x30u) >> 4u, 3u);
-    return floraMoistureGrowthFactor(targetSpecies, moistureLevel);
+    // Retain growth semantics even for non-soil supports. Only material wetness
+    // validates soil type; growth overrides never replace this raw moisture.
+    sample.growth_factor = floraMoistureGrowthFactor(targetSpecies, moistureLevel);
+    sample.moisture_level = floraSupportMoistureLevel(atlasData,
+        all(localBase < GRASS_GROWTH_POTENTIAL_CHUNK_DIM));
+    return sample;
+}
+
+public float floraEnvironmentGrowthFactor(uint3 localBase,
+                                           uint3 chunkWorldOffset,
+                                           uint targetSpecies)
+{
+    return floraSupportSample(localBase, chunkWorldOffset, targetSpecies).growth_factor;
 }

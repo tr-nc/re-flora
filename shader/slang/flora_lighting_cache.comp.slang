@@ -18,6 +18,7 @@ import flora_lighting_resources;
 import flora_types;
 import flora_vertex;
 import surface_flora_vertex;
+import grass_moisture_material;
 import vegetation_response_sample;
 import local_lighting;
 
@@ -65,8 +66,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint3 instanceLocalBase = unpackInstanceLocalPosition(packedLocalPosition);
     float competitionFactor = floraCompetitionGrowthFactor(
         instanceLocalBase, instanceType);
-    float environmentFactor = floraEnvironmentGrowthFactor(
+    FloraSupportSample support = floraSupportSample(
         instanceLocalBase, chunkWorldOffset, instanceType);
+    float environmentFactor = support.growth_factor;
     uint voxelInfo = lookupFloraVoxelInfo(instanceType, voxelLocalPosition);
     PreparedFloraVertex prepared = prepareFloraVertex(
         voxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
@@ -106,6 +108,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         instancePosition, prepared.color_gradient, voxelInfo);
     color = applyGrassGrowthStressTint(color, true,
         effectiveGrowthPotential(true, competitionFactor, environmentFactor));
+    color = applyGrassMoistureMaterial(color, instanceType, support.moisture_level,
+        gui_input.grass_moisture_response != 0u);
     GrassBandPose pose;
     pose.position_height = float4(prepared.voxel_position,
         float(sampleGrassHeight(instanceType, seed)));

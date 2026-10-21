@@ -20,6 +20,10 @@ pub(super) struct GrassStemReview {
     resolution: u32,
     sample_frames: u32,
     pub(super) interactive: bool,
+    moisture_review: Option<String>,
+    moisture_response: bool,
+    moisture_snapshot: Option<tempfile::TempDir>,
+    snapshot_soil_sum: Option<u32>,
 }
 
 impl GrassStemReview {
@@ -27,6 +31,20 @@ impl GrassStemReview {
         if let Ok(case) = std::env::var("RE_FLORA_GRASS_STEM_REVIEW") {
             let mut review = Self::parse(&case).expect("grass stem review case");
             review.grid = environment_uint("RE_FLORA_GRASS_STEM_GRID", 3);
+            review.moisture_review = std::env::var("RE_FLORA_GRASS_MOISTURE_REVIEW").ok();
+            if let Some(mode) = &review.moisture_review {
+                assert!(
+                    ["dry", "manual", "sprinkler", "lifecycle"].contains(&mode.as_str()),
+                    "moisture review must be dry, manual, sprinkler or lifecycle"
+                );
+            }
+            let response = environment_uint("RE_FLORA_GRASS_MOISTURE_RESPONSE", 1);
+            assert!(response <= 1, "moisture response must be 0 or 1");
+            review.moisture_response = response != 0;
+            if review.moisture_review.as_deref() == Some("lifecycle") {
+                review.moisture_snapshot =
+                    Some(tempfile::tempdir().expect("disposable wet snapshot"));
+            }
             let reuse = environment_uint("RE_FLORA_GRASS_BAND_POSE_REUSE", 1);
             assert!(reuse <= 1, "pose reuse must be 0 or 1");
             review.pose_reuse = reuse != 0;
@@ -98,11 +116,23 @@ impl GrassStemReview {
             resolution: 45,
             sample_frames: 300,
             interactive: false,
+            moisture_review: None,
+            moisture_response: true,
+            moisture_snapshot: None,
+            snapshot_soil_sum: None,
         })
     }
 
     pub(super) fn fixed_response_time(&self) -> Option<f32> {
-        (!self.interactive).then_some(self.frame as f32 / 60.)
+        // Freeze wind/spawn pose after warmup for moisture A/B images. Old
+        // fixtures retain their advancing fixed clock and all existing modes.
+        let frame = if self.moisture_review.is_some() {
+            self.frame
+                .min(self.grid * self.grid + POST_PAINT_WARMUP_FRAMES)
+        } else {
+            self.frame
+        };
+        (!self.interactive).then_some(frame as f32 / 60.)
     }
 
     fn pixel_settings(&self, frame: u32) -> (bool, u32) {
@@ -173,7 +203,116 @@ impl GrassStemReview {
                 .set_camera_pose_looking_at(target + offset, target),
             "grass stem review camera"
         );
+        if let Some(mode) = &self.moisture_review {
+            app.debug_settings.adjustables.soil_drying_speed.value =
+                if mode == "lifecycle" && frame >= 180 {
+                    3.0
+                } else {
+                    0.0
+                };
+            if frame == 0 && (mode == "sprinkler" || mode == "lifecycle") {
+                let base_xz = xz - Vec2::new(0.14, 0.0);
+                let base = Vec3::new(base_xz.x, app.query_terrain_height_cpu(base_xz), base_xz.y);
+                app.apply_sprinkler_placement(base)?;
+                let gui = &mut app.debug_settings.adjustables;
+                gui.sprinkler_wetting_speed.value = 3.0;
+                gui.sprinkler_pulse_duty.value = 100.0;
+            }
+            if (mode == "manual" || mode == "lifecycle") && (10..=25).contains(&frame) {
+                let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
+                app.add_watering_brush_moisture(crate::app::world_edits::TerrainBrushEdit {
+                    start: center,
+                    end: center,
+                    radius: 0.12,
+                })?;
+            }
+            if mode == "lifecycle" {
+                let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
+                let edit = crate::app::world_edits::TerrainBrushEdit {
+                    start: center,
+                    end: center,
+                    radius: 0.12,
+                };
+                if frame == 30 || frame == 60 {
+                    let paused = frame == 30;
+                    app.debug_settings.adjustables.sprinkler_pulse_duty.value =
+                        if paused { 0.0 } else { 100.0 };
+                    log::info!("[GRASS_MOISTURE_LIFECYCLE] valve_paused={paused} frame={frame} authoritative_duty={}", app.debug_settings.adjustables.sprinkler_pulse_duty.value);
+                }
+                if frame == 60 {
+                    let before = app
+                        .plain_builder
+                        .sample_soil_moisture_sphere(center, 0.08)?;
+                    ensure!(before.sum > 0, "replant needs actual wet soil");
+                    app.apply_surface_flora_removal(edit)?;
+                    app.apply_surface_flora_regeneration_at(edit, 600, true, 1000)?;
+                    log::info!("[GRASS_MOISTURE_LIFECYCLE] replant wet_soil={before:?}");
+                }
+                if frame == 90 {
+                    let path = self
+                        .moisture_snapshot
+                        .as_ref()
+                        .unwrap()
+                        .path()
+                        .join("wet.rfworld");
+                    *app.terrain_persistence.snapshot_path_mut() =
+                        path.to_string_lossy().into_owned();
+                    self.snapshot_soil_sum = Some(
+                        app.plain_builder
+                            .sample_soil_moisture_sphere(center, 0.08)?
+                            .sum,
+                    );
+                    app.perform_runtime_terrain_save();
+                    ensure!(path.is_file(), "disposable wet snapshot was not saved");
+                }
+                if frame == 120 {
+                    let removed = app.remove_sprinklers_in_brush(
+                        crate::app::world_edits::TerrainBrushEdit {
+                            radius: 0.4,
+                            ..edit
+                        },
+                    )?;
+                    ensure!(removed == 1, "lifecycle sprinkler removal");
+                }
+                if frame == 150 {
+                    app.perform_runtime_terrain_load();
+                    let restored = app
+                        .plain_builder
+                        .sample_soil_moisture_sphere(center, 0.08)?;
+                    ensure!(
+                        Some(restored.sum) == self.snapshot_soil_sum,
+                        "wet snapshot moisture changed on restore"
+                    );
+                    log::info!(
+                        "[GRASS_MOISTURE_LIFECYCLE] restored soil={restored:?} original_sum={:?}",
+                        self.snapshot_soil_sum
+                    );
+                }
+            }
+            if frame == warmup_frames
+                || frame == total_frames
+                || (mode == "lifecycle" && [30, 59, 60, 90, 150, 180, 300, 600].contains(&frame))
+            {
+                let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
+                let stats = app
+                    .plain_builder
+                    .sample_soil_moisture_sphere(center, 0.08)?;
+                let neighbor_xz = xz + Vec2::new(0.35, 0.0);
+                let neighbor = Vec3::new(
+                    neighbor_xz.x,
+                    app.query_terrain_height_cpu(neighbor_xz),
+                    neighbor_xz.y,
+                );
+                let dry = app
+                    .plain_builder
+                    .sample_soil_moisture_sphere(neighbor, 0.04)?;
+                log::info!("[GRASS_MOISTURE_REVIEW] mode={mode} response={} frame={frame} soil={stats:?} neighbor={dry:?} pose_reuse={} pixels={} growth_override=1 drying_speed={} saved=false", self.moisture_response, self.pose_reuse, self.pixelization, app.debug_settings.adjustables.soil_drying_speed.value);
+            }
+        }
         let gui = &mut app.debug_settings.adjustables;
+        if self.moisture_review.is_some() {
+            gui.grass_moisture_response.value = self.moisture_response;
+        }
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
             gui.grass_band_pose_reuse.value = self.pose_reuse;
@@ -217,14 +356,21 @@ impl GrassStemReview {
             gui.grass_natural_bend_max_voxels.value = if self.curved { 4.0 } else { 2.0 };
         }
         app.render_flags.enable_flora = true;
-        if frame == warmup_frames {
+        if frame == warmup_frames
+            || (self.moisture_review.as_deref() == Some("lifecycle")
+                && [30, 59, 60, 90, 150, 180, 300, 600].contains(&frame))
+        {
             if let Some(directory) = std::env::var_os("RE_FLORA_GRASS_STEM_CAPTURE") {
                 let directory = std::path::PathBuf::from(directory);
                 std::fs::create_dir_all(&directory)?;
                 *app.launch_owners.screenshot_mut() =
                     super::screenshot::ScreenshotRuntime::new(Some(crate::ScreenshotOptions {
                         path: directory
-                            .join(format!("{}.png", self.case))
+                            .join(if self.moisture_review.as_deref() == Some("lifecycle") {
+                                format!("{}-{frame}.png", self.case)
+                            } else {
+                                format!("{}.png", self.case)
+                            })
                             .to_string_lossy()
                             .into_owned(),
                         delay: 0.0,
@@ -272,6 +418,18 @@ mod tests {
         assert!(review.fixed_response_time().unwrap() - 3.75 > 0.28);
         review.interactive = true;
         assert_eq!(review.fixed_response_time(), None);
+    }
+
+    #[test]
+    fn moisture_review_freezes_pose_but_not_the_original_fixture() {
+        let mut review = GrassStemReview::parse("near-both-b").unwrap();
+        review.moisture_review = Some("manual".into());
+        review.frame = 120;
+        let pose = review.fixed_response_time();
+        review.frame = 600;
+        assert_eq!(review.fixed_response_time(), pose);
+        review.moisture_review = None;
+        assert_eq!(review.fixed_response_time(), Some(10.0));
     }
 
     #[test]

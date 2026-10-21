@@ -1391,6 +1391,7 @@ pub struct FloraAppearanceFrameInput {
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_band_pose_reuse: bool,
     pub grass_band_pixelization: bool,
+    pub grass_moisture_response: bool,
     pub growth_override_enabled: bool,
     pub growth_override: f32,
     pub flower_stem_bottom: Vec3,

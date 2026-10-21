@@ -996,6 +996,15 @@ min = 0
 max = 1
 
 [[section.param]]
+id = "grass_moisture_response"
+kind = "bool"
+label = "Grass soil-moisture darkening (unchecked: original)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "flora_growth_override_enabled"
 kind = "bool"
 label = "Override Flora Growth"

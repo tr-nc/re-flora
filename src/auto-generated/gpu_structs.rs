@@ -945,6 +945,7 @@ pub struct GodRayInfo {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GuiInput {
     pub grass_stem_pixelization: u32,
+    pub grass_moisture_response: u32,
     pub flora_growth_override_enabled: u32,
     pub flora_growth_override: f32,
     pub raster_tree_static: u32,
@@ -958,7 +959,7 @@ pub struct GuiInput {
     pub apple_size_scale: f32,
     pub apple_appearance_flags: u32,
     pub apple_environment_fill: f32,
-    pub _pad0: [u8; 8],
+    pub _pad0: [u8; 4],
     pub flower_stem_bottom: [f32; 3],
     pub _pad1: [u8; 4],
     pub flower_stem_tip: [f32; 3],

@@ -398,6 +398,34 @@ mod tests {
     }
 
     #[test]
+    fn grass_material_consumers_reuse_support_and_apply_before_lighting() {
+        // Source-wiring guard complements the executable production Slang
+        // material contract: both live consumers must use the same helper and
+        // raw support, never the growth override as apparent moisture.
+        for shader in [
+            include_str!("../../shader/slang/grass_band.vert.slang"),
+            include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
+        ] {
+            assert_eq!(shader.matches("floraSupportSample(").count(), 1);
+            assert!(!shader.contains("floraEnvironmentGrowthFactor("));
+            let stress = shader.find("applyGrassGrowthStressTint(").unwrap();
+            let wet = shader.find("applyGrassMoistureMaterial(").unwrap();
+            let lit = shader.find("shadeFloraVertexWithEnvironment(").unwrap();
+            assert!(stress < wet && wet < lit);
+            assert!(shader.contains("support.moisture_level"));
+            assert!(shader.contains("gui_input.grass_moisture_response != 0u"));
+        }
+        let support = include_str!("../../shader/slang/surface_flora_vertex.slang");
+        assert_eq!(support.matches("chunk_atlas[atlasPosition]").count(), 1);
+        assert!(support.contains("all(localBase < GRASS_GROWTH_POTENTIAL_CHUNK_DIM)"));
+        assert!(support.contains("any(atlasPosition < chunkWorldOffset)"));
+        assert!(!support.contains("flora_growth_override"));
+        let material = include_str!("../../shader/slang/grass_moisture_material.slang");
+        assert!(!material.contains("gui_input"));
+        assert!(!material.contains("time"));
+    }
+
+    #[test]
     fn grass_leaf_shadow_receiver_is_rest_anchored_without_freezing_other_terms() {
         let flora_shader = include_str!("../../shader/slang/flora_vertex.slang");
         assert!(flora_shader.contains("restLeafShadowReceiverPosition"));
