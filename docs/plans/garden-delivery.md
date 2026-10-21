@@ -1,4 +1,4 @@
-# Garden delivery — scope v3
+# Garden delivery — scope v4
 
 ## Authority and target
 
@@ -173,3 +173,37 @@ Both start from the integrated scope-v3 plan commit, use independent COW build c
 hold the shared heavy lock for builds/tests/apps/timing. Source authoring may overlap.
 A source report returning is not acceptance; controller must inspect real evidence and
 finish full-scene sprinkler measurements, integrated lifecycle checks and final handoff.
+
+## Final acceptance ownership (scope v4)
+
+All four feature slices and the empty-world publication fix are integrated through
+`8feef3b6`; `c47e75fc` corrects an audio report's scene attribution after checking raw logs.
+Controller's `stage3-*` checks/build passed. Empty and realized-garden snapshots each pass
+two exact runtime reloads with water Running/Ready; the audio fixture also passes on the
+actual loaded garden (130,190 flora, 180 authored flowers, four trees), 20 sources bounded
+to 16 voices and all slots reclaimed. This is still not an active-audio-during-reload test.
+
+1. A focused read-only Medium review checks the integrated clock/audio/lifecycle and empty
+   publication contracts, identifying concrete defects, not speculative cleanup. No builds,
+   tests or app runs in this review; its findings go to the final acceptance owner.
+2. **final_acceptance** reuses `agent/garden-performance`, fast-forwarded to this plan.
+   It owns the final full-garden benchmark/review harness and narrowly necessary integration
+   repairs/tests. No other source worker runs concurrently. It must use the same realized
+   garden snapshot for matched runs, correct grounded sprinkler positions, fixed camera,
+   current quality, all optical effects and sound, and repeated warmed Release measurements.
+   A current-feature comparison build restoring only the two pre-optimization sprinkler
+   shaders is preferable to confounding old/new worlds or audio features; document exact
+   source diffs, dispatch validity and binary hashes. Never call a modified variant the
+   original historical binary. Temporary diagnostic builds/worktrees stay task-owned/local.
+   Cover 0/1/4/8/16 at the real native display/scene resolution; include representative
+   continuous/overlap cases and CPU/GPU phase medians/p90. Do not equate FIFO FPS with cost.
+3. Complete active-sound world replacement, explicit pause/mute/removal and representative
+   wet-grass/global-pause/invalid-support native checks through existing real interfaces.
+   Run aggregate Rust/Slang, explicit changed-local-crate checks, sprinkler spray/design
+   regressions, inspect final screenshots/logs and restore default validation Release.
+   Carry forward already-valid unchanged evidence instead of multiplying redundant tests.
+4. Deliver `docs/reports/garden-final-acceptance.md` with actual results, remaining measured
+   bottlenecks and evidence paths. Controller reviews/merges, rebuilds in main, writes the
+   Chinese aggregate handoff and removes accepted clean task worktrees/branches. Player
+   art/listening approval stays pending; small measured cost alone does not veto the visual
+   candidate. Crashes, data loss or broken resource/publication contracts are not waived.
