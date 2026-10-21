@@ -152,3 +152,18 @@ near/far/terraces、四种 hardware 的最终集成验收仍由 controller 持�
 
 需复制的核心证据：最终四张图、v1/v2 比较图、final snapshot+hash、audit 三个临时 snapshot、
 全部本报告引用的日志、perf-summary.json、preferences hash。无须复制额外 build cache。
+
+
+## Scope v3 补记：全空运行时重载已修复
+
+上文 stage 2 的 20 秒失败是当时真实结果，继续保留。现已在水地形权威 owner 修复：
+初始化依赖完整域观察与任务完成，不再错误地依赖至少存在一个实体 collider；正常 advance
+每轮都推进完成，包括空与去重路径。旧性能 baseline ELF 也实际复现同一失败，准确引入提交仍未知。
+
+`target/garden-delivery/empty_load/` 内新证据确认：原 tree→empty smoke 两次精确替换通过；
+普通花园、挖掘种植、挖掘割草各两次替换通过；真实 water Running / terrain Ready /
+world updates 解冻均断言通过；单独全空 startup/resave 保持零植物零树、无花园建立。
+fmt/check、全量测试及默认 Release 构建通过；native 均 hidden/mute、无 ERROR 或 Vulkan
+validation 错误。原全空 smoke 树印章的边界裁剪 WARN 仍如实保留。生成文件与用户设置无变化。
+详见 [全空重载根因及验证](empty-world-reload.md)。这项功能验收不代表玩家视觉批准、声音批准，
+也不替代 controller 的集成与性能验收。

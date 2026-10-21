@@ -95,12 +95,12 @@ variation, rejection bounds, spacing, route slope/clearance, mature tree envelop
 CLI/launch-owner policy matrix. The existing snapshot smoke verifies exact bytes, flora,
 identity/growth and trees at startup and across two runtime replacements.
 
-**Known acceptance limit:** entirely empty terrain loads and resaves successfully with zero
-flora/trees and no generation. The pre-existing snapshot smoke's stronger operation—add a
-tree to an entirely empty world, then runtime-load that empty save—times out waiting for
-water-dependent publication. Ordinary garden, dug/planted and dug/mown saves pass both runtime
-replacements. This water-publication edge case is recorded for integration; it is not hidden
-as a passing empty-world runtime smoke.
+**全空世界运行时验收（scope v3）：** stage 2 的“添加树后重载全空存档”水发布超时，
+现已在水地形权威 owner 修复。完整观察的空域无需伪造 collider 即可 Ready。
+原 smoke 对全空、普通、挖掘种植及挖掘割草存档均通过两次精确替换，并断言水 Running、
+地形 Ready 与世界更新解冻。全空 startup/resave 仍为零植物零树、无花园生成。
+[中文故障报告](reports/empty-world-reload.md) 保留 red/green 证据、已实际复现的旧基线，
+以及仍未知的准确引入提交。
 
 See [world delivery evidence](reports/garden-world.md) for actual captures, measurements,
 source changes and remaining acceptance boundaries.
