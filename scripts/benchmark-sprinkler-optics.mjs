@@ -52,7 +52,7 @@ export function sceneDimensions(text) {
   return dimensions[0];
 }
 
-export function metrics(text, kind) {
+export function metrics(text, kind, additionalSums = {}) {
   const origin = text.match(/\[(\d+):(\d+):(\d+\.\d+) /);
   assert.ok(origin, 'Missing log timestamp');
   const relative = m => (stamp(m) - stamp(origin) + 86400) % 86400;
@@ -65,6 +65,9 @@ export function metrics(text, kind) {
     if (kind === 'GPU') {
       assert.ok('frame.render' in scopes && 'sprinkler_mist.pass' in scopes, 'Missing GPU scope');
       scopes['sprinkler.sum'] = ['sprinkler_spray.prepare', 'sprinkler_spray.wetting', 'sprinkler_mist.tiles', 'sprinkler_mist.pass', 'graphics.sprinklers'].reduce((s, k) => s + (scopes[k] ?? 0), 0);
+    }
+    for (const [name, keys] of Object.entries(additionalSums)) {
+      scopes[name] = keys.reduce((sum, key) => sum + (scopes[key] ?? 0), 0);
     }
     return { time: relative(m), frame: +m[4], scopes, dropped: +(m[5].match(/dropped=(\d+)/)?.[1] ?? 0) };
   });

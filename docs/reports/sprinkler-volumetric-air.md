@@ -87,4 +87,49 @@ target/release/re-flora --hidden --mute \
 
 捕获目录必须不存在。存在 DISPLAY 时只在子进程取消 Wayland 变量。`original` / `air` review 固定一种模式，不暂停世界，也不自动截图。`switch` 才冻结喷射时钟和上传风、切换控制并做回读，不适合性能计时。
 
-性能比较应把**新场清零/构建、共享体积光、新末端水滴合成、原全局体积光和时域 pass**纳入一致的总范围，再报告整个 GPU 帧及真实帧率；不能只展示变小的 `sprinkler_mist.pass`。视觉验收和进一步性能优化仍是后续独立阶段。
+## 16 源初步 Release 计时
+
+实现提交 **`7cbb2ec3`**。使用同一个 `--features no_validation_layer` Release 二进制，16 源 / spread / 30% duty / 各模式三次，共 **6 次 22 秒运行、5135 个暖机后 GPU 样本**；每次 709–983 个样本、16.258–16.822 秒计时窗口。排除最初五秒及 frame-180 回读之后一秒。交错顺序 original→air、air→original、original→air；没有删掉较慢或有警告的重复。计时期间世界与风正常推进，各 run 不是同一瞬间的粒子帧重放；相同的是配置、源布局、场景、相机和时钟规则。暂停的同状态截图/不变量验证与这组性能运行分开。
+
+本次设备 RTX 3060 Ti，实际 **4096×2560 native / 820×512 internal / stride 5 / 自动 FIFO**。加载同一 130190 flora / 4 trees 花园，使用 `garden-arrival`、保存的 30° / 5 RPM / 5 Hz / mist 6，保留完整水滴、灌溉与实际 16 槽音频处理，输出静音。
+
+这是本次日志读取的分辨率；上一轮消融测量是 5120×2880 / 1024×576。没有修改桌面或画质来复现旧环境，**不能用上次的 16.841 ms 与本次作跨分辨率加速比**。
+
+每项为三个 run 的相应统计值的算术平均；p50/p90 不是跨 run 池化分位数：
+
+| GPU 项目 | 原模式 mean ms | 空气近似 mean ms |
+|---|---:|---:|
+| 密度场清零、bounds、沉积 | — | **0.331** |
+| 体积光（原大气；新模式还包含局部雾） | 0.095 | **0.574** |
+| 原大气时域 pass | 0.031 | 0.031 |
+| 最终光学 pass（原：雾+水滴；新：水滴+合成） | 11.812 | **3.272** |
+| **上述全部光学 + 大气，逐帧求和再统计** | **11.938** | **4.208** |
+| 完整 GPU 帧 mean | **21.531** | **13.485** |
+| 完整 GPU 帧 p50 / p90 | 21.067 / 26.066 | 13.497 / 15.041 |
+| **实际 CPU 帧序列 cadence FPS** | **43.86** | **58.31** |
+
+光学+大气总范围平均减少 **7.730 ms（64.8%）**；整个 GPU 帧平均减少 **8.046 ms（37.4%）**。完整帧差包含其他场景阶段的波动，不能全部归到雾；FPS 来自实际帧号/时间，不是 GPU 时间倒数。这是外观近似的候选收益，不是等画质无损加速、普遍 60 FPS 或正式性能验收。
+
+水/源阶段仍在运行：prepare **0.232→0.232 ms**、wetting **0.699→0.699 ms**、硬件 **0.671→0.672 ms**。共享 source tiles **0.009→0.009 ms**。剩余约 3.27 ms 的末端 pass 仍包含完整精细水滴，不应把它误报成新雾的独立成本。
+
+每轮光学+大气 mean：
+- 原模式：11.890、11.883、12.043 ms；
+- 空气近似：4.223、4.213、4.188 ms。
+
+**计时警告未隐藏：**最后一次 air 运行记录了 12 条 PetalSonic underrun 警告（累计 17 次 underrun）；前五次没有此警告。6 次均正常退出，无 ERROR/VUID/SYNC-HAZARD/panic。保留该重复的全部计时和警告，不宣称声音无回归或整体验收通过；根因与是否由更高帧率间接触发尚未确定。这里只作 GPU 成本/实际 cadence 的有限测量，没有可听音频验证。
+
+证据及复现：
+- [原始统计、输入/二进制哈希](../../target/sprinkler-air-review/measurement/summary.json)；同目录保留 6 份完整日志。
+- 二进制 SHA256：`1ea8cba10946ee5096d71f23fee44d86ba1ef3ce4c0f6542d48c62e2cad72ca1`，仅指计时用无验证层版本，不是交付的默认 Release。
+- `node scripts/benchmark-sprinkler-air.mjs --help` 给出完整参数与失败恢复。常用复现：
+
+```sh
+flock -o /tmp/re-flora-garden-delivery-heavy.lock bash -c '
+  cargo build --release --features no_validation_layer &&
+  node scripts/benchmark-sprinkler-air.mjs --counts 16 \
+    --output target/sprinkler-air-review/NEW-measurement
+  cargo build --release
+'
+```
+
+统计器复用原消融日志解析，新增可命名的**逐帧**聚合范围；9 项 Node 测试通过，包括反相关两个 pass 的 p90 不能相加、CLI 恢复、实际分辨率、暖机/回读窗口及缺失 scope。计时后已恢复默认验证层 Release。单源/其他数量、100% duty、重叠、其他相机/显卡和完整动态美术验收尚未覆盖；下一步应先由玩家比较实际观感，再决定是否采用或继续优化。

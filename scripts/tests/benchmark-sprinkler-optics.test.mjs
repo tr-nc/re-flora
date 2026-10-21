@@ -25,6 +25,14 @@ test('real-log grammar: publication warmup, midnight, ms and per-frame aggregate
   assert.ok(Math.abs(result.scopes['sprinkler.sum'].mean - 4.01) < 1e-12);
 });
 
+test('new pass costs are summed PER FRAME before mean or percentile calculation', () => {
+  const text = log().replace(/frame (\d+) frame.render=9000us sprinkler_mist.pass=2500us/g,
+    (_, frame) => `frame ${frame} frame.render=9000us sprinkler_mist.pass=${frame % 2 ? 5000 : 0}us sprinkler_air.field=${frame % 2 ? 0 : 5000}us`);
+  const result = metrics(text, 'GPU', { 'optical.all': ['sprinkler_mist.pass', 'sprinkler_air.field'] });
+  assert.deepEqual(result.scopes['optical.all'], { mean: 5, p50: 5, p90: 5 });
+  assert.equal(result.scopes['sprinkler_mist.pass'].p90 + result.scopes['sprinkler_air.field'].p90, 10);
+});
+
 test('reject missing publication, short windows, dropped or incomplete scopes', () => {
   assert.throws(() => metrics(log({ publication: false }), 'GPU'), /publication/);
   assert.throws(() => metrics(log({ dropped: 1 }), 'GPU'), /Dropped/);
