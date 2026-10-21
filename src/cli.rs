@@ -1571,6 +1571,8 @@ Options:
                               Ordinary fresh launches open an editable Restorative Garden.
                               Built-in capture presets: garden-arrival, garden-corridor, garden-reverse, garden-overview.
                               Example: --hidden --mute --screenshot garden-arrival target/arrival.png --screenshot-delay 3
+                              Opt-in unsaved native audit: RE_FLORA_GARDEN_AUDIT=target/garden-delivery/world/audit
+                              Walks the corridor, digs/plants/mows, writes temporary acceptance saves; never use with a loaded world.
   --terrain-load <path>      Load terrain and vegetation during startup
   --terrain-save <path>      Save terrain and vegetation once startup is ready
   --denoiser-bench <preset> <report.toml>
@@ -2573,6 +2575,65 @@ mod tests {
             )
             .unwrap_err();
             assert!(incompatible.contains("Do not combine"));
+        }
+    }
+
+    #[test]
+    fn opening_policy_preserves_loads_fixtures_and_explicit_cameras() {
+        assert_eq!(
+            parse(&["re-flora", "--garden-seed", "123"])
+                .world
+                .terrain_generation,
+            TerrainGeneration::Garden(123)
+        );
+        assert_eq!(
+            parse(&["re-flora", "--legacy-terrain"])
+                .world
+                .terrain_generation,
+            TerrainGeneration::Procedural
+        );
+        for args in [
+            vec![
+                "re-flora",
+                "--terrain-load",
+                "target/minimal-empty.rflterrain",
+            ],
+            vec!["re-flora", "--water-experience"],
+            vec!["re-flora", "--water-edit-soak"],
+            vec!["re-flora", "--house-scene"],
+            vec!["re-flora", "--rooftop-poc"],
+            vec!["re-flora", "--environment-lighting-test-scene"],
+            vec!["re-flora", "--hybrid-transparency-test-scene"],
+            vec!["re-flora", "--canopy-audio-diagnostic"],
+        ] {
+            let plan = parse(&args);
+            assert_eq!(
+                plan.world.terrain_generation,
+                TerrainGeneration::Procedural,
+                "{args:?}"
+            );
+        }
+        let explicit = parse(&["re-flora", "--camera-snapshot", "player-default"]);
+        assert!(matches!(
+            explicit.world.terrain_generation,
+            TerrainGeneration::Garden(_)
+        ));
+        assert_eq!(
+            explicit.automation.camera.snapshot_name(),
+            Some("player-default")
+        );
+        for args in [
+            vec!["re-flora", "--flat-terrain", "--legacy-terrain"],
+            vec![
+                "re-flora",
+                "--garden-seed",
+                "2",
+                "--terrain-load",
+                "target/empty.rflterrain",
+            ],
+            vec!["re-flora", "--garden-seed", "2", "--flat-terrain"],
+        ] {
+            assert!(parse_run_plan(args.into_iter().map(str::to_owned).collect()).is_err());
         }
     }
 

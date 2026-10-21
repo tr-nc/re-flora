@@ -1,6 +1,6 @@
 //! Versioned artistic initial conditions, not a botanical or live moisture simulation.
 //! See docs/research/garden-spatial-ecology.md for evidence and transfer limits.
-use glam::{UVec2, UVec3, Vec2};
+use glam::{UVec2, UVec3, Vec2, Vec3Swizzles};
 
 pub const REVIEW_PRESETS: &[&str] = &[
     "garden-arrival",
@@ -27,7 +27,44 @@ pub const TREE_CENTERS: [Vec2; 4] = [
     Vec2::new(0.78, 0.57),
     Vec2::new(0.80, 0.30),
 ];
+pub const FLOWER_KEYS: [&str; 3] = ["wild-geranium", "forget-me-not", "oxeye-daisy"];
 pub const MAX_ATTEMPTS: u32 = 2304;
+
+pub fn tree_descriptor(seed: u32, index: usize) -> crate::tree_gen::TreeDesc {
+    let mut desc = crate::tree_gen::TreeDesc {
+        size: 17. + index as f32 * 1.4,
+        ..Default::default()
+    };
+    desc.branching.seed = hash(seed ^ index as u32 ^ 0x74726565) as u64;
+    desc.branching.iterations = 5;
+    desc.fruit_spawn_probability = 0.;
+    let mut desc = desc.at_age(0.82 + index as f32 * 0.05);
+    // Bounded fitting against actual generated mature wood + canopy, not just anchors.
+    for _ in 0..8 {
+        if tree_radius_voxels(&desc) <= 46. {
+            break;
+        }
+        desc.size *= 0.85;
+    }
+    desc
+}
+pub fn tree_radius_voxels(desc: &crate::tree_gen::TreeDesc) -> f32 {
+    let tree = crate::tree_gen::Tree::new(desc.clone());
+    tree.trunks()
+        .iter()
+        .flat_map(|c| {
+            [
+                c.center_a().xz().length() + c.radius_a(),
+                c.center_b().xz().length() + c.radius_b(),
+            ]
+        })
+        .chain(
+            tree.relative_leaf_positions()
+                .iter()
+                .map(|p| p.xz().length() + 12.),
+        )
+        .fold(0., f32::max)
+}
 pub const MAX_FLOWERS: usize = 180;
 
 pub fn hash(mut x: u32) -> u32 {
@@ -91,8 +128,11 @@ pub fn flowers(seed: u32, dim: UVec2, mut valid: impl FnMut(UVec2) -> bool) -> V
         if result.len() == MAX_FLOWERS {
             break;
         }
-        let key = hash(seed ^ VERSION ^ attempt.wrapping_mul(0x9e3779b9));
         let (center, radius, color) = drifts[(attempt % 5) as usize];
+        let species_key = FLOWER_KEYS[color]
+            .bytes()
+            .fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
+        let key = hash(seed ^ VERSION ^ species_key ^ attempt.wrapping_mul(0x9e3779b9));
         let offset = Vec2::new(unit(key ^ 11), unit(key ^ 23)) * 2. - Vec2::ONE;
         let p = if attempt % 11 == 0 {
             Vec2::splat(0.12) + (offset + Vec2::ONE) * 0.38
@@ -175,6 +215,24 @@ mod tests {
                 .all(|b| b.column.as_vec2().distance(f.column.as_vec2()) >= 9.));
         }
     }
+    #[test]
+    fn mature_trees_fit_borders_and_clearings() {
+        for seed in [DEFAULT_SEED, 0, u32::MAX] {
+            for (i, p) in TREE_CENTERS.iter().enumerate() {
+                let desc = tree_descriptor(seed, i);
+                assert_eq!(
+                    serde_json::to_value(&desc).unwrap(),
+                    serde_json::to_value(tree_descriptor(seed, i)).unwrap()
+                );
+                let radius = tree_radius_voxels(&desc);
+                assert!(radius <= 46.);
+                assert!(p.min_element() * 512. > radius + 4.);
+                assert!((1. - p.max_element()) * 512. > radius + 4.);
+                assert!(route_distance(*p) * 512. > radius + 24.);
+            }
+        }
+    }
+
     #[test]
     fn route_is_connected_clear_and_walkable() {
         for s in ROUTE.windows(2) {

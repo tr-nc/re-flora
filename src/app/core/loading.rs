@@ -431,6 +431,8 @@ impl App {
         });
         self.verify_garden_snapshot_smoke()
             .unwrap_or_else(|err| panic!("[GARDEN_SMOKE] verify failed: {err:#}"));
+        self.audit_garden_opening()
+            .unwrap_or_else(|err| panic!("[GARDEN_AUDIT] failed: {err:#}"));
         self.prepare_environment_lighting_test_scene_before_probe_initialization()
             .unwrap_or_else(|err| {
                 panic!("environment-lighting test scene startup publication failed: {err:#}")

@@ -1,10 +1,10 @@
 //! One-time adapter from the pure opening recipe into ordinary editing transactions.
+mod audit;
 use super::{planting::AuthoredFloraPlacementBatch, App, VOXEL_DIM_PER_CHUNK};
 use crate::{
     app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement, TreePlacementEdit},
     gameplay::CameraPose,
     garden_layout as layout,
-    tree_gen::TreeDesc,
 };
 use glam::{Vec2, Vec3};
 
@@ -55,20 +55,20 @@ impl App {
         for (i, p) in layout::TREE_CENTERS.iter().enumerate() {
             let xz = *p * size;
             let y = self.query_terrain_height_cpu(xz);
-            let mut desc = TreeDesc {
-                size: 17. + i as f32 * 1.4,
-                ..TreeDesc::default()
-            };
-            desc.branching.seed = layout::hash(seed ^ i as u32 ^ 0x74726565) as u64;
-            desc.branching.iterations = 5;
-            desc.fruit_spawn_probability = 0.;
+            let desc = layout::tree_descriptor(seed, i);
+            anyhow::ensure!(
+                layout::tree_radius_voxels(&desc) <= 46.,
+                "mature tree exceeded bounded opening footprint"
+            );
             self.apply_tree_placement_at_age(
                 TreePlacementEdit {
+                    // Snapshot format has a shared tree-age control. Bake initial individual
+                    // variation into its ordinary descriptor so reload preserves the silhouette.
                     tree_desc: desc,
                     placement: TreePlacement::World(Vec3::new(xz.x, y, xz.y)),
                     options: TreeAddOptions::default().with_new_id(),
                 },
-                0.82 + i as f32 * 0.05,
+                1.0,
             )?;
         }
         // Actual mow/removal paths, not a shader-only exclusion: persists in snapshots,
@@ -102,9 +102,12 @@ impl App {
             self.resolve_plantable_surface_column(column).is_ok()
         });
         let mut batch = AuthoredFloraPlacementBatch::new();
-        let species: Vec<_> = crate::flora::species::authored_plant_species_indices()
-            .take(3)
-            .collect();
+        let species = layout::FLOWER_KEYS.map(|key| {
+            crate::flora::species::species()
+                .iter()
+                .position(|s| s.key == key)
+                .expect("opening species must exist in the ordinary catalog") as u32
+        });
         let time = self.time_info.time_since_start_duration().as_millis() as u32;
         let mut placed = 0;
         let mut fingerprint = seed;
