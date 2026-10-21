@@ -34,8 +34,8 @@ impl GrassStemReview {
             review.moisture_review = std::env::var("RE_FLORA_GRASS_MOISTURE_REVIEW").ok();
             if let Some(mode) = &review.moisture_review {
                 assert!(
-                    ["dry", "manual", "sprinkler", "lifecycle"].contains(&mode.as_str()),
-                    "moisture review must be dry, manual, sprinkler or lifecycle"
+                    ["dry", "manual", "sprinkler", "lifecycle", "support"].contains(&mode.as_str()),
+                    "moisture review must be dry, manual, sprinkler, lifecycle or support"
                 );
             }
             let response = environment_uint("RE_FLORA_GRASS_MOISTURE_RESPONSE", 1);
@@ -218,13 +218,69 @@ impl GrassStemReview {
                 gui.sprinkler_wetting_speed.value = 3.0;
                 gui.sprinkler_pulse_duty.value = 100.0;
             }
-            if (mode == "manual" || mode == "lifecycle") && (10..=25).contains(&frame) {
+            if (mode == "manual" || mode == "lifecycle" || mode == "support")
+                && (10..=25).contains(&frame)
+            {
                 let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
                 app.add_watering_brush_moisture(crate::app::world_edits::TerrainBrushEdit {
                     start: center,
                     end: center,
                     radius: 0.12,
                 })?;
+            }
+            if mode == "support" && frame == 150 {
+                let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
+                let before = app
+                    .plain_builder
+                    .sample_soil_moisture_sphere(center, 0.05)?;
+                ensure!(before.sum > 0, "support removal requires real wet soil");
+                let removed = app.apply_surface_terrain_removal(
+                    crate::app::world_edits::TerrainBrushEdit {
+                        start: center,
+                        end: center,
+                        radius: 0.04,
+                    },
+                    Some(crate::builder::VOXEL_TYPE_DIRT),
+                    None,
+                    None,
+                )?;
+                ensure!(removed.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT) > 0);
+                let after = app
+                    .plain_builder
+                    .sample_soil_moisture_sphere(center, 0.05)?;
+                ensure!(
+                    after.count < before.count,
+                    "Dig must actually remove grass support"
+                );
+                // Brush overlaps the world boundary. Production editing, watering and
+                // planting must clip it rather than wrapping atlas addresses.
+                let edge_xz = Vec2::new(0.002, 0.85);
+                let edge = Vec3::new(edge_xz.x, app.query_terrain_height_cpu(edge_xz), edge_xz.y);
+                let edit = crate::app::world_edits::TerrainBrushEdit {
+                    start: edge,
+                    end: edge,
+                    radius: 0.04,
+                };
+                app.apply_surface_flora_regeneration_at(edit, 150, true, 1000)?;
+                app.add_watering_brush_moisture(edit)?;
+                let boundary = app.apply_surface_terrain_removal(
+                    edit,
+                    Some(crate::builder::VOXEL_TYPE_DIRT),
+                    None,
+                    None,
+                )?;
+                ensure!(
+                    boundary
+                        .stats
+                        .count_removed(crate::builder::VOXEL_TYPE_DIRT)
+                        > 0
+                );
+                ensure!(
+                    app.resolve_plantable_surface_column(glam::UVec2::splat(u32::MAX))
+                        .is_err(),
+                    "invalid columns must not wrap"
+                );
+                log::info!("[GRASS_SUPPORT_REVIEW] removed={} soil_before={before:?} soil_after={after:?} boundary_removed={} invalid_column=rejected real_edits=true", removed.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), boundary.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT));
             }
             if mode == "lifecycle" {
                 let center = Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y);
