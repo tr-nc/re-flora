@@ -179,6 +179,17 @@ impl TerrainPersistenceRuntime {
         self.simulation_gate != TerrainSimulationGate::Frozen
     }
 
+    // World updates must keep advancing dependent publication. Audio, unlike those
+    // updates, must not observe the replacement until its dependents are ready.
+    pub(super) fn allows_sprinkler_audio(&self) -> bool {
+        self.allows_world_updates()
+            && !matches!(
+                self.status,
+                TerrainPersistenceStatus::Loading
+                    | TerrainPersistenceStatus::PublishedAwaitingDependents
+            )
+    }
+
     fn selected_path(&self) -> &str {
         &self.snapshot_path
     }
@@ -306,6 +317,7 @@ impl App {
         if !self.terrain_persistence.begin_load() {
             return;
         }
+        self.spatial_frame.clear_sprinklers();
         self.cancel_pavement_stroke();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();
@@ -617,9 +629,11 @@ mod tests {
     fn successful_load_waits_for_water_without_freezing_world_updates() {
         let mut runtime = runtime();
         assert!(runtime.begin_load());
+        assert!(!runtime.allows_sprinkler_audio());
         runtime.finish_load(None);
 
         assert!(runtime.allows_world_updates());
+        assert!(!runtime.allows_sprinkler_audio());
         assert!(!runtime.can_start_operation());
         assert_eq!(
             runtime.status,
@@ -633,11 +647,13 @@ mod tests {
         assert!(recoverable.begin_load());
         recoverable.finish_load(Some((false, "invalid snapshot".to_owned())));
         assert!(recoverable.allows_world_updates());
+        assert!(recoverable.allows_sprinkler_audio());
 
         let mut fatal = runtime();
         assert!(fatal.begin_load());
         fatal.finish_load(Some((true, "publication failed".to_owned())));
         assert!(!fatal.allows_world_updates());
+        assert!(!fatal.allows_sprinkler_audio());
         assert!(!fatal.can_start_operation());
     }
 

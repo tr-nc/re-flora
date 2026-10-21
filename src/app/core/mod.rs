@@ -4153,6 +4153,7 @@ impl App {
                     sprinkler_snapshot: self.tracer.sprinkler_audio_snapshot(),
                     sprinklers: &self.sprinklers.audio_sources(),
                     world_running: world_updates_running
+                        && self.terrain_persistence.allows_sprinkler_audio()
                         && self.debug_settings.audio_mix.master.enabled
                         && self.debug_settings.audio_mix.master.scale > 0.0
                         && self.debug_settings.audio_mix.terrain.enabled
