@@ -23,6 +23,26 @@ impl SprinklerAudioReview {
             samples: Vec::with_capacity(120),
         })
     }
+    pub fn complete(&self) -> bool {
+        self.frame > 360
+    }
+    pub fn apply_render_inputs(&self, inputs: &mut crate::tracer::RenderFrameInputs) {
+        // Disposable frame facts only: never mutate saved GUI values.
+        if (181..=200).contains(&self.frame) {
+            inputs.environment.sprinkler_mist_density = 0.0;
+            inputs.environment.sprinkler_mist_particles = false;
+            inputs.environment.sprinkler_rotation_speed = 0.0;
+        }
+        if self.frame > 180 {
+            inputs.environment.sprinkler_pulse_frequency = 20.0;
+        }
+        if (211..=225).contains(&self.frame) {
+            inputs.environment.sprinkler_pulse_duty = 0.0;
+        }
+        if (226..=240).contains(&self.frame) {
+            inputs.environment.sprinkler_pulse_duty = 100.0;
+        }
+    }
     pub fn running(&self) -> bool {
         !(241..=270).contains(&self.frame)
     }
@@ -96,7 +116,21 @@ impl App {
                 .samples
                 .push(self.spatial_frame.sprinkler_reconcile_us());
         }
-        if [180, 260, 295, 350].contains(&review.frame) {
+        if [195, 238, 295].contains(&review.frame) {
+            assert_eq!(
+                counts.0,
+                review.count.min(16) as usize,
+                "optical independence / continuous / resume"
+            );
+        }
+        if [222, 260, 350].contains(&review.frame) {
+            assert_eq!(
+                counts.0 + counts.1 + counts.2,
+                0,
+                "zero duty / pause / removal must reclaim voices"
+            );
+        }
+        if [180, 195, 222, 238, 260, 295, 350].contains(&review.frame) {
             log::info!("[SPRINKLER_AUDIO_REVIEW] frame={} committed={} running={} active={} pending={} retiring={} render_owned={} engine_voices={}", review.frame, self.sprinklers.len(), review.running(), counts.0, counts.1, counts.2, counts.3, self.spatial_sound_manager.engine_voice_count());
         }
     }

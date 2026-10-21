@@ -1268,4 +1268,34 @@ mod tests {
             Err(PetalSonicError::PermanentDeviceFailure(_))
         ));
     }
+    #[test]
+    #[ignore = "Release-only offline production callback timing; no device"]
+    fn sprinkler_output_callback_cost() {
+        assert!(!cfg!(debug_assertions));
+        for sources in [0, 1, 4, 8, 16] {
+            let frames = vec![
+                StereoFrame {
+                    left: sources as f32 * 0.005,
+                    right: sources as f32 * 0.005
+                };
+                256 * 1200
+            ];
+            let mut callback = callback_for(&frames, 48000);
+            let mut output = [0.0_f32; 512];
+            let mut times = Vec::with_capacity(1000);
+            for block in 0..1200 {
+                let start = std::time::Instant::now();
+                callback.write(&mut output, 2);
+                if block >= 200 {
+                    times.push(start.elapsed().as_secs_f64() * 1e6);
+                }
+            }
+            assert_eq!(callback.underrun_count.load(Ordering::Relaxed), 0);
+            times.sort_by(f64::total_cmp);
+            println!(
+                "offline_output_callback sources={sources} frames=256 format=f32 channels=2 measured=1000 p50_us={:.3} p95_us={:.3}",
+                times[500], times[950]
+            );
+        }
+    }
 }

@@ -971,6 +971,15 @@ mod tests {
             timing_queue_capacity: max_voices.max(8),
             ..PetalSonicWorldDesc::default()
         };
+        harness_with_desc(desc, buses, acoustic_voice_input)
+    }
+
+    fn harness_with_desc(
+        desc: PetalSonicWorldDesc,
+        buses: Vec<BusParams>,
+        acoustic_voice_input: AcousticVoiceInput,
+    ) -> Harness {
+        let max_voices = desc.max_voices;
         let (commands, regular) = crossbeam_channel::bounded(max_voices.max(1));
         let (lifecycle_commands, lifecycle) = crossbeam_channel::bounded(max_voices.max(1));
         let (retirement_sender, _) = crossbeam_channel::bounded(max_voices.max(1));
@@ -1804,74 +1813,90 @@ mod tests {
             !cfg!(debug_assertions),
             "performance evidence requires --release"
         );
-        for count in [0, 1, 4, 8, 16] {
-            let mut h = harness(256, 16);
-            h.quantum
-                .active_voice_count
-                .store(count as usize, Ordering::Release);
-            let mut output = h.quantum.connect_output(48000).unwrap();
-            let mut controls = Vec::new();
-            let clip = ResidentClip::from_mono_pcm(
-                (0..48000)
-                    .map(|i| ((i as f32 * 1.37).sin()) * 0.02)
-                    .collect(),
-                48000,
-            )
-            .unwrap();
-            for i in 0..count {
-                let control = SampleEnvelopeControl::default();
-                let input = clip.clone().with_sample_envelope(control.clone());
-                let emitter = Emitter {
-                    world_id: 1,
-                    index: i,
-                    generation: 1,
+        for (block_size, quality) in [
+            (256, crate::config::SpatialQuality::Balanced),
+            (1024, crate::config::SpatialQuality::LowLatency),
+        ] {
+            for count in [0, 1, 4, 8, 16] {
+                let desc = PetalSonicWorldDesc {
+                    block_size,
+                    max_voices: 16,
+                    spatial_quality: quality,
+                    ..Default::default()
                 };
-                let desc = EmitterDesc::spatial(crate::Pose::from_position(crate::Vec3::new(
-                    i as f32 * 0.1,
-                    0.0,
-                    1.0,
-                )))
-                .with_gain_db(-12.0);
-                h.commands
-                    .try_send(PlaybackCommand::Play(
-                        AcceptedVoice::capture(
-                            VoiceId::from(i as u64 + 1),
-                            emitter,
-                            &input,
-                            &desc,
-                            PlayOptions::looping(),
-                            None,
-                            0,
-                        )
-                        .prepare(256),
-                    ))
-                    .unwrap();
-                controls.push(control);
-            }
-            h.quantum.process_commands();
-            let mut times = Vec::with_capacity(1000);
-            for block in 0..1200 {
-                for (i, c) in controls.iter().enumerate() {
-                    c.anchor(
-                        (block as f64 * 256.0 / 48000.0 * 20.0 + i as f64 * 0.037) % 1.0,
-                        20.0,
-                        0.3,
-                    );
+                let mut h = harness_with_desc(
+                    desc,
+                    vec![BusParams::default()],
+                    AcousticVoiceInput::isolated(16),
+                );
+                h.quantum
+                    .active_voice_count
+                    .store(count as usize, Ordering::Release);
+                let mut output = h.quantum.connect_output(48000).unwrap();
+                let mut controls = Vec::new();
+                let clip = ResidentClip::from_mono_pcm(
+                    (0..48000)
+                        .map(|i| ((i as f32 * 1.37).sin()) * 0.02)
+                        .collect(),
+                    48000,
+                )
+                .unwrap();
+                for i in 0..count {
+                    let control = SampleEnvelopeControl::default();
+                    let input = clip.clone().with_sample_envelope(control.clone());
+                    let emitter = Emitter {
+                        world_id: 1,
+                        index: i,
+                        generation: 1,
+                    };
+                    let desc = EmitterDesc::spatial(crate::Pose::from_position(crate::Vec3::new(
+                        i as f32 * 0.1,
+                        0.0,
+                        1.0,
+                    )))
+                    .with_gain_db(-12.0);
+                    h.commands
+                        .try_send(PlaybackCommand::Play(
+                            AcceptedVoice::capture(
+                                VoiceId::from(i as u64 + 1),
+                                emitter,
+                                &input,
+                                &desc,
+                                PlayOptions::looping(),
+                                None,
+                                0,
+                            )
+                            .prepare(block_size),
+                        ))
+                        .unwrap();
+                    controls.push(control);
                 }
-                let start = Instant::now();
-                let metrics = h.quantum.generate_samples(256);
-                let us = start.elapsed().as_secs_f64() * 1e6;
-                if block >= 200 {
-                    times.push(us);
+                h.quantum.process_commands();
+                let mut times = Vec::with_capacity(1000);
+                for block in 0..1200 {
+                    for (i, c) in controls.iter().enumerate() {
+                        c.anchor(
+                            (block as f64 * block_size as f64 / 48000.0 * 20.0 + i as f64 * 0.037)
+                                % 1.0,
+                            20.0,
+                            0.3,
+                        );
+                    }
+                    let start = Instant::now();
+                    let metrics = h.quantum.generate_samples(block_size);
+                    let us = start.elapsed().as_secs_f64() * 1e6;
+                    if block >= 200 {
+                        times.push(us);
+                    }
+                    assert_eq!(metrics.spatial_source_count, count as usize);
+                    while output.try_pop().is_some() {}
                 }
-                assert_eq!(metrics.spatial_source_count, count as usize);
-                while output.try_pop().is_some() {}
+                times.sort_by(f64::total_cmp);
+                println!(
+                    "offline_production_render voices={count} sample_rate=48000 block={block_size} quality={quality:?} warmed=200 measured=1000 p50_us={:.3} p95_us={:.3} p99_us={:.3}",
+                    times[500], times[950], times[990]
+                );
             }
-            times.sort_by(f64::total_cmp);
-            println!(
-                "offline_production_render voices={count} sample_rate=48000 block=256 quality=Balanced warmed=200 measured=1000 p50_us={:.3} p95_us={:.3} p99_us={:.3}",
-                times[500], times[950], times[990]
-            );
         }
     }
 }

@@ -3674,6 +3674,9 @@ impl App {
                     },
                 );
                 frame_inputs.wind.field = self.wind_prototype.field.frame();
+                if let Some(review) = &self.sprinkler_audio_review {
+                    review.apply_render_inputs(&mut frame_inputs);
+                }
                 let environment_capture_port = self.launch_owners.environment_capture_port();
                 let environment_irradiance_capture_plan = self
                     .environment_irradiance_capture
@@ -4254,6 +4257,14 @@ impl App {
                         panic!("[TERRAIN_CONNECTIVITY_BENCH] frame validation failed: {err:#}")
                     });
                 if complete {
+                    self.on_terminate(event_loop);
+                    return;
+                }
+                if self
+                    .sprinkler_audio_review
+                    .as_ref()
+                    .is_some_and(|r| r.complete())
+                {
                     self.on_terminate(event_loop);
                     return;
                 }
