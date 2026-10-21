@@ -65,7 +65,7 @@ PetalSonic 新增可附着在 resident clip 上的小型 `SampleEnvelopeControl`
 
 ### Release 性能测量
 
-主机：Intel i5-12600KF，NVIDIA RTX 3060 Ti；原生窗口 4096×2560，scene 820×512、原保存 pixel stride=5；自动选择 FIFO，没有强制 present mode。原生性能使用 `cargo build --release --features no_validation_layer`、新花园、隐藏/全局静音/`--no-particles`；每人口一轮，60 帧预热 + 120 帧采样，测量期间无编译/测试/其他应用并行。没有降低用户保存的画质。以下是音频 prepare + finish 的 reconciliation 时间，**不含**共享 spatial publication、异步遮挡求解、GPU 或全帧时间：
+主机：Intel i5-12600KF，NVIDIA RTX 3060 Ti；原生窗口 4096×2560，scene 820×512、原保存 pixel stride=5；自动选择 FIFO，没有强制 present mode。原生性能使用 `cargo build --release --features no_validation_layer`、诊断启动的传统地形、隐藏/全局静音/`--no-particles`；每人口一轮，60 帧预热 + 120 帧采样，测量期间无编译/测试/其他应用并行。没有降低用户保存的画质。以下是音频 prepare + finish 的 reconciliation 时间，**不含**共享 spatial publication、异步遮挡求解、GPU 或全帧时间：
 
 | 已提交喷头 | active 上限 | p50 µs | p95 µs |
 | ---: | ---: | ---: | ---: |
@@ -76,7 +76,7 @@ PetalSonic 新增可附着在 resident clip 上的小型 `SampleEnvelopeControl`
 | 16 | 16 | 4.149 | 8.373 |
 | 20 | 16 | 3.814 | 4.347 |
 
-原始 `perf-native-<n>.log`、汇总 `native-performance-summary.json`。20 个来源的灌溉来源数仍为 20，音频为 16；各轮阶段断言全部通过，删后所有槽位为 0，正常关闭。单次短测的尾部会受调度噪声影响，不把 20 比 16 更小的数解释成优化。
+原始 `perf-native-<n>.log`、汇总 `native-performance-summary.json`。控制器复核发现，该 `REVIEW` 环境变量按启动隔离策略禁用了 fresh garden；例如 16 来源日志明确包含 `Planted startup tuning tree`，而没有 `GARDEN_OPENING`。因此这些有效的音频局部测量不能当作完整新花园性能验收；完整场景另用已实现花园的同一存档做最终检查。20 个来源的灌溉来源数仍为 20，音频为 16；各轮阶段断言全部通过，删后所有槽位为 0，正常关闭。单次短测的尾部会受调度噪声影响，不把 20 比 16 更小的数解释成优化。
 
 `--mute` 设置既有主输出 -120 dB，并没有禁用引擎或逐源 DSP；原生日志显示 `Running`、default 设备、44.1 kHz、双声道以及实际声音计数。不过静音原生运行不能证明听感，且总线若被真正 muted/paused 会走引擎既有静默推进分支。因此额外运行了**无设备的生产 RenderQuantum** 和真实输出 callback 的 Release 离线测量，以覆盖未静音的 DSP 路径；这不是 Debug 单测计时。
 
