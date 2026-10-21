@@ -2,6 +2,7 @@ import flora_types;
 import flora_vertex;
 import flora_lighting_cache;
 import surface_flora_vertex;
+import grass_moisture_material;
 import vegetation_response_sample;
 import stem_band_geometry;
 struct B_GrassInstances { Instance data[]; };
@@ -23,7 +24,8 @@ StemBandVertex main(VertexInput input) {
     uint seed=instanceSeed(root);
     uint3 base=unpackInstanceLocalPosition(instance.packed_local_pos);
     float competition=floraCompetitionGrowthFactor(base,species);
-    float environment=floraEnvironmentGrowthFactor(base,floraChunkWorldOffset(),species);
+    FloraSupportSample support=floraSupportSample(base,floraChunkWorldOffset(),species);
+    float environment=support.growth_factor;
     bool useResponse=vegetationResponseEnabled();
     float3 response=sampleVegetationResponse(root,seed,species,localIndex,floraPushConstants().response_offset);
     uint height=sampleGrassHeight(species,seed);
@@ -60,6 +62,8 @@ StemBandVertex main(VertexInput input) {
     output.position=mul(camera_info.view_proj_mat,float4(world,1));
     float3 color=sampleFloraBaseColor(true,species,seed,int3(0,int(band),0),root,pose.color_gradient,info);
     color=applyGrassGrowthStressTint(color,true,effectiveGrowthPotential(true,competition,environment));
+    color=applyGrassMoistureMaterial(color,species,support.moisture_level,
+        gui_input.grass_moisture_response != 0u);
     float3 light=flora_lighting_cache.irradiance[floraLightingCacheIndex(floraPushConstants(),localIndex,band)].xyz;
     output.color=shadeFloraVertexWithEnvironment(color,pose.shadow_weight,light,pose.voxel_position);
     return output;

@@ -298,6 +298,7 @@ impl BufferUpdater {
 
         resources.uniforms.gui_input.fill_uniform(&GuiInput {
             grass_stem_pixelization: 0,
+            grass_moisture_response: u32::from(appearance.grass_moisture_response),
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,

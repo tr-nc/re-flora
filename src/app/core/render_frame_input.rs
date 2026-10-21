@@ -145,6 +145,7 @@ pub(super) fn freeze_render_frame_inputs(
                 tip_radius_ratio: gui.flower_stem_tip_radius_ratio.value,
                 branches: gui.flower_stem_test_branches.value,
             },
+            grass_moisture_response: gui.grass_moisture_response.value,
             growth_override_enabled: gui.flora_growth_override_enabled.value,
             growth_override: gui.flora_growth_override.value,
             flower_stem_bottom: color_to_vec3(gui.model_flower_stem_bottom_color.value),
@@ -471,6 +472,7 @@ mod tests {
         gui.apple_sun_gloss.value = true;
         gui.apple_environment_fill.value = 0.5;
         gui.flower_stem_test_branches.value = false;
+        gui.grass_moisture_response.value = true;
         gui.flora_growth_override_enabled.value = true;
         gui.apple_pixel_resolution.value = 24;
         gui.model_pixel_view_count.value = 37;
@@ -652,6 +654,7 @@ mod tests {
                         },
                         size_scale: 1.25,
                     },
+                    grass_moisture_response: true,
                     growth_override_enabled: true,
                     growth_override: flora_growth_override,
                     flower_stem_bottom,

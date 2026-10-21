@@ -240,6 +240,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wet_patch_size");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wetting_speed");
         Self::add_missing_param(&mut config, "Debug", "soil_drying_speed");
+        Self::add_missing_param(&mut config, "Debug", "grass_moisture_response");
         Self::migrate_stem_rendering_controls(&mut config);
         for id in [
             "apple_size_scale",
@@ -1435,6 +1436,47 @@ mod tests {
             assert_eq!(
                 serde_json::to_value(&loaded).unwrap(),
                 serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn grass_moisture_migrates_additively_without_writes_and_saves_disabled() {
+        for saved in [None, Some(false), Some(true)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            for section in &mut config.section {
+                if let Some(value) = saved {
+                    for param in &mut section.param {
+                        if param.id == "grass_moisture_response" {
+                            param.value = super::GuiParamValue::Bool { value };
+                        }
+                    }
+                } else {
+                    section.param.retain(|p| p.id != "grass_moisture_response");
+                }
+            }
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            let values: Vec<_> = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .filter(|p| p.id == "grass_moisture_response")
+                .collect();
+            assert_eq!(values.len(), 1);
+            assert!(
+                matches!(values[0].value, super::GuiParamValue::Bool { value } if value == saved.unwrap_or(true))
+            );
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                serde_json::to_value(&loaded).unwrap(),
+                serde_json::to_value(&reloaded).unwrap()
             );
         }
     }
