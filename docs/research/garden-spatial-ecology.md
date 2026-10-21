@@ -2,8 +2,15 @@
 
 Research handoff for **garden delivery scope v1**, world slice. Repository inspected at
 `a66d9c5144b4a687a4e0c3c7cfa5f8ae7b6cc527`, branch `agent/garden-world`.
-**Status: proposal, not implemented or visually accepted.** Only this note changes in this
-phase. No compilation, tests, game, GPU, preferences or saved worlds were touched.
+**Research-phase status: proposal only at the time of this note.** Only this note changed in that
+phase; no compilation, tests, game, GPU, preferences or saved worlds were touched.
+
+**Implementation follow-up (scope v2):** the ordinary fresh opening is now implemented by
+`src/garden_layout.rs` and `src/app/core/garden_opening.rs`, with the realized-soil/editable-world
+adapter, explicit legacy mode and saved-world precedence. See [usage and ownership](../garden-opening.md)
+and [actual screenshots, native edit/reload evidence, Release timings and limits](../reports/garden-world.md).
+The report distinguishes the inspected visual candidate from pending player approval and records the
+remaining entirely-empty-world runtime water-publication acceptance limit.
 
 ## Recommendation in brief
 
