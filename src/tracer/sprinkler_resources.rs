@@ -234,14 +234,17 @@ mod tests {
         assert!(sprinkler_mist_sample_count(true) % 8 == 0);
         for rotary in [false, true] {
             assert!(sprinkler_mist_sample_count(rotary) <= SPRINKLER_MIST_LOBES);
-            // The shader's 64 lanes stride over samples without omission/repetition.
-            let mut visits = vec![0; sprinkler_mist_sample_count(rotary) as usize];
-            for lane in 0..64usize {
-                for sample in (lane..visits.len()).step_by(64) {
-                    visits[sample] += 1;
+            // Preparation's 256 lanes cover every mist AND independent droplet
+            // slot, including the partially occupied second iteration.
+            for drops in [0, SPRINKLER_DROPLETS] {
+                let mut visits = vec![0; (sprinkler_mist_sample_count(rotary) + drops) as usize];
+                for lane in 0..256usize {
+                    for sample in (lane..visits.len()).step_by(256) {
+                        visits[sample] += 1;
+                    }
                 }
+                assert!(visits.iter().all(|&n| n == 1));
             }
-            assert!(visits.iter().all(|&n| n == 1));
         }
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::SprinklerMistLobe>(),

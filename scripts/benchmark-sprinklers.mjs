@@ -13,9 +13,9 @@ Build first: cargo build --release --features no_validation_layer (default Relea
 Defaults: target/release/re-flora, target/garden-delivery/performance/run, 12 seconds, 2 repeats, both layouts/duties, all populations.
 Excludes first 3 seconds of profiler samples; saves raw logs and p50/p90 CPU/GPU scopes.
 Settings are in-memory; GUI/camera files are checked unchanged. Never loads/saves player terrain.
-Hold flock /tmp/re-flora-garden-delivery-heavy.lock around this command. No concurrent app.
+Hold flock -o /tmp/re-flora-garden-delivery-heavy.lock around this command. No concurrent app.
 Exit: 0 measurement complete (not performance acceptance), 1 run/evidence failure, 2 invalid arguments.
-Example: flock /tmp/re-flora-garden-delivery-heavy.lock node scripts/benchmark-sprinklers.mjs --duties 30 --layouts spread`;
+Example: flock -o /tmp/re-flora-garden-delivery-heavy.lock node scripts/benchmark-sprinklers.mjs --duties 30 --layouts spread`;
 const o={binary:'target/release/re-flora',output:'target/garden-delivery/performance/run',seconds:12,repeats:2,layouts:'spread,overlap',duties:'30,100',counts:'0,1,4,8,16',particles:'on'};
 const args=process.argv.slice(2);
 if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);process.exit(0);}
@@ -23,9 +23,10 @@ for(let i=0;i<args.length;i+=2){const k=args[i].slice(2);if(!args[i].startsWith(
 if(!['on','off'].includes(o.particles)||!Number.isFinite(+o.seconds)||+o.seconds<8||!Number.isInteger(+o.repeats)||+o.repeats<1||!o.layouts.split(',').every(v=>['spread','overlap'].includes(v))||!o.duties.split(',').every(v=>['30','100'].includes(v))||!o.counts.split(',').every(v=>['0','1','4','8','16'].includes(v))){console.error(`Invalid range or choice\n${help}`);process.exit(2);}
 const q=(a,p)=>{assert.ok(a.length,'Missing timing samples');return a.toSorted((a,b)=>a-b)[Math.floor((a.length-1)*p)];};
 function metrics(text,kind){
- const rows=[...text.matchAll(new RegExp(`\\[(\\d+):(\\d+):(\\d+\\.\\d+) [^\\n]*?\\[PERF\\]\\[${kind}_FRAME_SCOPE\\] frame (\\d+) ([^\\n]+)`,'g'))].map(m=>({time:+m[1]*3600+ +m[2]*60+ +m[3],frame:+m[4],scopes:Object.fromEntries([...m[5].matchAll(/([\w.]+)=(\d+)us/g)].map(v=>[v[1],+v[2]/1000]))}));
+ const rows=[...text.matchAll(new RegExp(`\\[(\\d+):(\\d+):(\\d+\\.\\d+) [^\\n]*?\\[PERF\\]\\[${kind}_FRAME_SCOPE\\] frame (\\d+) ([^\\n]+)`,'g'))].map(m=>({time:+m[1]*3600+ +m[2]*60+ +m[3],frame:+m[4],dropped:Number(m[5].match(/\bdropped=(\d+)/)?.[1]??0),scopes:Object.fromEntries([...m[5].matchAll(/([\w.]+)=(\d+)us/g)].map(v=>[v[1],+v[2]/1000]))}));
  assert.ok(rows.length>=5,`Too few ${kind} samples; retry --seconds 20`);
  const warm=rows.filter(r=>r.time>=rows[0].time+3);assert.ok(warm.length>=3,`Insufficient warmed ${kind} samples`);
+ assert.ok(warm.every(r=>r.dropped===0),`Dropped ${kind} profiler scopes; evidence is incomplete`);
  const keys=[...new Set(warm.flatMap(r=>Object.keys(r.scopes)))];
  const scopes=Object.fromEntries(keys.map(k=>[k,{p50:q(warm.map(r=>r.scopes[k]??0),.5),p90:q(warm.map(r=>r.scopes[k]??0),.9)}]));
  const interval=warm.slice(1).map((r,i)=>1000*(r.time-warm[i].time)/(r.frame-warm[i].frame));
@@ -40,6 +41,7 @@ try{
   assert.deepEqual(hashes(),before,'Preferences changed');
   const name=`${layout}-d${duty}-n${count}-r${repeat}`;
   const env={...process.env,RUST_LOG:'info',RE_FLORA_SPRINKLER_REVIEW:'rotary-perf',RE_FLORA_SPRINKLER_PERF:`${count},${layout},${duty}`,VK_LOADER_LAYERS_DISABLE:'~all~'};
+  for(const key of Object.keys(env))if(key.startsWith('RE_FLORA_')&&!['RE_FLORA_SPRINKLER_REVIEW','RE_FLORA_SPRINKLER_PERF'].includes(key))delete env[key];
   delete env.VK_INSTANCE_LAYERS;delete env.VK_LAYER_ENABLES;
   // Same real native window/swapchain as normal hidden play, fixed X11 logical scale.
   if(env.DISPLAY){delete env.WAYLAND_DISPLAY;delete env.WAYLAND_SOCKET;env.WINIT_X11_SCALE_FACTOR='1';}

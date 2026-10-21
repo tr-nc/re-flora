@@ -24,10 +24,14 @@ import wind_field;
 [[vk::binding(5,1)]] RWStructuredBuffer<B_SprinklerMistLobe> droplet_lobes;
 [[vk::push_constant]] ConstantBuffer<PushConstantSprinklerMist> mist_push;
 
-groupshared float3 lowerBounds[64];
-groupshared float3 upperBounds[64];
-groupshared float3 waterLower[64];
-groupshared float3 waterUpper[64];
+// Small sprinkler populations otherwise expose only two warps per instance.
+// More lanes evaluate the same independent slots concurrently; only exact
+// min/max bounds are reduced, so source/contact order and dose do not change.
+static const uint PREPARE_LANES=256u;
+groupshared float3 lowerBounds[PREPARE_LANES];
+groupshared float3 upperBounds[PREPARE_LANES];
+groupshared float3 waterLower[PREPARE_LANES];
+groupshared float3 waterUpper[PREPARE_LANES];
 
 float4 mistScreenRect(float3 lo,float3 hi)
 {
@@ -48,7 +52,7 @@ float4 mistScreenRect(float3 lo,float3 hi)
 }
 
 [shader("compute")]
-[numthreads(64,1,1)]
+[numthreads(PREPARE_LANES,1,1)]
 void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
 {
     uint instance=group.x;
@@ -56,7 +60,7 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
     float3 waterLo=lo,waterHi=hi;
     // Multiple velocity bands share one instance group. Each lane accumulates
     // all of its samples before the group bounds reduction.
-    for(uint index=local;index<mist_push.lobes_per_instance+mist_push.droplets_per_instance;index+=64u) {
+    for(uint index=local;index<mist_push.lobes_per_instance+mist_push.droplets_per_instance;index+=PREPARE_LANES) {
         bool particle=index>=mist_push.lobes_per_instance;
         uint droplet=index-mist_push.lobes_per_instance;
         B_SprinklerMistLobe lobe=(B_SprinklerMistLobe)0;
@@ -144,7 +148,7 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
     lowerBounds[local]=lo;upperBounds[local]=hi;
     waterLower[local]=waterLo;waterUpper[local]=waterHi;
     GroupMemoryBarrierWithGroupSync();
-    for(uint offset=32u;offset>0u;offset>>=1u) {
+    for(uint offset=PREPARE_LANES/2u;offset>0u;offset>>=1u) {
         if(local<offset) {
             lowerBounds[local]=min(lowerBounds[local],lowerBounds[local+offset]);
             upperBounds[local]=max(upperBounds[local],upperBounds[local+offset]);

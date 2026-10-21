@@ -83,3 +83,59 @@ prepare 非线性下降也提示小 population GPU 利用率/频率影响，不�
 共同参加两次 group barrier；shared list 256 uint + count，新增约 1 KiB/workgroup。
 代价是每组初始化/串行稳定 scan，但摊销掉每个 receiver 的 256-slot 扫描。
 暂停和运行时控制仍每帧来自本帧 contact，四种硬件与缓存 ABI 无改动。
+
+## 已否决实验：精确复用源标定的 dyadic 节点
+
+第二项是待证伪的计算重复假设，不是已确认根因。代码检查发现：每个 optical slot 的面积分布反求做八次二分，
+每次调用六步 Newton 地面射程标定；每个年龄槽又重复求相同带边界权重。
+这些是源的参考平地标定，不依赖当前地形、时间、风或接触结果。正常用户 30% duty 下，
+原版 prepare 的粒子 on/off 差约单个 0.47 ms、16 个 0.24 ms；这只是 matched 开关的
+**边际 GPU 时间**，不声称是可加的独立 kernel 时间（GPU 占用和频率会互相影响）。
+
+实验版 prepare 每组协作算一次 `referenceRangeSquared(n/256), n=0..256`，再复用到全部年龄槽、
+128 个独立粒子槽的二分查询。原算法恰好只访问这些二进制分数；**没有插值、没有降低二分精度、
+没有近似射程或新分布**。每个粒子的 seed、出生年龄、速度分散、阀门和真实地形 sweep 完全不变。
+八个带边界也是该表中的精确节点，源出水归一化保持原公式。
+
+`sprinkler_source_calibration.slang` 在 16 个 phase、128 optical slots、0/30/100% duty 和全部
+256 年龄槽 × 64 个带内位置上比较完整 source 的每个字段，**268,288 案例逐字段精确相等**；
+原有 droplets/advection、contact/terraces/radial/continuity/valve 测试仍运行。
+但两次匹配 Release 中 prepare 的 p50 与仅压缩 wetting 的版本几乎相同：
+单个约 1.45 ms、4 个约 1.33 ms、16 个约 0.92 ms。理论重复并非当前主导成本，
+可能已被编译器优化，或被地形追踪/光照/低并行度完全掩盖；未用更细硬件计数器证明其具体原因。
+**因此撤回整个表/可选 source 参数/测试，不增加约 1 KiB shared memory 和 barrier。**
+保留实验补丁、CPU 测试及 before/after 原始数据在 target 证据目录，而非生产代码。
+不能用这次单测正确性代替性能收益。
+
+## 正确性验证的环境问题（与 GPU 性能分开）
+
+首次 Wayland 验证中，系统主题 portal 在 100 ms 内未响应，产生
+`sctk_adwaita::config ... color-scheme timeout` ERROR；应用仍正常退出且无 Vulkan 错误，
+但脚本严格拒绝 ERROR，故该次不记为通过。改为仅在测试进程移除 WAYLAND_DISPLAY/SOCKET，
+使用同一 X11 native surface 重跑，未改用户桌面/首选项或游戏逻辑。
+完整 Rust 在优化一后通过：1655 app + 4 collider + 1 integration，8 个 app ignore；
+49 项 Slang CPU 与 15 项同步验证原生 spray/soil/墙/阶梯/粒子/resize/放置移除通过。
+否决的标定表实验也曾通过 50 项 Slang CPU（含新增源复用回归），但未保留。
+最终汇总记录见后续表与日志。
+
+## 优化二（保留）：让同一实例的独立样本并行执行
+
+标定表被否决后，检查生产调度发现：原 prepare 每个实例只 dispatch 一个 **64-thread group**，
+每 lane 连续处理 6 个样本（256 continuous + 128 optical）。单/少数喷头时大量 SM 空闲，
+每组只有两个 warp 承担长轨迹 sweep、光照及全部槽；“少数实例却高固定成本”与基线吻合。
+改为每实例 **256 lanes**，同一原始 index 仍恰好计算一次，lane 最多处理两槽。
+shared bounds 从 3 KiB 增至 12 KiB，归约从六轮增至八轮；这是吞吐/延迟与共享内存占用的权衡，
+不是减少样本/碰撞步数/阴影/粒子，也没有分帧摊销或 stale water。
+原有其它 shader 已使用 256-thread groups，没有引入高于项目既有的工作组大小需求。
+
+独立的两次 Release 调度实验：单个 prepare p50 约 **1.44 → 0.51 ms**，
+4 个约 **1.33 → 0.46 ms**，16 个约 **0.91 → 0.36 ms**（相对仅 wetting 压缩的版本）。
+归约只做有限 AABB 的 min/max，换归约树不改变源、contact、标量流量、第一触地/墙体或射程；
+所有 buffer 仍由原 acquired frame slot 拥有，disabled optical 槽也照常清零。
+Rust bounded-work 回归覆盖 enabled/disabled droplets 与第二轮的部分 lane，确保全部槽无漏算/重复。
+没有新增 emitter registry、CPU 粒子、wet footprint 或 clock API。
+
+环境补充：驱动 580.159.04；真实 scene pixels **256×144**（screen 1280×720，原保存值 pixel_stride=5、
+point/nearest，UI native），不是全分辨率 1280×720 shading。整机 cache 32px、全局 128 views、16 poses，
+共享 96 MiB。未降低原保存质量。平地高度 0.5；无地形随机 seed，喷头 seed 由生产
+`sprinkler_seed(id,position)` 确定，顺序放置生成同一 phase。world clock 仍为真实时间，不用帧号假造性能。
