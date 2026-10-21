@@ -62,7 +62,8 @@ public FloraSupportSample floraSupportSample(uint3 localBase,
     // Retain growth semantics even for non-soil supports. Only material wetness
     // validates soil type; growth overrides never replace this raw moisture.
     sample.growth_factor = floraMoistureGrowthFactor(targetSpecies, moistureLevel);
-    sample.moisture_level = floraSupportMoistureLevel(atlasData, true);
+    sample.moisture_level = floraSupportMoistureLevel(atlasData,
+        all(localBase < GRASS_GROWTH_POTENTIAL_CHUNK_DIM));
     return sample;
 }
 
