@@ -1264,6 +1264,29 @@ impl App {
                 }
             }
         }
+        if review.mode == "rotary-perf" && review.frame == 30 {
+            let count = sprinkler_perf_parameters()?.0;
+            if count > 0 {
+                let lobes = self.tracer.sprinkler_mist_review_lobes()?;
+                ensure!(
+                    lobes.len() == count * crate::tracer::SPRINKLER_MIST_LOBES as usize,
+                    "performance fixture GPU publication size"
+                );
+                for (index, instance) in lobes
+                    .chunks_exact(crate::tracer::SPRINKLER_MIST_LOBES as usize)
+                    .enumerate()
+                {
+                    ensure!(
+                        instance
+                            .iter()
+                            .all(|l| l.center_amplitude.iter().all(|v| v.is_finite()))
+                            && instance.iter().any(|l| l.center_amplitude[3] > 0.0),
+                        "performance fixture missing live GPU source for instance {index}"
+                    );
+                }
+            }
+            log::info!("[SPRINKLER_PERF_PUBLICATION] instances={count} all_instances_live=true readback=warmup_only");
+        }
         if review.frame == 180 {
             if review.mode.starts_with("rotary-design-") {
                 log::info!(

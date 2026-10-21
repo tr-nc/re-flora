@@ -6750,7 +6750,7 @@ impl Tracer {
         self.pipeline_topology
             .compute()
             .sprinkler_mist_prepare_ppl
-            .record_with_descriptors(
+            .record_workgroups_with_descriptors(
                 cmdbuf,
                 &[
                     (
@@ -6778,7 +6778,7 @@ impl Tracer {
                         DescriptorResource::Buffer(self.sprinkler_resources.water_bounds()),
                     ),
                 ],
-                Extent3D::new(push.count * 64, 1, 1),
+                Extent3D::new(push.count, 1, 1),
                 Some(bytemuck::bytes_of(&push)),
             )
     }

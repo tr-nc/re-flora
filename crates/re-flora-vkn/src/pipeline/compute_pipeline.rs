@@ -196,9 +196,7 @@ impl ComputePipeline {
     }
 
     fn record_dispatch(&self, cmdbuf: &CommandBuffer, dispatch_size: [u32; 3]) {
-        let x = (dispatch_size[0] as f32 / self.0.workgroup_size[0] as f32).ceil() as u32;
-        let y = (dispatch_size[1] as f32 / self.0.workgroup_size[1] as f32).ceil() as u32;
-        let z = (dispatch_size[2] as f32 / self.0.workgroup_size[2] as f32).ceil() as u32;
+        let [x, y, z] = dispatch_groups(dispatch_size, self.0.workgroup_size);
         self.0.device.cmd_dispatch_raw(cmdbuf.as_raw(), x, y, z);
     }
 
@@ -215,12 +213,47 @@ impl ComputePipeline {
             });
     }
 
+    /// Records logical workgroups directly, independent of shader local size.
+    /// Use this for kernels with one group per object, rather than duplicating
+    /// their local size in a CPU-side invocation count.
+    pub fn record_workgroups_with_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
+        groups: Extent3D,
+        push_constants: Option<&[u8]>,
+    ) -> Result<()> {
+        self.bind_transient_descriptors(cmdbuf, descriptors, push_constants)?;
+        self.0
+            .device
+            .cmd_dispatch_raw(cmdbuf.as_raw(), groups.width, groups.height, groups.depth);
+        Ok(())
+    }
+
     /// Records a dispatch using a per-dispatch descriptor set addressed by reflected names.
     pub fn record_with_descriptors(
         &self,
         cmdbuf: &CommandBuffer,
         descriptors: &[(&str, super::DescriptorResource<'_>)],
         dispatch_extent: Extent3D,
+        push_constants: Option<&[u8]>,
+    ) -> Result<()> {
+        self.bind_transient_descriptors(cmdbuf, descriptors, push_constants)?;
+        self.record_dispatch(
+            cmdbuf,
+            [
+                dispatch_extent.width,
+                dispatch_extent.height,
+                dispatch_extent.depth,
+            ],
+        );
+        Ok(())
+    }
+
+    fn bind_transient_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &[(&str, super::DescriptorResource<'_>)],
         push_constants: Option<&[u8]>,
     ) -> Result<()> {
         self.record_descriptor_resource_uses(cmdbuf);
@@ -239,14 +272,6 @@ impl ComputePipeline {
         if let Some(push_constants) = push_constants {
             self.record_push_constants(cmdbuf, push_constants);
         }
-        self.record_dispatch(
-            cmdbuf,
-            [
-                dispatch_extent.width,
-                dispatch_extent.height,
-                dispatch_extent.depth,
-            ],
-        );
         Ok(())
     }
 
@@ -339,5 +364,36 @@ impl ComputePipeline {
         self.0
             .device
             .cmd_dispatch_indirect_raw(cmdbuf.as_raw(), buffer.as_raw(), 0);
+    }
+}
+
+fn dispatch_groups(invocations: [u32; 3], local: [u32; 3]) -> [u32; 3] {
+    std::array::from_fn(|axis| invocations[axis].div_ceil(local[axis]))
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::*;
+
+    #[test]
+    fn logical_groups_preserve_every_object_when_reflected_local_size_changes() {
+        for count in [0, 1, 4, 8, 16, 256] {
+            for lanes in [64, 128, 256] {
+                assert_eq!(
+                    dispatch_groups([count * lanes, 1, 1], [lanes, 1, 1]),
+                    [count, 1, 1]
+                );
+            }
+        }
+        assert_eq!(dispatch_groups([17, 13, 9], [8, 4, 2]), [3, 4, 5]);
+        // Invocation-count callers must not round through f32 before ceiling.
+        assert_eq!(
+            dispatch_groups([16_777_217, 1, 1], [256, 1, 1]),
+            [65_537, 1, 1]
+        );
+        assert_eq!(
+            dispatch_groups([u32::MAX, 1, 1], [256, 1, 1]),
+            [16_777_216, 1, 1]
+        );
     }
 }

@@ -7,20 +7,21 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 process.chdir(fileURLToPath(new URL('../', import.meta.url)));
-const help = `Usage: node scripts/benchmark-sprinklers.mjs [--binary PATH] [--output DIR] [--seconds N] [--repeats N] [--layouts spread,overlap] [--duties 30,100] [--counts 0,1,4,8,16] [--particles on|off]
+const help = `Usage: node scripts/benchmark-sprinklers.mjs [--binary PATH] [--output DIR] [--seconds N] [--repeats N] [--layouts spread,overlap] [--duties 30,100] [--counts 0,1,4,8,16] [--particles on|off] [--publication required|legacy]
 Hidden/muted real Vulkan app, no forced present mode, no validation layers.
 Build first: cargo build --release --features no_validation_layer (default Release requests validation).
 Defaults: target/release/re-flora, target/garden-delivery/performance/run, 12 seconds, 2 repeats, both layouts/duties, all populations.
 Excludes first 3 seconds of profiler samples; saves raw logs and p50/p90 CPU/GPU scopes.
+Requires per-instance warmup GPU publication checks; use --publication legacy ONLY for preserved pre-check baseline binaries.
 Settings are in-memory; GUI/camera files are checked unchanged. Never loads/saves player terrain.
 Hold flock -o /tmp/re-flora-garden-delivery-heavy.lock around this command. No concurrent app.
 Exit: 0 measurement complete (not performance acceptance), 1 run/evidence failure, 2 invalid arguments.
 Example: flock -o /tmp/re-flora-garden-delivery-heavy.lock node scripts/benchmark-sprinklers.mjs --duties 30 --layouts spread`;
-const o={binary:'target/release/re-flora',output:'target/garden-delivery/performance/run',seconds:12,repeats:2,layouts:'spread,overlap',duties:'30,100',counts:'0,1,4,8,16',particles:'on'};
+const o={binary:'target/release/re-flora',output:'target/garden-delivery/performance/run',seconds:12,repeats:2,layouts:'spread,overlap',duties:'30,100',counts:'0,1,4,8,16',particles:'on',publication:'required'};
 const args=process.argv.slice(2);
 if(args.length===1&&['--help','-h'].includes(args[0])){console.log(help);process.exit(0);}
 for(let i=0;i<args.length;i+=2){const k=args[i].slice(2);if(!args[i].startsWith('--')||!(k in o)||!args[i+1]){console.error(`Invalid option/value: ${args[i]}\n${help}`);process.exit(2);}o[k]=args[i+1];}
-if(!['on','off'].includes(o.particles)||!Number.isFinite(+o.seconds)||+o.seconds<8||!Number.isInteger(+o.repeats)||+o.repeats<1||!o.layouts.split(',').every(v=>['spread','overlap'].includes(v))||!o.duties.split(',').every(v=>['30','100'].includes(v))||!o.counts.split(',').every(v=>['0','1','4','8','16'].includes(v))){console.error(`Invalid range or choice\n${help}`);process.exit(2);}
+if(!['required','legacy'].includes(o.publication)||!['on','off'].includes(o.particles)||!Number.isFinite(+o.seconds)||+o.seconds<8||!Number.isInteger(+o.repeats)||+o.repeats<1||!o.layouts.split(',').every(v=>['spread','overlap'].includes(v))||!o.duties.split(',').every(v=>['30','100'].includes(v))||!o.counts.split(',').every(v=>['0','1','4','8','16'].includes(v))){console.error(`Invalid range or choice\n${help}`);process.exit(2);}
 const q=(a,p)=>{assert.ok(a.length,'Missing timing samples');return a.toSorted((a,b)=>a-b)[Math.floor((a.length-1)*p)];};
 function metrics(text,kind){
  const rows=[...text.matchAll(new RegExp(`\\[(\\d+):(\\d+):(\\d+\\.\\d+) [^\\n]*?\\[PERF\\]\\[${kind}_FRAME_SCOPE\\] frame (\\d+) ([^\\n]+)`,'g'))].map(m=>({time:+m[1]*3600+ +m[2]*60+ +m[3],frame:+m[4],dropped:Number(m[5].match(/\bdropped=(\d+)/)?.[1]??0),scopes:Object.fromEntries([...m[5].matchAll(/([\w.]+)=(\d+)us/g)].map(v=>[v[1],+v[2]/1000]))}));
@@ -51,6 +52,7 @@ try{
   assert.doesNotMatch(text,/\bERROR\b|VUID-|panicked at|Insert instance layer.*KHRONOS_validation/);
   assert.ok(text.includes(`[SPRINKLER_PERF] count=${count} overlap=${layout==='overlap'}`),'Fixture missing');
   assert.match(text,/\[SHUTDOWN\] phase=complete failures=0/);
+  if(o.publication==='required')assert.ok(text.includes(`[SPRINKLER_PERF_PUBLICATION] instances=${count} all_instances_live=true`),'Missing per-instance GPU publication check; rebuild or explicitly use --publication legacy for the preserved old baseline');
   assert.deepEqual(hashes(),before,'Preferences changed');
   const row={name,count:+count,layout,duty:+duty,repeat,cpu:metrics(text,'CPU'),gpu:metrics(text,'GPU')};
   results.push(row);writeFileSync(path.join(o.output,'summary.json'),JSON.stringify({options:o,hashes:before,results},null,2)+'\n');
