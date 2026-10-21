@@ -1,4 +1,4 @@
-# Garden delivery — scope v2
+# Garden delivery — scope v3
 
 ## Authority and target
 
@@ -139,3 +139,37 @@ bounded stale-state silence and no realtime allocation/locks. Retain publish-bef
 clean failure/removal ownership and a bounded total voice count. The final audio owner must
 verify ordering and may refine snapshot fields, but not replace this with a free-running
 unanchored loop or frame-rate-only gate.
+
+## Stage 2 integration and stage 3 ownership
+
+World commits through `71d7d528` and wetness commits through `2f671e8e` are integrated
+at `97b99d77`. Controller inspected source and actual arrival/overview and wet-grass
+comparison images; useful evidence is copied into integration. Aggregate formatting,
+check, 1,663 application + 4 library + 1 integration tests, default Release build and
+fresh-garden hidden muted smoke passed (`stage2-*` logs). Existing GUI values and camera
+library are unchanged; only the saved grass-moisture checkbox was added. This is a
+candidate visual result, not player approval. The new garden's additional rendering cost
+and wetness's remaining native/performance matrix are recorded in their slice reports.
+
+Stage 3 has two independent Medium implementation units:
+
+- **audio** uses `agent/garden-audio`. Owns sprinkler sound/synthesis and PetalSonic envelope
+  support, exact Tracer clock snapshot/accessor, committed source facts, spatial transaction,
+  and necessary audio-only wiring in `src/app/core/{mod,placeables,lifecycle}.rs`. It may add
+  declarative audio controls/migration and an opt-in audio review fixture. Preserve existing
+  clocks, shader/water contracts, presets and new garden/grass behavior. It must not edit
+  terrain persistence, water publication or world generation.
+- **empty_load** reuses `agent/garden-world`. Owns diagnosis and root-cause repair of the
+  observed all-empty snapshot runtime-replacement timeout, in terrain persistence/smoke,
+  water coordination/colliders and their authoritative lower-level helpers. The original
+  red evidence is `world/implementation/reload-minimal-empty-fixed.log`, with the disposable
+  `audit/minimal-empty.rflterrain` input. Establish whether this reproduces before garden
+  changes instead of assuming it is pre-existing. Do not weaken the smoke, extend timeouts,
+  skip water readiness, or alter snapshot contents to hide the bug. Do not edit audio,
+  GUI, `src/app/core/mod.rs`, `src/tracer/mod.rs`, or the shared clock. Request a precise
+  serialized patch if an indispensable cross-owner hook is found.
+
+Both start from the integrated scope-v3 plan commit, use independent COW build caches and
+hold the shared heavy lock for builds/tests/apps/timing. Source authoring may overlap.
+A source report returning is not acceptance; controller must inspect real evidence and
+finish full-scene sprinkler measurements, integrated lifecycle checks and final handoff.
