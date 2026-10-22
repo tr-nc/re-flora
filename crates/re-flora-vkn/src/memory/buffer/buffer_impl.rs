@@ -289,23 +289,36 @@ impl Buffer {
     }
 
     fn map_buffer_mem_and_write(&self, data: &[u8], byte_offset: u64) -> Result<()> {
-        validate_mapped_write(byte_offset, data.len() as u64, self.get_size_bytes())?;
-        // try to get the raw mapped pointer
-        if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
-            unsafe {
-                let base_ptr = ptr.as_ptr();
-                let target_ptr = base_ptr.add(byte_offset as usize);
-                let mut align = ash::util::Align::new(
-                    target_ptr,
-                    std::mem::align_of::<u8>() as vk::DeviceSize, // u8 has alignment 1
-                    data.len() as vk::DeviceSize,
-                );
-                align.copy_from_slice(data);
-            }
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Failed to map buffer memory"))
+        // SAFETY: the slice is a valid source, disjoint from our private mapping.
+        unsafe { self.write_mapped(data.as_ptr(), data.len(), byte_offset) }
+    }
+
+    /// Source must be valid for byte_count bytes and disjoint from the mapping.
+    /// Raw pointers preserve the potentially-uninitialized padding of Copy types.
+    unsafe fn write_mapped(
+        &self,
+        source: *const u8,
+        byte_count: usize,
+        byte_offset: u64,
+    ) -> Result<()> {
+        validate_mapped_write(byte_offset, byte_count as u64, self.get_size_bytes())?;
+        let ptr = self
+            .0
+            .allocated_mem
+            .mapped_ptr()
+            .ok_or_else(|| anyhow::anyhow!("Failed to map buffer memory"))?;
+        // SAFETY: bounds were checked above; callers provide valid disjoint source
+        // bytes. Existing frame-slot ownership and Vulkan synchronization remain
+        // the caller's responsibility, just as for the previous mapped writes.
+        unsafe {
+            super::mapped_write::copy_to_mapped(
+                source,
+                ptr.as_ptr().cast::<u8>().add(byte_offset as usize),
+                byte_count,
+                self.memory_properties(),
+            );
         }
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -376,20 +389,9 @@ impl Buffer {
     /// * `Ok(())` if the operation was successful
     /// * `Err` with a description if memory mapping failed
     pub fn fill<T: Copy>(&self, data: &[T]) -> Result<()> {
-        validate_mapped_write(0, std::mem::size_of_val(data) as u64, self.get_size_bytes())?;
-        if let Some(ptr) = self.0.allocated_mem.mapped_ptr() {
-            let size_of_slice = std::mem::size_of_val(data) as vk::DeviceSize;
-            unsafe {
-                let mut align = ash::util::Align::new(
-                    ptr.as_ptr(),
-                    std::mem::align_of::<T>() as vk::DeviceSize,
-                    size_of_slice as vk::DeviceSize,
-                );
-                align.copy_from_slice(data);
-            };
-            return Ok(());
-        }
-        Err(anyhow::anyhow!("Failed to map buffer memory"))
+        // SAFETY: copy the object representation, including any padding, without
+        // constructing &[u8] or imposing a new Pod restriction on existing callers.
+        unsafe { self.write_mapped(data.as_ptr().cast(), std::mem::size_of_val(data), 0) }
     }
 
     /// Fills the buffer with a single `Pod` value (uniform buffer convenience method).

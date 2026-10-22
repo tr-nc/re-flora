@@ -2,7 +2,7 @@
 
 调查日期：2026-10-23；代码基线 `cd936f5a`。
 
-**结论：本机可复现的主要瓶颈是 CPU → GPU 映射内存上传落入 glibc 的 `REP MOVSB` 慢路径，不是新水雾，也不是单纯的 GPU 算力不足或 30 Hz 显示模式。本文交付的是诊断，不是已完成的修复。**
+**结论：本机可复现的主要瓶颈是 CPU → GPU 映射内存上传落入 glibc 的 `REP MOVSB` 慢路径，不是新水雾，也不是单纯的 GPU 算力不足或 30 Hz 显示模式。第 1–4 节保留原始诊断；后续正式修复及验证见第 5 节，已不依赖临时环境变量。**
 
 ## 1. 影响范围
 
@@ -68,7 +68,7 @@ GLIBC_TUNABLES=glibc.cpu.x86_rep_movsb_threshold=1073741824
 
 **证据链：相同二进制可复现低帧率 → 主线程集中停在映射上传的同一复制指令 → 只改变 libc 复制策略就移除约 22–23 ms 录制开销 → 撤销即回退 → 再施加又恢复。**
 
-这是“通用系统内存复制策略不适合本机这类 GPU 映射地址”的问题。具体 Vulkan 分配的实际 memory flags / CPU 缓存属性尚未逐一读出；写合并/非缓存映射与该指令的相互作用是下一步实现时需要核实的细节，不能据此宣布驱动、glibc 本身有已确定的缺陷。
+这是“通用系统内存复制策略不适合本机这类 GPU 映射地址”的问题。原始诊断时尚未逐一读出实际 memory flags；后续原生分配/上传回归确认了 `HOST_CACHED` 与非缓存分配两条路径（第 5 节）。这仍不能据此宣布驱动、glibc 本身有已确定的缺陷。
 
 ## 3. 何时引入
 
@@ -89,9 +89,74 @@ GLIBC_TUNABLES=glibc.cpu.x86_rep_movsb_threshold=1073741824
 - 普通缓存内存和非 x86 平台的正确后备路径。
 - 真实 UI、植被、树姿态调用和不同大小/对齐的 Release 应用回归；不能只跑系统 RAM 的 memcpy 微基准。
 
-**本次未修改 Rust/Shader 或上传实现，未把临时环境变量写入启动器、配置或系统。原问题在未干预的普通构建里仍存在。** 没有声称完成修复或普遍达到 60 FPS。
+**原始诊断阶段未修改 Rust/Shader 或上传实现，未把临时环境变量写入启动器、配置或系统；当时未干预的普通构建仍有问题。** 后续修复如下，不将本机结果推广为普遍 60 FPS 保证。
 
-## 复现与证据
+## 5. 正式修复与验证（2026-10-23）
+
+### 单一上传入口与写入契约
+
+修复位于 `crates/re-flora-vkn/src/memory/buffer/`：
+
+- `buffer_impl.rs` 的 typed/raw/ranged/element/uniform 写入共享 `write_mapped`，在写入前保留原有范围检查；公共 API 和 `fill<T: Copy>` 约束不变。
+- `mapped_write.rs` 根据**实际分配属性**选择策略：仅 x86-64 的 `HOST_VISIBLE && !HOST_CACHED` 映射使用 SSE2 写入；缓存映射及其他架构仍用标准 `copy_nonoverlapping`。不要求 `DEVICE_LOCAL`，因此也覆盖 allocator 回退到非缓存 host heap 的情况。
+- 专用路径先处理不对齐前缀，再用 16 字节对齐的 `MOVNTDQ` 流式存储复制完整向量，最后处理尾部；只读 source、只写 destination，不访问范围之外。`SFENCE` 和 asm 默认 memory effects 保证这些存储在返回、提交前被正确排序。既有 frame-slot 所有权、Vulkan 屏障、分配属性和提交次序未改变。
+- 使用受限的原始汇编复制对象表示，**不**把 `Copy` 类型可能未初始化的 padding 构造成 `&[u8]` 或已初始化的 Rust SIMD 值；缓存/其他架构的 raw-pointer fallback 同样保留这个契约。
+- 不修改 libc 全局策略、不强制新分配位置、不关闭验证层、不降低画质。未修改 Shader 或生成文件。
+
+新增独立原生回归 `crates/re-flora-vkn/examples/validate_mapped_uploads.rs`，只创建隐藏窗口、不创建音频；通过真实 Buffer API 上传，复制到 GPU-only buffer，再复制至 readback，等待 GPU job 后校验。实际属性：
+
+```text
+CpuToGpu: DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT
+GpuToCpu: HOST_VISIBLE | HOST_COHERENT | HOST_CACHED
+```
+
+### 默认 Release 的三对交错复测
+
+基线二进制是诊断时保存的原默认 Release；修复后也是普通 `cargo build --release`，**两者都保留验证层，不设置 `GLIBC_TUNABLES`**。这是用户默认路径的 CPU/cadence 验证，不是无验证层 GPU 性能归因。
+
+同一花园、相机、保存的画质、无喷头，自动 FIFO；接受的六次运行均为 **4096×2560 / 820×512 / stride=5**。每次 16 秒，首个 CPU scope 后丢弃五秒；旧版每轮 8 个暖机后样本，新版每轮 21 个。表中为每轮均值；汇总对三轮各自统计等权平均。帧率来自实际帧号/时间差。
+
+| 轮次 | 旧版 FPS | 修复后 FPS | 旧版 CPU 录制 ms | 修复后 CPU 录制 ms |
+|---|---:|---:|---:|---:|
+| r1（after→before） | 25.26 | 58.38 | 23.391 | 3.282 |
+| r2（before→after） | 25.40 | 58.40 | 23.210 | 3.211 |
+| r3（before→after） | 25.06 | 58.45 | 23.512 | 3.201 |
+| **三轮平均** | **25.24** | **58.41** | **23.371** | **3.232** |
+
+CPU 录制减少 **20.139 ms / 86.2%**。世界、风、成长正常推进，不是相同瞬时帧重放。没有将 GPU 整帧波动归因给上传，也没有根据 GPU timestamp 倒算 FPS。
+
+**保留的排除记录**：首对 r0 自动选中的显示器从 DP-2（5120×2880 / 1024×576）变成 HDMI-1（4096×2560 / 820×512），跨运行尺寸断言失败。因此整对 r0 的两次运行均不进入匹配汇总，保留全部原始日志并补做 r3；没有人为改桌面/画质，也没有混合尺寸计算提速。更早一次修复后的 5K 普通启动得到 58.42 FPS / 3.339 ms，仅作单次复现解除证据，不与 4K 三对汇总混算。
+
+### 验证结果与限制
+
+- `cargo fmt --check`、`cargo check`、普通 `cargo build --release` 通过。
+- 完整主项目测试：1678 app + 4 library + 1 integration 通过，既有 ignored 保持原样。
+- vkn：71 个单元测试通过（5 个新增）；Release 定向 6 个通过，包含旧范围检查。
+- 新测试包括 73,728 个源/目标独立对齐、长度、缓存策略组合；810 个 Linux guard-page 组合检测越界读写；带 padding 的 `Copy`、零长度、缓存策略与原范围校验。
+- 同步验证层开启的原生回归：修复前后均通过 **232 个真实 GPU 往返用例**，覆盖两类实际分配、0–1 MiB 上传、对齐/非对齐、边界拒绝不修改数据、uniform/element/typed 写入及 padded Copy。该例子不混入普通 `cargo test`，也不作为性能证据。
+- 默认花园 resize：5 个请求被合并成 3 次一致的资源发布，最终 1280×720 / generation=4，正常关闭。
+- 16 喷头原模式→air→原模式、暂停/恢复、零密度/零占空比及颗粒/全局光开关：同步验证通过；暂停 contact/droplet 数据保持相同；已打开检查两张原/air 截图，无明显上传损坏。不是新的艺术效果验收。
+- 六次匹配性能运行及最终原生回归/resize/air-switch 均无应用 WARN/ERROR/VUID/SYNC-HAZARD，正常关闭；不据此宣布历史音频 underrun 或 terrain-removal 问题已修复。
+- 新增 `scripts/check-startup-cadence.mjs` 和四个 Node 测试，使用实际 cadence 与 CPU 录制预算检查完整日志；保留 warnings，拒绝短日志、错误、尺寸变化或非递增帧。对保存的旧版日志能 RED，对修复后六次中的三个 after 日志能 GREEN。
+- 当前只在 Linux x86-64 / 本机 GPU 验证。非 x86 后备路径在逻辑上保持标准复制，缓存分支已有测试；没有声称跑过 Windows/macOS/ARM 或所有硬件。
+
+复核命令（重型命令同样使用既有 flock；不要嵌套锁）：
+
+```sh
+cargo test --manifest-path crates/re-flora-vkn/Cargo.toml --target-dir target
+cargo test --release --manifest-path crates/re-flora-vkn/Cargo.toml --target-dir target mapped_write
+cargo run --release --manifest-path crates/re-flora-vkn/Cargo.toml --target-dir target \
+  --example validate_mapped_uploads
+node --test scripts/tests/check-startup-cadence.test.mjs
+RUST_LOG=info target/release/re-flora --hidden --mute --perf --auto-exit 16 > target/startup-cadence.log 2>&1
+node scripts/check-startup-cadence.mjs target/startup-cadence.log --min-fps 50 --max-record-ms 8
+```
+
+50 FPS / 8 ms 是这次同机回归的判别阈值，不是其他硬件的通用预算。普通 Release 已重新构建；配置、相机库、已有世界保持哈希不变。没有启动可见窗口、播放声音或推送。
+
+修复证据在 `target/mapped-upload-fix/`：`inputs-before.sha256`、保留的 `before` 二进制、所有编译/测试日志、`native-{before-final,after,final}.log`、`matched/` 的八个完整日志及六个接受结果的 `summary.json`、`resize.log`、`air-switch.log`/截图、`upload-disassembly.txt`、`audit.json` 与最终 Release 哈希。早期原生回归例子缺一个结尾括号的编译失败保留为 `native-before.log`，修正后才进行了上述验证。
+
+## 原始诊断复现与证据
 
 原始与干预命令（均在 `/tmp/re-flora-garden-delivery-heavy.lock` 下串行执行；存在 `DISPLAY` 时仅在子进程 unset Wayland 变量）：
 
