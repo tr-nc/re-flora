@@ -317,7 +317,8 @@ impl App {
         if !self.terrain_persistence.begin_load() {
             return;
         }
-        self.spatial_frame.clear_sprinklers();
+        self.spatial_frame.clear_world_sources();
+        let _ = self.terrain_physics.take_apple_landings();
         self.cancel_pavement_stroke();
         self.player_tools.cancel_continuous_hold();
         self.stop_terrain_edit_loop_sound();

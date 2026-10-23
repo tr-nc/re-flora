@@ -4185,7 +4185,13 @@ impl App {
                 let footstep_events = self
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
+                let apple_impacts = self.terrain_physics.take_apple_landings();
                 let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
+                    apple_impacts: &apple_impacts,
+                    apple_impacts_enabled: world_updates_running
+                        && self.terrain_persistence.allows_sprinkler_audio()
+                        && !self.debug_settings.audio_mix.master.params().muted
+                        && !self.debug_settings.audio_mix.apple_impacts.params().muted,
                     sprinkler_snapshot: self.tracer.sprinkler_audio_snapshot(),
                     sprinklers: &self.sprinklers.audio_sources(),
                     world_running: world_updates_running

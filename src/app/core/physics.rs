@@ -555,6 +555,23 @@ impl TerrainPhysics {
         self.sync_dynamic_fruit_rendering(tracer)
     }
 
+    pub(super) fn take_apple_landings(&mut self) -> Vec<crate::audio::AppleImpact> {
+        self.collision_world
+            .take_dynamic_body_landings()
+            .into_iter()
+            .filter(|event| {
+                self.fruits_by_tree
+                    .values()
+                    .flat_map(BTreeMap::values)
+                    .any(|fruit| fruit.body == Some(event.body))
+            })
+            .map(|event| crate::audio::AppleImpact {
+                body_id: event.body.get(),
+                position: event.position / VOXELS_PER_WORLD_UNIT,
+            })
+            .collect()
+    }
+
     pub(super) fn advance_dynamic_bodies(
         &mut self,
         frame_delta_time: f32,

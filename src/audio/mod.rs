@@ -61,5 +61,8 @@ mod summer_cicadas;
 pub(crate) use summer_cicadas::SummerCicadas;
 pub mod mixer;
 
+mod apple_impacts;
+pub(crate) use apple_impacts::AppleImpact;
+
 mod sprinkler_audio;
 pub(crate) use sprinkler_audio::SprinklerSource;

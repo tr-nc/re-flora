@@ -3,6 +3,18 @@
   "reviewed_on": "2026-10-23",
   "groups": [
     {
+      "id": "apple-impacts",
+      "name": "苹果落地三种音效与来源",
+      "patterns": ["assets/sfx/apple-dirt/*"],
+      "exclude": [],
+      "usage": "三条裁切版运行时预加载；original 为不加载的编辑参考",
+      "decision": "用户要求恢复用于本地开发；商业及公开分发未获授权",
+      "source": "ElevenLabs SFX v3 Free-plan；历史原件及裁切版原样恢复",
+      "gap": "保留原有商业使用限制；本轮没有取得新授权或推送",
+      "evidence": ["assets/sfx/apple-dirt/README.md", "assets/sfx/apple-dirt/provenance.json", "src/audio/apple_impacts.rs", "src/audio/runtime_assets.rs"],
+      "purpose": "每颗动态苹果首次落地时随机播放三种单次音效之一，独立保存音量"
+    },
+    {
       "id": "sprinkler-loop",
       "name": "喷淋器六连录音与来源",
       "patterns": ["assets/sfx/sprinkler/*"],

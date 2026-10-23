@@ -6,6 +6,8 @@ pub(crate) struct SpatialFrameFacts<'a> {
     pub(crate) sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
     pub(crate) sprinklers: &'a [super::SprinklerSource],
     pub(crate) world_running: bool,
+    pub(crate) apple_impacts: &'a [super::AppleImpact],
+    pub(crate) apple_impacts_enabled: bool,
     pub(crate) sim_time_seconds: f64,
     pub(crate) listener: CameraPose,
     pub(crate) local_footsteps: &'a [FootstepEvent],
@@ -26,6 +28,7 @@ pub(crate) struct SpatialFrame {
     local_player_footsteps: LocalPlayerFootstepAudio,
     sprinklers: super::sprinkler_audio::SprinklerAudio,
     sprinkler_reconcile_us: f64,
+    apple_impacts: super::apple_impacts::AppleImpactAudio,
 }
 
 impl SpatialFrame {
@@ -34,6 +37,9 @@ impl SpatialFrame {
             local_player_footsteps: LocalPlayerFootstepAudio::new(spatial_sound_manager.clone()),
             sprinklers: super::sprinkler_audio::SprinklerAudio::new(spatial_sound_manager.clone()),
             sprinkler_reconcile_us: 0.0,
+            apple_impacts: super::apple_impacts::AppleImpactAudio::new(
+                spatial_sound_manager.clone(),
+            ),
             spatial_sound_manager,
         }
     }
@@ -45,8 +51,9 @@ impl SpatialFrame {
         self.sprinkler_reconcile_us
     }
 
-    pub(crate) fn clear_sprinklers(&mut self) {
+    pub(crate) fn clear_world_sources(&mut self) {
         self.sprinklers.clear();
+        self.apple_impacts.clear();
     }
 
     pub(crate) fn advance(
@@ -67,6 +74,8 @@ impl SpatialFrame {
             .local_player_footsteps
             .prepare(facts.local_footsteps, facts.sim_time_seconds);
 
+        self.apple_impacts
+            .prepare(facts.apple_impacts, facts.apple_impacts_enabled);
         let sprinkler_start = std::time::Instant::now();
         self.sprinklers.prepare(
             facts.sprinkler_snapshot,
@@ -82,12 +91,14 @@ impl SpatialFrame {
             Ok(publication) => {
                 let start = std::time::Instant::now();
                 self.sprinklers.finish_publication(true);
+                self.apple_impacts.finish_publication(true);
                 self.sprinkler_reconcile_us = prepare_us + start.elapsed().as_secs_f64() * 1e6;
                 self.local_player_footsteps
                     .play_after_publication(prepared, publication);
             }
             Err(err) => {
                 self.sprinklers.finish_publication(false);
+                self.apple_impacts.finish_publication(false);
                 self.sprinkler_reconcile_us = prepare_us;
                 log::warn!("Failed to publish spatial audio frame: {err}");
                 self.local_player_footsteps
@@ -241,6 +252,8 @@ mod tests {
                 sprinkler_snapshot: None,
                 sprinklers: &[],
                 world_running: true,
+                apple_impacts: &[],
+                apple_impacts_enabled: true,
                 sim_time_seconds: 0.0,
                 listener: camera(),
                 local_footsteps: &initial_footsteps,
@@ -301,6 +314,8 @@ mod tests {
             sprinkler_snapshot: None,
             sprinklers: &[],
             world_running: true,
+            apple_impacts: &[],
+            apple_impacts_enabled: true,
             sim_time_seconds: retirement_time,
             listener: camera(),
             local_footsteps: &[],

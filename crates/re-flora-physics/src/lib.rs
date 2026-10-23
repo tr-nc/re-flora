@@ -121,6 +121,15 @@ pub struct DynamicBodyState {
     pub sleeping: bool,
 }
 
+/// First supporting impact on static ground for one dynamic-body lifetime.
+/// Captured after each fixed substep, so render cadence cannot miss a short contact.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DynamicBodyLanding {
+    pub body: DynamicBodyId,
+    /// Solver contact position in physics voxel units.
+    pub position: Vec3,
+}
+
 /// Read-only contact evidence for opt-in physics diagnostics. Distances exclude contact skin.
 #[derive(Clone, Debug, Default)]
 pub struct DynamicBodyDiagnostics {
@@ -388,6 +397,8 @@ pub struct CollisionWorld {
     fixed_scene_surface: Option<ColliderHandle>,
     dynamic_bodies: HashMap<DynamicBodyId, RigidBodyHandle>,
     next_dynamic_body_id: u64,
+    landed_bodies: HashSet<DynamicBodyId>,
+    pending_landings: Vec<DynamicBodyLanding>,
     fixed_step_seconds: f32,
     max_substeps: u32,
     fixed_step_accumulator: f32,
@@ -419,6 +430,8 @@ impl CollisionWorld {
             fixed_scene_surface: None,
             dynamic_bodies: HashMap::new(),
             next_dynamic_body_id: 1,
+            landed_bodies: HashSet::new(),
+            pending_landings: Vec::new(),
             fixed_step_seconds: DEFAULT_FIXED_STEP_SECONDS,
             max_substeps: DEFAULT_MAX_SUBSTEPS,
             fixed_step_accumulator: 0.0,
@@ -524,6 +537,8 @@ impl CollisionWorld {
         let Some(handle) = self.dynamic_bodies.remove(&id) else {
             return false;
         };
+        self.landed_bodies.remove(&id);
+        self.pending_landings.retain(|event| event.body != id);
         self.physics.remove_body(handle).is_some()
     }
 
@@ -565,6 +580,56 @@ impl CollisionWorld {
         Some(result)
     }
 
+    pub fn take_dynamic_body_landings(&mut self) -> Vec<DynamicBodyLanding> {
+        std::mem::take(&mut self.pending_landings)
+    }
+
+    fn collect_first_ground_contacts(&mut self) {
+        for (&id, &handle) in &self.dynamic_bodies {
+            if self.landed_bodies.contains(&id) {
+                continue;
+            }
+            let body = &self.physics.bodies[handle];
+            let mut landing = None;
+            for &collider in body.colliders() {
+                for pair in self.physics.contact_pairs_with(collider) {
+                    let own_is_first = pair.collider1 == collider;
+                    let other = if own_is_first {
+                        pair.collider2
+                    } else {
+                        pair.collider1
+                    };
+                    // Apples hitting one another or a moving tree are not ground landings.
+                    if Some(other) == self.deforming_surface
+                        || self.physics.colliders[other]
+                            .parent()
+                            .is_some_and(|parent| self.physics.bodies[parent].is_dynamic())
+                        || pair.total_impulse_magnitude() <= 0.0
+                    {
+                        continue;
+                    }
+                    for manifold in &pair.manifolds {
+                        let normal = from_rapier_vec(manifold.data.normal)
+                            * if own_is_first { -1.0 } else { 1.0 };
+                        if normal.y > 0.5 {
+                            if let Some(contact) = manifold.data.solver_contacts.first() {
+                                landing = Some(from_rapier_vec(contact.point));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(position) = landing {
+                self.landed_bodies.insert(id);
+                self.pending_landings.push(DynamicBodyLanding {
+                    body: id,
+                    position,
+                });
+            }
+        }
+    }
+
     pub fn advance(&mut self, elapsed_seconds: f32) -> FixedStepResult {
         if !elapsed_seconds.is_finite() || elapsed_seconds <= 0.0 {
             return FixedStepResult {
@@ -587,6 +652,7 @@ impl CollisionWorld {
             // after a dynamic simulation step.
             self.sync_capsule_character_broad_phase();
             self.physics.step();
+            self.collect_first_ground_contacts();
             self.fixed_step_accumulator =
                 (self.fixed_step_accumulator - self.fixed_step_seconds).max(0.0);
             steps += 1;
@@ -1967,6 +2033,53 @@ mod tests {
     }
 
     #[test]
+    fn first_ground_landing_is_once_per_body_at_every_render_cadence() {
+        for fps in [15, 60, 144] {
+            let mut world = CollisionWorld::new();
+            world.set_gravity(Vec3::new(0.0, -9.8, 0.0)).unwrap();
+            world
+                .set_fixed_scene_surface(
+                    &[
+                        Vec3::new(-10.0, 0.0, -10.0),
+                        Vec3::new(-10.0, 0.0, 10.0),
+                        Vec3::new(10.0, 0.0, 10.0),
+                        Vec3::new(10.0, 0.0, -10.0),
+                    ],
+                    &[[0, 1, 2], [0, 2, 3]],
+                )
+                .unwrap();
+            let body = world
+                .spawn_dynamic_body(DynamicBodyDesc::sphere(Vec3::new(0.0, 3.0, 0.0), 0.5))
+                .unwrap();
+            let mut events = Vec::new();
+            for frame in 0..fps * 5 {
+                world.advance(1.0 / fps as f32);
+                let batch = world.take_dynamic_body_landings();
+                if frame < fps / 4 {
+                    assert!(batch.is_empty(), "airborne bodies must not sound");
+                }
+                events.extend(batch);
+            }
+            assert_eq!(
+                events.len(), 1,
+                "fps={fps}: resting/bouncing must not retrigger"
+            );
+            assert_eq!(events[0].body, body);
+            assert!(events[0].position.y.abs() < 0.2);
+            assert!(world.take_dynamic_body_landings().is_empty());
+            world.remove_dynamic_body(body);
+            assert!(!world.landed_bodies.contains(&body));
+            let next = world
+                .spawn_dynamic_body(DynamicBodyDesc::sphere(Vec3::new(0.0, 3.0, 0.0), 0.5))
+                .unwrap();
+            for _ in 0..fps * 2 {
+                world.advance(1.0 / fps as f32);
+            }
+            assert_eq!(world.take_dynamic_body_landings()[0].body, next);
+        }
+    }
+
+    #[test]
     fn dynamic_bodies_collide_with_each_other() {
         let mut world = CollisionWorld::new();
         world.set_gravity(Vec3::ZERO).unwrap();
@@ -1988,6 +2101,10 @@ mod tests {
             assert_eq!(world.advance(DEFAULT_FIXED_STEP_SECONDS).steps, 1);
         }
 
+        assert!(
+            world.take_dynamic_body_landings().is_empty(),
+            "body-body collisions are not ground landings"
+        );
         let left = world.dynamic_body_state(left).unwrap();
         let right = world.dynamic_body_state(right).unwrap();
         assert!(

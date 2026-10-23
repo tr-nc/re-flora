@@ -677,17 +677,18 @@ impl SpatialSoundManager {
         Ok(TransientSpatialEmitter { emitter })
     }
 
-    pub(crate) fn prepare_sprinkler_emitter(
+    pub(crate) fn prepare_spatial_clip_emitter(
         &self,
         clip: ResidentClip,
+        category: AudioCategory,
+        volume_db: f32,
         position: Vec3,
     ) -> Result<TransientSpatialEmitter> {
-        let volume_db = -12.0;
         let emitter = self.world.create_emitter(
             clip,
             EmitterDesc::spatial(Self::pose(position))
                 .with_gain_db(volume_db)
-                .with_bus(self.category_bus(AudioCategory::Sprinklers)),
+                .with_bus(self.category_bus(category)),
         )?;
         self.transient_spatial_emitters.lock().unwrap().insert(
             emitter,

@@ -99,8 +99,9 @@ frame. Moving it updates the existing spatial emitter. Pause, removal, mix-disab
 world-load gating and stale/clock-discontinuous frames retire sources; resume
 starts at the current phase. The established 16-slot bound includes retirement.
 
-The existing Terrain bus, positional mono rendering/downmix, attenuation and
-master controls remain in use. Source gain remains **−12 dB**; the continuous
+The dedicated Sprinklers bus, positional mono rendering/downmix, attenuation and
+master controls are used. Debug → Audio → Live mixer → Sprinklers has its own
+saved enabled switch and scale (default 1x), independent of terrain editing. Source gain remains **−12 dB**; the continuous
 stale-safety envelope has steady gain **0.72** (about −2.85 dB), with approximately
 1 ms start/stop edges. It does not reshape the recording's bursts. These are
 runtime mix gains, not edits to either WAV. Human listening may motivate a later

@@ -1,6 +1,12 @@
 //! Authoritative file-backed SFX declarations, shared by playback and preloading.
 //! Importing a WAV into assets/sfx does not opt it into the running game.
 
+pub(crate) const APPLE_IMPACT_CLIPS: [&str; 3] = [
+    "assets/sfx/apple-dirt/apple-dirt-01.wav",
+    "assets/sfx/apple-dirt/apple-dirt-02.wav",
+    "assets/sfx/apple-dirt/apple-dirt-03.wav",
+];
+
 pub(crate) const SPRINKLER_LOOP_PATH: &str = "assets/sfx/sprinkler/sprinkler-first-6-loop.wav";
 
 pub(crate) const TERRAIN_EDIT_LOOP_PATH: &str =
@@ -46,6 +52,7 @@ pub(super) fn paths() -> Vec<String> {
         .chain(bank.walk_paths)
         .chain(bank.run_paths)
         .chain(CICADA_CLIPS.into_iter().map(str::to_owned))
+        .chain(APPLE_IMPACT_CLIPS.into_iter().map(str::to_owned))
         .chain(
             [
                 TERRAIN_EDIT_LOOP_PATH,
@@ -66,7 +73,10 @@ mod tests {
     #[test]
     fn runtime_manifest_contains_only_unique_project_relative_wavs() {
         let paths = paths();
-        assert_eq!(paths.len(), 75);
+        assert_eq!(paths.len(), 78);
+        assert!(APPLE_IMPACT_CLIPS
+            .iter()
+            .all(|p| paths.contains(&p.to_string())));
         assert_eq!(paths.iter().collect::<HashSet<_>>().len(), paths.len());
         assert!(paths.contains(&SPRINKLER_LOOP_PATH.to_owned()));
         for path in paths {
@@ -76,7 +86,6 @@ mod tests {
                 .components()
                 .all(|component| matches!(component, Component::Normal(_))));
             assert!(!path.contains("original"));
-            assert!(!path.contains("apple-dirt/"));
             assert!(!path.contains("leaves-breeze/"));
             assert!(!path.contains("leaves-strong-wind/"));
             assert!(!path.contains("tree_sound_48k"));

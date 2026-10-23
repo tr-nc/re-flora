@@ -127,12 +127,14 @@ impl SprinklerAudio {
                     continue;
                 }
                 let envelope = SampleEnvelopeControl::default();
-                match self.manager.prepare_sprinkler_emitter(
+                match self.manager.prepare_spatial_clip_emitter(
                     self.clip
                         .as_ref()
                         .unwrap()
                         .clone()
                         .with_sample_envelope(envelope.clone()),
+                    super::mixer::AudioCategory::Sprinklers,
+                    -12.0,
                     source.position + Vec3::Y * 0.04,
                 ) {
                     Ok(emitter) => self.voices.push(Voice {
