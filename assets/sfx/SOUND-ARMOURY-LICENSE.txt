@@ -1,0 +1,37 @@
+SOUND ARMOURY – END USER LICENCE AGREEMENT
+
+This document outlines permissible ways to use Sound Armoury sound libraries by owners of any product
+licences.
+
+This document applies to Sound Armoury sound libraries when purchased from stores without store-wide
+EULAs, such as:
+• Itch.io
+This document does not apply to Sound Armoury sound libraries purchased from stores that do have
+store-wide EULAs, such as:
+• Asoundeffect
+• Unity Asset Store
+
+Permissible usage
+The following (non-exhaustive) list presents permissible usage of Sound Armoury sound libraries for which
+a valid licence has been purchased or otherwise legitimately obtained:
+• Use within commercial or non-commercial projects is permissible, regardless of whether the sound has
+been modified or not
+o Permissible types of projects include any form of media, such as video games, films, podcasts,
+etc.
+• Sound Armoury sound libraries may be shared amongst working teams, but no team members may
+use Sound Armoury sound libraries on other projects without themselves acquiring legitimate licences
+for the sound libraries.
+o For example, two people (“Person A” and “Person B”) are working on a game. Person A owns
+a Sound Armoury sound library, and shares a sound library with Person B for them to use
+together on this game. Person B is permitted to use the sound library as part of the project, but
+Person B is not permitted to use the sound library as part of any project not involving Person A.
+
+Non-permissible usage
+The following (non-exhaustive) list presents non-permissible usage of Sound Armoury sound libraries:
+• Training of generative AI
+• Usage within political campaigning is not permitted, unless explicitly agreed by Sound Armoury
+• Redistributing Sound Armoury content, whether for free or for a price, is not permitted without explicit
+permission from Sound Armoury. This applies whether the content has been modified or not.
+
+Attribution
+Attribution is not required, but appreciated!

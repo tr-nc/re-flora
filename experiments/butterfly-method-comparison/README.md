@@ -1,33 +1,35 @@
-# 蝴蝶实时像素翼面
+# 蝴蝶制作源与当前预览入口
 
-**唯一预览工具：[模型像素化预览台 · 蝴蝶](../model-preview/?model=butterfly)**。目录首页只保留跳转，不再保留带版本编号的比较页面或独立蝴蝶查看器。见 [工具说明与模型接入接口](../model-preview/README.md)。
+**唯一预览工具：[模型像素化预览台 · 蝴蝶](../model-preview/?model=butterfly)**。
+本目录首页只做跳转；游戏和网页共用正式资源
+[`assets/models/butterfly.glb`](../../assets/models/butterfly.glb)。
 
-游戏现在只使用[实时翼面渲染器](../../docs/research/butterfly_game_pixel_renderer.md)。旧手绘 Aseprite/PNG、实验中的参考副本、手绘对照页面/GIF、分析脚本及运行时 spritesheet/色块链路均已退役；没有旧渲染回退开关。
+## 保留的内容
 
-## 当前源与工具
-
-- `blender-v5/`：已批准的无身体双翼模型制作源与历史输出。当前正式资产为 `../../assets/models/butterfly.glb`，游戏和网页直接共用；见[共享资源约定](../../assets/models/README.md)。
-- 游戏与网页直接读取同一份正式 GLB 的几何和节点动画；独立的游戏 JSON 导出器已删除。游戏依旧按每只蝴蝶的固定 N×N 分辨率采样，不读取方向图集。
-- `../model-preview/models/butterfly.js`：使用同一个批准 GLB、原动画、统一翼色与光照/阴影；相机、双视图、时间轴、8–128px、2–60 FPS、HSV/HEX、像素处理及预设均由统一工具维护。网页参数不自动同步游戏。
-- `../model-preview/tests/browser.cjs`：当前两模型共用的浏览器验证；`validate-debug-preview.cjs` 只是兼容转发。迁移时 24 个蝴蝶 A 样本与旧版逐字节一致。
-- `../../scripts/validate_butterfly_mesh.py`：实际游戏 GPU 原生像素、深度与自阴影检查。
+- `blender-v5/`：当前批准的双翼模型制作源、导出/验证脚本与离线验证图集。
+  `run.py` 使用同目录 `palette.py`，不再依赖已退役的 v2。
+- `vendor/three-0.183.0/`：当前模型预览及土袋发布脚本仍在使用的 Three.js，
+  其 MIT 许可和来源说明继续随目录保留；它不是可删除的旧实验。
+- `index.html`、`validate-debug-preview.cjs`：当前工具的兼容入口。
 
 ```sh
 node scripts/serve-model-preview.mjs
+# http://127.0.0.1:8765/model-preview/?model=butterfly
+python3 experiments/butterfly-method-comparison/blender-v5/run.py --help
 ```
 
-打开 `http://127.0.0.1:8765/model-preview/?model=butterfly`。使用统一服务，同时提供预览目录与 `assets/models` 正式资源。
+正式 GLB 的几何和节点动画由游戏和网页直接加载，不使用离线方向图集。
+制作变更先在 v5 审阅，再有意发布到正式模型目录；详见
+[共享模型约定](../../assets/models/README.md)。
 
-## 保留的建模研究记录
+## 已删除的实验
 
-各 `blender*` 目录保存模型源与离线采样记录，内部资源路径维持不变，不是用户需要选择的网页版本或游戏回退模式。AI 候选只保留为失败案例记录。
+2026-10-23 按项目所有者要求删除 Blender v1–v4、失败的 AI 候选、
+旧分辨率研究、旧制作说明网页及相关输出/脚本。
+所有者确认这些由助手发起的蝴蝶实验属于项目自有内容；
+此次删除是因为已无维护价值，**不是以版权疑虑为理由**。
+第三方 Three.js 仍遵循自身许可。
 
-旧比较页面、边框实验及其独立脚本不再保留在当前树中，可在提交 `86b4b81c` 查看。当前只维护统一工具。
-
-历史 Markdown、日志与 JSON 中的旧路径和验收结论是当时的记录，不代表旧手绘资源或旧对照页面仍存在。新制作流程与当前入口以上文为准，不再维护手绘参考链路。
-
-- [实时局部像素管线调研](../../docs/research/butterfly_realtime_pixel_pipeline.md)
-- [原生分辨率研究](resolution-study/README.md)
-- [Blender 制作案例研究](blender-v2/research-3d-to-pixel.md)
-
-重新导出模型时使用对应版本脚本的 `--export-existing` 以保留手工修改的 `.blend`；不带该选项会从脚本重建模型。依赖 Blender、Python/Pillow、ffmpeg。第三方库及许可证仍随目录保留。
+历史资料可以从 Git 提交 `1067833b` 查看；没有重写 Git 历史。
+具体范围与验证见 [清理记录](../../docs/assets/cleanup-unused.md)。
+其它研究文档中的历史路径和验收结论不代表当前仍保留旧实验。

@@ -6,11 +6,11 @@
 - Supervisor (not a coauthor): Tomáš Iser
 - Venue: *Proceedings of CESCG 2022: The 26th Central European Seminar on Computer Graphics* (non-peer-reviewed), 2022
 - Primary source: <https://cescg.org/cescg_submission/improving-probes-in-dynamic-diffuse-global-illumination/>
-- Local source: [official CESCG PDF](rohacek-2022-improving-probes-ddgi.pdf)
+- Official PDF (not stored in this repository): [official CESCG PDF](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf)
 - Author spelling corroboration: [Charles University repository record](https://dspace.cuni.cz/handle/20.500.11956/171782?locale-attribute=en)
 - License: no explicit reuse license was found in the CESCG publication page or PDF as of 2026-08-01
 
-Because adaptation permission is unclear, this file is an original technical summary rather than a full-text conversion. The paper is a seven-page CESCG technical report; a longer Charles University diploma thesis with the same title also exists, but it is not the PDF archived here.
+Because adaptation permission is unclear, this file is an original technical summary rather than a full-text conversion. The paper is a seven-page CESCG technical report; a longer Charles University diploma thesis with the same title also exists, but it is not the seven-page report referenced here.
 
 ## One-paragraph contribution
 
@@ -20,13 +20,13 @@ Roháček implements DDGI in an RTX renderer and concentrates on bad probe posit
 
 | Topic | Paper location | Why it matters |
 | --- | --- | --- |
-| DDGI recap | [§2.1, PDF pp. 1–2](rohacek-2022-improving-probes-ddgi.pdf#page=1) | Summarizes backface, moment visibility, and trilinear weights. |
-| Failure model | [§3, PDF p. 3](rohacek-2022-improving-probes-ddgi.pdf#page=3) | Explains why uniform grids place probes inside or too near surfaces. |
-| Dead-probe detection and movement | [§3.1–3.2, PDF p. 3](rohacek-2022-improving-probes-ddgi.pdf#page=3) | Reuses probe rays to detect and relocate invalid samples. |
-| Offset-aware filtering | [§3.3, PDF p. 4](rohacek-2022-improving-probes-ddgi.pdf#page=4) | Shows why nominal trilinear weights fail after moving probes. |
-| Depth-sample rejection | [§3.4, PDF pp. 4–5](rohacek-2022-improving-probes-ddgi.pdf#page=4) | Directly addresses roof/wall leaks from coarse filtered depth. |
-| Results | [§4, PDF pp. 5–6](rohacek-2022-improving-probes-ddgi.pdf#page=5) | Gives error maps and measured pass costs. |
-| Limitations and future work | [§5, PDF pp. 6–7](rohacek-2022-improving-probes-ddgi.pdf#page=6) | Discusses cascades, ray budgeting, and dynamic hysteresis. |
+| DDGI recap | [§2.1, PDF pp. 1–2](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=1) | Summarizes backface, moment visibility, and trilinear weights. |
+| Failure model | [§3, PDF p. 3](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=3) | Explains why uniform grids place probes inside or too near surfaces. |
+| Dead-probe detection and movement | [§3.1–3.2, PDF p. 3](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=3) | Reuses probe rays to detect and relocate invalid samples. |
+| Offset-aware filtering | [§3.3, PDF p. 4](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4) | Shows why nominal trilinear weights fail after moving probes. |
+| Depth-sample rejection | [§3.4, PDF pp. 4–5](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4) | Directly addresses roof/wall leaks from coarse filtered depth. |
+| Results | [§4, PDF pp. 5–6](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=5) | Gives error maps and measured pass costs. |
+| Limitations and future work | [§5, PDF pp. 6–7](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=6) | Discusses cascades, ray budgeting, and dynamic hysteresis. |
 
 <a id="section-2022-failure"></a>
 ## Failure model — §3, PDF p. 3
@@ -38,7 +38,7 @@ The paper's placement goal is not merely “outside geometry.” It aims to keep
 <a id="figure-2022-4"></a>
 ### Figure 4 — near-surface angular waste
 
-[PDF page 3](rohacek-2022-improving-probes-ddgi.pdf#page=3) illustrates how a probe almost touching geometry spends many directions on a small surface patch. This can produce a valid-but-poor sample even when no probe is technically inside the wall.
+[PDF page 3](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=3) illustrates how a probe almost touching geometry spends many directions on a small surface patch. This can produce a valid-but-poor sample even when no probe is technically inside the wall.
 
 <a id="section-2022-dead"></a>
 ## Dead-probe detection — §3.1, PDF p. 3
@@ -70,7 +70,7 @@ Risks:
 <a id="figure-2022-5"></a>
 ### Figure 5 — moved dead probes
 
-[PDF page 4](rohacek-2022-improving-probes-ddgi.pdf#page=4) compares a room before and after four buried probes are moved. It also visualizes dead versus usable probes, making it a useful debug-view model.
+[PDF page 4](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4) compares a room before and after four buried probes are moved. It also visualizes dead versus usable probes, making it a useful debug-view model.
 
 <a id="section-2022-filtering"></a>
 ## Offset-aware filtering — §3.3, PDF p. 4
@@ -87,7 +87,7 @@ The equations in the paper are compact and depend on its corner-coordinate conve
 <a id="figure-2022-6"></a>
 ### Figure 6 — interpolation invariants
 
-[PDF page 4](rohacek-2022-improving-probes-ddgi.pdf#page=4) plots two one-dimensional probe weights and their sum before and after offset-aware correction. It is a compact unit-test oracle for relocated probes.
+[PDF page 4](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4) plots two one-dimensional probe weights and their sum before and after offset-aware correction. It is a compact unit-test oracle for relocated probes.
 
 <a id="section-2022-depth-rejection"></a>
 ## Depth-sample rejection — §3.4, PDF pp. 4–5
@@ -101,7 +101,7 @@ This is a **support bound**, not a generic distance clamp. Its validity depends 
 <a id="figure-2022-7"></a>
 ### Figures 7–8 — roof leak mechanism
 
-[PDF page 5](rohacek-2022-improving-probes-ddgi.pdf#page=5) shows a sunlit roof leaking before rejection and the corrected image. The accompanying diagram depicts a depth texel whose filtered directional support includes a distant surface beyond the local cage.
+[PDF page 5](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=5) shows a sunlit roof leaking before rejection and the corrected image. The accompanying diagram depicts a depth texel whose filtered directional support includes a distant surface beyond the local cage.
 
 <a id="section-2022-results"></a>
 ## Results — §4, PDF pp. 5–6
@@ -124,7 +124,7 @@ The two added passes total about 0.15 ms in that specific renderer and scene. Th
 <a id="figure-2022-9"></a>
 ### Figure 9 — error-map ablation
 
-[PDF page 6](rohacek-2022-improving-probes-ddgi.pdf#page=6) is the paper's main acceptance comparison. Note that each subfigure uses its own scale, so compare spatial concentration as well as absolute values.
+[PDF page 6](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=6) is the paper's main acceptance comparison. Note that each subfigure uses its own scale, so compare spatial concentration as well as absolute values.
 
 ## Correctness-first experiments for Re: Flora
 

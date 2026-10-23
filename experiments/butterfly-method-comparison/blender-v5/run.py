@@ -6,7 +6,6 @@ Requires Blender 4.5 LTS and system Python + Pillow. Outputs stay in this folder
 """
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,10 +15,9 @@ import subprocess
 
 from PIL import Image, ImageDraw
 
+import palette
+
 ROOT = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('v2_palette', ROOT.parent / 'blender-v2/run.py')
-palette = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(palette)
 ANGLES = (0, 45, 90, 135, 180)
 SIZES = (12, 16, 128)
 

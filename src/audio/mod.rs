@@ -1,4 +1,5 @@
 mod audio_clip_cache;
+pub(crate) mod runtime_assets;
 
 mod audio_telemetry_router;
 pub(crate) use audio_telemetry_router::{

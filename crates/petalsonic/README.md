@@ -321,7 +321,10 @@ PetalSonic uses:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+The code is licensed under the MIT License - see the LICENSE file for details.
+The bundled NH172 HRTF data is separately licensed under **CC BY-SA 3.0**; see
+[dataset attribution, conversion provenance and license](asset/hrtf/README.md).
+Retain those notices when distributing the embedded data; MIT does not relicense it.
 
 ## Contributing
 

@@ -2,7 +2,15 @@
   "source_package": "~/Downloads/SA_SF_CricketsCicadas_96k_v1.0",
   "source_format": "96 kHz mono 24-bit WAV; filenames identify synthesized cicadas",
   "target_format": "48 kHz mono signed 16-bit PCM WAV",
-  "permission": "User authorized selecting and copying these local assets into this game repo. No license text found in package; no redistribution license inferred.",
+  "publisher": "Sound Armoury",
+  "library": "SynFauna: Crickets & Cicadas",
+  "product_url": "https://sound-armoury.itch.io/sfx-mega-bundle",
+  "purchase_date": "2025-07-09",
+  "purchase_evidence": "Owner supplied bundle URL and private purchase-confirmation screenshot, and explicitly confirmed cicadas share the purchase source with the terrain/UI sounds. Receipt and account details are not committed. Historical archive/version not independently verified.",
+  "license_url": "https://drive.google.com/file/d/1KS3b6fp_ulzvbuZRgXyl_SFrKeL2ctJz/view?usp=sharing",
+  "license_reviewed_on": "2026-10-23",
+  "license_source_pdf_sha256": "dbe4c3981179b7bd00f15cd76ad0d32355f0106b23e9c5437333ade90afdfd26",
+  "permission": "Current itch.io EULA permits commercial/non-commercial game use and modification; content redistribution, modified or not, requires explicit permission. Public raw WAV redistribution is not cleared. Purchase-time terms not recovered; see LICENSE.txt for full current terms.",
   "files": [
     {
       "original": "Audio/Dog Day Cicada/ANMLInsc_Cicada, Synthesized, Dog Day Cicada 01_SARM_SFCricketsCicadas.wav",

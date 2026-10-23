@@ -1,12 +1,9 @@
 //! Audio ownership only. Shared ecology decides when and where a call may begin.
+use super::runtime_assets::CICADA_CLIPS as CLIPS;
 use super::SpatialSoundManager;
 use crate::ecology::Habitat;
 use anyhow::Result;
 use uuid::Uuid;
-const CLIPS: [&str; 2] = [
-    "assets/sfx/summer_cicadas/dog_day_01.wav",
-    "assets/sfx/summer_cicadas/linne_01.wav",
-];
 const MAX_CALLS: usize = 3;
 
 fn call_profile(habitat_kind: usize) -> (super::mixer::AudioCategory, usize, f32) {

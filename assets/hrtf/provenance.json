@@ -1,0 +1,24 @@
+{
+  "verified_on": "2026-10-23",
+  "source_url": "https://sofacoustics.org/data/database/ari%20%28artificial%29/hrtf%20b_nh172.sofa",
+  "source_sha256": "22c79a11c384247f59e1c3b76e5f05a5eaf6b4a6632a325b7796163820dbe416",
+  "native_sha256": "cc902afd49715e4c0b781dbebb0ca625ed570c702fae2ab2038323d7c7991859",
+  "license": "Creative Commons Attribution-ShareAlike 3.0 Unported License",
+  "organization": "Acoustics Research Institute, Austrian Academy of Sciences",
+  "title": "HRTF B",
+  "listener": "nh172",
+  "ir_shape": [
+    1550,
+    2,
+    256
+  ],
+  "sample_rate": 48000,
+  "source_delays_all_zero": true,
+  "complete_native_reconstruction_byte_identical": true,
+  "two_native_copies_byte_identical": true,
+  "original_sofa_matches_git_revision": "7610c5a2^:assets/hrtf/hrtf_b_nh172.sofa",
+  "verification_tools": {
+    "h5py": "3.16.0",
+    "numpy": "2.5.4"
+  }
+}

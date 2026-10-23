@@ -15,6 +15,15 @@
 - New Debug settings must use the declarative config or saved-field-bound custom controls; do not add App-only sliders or per-setting save hooks. See `docs/agents/gui-settings.md`. Temporary controls must explicitly declare and display why they are not saved.
 - Organize Debug Panel controls **adjustment-first, then affected game objects**: put all settings for a concern (e.g. pixel-model post-processing, wind response, lighting, growth) together, with object names on the individual controls or sublabels. Do not scatter the same concern across per-object panels. Presentation may collect controls from different saved config sections, but preserve their IDs, persistence, conditions and single ownership in the UI. Apply this rule when adding controls and when reorganizing existing Debug items.
 
+## Image and Audio Asset Provenance
+
+- Every newly imported or generated image/audio resource must arrive with a committed provenance note (`README.md` or equivalent) in the same asset folder. Treat the folder as a self-contained asset bundle: the files and their source/processing information must remain understandable when copied together, without this chat, a Downloads folder, or another machine.
+- Identify every file and its role (original, runtime derivative, preview/reference). Record the source service or creator, original filename, and source URL/asset ID when available. Keep the original alongside derivatives when supplied and permitted; use relative links inside the bundle.
+- For AI-generated resources, record the exact submitted prompt, provider, model/version, and generation settings. Include applicable controls such as duration, loop mode, prompt influence, prompt improvement, seed, image dimensions/aspect ratio, negative prompt, and reference inputs. If a service rewrites the prompt, distinguish the submitted prompt from the effective/generated prompt. Mark unavailable facts explicitly; never invent settings or provenance.
+- Record derivative edits precisely enough to repeat them: trims/crops, retained regions, loop/crossfade construction, gain/normalization, filters, resampling/resizing, format conversion, and tools/commands where relevant. Include file specifications and checksums for originals and selected derivatives where practical.
+- Record known license/usage/attribution requirements and any unresolved rights information. Import permission or a generation service name alone is not evidence of redistribution rights.
+- Add/update the note in the same change as the resource. Moving or renaming an asset must keep its note and relative references in sync. This is required for new resources; do not opportunistically reorganize unrelated existing assets.
+
 ## Visual Iteration Priorities
 
 - An A/B experiment must provide a checkbox in the Debug panel that switches at runtime between the original mode (unchecked) and the experimental mode (checked). A CLI flag, separate build, or offline comparison alone does not satisfy an A/B request. Label the checkbox clearly and preserve both modes for user comparison.

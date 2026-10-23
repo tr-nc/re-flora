@@ -4,7 +4,7 @@
 
 **3D 预渲染是已发行像素游戏验证过的制作路线，但不等于低成本自动生成好看的 8–16px 精灵。** Dead Cells 证明它适合反复改动作、复用模型；Celeste 美术作者的具体案例则证明，低分辨率表现依赖主动取舍和逐像素设计。没有行业抽样，不能据此声称「大多数像素游戏」使用任何一种路线。
 
-本次已阅读 [v2 调研](../../experiments/butterfly-method-comparison/blender-v2/research-3d-to-pixel.md) 与[现有管线审计](butterfly_sprite_workflow_research.md)，直接抓取下列一手正文复核。仅研究，不制作资产、不修改运行时代码。
+本次已阅读 v2 调研（历史文件已删除，见[清理记录](../assets/cleanup-unused.md)；原路径 `../../experiments/butterfly-method-comparison/blender-v2/research-3d-to-pixel.md`） 与[现有管线审计](butterfly_sprite_workflow_research.md)，直接抓取下列一手正文复核。仅研究，不制作资产、不修改运行时代码。
 
 ## 可核查案例：制作工具不是运行时表示
 
