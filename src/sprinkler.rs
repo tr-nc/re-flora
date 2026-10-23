@@ -2,6 +2,30 @@
 //! Rigid-part surface caches and native fallback share this pose; scene resolve stays independent.
 use glam::Vec3;
 
+/// Metadata of the selected, unmodified six-burst runtime recording.
+pub(crate) const LOOP_SAMPLE_RATE: u32 = 48_000;
+pub(crate) const LOOP_FRAMES: usize = 74_880;
+pub(crate) const LOOP_BURSTS: f64 = 6.0;
+pub(crate) const LOOP_SECONDS: f64 = LOOP_FRAMES as f64 / LOOP_SAMPLE_RATE as f64;
+pub(crate) const PULSE_FREQUENCY: f32 = (LOOP_BURSTS / LOOP_SECONDS) as f32;
+/// Retain the established short attack/recovery: 78 ms open per 260 ms.
+pub(crate) const PULSE_DUTY_PERCENT: f32 = 30.0;
+const FIRST_PEAK_SECONDS: f64 = 0.075;
+
+/// Internal native-fixture inputs only, never GUI settings or saved overrides.
+pub(crate) struct DiagnosticTiming {
+    pub frequency: f32,
+    pub duty_percent: f32,
+}
+impl Default for DiagnosticTiming {
+    fn default() -> Self {
+        Self {
+            frequency: PULSE_FREQUENCY,
+            duty_percent: PULSE_DUTY_PERCENT,
+        }
+    }
+}
+
 pub(crate) const WORLD_SCALE: f32 = 1.0 / 256.0;
 #[cfg(test)]
 pub(crate) const NOZZLE_HEIGHT: f32 = 4.0;
@@ -136,12 +160,17 @@ pub(crate) struct SprayClock {
     previous: Option<(u32, f32)>,
     angle: f64,
     pulse_phase: f64,
+    audio_loop_seconds: f64,
     droplet_seconds: f64,
     quadrature_fraction: f64,
     quadrature_epoch: u32,
 }
 
 impl SprayClock {
+    pub fn audio_loop_seconds(&self) -> f64 {
+        self.audio_loop_seconds
+    }
+
     pub fn sample(
         &mut self,
         tick: u32,
@@ -164,7 +193,14 @@ impl SprayClock {
         });
         self.angle = (self.angle + dt * f64::from(rpm) * std::f64::consts::TAU / 60.0)
             .rem_euclid(std::f64::consts::TAU);
-        self.pulse_phase = (self.pulse_phase + dt * f64::from(frequency)).rem_euclid(1.0);
+        self.audio_loop_seconds = (self.audio_loop_seconds + dt).rem_euclid(LOOP_SECONDS);
+        self.pulse_phase = if frequency == PULSE_FREQUENCY {
+            // Normal gameplay has one cadence owner, including exact six-burst loop wrap.
+            (self.audio_loop_seconds * LOOP_BURSTS / LOOP_SECONDS).fract()
+        } else {
+            // Legacy opt-in native diagnostics may still exercise arbitrary valve inputs.
+            (self.pulse_phase + dt * f64::from(frequency)).rem_euclid(1.0)
+        };
         self.droplet_seconds = (self.droplet_seconds + dt).rem_euclid(3.0);
         // A bounded world-time quadrature, not frame randomness or a new source.
         // Weyl scrambling avoids locking a finite velocity lattice to valve Hz,
@@ -392,15 +428,28 @@ pub(crate) struct SpraySnapshot {
     pub clock: [f32; 4],
     pub frequency: f32,
     pub duty: f32,
+    pub audio_loop_seconds: f64,
 }
 impl SpraySnapshot {
     pub fn new(clock: [f32; 4], frequency: f32, duty_percent: f32) -> Self {
         Self {
             clock,
+            audio_loop_seconds: f64::from(clock[1]),
             frequency: frequency.max(0.25).min(20.0),
             duty: duty_percent.clamp(0.0, 100.0) * 0.01,
         }
     }
+    /// Preserve all six distinct bursts, not just the phase within one burst.
+    /// Valve opening corresponds to the recording's first energy peak.
+    pub fn audio_loop_phase(self, animation_phase: f32) -> f32 {
+        ((self.audio_loop_seconds
+            + f64::from(animation_phase.rem_euclid(1.0)) / f64::from(self.frequency)
+            + FIRST_PEAK_SECONDS)
+            / LOOP_SECONDS)
+            .rem_euclid(1.0) as f32
+    }
+
+    #[cfg(test)]
     pub fn phase(self, animation_phase: f32) -> f64 {
         // Same f32 arithmetic as the source-age-zero shader valve.
         f64::from((self.clock[1] * self.frequency + animation_phase.fract()).fract())
@@ -410,6 +459,68 @@ impl SpraySnapshot {
 #[cfg(test)]
 mod audio_clock_contract_tests {
     use super::*;
+
+    #[test]
+    fn selected_loop_keeps_six_bursts_and_peak_offset_without_tick_quantization() {
+        for tick_seconds in [0.017, 0.05, 0.11] {
+            for fps in [15, 60, 144] {
+                let mut world = crate::game_time::WorldClock::new(0, 0.0);
+                let mut clock = SprayClock::default();
+                clock.sample(0, 0.0, tick_seconds, 5.0, PULSE_FREQUENCY);
+                for frame in 1..=fps * 600 {
+                    world.advance_simulation(1.0 / fps as f32, tick_seconds, true);
+                    let values = clock.sample(
+                        world.flora_tick(),
+                        world.flora_tick_fraction(),
+                        tick_seconds,
+                        5.0,
+                        PULSE_FREQUENCY,
+                    );
+                    let mut snapshot =
+                        SpraySnapshot::new(values, PULSE_FREQUENCY, PULSE_DUTY_PERCENT);
+                    snapshot.audio_loop_seconds = clock.audio_loop_seconds();
+                    let elapsed = frame as f64 / fps as f64;
+                    let expected = ((elapsed + FIRST_PEAK_SECONDS) / LOOP_SECONDS).rem_euclid(1.0);
+                    let error = (f64::from(snapshot.audio_loop_phase(0.0)) - expected + 0.5)
+                        .rem_euclid(1.0)
+                        - 0.5;
+                    assert!(
+                        error.abs() * LOOP_SECONDS < 0.002,
+                        "ten-minute drift: {error}"
+                    );
+                    // Pause keeps the full six-burst position, not only valve phase.
+                    assert_eq!(
+                        values,
+                        clock.sample(
+                            world.flora_tick(),
+                            world.flora_tick_fraction(),
+                            tick_seconds,
+                            5.0,
+                            PULSE_FREQUENCY
+                        )
+                    );
+                }
+            }
+        }
+        let mut snapshot = SpraySnapshot::new([0.0; 4], PULSE_FREQUENCY, PULSE_DUTY_PERCENT);
+        for burst in 0..6 {
+            snapshot.audio_loop_seconds = burst as f64 * LOOP_SECONDS / LOOP_BURSTS;
+            let expected = (burst as f64 * 0.26 + 0.075) / LOOP_SECONDS;
+            assert!((f64::from(snapshot.audio_loop_phase(0.0)) - expected).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn selected_wav_matches_fixed_timing_metadata() {
+        let clip = petalsonic::ResidentClip::from_path(
+            std::path::Path::new(&crate::util::get_project_root())
+                .join(crate::audio::runtime_assets::SPRINKLER_LOOP_PATH),
+        )
+        .unwrap();
+        assert_eq!(clip.sample_rate(), LOOP_SAMPLE_RATE);
+        assert_eq!(clip.total_frames(), LOOP_FRAMES);
+        assert!((f64::from(PULSE_FREQUENCY) * LOOP_SECONDS - 6.0).abs() < 1e-6);
+    }
     #[test]
     fn upload_snapshot_and_audio_share_exact_normalization_and_instance_valve() {
         for duty in [0.0, 1.0, 10.0, 30.0, 50.0, 90.0, 100.0] {

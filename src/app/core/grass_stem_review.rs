@@ -216,7 +216,7 @@ impl GrassStemReview {
                 app.apply_sprinkler_placement(base)?;
                 let gui = &mut app.debug_settings.adjustables;
                 gui.sprinkler_wetting_speed.value = 3.0;
-                gui.sprinkler_pulse_duty.value = 100.0;
+                app.sprinkler_diagnostic_timing.duty_percent = 100.0;
             }
             if (mode == "manual" || mode == "lifecycle" || mode == "support")
                 && (10..=25).contains(&frame)
@@ -291,9 +291,8 @@ impl GrassStemReview {
                 };
                 if frame == 30 || frame == 60 {
                     let paused = frame == 30;
-                    app.debug_settings.adjustables.sprinkler_pulse_duty.value =
-                        if paused { 0.0 } else { 100.0 };
-                    log::info!("[GRASS_MOISTURE_LIFECYCLE] valve_paused={paused} frame={frame} authoritative_duty={}", app.debug_settings.adjustables.sprinkler_pulse_duty.value);
+                    app.sprinkler_diagnostic_timing.duty_percent = if paused { 0.0 } else { 100.0 };
+                    log::info!("[GRASS_MOISTURE_LIFECYCLE] valve_paused={paused} frame={frame} authoritative_duty={}", app.sprinkler_diagnostic_timing.duty_percent);
                 }
                 if frame == 60 {
                     let before = app

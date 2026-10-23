@@ -603,7 +603,7 @@ impl App {
                 log::info!("[SPRINKLER_OPTICAL_DIAGNOSTIC] channels={mode} preparation=both bounds=both irrigation=unchanged saved=false");
             }
             self.set_manual_time_of_day(0.43);
-            self.debug_settings.adjustables.sprinkler_pulse_duty.value = duty;
+            self.sprinkler_diagnostic_timing.duty_percent = duty;
             // Fixed 4x4 prefix, independent of population. Every source resolves its own
             // actual support column (the old flat-height fixture is not valid on hills).
             for i in 0..count {
@@ -710,10 +710,7 @@ impl App {
                 .adjustables
                 .sprinkler_mist_particles
                 .value = review.mode.contains("particles") && !review.mode.ends_with("disabled");
-            self.debug_settings
-                .adjustables
-                .sprinkler_pulse_frequency
-                .value = 4.0;
+            self.sprinkler_diagnostic_timing.frequency = 4.0;
             self.debug_settings
                 .adjustables
                 .sprinkler_design_variants
@@ -722,7 +719,7 @@ impl App {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 40.0;
                 gui.sprinkler_rotation_speed.value = 15.0;
-                gui.sprinkler_pulse_duty.value = 100.0;
+                self.sprinkler_diagnostic_timing.duty_percent = 100.0;
                 gui.sprinkler_cache_enabled.value = true;
                 gui.sprinkler_pixel_resolution.value = 32;
                 gui.sprinkler_mist_flow.value = !review.mode.ends_with("-legacy");
@@ -827,7 +824,7 @@ impl App {
                 } else {
                     1.0
                 };
-                gui.sprinkler_pulse_duty.value = if review.mode.ends_with("-off") {
+                self.sprinkler_diagnostic_timing.duty_percent = if review.mode.ends_with("-off") {
                     0.0
                 } else if review.mode.ends_with("-pulse") || review.mode.ends_with("-fast") {
                     50.0
@@ -857,7 +854,7 @@ impl App {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_wetting_speed.value = 3.0;
                 gui.sprinkler_wet_patch_size.value = 2.6;
-                gui.sprinkler_pulse_duty.value = 100.0;
+                self.sprinkler_diagnostic_timing.duty_percent = 100.0;
             }
             if review.mode == "rotary-perf" {
                 let (count, overlap, duty) = sprinkler_perf_parameters()?;
@@ -866,8 +863,8 @@ impl App {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 30.0;
                 gui.sprinkler_rotation_speed.value = 5.0;
-                gui.sprinkler_pulse_frequency.value = 5.0;
-                gui.sprinkler_pulse_duty.value = duty;
+                self.sprinkler_diagnostic_timing.frequency = 5.0;
+                self.sprinkler_diagnostic_timing.duty_percent = duty;
                 gui.sprinkler_mist_density.value = 6.0;
                 gui.sprinkler_mist_particles.value = true;
                 let side = (count as f32).sqrt().ceil() as usize;
@@ -1057,7 +1054,7 @@ impl App {
                 _ => (40.0, 15.0, 100.0),
             };
             let gui = &mut self.debug_settings.adjustables;
-            gui.sprinkler_pulse_frequency.value = match review.frame / 40 {
+            self.sprinkler_diagnostic_timing.frequency = match review.frame / 40 {
                 0 => 0.25,
                 1 => 20.0,
                 3 => 1.0,
@@ -1065,7 +1062,7 @@ impl App {
             };
             gui.sprinkler_spray_angle.value = angle;
             gui.sprinkler_rotation_speed.value = rpm;
-            gui.sprinkler_pulse_duty.value = duty;
+            self.sprinkler_diagnostic_timing.duty_percent = duty;
             if review.frame % 40 == 0 && review.frame <= 160 {
                 log::info!("[SPRINKLER_CONTACT_CONTROL] step={} angle={angle} rpm={rpm} duty={duty} saved=false",review.frame/40);
             }
@@ -1422,8 +1419,7 @@ impl App {
             }
             if (review.mode.starts_with("mist-") || review.is_rotary())
                 && self.debug_settings.adjustables.sprinkler_mist_flow.value
-                && (!review.is_rotary()
-                    || self.debug_settings.adjustables.sprinkler_pulse_duty.value > 0.0)
+                && (!review.is_rotary() || self.sprinkler_diagnostic_timing.duty_percent > 0.0)
                 && self.debug_settings.adjustables.sprinkler_mist_density.value > 0.0
                 && review.mode != "rotary-perf"
                 && !review.mode.starts_with("mist-pop-")

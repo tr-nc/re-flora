@@ -459,7 +459,7 @@ impl SpatialSoundManager {
         Ok(uuid)
     }
 
-    fn cached_clip(&self, path: &str) -> Result<ResidentClip> {
+    pub(super) fn cached_clip(&self, path: &str) -> Result<ResidentClip> {
         self.clip_cache
             .get(path)
             .ok_or_else(|| anyhow::anyhow!("Audio clip not found in cache: {path}"))
@@ -698,6 +698,30 @@ impl SpatialSoundManager {
         );
         self.mark_spatial_frame_structure_changed();
         Ok(TransientSpatialEmitter { emitter })
+    }
+
+    pub(super) fn move_sprinkler_emitter(&self, emitter: TransientSpatialEmitter, position: Vec3) {
+        if let Some(source) = self
+            .transient_spatial_emitters
+            .lock()
+            .unwrap()
+            .get_mut(&emitter.emitter)
+        {
+            source.position = position;
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn sprinkler_emitter_position(&self, emitter: TransientSpatialEmitter) -> Vec3 {
+        self.transient_spatial_emitters.lock().unwrap()[&emitter.emitter].position
+    }
+
+    pub(super) fn seek_sprinkler_emitter(
+        &self,
+        emitter: TransientSpatialEmitter,
+        phase: f32,
+    ) -> Result<()> {
+        Ok(self.world.seek_emitter(emitter.emitter, phase)?)
     }
 
     pub(crate) fn transient_clip_duration_seconds(&self, path: &str) -> Result<f64> {

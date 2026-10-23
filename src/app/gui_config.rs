@@ -2229,7 +2229,6 @@ mod tests {
         settings.adjustables.scene_pixel_ratio.value = 3;
         let default_patch_size = settings.adjustables.sprinkler_wet_patch_size.value;
         let default_mist = settings.adjustables.sprinkler_mist_density.value;
-        let default_frequency = settings.adjustables.sprinkler_pulse_frequency.value;
         let default_wetting_speed = settings.adjustables.sprinkler_wetting_speed.value;
         settings.sync_config();
         for section in &mut settings.config.section {
@@ -2252,10 +2251,15 @@ mod tests {
             default_mist
         );
         assert!(loaded.adjustables.sprinkler_mist_particles.value);
-        assert_eq!(
-            loaded.adjustables.sprinkler_pulse_frequency.value,
-            default_frequency
-        );
+        assert!(!loaded
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| matches!(
+                p.id.as_str(),
+                "sprinkler_pulse_frequency" | "sprinkler_pulse_duty"
+            )));
         assert!(loaded.adjustables.sprinkler_mist_flow.value);
         assert_eq!(
             loaded.adjustables.sprinkler_wet_patch_size.value,

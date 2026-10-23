@@ -4,8 +4,8 @@
 引用/许可人工审阅基线：`29307bce128b897b0b96636a17a914e0069eb64b`；审阅日期：2026-10-23。
 文件数量、字节数与哈希来自当前 Git 跟踪文件的工作树内容，不代表自动重新审核过代码或许可。
 
-共 **605** 个登记文件/容器，**70.226 MiB**；
-其中 `assets/` **514** 个，外部 **91** 个。
+共 **608** 个登记文件/容器，**71.985 MiB**；
+其中 `assets/` **517** 个，外部 **91** 个。
 随包说明也计文件；HTML 按容器计一个，不展开内嵌媒体；未按哈希去重。
 
 ## 使用状态（逐文件口径）
@@ -13,6 +13,7 @@
 | 状态 | 文件数 |
 | --- | ---: |
 | README 引用 / 发行包复制 | 1 |
+| 仅 selected loop 运行时预加载；original 为不加载的编辑参考 | 2 |
 | 当前制作源，非游戏直接输入 | 2 |
 | 文档/验收展示 | 3 |
 | 文档证据，非游戏输入 | 18 |
@@ -29,7 +30,7 @@
 | 运行时加载全部切片 | 384 |
 | 运行时预加载 / 事件播放 | 70 |
 | 运行时预加载 / 操作反馈与生态触发 | 4 |
-| 随包来源/许可说明，不加载 | 23 |
+| 随包来源/许可说明，不加载 | 24 |
 
 ## 分组与处理建议
 
@@ -38,6 +39,7 @@
 
 | 资产组 / ID | 文件数 | MiB | 具体用途 | 使用状态 | 分仓建议 | 来源/许可证据 | 尚缺信息 |
 | --- | ---: | ---: | --- | --- | --- | --- | --- |
+| 喷淋器六连录音与来源 (`sprinkler-loop`) | 3 | 1.759 | 喷淋器每 1.56 秒六次喷水的空间循环音效；统一固定运动节奏 | 仅 selected loop 运行时预加载；original 为不加载的编辑参考 | 用户要求恢复用于本地开发；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan；历史素材原样恢复 | 保留原有商业使用限制；本轮没有取得新授权或推送 |
 | Pixelify Sans (`font`) | 3 | 0.081 | GUI、菜单和文字的像素字体；网页启动屏原型也内嵌同一字体 | 运行时加载 | 保留公开 | 已核本地字体 OFL 1.1；许可随包 | 原始下载批次未记录；当前上游 TTF 不同字节，不影响已核字体内许可 |
 | 项目 HRTF (`hrtf-project`) | 4 | 3.071 | 将空间声源滤波为左右耳信号，提供方向听感；应用指定的 HRTF 文件 | 运行时加载 | 保留公开；数据遵循 CC BY-SA 3.0 | ARI NH172 官方 SOFA 与历史原件哈希一致；native 表完整重建字节一致，源元数据明确 CC BY-SA 3.0 | 署名、许可、转换记录已补；修改数据须保留 ShareAlike。外部文件缺失的降级仍待改 |
 | PetalSonic 内嵌 HRTF (`hrtf-embedded`) | 1 | 3.045 | PetalSonic 未指定外部 HRTF 时的内嵌默认滤波表；不是第二组音效 | 编译时嵌入 | 保留公开；数据遵循 CC BY-SA 3.0 | ARI NH172 官方 SOFA 与历史原件哈希一致；native 表完整重建字节一致，源元数据明确 CC BY-SA 3.0 | 署名、许可、转换记录已补；修改数据须保留 ShareAlike。外部文件缺失的降级仍待改 |
@@ -65,6 +67,7 @@
 
 ## 引用与来源证据索引
 
+- **sprinkler-loop**：[assets/sfx/sprinkler/README.md](../../assets/sfx/sprinkler/README.md)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/sprinkler_audio.rs](../../src/audio/sprinkler_audio.rs)；[src/sprinkler.rs](../../src/sprinkler.rs)
 - **font**：[assets/font/README.md](../../assets/font/README.md)；[assets/font/OFL.txt](../../assets/font/OFL.txt)；[src/app/core/ui_style.rs](../../src/app/core/ui_style.rs)
 - **hrtf-project**：[assets/hrtf/README.md](../../assets/hrtf/README.md)；[src/audio/spatial_sound_manager.rs](../../src/audio/spatial_sound_manager.rs)；[crates/petalsonic/src/spatial/processor.rs](../../crates/petalsonic/src/spatial/processor.rs)；[assets/hrtf/provenance.json](../../assets/hrtf/provenance.json)
 - **hrtf-embedded**：[crates/petalsonic/src/spatial/processor.rs](../../crates/petalsonic/src/spatial/processor.rs)；[assets/hrtf/README.md](../../assets/hrtf/README.md)；[crates/petalsonic/asset/hrtf/README.md](../../crates/petalsonic/asset/hrtf/README.md)

@@ -3,6 +3,18 @@
   "reviewed_on": "2026-10-23",
   "groups": [
     {
+      "id": "sprinkler-loop",
+      "name": "喷淋器六连录音与来源",
+      "patterns": ["assets/sfx/sprinkler/*"],
+      "exclude": [],
+      "usage": "仅 selected loop 运行时预加载；original 为不加载的编辑参考",
+      "decision": "用户要求恢复用于本地开发；商业及公开分发未获授权",
+      "source": "ElevenLabs SFX v3 Free-plan；历史素材原样恢复",
+      "gap": "保留原有商业使用限制；本轮没有取得新授权或推送",
+      "evidence": ["assets/sfx/sprinkler/README.md", "src/audio/runtime_assets.rs", "src/audio/sprinkler_audio.rs", "src/sprinkler.rs"],
+      "purpose": "喷淋器每 1.56 秒六次喷水的空间循环音效；统一固定运动节奏"
+    },
+    {
       "id": "font",
       "name": "Pixelify Sans",
       "patterns": [

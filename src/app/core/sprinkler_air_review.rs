@@ -83,7 +83,7 @@ impl AirReview {
                 app.render_flags.enable_god_rays,
                 app.render_flags.enable_particles,
                 gui.sprinkler_mist_density.value,
-                gui.sprinkler_pulse_duty.value,
+                app.sprinkler_diagnostic_timing.duty_percent,
             ));
         }
         if frame == 190 {
@@ -140,7 +140,7 @@ impl AirReview {
             } else {
                 density
             };
-            gui.sprinkler_pulse_duty.value = if (400..420).contains(&frame) {
+            app.sprinkler_diagnostic_timing.duty_percent = if (400..420).contains(&frame) {
                 0.0
             } else {
                 duty

@@ -338,12 +338,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "sprinkler_pulse_duty",
-        kind: "float",
-        label: "Sprinklers: pulse duty (%)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "sprinkler_wet_patch_size",
         kind: "float",
         label: "Sprinklers: wet patch scale (voxels)",
@@ -383,12 +377,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "sprinkler_mist_particles",
         kind: "bool",
         label: "Sprinklers: small water droplets",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "sprinkler_pulse_frequency",
-        kind: "float",
-        label: "Sprinklers: pulse frequency (Hz)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1844,7 +1832,6 @@ pub struct GuiAdjustables {
     pub sprinkler_design: crate::gui_adjustables::ChoiceParam,
     pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
     pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
-    pub sprinkler_pulse_duty: crate::gui_adjustables::FloatParam,
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
     pub soil_drying_speed: crate::gui_adjustables::FloatParam,
@@ -1852,7 +1839,6 @@ pub struct GuiAdjustables {
     pub sprinkler_mist_air: crate::gui_adjustables::BoolParam,
     pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
     pub sprinkler_mist_particles: crate::gui_adjustables::BoolParam,
-    pub sprinkler_pulse_frequency: crate::gui_adjustables::FloatParam,
     pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
@@ -2151,7 +2137,6 @@ impl GuiAdjustables {
         let mut sprinkler_design_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sprinkler_pulse_duty_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2159,7 +2144,6 @@ impl GuiAdjustables {
         let mut sprinkler_mist_air_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_mist_particles_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut sprinkler_pulse_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2713,13 +2697,6 @@ impl GuiAdjustables {
                             sprinkler_rotation_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "sprinkler_pulse_duty" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            sprinkler_pulse_duty_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "sprinkler_wet_patch_size" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -2761,13 +2738,6 @@ impl GuiAdjustables {
                     "sprinkler_mist_particles" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_mist_particles_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "sprinkler_pulse_frequency" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            sprinkler_pulse_frequency_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "sprinkler_pixel_resolution" => {
@@ -4391,7 +4361,6 @@ impl GuiAdjustables {
             sprinkler_design: sprinkler_design_field.expect("Missing parameter: sprinkler_design"),
             sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
             sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
-            sprinkler_pulse_duty: sprinkler_pulse_duty_field.expect("Missing parameter: sprinkler_pulse_duty"),
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
             soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
@@ -4399,7 +4368,6 @@ impl GuiAdjustables {
             sprinkler_mist_air: sprinkler_mist_air_field.expect("Missing parameter: sprinkler_mist_air"),
             sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
             sprinkler_mist_particles: sprinkler_mist_particles_field.expect("Missing parameter: sprinkler_mist_particles"),
-            sprinkler_pulse_frequency: sprinkler_pulse_frequency_field.expect("Missing parameter: sprinkler_pulse_frequency"),
             sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
@@ -4663,12 +4631,10 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
         "sprinkler_spray_angle" => Some(&adjustables.sprinkler_spray_angle),
         "sprinkler_rotation_speed" => Some(&adjustables.sprinkler_rotation_speed),
-        "sprinkler_pulse_duty" => Some(&adjustables.sprinkler_pulse_duty),
         "sprinkler_wet_patch_size" => Some(&adjustables.sprinkler_wet_patch_size),
         "sprinkler_wetting_speed" => Some(&adjustables.sprinkler_wetting_speed),
         "soil_drying_speed" => Some(&adjustables.soil_drying_speed),
         "sprinkler_mist_density" => Some(&adjustables.sprinkler_mist_density),
-        "sprinkler_pulse_frequency" => Some(&adjustables.sprinkler_pulse_frequency),
         "tree_stiffness" => Some(&adjustables.tree_stiffness),
         "tree_kick_strength" => Some(&adjustables.tree_kick_strength),
         "tree_kick_frequency" => Some(&adjustables.tree_kick_frequency),
@@ -5004,12 +4970,10 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
         "sprinkler_spray_angle" => Some(&mut adjustables.sprinkler_spray_angle),
         "sprinkler_rotation_speed" => Some(&mut adjustables.sprinkler_rotation_speed),
-        "sprinkler_pulse_duty" => Some(&mut adjustables.sprinkler_pulse_duty),
         "sprinkler_wet_patch_size" => Some(&mut adjustables.sprinkler_wet_patch_size),
         "sprinkler_wetting_speed" => Some(&mut adjustables.sprinkler_wetting_speed),
         "soil_drying_speed" => Some(&mut adjustables.soil_drying_speed),
         "sprinkler_mist_density" => Some(&mut adjustables.sprinkler_mist_density),
-        "sprinkler_pulse_frequency" => Some(&mut adjustables.sprinkler_pulse_frequency),
         "tree_stiffness" => Some(&mut adjustables.tree_stiffness),
         "tree_kick_strength" => Some(&mut adjustables.tree_kick_strength),
         "tree_kick_frequency" => Some(&mut adjustables.tree_kick_frequency),

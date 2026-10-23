@@ -205,7 +205,15 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design_variants");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_pulse_frequency");
+        // Retire saved oscillator overrides at the load boundary; do not rewrite user files.
+        for section in &mut config.section {
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "sprinkler_pulse_frequency" | "sprinkler_pulse_duty"
+                )
+            });
+        }
         for p in config
             .section
             .iter_mut()
@@ -231,11 +239,7 @@ impl GuiConfigLoader {
                 }
             }
         }
-        for id in [
-            "sprinkler_spray_angle",
-            "sprinkler_rotation_speed",
-            "sprinkler_pulse_duty",
-        ] {
+        for id in ["sprinkler_spray_angle", "sprinkler_rotation_speed"] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
         Self::add_missing_param(&mut config, "Debug", "sprinkler_wet_patch_size");
@@ -1533,12 +1537,44 @@ mod tests {
     }
 
     #[test]
+    fn obsolete_sprinkler_oscillators_are_discarded_without_rewriting_old_saves() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let section = config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Debug")
+            .unwrap();
+        let template = section
+            .param
+            .iter()
+            .find(|p| p.id == "sprinkler_rotation_speed")
+            .unwrap()
+            .clone();
+        for id in ["sprinkler_pulse_frequency", "sprinkler_pulse_duty"] {
+            let mut old = template.clone();
+            old.id = id.into();
+            section.param.push(old);
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&config, &path).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!loaded
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| matches!(
+                p.id.as_str(),
+                "sprinkler_pulse_frequency" | "sprinkler_pulse_duty"
+            )));
+    }
+
+    #[test]
     fn spray_controls_migrate_without_overwriting_saved_values() {
-        let ids = [
-            "sprinkler_spray_angle",
-            "sprinkler_rotation_speed",
-            "sprinkler_pulse_duty",
-        ];
+        let ids = ["sprinkler_spray_angle", "sprinkler_rotation_speed"];
         for existing in [false, true] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -1549,7 +1585,7 @@ mod tests {
                 .filter(|p| ids.contains(&p.id.as_str()))
                 .cloned()
                 .collect();
-            assert_eq!(defaults.len(), 3);
+            assert_eq!(defaults.len(), 2);
             for section in &mut config.section {
                 if existing {
                     for p in &mut section.param {
@@ -1618,7 +1654,7 @@ mod tests {
             for p in params.iter_mut().filter(|p| {
                 matches!(
                     p.id.as_str(),
-                    "sprinkler_spray_angle" | "sprinkler_rotation_speed" | "sprinkler_pulse_duty"
+                    "sprinkler_spray_angle" | "sprinkler_rotation_speed"
                 )
             }) {
                 p.enabled_if = Some(GuiParamEnabledIf {

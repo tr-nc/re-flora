@@ -14,6 +14,7 @@ pub(super) struct SprinklerAudioReview {
     wet_pause: bool,
     pause_sample: Option<(u32, u32, f32)>,
     soil_center: Vec3,
+    retirement_deadline: Option<std::time::Instant>,
 }
 impl SprinklerAudioReview {
     pub fn from_environment() -> Option<Self> {
@@ -26,6 +27,7 @@ impl SprinklerAudioReview {
             wet_pause: std::env::var_os("RE_FLORA_SPRINKLER_WET_PAUSE").is_some(),
             pause_sample: None,
             soil_center: Vec3::ZERO,
+            retirement_deadline: None,
             reload: std::env::var("RE_FLORA_SPRINKLER_AUDIO_RELOAD").ok(),
             reload_waiting: false,
             reload_resumed: false,
@@ -64,6 +66,12 @@ impl App {
         let Some(mut review) = self.sprinkler_audio_review.take() else {
             return Ok(());
         };
+        // Keep this lifecycle stage active while the actual audio render thread retires
+        // its owners. Frame counts are not an audio/device-time reclamation deadline.
+        if review.retirement_deadline.is_some() {
+            self.sprinkler_audio_review = Some(review);
+            return Ok(());
+        }
         ensure!(
             self.mute_audio_output,
             "audio review requires --mute (never unmute)"
@@ -303,10 +311,21 @@ impl App {
         }
         if [205, 222, 260, 278, 350].contains(&review.frame) {
             assert_eq!(
-                counts.0 + counts.1 + counts.2,
+                counts.0 + counts.1,
                 0,
-                "zero duty / pause / removal must reclaim voices"
+                "disabled source must immediately retire: {counts:?}"
             );
+            if counts.2 > 0 {
+                let deadline = review.retirement_deadline.get_or_insert_with(|| {
+                    std::time::Instant::now() + std::time::Duration::from_secs(1)
+                });
+                assert!(
+                    std::time::Instant::now() < *deadline,
+                    "audio owners were not reclaimed within one second: {counts:?}"
+                );
+                return;
+            }
+            review.retirement_deadline = None;
         }
         if [180, 195, 205, 210, 222, 238, 260, 278, 295, 350].contains(&review.frame) {
             log::info!("[SPRINKLER_AUDIO_REVIEW] frame={} committed={} running={} active={} pending={} retiring={} render_owned={} engine_voices={}", review.frame, self.sprinklers.len(), review.running(), counts.0, counts.1, counts.2, counts.3, self.spatial_sound_manager.engine_voice_count());

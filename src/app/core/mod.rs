@@ -517,6 +517,7 @@ pub struct App {
     butterfly_foraging_review: Option<butterfly_foraging_review::Review>,
     ecology: ambient_ecology::EcologyRuntime,
     sprinklers: SprinklerRuntime,
+    sprinkler_diagnostic_timing: crate::sprinkler::DiagnosticTiming,
     sprinkler_audio_review: Option<sprinkler_audio_review::SprinklerAudioReview>,
     sprinkler_review: Option<sprinkler_review::Review>,
     climbing_plants: climbing_plants::ClimbingPlants,
@@ -1657,6 +1658,7 @@ impl App {
                 .map(|_| particles::ButterflyReview::default()),
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
+            sprinkler_diagnostic_timing: Default::default(),
             sprinkler_audio_review: sprinkler_audio_review::SprinklerAudioReview::from_environment(
             ),
             sprinkler_review: sprinkler_review::Review::from_env()?,
@@ -3695,6 +3697,11 @@ impl App {
                         terrain_edit_preview_alpha: TERRAIN_EDIT_PREVIEW_ALPHA,
                     },
                 );
+                // Only opt-in native fixtures mutate these internal facts; no saved/UI override.
+                frame_inputs.environment.sprinkler_pulse_frequency =
+                    self.sprinkler_diagnostic_timing.frequency;
+                frame_inputs.environment.sprinkler_pulse_duty =
+                    self.sprinkler_diagnostic_timing.duty_percent;
                 frame_inputs.wind.field = self.wind_prototype.field.frame();
                 if let Some(review) = &mut self.sprinkler_review {
                     review.apply_air_render_inputs(&mut frame_inputs);

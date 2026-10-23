@@ -265,10 +265,10 @@ pub(super) fn freeze_render_frame_inputs(
     let environment = EnvironmentFrameInput {
         sprinkler_spray_angle: gui.sprinkler_spray_angle.value,
         sprinkler_rotation_speed: gui.sprinkler_rotation_speed.value,
-        sprinkler_pulse_duty: gui.sprinkler_pulse_duty.value,
+        sprinkler_pulse_duty: crate::sprinkler::PULSE_DUTY_PERCENT,
         sprinkler_mist_density: gui.sprinkler_mist_density.value,
         sprinkler_mist_particles: gui.sprinkler_mist_particles.value,
-        sprinkler_pulse_frequency: gui.sprinkler_pulse_frequency.value,
+        sprinkler_pulse_frequency: crate::sprinkler::PULSE_FREQUENCY,
         sprinkler_mist_flow: gui.sprinkler_mist_flow.value,
         sprinkler_mist_air: gui.sprinkler_mist_air.value,
         sky_light_strength: gui.sky_light_strength.value,
@@ -584,8 +584,8 @@ mod tests {
         let sprinkler_mist_density = float!(sprinkler_mist_density);
         let sprinkler_spray_angle = float!(sprinkler_spray_angle);
         let sprinkler_rotation_speed = float!(sprinkler_rotation_speed);
-        let sprinkler_pulse_duty = float!(sprinkler_pulse_duty);
-        let sprinkler_pulse_frequency = float!(sprinkler_pulse_frequency);
+        let sprinkler_pulse_duty = crate::sprinkler::PULSE_DUTY_PERCENT;
+        let sprinkler_pulse_frequency = crate::sprinkler::PULSE_FREQUENCY;
         gui.sprinkler_mist_particles.value = false;
         gui.sprinkler_mist_flow.value = false;
         let sun_display_luminance = float!(sun_display_luminance);

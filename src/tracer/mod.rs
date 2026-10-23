@@ -3212,11 +3212,12 @@ impl Tracer {
             environment.sprinkler_rotation_speed,
             environment.sprinkler_pulse_frequency,
         );
-        let sprinkler_snapshot = crate::sprinkler::SpraySnapshot::new(
+        let mut sprinkler_snapshot = crate::sprinkler::SpraySnapshot::new(
             sprinkler_clock,
             environment.sprinkler_pulse_frequency,
             environment.sprinkler_pulse_duty,
         );
+        sprinkler_snapshot.audio_loop_seconds = self.sprinkler_clock.audio_loop_seconds();
         crate::tracer::buffer_updater::BufferUpdater::update_gui_input(
             &self.resources,
             self.raster_trees.enabled,
