@@ -1,0 +1,22 @@
+LICENSE AGREEMENT
+
+
+By purchasing and using these files, you agree to the following terms:
+1. GRANT OF LICENSE
+* You are granted a non-exclusive, non-transferable, royalty-free license to use these sound effects in your projects. 
+2. RIGHTS
+* You CAN use these sounds in unlimited commercial and non-commercial projects (video games, films, podcasts, videos, streams, apps, etc.).
+* You CAN modify, mix, or alter the sounds to fit your project.
+* You do not need to pay any additional fees or royalties, regardless of how many copies of your project are sold or downloaded.
+3. RESTRICTIONS
+* You CANNOT resell, sublicense, or redistribute these sounds as standalone files (e.g., you cannot sell them on a stock audio site or include them in a different sound pack).
+* You CANNOT include these sounds in an open-source project or game engine template where the end-user can easily extract the raw audio files.
+4. ATTRIBUTION
+* Attribution is appreciated but NOT required. 
+* If you would like to credit me, please link to: https://high-impact-media.itch.io
+5. LIABILITY
+* This software is provided "as is," without warranty of any kind. No liability is granted for any damages or losses arising from the use of these files.
+
+
+Created by: High Impact Media
+Contact: support@highimpactassets.com
