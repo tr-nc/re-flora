@@ -1,3 +1,4 @@
+use super::recorded_tree_leaves::{RecordedLeafBank, GAIN_ADJUST_DB};
 use crate::audio::{
     ActiveCanopyAcousticGeneration, CanopyAcousticDescriptor, CanopyAcousticObservation,
     CanopyAcousticSampleId, CanopyAcousticSolveStatus, CanopyAudioGenerationKey,
@@ -27,6 +28,8 @@ pub struct CanopyDistributedEmitterAdapter {
     spatial_sound_manager: SpatialSoundManager,
     telemetry: CanopyAudioTelemetry,
     voices: HashMap<CanopyAudioGenerationKey, CanopyAudioVoice>,
+    recorded_bank: Option<RecordedLeafBank>,
+    recorded_enabled: bool,
     #[cfg(test)]
     fail_spawn_key: Option<CanopyAudioGenerationKey>,
 }
@@ -37,9 +40,38 @@ impl CanopyDistributedEmitterAdapter {
             spatial_sound_manager,
             telemetry: CanopyAudioTelemetry::default(),
             voices: HashMap::new(),
+            recorded_bank: None,
+            recorded_enabled: false,
             #[cfg(test)]
             fail_spawn_key: None,
         }
+    }
+
+    pub(crate) fn recorded_mix_diagnostics(&self) -> (usize, usize, f32, f32) {
+        let positions = self
+            .voices
+            .values()
+            .filter_map(|v| v.recorded_blend.as_ref().map(|b| b.position()));
+        let (count, min, max) = positions.fold((0, 1.0_f32, 0.0_f32), |(n, min, max), x| {
+            (n + 1, min.min(x), max.max(x))
+        });
+        (
+            self.voices.len(),
+            count,
+            if count == 0 { 0.0 } else { min },
+            max,
+        )
+    }
+
+    pub fn set_recorded_mix(&mut self, enabled: bool) -> Result<()> {
+        if enabled && self.recorded_bank.is_none() {
+            self.recorded_bank = Some(RecordedLeafBank::load(&self.spatial_sound_manager)?);
+        }
+        if self.recorded_enabled != enabled {
+            log::info!("[TREE_LEAF_AUDIO] recorded_mix={enabled} selection=per_canopy_generation one_voice=true");
+            self.recorded_enabled = enabled;
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -88,10 +120,40 @@ impl CanopyDistributedEmitterAdapter {
                 created.push(uuid);
                 created_keys.push(active.key());
             }
+            // Reconcile content per Voice. A failed replacement leaves that Voice intact and
+            // retries next frame; already converted Voices are not restarted on retry.
+            if let Some(voice) = self
+                .voices
+                .get(&active.key())
+                .filter(|voice| voice.recorded_blend.is_some() != self.recorded_enabled)
+            {
+                let uuid = voice.uuid;
+                let (clip, phase, control) = self.prepare_rustle(
+                    active.key(),
+                    active.descriptor().phase(),
+                    rustle_clip,
+                    time_seconds,
+                    voice.current_response(),
+                )?;
+                self.spatial_sound_manager
+                    .replace_looping_clip(uuid, clip, phase)?;
+                let voice = self.voices.get_mut(&active.key()).unwrap();
+                voice.recorded_blend = control;
+                voice.phase = phase;
+            }
             if let Some(voice) = self.voices.get_mut(&active.key()) {
-                if let Err(error) =
-                    voice.set_lifecycle_power(active.lifecycle_power(), &self.spatial_sound_manager)
-                {
+                let publication = voice
+                    .set_wind_volume_db(
+                        Self::content_volume_db(base_volume_db, voice.recorded_blend.is_some()),
+                        &self.spatial_sound_manager,
+                    )
+                    .and_then(|()| {
+                        voice.set_lifecycle_power(
+                            active.lifecycle_power(),
+                            &self.spatial_sound_manager,
+                        )
+                    });
+                if let Err(error) = publication {
                     self.rollback_created_voices(&created_keys);
                     return Err(error).with_context(|| {
                         format!(
@@ -157,7 +219,10 @@ impl CanopyDistributedEmitterAdapter {
 
     pub fn set_base_volume_db(&mut self, base_volume_db: f32) -> Result<()> {
         for voice in self.voices.values_mut() {
-            voice.set_wind_volume_db(base_volume_db, &self.spatial_sound_manager)?;
+            voice.set_wind_volume_db(
+                Self::content_volume_db(base_volume_db, voice.recorded_blend.is_some()),
+                &self.spatial_sound_manager,
+            )?;
         }
         Ok(())
     }
@@ -169,7 +234,11 @@ impl CanopyDistributedEmitterAdapter {
     }
 
     pub fn replace_rustle_clip(&mut self, rustle_clip: &ResidentClip) -> Result<()> {
-        for voice in self.voices.values_mut() {
+        for voice in self
+            .voices
+            .values_mut()
+            .filter(|voice| voice.recorded_blend.is_none())
+        {
             self.spatial_sound_manager.replace_looping_clip(
                 voice.uuid,
                 rustle_clip.clone(),
@@ -340,30 +409,63 @@ impl CanopyDistributedEmitterAdapter {
             );
         }
         let descriptor = active.descriptor();
-        let phase = Self::phase_at_time(descriptor.phase(), rustle_clip, time_seconds);
+        let (clip, phase, control) = self.prepare_rustle(
+            active.key(),
+            descriptor.phase(),
+            rustle_clip,
+            time_seconds,
+            0.0,
+        )?;
         let uuid = self
             .spatial_sound_manager
             .add_canopy_looping_clip_with_extent_at_phase(
                 active.key(),
-                rustle_clip.clone(),
+                clip,
                 TREE_SILENT_VOLUME_DB,
                 descriptor.tree_origin_world(),
                 phase,
                 Self::source_extent(descriptor)?,
                 Self::occlusion_profile(),
             )?;
-        self.voices.insert(
+        let mut voice = CanopyAudioVoice::new(
+            uuid,
             active.key(),
-            CanopyAudioVoice::new(
-                uuid,
-                active.key(),
-                descriptor.clone(),
-                phase,
-                base_volume_db,
-                wind_response_curve,
-            ),
+            descriptor.clone(),
+            phase,
+            Self::content_volume_db(base_volume_db, control.is_some()),
+            wind_response_curve,
         );
+        voice.recorded_blend = control;
+        self.voices.insert(active.key(), voice);
         Ok(uuid)
+    }
+
+    fn content_volume_db(base_volume_db: f32, recorded: bool) -> f32 {
+        base_volume_db + if recorded { GAIN_ADJUST_DB } else { 0.0 }
+    }
+
+    fn prepare_rustle(
+        &self,
+        key: CanopyAudioGenerationKey,
+        base_phase: f32,
+        procedural: &ResidentClip,
+        time_seconds: f32,
+        response: f32,
+    ) -> Result<(ResidentClip, f32, Option<petalsonic::LoopBlendControl>)> {
+        if self.recorded_enabled {
+            let prepared = self
+                .recorded_bank
+                .as_ref()
+                .context("recorded leaf bank not prepared")?
+                .prepare(key, time_seconds, response)?;
+            Ok((prepared.clip, prepared.phase, Some(prepared.control)))
+        } else {
+            Ok((
+                procedural.clone(),
+                Self::phase_at_time(base_phase, procedural, time_seconds),
+                None,
+            ))
+        }
     }
 
     fn source_extent(descriptor: &CanopyAcousticDescriptor) -> Result<SourceExtent> {
@@ -534,6 +636,121 @@ mod tests {
             assert_eq!(descriptor.sample_budget(), budget);
             assert!((descriptor.total_weight() - 1.0).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    #[ignore = "explicit native audio lifecycle check; opens only the unavailable-device fallback"]
+    fn recorded_leaf_mix_keeps_one_source_per_generation_across_wind_and_ab_switches() {
+        let manager = test_manager();
+        let mut adapter = CanopyDistributedEmitterAdapter::new(manager.clone());
+        let mut lifecycle = CanopyAudioLifecycle::new(0.35);
+        for tree in 0..8 {
+            lifecycle
+                .replace(tree, descriptor(1, tree as f32), 0.0)
+                .unwrap();
+        }
+        let snapshot = lifecycle.snapshot(1.0).unwrap();
+        let procedural = ResidentClip::from_mono_pcm(vec![0.01; 48_000], 48_000).unwrap();
+        let curve = WindResponseCurve {
+            min_strength: 0.0,
+            max_strength: 1.0,
+            power: 1.0,
+        };
+        adapter
+            .synchronize(&snapshot, &procedural, 36.0, curve, 1.0)
+            .unwrap();
+        let identities = adapter
+            .voices
+            .iter()
+            .map(|(key, voice)| (*key, voice.uuid))
+            .collect::<HashMap<_, _>>();
+        for (step, recorded) in [true, false, true, false, true].into_iter().enumerate() {
+            let time = 10.0 + step as f32 * 20.0;
+            adapter.set_recorded_mix(recorded).unwrap();
+            adapter
+                .synchronize(&snapshot, &procedural, 36.0, curve, time)
+                .unwrap();
+            assert_eq!(adapter.voices.len(), 8);
+            assert_eq!(
+                adapter
+                    .voices
+                    .values()
+                    .filter(|v| v.recorded_blend.is_some())
+                    .count(),
+                if recorded { 8 } else { 0 }
+            );
+            for (key, voice) in &adapter.voices {
+                assert_eq!(voice.uuid, identities[key]);
+                assert_eq!(voice.descriptor.samples().len(), 1);
+            }
+            for (offset, strength) in [(0.0, 0.0), (5.0, 2.0), (10.0, 8.0)] {
+                adapter
+                    .update(
+                        &WindFieldFrame::uniform(glam::Vec2::X * strength),
+                        time + offset,
+                        1.0,
+                        1.0,
+                    )
+                    .unwrap();
+                for voice in adapter.voices.values() {
+                    if recorded {
+                        assert!(
+                            (voice.recorded_blend.as_ref().unwrap().position() - strength / 8.0)
+                                .abs()
+                                < 1e-5
+                        );
+                    }
+                }
+            }
+        }
+        // Changing geometry starts only one additional generation, not one per audio layer.
+        lifecycle.replace(0, descriptor(2, 0.0), 110.0).unwrap();
+        adapter
+            .synchronize(
+                &lifecycle.snapshot(110.1).unwrap(),
+                &procedural,
+                36.0,
+                curve,
+                110.1,
+            )
+            .unwrap();
+        assert_eq!(adapter.voices.len(), 9);
+        adapter
+            .synchronize(
+                &lifecycle.snapshot(111.0).unwrap(),
+                &procedural,
+                36.0,
+                curve,
+                111.0,
+            )
+            .unwrap();
+        assert_eq!(adapter.voices.len(), 8);
+        for tree in 0..8 {
+            lifecycle.remove(tree, 112.0).unwrap();
+        }
+        adapter
+            .synchronize(
+                &lifecycle.snapshot(113.0).unwrap(),
+                &procedural,
+                36.0,
+                curve,
+                113.0,
+            )
+            .unwrap();
+        assert!(adapter.voices.is_empty());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let diag = manager.runtime_diagnostics();
+            if diag.active_emitters == 0 && diag.active_voices == 0 {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "retirement did not drain: {diag:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        println!("recorded leaves: 8 generations, 5 A/B switches, calm/weak/strong wind, geometry crossfade, complete retirement");
     }
 
     #[test]

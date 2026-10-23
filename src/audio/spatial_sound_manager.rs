@@ -579,7 +579,7 @@ impl SpatialSoundManager {
         let uuid = self.add_clip_source(
             AudioCategory::Leaves,
             clip,
-            PlayOptions::looping(),
+            PlayOptions::looping().with_fade_in(std::time::Duration::from_millis(5)),
             volume_db,
             Some(position),
             Some(initial_phase),
@@ -1065,7 +1065,10 @@ impl SpatialSoundManager {
             let _ = self.world.destroy_emitter(new_emitter);
             return Err(error.into());
         }
-        if let Err(error) = self.world.play(new_emitter, PlayOptions::looping()) {
+        if let Err(error) = self.world.play(
+            new_emitter,
+            PlayOptions::looping().with_fade_in(std::time::Duration::from_millis(5)),
+        ) {
             self.audio_telemetry_router
                 .lock()
                 .unwrap()

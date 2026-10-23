@@ -1,0 +1,35 @@
+{
+  "generator": "scripts/prepare_tree_leaf_loops.py",
+  "processing": "stereo mean to mono, DC removal, tail/head equal-power overlap, RMS match",
+  "overlap_frames": 4800,
+  "sample_rate": 48000,
+  "runtime_frames": 379200,
+  "target_rms_dbfs": -30.0,
+  "rights": "Inherited Free-plan restrictions; no new license or commercial clearance",
+  "files": [
+    {
+      "source": "leaves-strong-wind-01.wav",
+      "source_sha256": "fad0f2f1a919507d064e2960db74142167c359a33e92be6f489eacb019204580",
+      "runtime": "runtime/leaves-strong-wind-01.wav",
+      "runtime_sha256": "31c20877aee5f0d9157cc37aa1b012a03349ff00d1a3eb085ed32b62794fd72c"
+    },
+    {
+      "source": "leaves-strong-wind-02.wav",
+      "source_sha256": "38ddffa16da4a349e87cc018a896d96a8defaf2fdac992e04bddeaa99f3edf48",
+      "runtime": "runtime/leaves-strong-wind-02.wav",
+      "runtime_sha256": "11482b24b28ad6bcd5e3e0bafc98cef8acc829d8bd8ad4a0ad99dddb6a5e2085"
+    },
+    {
+      "source": "leaves-strong-wind-03.wav",
+      "source_sha256": "503213bf2a32e81ab6443b5f8352810da7a109e2575a0859f4b647a7dd8ca54b",
+      "runtime": "runtime/leaves-strong-wind-03.wav",
+      "runtime_sha256": "e8fc9cfaa70865cf774e5facc8a1907a18b7db5f0a6052b8fd5b8db713aff615"
+    },
+    {
+      "source": "leaves-strong-wind-04.wav",
+      "source_sha256": "92b751e0eeb76f10cc841d89803bdff895fcd4cca99174e60ea390b859de1e0f",
+      "runtime": "runtime/leaves-strong-wind-04.wav",
+      "runtime_sha256": "f8193d20a85a32db72336d24ee412a4f172a1765b4e0b86ae86c4bb671571fac"
+    }
+  ]
+}

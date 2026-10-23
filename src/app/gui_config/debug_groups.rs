@@ -131,7 +131,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Sprinkler Spray & Motion",
-        description: "One rotating nozzle. The whole assembly shares one cached grid; the nozzle selects the nearest of 16 internal poses. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. 100% duty is continuous; 0% stops water, not rotation.",
+        description: "One rotating nozzle. The whole assembly and spray launches use the same 16 internal poses (22.5 degrees apart); existing droplets keep their birth direction. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. Six fixed spray bursts follow the recording.",
         initially_open: false,
         params: &["sprinkler_spray_angle", "sprinkler_rotation_speed"],
     },

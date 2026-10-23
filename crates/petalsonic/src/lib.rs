@@ -123,5 +123,8 @@ pub use events::{
 pub use math::{Pose, Quat, Vec3};
 pub use world::PetalSonicWorld;
 
+mod loop_blend;
+pub use loop_blend::LoopBlendControl;
+
 mod sample_envelope;
 pub use sample_envelope::{ENVELOPE_STALE_SECONDS, SampleEnvelopeControl, SampleEnvelopeRenderer};

@@ -1140,6 +1140,15 @@ max = 20
 name = "Wind"
 
 [[section.param]]
+id = "tree_leaf_recorded_mix"
+kind = "bool"
+label = "Tree leaves: recorded breeze / strong wind (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "canopy_audio_sample_budget"
 kind = "uint"
 label = "Canopy Audio Samples / Tree"

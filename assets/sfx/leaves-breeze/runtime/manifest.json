@@ -1,0 +1,35 @@
+{
+  "generator": "scripts/prepare_tree_leaf_loops.py",
+  "processing": "stereo mean to mono, DC removal, tail/head equal-power overlap, RMS match",
+  "overlap_frames": 4800,
+  "sample_rate": 48000,
+  "runtime_frames": 379200,
+  "target_rms_dbfs": -30.0,
+  "rights": "Inherited Free-plan restrictions; no new license or commercial clearance",
+  "files": [
+    {
+      "source": "leaves-breeze-01.wav",
+      "source_sha256": "3594315e37839f77db3bfb201925063ce5a81f7975893fa22f1d0487b36cd7dd",
+      "runtime": "runtime/leaves-breeze-01.wav",
+      "runtime_sha256": "5c55f0d0b070f446ded41e71d16c974c7c46beb0b82680e16d99baea95ea94c0"
+    },
+    {
+      "source": "leaves-breeze-02.wav",
+      "source_sha256": "cc5772164930744415b20b3b4cbcd9a2dc215e9cdf13651c61e46ed3a1f5d67d",
+      "runtime": "runtime/leaves-breeze-02.wav",
+      "runtime_sha256": "7ac8fa49b69551fd8310393b6e856db0edd853f9580359b70faa1d236d158593"
+    },
+    {
+      "source": "leaves-breeze-03.wav",
+      "source_sha256": "74deeab38af52d3be2346fa9ffa8225ae7b7a85f919161613fb85e8e8a21507c",
+      "runtime": "runtime/leaves-breeze-03.wav",
+      "runtime_sha256": "b09d8077b4ee5b44e453051dd945d8d7ba66fb3a32359a8586544478805d1aac"
+    },
+    {
+      "source": "leaves-breeze-04.wav",
+      "source_sha256": "2fd6df5a7cc2727dc6bde32047bdc3b88237a9418a5e75890224a7384ebab1c7",
+      "runtime": "runtime/leaves-breeze-04.wav",
+      "runtime_sha256": "f35cc60d54f2d15d074e38f7aa7c64db24ad315e1d0148b256914f881bab9d03"
+    }
+  ]
+}

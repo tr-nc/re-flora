@@ -53,6 +53,7 @@ pub use tree_rustle::{TreeRustleControl, TreeRustleFactory, TreeRustleParams};
 mod tree_kick_rustle;
 pub(crate) use tree_kick_rustle::KickRustleTuning;
 
+mod recorded_tree_leaves;
 mod tree_audio_manager;
 pub use tree_audio_manager::TreeAudioManager;
 pub(crate) use tree_audio_manager::TreeAudioPublicationCheckpoint;

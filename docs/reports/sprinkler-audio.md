@@ -46,6 +46,25 @@
 - 未启动可见游戏、未试听、未进行性能验收、未推送。默认验证层 Release 已构建。
 - 旧交接文档在实施完成后按用户要求删除；本报告与素材目录说明保留行为及来源记录。
 
+## 2026-10-24：喷水方向与离散喷嘴姿态一致
+
+修复提交 `f9d0f2f4`。此前硬件模型选取 16 个内部姿态（22.5° 一档），
+喷水出口和发射速度却继续用连续旋转角。共享 Slang 角度选择现在同时驱动模型、
+雾源、液滴与出生 tick 的发射；水已经离开喷嘴后保留其出生方向，不随当前喷头转弯。
+去掉了连续旋转切线速度对离散发射方向的偏移。RPM 仍决定历史出生姿态，
+固定六拍音频/喷水节奏不变。
+
+- 显式 `cargo test sprinkler_spray_uses_the_rendered_discrete_birth_pose -- --ignored --nocapture`
+  先复现 `outlet mismatch angle=0.000000 birth=1.338318 frame=3`，修复后通过
+  **3,840** 个 Slang CPU 出生姿态案例；同时核对 CPU 与 shader 的 16 帧常量。
+- `cargo test sprinkler -- --include-ignored`、`cargo check`、Release 构建与普通
+  隐藏静音 smoke 通过。
+- 原生 `RE_FLORA_SPRINKLER_REVIEW=rotary-contact-particles` 180 帧通过：
+  wet_voxels=14179、8 contacts、118 flow lobes、29 optical droplets，
+  below_source=0、beyond_wall=0；正常关闭 `failures=0`，无 ERROR/VUID/panic。
+- 证据归档在 `target/recorded-tree-leaf-validation/sprinkler-discrete-*.log`。
+  没有把这些自动化结果冒充人工视觉批准。
+
 ## 历史实现及验证（scope v3，以下程序 DSP 描述已被上文替代）
 
 ## 交付行为与所有权

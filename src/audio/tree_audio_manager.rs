@@ -14,7 +14,7 @@ use uuid::Uuid;
 // (`tree_sound_48k_pregain_40db.wav`). The procedural generator is tuned at
 // reference-like raw levels, so add runtime makeup gain before the normal tree
 // volume and normalized canopy sample weights are applied.
-const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
+pub(super) const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
 const CANOPY_LAYOUT_CROSSFADE_SECONDS: f32 = 0.35;
 const TREE_RUSTLE_SAMPLE_RATE: u32 = 48_000;
 const TREE_RUSTLE_LOOP_SECONDS: f32 = 12.0;
@@ -195,6 +195,14 @@ impl TreeAudioManager {
         self.wind_response_curve = wind_response_curve;
         self.emitter_adapter
             .set_wind_response_curve(self.wind_response_curve);
+    }
+
+    pub(crate) fn recorded_mix_diagnostics(&self) -> (usize, usize, f32, f32) {
+        self.emitter_adapter.recorded_mix_diagnostics()
+    }
+
+    pub fn set_recorded_mix(&mut self, enabled: bool) -> Result<()> {
+        self.emitter_adapter.set_recorded_mix(enabled)
     }
 
     pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) -> Result<()> {

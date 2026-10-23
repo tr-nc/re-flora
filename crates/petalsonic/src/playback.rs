@@ -158,6 +158,8 @@ impl PlaybackInfo {
 /// The World captures this value from a validated Emitter snapshot. The runtime can then prepare
 /// render-owned storage without reconstructing or independently interpreting the accepted facts.
 pub(crate) struct AcceptedVoice {
+    fade_in_seconds: f64,
+    loop_blend: Option<crate::loop_blend::LoopBlend>,
     sample_envelope: Option<crate::SampleEnvelopeControl>,
     voice_id: VoiceId,
     emitter: Emitter,
@@ -191,6 +193,8 @@ impl AcceptedVoice {
             emitter,
             audio_data: clip.data.clone(),
             sample_envelope: clip.sample_envelope.clone(),
+            loop_blend: clip.loop_blend.clone(),
+            fade_in_seconds: options.fade_in.as_secs_f64(),
             render_state: VoiceRenderState::capture(emitter_desc, options.gain_db),
             loop_mode: options.loop_mode,
             bus_index,
@@ -237,6 +241,8 @@ impl PreparedVoice {
             acoustic_retirement_witness,
         } = self;
         let AcceptedVoice {
+            fade_in_seconds,
+            loop_blend,
             sample_envelope,
             voice_id,
             emitter,
@@ -273,6 +279,7 @@ impl PreparedVoice {
         let sample_rate = audio_data.sample_rate();
         let mut playback = PlaybackInstance {
             sample_envelope: sample_envelope.map(crate::SampleEnvelopeRenderer::new),
+            loop_blend: loop_blend.map(crate::loop_blend::LoopBlendRenderer::new),
             emitter,
             detached,
             completion_tag,
@@ -297,6 +304,8 @@ impl PreparedVoice {
             mix_gain_linear: 1.0,
             mix_rate: playback_rate,
             mono_scratch,
+            fade_in_remaining_frames: 0,
+            fade_in_total_frames: (fade_in_seconds * sample_rate as f64).ceil() as usize,
             fade_out_remaining_frames: 0,
             fade_out_total_frames: 0,
             retired: false,
@@ -346,6 +355,7 @@ pub(crate) fn prepare_test_voice(
 #[derive(Debug)]
 pub struct PlaybackInstance {
     sample_envelope: Option<crate::SampleEnvelopeRenderer>,
+    loop_blend: Option<crate::loop_blend::LoopBlendRenderer>,
     /// Logical emitter that initiated this voice.
     pub emitter: Emitter,
     /// Detached voices survive emitter destruction and stop following emitter updates.
@@ -382,6 +392,8 @@ pub struct PlaybackInstance {
     mix_gain_linear: f32,
     mix_rate: f32,
     mono_scratch: Vec<f32>,
+    fade_in_remaining_frames: usize,
+    fade_in_total_frames: usize,
     fade_out_remaining_frames: usize,
     fade_out_total_frames: usize,
     retired: bool,
@@ -413,6 +425,7 @@ impl PlaybackInstance {
         self.reset();
         self.retired = false;
         self.reclaim_issued = false;
+        self.fade_in_remaining_frames = self.fade_in_total_frames;
         self.fade_out_remaining_frames = 0;
         self.fade_out_total_frames = 0;
         self.resume();
@@ -516,6 +529,7 @@ impl PlaybackInstance {
             }
         }
 
+        self.fade_in_remaining_frames = self.fade_in_remaining_frames.saturating_sub(output_frames);
         self.cursor += output_frames as f64 * self.mix_rate as f64;
         match self.loop_mode {
             LoopMode::Infinite => {
@@ -599,7 +613,6 @@ impl PlaybackInstance {
             return 0;
         }
 
-        let channels = self.audio_data.channels().max(1) as usize;
         let total_frames = self.audio_data.total_frames();
         if total_frames == 0 {
             self.reached_end_this_iteration = true;
@@ -611,21 +624,18 @@ impl PlaybackInstance {
         if let Some(envelope) = &mut self.sample_envelope {
             envelope.begin_block();
         }
+        if let Some(blend) = &mut self.loop_blend {
+            blend.begin_block();
+        }
 
         for out_sample in buffer.iter_mut() {
             let Some(source_frame) = self.next_source_frame() else {
                 break;
             };
 
-            let base_idx = source_frame * channels;
-            let mut mono = 0.0;
-            for channel in 0..channels {
-                mono += self
-                    .audio_data
-                    .samples()
-                    .get(base_idx + channel)
-                    .copied()
-                    .unwrap_or(0.0);
+            let mut mono = crate::loop_blend::mono_frame(&self.audio_data, source_frame);
+            if let Some(blend) = &mut self.loop_blend {
+                mono = blend.mix(mono, source_frame, self.sample_rate);
             }
             let fade_gain = if self.fade_out_remaining_frames > 0 {
                 let gain = self.fade_out_remaining_frames as f32
@@ -639,15 +649,20 @@ impl PlaybackInstance {
             } else {
                 1.0
             };
+            let fade_in_gain = if self.fade_in_remaining_frames > 0 {
+                let gain =
+                    1.0 - self.fade_in_remaining_frames as f32 / self.fade_in_total_frames as f32;
+                self.fade_in_remaining_frames -= 1;
+                gain
+            } else {
+                1.0
+            };
             let envelope_gain = self
                 .sample_envelope
                 .as_mut()
                 .map_or(1.0, |e| e.next_gain(self.sample_rate));
-            *out_sample = (mono / channels as f32)
-                * volume
-                * self.mix_gain_linear
-                * fade_gain
-                * envelope_gain;
+            *out_sample =
+                mono * volume * self.mix_gain_linear * fade_gain * fade_in_gain * envelope_gain;
             frames_filled += 1;
             if self.retired {
                 break;
@@ -986,6 +1001,39 @@ mod tests {
     }
 
     #[test]
+    fn optional_onset_ramp_survives_seek_and_wrap_and_advances_while_silent() {
+        let clip = ResidentClip::from_mono_pcm(vec![0.5; 100], 48000).unwrap();
+        let options = PlayOptions::looping().with_fade_in(Duration::from_millis(5));
+        let mut instance = AcceptedVoice::capture(
+            VoiceId::from(1),
+            Emitter {
+                world_id: 1,
+                index: 0,
+                generation: 1,
+            },
+            &clip,
+            &EmitterDesc::non_spatial(),
+            options,
+            None,
+            0,
+        )
+        .prepare(256)
+        .start()
+        .1;
+        instance.seek(0.5);
+        let mut output = [0.0; 256];
+        instance.fill_mono_buffer(&mut output, 1.0);
+        assert_eq!(output[0], 0.0);
+        assert!((output[120] - 0.25).abs() < 1e-6);
+        assert_eq!(output[240], 0.5);
+        assert!(output.windows(2).all(|w| (w[1] - w[0]).abs() < 0.003));
+        instance.play_from_beginning();
+        instance.advance_silently(240);
+        instance.fill_mono_buffer(&mut output[..1], 1.0);
+        assert_eq!(output[0], 0.5);
+    }
+
+    #[test]
     fn explicit_stop_uses_bounded_declick_ramp_before_reclaim() {
         let audio = Arc::new(PetalSonicAudioData::new(
             vec![1.0; 1_000],
@@ -1022,6 +1070,111 @@ mod tests {
         assert_eq!(reclaim.completion_tag, None);
         assert_eq!(instance.take_reclaim(), None);
         assert_eq!(instance.completion_tag, None);
+    }
+}
+
+#[cfg(test)]
+mod loop_blend_integration_tests {
+    use super::*;
+    use crate::{LoopBlendControl, test_support::realtime_memory_activity};
+
+    fn voice(clip: &ResidentClip) -> PlaybackInstance {
+        AcceptedVoice::capture(
+            VoiceId::from(1),
+            Emitter {
+                world_id: 1,
+                index: 0,
+                generation: 1,
+            },
+            clip,
+            &EmitterDesc::non_spatial(),
+            PlayOptions::looping(),
+            None,
+            0,
+        )
+        .prepare(128)
+        .start()
+        .1
+    }
+
+    #[test]
+    fn loop_blend_offsets_survive_wrap_seek_rate_and_silent_advance() {
+        let primary = ResidentClip::from_mono_pcm(vec![0.0; 4], 48000).unwrap();
+        let secondary = ResidentClip::from_interleaved_pcm(
+            vec![0.0, 0.2, 0.1, 0.3, 0.2, 0.4, 0.3, 0.5],
+            48000,
+            2,
+        )
+        .unwrap();
+        let control = LoopBlendControl::default();
+        control.set(1.0);
+        let clip = primary.with_loop_blend(&secondary, 0.5, control).unwrap();
+        let mut voice = voice(&clip);
+        let mut output = [0.0; 8];
+        let memory_activity = realtime_memory_activity(|| {
+            assert_eq!(voice.fill_mono_buffer(&mut output, 1.0), 8);
+        });
+        assert_eq!(memory_activity, 0);
+        for (actual, expected) in output.iter().zip([0.3, 0.4, 0.1, 0.2, 0.3, 0.4, 0.1, 0.2]) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+        voice.seek(0.25);
+        voice.advance_silently(2);
+        voice.set_playback_rate(2.0);
+        voice.set_mix_parameters(BusParams::default());
+        voice.fill_mono_buffer(&mut output[..2], 1.0);
+        assert!((output[0] - 0.2).abs() < 1e-6);
+        assert!((output[1] - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn loop_blend_updates_are_ramped_and_endpoint_silent_layers_keep_advancing() {
+        let a = ResidentClip::from_mono_pcm(vec![0.1; 2048], 48000).unwrap();
+        let b = ResidentClip::from_mono_pcm(vec![0.4; 2048], 48000).unwrap();
+        let control = LoopBlendControl::default();
+        let clip = a.with_loop_blend(&b, 0.37, control.clone()).unwrap();
+        let mut voice = voice(&clip);
+        let mut output = [0.0; 1024];
+        voice.fill_mono_buffer(&mut output, 1.0);
+        assert!(output.iter().all(|sample| *sample == 0.1));
+        control.set(1.0);
+        voice.fill_mono_buffer(&mut output, 1.0);
+        assert!(output[0] > 0.1 && output[0] < 0.12);
+        assert!((output[1023] - 0.4).abs() < 1e-6);
+        // No seek/restart: two full blocks advanced the shared loop cursor once.
+        assert_eq!(voice.info.current_frame, 0);
+        control.set(0.5);
+        voice.fill_mono_buffer(&mut output, 1.0);
+        assert!((output[1023] - 0.5 * 0.5f32.sqrt()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn loop_blend_resamples_both_layers_and_rejects_incompatible_inputs() {
+        let a = ResidentClip::from_mono_pcm(vec![0.1; 4800], 48000).unwrap();
+        let b = ResidentClip::from_mono_pcm(vec![0.4; 4800], 48000).unwrap();
+        let control = LoopBlendControl::default();
+        control.set(1.0);
+        let clip = a
+            .clone()
+            .with_loop_blend(&b, 0.25, control.clone())
+            .unwrap();
+        let resampled = clip.clone().resampled_to(44100).unwrap();
+        let blend = resampled.loop_blend.as_ref().unwrap();
+        assert_eq!(resampled.total_frames(), blend.data.total_frames());
+        assert_eq!(blend.data.sample_rate(), 44100);
+        assert_eq!(blend.phase_offset, 0.25);
+        control.set(0.25);
+        assert_eq!(blend.control.position(), 0.25);
+        let wrong_length = ResidentClip::from_mono_pcm(vec![0.1; 4799], 48000).unwrap();
+        let wrong_rate = ResidentClip::from_mono_pcm(vec![0.1; 4800], 44100).unwrap();
+        for bad in [wrong_length, wrong_rate, clip] {
+            assert!(
+                a.clone()
+                    .with_loop_blend(&bad, 0.0, control.clone())
+                    .is_err()
+            );
+        }
+        assert!(a.with_loop_blend(&b, f32::NAN, control).is_err());
     }
 }
 

@@ -51,6 +51,7 @@ mod sprinkler_audio_review;
 mod sprinkler_review;
 mod terrain_picking;
 mod tree_kick;
+mod tree_leaf_audio_review;
 pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
@@ -519,6 +520,7 @@ pub struct App {
     sprinklers: SprinklerRuntime,
     sprinkler_diagnostic_timing: crate::sprinkler::DiagnosticTiming,
     sprinkler_audio_review: Option<sprinkler_audio_review::SprinklerAudioReview>,
+    tree_leaf_audio_review: Option<tree_leaf_audio_review::Review>,
     sprinkler_review: Option<sprinkler_review::Review>,
     climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
@@ -1479,6 +1481,8 @@ impl App {
             Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
         tree_audio_manager
+            .set_recorded_mix(debug_settings.adjustables.tree_leaf_recorded_mix.value)?;
+        tree_audio_manager
             .prepare_kick_rustle(Self::tree_kick_rustle_tuning(&debug_settings.adjustables))?;
         tree_audio_manager
             .set_canopy_telemetry_enabled(audio.canopy_telemetry || canopy_audio_diagnostic);
@@ -1659,6 +1663,7 @@ impl App {
             ecology: ambient_ecology::EcologyRuntime::new(),
             sprinklers: SprinklerRuntime::new(),
             sprinkler_diagnostic_timing: Default::default(),
+            tree_leaf_audio_review: tree_leaf_audio_review::Review::from_environment(),
             sprinkler_audio_review: sprinkler_audio_review::SprinklerAudioReview::from_environment(
             ),
             sprinkler_review: sprinkler_review::Review::from_env()?,
@@ -2638,6 +2643,20 @@ impl App {
                         )
                     }
                 };
+                let (recorded_leaves, wind) = if let Some(review) = &mut self.tree_leaf_audio_review
+                {
+                    review
+                        .inputs(time_since_start, self.mute_audio_output)
+                        .expect("tree leaf audio review inputs")
+                } else {
+                    (
+                        self.debug_settings.adjustables.tree_leaf_recorded_mix.value,
+                        wind,
+                    )
+                };
+                if let Err(err) = self.tree_audio_manager.set_recorded_mix(recorded_leaves) {
+                    log::error!("Failed to apply recorded tree leaf mix: {err:#}");
+                }
                 if let Err(err) = cpu_timings.time(FrameCpuScope::CanopyAudio, || {
                     self.tree_audio_manager.update(
                         time_since_start,
@@ -2653,6 +2672,11 @@ impl App {
                     )
                 }) {
                     log::warn!("Failed to update tree audio sources: {}", err);
+                }
+                if let Some(review) = &mut self.tree_leaf_audio_review {
+                    review
+                        .observe(&self.tree_audio_manager, time_since_start)
+                        .expect("tree leaf audio review observations");
                 }
                 cpu_timings.time(FrameCpuScope::AcousticQuality, || {
                     self.update_environmental_acoustics_quality()

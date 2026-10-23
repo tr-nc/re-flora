@@ -945,6 +945,7 @@ fn render_section_controls(
 ) {
     if section.name == "Wind" {
         ui_text::section(ui, "Tree sound response");
+        ui_text::hint(ui, "Recorded mix A/B: unchecked keeps procedural rustling; checked blends one random breeze and strong-wind recording per canopy, with independent offsets and live local wind. Save remembers the choice. Volume: Audio / Live mixer / Tree leaves, or Tree Wind Volume (dB). Rustle synthesis controls affect procedural mode only.");
         for param in &section.param {
             render_gui_param_from_config(ui, param, &section.name, adjustables);
         }

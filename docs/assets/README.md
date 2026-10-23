@@ -32,7 +32,7 @@ provenance/manifest 等说明通过证据链接关联。扩展名集合在 `scri
 
 程序生成的树、地形、石材、原生启动屏和树叶声等，不一定有独立素材文件。
 例如 `src/stone_models.rs` 生成游戏石材；文档目录的 OBJ 是导出样本，不是游戏读取的模型。
-`src/audio/tree_rustle.rs` 合成当前树叶声，旧 WAV 不再被运行时清单加载。
+`src/audio/tree_rustle.rs` 保留原合成树叶声；可保存的 A/B 开关另启用八条轻风/强风树叶录音的运行时处理版。
 
 ## 分仓优先级
 
@@ -51,9 +51,9 @@ provenance/manifest 等说明通过证据链接关联。扩展名集合在 `scri
 - `blender-v5/*.blend` 是当前蝴蝶制作源；游戏读取的是 `assets/models/butterfly.glb`。不能把“不是运行输入”理解成“无用”。
 - 旧蝴蝶网页（含内嵌参考图）、AI 候选和 v1–v4 已删除；仍保留被当前预览/土袋发布使用的 Three.js。
 - 当前 `scripts/package_release.py` 复制整个 `assets/`，另复制 `demo/img/splash.png`。
-  因此 CSV 的 `packaged_loose=yes` **不是游戏使用证据**。四组未接入的 ElevenLabs 文件现已删除，不再由当前树打包。
+  因此 CSV 的 `packaged_loose=yes` **不是游戏使用证据**。此前删除的 ElevenLabs 喷淋器、苹果落地和轻风/强风树叶素材已按用户要求恢复作本地开发；原件与处理版的许可限制仍在，未获商业或公开分发授权。
   `no` 也不代表成品完全不含该内容，例如 crate HRTF 已编译进二进制。
-- 全仓音效文件现与运行时清单的 74 条完全一致；唯一剩余的清单外音效 `docs/audio/wind_ref.wav` 已按用户要求删除。HRTF 是空间滤波数据，不作为音效删除。
+- 当前运行时清单为 86 条音效；喷淋器、苹果落地和树叶组还保留不预加载的制作原件。`docs/audio/wind_ref.wav` 仍已删除。HRTF 是空间滤波数据，不作为音效删除。
 - 蝉鸣、地形编辑循环与物品栏反馈共用 Sound Armoury 套餐购买来源，台账统一为 `sound-armoury`；各自的处理记录、播放用途和运行时路径不变。
 - 完整缺失降级、发行资源筛选、素材分仓和 Git 历史清理都尚未完成。
 

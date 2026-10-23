@@ -572,6 +572,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",
+        id: "tree_leaf_recorded_mix",
+        kind: "bool",
+        label: "Tree leaves: recorded breeze / strong wind (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
         id: "canopy_audio_sample_budget",
         kind: "uint",
         label: "Canopy Audio Samples / Tree",
@@ -1859,6 +1865,7 @@ pub struct GuiAdjustables {
     pub vegetation_response_damping: crate::gui_adjustables::FloatParam,
     pub vegetation_response_gain: crate::gui_adjustables::FloatParam,
     pub vegetation_response_pose_hz: crate::gui_adjustables::FloatParam,
+    pub tree_leaf_recorded_mix: crate::gui_adjustables::BoolParam,
     pub canopy_audio_sample_budget: crate::gui_adjustables::UintParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
@@ -2162,6 +2169,7 @@ impl GuiAdjustables {
         let mut vegetation_response_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_pose_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_leaf_recorded_mix_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut canopy_audio_sample_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2940,6 +2948,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             vegetation_response_pose_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_leaf_recorded_mix" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            tree_leaf_recorded_mix_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "canopy_audio_sample_budget" => {
@@ -4374,6 +4387,7 @@ impl GuiAdjustables {
             vegetation_response_damping: vegetation_response_damping_field.expect("Missing parameter: vegetation_response_damping"),
             vegetation_response_gain: vegetation_response_gain_field.expect("Missing parameter: vegetation_response_gain"),
             vegetation_response_pose_hz: vegetation_response_pose_hz_field.expect("Missing parameter: vegetation_response_pose_hz"),
+            tree_leaf_recorded_mix: tree_leaf_recorded_mix_field.expect("Missing parameter: tree_leaf_recorded_mix"),
             canopy_audio_sample_budget: canopy_audio_sample_budget_field.expect("Missing parameter: canopy_audio_sample_budget"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
@@ -4875,6 +4889,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&adjustables.flora_inertial_response),
+        "tree_leaf_recorded_mix" => Some(&adjustables.tree_leaf_recorded_mix),
         "ordered_dither_global" => Some(&adjustables.ordered_dither_global),
         "auto_daynight_cycle" => Some(&adjustables.auto_daynight_cycle),
         "glass_refraction_enabled" => Some(&adjustables.glass_refraction_enabled),
@@ -5212,6 +5227,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
         "flora_inertial_response" => Some(&mut adjustables.flora_inertial_response),
+        "tree_leaf_recorded_mix" => Some(&mut adjustables.tree_leaf_recorded_mix),
         "ordered_dither_global" => Some(&mut adjustables.ordered_dither_global),
         "auto_daynight_cycle" => Some(&mut adjustables.auto_daynight_cycle),
         "glass_refraction_enabled" => Some(&mut adjustables.glass_refraction_enabled),

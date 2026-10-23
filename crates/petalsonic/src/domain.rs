@@ -14,9 +14,41 @@ use std::time::Duration;
 pub struct ResidentClip {
     pub(crate) data: Arc<PetalSonicAudioData>,
     pub(crate) sample_envelope: Option<crate::SampleEnvelopeControl>,
+    pub(crate) loop_blend: Option<crate::loop_blend::LoopBlend>,
 }
 
 impl ResidentClip {
+    /// Blend two equal-duration layers before spatialization, without a second Emitter/Voice.
+    /// The secondary offset is a fraction of the loop; primary phase uses normal seek/play APIs.
+    /// Layers must have matching rates/frame counts. Secondary envelopes/nested blends are
+    /// rejected rather than silently discarded. Any primary envelope applies to the mixed signal.
+    pub fn with_loop_blend(
+        mut self,
+        secondary: &Self,
+        phase_offset: f32,
+        control: crate::LoopBlendControl,
+    ) -> crate::error::Result<Self> {
+        if self.total_frames() == 0
+            || self.total_frames() != secondary.total_frames()
+            || self.sample_rate() != secondary.sample_rate()
+            || !phase_offset.is_finite()
+            || self.loop_blend.is_some()
+            || secondary.loop_blend.is_some()
+            || secondary.sample_envelope.is_some()
+        {
+            return Err(crate::error::PetalSonicError::InvalidConfiguration {
+                field: "loop_blend",
+                reason: "requires nonempty equal-rate/equal-frame PCM layers, finite offset, and no nested blend or secondary envelope".into(),
+            });
+        }
+        self.loop_blend = Some(crate::loop_blend::LoopBlend {
+            data: secondary.data.clone(),
+            phase_offset: phase_offset.rem_euclid(1.0),
+            control,
+        });
+        Ok(self)
+    }
+
     pub fn with_sample_envelope(mut self, control: crate::SampleEnvelopeControl) -> Self {
         self.sample_envelope = Some(control);
         self
@@ -28,6 +60,7 @@ impl ResidentClip {
         Ok(Self {
             data: Arc::new(decode_file(path)?),
             sample_envelope: None,
+            loop_blend: None,
         })
     }
 
@@ -36,6 +69,7 @@ impl ResidentClip {
         Self {
             data,
             sample_envelope: None,
+            loop_blend: None,
         }
     }
 
@@ -43,6 +77,10 @@ impl ResidentClip {
         Ok(Self {
             data: self.data.resample(sample_rate)?,
             sample_envelope: self.sample_envelope,
+            loop_blend: self
+                .loop_blend
+                .map(|blend| blend.resampled_to(sample_rate))
+                .transpose()?,
         })
     }
 
@@ -80,6 +118,7 @@ impl ResidentClip {
         let duration = Duration::from_secs_f64(frame_count as f64 / sample_rate as f64);
         Ok(Self {
             sample_envelope: None,
+            loop_blend: None,
             data: Arc::new(PetalSonicAudioData::new(
                 samples,
                 sample_rate,
@@ -920,6 +959,7 @@ pub const ACOUSTIC_START_MAX_DELAY: Duration = Duration::from_millis(100);
 /// second handle to the caller.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlayOptions {
+    pub(crate) fade_in: Duration,
     pub(crate) loop_mode: LoopMode,
     pub(crate) gain_db: f32,
     pub(crate) detached: bool,
@@ -942,6 +982,13 @@ impl PlayOptions {
             loop_mode: LoopMode::Infinite,
             ..Self::default()
         }
+    }
+
+    /// Optional sample-domain onset ramp, useful when starting at an arbitrary loop phase.
+    /// Defaults to zero; seeking and wrapping do not retrigger the ramp.
+    pub fn with_fade_in(mut self, duration: Duration) -> Self {
+        self.fade_in = duration;
+        self
     }
 
     pub fn with_gain_db(mut self, gain_db: f32) -> Self {
@@ -1040,6 +1087,7 @@ impl Default for PlayOptions {
     fn default() -> Self {
         Self {
             loop_mode: LoopMode::Once,
+            fade_in: Duration::ZERO,
             gain_db: 0.0,
             detached: false,
             bus: None,

@@ -7,6 +7,19 @@ pub(crate) const APPLE_IMPACT_CLIPS: [&str; 3] = [
     "assets/sfx/apple-dirt/apple-dirt-03.wav",
 ];
 
+pub(crate) const LEAF_BREEZE_CLIPS: [&str; 4] = [
+    "assets/sfx/leaves-breeze/runtime/leaves-breeze-01.wav",
+    "assets/sfx/leaves-breeze/runtime/leaves-breeze-02.wav",
+    "assets/sfx/leaves-breeze/runtime/leaves-breeze-03.wav",
+    "assets/sfx/leaves-breeze/runtime/leaves-breeze-04.wav",
+];
+pub(crate) const LEAF_STRONG_CLIPS: [&str; 4] = [
+    "assets/sfx/leaves-strong-wind/runtime/leaves-strong-wind-01.wav",
+    "assets/sfx/leaves-strong-wind/runtime/leaves-strong-wind-02.wav",
+    "assets/sfx/leaves-strong-wind/runtime/leaves-strong-wind-03.wav",
+    "assets/sfx/leaves-strong-wind/runtime/leaves-strong-wind-04.wav",
+];
+
 pub(crate) const SPRINKLER_LOOP_PATH: &str = "assets/sfx/sprinkler/sprinkler-first-6-loop.wav";
 
 pub(crate) const TERRAIN_EDIT_LOOP_PATH: &str =
@@ -54,6 +67,12 @@ pub(super) fn paths() -> Vec<String> {
         .chain(CICADA_CLIPS.into_iter().map(str::to_owned))
         .chain(APPLE_IMPACT_CLIPS.into_iter().map(str::to_owned))
         .chain(
+            LEAF_BREEZE_CLIPS
+                .into_iter()
+                .chain(LEAF_STRONG_CLIPS)
+                .map(str::to_owned),
+        )
+        .chain(
             [
                 TERRAIN_EDIT_LOOP_PATH,
                 ITEM_PANEL_SCROLL_SFX_PATH,
@@ -73,7 +92,11 @@ mod tests {
     #[test]
     fn runtime_manifest_contains_only_unique_project_relative_wavs() {
         let paths = paths();
-        assert_eq!(paths.len(), 78);
+        assert_eq!(paths.len(), 86);
+        assert!(LEAF_BREEZE_CLIPS
+            .iter()
+            .chain(LEAF_STRONG_CLIPS.iter())
+            .all(|p| paths.contains(&p.to_string())));
         assert!(APPLE_IMPACT_CLIPS
             .iter()
             .all(|p| paths.contains(&p.to_string())));
@@ -86,8 +109,12 @@ mod tests {
                 .components()
                 .all(|component| matches!(component, Component::Normal(_))));
             assert!(!path.contains("original"));
-            assert!(!path.contains("leaves-breeze/"));
-            assert!(!path.contains("leaves-strong-wind/"));
+            if path.contains("/leaves-breeze/") || path.contains("/leaves-strong-wind/") {
+                assert!(
+                    path.contains("/runtime/"),
+                    "do not preload originals: {path}"
+                );
+            }
             assert!(!path.contains("tree_sound_48k"));
         }
     }

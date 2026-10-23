@@ -1,7 +1,19 @@
 {
-  "reviewed_revision": "29307bce128b897b0b96636a17a914e0069eb64b",
-  "reviewed_on": "2026-10-23",
+  "reviewed_revision": "f9d0f2f41c8bdf95ea91da79601a51be4c1e51dd",
+  "reviewed_on": "2026-10-24",
   "groups": [
+    {
+      "id": "recorded-tree-leaves",
+      "name": "轻风与强风树叶录音、来源和运行时循环",
+      "patterns": ["assets/sfx/leaves-breeze/*", "assets/sfx/leaves-strong-wind/*"],
+      "exclude": [],
+      "usage": "八条 runtime 单声道循环预加载；原始立体声下载只保留作制作参考",
+      "decision": "按用户要求恢复用于本地 A/B；商业及公开分发未获授权",
+      "source": "ElevenLabs SFX v3 Free-plan 原件；项目脚本生成可重建的单声道、接缝和电平处理版",
+      "gap": "沿用原商业/原件分发限制；听感与响度仍需人工确认",
+      "evidence": ["assets/sfx/leaves-breeze/README.md", "assets/sfx/leaves-strong-wind/README.md", "scripts/prepare_tree_leaf_loops.py", "src/audio/recorded_tree_leaves.rs", "src/audio/runtime_assets.rs"],
+      "purpose": "每个树冠声源独立选取轻风与强风各一条及独立相位，按局部风响应混音；保存的 A/B 复选框保留合成旧版"
+    },
     {
       "id": "apple-impacts",
       "name": "苹果落地三种音效与来源",
