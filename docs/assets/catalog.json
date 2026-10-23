@@ -1,5 +1,5 @@
 {
-  "reviewed_revision": "5e0ddd2d7d44ecd1404f81164e913ac74bb4fad6",
+  "reviewed_revision": "b5ab327890259756e1df17b7321adfd71dd802e5",
   "reviewed_on": "2026-10-23",
   "groups": [
     {
@@ -193,16 +193,19 @@
       "name": "地形编辑循环与 UI 按键",
       "patterns": [
         "assets/sfx/ROCKMisc*",
-        "assets/sfx/MECHSwtch*"
+        "assets/sfx/MECHSwtch*",
+        "assets/sfx/SOUND-ARMOURY*"
       ],
       "exclude": [],
       "usage": "运行时预加载 / 事件播放",
-      "decision": "暂按私有候选，待授权确认",
-      "source": "WAV 元数据：Sound Armoury",
-      "gap": "缺商品 URL、购买记录、许可原文和历史处理记录",
+      "decision": "游戏内可商用；公开原件需许可、拆出或替换",
+      "source": "Sound Armoury SFX Mega Bundle；2025-07-09 购买确认；itch.io 专用 EULA 已保存",
+      "gap": "未取得原始 WAV 公开分发许可；历史处理、原始包版本和购买时条款未恢复",
       "evidence": [
         "src/audio/runtime_assets.rs",
-        "src/app/core/input.rs"
+        "src/app/core/input.rs",
+        "assets/sfx/SOUND-ARMOURY.md",
+        "assets/sfx/SOUND-ARMOURY-LICENSE.txt"
       ],
       "purpose": "岩石移动循环用于地形编辑；Game Boy 按键录音用于物品栏操作反馈"
     },
@@ -214,14 +217,15 @@
       ],
       "exclude": [],
       "usage": "运行时预加载 / 生态触发",
-      "decision": "暂按私有候选，待授权确认",
-      "source": "SA_SF_CricketsCicadas_96k_v1.0；已有文件对应与处理记录",
-      "gap": "缺购买凭证、商品 URL 和许可原文",
+      "decision": "游戏内可商用；公开原件需许可、拆出或替换",
+      "source": "Sound Armoury SynFauna: Crickets & Cicadas；套餐购买确认，现有包名/处理记录吻合，EULA 已保存",
+      "gap": "未取得修改后 WAV 公开分发许可；历史套餐/原始包版本和购买时条款未恢复",
       "evidence": [
         "src/audio/runtime_assets.rs",
         "src/audio/summer_cicadas.rs",
         "assets/sfx/summer_cicadas/README.md",
-        "assets/sfx/summer_cicadas/provenance.json"
+        "assets/sfx/summer_cicadas/provenance.json",
+        "assets/sfx/summer_cicadas/LICENSE.txt"
       ],
       "purpose": "树上/地面生态点位触发两种夏蝉鸣叫"
     },

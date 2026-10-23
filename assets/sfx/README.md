@@ -13,6 +13,17 @@ Declared files are still required and decoding errors remain startup errors.
 Missing-asset silence/fallback and release-package filtering are separate work;
 the current packaging script still copies the entire assets directory.
 
+## Third-party provenance
+
+- [Sound Armoury SFX Mega Bundle](SOUND-ARMOURY.md): terrain loop, UI button and
+  the two [summer cicada calls](summer_cicadas/README.md). Purchase confirmed;
+  commercial game use permitted under the EULA, public raw-file redistribution
+  requires separate permission.
+- [Footsteps](Footsteps%20SFX%20-%20Undergrowth%20%26%20Leaves/README.md): a separate
+  High Impact Media purchase, not covered by the Sound Armoury bundle.
+
+## Editing guidance
+
 Use audacity to edit the audio files.
 
 Normalize the audio sources.

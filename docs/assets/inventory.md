@@ -1,11 +1,11 @@
 # 资产包总表（生成文件）
 
 维护方式与统计口径见 [README](README.md)。逐文件明细见 [inventory.csv](inventory.csv)。
-引用/许可人工审阅基线：`5e0ddd2d7d44ecd1404f81164e913ac74bb4fad6`；审阅日期：2026-10-23。
+引用/许可人工审阅基线：`b5ab327890259756e1df17b7321adfd71dd802e5`；审阅日期：2026-10-23。
 文件数量、字节数与哈希来自当前 Git 跟踪文件的工作树内容，不代表自动重新审核过代码或许可。
 
-共 **603** 个登记文件/容器，**73.273 MiB**；
-其中 `assets/` **511** 个，外部 **92** 个。
+共 **606** 个登记文件/容器，**73.284 MiB**；
+其中 `assets/` **514** 个，外部 **92** 个。
 随包说明也计文件；HTML 按容器计一个，不展开内嵌媒体；未按哈希去重。
 
 ## 使用状态（逐文件口径）
@@ -30,7 +30,7 @@
 | 运行时加载全部切片 | 384 |
 | 运行时预加载 / 事件播放 | 72 |
 | 运行时预加载 / 生态触发 | 2 |
-| 随包来源/许可说明，不加载 | 20 |
+| 随包来源/许可说明，不加载 | 23 |
 
 ## 分组与处理建议
 
@@ -49,8 +49,8 @@
 | 土袋模型、贴纸与生成源 (`model-soil`) | 4 | 0.202 | 土袋几何、包装贴纸与倾倒制作源，游戏与预览共用派生数据 | 编译时嵌入 / 构建源 | 保留公开基础资源 | 项目模型/矢量贴纸生成 | 保持源码、JSON、PNG 与指纹同步 |
 | 跨包说明 (`bundle-notes`) | 2 | 0.025 | 资源发布流程、音效选择和来源说明；不是加载数据 | 说明文件 | 保留公开 | 项目文档 | 无 |
 | 脚步音效 (`footsteps`) | 73 | 4.124 | 玩家走/跑各 25 条、起跳/落地各 10 条；当前各地面类型共用 | 运行时预加载 / 事件播放 | 拆出私有或替换 | High Impact Media / Tom Winandy；购买已确认，当前许可已保存 | 禁止可提取原始音频的开源分发；历史处理和购买时版本条款未恢复 |
-| 地形编辑循环与 UI 按键 (`sound-armoury`) | 2 | 14.081 | 岩石移动循环用于地形编辑；Game Boy 按键录音用于物品栏操作反馈 | 运行时预加载 / 事件播放 | 暂按私有候选，待授权确认 | WAV 元数据：Sound Armoury | 缺商品 URL、购买记录、许可原文和历史处理记录 |
-| 夏蝉音效 (`cicadas`) | 4 | 1.654 | 树上/地面生态点位触发两种夏蝉鸣叫 | 运行时预加载 / 生态触发 | 暂按私有候选，待授权确认 | SA_SF_CricketsCicadas_96k_v1.0；已有文件对应与处理记录 | 缺购买凭证、商品 URL 和许可原文 |
+| 地形编辑循环与 UI 按键 (`sound-armoury`) | 4 | 14.087 | 岩石移动循环用于地形编辑；Game Boy 按键录音用于物品栏操作反馈 | 运行时预加载 / 事件播放 | 游戏内可商用；公开原件需许可、拆出或替换 | Sound Armoury SFX Mega Bundle；2025-07-09 购买确认；itch.io 专用 EULA 已保存 | 未取得原始 WAV 公开分发许可；历史处理、原始包版本和购买时条款未恢复 |
+| 夏蝉音效 (`cicadas`) | 5 | 1.658 | 树上/地面生态点位触发两种夏蝉鸣叫 | 运行时预加载 / 生态触发 | 游戏内可商用；公开原件需许可、拆出或替换 | Sound Armoury SynFauna: Crickets & Cicadas；套餐购买确认，现有包名/处理记录吻合，EULA 已保存 | 未取得修改后 WAV 公开分发许可；历史套餐/原始包版本和购买时条款未恢复 |
 | 当前工具图标 (`tool-icons`) | 8 | 0.009 | 8 个工具主图标：挖土、种植、平整、修剪、浇水、喷水器、检查器、翻土 | 运行时加载 | 先补来源，再定是否拆出 | Git 导入记录只有 add icons | 请确认这 8 个图标的自制/生成/购买来源及许可；未使用的 tree.png 已删除 |
 | 农具图标：7 个备用项及许可 (`farm-fallback`) | 8 | 0.003 | 主图标缺失时的 7 个备用图形；没有喷水器专用备用图 | 条件加载：主图标缺失时 | 拆出/替换，先做公共兜底 | 随包许可允许项目使用，禁止原始素材再分发 | 缺作者/商品 URL/购买记录；当前备用依赖仍在 |
 | 太阳贴图及许可 (`sun`) | 2 | 0.003 | 天空的太阳像素 sprite，不是光照计算数据 | 运行时加载 | 拆出/替换，先做公共太阳 | Planets_16x16 随包许可限制原始资产再分发 | 补作者/购买来源；当前缺文件会 panic |
@@ -78,8 +78,8 @@
 - **model-soil**：[src/soil_bag.rs](../../src/soil_bag.rs)；[src/tracer/model_geometry.rs](../../src/tracer/model_geometry.rs)；[build.rs](../../build.rs)；[assets/models/README.md](../../assets/models/README.md)
 - **bundle-notes**：[assets/models/README.md](../../assets/models/README.md)；[assets/sfx/README.md](../../assets/sfx/README.md)
 - **footsteps**：[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/local_player_footsteps.rs](../../src/audio/local_player_footsteps.rs)；[assets/sfx/Footsteps SFX - Undergrowth & Leaves/README.md](../../assets/sfx/Footsteps%20SFX%20-%20Undergrowth%20%26%20Leaves/README.md)；[assets/sfx/Footsteps SFX - Undergrowth & Leaves/LICENSE.txt](../../assets/sfx/Footsteps%20SFX%20-%20Undergrowth%20%26%20Leaves/LICENSE.txt)
-- **sound-armoury**：[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/app/core/input.rs](../../src/app/core/input.rs)
-- **cicadas**：[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/summer_cicadas.rs](../../src/audio/summer_cicadas.rs)；[assets/sfx/summer_cicadas/README.md](../../assets/sfx/summer_cicadas/README.md)；[assets/sfx/summer_cicadas/provenance.json](../../assets/sfx/summer_cicadas/provenance.json)
+- **sound-armoury**：[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/app/core/input.rs](../../src/app/core/input.rs)；[assets/sfx/SOUND-ARMOURY.md](../../assets/sfx/SOUND-ARMOURY.md)；[assets/sfx/SOUND-ARMOURY-LICENSE.txt](../../assets/sfx/SOUND-ARMOURY-LICENSE.txt)
+- **cicadas**：[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/summer_cicadas.rs](../../src/audio/summer_cicadas.rs)；[assets/sfx/summer_cicadas/README.md](../../assets/sfx/summer_cicadas/README.md)；[assets/sfx/summer_cicadas/provenance.json](../../assets/sfx/summer_cicadas/provenance.json)；[assets/sfx/summer_cicadas/LICENSE.txt](../../assets/sfx/summer_cicadas/LICENSE.txt)
 - **tool-icons**：[src/app/core/ui_style.rs](../../src/app/core/ui_style.rs)；[src/app/core/mod.rs](../../src/app/core/mod.rs)
 - **farm-fallback**：[src/app/core/ui_style.rs](../../src/app/core/ui_style.rs)；[src/app/core/mod.rs](../../src/app/core/mod.rs)；[assets/texture/Pixel_Farming_Tools_IconSet_16px/README.txt](../../assets/texture/Pixel_Farming_Tools_IconSet_16px/README.txt)
 - **sun**：[src/tracer/resources.rs](../../src/tracer/resources.rs)；[assets/texture/Planets_16x16/License.txt](../../assets/texture/Planets_16x16/License.txt)
