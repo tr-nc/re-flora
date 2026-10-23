@@ -687,7 +687,7 @@ impl SpatialSoundManager {
             clip,
             EmitterDesc::spatial(Self::pose(position))
                 .with_gain_db(volume_db)
-                .with_bus(self.category_bus(AudioCategory::Terrain)),
+                .with_bus(self.category_bus(AudioCategory::Sprinklers)),
         )?;
         self.transient_spatial_emitters.lock().unwrap().insert(
             emitter,

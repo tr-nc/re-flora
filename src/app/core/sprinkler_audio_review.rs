@@ -216,10 +216,10 @@ impl App {
             ensure!(self.mute_audio_output);
             match review.frame {
                 201 => {
-                    ensure!(self.debug_settings.audio_mix.terrain.enabled);
-                    self.debug_settings.audio_mix.terrain.enabled = false;
+                    ensure!(self.debug_settings.audio_mix.sprinklers.enabled);
+                    self.debug_settings.audio_mix.sprinklers.enabled = false;
                 }
-                206 => self.debug_settings.audio_mix.terrain.enabled = true,
+                206 => self.debug_settings.audio_mix.sprinklers.enabled = true,
                 271 => {
                     ensure!(self.debug_settings.audio_mix.master.enabled);
                     self.debug_settings.audio_mix.master.enabled = false;

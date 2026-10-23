@@ -4192,8 +4192,8 @@ impl App {
                         && self.terrain_persistence.allows_sprinkler_audio()
                         && self.debug_settings.audio_mix.master.enabled
                         && self.debug_settings.audio_mix.master.scale > 0.0
-                        && self.debug_settings.audio_mix.terrain.enabled
-                        && self.debug_settings.audio_mix.terrain.scale > 0.0,
+                        && self.debug_settings.audio_mix.sprinklers.enabled
+                        && self.debug_settings.audio_mix.sprinklers.scale > 0.0,
                     sim_time_seconds: f64::from(time_since_start),
                     listener: self.tracer.camera_pose(),
                     local_footsteps: &footstep_events,

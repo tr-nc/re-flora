@@ -9,16 +9,20 @@ pub enum AudioCategory {
     GroundCicadas,
     Footsteps,
     Terrain,
+    Sprinklers,
+    AppleImpacts,
     Interface,
 }
 
 impl AudioCategory {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Leaves,
         Self::TreeCicadas,
         Self::GroundCicadas,
         Self::Footsteps,
         Self::Terrain,
+        Self::Sprinklers,
+        Self::AppleImpacts,
         Self::Interface,
     ];
     pub fn bus_name(self) -> &'static str {
@@ -28,6 +32,8 @@ impl AudioCategory {
             Self::GroundCicadas => "ground_cicadas",
             Self::Footsteps => "footsteps",
             Self::Terrain => "terrain",
+            Self::Sprinklers => "sprinklers",
+            Self::AppleImpacts => "apple_impacts",
             Self::Interface => "interface",
         }
     }
@@ -77,6 +83,8 @@ pub struct AudioMixSettings {
     pub ground_cicadas: MixChannel,
     pub footsteps: MixChannel,
     pub terrain: MixChannel,
+    pub sprinklers: MixChannel,
+    pub apple_impacts: MixChannel,
     pub interface: MixChannel,
 }
 impl AudioMixSettings {
@@ -87,6 +95,8 @@ impl AudioMixSettings {
             AudioCategory::GroundCicadas => self.ground_cicadas,
             AudioCategory::Footsteps => self.footsteps,
             AudioCategory::Terrain => self.terrain,
+            AudioCategory::Sprinklers => self.sprinklers,
+            AudioCategory::AppleImpacts => self.apple_impacts,
             AudioCategory::Interface => self.interface,
         }
     }
@@ -104,6 +114,8 @@ struct StoredAudioMixSettings {
     ground_cicadas: Option<MixChannel>,
     footsteps: MixChannel,
     terrain: MixChannel,
+    sprinklers: MixChannel,
+    apple_impacts: MixChannel,
     interface: MixChannel,
 }
 
@@ -117,6 +129,8 @@ impl From<StoredAudioMixSettings> for AudioMixSettings {
             ground_cicadas: stored.ground_cicadas.unwrap_or(legacy),
             footsteps: stored.footsteps,
             terrain: stored.terrain,
+            sprinklers: stored.sprinklers,
+            apple_impacts: stored.apple_impacts,
             interface: stored.interface,
         }
     }
@@ -125,6 +139,24 @@ impl From<StoredAudioMixSettings> for AudioMixSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sprinkler_and_apple_mix_default_neutral_and_save_independently() {
+        let mut mix: AudioMixSettings =
+            toml::from_str("[terrain]\nenabled=false\nscale=0.3\n").unwrap();
+        assert_eq!(mix.sprinklers, MixChannel::default());
+        assert_eq!(mix.apple_impacts, MixChannel::default());
+        mix.sprinklers.scale = 4.0;
+        mix.apple_impacts = MixChannel {
+            enabled: false,
+            scale: 2.5,
+        };
+        let loaded: AudioMixSettings = toml::from_str(&toml::to_string(&mix).unwrap()).unwrap();
+        assert_eq!(loaded, mix);
+        assert!(!loaded.channel(AudioCategory::Sprinklers).params().muted);
+        assert!(loaded.channel(AudioCategory::AppleImpacts).params().muted);
+        assert_eq!(loaded.terrain.scale, 0.3);
+    }
 
     #[test]
     fn legacy_cicada_mix_migrates_without_changing_either_sound() {
