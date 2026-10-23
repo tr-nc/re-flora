@@ -90,7 +90,9 @@ Re: Flora uses separate licenses for code and assets:
 - **Code:** [GPL-3.0](./LICENSE)
 - **Project-owned assets:** [CC BY-NC-SA 4.0](./LICENSE-ASSETS), unless stated otherwise.
 - **Third-party assets:** their own licenses apply, not the general asset license.
-  For example, [Pixelify Sans](./assets/font/README.md) uses SIL OFL 1.1.
+  For example, [Pixelify Sans](./assets/font/README.md) uses SIL OFL 1.1;
+  [NH172 HRTF data](./assets/hrtf/README.md) uses CC BY-SA 3.0; and
+  [FAST noise](./assets/texture/noise/fast/README.md) includes EA's BSD-3-Clause notice.
   Consult each asset folder's provenance and license notes; presence in this
   repository is not evidence of redistribution permission.
 

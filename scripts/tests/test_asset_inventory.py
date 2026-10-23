@@ -90,6 +90,26 @@ class AssetInventoryTests(unittest.TestCase):
         # Equal bytes at different paths remain separate; one duplicate path is counted once.
         self.assertEqual(len({row["sha256"] for row in rows}), 1)
 
+    def test_purpose_is_independent_of_loading_status_and_legacy_entries_still_work(
+        self,
+    ) -> None:
+        path = "assets/sfx/example.wav"
+        self.write(path)
+        item = group()
+        self.assertEqual(
+            ledger.inventory(self.root, [path], [item])[0]["purpose"], "待补用途"
+        )
+        item["purpose"] = "玩家脚步反馈"
+        row = ledger.inventory(self.root, [path], [item])[0]
+        self.assertEqual(row["purpose"], "玩家脚步反馈")
+        self.assertEqual(row["usage"], "运行时加载")
+        catalog: ledger.Catalog = {
+            "reviewed_revision": "fixture",
+            "reviewed_on": "2026-10-23",
+            "groups": [item],
+        }
+        self.assertIn("玩家脚步反馈", ledger.report([row], catalog))
+
     def test_overlapping_rules_fail_and_exclusion_resolves_the_ambiguity(self) -> None:
         broad = group("assets/*", "broad")
         narrow = group("assets/font/*", "font")

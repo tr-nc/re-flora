@@ -24,7 +24,14 @@ The final page of each JCGT PDF states that its authors provide the work under [
 
 Neither the CESCG publication page nor its PDF states a reuse license. The official PDF is preserved unmodified for project reference, but permission to redistribute an adapted full-text version could not be established. Its Markdown companion is likewise an original reading note and uses no extended quotation. Confirm rights before redistributing the CESCG PDF outside this repository.
 
-License/source review date: 2026-08-01.
+License/source review date: 2026-08-01; rechecked against both installed JCGT
+PDFs' final pages on 2026-10-23. The two unchanged JCGT PDFs may remain public
+with the above attribution and [full CC BY-ND 3.0 terms](LICENSE-CC-BY-ND-3.0.txt).
+The stored legal text comes from
+https://creativecommons.org/licenses/by-nd/3.0/legalcode.txt (LF/whitespace normalized,
+wording unchanged), SHA-256 `b9d9816260e23b4bdb71e0edc453497273f4cfc1fdf61207ee6cc1c7075a2479`.
+The CESCG PDF remains a separate unresolved redistribution question; its presence
+here is not evidence of permission, even if it is unmodified.
 
 ## Related implementation references
 

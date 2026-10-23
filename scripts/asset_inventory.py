@@ -68,6 +68,7 @@ FIELDS = [
     "bytes",
     "sha256",
     "group",
+    "purpose",
     "usage",
     "decision",
     "source",
@@ -77,7 +78,11 @@ FIELDS = [
 ]
 
 
-class Group(TypedDict):
+class OptionalGroupFields(TypedDict, total=False):
+    purpose: str
+
+
+class Group(OptionalGroupFields):
     id: str
     name: str
     patterns: list[str]
@@ -152,6 +157,7 @@ def inventory(
                 "bytes": str(len(data)),
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "group": group["id"] if group else "UNREVIEWED",
+                "purpose": group.get("purpose", "待补用途") if group else "待审计",
                 "usage": usage,
                 "decision": group["decision"] if group else "待审计，勿自动删除",
                 "source": group["source"] if group else "未记录",
@@ -206,8 +212,8 @@ def report(rows: list[dict[str, str]], catalog: Catalog) -> str:
         "表中数量包含该组随包说明；真正的引用状态以 CSV 的逐文件 usage 为准。",
         "“先核许可”不是“已确认侵权”；“归档”是建议，不是删除授权。",
         "",
-        "| 资产组 / ID | 文件数 | MiB | 使用状态 | 分仓建议 | 来源/许可证据 | 尚缺信息 |",
-        "| --- | ---: | ---: | --- | --- | --- | --- |",
+        "| 资产组 / ID | 文件数 | MiB | 具体用途 | 使用状态 | 分仓建议 | 来源/许可证据 | 尚缺信息 |",
+        "| --- | ---: | ---: | --- | --- | --- | --- | --- |",
     ]
     for group in catalog["groups"]:
         members = [row for row in rows if row["group"] == group["id"]]
@@ -216,6 +222,7 @@ def report(rows: list[dict[str, str]], catalog: Catalog) -> str:
             f"{group['name']} (`{group['id']}`)",
             str(len(members)),
             f"{size:.3f}",
+            group.get("purpose", "待补用途"),
             group["usage"],
             group["decision"],
             group["source"],
