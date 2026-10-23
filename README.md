@@ -85,7 +85,11 @@ player-facing README.
 
 ## License
 
-Re: Flora is dual-licensed:
+Re: Flora uses separate licenses for code and assets:
 
 - **Code:** [GPL-3.0](./LICENSE)
-- **Assets:** [CC BY-NC-SA 4.0](./LICENSE-ASSETS)
+- **Project-owned assets:** [CC BY-NC-SA 4.0](./LICENSE-ASSETS), unless stated otherwise.
+- **Third-party assets:** their own licenses apply, not the general asset license.
+  For example, [Pixelify Sans](./assets/font/README.md) uses SIL OFL 1.1.
+  Consult each asset folder's provenance and license notes; presence in this
+  repository is not evidence of redistribution permission.
