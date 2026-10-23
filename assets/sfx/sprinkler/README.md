@@ -1,0 +1,84 @@
+# Sprinkler sound assets
+
+This folder is a self-contained bundle: the original ElevenLabs download, the selected runtime loop, and their provenance/editing record. Generation settings below were supplied by the user; no regeneration was performed to verify them.
+
+## Files
+
+| File | Role | Duration | Frames |
+| --- | --- | --- | --- |
+| [sprinkler-original.wav](sprinkler-original.wav) | Unmodified original download, renamed for clarity; retain as the editing source | 8.000 s | 384,000 |
+| [sprinkler-first-6-loop.wav](sprinkler-first-6-loop.wav) | Selected loop containing the first six water bursts | 1.560 s | 74,880 |
+
+Both files are stereo, 48,000 Hz, signed 16-bit PCM WAV. In-game playback integration is pending; the original is not the intended playback clip.
+
+## Generation provenance
+
+- **Source/provider:** ElevenLabs.
+- **Model:** SFX v3.
+- **Loop:** on.
+- **Requested duration:** 8 seconds.
+- **Prompt Influence:** 30%.
+- **Prompt improve:** on.
+- **Original download filename:** `Seamless_loop_of_a_s_#1-1792739546356.wav`.
+- **Generation URL/asset ID and seed:** not supplied. The download filename is not asserted to be a generation ID.
+- **Effective improved prompt:** not supplied; the exact user-submitted prompt is recorded below, not a reconstruction of the service's rewrite.
+
+### Submitted prompt (verbatim)
+
+```text
+Seamless loop of a small garden sprinkler. Soft steady water spray with delicate droplets pattering on leaves. Gentle, soothing, consistent volume. No harsh hiss, mechanical clicks, background ambience or music. No startup, shutdown or fades.
+```
+
+Despite requesting steady water, this particular generated take has a pronounced repeating pulse. The user preferred that natural rhythmic result. Other prompts proposed during exploration were not reported as the prompt used for this file.
+
+## Selected loop construction
+
+The user reported unwanted clicks later in the take and selected the **first-six-bursts loop**, rather than the earlier longer crop or de-clicked/locally repaired experiments. Those rejected variants and preview files are not part of this bundle.
+
+The selected loop was made **directly from the unmodified original**, using Python `wave` and NumPy:
+
+1. Read the original stereo PCM without resampling or changing gain.
+2. Take frames **[0, 75,600)**, corresponding to **0–1.575 seconds**. This includes the first six bursts and 15 ms of trailing water before the next burst.
+3. Make a **720-frame / 15 ms circular equal-power overlap** between frames **[74,880, 75,600)** (tail) and **[0, 720)** (head). For each channel and `i = 0..719`:
+
+   ```text
+   theta = (pi / 2) * i / 719
+   output[i] = round(original[74880 + i] * cos(theta)
+                   + original[i] * sin(theta))
+   ```
+
+4. Append original frames **[720, 74,880)** unchanged. Write the resulting **74,880 frames / 1.560 seconds** as stereo 48 kHz PCM16 WAV. Rounding used NumPy `rint`; no sample clipped.
+
+Only the first 15 ms of the output differs from the corresponding original prefix; this is the circular seam, not a fade to silence. No de-clicking, local patching, normalization, gain adjustment, filtering, time stretching, or pitch shifting was applied. The original file remains byte-for-byte identical to the download. Keep these source/selected assets unnormalized; any later runtime trim or derivative must be documented separately.
+
+## Measured rhythm
+
+Analysis of this selected file used 5 ms stereo mean-square energy windows with a three-window moving average, followed by local-maximum selection with at least 180 ms separation. These are approximate **energy peak** times, not sample-accurate valve triggers:
+
+```text
+0.075, 0.335, 0.595, 0.860, 1.115, 1.380 seconds
+```
+
+- Six bursts in exactly **1.56 s**: **3.846153846 bursts/second**.
+- Mean burst interval including the loop seam: **0.260 s**.
+- Measured peak intervals, including wrap: **0.260, 0.260, 0.265, 0.255, 0.265, 0.255 s**.
+- If opposite nozzle pairs alternate once per burst: one pair switch every **0.260 s**; a complete Z→X→Z cycle every **0.520 s** (**1.923076923 full cycles/second**).
+- Loop repetition frequency is **0.641025641 Hz**; do not confuse this with the six-times-faster burst cadence or with spectral pitch.
+- Selected loop peak level: approximately **−22.99 dBFS**. No runtime loudness setting has been selected yet.
+
+Duty cycle/active spray duration has **not** been measured or approved. Do not infer it from the 15 ms edit crossfade. The first measured peak is about 75 ms after the file begins, so playback phase and motion phase must account for this if aligning the visible impact with the sound.
+
+## Integrity
+
+SHA-256:
+
+```text
+8d29f222b7cd7d20b8f36659f39c59c31febd28de2b093048467b448a24e9197  sprinkler-original.wav
+05984b1b8009b8a0355e91d05d29968f9bb2c9829606f4f8aaa83534a708d146  sprinkler-first-6-loop.wav
+```
+
+Validated: durations/frame counts, WAV decoding, six energy peaks, no clipping, and unchanged selected samples outside the circular seam. User selected this version after previewing alternatives; in-game loudness, spatialization, and audiovisual alignment still need a listening pass.
+
+## Usage rights
+
+The user supplied the ElevenLabs output and authorized importing these two files into this project. Account/subscription details, generation-time license terms, and any applicable attribution/redistribution requirements were not supplied or verified here. This provenance record does not assert a separate license grant or that naming ElevenLabs alone establishes redistribution rights.
