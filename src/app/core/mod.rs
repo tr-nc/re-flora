@@ -1,4 +1,5 @@
 use crate::app::ui_text;
+use crate::audio::runtime_assets::{ITEM_PANEL_SCROLL_SFX_PATH, TERRAIN_EDIT_LOOP_PATH};
 #[allow(unused)]
 use crate::util::Timer;
 
@@ -948,12 +949,8 @@ const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
 const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
 const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
 const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
-const TERRAIN_EDIT_LOOP_PATH: &str =
-    "assets/sfx/ROCKMisc_Designed Rock Movement Loop A_SARM_RkBrck_Stereo-Loop.wav";
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
 const TERRAIN_EDIT_LOOP_MUTED_VOLUME_DB: f32 = -80.0;
-const ITEM_PANEL_SCROLL_SFX_PATH: &str =
-    "assets/sfx/MECHSwtch_Game Boy Advance SP, B Button, On 05_SARM_BTNS.wav";
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
 const FLORA_SPROUT_DELAY_TICKS: u32 = 2;
 const FLORA_FULL_GROWTH_TICKS: u32 = 30;

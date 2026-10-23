@@ -1,116 +1,133 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use petalsonic::ResidentClip;
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
-/// Cache for pre-loaded audio clips to avoid redundant file I/O.
-///
-/// This cache loads all audio files from the assets/sfx directory at initialization
-/// and provides O(1) lookup by full path. This is crucial for performance when the
-/// same audio clip (for example, UI or ambience one-shots) needs to be instantiated many times.
+/// Immutable, preloaded runtime SFX. Playback never scans directories or decodes files.
+/// Source recordings and candidates are not loaded unless declared in runtime_assets.
 pub struct AudioClipCache {
     clips: HashMap<String, ResidentClip>,
 }
 
 impl AudioClipCache {
-    /// Creates a new AudioClipCache and pre-loads all audio files from assets/sfx.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The assets/sfx directory cannot be read
-    /// - Any audio file fails to load
+    /// Preload the runtime manifest. Declared assets remain required: missing or invalid
+    /// files return a path-qualified error. Unlisted files have no effect on startup.
     pub fn new() -> Result<Self> {
+        let cache = Self::load(
+            Path::new(&crate::util::get_project_root()),
+            super::runtime_assets::paths(),
+        )?;
+        log::info!(
+            "[AUDIO][ASSETS] loaded={} selection=runtime_manifest directory_scan=false",
+            cache.len()
+        );
+        Ok(cache)
+    }
+
+    fn load(project_root: &Path, paths: impl IntoIterator<Item = String>) -> Result<Self> {
         let mut clips = HashMap::new();
-
-        // Construct the path to assets/sfx
-        let project_root = crate::util::get_project_root();
-        let sfx_dir = format!("{}assets/sfx", project_root);
-        let sfx_path = Path::new(&sfx_dir);
-
-        // Check if directory exists
-        if !sfx_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Audio directory does not exist: {}",
-                sfx_dir
-            ));
+        for path in paths {
+            let key = path.replace('\\', "/");
+            if clips.contains_key(&key) {
+                continue;
+            }
+            let full_path = project_root.join(&key);
+            let clip = ResidentClip::from_path(&full_path)
+                .with_context(|| format!("Failed to load declared runtime SFX: {key}"))?;
+            clips.insert(key, clip);
         }
-
-        // Recursively load all .wav files
-        Self::load_wav_files_recursive(&mut clips, sfx_path, &project_root)?;
-
         Ok(Self { clips })
     }
 
-    /// Recursively loads all .wav files from a directory
-    fn load_wav_files_recursive(
-        clips: &mut HashMap<String, ResidentClip>,
-        dir: &Path,
-        project_root: &str,
-    ) -> Result<()> {
-        let entries = fs::read_dir(dir)?;
-
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_dir() {
-                // Recursively process subdirectories
-                Self::load_wav_files_recursive(clips, &path, project_root)?;
-            } else if path.is_file() && path.extension().is_some_and(|ext| ext == "wav") {
-                // Process .wav files
-                let full_path_str = path.to_str().ok_or_else(|| {
-                    anyhow::anyhow!("Failed to convert path to string: {:?}", path)
-                })?;
-
-                // Normalize path separators
-                let normalized_full_path = full_path_str.replace('\\', "/");
-                let normalized_root = project_root.replace('\\', "/");
-
-                // Strip the project root to get the relative path
-                let relative_path =
-                    if let Some(rel) = normalized_full_path.strip_prefix(&normalized_root) {
-                        rel.to_string()
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Path {} is not under project root {}",
-                            normalized_full_path,
-                            normalized_root
-                        ));
-                    };
-
-                // Load the audio data
-                let clip = ResidentClip::from_path(&normalized_full_path)?;
-
-                clips.insert(relative_path, clip);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Gets a cached audio clip by its full path.
-    ///
-    /// # Arguments
-    /// * `path` - The full path to the audio file (e.g., "assets/sfx/click.wav")
-    ///
-    /// # Returns
-    /// Some immutable ResidentClip if the clip is cached, None otherwise.
+    /// Look up a project-relative path, e.g. assets/sfx/click.wav.
     pub fn get(&self, path: &str) -> Option<ResidentClip> {
-        // Normalize the input path to match cached paths
-        let normalized_path = path.replace('\\', "/");
-        self.clips.get(&normalized_path).cloned()
+        self.clips.get(&path.replace('\\', "/")).cloned()
     }
 
-    /// Returns the number of cached audio clips
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.clips.len()
     }
 
-    /// Returns true if the cache is empty
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.clips.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    // Tiny PCM16 mono WAV; no audio device or project assets are needed by these tests.
+    fn write_clip(root: &Path, path: &str) {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&44u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&48_000u32.to_le_bytes());
+        wav.extend_from_slice(&96_000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&8u32.to_le_bytes());
+        for sample in [0i16, 100, -100, 0] {
+            wav.extend_from_slice(&sample.to_le_bytes());
+        }
+        fs::write(path, wav).unwrap();
+    }
+
+    #[test]
+    fn loads_runtime_manifest_without_decoding_unlisted_candidates_or_originals() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = super::super::runtime_assets::paths();
+        for path in &paths {
+            write_clip(root.path(), path);
+        }
+        // A stray invalid WAV used to abort startup during the recursive scan.
+        let stray = "assets/sfx/candidates/broken-original.wav";
+        fs::create_dir_all(root.path().join("assets/sfx/candidates")).unwrap();
+        fs::write(root.path().join(stray), b"not a WAV").unwrap();
+        let cache = AudioClipCache::load(root.path(), paths.clone()).unwrap();
+        assert_eq!(cache.len(), paths.len());
+        for path in &paths {
+            assert!(cache.get(path).is_some(), "missing {path}");
+        }
+        assert!(cache.get(stray).is_none());
+        let selected = &paths[0];
+        assert!(cache.get(&selected.replace('/', "\\")).is_some());
+        assert!(cache.get(selected).is_some()); // repeated playback retains the clip
+    }
+
+    #[test]
+    fn missing_and_corrupt_declared_clips_report_the_relative_path() {
+        let root = tempfile::tempdir().unwrap();
+        let path = "assets/sfx/required.wav";
+        for corrupt in [false, true] {
+            if corrupt {
+                fs::create_dir_all(root.path().join("assets/sfx")).unwrap();
+                fs::write(root.path().join(path), b"invalid WAV").unwrap();
+            }
+            let error = AudioClipCache::load(root.path(), [path.to_owned()])
+                .err()
+                .expect("declared clip must fail to load");
+            assert!(error.to_string().contains(path));
+        }
+    }
+
+    #[test]
+    fn empty_selection_needs_no_asset_directory_and_duplicates_are_deduplicated() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(AudioClipCache::load(root.path(), []).unwrap().is_empty());
+        let path = "assets/sfx/selected.wav";
+        write_clip(root.path(), path);
+        let cache =
+            AudioClipCache::load(root.path(), [path.to_owned(), path.replace('/', "\\")]).unwrap();
+        assert_eq!(cache.len(), 1);
     }
 }

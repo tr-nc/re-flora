@@ -1,3 +1,4 @@
+use super::runtime_assets::FootstepClipBank;
 use super::spatial_sound_manager::{
     AcousticPipelineSnapshot, SpatialFramePublication, TransientSpatialEmitter,
 };
@@ -403,31 +404,7 @@ impl<EmitterHandle, ControlHandle> ActiveFootstepRegistry<EmitterHandle, Control
     }
 }
 
-struct FootstepClipBank {
-    walk_paths: Vec<String>,
-    jump_paths: Vec<String>,
-    land_paths: Vec<String>,
-    run_paths: Vec<String>,
-}
-
 impl FootstepClipBank {
-    fn new() -> Self {
-        Self {
-            jump_paths: Self::clip_paths("jump", 10),
-            land_paths: Self::clip_paths("land", 10),
-            walk_paths: Self::clip_paths("walk", 25),
-            run_paths: Self::clip_paths("run", 25),
-        }
-    }
-
-    fn clip_paths(sample_name: &str, sample_count: usize) -> Vec<String> {
-        let prefix =
-            "assets/sfx/Footsteps SFX - Undergrowth & Leaves/TomWinandySFX - FS_UndergrowthLeaves_";
-        (1..=sample_count)
-            .map(|index| format!("{prefix}{sample_name}_{index:02}.wav"))
-            .collect()
-    }
-
     fn deterministic_path(paths: &[String], event_seq: u64) -> &str {
         &paths[(event_seq % paths.len() as u64) as usize]
     }
