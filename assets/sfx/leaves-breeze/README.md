@@ -55,4 +55,8 @@ cc5772164930744415b20b3b4cbcd9a2dc215e9cdf13651c61e46ed3a1f5d67d  leaves-breeze-
 
 ## Usage rights
 
-The user supplied these ElevenLabs files and authorized moving all four into the project. Account/subscription details, generation-time license terms, and applicable attribution/redistribution requirements were not supplied or verified. This note does not assert that the provider name or import permission alone establishes redistribution rights.
+**Commercial release blocked — Free-plan generation (confirmed by the user; checked 2026-10-23).** ElevenLabs' [official publication policy](https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform) says Free-plan outputs cannot be used commercially. Attribution does not grant commercial permission, and later upgrading does not automatically license previously generated files. This applies to the originals and any derivatives in this folder.
+
+The user authorized importing these files, but that is not a commercial or redistribution license. Before commercial use, replace them with qualifying paid-plan generations or obtain explicit written authorization from ElevenLabs for these outputs. No such authorization has been supplied. Billing details, generation-time terms/notice history and any separate agreement have not been verified.
+
+The [ElevenCreative Terms, Exhibit 4 section 2](https://elevenlabs.io/creative-terms) also restrict standalone/isolated SFX distribution. Do not assume even paid-plan outputs may be published as raw WAVs in a public repository or reusable asset library. Nothing was pushed during this import/review work. This note records the published policy, not a separate license grant.

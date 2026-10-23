@@ -81,4 +81,8 @@ Validated: durations/frame counts, WAV decoding, six energy peaks, no clipping, 
 
 ## Usage rights
 
-The user supplied the ElevenLabs output and authorized importing these two files into this project. Account/subscription details, generation-time license terms, and any applicable attribution/redistribution requirements were not supplied or verified here. This provenance record does not assert a separate license grant or that naming ElevenLabs alone establishes redistribution rights.
+**Commercial release blocked — Free-plan generation (confirmed by the user; checked 2026-10-23).** ElevenLabs' [official publication policy](https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform) says Free-plan outputs cannot be used commercially. Attribution does not grant commercial permission, and later upgrading does not automatically license previously generated files. This applies to the originals and any derivatives in this folder.
+
+The user authorized importing these files, but that is not a commercial or redistribution license. Before commercial use, replace them with qualifying paid-plan generations or obtain explicit written authorization from ElevenLabs for these outputs. No such authorization has been supplied. Billing details, generation-time terms/notice history and any separate agreement have not been verified.
+
+The [ElevenCreative Terms, Exhibit 4 section 2](https://elevenlabs.io/creative-terms) also restrict standalone/isolated SFX distribution. Do not assume even paid-plan outputs may be published as raw WAVs in a public repository or reusable asset library. Nothing was pushed during this import/review work. This note records the published policy, not a separate license grant.
