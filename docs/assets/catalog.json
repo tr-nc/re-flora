@@ -1,0 +1,699 @@
+{
+  "reviewed_revision": "a64a07b9d1baccb66a9a49156d207b371c36176a",
+  "reviewed_on": "2026-10-23",
+  "groups": [
+    {
+      "id": "font",
+      "name": "Pixelify Sans",
+      "patterns": [
+        "assets/font/*"
+      ],
+      "exclude": [],
+      "usage": "运行时加载",
+      "decision": "保留公开",
+      "source": "已核本地字体 OFL 1.1；许可随包",
+      "gap": "原始下载批次未记录；当前上游 TTF 不同字节，不影响已核字体内许可",
+      "evidence": [
+        "assets/font/README.md",
+        "assets/font/OFL.txt",
+        "src/app/core/ui_style.rs"
+      ]
+    },
+    {
+      "id": "hrtf-project",
+      "name": "项目 HRTF",
+      "patterns": [
+        "assets/hrtf/*"
+      ],
+      "exclude": [],
+      "usage": "运行时加载",
+      "decision": "先核许可，保留合法基础版",
+      "source": "NH172 Neumann KU100；原始数据与转换来源不完整",
+      "gap": "补原始数据 URL/许可、转换命令；显式 override 缺失不会退回内嵌数据",
+      "evidence": [
+        "assets/hrtf/README.md",
+        "src/audio/spatial_sound_manager.rs",
+        "crates/petalsonic/src/spatial/processor.rs"
+      ]
+    },
+    {
+      "id": "hrtf-embedded",
+      "name": "PetalSonic 内嵌 HRTF",
+      "patterns": [
+        "crates/petalsonic/asset/hrtf/*"
+      ],
+      "exclude": [],
+      "usage": "编译时嵌入",
+      "decision": "先核许可，保留合法基础版",
+      "source": "与项目 HRTF 字节相同；crate 代码许可不代替数据许可",
+      "gap": "和项目副本一起处理；移走会破坏编译",
+      "evidence": [
+        "crates/petalsonic/src/spatial/processor.rs",
+        "assets/hrtf/README.md"
+      ]
+    },
+    {
+      "id": "model-butterfly",
+      "name": "正式蝴蝶模型",
+      "patterns": [
+        "assets/models/butterfly.glb"
+      ],
+      "exclude": [],
+      "usage": "编译时嵌入 / 网页预览",
+      "decision": "保留公开基础资源",
+      "source": "项目 Blender v5 制作，有源工程和导出记录",
+      "gap": "源清单 art_basis 提到旧手绘参考，参考来源仍应补明",
+      "evidence": [
+        "src/model_assets.rs",
+        "assets/models/README.md",
+        "experiments/butterfly-method-comparison/blender-v5/source-manifest.json"
+      ]
+    },
+    {
+      "id": "model-leaf",
+      "name": "叶片、64 变体与生成源",
+      "patterns": [
+        "assets/models/leaf*"
+      ],
+      "exclude": [],
+      "usage": "编译时嵌入 / 构建源",
+      "decision": "保留公开基础资源",
+      "source": "项目参数化生成；源码、发布指纹可追溯",
+      "gap": "无已知外部原始模型依赖；保持源码与生成物同步",
+      "evidence": [
+        "src/model_assets.rs",
+        "build.rs",
+        "assets/models/README.md"
+      ]
+    },
+    {
+      "id": "model-apple",
+      "name": "苹果模型与生成源",
+      "patterns": [
+        "assets/models/apple*"
+      ],
+      "exclude": [],
+      "usage": "编译时嵌入 / 构建源",
+      "decision": "保留公开基础资源",
+      "source": "项目参数化生成",
+      "gap": "保持源码与生成物同步",
+      "evidence": [
+        "src/tracer/apple_preview.rs",
+        "build.rs",
+        "assets/models/README.md"
+      ]
+    },
+    {
+      "id": "model-flower",
+      "name": "花朵模型、调色板与生成源",
+      "patterns": [
+        "assets/models/flower*",
+        "assets/models/parametric-flower.mjs",
+        "assets/models/palette-mask.mjs"
+      ],
+      "exclude": [],
+      "usage": "编译时嵌入 / 构建源",
+      "decision": "保留公开基础资源",
+      "source": "项目参数化生成；JSON 含派生贴图数据",
+      "gap": "JSON 内嵌 atlas 不单独计图片；保持源码与生成物同步",
+      "evidence": [
+        "src/flora/models.rs",
+        "build.rs",
+        "assets/models/README.md"
+      ]
+    },
+    {
+      "id": "model-soil",
+      "name": "土袋模型、贴纸与生成源",
+      "patterns": [
+        "assets/models/soil-bag*"
+      ],
+      "exclude": [],
+      "usage": "编译时嵌入 / 构建源",
+      "decision": "保留公开基础资源",
+      "source": "项目模型/矢量贴纸生成",
+      "gap": "保持源码、JSON、PNG 与指纹同步",
+      "evidence": [
+        "src/soil_bag.rs",
+        "src/tracer/model_geometry.rs",
+        "build.rs",
+        "assets/models/README.md"
+      ]
+    },
+    {
+      "id": "bundle-notes",
+      "name": "跨包说明",
+      "patterns": [
+        "assets/models/README.md",
+        "assets/sfx/README.md"
+      ],
+      "exclude": [],
+      "usage": "说明文件",
+      "decision": "保留公开",
+      "source": "项目文档",
+      "gap": "无",
+      "evidence": [
+        "assets/models/README.md",
+        "assets/sfx/README.md"
+      ]
+    },
+    {
+      "id": "footsteps",
+      "name": "脚步音效",
+      "patterns": [
+        "assets/sfx/Footsteps SFX - Undergrowth & Leaves/*"
+      ],
+      "exclude": [],
+      "usage": "运行时预加载 / 事件播放",
+      "decision": "拆出私有或替换",
+      "source": "High Impact Media / Tom Winandy；购买已确认，当前许可已保存",
+      "gap": "禁止可提取原始音频的开源分发；历史处理和购买时版本条款未恢复",
+      "evidence": [
+        "src/audio/runtime_assets.rs",
+        "src/audio/local_player_footsteps.rs",
+        "assets/sfx/Footsteps SFX - Undergrowth & Leaves/README.md",
+        "assets/sfx/Footsteps SFX - Undergrowth & Leaves/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "sound-armoury",
+      "name": "地形编辑循环与 UI 按键",
+      "patterns": [
+        "assets/sfx/ROCKMisc*",
+        "assets/sfx/MECHSwtch*"
+      ],
+      "exclude": [],
+      "usage": "运行时预加载 / 事件播放",
+      "decision": "暂按私有候选，待授权确认",
+      "source": "WAV 元数据：Sound Armoury",
+      "gap": "缺商品 URL、购买记录、许可原文和历史处理记录",
+      "evidence": [
+        "src/audio/runtime_assets.rs",
+        "src/app/core/input.rs"
+      ]
+    },
+    {
+      "id": "cicadas",
+      "name": "夏蝉音效",
+      "patterns": [
+        "assets/sfx/summer_cicadas/*"
+      ],
+      "exclude": [],
+      "usage": "运行时预加载 / 生态触发",
+      "decision": "暂按私有候选，待授权确认",
+      "source": "SA_SF_CricketsCicadas_96k_v1.0；已有文件对应与处理记录",
+      "gap": "缺购买凭证、商品 URL 和许可原文",
+      "evidence": [
+        "src/audio/runtime_assets.rs",
+        "src/audio/summer_cicadas.rs",
+        "assets/sfx/summer_cicadas/README.md",
+        "assets/sfx/summer_cicadas/provenance.json"
+      ]
+    },
+    {
+      "id": "sprinkler",
+      "name": "喷水器候选",
+      "patterns": [
+        "assets/sfx/sprinkler/*"
+      ],
+      "exclude": [],
+      "usage": "未接入运行时",
+      "decision": "拆出隔离；商用先重制/获许可",
+      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
+      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
+      "evidence": [
+        "assets/sfx/sprinkler/README.md",
+        "src/audio/runtime_assets.rs",
+        "docs/research/elevenlabs-sfx-commercial-license.md"
+      ]
+    },
+    {
+      "id": "apple-dirt",
+      "name": "苹果落地候选",
+      "patterns": [
+        "assets/sfx/apple-dirt/*"
+      ],
+      "exclude": [],
+      "usage": "未接入运行时",
+      "decision": "拆出隔离；商用先重制/获许可",
+      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
+      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
+      "evidence": [
+        "assets/sfx/apple-dirt/README.md",
+        "src/audio/runtime_assets.rs",
+        "docs/research/elevenlabs-sfx-commercial-license.md"
+      ]
+    },
+    {
+      "id": "leaves-breeze",
+      "name": "微风叶片候选",
+      "patterns": [
+        "assets/sfx/leaves-breeze/*"
+      ],
+      "exclude": [],
+      "usage": "未接入运行时",
+      "decision": "拆出隔离；商用先重制/获许可",
+      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
+      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
+      "evidence": [
+        "assets/sfx/leaves-breeze/README.md",
+        "src/audio/runtime_assets.rs",
+        "docs/research/elevenlabs-sfx-commercial-license.md"
+      ]
+    },
+    {
+      "id": "leaves-strong-wind",
+      "name": "强风叶片候选",
+      "patterns": [
+        "assets/sfx/leaves-strong-wind/*"
+      ],
+      "exclude": [],
+      "usage": "未接入运行时",
+      "decision": "拆出隔离；商用先重制/获许可",
+      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
+      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
+      "evidence": [
+        "assets/sfx/leaves-strong-wind/README.md",
+        "src/audio/runtime_assets.rs",
+        "docs/research/elevenlabs-sfx-commercial-license.md"
+      ]
+    },
+    {
+      "id": "old-tree-loop",
+      "name": "旧树叶循环",
+      "patterns": [
+        "assets/sfx/tree_sound_48k_pregain_40db.wav"
+      ],
+      "exclude": [],
+      "usage": "未发现有效播放引用",
+      "decision": "归档/移出，先核来源",
+      "source": "文件名表明预增益，但没有完整来源记录",
+      "gap": "补原始来源和处理参数；当前树叶声为程序合成",
+      "evidence": [
+        "src/audio/tree_audio_manager.rs",
+        "src/audio/runtime_assets.rs"
+      ]
+    },
+    {
+      "id": "tool-icons",
+      "name": "当前工具图标",
+      "patterns": [
+        "assets/texture/tool_icons/dig.png",
+        "assets/texture/tool_icons/grow.png",
+        "assets/texture/tool_icons/inspector.png",
+        "assets/texture/tool_icons/smooth.png",
+        "assets/texture/tool_icons/sprinkler.png",
+        "assets/texture/tool_icons/till.png",
+        "assets/texture/tool_icons/trim.png",
+        "assets/texture/tool_icons/water.png"
+      ],
+      "exclude": [],
+      "usage": "运行时加载",
+      "decision": "先补来源，再定是否拆出",
+      "source": "Git 导入记录只有 add icons",
+      "gap": "请确认自制/生成/购买来源及许可；暂不能认定为项目自有",
+      "evidence": [
+        "src/app/core/ui_style.rs",
+        "src/app/core/mod.rs"
+      ]
+    },
+    {
+      "id": "tool-tree-icon",
+      "name": "未使用树图标",
+      "patterns": [
+        "assets/texture/tool_icons/tree.png"
+      ],
+      "exclude": [],
+      "usage": "未发现游戏引用",
+      "decision": "归档候选，先核来源",
+      "source": "与工具图标同批导入",
+      "gap": "同上；无引用不等于已经授权删除",
+      "evidence": [
+        "src/app/core/ui_style.rs"
+      ]
+    },
+    {
+      "id": "farm-fallback",
+      "name": "农具图标：7 个备用项",
+      "patterns": [
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/10_Wooden_Shovel.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/24_Copper_Pickaxe.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG"
+      ],
+      "exclude": [],
+      "usage": "条件加载：主图标缺失时",
+      "decision": "拆出/替换，先做公共兜底",
+      "source": "随包许可允许项目使用，禁止原始素材再分发",
+      "gap": "缺作者/商品 URL/购买记录；当前备用依赖仍在",
+      "evidence": [
+        "src/app/core/ui_style.rs",
+        "src/app/core/mod.rs",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/README.txt"
+      ]
+    },
+    {
+      "id": "farm-unused",
+      "name": "农具图标：其余图片与许可",
+      "patterns": [
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/*"
+      ],
+      "exclude": [
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/10_Wooden_Shovel.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/24_Copper_Pickaxe.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG"
+      ],
+      "usage": "未发现游戏引用",
+      "decision": "拆出私有或归档",
+      "source": "同包限制再分发",
+      "gap": "补作者/商品 URL/购买记录",
+      "evidence": [
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/README.txt",
+        "src/app/core/ui_style.rs"
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "太阳贴图",
+      "patterns": [
+        "assets/texture/Planets_16x16/Sun.png"
+      ],
+      "exclude": [],
+      "usage": "运行时加载",
+      "decision": "拆出/替换，先做公共太阳",
+      "source": "Planets_16x16 随包许可限制原始资产再分发",
+      "gap": "补作者/购买来源；当前缺文件会 panic",
+      "evidence": [
+        "src/tracer/resources.rs",
+        "assets/texture/Planets_16x16/License.txt"
+      ]
+    },
+    {
+      "id": "planets16-unused",
+      "name": "16px 行星包其余图片与许可",
+      "patterns": [
+        "assets/texture/Planets_16x16/*"
+      ],
+      "exclude": [
+        "assets/texture/Planets_16x16/Sun.png"
+      ],
+      "usage": "未发现游戏引用",
+      "decision": "拆出私有或归档",
+      "source": "同包限制再分发",
+      "gap": "缺作者、商品 URL 和购买凭证",
+      "evidence": [
+        "assets/texture/Planets_16x16/License.txt",
+        "src/tracer/resources.rs"
+      ]
+    },
+    {
+      "id": "other-planets",
+      "name": "其余两个行星包",
+      "patterns": [
+        "assets/texture/Planets/*",
+        "assets/texture/Planet_Pack_bycancer/*"
+      ],
+      "exclude": [],
+      "usage": "未发现游戏引用",
+      "decision": "归档/隔离，先核来源",
+      "source": "其中一包仅目录名 bycancer；无完整来源说明",
+      "gap": "补商品 URL、作者和许可",
+      "evidence": [
+        "src/tracer/resources.rs"
+      ]
+    },
+    {
+      "id": "fast-noise",
+      "name": "FAST 噪声（两组）",
+      "patterns": [
+        "assets/texture/noise/fast/*"
+      ],
+      "exclude": [],
+      "usage": "运行时加载全部切片",
+      "decision": "保留合法基础数据，先补许可",
+      "source": "README 给出 EA FastNoise 和生成命令",
+      "gap": "补生成器版本、上游 BSD 通知及输出适用许可核对；不只给链接",
+      "evidence": [
+        "assets/texture/noise/fast/README.md",
+        "src/tracer/resources.rs"
+      ]
+    },
+    {
+      "id": "stbn-noise",
+      "name": "STBN 噪声（四组）",
+      "patterns": [
+        "assets/texture/noise/stbn/*"
+      ],
+      "exclude": [],
+      "usage": "运行时加载全部切片",
+      "decision": "先核许可；必要时替换",
+      "source": "README 仅 NVIDIA 技术博客链接",
+      "gap": "缺来源版本、数据许可与取得方式；不能从代码/文章许可推断纹理可商用",
+      "evidence": [
+        "assets/texture/noise/stbn/README.md",
+        "src/tracer/resources.rs"
+      ]
+    },
+    {
+      "id": "wind-reference",
+      "name": "风声参考录音",
+      "patterns": [
+        "docs/audio/wind_ref.wav"
+      ],
+      "exclude": [],
+      "usage": "研究/分析参考，非游戏输入",
+      "decision": "先核来源，必要时隔离",
+      "source": "文档称 reference capture，未写原音源授权",
+      "gap": "补录制对象、原始来源与许可；capture 不等于自己拥有声音",
+      "evidence": [
+        "docs/procedural_tree_rustle_progress.md"
+      ]
+    },
+    {
+      "id": "splash-promo",
+      "name": "README 宣传图",
+      "patterns": [
+        "demo/img/splash.png"
+      ],
+      "exclude": [],
+      "usage": "README 引用 / 发行包复制",
+      "decision": "先补来源",
+      "source": "未找到同目录制作说明",
+      "gap": "确认截图还是绘制/生成图及素材来源；不是游戏启动屏加载图",
+      "evidence": [
+        "README.md",
+        "scripts/package_release.py"
+      ]
+    },
+    {
+      "id": "native-evidence",
+      "name": "原生游戏证据截图",
+      "patterns": [
+        "docs/evidence/*.png",
+        "docs/discussions/assets/*.webp",
+        "docs/research/stone-models/*.png"
+      ],
+      "exclude": [],
+      "usage": "文档证据，非游戏输入",
+      "decision": "保留文档，按所含素材核权",
+      "source": "相关验收文档/屋顶 PoC 截图",
+      "gap": "截图中的第三方视觉素材不自动变成项目自有；无需当作运行资产分仓",
+      "evidence": [
+        "docs/evidence/model-cache-restored/summary.json",
+        "docs/research/model-view-quantization.md",
+        "docs/rooftop_poc.md",
+        "docs/research/procedural-stone-models.md"
+      ]
+    },
+    {
+      "id": "dither-evidence",
+      "name": "抖动实验截图",
+      "patterns": [
+        "docs/research/ordered-dither-assets/*.png"
+      ],
+      "exclude": [],
+      "usage": "研究网页/证据",
+      "decision": "保留文档",
+      "source": "evidence.json 记录真实 Release 截图来源和设置",
+      "gap": "注意截图所含第三方素材；不是运行时噪声贴图",
+      "evidence": [
+        "docs/research/ordered-dither-assets/evidence.json",
+        "docs/research/ordered-dither.md",
+        "docs/research/ordered-dither.html"
+      ]
+    },
+    {
+      "id": "stone-obj",
+      "name": "石材 OBJ 导出样本",
+      "patterns": [
+        "docs/research/stone-models/*.obj"
+      ],
+      "exclude": [],
+      "usage": "研究/制作输出，非游戏模型输入",
+      "decision": "保留或独立研究归档",
+      "source": "项目 StoneSpec 程序生成",
+      "gap": "运行时使用 Rust 生成器而非读取这些 OBJ",
+      "evidence": [
+        "docs/research/procedural-stone-models.md",
+        "src/stone_models.rs"
+      ]
+    },
+    {
+      "id": "papers",
+      "name": "DDGI 论文 PDF",
+      "patterns": [
+        "docs/references/ddgi/*.pdf"
+      ],
+      "exclude": [],
+      "usage": "研究文献",
+      "decision": "核实再分发；可改官方链接",
+      "source": "有作者、论文与官方来源链接",
+      "gap": "逐篇核 PDF 转载条款；能公开下载不等于允许仓库镜像",
+      "evidence": [
+        "docs/references/ddgi/README.md"
+      ]
+    },
+    {
+      "id": "butterfly-ai",
+      "name": "失败的 AI 蝴蝶候选",
+      "patterns": [
+        "experiments/butterfly-method-comparison/ai-route-a*.png"
+      ],
+      "exclude": [],
+      "usage": "历史实验，非游戏输入",
+      "decision": "隔离/归档，先核生成许可",
+      "source": "manifest: 内置 image_gen；保留两次输出及缩放图",
+      "gap": "缺确切服务/模型、完整提交提示、生成时条款；不猜商业权限",
+      "evidence": [
+        "experiments/butterfly-method-comparison/ai-route-a-manifest.json",
+        "experiments/butterfly-method-comparison/README.md"
+      ]
+    },
+    {
+      "id": "butterfly-v5-source",
+      "name": "批准蝴蝶 Blender 源工程与导出 GLB",
+      "patterns": [
+        "experiments/butterfly-method-comparison/blender-v5/*.blend",
+        "experiments/butterfly-method-comparison/blender-v5/*.glb"
+      ],
+      "exclude": [],
+      "usage": "当前制作源，非游戏直接输入",
+      "decision": "保留制作源或独立公开制作仓库",
+      "source": "Blender v5；正式产物发布到 assets/models",
+      "gap": "不要把当前制作源当废弃文件；旧手绘参考出处需补",
+      "evidence": [
+        "experiments/butterfly-method-comparison/blender-v5/README.md",
+        "experiments/butterfly-method-comparison/blender-v5/source-manifest.json",
+        "assets/models/README.md"
+      ]
+    },
+    {
+      "id": "butterfly-v5-evidence",
+      "name": "批准蝴蝶离线图集/截图",
+      "patterns": [
+        "experiments/butterfly-method-comparison/blender-v5/*.png"
+      ],
+      "exclude": [],
+      "usage": "离线制作/回归证据",
+      "decision": "可归档，保留源工程关联",
+      "source": "v5 制作流程派生输出",
+      "gap": "不被游戏读取；注意 README 中旧验收描述的历史时效",
+      "evidence": [
+        "experiments/butterfly-method-comparison/blender-v5/README.md",
+        "experiments/butterfly-method-comparison/blender-v5/source-manifest.json"
+      ]
+    },
+    {
+      "id": "butterfly-old",
+      "name": "旧蝴蝶 Blender v1–v4 输出",
+      "patterns": [
+        "experiments/butterfly-method-comparison/blender/*",
+        "experiments/butterfly-method-comparison/blender-v2/*",
+        "experiments/butterfly-method-comparison/blender-v3/*",
+        "experiments/butterfly-method-comparison/blender-v4/*"
+      ],
+      "exclude": [],
+      "usage": "历史制作/实验记录",
+      "decision": "可独立归档；不是必须私有",
+      "source": "各版本 source-manifest 与脚本可追溯",
+      "gap": "art_basis 涉及旧手绘参考；保留证据时不要声称原始参考已完全移除",
+      "evidence": [
+        "experiments/butterfly-method-comparison/README.md",
+        "experiments/butterfly-method-comparison/blender/source-manifest.json"
+      ]
+    },
+    {
+      "id": "butterfly-resolution",
+      "name": "蝴蝶分辨率研究图片",
+      "patterns": [
+        "experiments/butterfly-method-comparison/resolution-study/*.png"
+      ],
+      "exclude": [],
+      "usage": "研究记录",
+      "decision": "可归档，先核参考来源",
+      "source": "项目分辨率实验；README 记录方法",
+      "gap": "参考输入许可需追溯，非运行时贴图",
+      "evidence": [
+        "experiments/butterfly-method-comparison/resolution-study/README.md"
+      ]
+    },
+    {
+      "id": "splash-html",
+      "name": "内嵌字体的启动屏原型 HTML",
+      "patterns": [
+        "docs/research/splash-prototype.html"
+      ],
+      "exclude": [],
+      "usage": "离线网页原型",
+      "decision": "保留工具，随附字体许可",
+      "source": "项目生成网页；内嵌 Pixelify Sans 原字节",
+      "gap": "单独分发 HTML 时也须遵守字体 OFL；不只检查独立 TTF",
+      "evidence": [
+        "docs/research/splash-prototype.md",
+        "scripts/build-splash-prototype.mjs",
+        "assets/font/OFL.txt"
+      ]
+    },
+    {
+      "id": "butterfly-html",
+      "name": "内嵌旧蝴蝶参考图的 HTML",
+      "patterns": [
+        "experiments/butterfly-method-comparison/butterfly-art-workflow.html"
+      ],
+      "exclude": [],
+      "usage": "历史研究网页",
+      "decision": "隔离/清理候选，先核参考许可",
+      "source": "HTML 内嵌 Blue.png 等旧参考，独立 PNG 已退役",
+      "gap": "原参考来源/许可未闭合；仅删除外部 PNG 不能移除内嵌副本",
+      "evidence": [
+        "experiments/butterfly-method-comparison/butterfly-art-workflow.html"
+      ]
+    },
+    {
+      "id": "evidence-html",
+      "name": "内嵌图片的性能/原理报告",
+      "patterns": [
+        "docs/reports/soil-deposition.html",
+        "docs/evidence/grass-pixelization-performance.html",
+        "docs/research/ddgi_response_explained.html"
+      ],
+      "exclude": [],
+      "usage": "文档/验收展示",
+      "decision": "保留文档，逐容器核对",
+      "source": "报告内有运行观测/图表；按 HTML 容器列出",
+      "gap": "未逐张展开 data URI 做来源鉴定；不代表已全部授权",
+      "evidence": [
+        "docs/reports/soil-deposition.html",
+        "docs/evidence/grass-pixelization-performance.html",
+        "docs/research/ddgi_response_explained.html"
+      ]
+    }
+  ]
+}

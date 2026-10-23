@@ -93,3 +93,6 @@ Re: Flora uses separate licenses for code and assets:
   For example, [Pixelify Sans](./assets/font/README.md) uses SIL OFL 1.1.
   Consult each asset folder's provenance and license notes; presence in this
   repository is not evidence of redistribution permission.
+
+See the [asset inventory](./docs/assets/README.md) for tracked resources, runtime
+usage, provenance gaps, and asset-repository separation recommendations.
