@@ -6,8 +6,8 @@
 - Venue: *Journal of Computer Graphics Techniques (JCGT)*, volume 8, number 2, pages 1–30, 2019
 - Published: 2019-06-05
 - Primary source: <https://jcgt.org/published/0008/02/01/>
-- Local source: [publisher PDF](majercik-2019-ddgi.pdf)
-- License: CC BY-ND 3.0, stated on [PDF page 30](majercik-2019-ddgi.pdf#page=30)
+- Official PDF (not stored in this repository): [publisher PDF](https://jcgt.org/published/0008/02/01/paper-lowres.pdf)
+- License: CC BY-ND 3.0, stated on [PDF page 30](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=30)
 
 Because the license prohibits distributing adaptations, this file is an original technical summary rather than a full-text conversion.
 
@@ -19,12 +19,12 @@ The paper turns an irradiance-probe grid into a dynamic irradiance field with vi
 
 | Topic | Paper location | Why it matters |
 | --- | --- | --- |
-| Motivation and contributions | [§1, PDF pp. 2–4](majercik-2019-ddgi.pdf#page=2) | Frames light leaking as missing visibility, not merely insufficient irradiance resolution. |
-| Probe representation | [§3, PDF pp. 6–7](majercik-2019-ddgi.pdf#page=6) | Defines octahedral irradiance and depth-moment storage. |
-| Probe updates | [§4, PDF pp. 8–11](majercik-2019-ddgi.pdf#page=8) | Gives grid placement, ray scheduling, surfel shading, filtering, and hysteresis. |
-| Diffuse query | [§5.2, PDF pp. 12–15](majercik-2019-ddgi.pdf#page=12) | Defines the visibility-aware eight-probe interpolant. |
-| Density and quality | [§6.1, PDF pp. 16–19](majercik-2019-ddgi.pdf#page=16) | Separates spatial probe density from angular probe resolution. |
-| Assumptions and limitations | [§7, PDF pp. 25–26](majercik-2019-ddgi.pdf#page=25) | States the mutual-visibility assumption behind interpolation. |
+| Motivation and contributions | [§1, PDF pp. 2–4](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=2) | Frames light leaking as missing visibility, not merely insufficient irradiance resolution. |
+| Probe representation | [§3, PDF pp. 6–7](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=6) | Defines octahedral irradiance and depth-moment storage. |
+| Probe updates | [§4, PDF pp. 8–11](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=8) | Gives grid placement, ray scheduling, surfel shading, filtering, and hysteresis. |
+| Diffuse query | [§5.2, PDF pp. 12–15](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=12) | Defines the visibility-aware eight-probe interpolant. |
+| Density and quality | [§6.1, PDF pp. 16–19](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=16) | Separates spatial probe density from angular probe resolution. |
+| Assumptions and limitations | [§7, PDF pp. 25–26](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=25) | States the mutual-visibility assumption behind interpolation. |
 
 <a id="section-2019-representation"></a>
 ## Probe representation — §3, PDF pp. 6–7
@@ -40,7 +40,7 @@ Probe tiles are packed into 2D atlases. One-pixel gutters duplicate edge data so
 <a id="figure-2019-3"></a>
 ### Figure 3 — atlas and octahedral layout
 
-[PDF page 7](majercik-2019-ddgi.pdf#page=7) shows the irradiance and depth atlases, gutter texels, and alignment padding. It is the quickest visual reference for the storage model.
+[PDF page 7](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=7) shows the irradiance and depth atlases, gutter texels, and alignment padding. It is the quickest visual reference for the storage model.
 
 <a id="section-2019-update"></a>
 ## Dynamic update — §4, PDF pp. 8–11
@@ -80,17 +80,17 @@ Weights are bounded with epsilon guards before normalization. That matters when 
 <a id="figure-2019-6"></a>
 ### Figure 6 — geometry of a query
 
-[PDF page 13](majercik-2019-ddgi.pdf#page=13) labels the shading point, normal, probe direction, and directional mean distance. Use it when checking whether an implementation samples the depth field in the probe-to-surface direction and applies bias in the intended space.
+[PDF page 13](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=13) labels the shading point, normal, probe direction, and directional mean distance. Use it when checking whether an implementation samples the depth field in the probe-to-surface direction and applies bias in the intended space.
 
 <a id="figure-2019-7"></a>
 ### Figure 7 — leak-removal ablation
 
-[PDF page 14](majercik-2019-ddgi.pdf#page=14) progressively adds backface rejection, moment visibility, and normal bias in a dark closed room. The figure is useful as an acceptance-test template: isolate every factor instead of judging only the fully combined result.
+[PDF page 14](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=14) progressively adds backface rejection, moment visibility, and normal bias in a dark closed room. The figure is useful as an acceptance-test template: isolate every factor instead of judging only the fully combined result.
 
 <a id="figure-2019-8"></a>
 ### Figure 8 — low-resolution ray visibility versus moments
 
-[PDF page 16](majercik-2019-ddgi.pdf#page=16) contrasts classic probes, a low-resolution direct visibility lookup, and variance-based visibility. It demonstrates why filtering sparse directional depth as moments can be smoother than treating a coarse direction as a hard binary ray test.
+[PDF page 16](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=16) contrasts classic probes, a low-resolution direct visibility lookup, and variance-based visibility. It demonstrates why filtering sparse directional depth as moments can be smoother than treating a coarse direction as a hard binary ray test.
 
 <a id="section-2019-density"></a>
 ## Density, angular resolution, and visible grid structure — §6.1, PDF pp. 16–19
@@ -107,7 +107,7 @@ The paper's core assumption, stated in §7, is that incident light at the surfac
 <a id="figure-2019-9"></a>
 ### Figures 9–11 — density and quality
 
-[PDF pages 17–18](majercik-2019-ddgi.pdf#page=17) compare probe count, per-probe resolution, and indirect-shadow convergence. These figures support testing spatial density and angular resolution independently.
+[PDF pages 17–18](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=17) compare probe count, per-probe resolution, and indirect-shadow convergence. These figures support testing spatial density and angular resolution independently.
 
 ## Practical diagnostic checklist for Re: Flora
 

@@ -6,8 +6,8 @@
 - Venue: *Journal of Computer Graphics Techniques (JCGT)*, volume 10, number 2, pages 1–29, 2021
 - Published: 2021-05-03
 - Primary source: <https://jcgt.org/published/0010/02/01/>
-- Local source: [publisher PDF](majercik-2021-scaling-ddgi.pdf)
-- License: CC BY-ND 3.0, stated on [PDF page 29](majercik-2021-scaling-ddgi.pdf#page=29)
+- Official PDF (not stored in this repository): [publisher PDF](https://jcgt.org/published/0010/02/01/paper-lowres.pdf)
+- License: CC BY-ND 3.0, stated on [PDF page 29](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=29)
 
 Because the license prohibits distributing adaptations, this file is an original technical summary rather than a full-text conversion.
 
@@ -19,13 +19,13 @@ This paper starts from the 2019 DDGI representation and records production chang
 
 | Topic | Paper location | Why it matters |
 | --- | --- | --- |
-| Complete algorithm overview | [§2, PDF pp. 3–5](majercik-2021-scaling-ddgi.pdf#page=3) | Compact reference for update and eight-probe query. |
-| Self-shadow bias and backfaces | [§4.1, PDF pp. 8–9](majercik-2021-scaling-ddgi.pdf#page=8) | Direct treatment of visibility leaks. |
-| Temporal encoding and convergence | [§4.2–4.3, PDF pp. 9–11](majercik-2021-scaling-ddgi.pdf#page=9) | Explains lag, flicker, and rapid response to large changes. |
-| Probe relocation | [§5, PDF pp. 12–16](majercik-2021-scaling-ddgi.pdf#page=12) | Moves probes out of static walls while preserving grid indexing. |
-| Probe states | [§6, PDF pp. 16–18](majercik-2021-scaling-ddgi.pdf#page=16) | Distinguishes invalid, sleeping, and contributing probes. |
-| Tracking windows and volumes | [§7.3–7.4, PDF pp. 21–24](majercik-2021-scaling-ddgi.pdf#page=21) | Handles large worlds and transitions without popping. |
-| Limitations | [§8.1, PDF pp. 25–26](majercik-2021-scaling-ddgi.pdf#page=25) | Records remaining ghosting and ray-budget tradeoffs. |
+| Complete algorithm overview | [§2, PDF pp. 3–5](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=3) | Compact reference for update and eight-probe query. |
+| Self-shadow bias and backfaces | [§4.1, PDF pp. 8–9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=8) | Direct treatment of visibility leaks. |
+| Temporal encoding and convergence | [§4.2–4.3, PDF pp. 9–11](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=9) | Explains lag, flicker, and rapid response to large changes. |
+| Probe relocation | [§5, PDF pp. 12–16](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=12) | Moves probes out of static walls while preserving grid indexing. |
+| Probe states | [§6, PDF pp. 16–18](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=16) | Distinguishes invalid, sleeping, and contributing probes. |
+| Tracking windows and volumes | [§7.3–7.4, PDF pp. 21–24](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=21) | Handles large worlds and transitions without popping. |
+| Limitations | [§8.1, PDF pp. 25–26](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=25) | Records remaining ghosting and ray-budget tradeoffs. |
 
 <a id="section-2021-query"></a>
 ## Baseline query and update — §2, PDF pp. 3–5
@@ -64,7 +64,7 @@ For probe-update rays whose first hit is a backface, the paper writes zero irrad
 <a id="figure-2021-3"></a>
 ### Figure 3 — excessive bias causes a leak
 
-[PDF page 9](majercik-2021-scaling-ddgi.pdf#page=9) shows a wall leaking when self-shadow bias is too high and the corrected result with a smaller value. This is a useful counterexample to treating bias as a universal fix.
+[PDF page 9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=9) shows a wall leaking when self-shadow bias is too high and the corrected result with a smaller value. This is a useful counterexample to treating bias as a universal fix.
 
 <a id="section-2021-convergence"></a>
 ## Perceptual encoding and convergence — §4.2–4.3, PDF pp. 9–11
@@ -97,12 +97,12 @@ Relocation can also create **double coverage**: probes formerly inside a wall mo
 <a id="figure-2021-5"></a>
 ### Figure 5 — acute-corner leak and relocation
 
-[PDF pages 13–14](majercik-2021-scaling-ddgi.pdf#page=13) show probes trapped near a ceiling corner and the result after moving them out of the surfaces.
+[PDF pages 13–14](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=13) show probes trapped near a ceiling corner and the result after moving them out of the surfaces.
 
 <a id="figure-2021-6"></a>
 ### Figure 6 — double coverage
 
-[PDF page 14](majercik-2021-scaling-ddgi.pdf#page=14) visualizes an eight-probe cage whose relocated probes all cover the same surface side. It is a reminder that relocation changes more than validity.
+[PDF page 14](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=14) visualizes an eight-probe cage whose relocated probes all cover the same surface side. It is a reminder that relocation changes more than validity.
 
 <a id="section-2021-states"></a>
 ## Probe states — §6, PDF pp. 16–18
@@ -128,12 +128,12 @@ Nested volumes are sampled from densest to sparsest because the dense field shou
 <a id="figure-2021-9"></a>
 ### Figure 9 — octahedral borders and compute indexing
 
-[PDF page 20](majercik-2021-scaling-ddgi.pdf#page=20) shows border-copy rules and thread-block alignment for 8×8 irradiance and 16×16 visibility tiles. Incorrect gutters can look exactly like directional grid artifacts, so atlas seams should be ruled out independently of spatial probe interpolation.
+[PDF page 20](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=20) shows border-copy rules and thread-block alignment for 8×8 irradiance and 16×16 visibility tiles. Incorrect gutters can look exactly like directional grid artifacts, so atlas seams should be ruled out independently of spatial probe interpolation.
 
 <a id="figure-2021-13"></a>
 ### Figure 13 — moving-volume blend
 
-[PDF page 23](majercik-2021-scaling-ddgi.pdf#page=23) contrasts abrupt static blending with camera-aware blending when a probe plane leapfrogs.
+[PDF page 23](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=23) contrasts abrupt static blending with camera-aware blending when a probe plane leapfrogs.
 
 ## Correctness-first checklist for a spacing regression
 

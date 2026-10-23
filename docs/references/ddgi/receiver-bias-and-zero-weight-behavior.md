@@ -64,11 +64,11 @@ restore the wall/roof leaks that exact visibility was introduced to prevent.
 | Biased visibility-query point | DDGI surface query | Avoids evaluating filtered distance moments exactly at the surface discontinuity | Yes; 2019 describes normal plus a directional term, and 2021 makes this an explicit world-space normal/view vector |
 
 The 2019 update rays explicitly share the probe center as their origin
-([2019 §4.2, PDF p. 9](majercik-2019-ddgi.pdf#page=9)). The 2021 algorithm overview
+([2019 §4.2, PDF p. 9](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=9)). The 2021 algorithm overview
 likewise treats probe position adjustment as initialization, then traces update
 rays from active probes; the surface self-shadow bias appears in the separate
 eight-probe query
-([2021 §§2.1–2.3, PDF pp. 4–5](majercik-2021-scaling-ddgi.pdf#page=4)).
+([2021 §§2.1–2.3, PDF pp. 4–5](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=4)).
 NVIDIA's reference ray-generation shader makes the distinction executable: it
 sets `ray.Origin` to the relocated probe world position, while a later probe-hit
 surfel computes `surfaceBias` only for its recursive irradiance query
@@ -90,7 +90,7 @@ For a shading point, the 2019 query gathers its eight-probe cage and combines:
 Figure 6 labels the shading point, normal, probe direction, and stored mean
 distance. Figure 7 then adds backface rejection, visibility, and normal bias as
 separate ablations
-([2019 §5.2 and Figs. 6–7, PDF pp. 13–15](majercik-2019-ddgi.pdf#page=13)).
+([2019 §5.2 and Figs. 6–7, PDF pp. 13–15](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=13)).
 The bias exists to move the visibility lookup away from the filtered
 shadowed/unshadowed boundary. It is not described as changing the probe-ray
 origin or as searching voxel occupancy. The exact 2019 direction wording is
@@ -103,7 +103,7 @@ The paper says the weighting terms use conservative epsilon bounds to avoid
 numerical problems during normalization when per-probe weights approach zero.
 It does not specify a sky fallback or an exact algorithm for a cage whose eight
 probes are all rejected
-([2019 §5.2, PDF p. 15](majercik-2019-ddgi.pdf#page=15)).
+([2019 §5.2, PDF p. 15](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=15)).
 
 ### 2021: one tunable world-space self-shadow bias
 
@@ -117,17 +117,17 @@ The production paper replaces several statistical knobs with Equation 2:
 
 The default tunable value reported by the paper is `0.3`. This vector is added
 to the initial surface sample point specifically for the visibility test
-([2021 §4.1, PDF p. 8](majercik-2021-scaling-ddgi.pdf#page=8)). It is deliberately
+([2021 §4.1, PDF p. 8](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=8)). It is deliberately
 a quality tradeoff: lower ray counts and noisier moments may need more bias, but
 Figure 3 shows that excessive bias moves a query past an occluder and creates a
 light leak
-([2021 Fig. 3, PDF p. 9](majercik-2021-scaling-ddgi.pdf#page=9)).
+([2021 Fig. 3, PDF p. 9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=9)).
 
 For update rays that hit backfaces, the same section records zero irradiance and
 20% of the original hit distance. This makes a probe inside or behind geometry
 strongly shadowed without forcing its filtered distance to exactly zero. That is
 probe-data conditioning; it is not a receiver-origin offset
-([2021 §4.1, PDF pp. 8–9](majercik-2021-scaling-ddgi.pdf#page=8)).
+([2021 §4.1, PDF pp. 8–9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=8)).
 
 NVIDIA's reference SDK expresses the surface bias as a normal component plus a
 view component and adds it to the surface world position before selecting the
@@ -146,12 +146,12 @@ its own camera-independent bias and prove it against thin voxel walls.
 Both Majercik papers define the consumer as an eight-probe weighted gather. The
 baseline factors are trilinear position, a surface-side/backface term, and
 moment visibility at the biased surface point
-([2019 §5.2, PDF pp. 13–15](majercik-2019-ddgi.pdf#page=13);
-[2021 §2.2, PDF p. 4](majercik-2021-scaling-ddgi.pdf#page=4)). Roháček's
+([2019 §5.2, PDF pp. 13–15](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=13);
+[2021 §2.2, PDF p. 4](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=4)). Roháček's
 implementation instead clamps a simple normal-to-probe dot product at zero and
 reports that the original smooth backface offset could bleed through geometry
 in his scenes
-([Roháček §2.1, PDF p. 2](rohacek-2022-improving-probes-ddgi.pdf#page=2)).
+([Roháček §2.1, PDF p. 2](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=2)).
 This is further evidence that "increase every bias" is not a general solution.
 
 Re: Flora is stricter than the papers: it multiplies moment visibility by an
@@ -167,21 +167,21 @@ frontfaces. Offsets stay within half the minimum probe spacing, and optimization
 is capped at five iterations to avoid oscillation. Probes still trapped in static
 geometry become `Off`; useful surface-adjacent probes become `Vigilant`, and
 far probes may sleep until needed
-([2021 §§5–6, PDF pp. 12–18](majercik-2021-scaling-ddgi.pdf#page=12)). The
+([2021 §§5–6, PDF pp. 12–18](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=12)). The
 authors explicitly avoid relocating around dynamic geometry because stability
 is preferable to a lower but unstable average error
-([2021 §5, PDF pp. 12–14](majercik-2021-scaling-ddgi.pdf#page=12)).
+([2021 §5, PDF pp. 12–14](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=12)).
 
 Roháček also reuses update rays. Backface hits are encoded with negative
 distance, a temporally filtered dead-probe test requires more than half of the
 rays to satisfy its near-geometry criteria, and a bounded cardinal-axis spiral
 searches for a better location. Maximum displacement remains below 50% of a
 cage side
-([Roháček §§3.1–3.2, PDF p. 3](rohacek-2022-improving-probes-ddgi.pdf#page=3)).
+([Roháček §§3.1–3.2, PDF p. 3](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=3)).
 After relocation, his §3.3 corrects trilinear weights so each weight remains in
 `[0, 1]` and the sum remains one; violating these invariants creates visible cage
 boundaries
-([Roháček §3.3, PDF p. 4](rohacek-2022-improving-probes-ddgi.pdf#page=4)).
+([Roháček §3.3, PDF p. 4](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4)).
 
 These methods should eventually repair cages whose probes are genuinely buried
 or unusable. They cannot repair a valid probe that Re: Flora falsely rejects
@@ -194,18 +194,18 @@ There is no single answer shared by the papers and RTXGI:
 1. **2019 paper:** epsilon-bounds the weighting terms to keep normalization
    numerically stable as weights approach zero, but does not define an
    all-rejected fallback
-   ([2019 §5.2, PDF p. 15](majercik-2019-ddgi.pdf#page=15)).
+   ([2019 §5.2, PDF p. 15](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=15)).
 2. **2021 paper:** warns that forcing a backface distance to zero would drive a
    Chebyshev weight toward zero and that normalization could then raise its
    relative contribution. It solves the probe-data case with a shortened
    distance and zero irradiance, plus relocation/classification; it does not
    prescribe global-sky fallback for an occluded cage
-   ([2021 §4.1, PDF pp. 8–9](majercik-2021-scaling-ddgi.pdf#page=8)).
+   ([2021 §4.1, PDF pp. 8–9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=8)).
 3. **Roháček:** explicitly identifies cages with most or all probes submerged in
    geometry as a source of dark scene sections and treats this as a placement
    failure to solve with dead-probe detection and movement, not by injecting
    unoccluded light
-   ([Roháček §5.1, PDF p. 6](rohacek-2022-improving-probes-ddgi.pdf#page=6)).
+   ([Roháček §5.1, PDF p. 6](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=6)).
 4. **RTXGI reference shader:** prevents most active-probe weights from ever
    reaching zero. It floors each trilinear axis at `0.001`, uses wrap shading
    with a positive `0.2` term, floors Chebyshev visibility at `0.05`, and floors
@@ -269,7 +269,7 @@ eight candidates' hard and moment visibility values.
 | Restore the 2021 camera/view component | Paper visibility point and possibly cage selection | Low for this symptom | Makes a voxel's GI view-dependent and breaks the agreed one-color-per-voxel contract | Do not use for terrain voxels; keep the stored voxel normal |
 | Floor hard visibility or use a sky/nearest-probe fallback when the cage is empty | Final contribution weights | Masks black immediately | Reintroduces known wall/roof leaks by trusting an exactly occluded segment | Reject for the correctness-first path |
 | Relocate/classify probes after terrain initialization and later after edits | Probe positions and states | High only for genuinely buried/invalid probes | Relocation can double-cover surfaces and requires offset-aware interpolation | Keep as the paper-aligned solution for true invalid probes; diagnose receiver self-occlusion first |
-| Reject overlong filtered depth samples using cage support | Stored moment update/filter | Useful for far-depth contamination and roof leaks | Does not address an occupied exact-segment start | Retain as a separate moment-visibility safeguard; see [Roháček §3.4, PDF pp. 4–5](rohacek-2022-improving-probes-ddgi.pdf#page=4) |
+| Reject overlong filtered depth samples using cage support | Stored moment update/filter | Useful for far-depth contamination and roof leaks | Does not address an occupied exact-segment start | Retain as a separate moment-visibility safeguard; see [Roháček §3.4, PDF pp. 4–5](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4) |
 
 ## Proposed correctness-first sequence
 

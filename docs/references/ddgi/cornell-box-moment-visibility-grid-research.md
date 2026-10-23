@@ -34,7 +34,7 @@ outcome of the method. The original paper explicitly uses trilinear and soft
 visibility weights to avoid cage transitions, and reports robustness to grid
 rotation and translation while the shaded region remains covered
 ([Majercik et al. 2019, §§5.2 and 6.4, Figs. 6–7 and 14, PDF pp. 13–15 and
-21–22](majercik-2019-ddgi.pdf#page=13)). NVIDIA describes the expected output as
+21–22](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=13)). NVIDIA describes the expected output as
 low-frequency diffuse irradiance, not as a piecewise probe-cell field
 ([RTXGI Algorithms, lines 27–35](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/Algorithms.md#L27-L35)).
 
@@ -167,7 +167,7 @@ DDGI assumes that a surface can use incident light from nearby, mutually visible
 probes. The approximation error grows as probe density decreases, and the 2019
 evaluation found probe density more important than angular resolution for its
 scenes ([Majercik et al. 2019, §§6.1 and 7, PDF pp. 16–19 and
-23](majercik-2019-ddgi.pdf#page=16)). RTXGI likewise calls the result inherently
+23](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=16)). RTXGI likewise calls the result inherently
 low frequency and recommends composing it with other techniques for missing
 high-frequency detail
 ([RTXGI Algorithms, lines 27–35](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/docs/Algorithms.md#L27-L35)).
@@ -175,7 +175,7 @@ high-frequency detail
 That explains why denser probes can reduce error, but not why this wall error is
 locked to cage boundaries. The baseline query is an eight-probe gather with
 smooth orientation, Chebyshev visibility, receiver bias, and trilinear spatial
-weights ([Majercik et al. 2019, §5.2, PDF pp. 13–15](majercik-2019-ddgi.pdf#page=13)).
+weights ([Majercik et al. 2019, §5.2, PDF pp. 13–15](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=13)).
 
 ### The receiver bias is part of the algorithm, not a cosmetic workaround
 
@@ -192,7 +192,7 @@ Its Equation 2 is:
 The paper's default `TunableShadowBias` is `0.3`; it also says noisier estimates
 from lower ray counts generally need more bias. Excess bias can move the sample
 past an occluder and leak light, so this remains a measured tradeoff
-([Majercik et al. 2021, §4.1 and Fig. 3, PDF pp. 8–9](majercik-2021-scaling-ddgi.pdf#page=8)).
+([Majercik et al. 2021, §4.1 and Fig. 3, PDF pp. 8–9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=8)).
 RTXGI implements the normal/view bias and adds it to the surface position before
 the cage and distance query
 ([RTXGI `Irradiance.hlsl`, lines 24–31 and 61–87](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/rtxgi-sdk/shaders/ddgi/Irradiance.hlsl#L24-L87)).
@@ -218,20 +218,20 @@ RTXGI explicitly floors visibility to avoid an all-zero fallback
 ([RTXGI `Irradiance.hlsl`, lines 143–160](https://github.com/NVIDIAGameWorks/RTXGI-DDGI/blob/f33e496ca31b3f0eec1c4e2cbaa8bb620e337fa6/rtxgi-sdk/shaders/ddgi/Irradiance.hlsl#L143-L160));
 separately, the 2021 paper demonstrates that moving a visibility query too far
 from the surface can leak through an occluder
-([Majercik et al. 2021, Fig. 3, PDF p. 9](majercik-2021-scaling-ddgi.pdf#page=9)).
+([Majercik et al. 2021, Fig. 3, PDF p. 9](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=9)).
 
 ### Precision and relocation failure signatures
 
 The 2019 paper reports visible artifacts with 8-bit integer probe texels that
 vanish at 16-bit floating point; 11-bit floating point was visually close to
-16-bit in its tests ([Majercik et al. 2019, §6.3, PDF pp. 20–21](majercik-2019-ddgi.pdf#page=20)).
+16-bit in its tests ([Majercik et al. 2019, §6.3, PDF pp. 20–21](https://jcgt.org/published/0008/02/01/paper-lowres.pdf#page=20)).
 
 Relocation can create a different probe-cell artifact if interpolation no longer
 obeys weights in `[0,1]` summing to one. Roháček specifically reports visible
 cage boundaries when the sum invariant is violated, and also reports depth
 leaks from nearly parallel, overly distant samples in a low-resolution distance
 field
-([Roháček 2022, §§3.3–3.4, PDF pp. 4–5](rohacek-2022-improving-probes-ddgi.pdf#page=4)).
+([Roháček 2022, §§3.3–3.4, PDF pp. 4–5](https://cescg.org/wp-content/uploads/2022/04/Rohacek-Improving-Probes-in-Dynamic-Diffuse-Global-Illumination.pdf#page=4)).
 These are useful alternative hypotheses, but they do not match the current
 isolation evidence as well as receiver/moment conditioning.
 
@@ -247,7 +247,7 @@ are not literature claims.
 - Irradiance uses an 8 × 8 interior and visibility uses 16 × 16
   ([atlas constants](../../../src/ddgi/atlas.rs#L4)), the same production
   angular layout reported by the 2021 paper
-  ([Majercik et al. 2021, §6, PDF p. 19](majercik-2021-scaling-ddgi.pdf#page=19)).
+  ([Majercik et al. 2021, §6, PDF p. 19](https://jcgt.org/published/0010/02/01/paper-lowres.pdf#page=19)).
 - Each probe traces 64 rays
   ([shared shader configuration](../../../shader/slang/ddgi_config.slang#L1)).
   Every update epoch applies a deterministic SO(3) rotation, and successive

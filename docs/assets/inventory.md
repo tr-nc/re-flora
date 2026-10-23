@@ -1,11 +1,11 @@
 # 资产包总表（生成文件）
 
 维护方式与统计口径见 [README](README.md)。逐文件明细见 [inventory.csv](inventory.csv)。
-引用/许可人工审阅基线：`20e1f3de72d95cba9685f211407798d0ad2008a9`；审阅日期：2026-10-23。
+引用/许可人工审阅基线：`5e0ddd2d7d44ecd1404f81164e913ac74bb4fad6`；审阅日期：2026-10-23。
 文件数量、字节数与哈希来自当前 Git 跟踪文件的工作树内容，不代表自动重新审核过代码或许可。
 
-共 **606** 个登记文件/容器，**94.769 MiB**；
-其中 `assets/` **511** 个，外部 **95** 个。
+共 **603** 个登记文件/容器，**73.273 MiB**；
+其中 `assets/` **511** 个，外部 **92** 个。
 随包说明也计文件；HTML 按容器计一个，不展开内嵌媒体；未按哈希去重。
 
 ## 使用状态（逐文件口径）
@@ -20,7 +20,6 @@
 | 构建校验 / 模型制作源 | 8 |
 | 研究/分析参考，非游戏输入 | 1 |
 | 研究/制作输出，非游戏模型输入 | 8 |
-| 研究文献 | 3 |
 | 研究网页/证据 | 49 |
 | 离线制作/回归证据 | 8 |
 | 离线网页原型 | 1 |
@@ -62,8 +61,6 @@
 | 原生游戏证据截图 (`native-evidence`) | 18 | 5.009 | 屋顶、模型缓存/量化、花朵和石材的原生游戏验收截图 | 文档证据，非游戏输入 | 保留文档，按所含素材核权 | 相关验收文档/屋顶 PoC 截图 | 截图中的第三方视觉素材不自动变成项目自有；无需当作运行资产分仓 |
 | 抖动实验截图 (`dither-evidence`) | 49 | 12.842 | 抖动研究网页的原生 A/B 截图和控件证据，不是噪声纹理 | 研究网页/证据 | 保留文档 | evidence.json 记录真实 Release 截图来源和设置 | 注意截图所含第三方素材；不是运行时噪声贴图 |
 | 石材 OBJ 导出样本 (`stone-obj`) | 8 | 0.046 | 固定 seed 的石块/石板 OBJ 样本；游戏调用 Rust 生成器而非这些文件 | 研究/制作输出，非游戏模型输入 | 保留公开，不因非运行输入而拆仓 | 项目 StoneSpec 程序生成 | 运行时使用 Rust 生成器而非读取这些 OBJ |
-| JCGT DDGI 两篇 PDF (`papers-jcgt`) | 2 | 2.202 | DDGI 实现的离线研究文献，不用于游戏运行 | 研究文献 | 保留公开：原样 PDF + CC BY-ND 3.0 | 已核本地 PDF 末页作者授权；完整许可、作者和官方 URL 已补 | 不可分发改版全文；独立阅读笔记另列 |
-| CESCG DDGI 论文 PDF (`papers-cescg`) | 1 | 19.294 | DDGI 实现的离线研究文献，不用于游戏运行 | 研究文献 | 待确认镜像许可，可改官方链接 | 有作者和官方下载地址，未发现明确再分发许可 | 不能把 JCGT 的 CC 许可套到此文件；原样镜像不等于获许可 |
 | 批准蝴蝶 Blender 源工程与导出 GLB (`butterfly-v5-source`) | 2 | 0.521 | 当前蝴蝶可编辑 Blender 工程及制作导出 GLB；正式产物另发布到 assets/models | 当前制作源，非游戏直接输入 | 保留公开，不因非运行输入而拆仓 | 项目自有 Blender v5 制作源；项目所有者已确认实验归属 | v2 调色板依赖已迁入 v5/palette.py；完整 Blender 重导出本次未执行 |
 | 批准蝴蝶离线图集/截图 (`butterfly-v5-evidence`) | 8 | 0.140 | 当前 v5 的透明边界、循环、调色板和离线投影验证图集 | 离线制作/回归证据 | 保留公开，不因非运行输入而拆仓 | 项目自有 v5 制作流程派生输出 | 保留当前制作验证证据；不被游戏读取 |
 | 内嵌字体的启动屏原型 HTML (`splash-html`) | 1 | 0.131 | 离线启动屏美术/动画原型，内嵌 Pixelify 字体 | 离线网页原型 | 保留工具，随附字体许可 | 项目生成网页；内嵌 Pixelify Sans 原字节 | 单独分发 HTML 时也须遵守字体 OFL；不只检查独立 TTF |
@@ -93,8 +90,6 @@
 - **native-evidence**：[docs/evidence/model-cache-restored/summary.json](../../docs/evidence/model-cache-restored/summary.json)；[docs/research/model-view-quantization.md](../../docs/research/model-view-quantization.md)；[docs/rooftop_poc.md](../../docs/rooftop_poc.md)；[docs/research/procedural-stone-models.md](../../docs/research/procedural-stone-models.md)
 - **dither-evidence**：[docs/research/ordered-dither-assets/evidence.json](../../docs/research/ordered-dither-assets/evidence.json)；[docs/research/ordered-dither.md](../../docs/research/ordered-dither.md)；[docs/research/ordered-dither.html](../../docs/research/ordered-dither.html)
 - **stone-obj**：[docs/research/procedural-stone-models.md](../../docs/research/procedural-stone-models.md)；[src/stone_models.rs](../../src/stone_models.rs)
-- **papers-jcgt**：[docs/references/ddgi/README.md](../../docs/references/ddgi/README.md)；[docs/references/ddgi/LICENSE-CC-BY-ND-3.0.txt](../../docs/references/ddgi/LICENSE-CC-BY-ND-3.0.txt)
-- **papers-cescg**：[docs/references/ddgi/README.md](../../docs/references/ddgi/README.md)
 - **butterfly-v5-source**：[experiments/butterfly-method-comparison/blender-v5/README.md](../../experiments/butterfly-method-comparison/blender-v5/README.md)；[experiments/butterfly-method-comparison/blender-v5/source-manifest.json](../../experiments/butterfly-method-comparison/blender-v5/source-manifest.json)；[assets/models/README.md](../../assets/models/README.md)；[docs/assets/cleanup-unused.md](../../docs/assets/cleanup-unused.md)
 - **butterfly-v5-evidence**：[experiments/butterfly-method-comparison/blender-v5/README.md](../../experiments/butterfly-method-comparison/blender-v5/README.md)；[experiments/butterfly-method-comparison/blender-v5/source-manifest.json](../../experiments/butterfly-method-comparison/blender-v5/source-manifest.json)
 - **splash-html**：[docs/research/splash-prototype.md](../../docs/research/splash-prototype.md)；[scripts/build-splash-prototype.mjs](../../scripts/build-splash-prototype.mjs)；[assets/font/OFL.txt](../../assets/font/OFL.txt)

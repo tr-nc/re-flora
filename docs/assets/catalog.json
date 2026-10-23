@@ -1,5 +1,5 @@
 {
-  "reviewed_revision": "20e1f3de72d95cba9685f211407798d0ad2008a9",
+  "reviewed_revision": "5e0ddd2d7d44ecd1404f81164e913ac74bb4fad6",
   "reviewed_on": "2026-10-23",
   "groups": [
     {
@@ -419,40 +419,6 @@
         "src/stone_models.rs"
       ],
       "purpose": "固定 seed 的石块/石板 OBJ 样本；游戏调用 Rust 生成器而非这些文件"
-    },
-    {
-      "id": "papers-jcgt",
-      "name": "JCGT DDGI 两篇 PDF",
-      "patterns": [
-        "docs/references/ddgi/majercik-2019-ddgi.pdf",
-        "docs/references/ddgi/majercik-2021-scaling-ddgi.pdf"
-      ],
-      "exclude": [],
-      "usage": "研究文献",
-      "decision": "保留公开：原样 PDF + CC BY-ND 3.0",
-      "source": "已核本地 PDF 末页作者授权；完整许可、作者和官方 URL 已补",
-      "gap": "不可分发改版全文；独立阅读笔记另列",
-      "evidence": [
-        "docs/references/ddgi/README.md",
-        "docs/references/ddgi/LICENSE-CC-BY-ND-3.0.txt"
-      ],
-      "purpose": "DDGI 实现的离线研究文献，不用于游戏运行"
-    },
-    {
-      "id": "papers-cescg",
-      "name": "CESCG DDGI 论文 PDF",
-      "patterns": [
-        "docs/references/ddgi/rohacek-2022-improving-probes-ddgi.pdf"
-      ],
-      "exclude": [],
-      "usage": "研究文献",
-      "decision": "待确认镜像许可，可改官方链接",
-      "source": "有作者和官方下载地址，未发现明确再分发许可",
-      "gap": "不能把 JCGT 的 CC 许可套到此文件；原样镜像不等于获许可",
-      "evidence": [
-        "docs/references/ddgi/README.md"
-      ],
-      "purpose": "DDGI 实现的离线研究文献，不用于游戏运行"
     },
     {
       "id": "butterfly-v5-source",
